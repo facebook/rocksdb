@@ -65,9 +65,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       valid_(false),
       current_entry_is_merged_(false),
       is_key_seqnum_zero_(false),
-      prefix_same_as_start_(mutable_cf_options.prefix_extractor
-                                ? read_options.prefix_same_as_start
-                                : false),
+      prefix_same_as_start_(
+          prefix_extractor_ ? read_options.prefix_same_as_start : false),
       pin_thru_lifetime_(read_options.pin_data),
       expect_total_order_inner_iter_(prefix_extractor_ == nullptr ||
                                      read_options.total_order_seek ||
@@ -93,6 +92,9 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
   status_.PermitUncheckedError();
   assert(timestamp_size_ ==
          user_comparator_.user_comparator()->timestamp_size());
+  // prefix_seek_opt_in_only should force total_order_seek whereever the caller
+  // is duplicating the original ReadOptions
+  assert(!ioptions.prefix_seek_opt_in_only || read_options.total_order_seek);
 }
 
 Status DBIter::GetProperty(std::string prop_name, std::string* prop) {

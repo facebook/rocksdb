@@ -1104,7 +1104,7 @@ DEFINE_double(blob_garbage_collection_force_threshold,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
-              "the oldest blob files for forcing garbage collection.");
+              "the eligible blob files for forcing garbage collection.");
 
 DEFINE_uint64(blob_compaction_readahead_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
@@ -1753,6 +1753,7 @@ DEFINE_bool(read_with_latest_user_timestamp, true,
             "If true, always use the current latest timestamp for read. If "
             "false, choose a random timestamp from the past.");
 
+DEFINE_string(cache_uri, "", "Full URI for creating a custom cache object");
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
@@ -3138,7 +3139,15 @@ class Benchmark {
     }
 
     std::shared_ptr<Cache> block_cache;
-    if (FLAGS_cache_type == "clock_cache") {
+    if (!FLAGS_cache_uri.empty()) {
+      Status s = Cache::CreateFromString(ConfigOptions(), FLAGS_cache_uri,
+                                         &block_cache);
+      if (block_cache == nullptr) {
+        fprintf(stderr, "No  cache registered matching string: %s status=%s\n",
+                FLAGS_cache_uri.c_str(), s.ToString().c_str());
+        exit(1);
+      }
+    } else if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
     } else if (EndsWith(FLAGS_cache_type, "hyper_clock_cache")) {

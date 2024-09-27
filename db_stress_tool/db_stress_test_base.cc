@@ -1592,7 +1592,7 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     ro.total_order_seek = true;
     expect_total_order = true;
   } else if (thread->rand.OneIn(4)) {
-    ro.total_order_seek = false;
+    ro.total_order_seek = thread->rand.OneIn(2);
     ro.auto_prefix_mode = true;
     expect_total_order = true;
   } else if (options_.prefix_extractor.get() == nullptr) {
@@ -4044,6 +4044,7 @@ void InitializeOptionsFromFlags(
   options.manual_wal_flush = FLAGS_manual_wal_flush_one_in > 0 ? true : false;
   options.avoid_unnecessary_blocking_io = FLAGS_avoid_unnecessary_blocking_io;
   options.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
+  options.write_identity_file = FLAGS_write_identity_file;
   options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
   options.max_write_batch_group_size_bytes =
       FLAGS_max_write_batch_group_size_bytes;

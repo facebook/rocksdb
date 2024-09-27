@@ -199,6 +199,11 @@ Status DBImpl::TEST_GetBGError() {
   return error_handler_.GetBGError();
 }
 
+bool DBImpl::TEST_IsRecoveryInProgress() {
+  InstrumentedMutexLock l(&mutex_);
+  return error_handler_.IsRecoveryInProgress();
+}
+
 void DBImpl::TEST_LockMutex() { mutex_.Lock(); }
 
 void DBImpl::TEST_UnlockMutex() { mutex_.Unlock(); }

@@ -1151,6 +1151,8 @@ class DBImpl : public DB {
   // Get the background error status
   Status TEST_GetBGError();
 
+  bool TEST_IsRecoveryInProgress();
+
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
   uint64_t TEST_MaxNextLevelOverlappingBytes(
@@ -1582,11 +1584,12 @@ class DBImpl : public DB {
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
-  // Setup DB identity file, and write DB ID to manifest if necessary.
+  // Read/create DB identity file (as appropriate), and write DB ID to
+  // version_edit if provided.
   Status SetupDBId(const WriteOptions& write_options, bool read_only,
-                   RecoveryContext* recovery_ctx);
-  // Assign db_id_ and write DB ID to manifest if necessary.
-  void SetDBId(std::string&& id, bool read_only, RecoveryContext* recovery_ctx);
+                   bool is_new_db, VersionEdit* version_edit);
+  // Assign db_id_ and write DB ID to version_edit if provided.
+  void SetDBId(std::string&& id, bool read_only, VersionEdit* version_edit);
 
   // Collect a deduplicated collection of paths used by this DB, including
   // dbname_, DBOptions.db_paths, ColumnFamilyOptions.cf_paths.
@@ -1616,8 +1619,14 @@ class DBImpl : public DB {
   // vast majority of all files), since it already has the file size
   // on record, we don't need to query the file system. Otherwise, we query the
   // file system for the size of an unreferenced file.
+  // REQUIRES: mutex unlocked
   void TrackExistingDataFiles(
       const std::vector<std::string>& existing_data_files);
+
+  // Untrack data files in sst manager. This is only called during DB::Close on
+  // an unowned SstFileManager, to return it to a consistent state.
+  // REQUIRES: mutex unlocked
+  void UntrackDataFiles();
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened
@@ -1956,6 +1965,7 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
+  // Sets bg error if there is an error writing to WAL.
   IOStatus SyncClosedWals(const WriteOptions& write_options,
                           JobContext* job_context, VersionEdit* synced_wals,
                           bool error_recovery_in_prog);
@@ -2174,7 +2184,7 @@ class DBImpl : public DB {
 
   // Used by WriteImpl to update bg_error_ when IO error happens, e.g., write
   // WAL, sync WAL fails, if paranoid check is enabled.
-  void IOStatusCheck(const IOStatus& status);
+  void WALIOStatusCheck(const IOStatus& status);
 
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);
@@ -2186,6 +2196,10 @@ class DBImpl : public DB {
                           const int output_level, int output_path_id,
                           JobContext* job_context, LogBuffer* log_buffer,
                           CompactionJobInfo* compaction_job_info);
+
+  // REQUIRES: mutex unlocked
+  void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,
+                           bool track);
 
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
@@ -2962,6 +2976,14 @@ DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
 
 CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions,
                                     const MutableCFOptions& mutable_cf_options);
+
+// Return a VersionEdit for the DB's recovery when the `memtables` of the
+// specified column family are obsolete. Specifically, the min log number to
+// keep, and the WAL files that can be deleted.
+VersionEdit GetDBRecoveryEditForObsoletingMemTables(
+    VersionSet* vset, const ColumnFamilyData& cfd,
+    const autovector<VersionEdit*>& edit_list,
+    const autovector<MemTable*>& memtables, LogsWithPrepTracker* prep_tracker);
 
 // Return the earliest log file to keep after the memtable flush is
 // finalized.

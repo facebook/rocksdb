@@ -727,20 +727,7 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
 
-  // Part of the oldest batch of blob files (specifically, #12 and #13) is
-  // ineligible for GC due to the age cutoff
-
-  {
-    constexpr double age_cutoff = 0.5;
-    constexpr double force_threshold = 0.0;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(
-        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
-
-    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
-  }
-
-  // Oldest batch is eligible based on age cutoff but its overall garbage ratio
-  // is below threshold
+  // Overall garbage ratio of eligible files is below threshold
 
   {
     constexpr double age_cutoff = 1.0;
@@ -751,8 +738,7 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
 
-  // Oldest batch is eligible based on age cutoff and its overall garbage ratio
-  // meets threshold
+  // Overall garbage ratio of eligible files meets threshold
 
   {
     constexpr double age_cutoff = 1.0;
@@ -878,20 +864,7 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
 
-  // Part of the oldest batch of blob files (specifically, the second file) is
-  // ineligible for GC due to the age cutoff
-
-  {
-    constexpr double age_cutoff = 0.25;
-    constexpr double force_threshold = 0.0;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(
-        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
-
-    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
-  }
-
-  // Oldest batch is eligible based on age cutoff but its overall garbage ratio
-  // is below threshold
+  // Overall garbage ratio of eligible files is below threshold
 
   {
     constexpr double age_cutoff = 0.5;
@@ -902,53 +875,10 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
 
-  // Oldest batch is eligible based on age cutoff and its overall garbage ratio
-  // meets threshold
+  // Overall garbage ratio of eligible files meets threshold
 
   {
     constexpr double age_cutoff = 0.5;
-    constexpr double force_threshold = 0.5;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(
-        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
-
-    auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
-    ASSERT_EQ(ssts_to_be_compacted.size(), 2);
-
-    std::sort(ssts_to_be_compacted.begin(), ssts_to_be_compacted.end(),
-              [](const std::pair<int, FileMetaData*>& lhs,
-                 const std::pair<int, FileMetaData*>& rhs) {
-                assert(lhs.second);
-                assert(rhs.second);
-                return lhs.second->fd.GetNumber() < rhs.second->fd.GetNumber();
-              });
-
-    const autovector<std::pair<int, FileMetaData*>>
-        expected_ssts_to_be_compacted{{level, level_files[0]},
-                                      {level, level_files[1]}};
-
-    ASSERT_EQ(ssts_to_be_compacted[0], expected_ssts_to_be_compacted[0]);
-    ASSERT_EQ(ssts_to_be_compacted[1], expected_ssts_to_be_compacted[1]);
-  }
-
-  // Now try the last two cases again with a greater than necessary age cutoff
-
-  // Oldest batch is eligible based on age cutoff but its overall garbage ratio
-  // is below threshold
-
-  {
-    constexpr double age_cutoff = 0.75;
-    constexpr double force_threshold = 0.6;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(
-        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
-
-    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
-  }
-
-  // Oldest batch is eligible based on age cutoff and its overall garbage ratio
-  // meets threshold
-
-  {
-    constexpr double age_cutoff = 0.75;
     constexpr double force_threshold = 0.5;
     vstorage_.ComputeFilesMarkedForForcedBlobGC(
         age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
@@ -1282,6 +1212,8 @@ class VersionSetTestBase {
     assert(column_families != nullptr);
     assert(last_seqno != nullptr);
     assert(log_writer != nullptr);
+    ASSERT_OK(
+        SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
       DBOptions tmp_db_options;
@@ -1426,8 +1358,6 @@ class VersionSetTestBase {
   void NewDB() {
     SequenceNumber last_seqno;
     std::unique_ptr<log::Writer> log_writer;
-    ASSERT_OK(
-        SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
     PrepareManifest(&column_families_, &last_seqno, &log_writer);
     log_writer.reset();
     CreateCurrentFile();
@@ -3890,6 +3820,8 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     assert(column_families != nullptr);
     assert(last_seqno != nullptr);
     assert(log_writer != nullptr);
+    ASSERT_OK(
+        SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
     const std::string manifest = DescriptorFileName(dbname_, 1);
     const auto& fs = env_->GetFileSystem();
     std::unique_ptr<WritableFileWriter> file_writer;

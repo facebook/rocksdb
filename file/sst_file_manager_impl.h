@@ -50,6 +50,9 @@ class SstFileManagerImpl : public SstFileManager {
   Status OnMoveFile(const std::string& old_path, const std::string& new_path,
                     uint64_t* file_size = nullptr);
 
+  // DB will call OnUntrackFile when closing with an unowned SstFileManager.
+  Status OnUntrackFile(const std::string& file_path);
+
   // Update the maximum allowed space that should be used by RocksDB, if
   // the total size of the SST and blob files exceeds max_allowed_space, writes
   // to RocksDB will fail.
@@ -217,4 +220,3 @@ class SstFileManagerImpl : public SstFileManager {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

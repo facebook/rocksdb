@@ -12,8 +12,8 @@
 
 #include "db/range_tombstone_fragmenter.h"
 #if USE_COROUTINES
-#include "folly/experimental/coro/Coroutine.h"
-#include "folly/experimental/coro/Task.h"
+#include "folly/coro/Coroutine.h"
+#include "folly/coro/Task.h"
 #endif
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table_reader_caller.h"

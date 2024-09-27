@@ -171,7 +171,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     CreateAndReopenWithCF({"pikachu"}, options);
 
-    ASSERT_TRUE(!db_->KeyMayExist(ropts, handles_[1], "a", &value));
+    ASSERT_FALSE(db_->KeyMayExist(ropts, handles_[1], "a", &value));
 
     ASSERT_OK(Put(1, "a", "b"));
     bool value_found = false;
@@ -187,7 +187,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     uint64_t cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     ASSERT_TRUE(
         db_->KeyMayExist(ropts, handles_[1], "a", &value, &value_found));
-    ASSERT_TRUE(!value_found);
+    ASSERT_FALSE(value_found);
     // assert that no new files were opened and no new blocks were
     // read into block cache.
     ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
@@ -197,7 +197,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
 
     numopen = TestGetTickerCount(options, NO_FILE_OPENS);
     cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
-    ASSERT_TRUE(!db_->KeyMayExist(ropts, handles_[1], "a", &value));
+    ASSERT_FALSE(db_->KeyMayExist(ropts, handles_[1], "a", &value));
     ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
     ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
@@ -207,7 +207,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
 
     numopen = TestGetTickerCount(options, NO_FILE_OPENS);
     cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
-    ASSERT_TRUE(!db_->KeyMayExist(ropts, handles_[1], "a", &value));
+    ASSERT_FALSE(db_->KeyMayExist(ropts, handles_[1], "a", &value));
     ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
     ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
@@ -215,7 +215,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
 
     numopen = TestGetTickerCount(options, NO_FILE_OPENS);
     cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
-    ASSERT_TRUE(!db_->KeyMayExist(ropts, handles_[1], "c", &value));
+    ASSERT_FALSE(db_->KeyMayExist(ropts, handles_[1], "c", &value));
     ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
     ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
@@ -2177,24 +2177,146 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilterMultiGet) {
 
   db_->ReleaseSnapshot(snapshot);
 }
+namespace {
+std::pair<uint64_t, uint64_t> GetBloomStat(const Options& options, bool sst) {
+  if (sst) {
+    return {options.statistics->getAndResetTickerCount(
+                NON_LAST_LEVEL_SEEK_FILTER_MATCH),
+            options.statistics->getAndResetTickerCount(
+                NON_LAST_LEVEL_SEEK_FILTERED)};
+  } else {
+    auto hit = std::exchange(get_perf_context()->bloom_memtable_hit_count, 0);
+    auto miss = std::exchange(get_perf_context()->bloom_memtable_miss_count, 0);
+    return {hit, miss};
+  }
+}
 
-TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
-  constexpr size_t kPrefixSize = 8;
-  const std::string kKey = "key";
-  assert(kKey.size() < kPrefixSize);
+std::pair<uint64_t, uint64_t> HitAndMiss(uint64_t hits, uint64_t misses) {
+  return {hits, misses};
+}
+}  // namespace
+
+TEST_F(DBBloomFilterTest, MemtablePrefixBloom) {
   Options options = CurrentOptions();
-  options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixSize));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
   options.memtable_prefix_bloom_size_ratio = 0.25;
   Reopen(options);
-  ASSERT_OK(Put(kKey, "v"));
-  ASSERT_EQ("v", Get(kKey));
-  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
-  iter->Seek(kKey);
+  ASSERT_FALSE(options.prefix_extractor->InDomain("key"));
+  ASSERT_OK(Put("key", "v"));
+  ASSERT_OK(Put("goat1", "g1"));
+  ASSERT_OK(Put("goat2", "g2"));
+
+  // Reset from other tests
+  GetBloomStat(options, false);
+
+  // Out of domain (Get)
+  ASSERT_EQ("v", Get("key"));
+  ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+
+  // In domain (Get)
+  ASSERT_EQ("g1", Get("goat1"));
+  ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
+  ASSERT_EQ("NOT_FOUND", Get("goat9"));
+  ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
+  ASSERT_EQ("NOT_FOUND", Get("goan1"));
+  ASSERT_EQ(HitAndMiss(0, 1), GetBloomStat(options, false));
+
+  ReadOptions ropts;
+  if (options.prefix_seek_opt_in_only) {
+    ropts.prefix_same_as_start = true;
+  }
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ropts));
+  // Out of domain (scan)
+  iter->Seek("ke");
+  ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(kKey, iter->key());
-  iter->SeekForPrev(kKey);
+  ASSERT_EQ("key", iter->key());
+  iter->SeekForPrev("kez");
+  ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(kKey, iter->key());
+  ASSERT_EQ("key", iter->key());
+  ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+
+  // In domain (scan)
+  iter->Seek("goan");
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_EQ(HitAndMiss(0, 1), GetBloomStat(options, false));
+  iter->Seek("goat");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("goat1", iter->key());
+  ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
+
+  // Changing prefix extractor should affect prefix query semantics
+  // and bypass the existing memtable Bloom filter
+  ASSERT_OK(db_->SetOptions({{"prefix_extractor", "fixed:5"}}));
+  iter.reset(db_->NewIterator(ropts));
+  // Now out of domain (scan)
+  iter->Seek("goan");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("goat1", iter->key());
+  ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+  // In domain (scan)
+  iter->Seek("goat2");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("goat2", iter->key());
+  ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+  // In domain (scan)
+  if (ropts.prefix_same_as_start) {
+    iter->Seek("goat0");
+    ASSERT_OK(iter->status());
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+  } else {
+    // NOTE: legacy prefix Seek may return keys outside of prefix
+  }
+
+  // Start a fresh new memtable, using new prefix extractor
+  ASSERT_OK(SingleDelete("key"));
+  ASSERT_OK(SingleDelete("goat1"));
+  ASSERT_OK(SingleDelete("goat2"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("key", "_v"));
+  ASSERT_OK(Put("goat1", "_g1"));
+  ASSERT_OK(Put("goat2", "_g2"));
+
+  iter.reset(db_->NewIterator(ropts));
+
+  // Still out of domain (Get)
+  ASSERT_EQ("_v", Get("key"));
+  ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+
+  // Still in domain (Get)
+  ASSERT_EQ("_g1", Get("goat1"));
+  ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
+  ASSERT_EQ("NOT_FOUND", Get("goat11"));
+  ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
+  ASSERT_EQ("NOT_FOUND", Get("goat9"));
+  ASSERT_EQ(HitAndMiss(0, 1), GetBloomStat(options, false));
+  ASSERT_EQ("NOT_FOUND", Get("goan1"));
+  ASSERT_EQ(HitAndMiss(0, 1), GetBloomStat(options, false));
+
+  // Now out of domain (scan)
+  iter->Seek("goan");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("goat1", iter->key());
+  ASSERT_EQ(HitAndMiss(0, 0), GetBloomStat(options, false));
+  // In domain (scan)
+  iter->Seek("goat2");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("goat2", iter->key());
+  ASSERT_EQ(HitAndMiss(1, 0), GetBloomStat(options, false));
+  // In domain (scan)
+  iter->Seek("goat0");
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_EQ(HitAndMiss(0, 1), GetBloomStat(options, false));
 }
 
 class DBBloomFilterTestVaryPrefixAndFormatVer
@@ -2507,7 +2629,11 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(Put(key1, value1, WriteOptions()));
   ASSERT_OK(Put(key3, value3, WriteOptions()));
 
-  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+  ReadOptions ropts;
+  if (options_.prefix_seek_opt_in_only) {
+    ropts.prefix_same_as_start = true;
+  }
+  std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ropts));
 
   // check memtable bloom stats
   iter->Seek(key1);
@@ -2526,13 +2652,13 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
 
   iter->Seek(key2);
   ASSERT_OK(iter->status());
-  ASSERT_TRUE(!iter->Valid());
+  ASSERT_FALSE(iter->Valid());
   ASSERT_EQ(1, get_perf_context()->bloom_memtable_miss_count);
   ASSERT_EQ(2, get_perf_context()->bloom_memtable_hit_count);
 
   ASSERT_OK(Flush());
 
-  iter.reset(dbfull()->NewIterator(ReadOptions()));
+  iter.reset(dbfull()->NewIterator(ropts));
 
   // Check SST bloom stats
   iter->Seek(key1);
@@ -2550,7 +2676,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
 
   iter->Seek(key2);
   ASSERT_OK(iter->status());
-  ASSERT_TRUE(!iter->Valid());
+  ASSERT_FALSE(iter->Valid());
   ASSERT_EQ(1, get_perf_context()->bloom_sst_miss_count);
   ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 }
@@ -2659,9 +2785,14 @@ TEST_F(DBBloomFilterTest, PrefixScan) {
     PrefixScanInit(this);
     count = 0;
     env_->random_read_counter_.Reset();
-    iter = db_->NewIterator(ReadOptions());
+    ReadOptions ropts;
+    if (options.prefix_seek_opt_in_only) {
+      ropts.prefix_same_as_start = true;
+    }
+    iter = db_->NewIterator(ropts);
     for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
       if (!iter->key().starts_with(prefix)) {
+        ASSERT_FALSE(ropts.prefix_same_as_start);
         break;
       }
       count++;
@@ -3397,23 +3528,6 @@ class FixedSuffix4Transform : public SliceTransform {
 
   bool InDomain(const Slice& src) const override { return src.size() >= 4; }
 };
-
-std::pair<uint64_t, uint64_t> GetBloomStat(const Options& options, bool sst) {
-  if (sst) {
-    return {options.statistics->getAndResetTickerCount(
-                NON_LAST_LEVEL_SEEK_FILTER_MATCH),
-            options.statistics->getAndResetTickerCount(
-                NON_LAST_LEVEL_SEEK_FILTERED)};
-  } else {
-    auto hit = std::exchange(get_perf_context()->bloom_memtable_hit_count, 0);
-    auto miss = std::exchange(get_perf_context()->bloom_memtable_miss_count, 0);
-    return {hit, miss};
-  }
-}
-
-std::pair<uint64_t, uint64_t> HitAndMiss(uint64_t hits, uint64_t misses) {
-  return {hits, misses};
-}
 }  // anonymous namespace
 
 // This uses a prefix_extractor + comparator combination that violates
@@ -3520,9 +3634,8 @@ TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter2) {
     if (flushed) {  // TODO: support auto_prefix_mode in memtable?
       read_options.auto_prefix_mode = true;
     } else {
-      // TODO: why needed?
-      get_perf_context()->bloom_memtable_hit_count = 0;
-      get_perf_context()->bloom_memtable_miss_count = 0;
+      // Reset from other tests
+      GetBloomStat(options, flushed);
     }
     EXPECT_EQ(GetBloomStat(options, flushed), HitAndMiss(0, 0));
     {
@@ -3664,9 +3777,8 @@ TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter3) {
       if (flushed) {  // TODO: support auto_prefix_mode in memtable?
         read_options.auto_prefix_mode = true;
       } else {
-        // TODO: why needed?
-        get_perf_context()->bloom_memtable_hit_count = 0;
-        get_perf_context()->bloom_memtable_miss_count = 0;
+        // Reset from other tests
+        GetBloomStat(options, flushed);
       }
       EXPECT_EQ(GetBloomStat(options, flushed), HitAndMiss(0, 0));
       {
@@ -3734,14 +3846,33 @@ TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter3) {
   }
 }
 
-TEST_F(DBBloomFilterTest, SstQueryFilter) {
-  using experimental::KeySegmentsExtractor;
-  using experimental::MakeSharedBytewiseMinMaxSQFC;
-  using experimental::SelectKeySegment;
-  using experimental::SstQueryFilterConfigs;
-  using experimental::SstQueryFilterConfigsManager;
-  using KeyCategorySet = KeySegmentsExtractor::KeyCategorySet;
+using experimental::KeySegmentsExtractor;
+using experimental::MakeSharedBytewiseMinMaxSQFC;
+using experimental::MakeSharedCappedKeySegmentsExtractor;
+using experimental::MakeSharedReverseBytewiseMinMaxSQFC;
+using experimental::SelectKeySegment;
+using experimental::SstQueryFilterConfigs;
+using experimental::SstQueryFilterConfigsManager;
+using KeyCategorySet = KeySegmentsExtractor::KeyCategorySet;
 
+static std::vector<std::string> RangeQueryKeys(
+    SstQueryFilterConfigsManager::Factory& factory, DB& db, const Slice& lb,
+    const Slice& ub) {
+  ReadOptions ro;
+  ro.iterate_lower_bound = &lb;
+  ro.iterate_upper_bound = &ub;
+  ro.table_filter = factory.GetTableFilterForRangeQuery(lb, ub);
+  auto it = db.NewIterator(ro);
+  std::vector<std::string> ret;
+  for (it->Seek(lb); it->Valid(); it->Next()) {
+    ret.push_back(it->key().ToString());
+  }
+  EXPECT_OK(it->status());
+  delete it;
+  return ret;
+};
+
+TEST_F(DBBloomFilterTest, SstQueryFilter) {
   struct MySegmentExtractor : public KeySegmentsExtractor {
     char min_first_char;
     char max_first_char;
@@ -3890,101 +4021,86 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
   ASSERT_OK(Flush());
 
   using Keys = std::vector<std::string>;
-  auto RangeQueryKeys =
+  auto RangeQuery =
       [factory, db = db_](
           std::string lb, std::string ub,
           std::shared_ptr<SstQueryFilterConfigsManager::Factory> alt_factory =
               nullptr) {
-        Slice lb_slice = lb;
-        Slice ub_slice = ub;
-
-        ReadOptions ro;
-        ro.iterate_lower_bound = &lb_slice;
-        ro.iterate_upper_bound = &ub_slice;
-        ro.table_filter = (alt_factory ? alt_factory : factory)
-                              ->GetTableFilterForRangeQuery(lb_slice, ub_slice);
-        auto it = db->NewIterator(ro);
-        Keys ret;
-        for (it->Seek(lb_slice); it->Valid(); it->Next()) {
-          ret.push_back(it->key().ToString());
-        }
-        EXPECT_OK(it->status());
-        delete it;
-        return ret;
+        return RangeQueryKeys(alt_factory ? *alt_factory : *factory, *db, lb,
+                              ub);
       };
 
   // Control 1: range is not filtered but min/max filter is checked
   // because of common prefix leading up to 2nd segment
   // TODO/future: statistics for when filter is checked vs. not applicable
-  EXPECT_EQ(RangeQueryKeys("abc_150", "abc_249"),
+  EXPECT_EQ(RangeQuery("abc_150", "abc_249"),
             Keys({"abc_156_987", "abc_234", "abc_245_567"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
   // Test 1: range is filtered to just lowest level, fully containing the
   // segments in that category
-  EXPECT_EQ(RangeQueryKeys("abc_100", "abc_179"),
+  EXPECT_EQ(RangeQuery("abc_100", "abc_179"),
             Keys({"abc_123", "abc_13", "abc_156_987"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
   // Test 2: range is filtered to just lowest level, partial overlap
-  EXPECT_EQ(RangeQueryKeys("abc_1500_x_y", "abc_16QQ"), Keys({"abc_156_987"}));
+  EXPECT_EQ(RangeQuery("abc_1500_x_y", "abc_16QQ"), Keys({"abc_156_987"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
   // Test 3: range is filtered to just highest level, fully containing the
   // segments in that category but would be overlapping the range for the other
   // file if the filter included all categories
-  EXPECT_EQ(RangeQueryKeys("abc_200", "abc_300"),
+  EXPECT_EQ(RangeQuery("abc_200", "abc_300"),
             Keys({"abc_234", "abc_245_567", "abc_25"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
   // Test 4: range is filtered to just highest level, partial overlap (etc.)
-  EXPECT_EQ(RangeQueryKeys("abc_200", "abc_249"),
-            Keys({"abc_234", "abc_245_567"}));
+  EXPECT_EQ(RangeQuery("abc_200", "abc_249"), Keys({"abc_234", "abc_245_567"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
   // Test 5: range is filtered from both levels, because of category scope
-  EXPECT_EQ(RangeQueryKeys("abc_300", "abc_400"), Keys({}));
+  EXPECT_EQ(RangeQuery("abc_300", "abc_400"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // Control 2: range is not filtered because association between 1st and
   // 2nd segment is not represented
-  EXPECT_EQ(RangeQueryKeys("abc_170", "abc_190"), Keys({}));
+  EXPECT_EQ(RangeQuery("abc_170", "abc_190"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
   // Control 3: range is not filtered because there's no (bloom) filter on
   // 1st segment (like prefix filtering)
-  EXPECT_EQ(RangeQueryKeys("baa_170", "baa_190"), Keys({}));
+  EXPECT_EQ(RangeQuery("baa_170", "baa_190"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
   // Control 4: range is not filtered because difference in segments leading
   // up to 2nd segment
-  EXPECT_EQ(RangeQueryKeys("abc_500", "abd_501"), Keys({}));
+  EXPECT_EQ(RangeQuery("abc_500", "abd_501"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
   // TODO: exclusive upper bound tests
 
   // ======= Testing 3rd segment (cross-category filter) =======
   // Control 5: not filtered because of segment range overlap
-  EXPECT_EQ(RangeQueryKeys(" z__700", " z__750"), Keys({}));
+  EXPECT_EQ(RangeQuery(" z__700", " z__750"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 2);
 
   // Test 6: filtered on both levels
-  EXPECT_EQ(RangeQueryKeys(" z__100", " z__300"), Keys({}));
+  EXPECT_EQ(RangeQuery(" z__100", " z__300"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // Control 6: finding something, with 2nd segment filter helping
-  EXPECT_EQ(RangeQueryKeys("abc_156_9", "abc_156_99"), Keys({"abc_156_987"}));
+  EXPECT_EQ(RangeQuery("abc_156_9", "abc_156_99"), Keys({"abc_156_987"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
-  EXPECT_EQ(RangeQueryKeys("abc_245_56", "abc_245_57"), Keys({"abc_245_567"}));
+  EXPECT_EQ(RangeQuery("abc_245_56", "abc_245_57"), Keys({"abc_245_567"}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 1);
 
   // Test 6: filtered on both levels, for different segments
-  EXPECT_EQ(RangeQueryKeys("abc_245_900", "abc_245_999"), Keys({}));
+  EXPECT_EQ(RangeQuery("abc_245_900", "abc_245_999"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // ======= Testing extractor read portability =======
-  EXPECT_EQ(RangeQueryKeys("abc_300", "abc_400"), Keys({}));
+  EXPECT_EQ(RangeQuery("abc_300", "abc_400"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // Only modifies how filters are written
@@ -3992,18 +4108,166 @@ TEST_F(DBBloomFilterTest, SstQueryFilter) {
   ASSERT_EQ(factory->GetFilteringVersion(), 0U);
   ASSERT_EQ(factory->GetConfigs().IsEmptyNotFound(), true);
 
-  EXPECT_EQ(RangeQueryKeys("abc_300", "abc_400"), Keys({}));
+  EXPECT_EQ(RangeQuery("abc_300", "abc_400"), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // Even a different config name with different extractor can read
-  EXPECT_EQ(RangeQueryKeys("abc_300", "abc_400", MakeFactory("bar", 43)),
-            Keys({}));
+  EXPECT_EQ(RangeQuery("abc_300", "abc_400", MakeFactory("bar", 43)), Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
 
   // Or a "not found" config name
-  EXPECT_EQ(RangeQueryKeys("abc_300", "abc_400", MakeFactory("blah", 43)),
+  EXPECT_EQ(RangeQuery("abc_300", "abc_400", MakeFactory("blah", 43)),
             Keys({}));
   EXPECT_EQ(TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA), 0);
+}
+
+static std::vector<int> ExtractedSizes(const KeySegmentsExtractor& ex,
+                                       const Slice& k) {
+  KeySegmentsExtractor::Result r;
+  ex.Extract(k, KeySegmentsExtractor::kFullUserKey, &r);
+  std::vector<int> ret;
+  uint32_t last = 0;
+  for (const auto i : r.segment_ends) {
+    ret.push_back(static_cast<int>(i - last));
+    last = i;
+  }
+  return ret;
+}
+
+TEST_F(DBBloomFilterTest, FixedWidthSegments) {
+  // Unit tests for
+  auto extractor_none = MakeSharedCappedKeySegmentsExtractor({});
+  auto extractor0b = MakeSharedCappedKeySegmentsExtractor({0});
+  auto extractor1b = MakeSharedCappedKeySegmentsExtractor({1});
+  auto extractor4b = MakeSharedCappedKeySegmentsExtractor({4});
+  auto extractor4b0b = MakeSharedCappedKeySegmentsExtractor({4, 0});
+  auto extractor4b0b4b = MakeSharedCappedKeySegmentsExtractor({4, 0, 4});
+  auto extractor1b3b0b4b = MakeSharedCappedKeySegmentsExtractor({1, 3, 0, 4});
+
+  ASSERT_EQ(extractor_none->GetId(), "CappedKeySegmentsExtractor");
+  ASSERT_EQ(extractor0b->GetId(), "CappedKeySegmentsExtractor0b");
+  ASSERT_EQ(extractor1b->GetId(), "CappedKeySegmentsExtractor1b");
+  ASSERT_EQ(extractor4b->GetId(), "CappedKeySegmentsExtractor4b");
+  ASSERT_EQ(extractor4b0b->GetId(), "CappedKeySegmentsExtractor4b0b");
+  ASSERT_EQ(extractor4b0b4b->GetId(), "CappedKeySegmentsExtractor4b0b4b");
+  ASSERT_EQ(extractor1b3b0b4b->GetId(), "CappedKeySegmentsExtractor1b3b0b4b");
+
+  using V = std::vector<int>;
+  ASSERT_EQ(V({}), ExtractedSizes(*extractor_none, {}));
+  ASSERT_EQ(V({0}), ExtractedSizes(*extractor0b, {}));
+  ASSERT_EQ(V({0}), ExtractedSizes(*extractor1b, {}));
+  ASSERT_EQ(V({0}), ExtractedSizes(*extractor4b, {}));
+  ASSERT_EQ(V({0, 0}), ExtractedSizes(*extractor4b0b, {}));
+  ASSERT_EQ(V({0, 0, 0}), ExtractedSizes(*extractor4b0b4b, {}));
+  ASSERT_EQ(V({0, 0, 0, 0}), ExtractedSizes(*extractor1b3b0b4b, {}));
+
+  ASSERT_EQ(V({3}), ExtractedSizes(*extractor4b, "bla"));
+  ASSERT_EQ(V({3, 0}), ExtractedSizes(*extractor4b0b, "bla"));
+  ASSERT_EQ(V({1, 2, 0, 0}), ExtractedSizes(*extractor1b3b0b4b, "bla"));
+
+  ASSERT_EQ(V({}), ExtractedSizes(*extractor_none, "blah"));
+  ASSERT_EQ(V({0}), ExtractedSizes(*extractor0b, "blah"));
+  ASSERT_EQ(V({1}), ExtractedSizes(*extractor1b, "blah"));
+  ASSERT_EQ(V({4}), ExtractedSizes(*extractor4b, "blah"));
+  ASSERT_EQ(V({4, 0}), ExtractedSizes(*extractor4b0b, "blah"));
+  ASSERT_EQ(V({4, 0, 0}), ExtractedSizes(*extractor4b0b4b, "blah"));
+  ASSERT_EQ(V({1, 3, 0, 0}), ExtractedSizes(*extractor1b3b0b4b, "blah"));
+
+  ASSERT_EQ(V({4, 0}), ExtractedSizes(*extractor4b0b, "blah1"));
+  ASSERT_EQ(V({4, 0, 1}), ExtractedSizes(*extractor4b0b4b, "blah1"));
+  ASSERT_EQ(V({4, 0, 2}), ExtractedSizes(*extractor4b0b4b, "blah12"));
+  ASSERT_EQ(V({4, 0, 3}), ExtractedSizes(*extractor4b0b4b, "blah123"));
+  ASSERT_EQ(V({1, 3, 0, 3}), ExtractedSizes(*extractor1b3b0b4b, "blah123"));
+
+  ASSERT_EQ(V({4}), ExtractedSizes(*extractor4b, "blah1234"));
+  ASSERT_EQ(V({4, 0}), ExtractedSizes(*extractor4b0b, "blah1234"));
+  ASSERT_EQ(V({4, 0, 4}), ExtractedSizes(*extractor4b0b4b, "blah1234"));
+  ASSERT_EQ(V({1, 3, 0, 4}), ExtractedSizes(*extractor1b3b0b4b, "blah1234"));
+
+  ASSERT_EQ(V({4, 0, 4}), ExtractedSizes(*extractor4b0b4b, "blah12345"));
+  ASSERT_EQ(V({1, 3, 0, 4}), ExtractedSizes(*extractor1b3b0b4b, "blah12345"));
+
+  // Filter config for second and fourth segment
+  auto filter1 =
+      MakeSharedReverseBytewiseMinMaxSQFC(experimental::SelectKeySegment(1));
+  auto filter3 =
+      MakeSharedReverseBytewiseMinMaxSQFC(experimental::SelectKeySegment(3));
+  SstQueryFilterConfigs configs1 = {{filter1, filter3}, extractor1b3b0b4b};
+  SstQueryFilterConfigsManager::Data data = {{42, {{"foo", configs1}}}};
+  std::shared_ptr<SstQueryFilterConfigsManager> configs_manager;
+  ASSERT_OK(SstQueryFilterConfigsManager::MakeShared(data, &configs_manager));
+  std::shared_ptr<SstQueryFilterConfigsManager::Factory> f;
+  ASSERT_OK(configs_manager->MakeSharedFactory("foo", 42, &f));
+
+  ASSERT_EQ(f->GetConfigsName(), "foo");
+  ASSERT_EQ(f->GetConfigs().IsEmptyNotFound(), false);
+
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  options.table_properties_collector_factories.push_back(f);
+  // Next most common comparator after bytewise
+  options.comparator = ReverseBytewiseComparator();
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("abcd1234", "val0"));
+  ASSERT_OK(Put("abcd1245", "val1"));
+  ASSERT_OK(Put("abcd99", "val2"));  // short key
+  ASSERT_OK(Put("aqua1200", "val3"));
+  ASSERT_OK(Put("aqua1230", "val4"));
+  ASSERT_OK(Put("zen", "val5"));  // very short key
+  ASSERT_OK(Put("azur1220", "val6"));
+  ASSERT_OK(Put("blah", "val7"));
+  ASSERT_OK(Put("blah2", "val8"));
+
+  ASSERT_OK(Flush());
+
+  using Keys = std::vector<std::string>;
+
+  // Range is not filtered but segment 1 min/max filter is checked
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aczz0000", "acdc0000"), Keys({}));
+  EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Found (can't use segment 3 filter)
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqzz0000", "aqdc0000"),
+            Keys({"aqua1230", "aqua1200"}));
+  EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Filtered because of segment 1 min-max not intersecting [aaa, abb]
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "zabb9999", "zaaa0000"), Keys({}));
+  EXPECT_EQ(0, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Found
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua1200ZZZ", "aqua1000ZZZ"),
+            Keys({"aqua1200"}));
+  EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Found despite short key
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua121", "aqua1"), Keys({"aqua1200"}));
+  EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Filtered because of segment 3 min-max not intersecting [1000, 1100]
+  // Note that the empty string is tracked outside of the min-max range.
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua1100ZZZ", "aqua1000ZZZ"), Keys({}));
+  EXPECT_EQ(0, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Also filtered despite short key
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "aqua11", "aqua1"), Keys({}));
+  EXPECT_EQ(0, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Found
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "blah21", "blag"),
+            Keys({"blah2", "blah"}));
+  EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Found
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "blah0", "blag"), Keys({"blah"}));
+  EXPECT_EQ(1, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
+
+  // Filtered because of segment 3 min-max not intersecting [0, 1]
+  // Note that the empty string is tracked outside of the min-max range.
+  EXPECT_EQ(RangeQueryKeys(*f, *db_, "blah1", "blah0"), Keys({}));
+  EXPECT_EQ(0, TestGetAndResetTickerCount(options, NON_LAST_LEVEL_SEEK_DATA));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

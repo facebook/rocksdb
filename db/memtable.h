@@ -210,7 +210,8 @@ class MemTable {
   // data, currently only needed for iterators serving user reads.
   InternalIterator* NewIterator(
       const ReadOptions& read_options,
-      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena);
+      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
+      const SliceTransform* prefix_extractor);
 
   // Returns an iterator that yields the range tombstones of the memtable.
   // The caller must ensure that the underlying MemTable remains live

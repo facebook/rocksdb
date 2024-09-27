@@ -209,6 +209,7 @@ default_params = {
     "use_write_buffer_manager": lambda: random.randint(0, 1),
     "avoid_unnecessary_blocking_io": random.randint(0, 1),
     "write_dbid_to_manifest": random.randint(0, 1),
+    "write_identity_file": random.randint(0, 1),
     "avoid_flush_during_recovery": lambda: random.choice(
         [1 if t == 0 else 0 for t in range(0, 8)]
     ),
@@ -959,6 +960,12 @@ def finalize_and_sanitize(src_params):
         and dest_params.get("use_timed_put_one_in") == 1
     ):
         dest_params["use_timed_put_one_in"] = 3
+    if (
+        dest_params.get("write_dbid_to_manifest") == 0
+        and dest_params.get("write_identity_file") == 0
+    ):
+        # At least one must be true
+        dest_params["write_dbid_to_manifest"] = 1
     return dest_params
 
 

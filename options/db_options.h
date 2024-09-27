@@ -87,8 +87,10 @@ struct ImmutableDBOptions {
   bool background_close_inactive_wals;
   bool atomic_flush;
   bool avoid_unnecessary_blocking_io;
+  bool prefix_seek_opt_in_only;
   bool persist_stats_to_disk;
   bool write_dbid_to_manifest;
+  bool write_identity_file;
   size_t log_readahead_size;
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory;
   bool best_efforts_recovery;

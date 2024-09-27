@@ -113,11 +113,13 @@ class MemTableListVersion {
 
   void AddIterators(const ReadOptions& options,
                     UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
+                    const SliceTransform* prefix_extractor,
                     std::vector<InternalIterator*>* iterator_list,
                     Arena* arena);
 
   void AddIterators(const ReadOptions& options,
                     UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
+                    const SliceTransform* prefix_extractor,
                     MergeIteratorBuilder* merge_iter_builder,
                     bool add_range_tombstone_iter);
 
@@ -446,6 +448,12 @@ class MemTableList {
   // not freed, but put into a vector for future deref and reclamation.
   void RemoveOldMemTables(uint64_t log_number,
                           autovector<MemTable*>* to_delete);
+
+  // This API is only used by atomic date replacement. To get an edit for
+  // dropping the current `MemTableListVersion`.
+  VersionEdit GetEditForDroppingCurrentVersion(
+      const ColumnFamilyData* cfd, VersionSet* vset,
+      LogsWithPrepTracker* prep_tracker) const;
 
  private:
   friend Status InstallMemtableAtomicFlushResults(

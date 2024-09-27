@@ -59,7 +59,7 @@ static std::string PrintContents(WriteBatch* b,
     InternalIterator* iter;
     if (i == 0) {
       iter = mem->NewIterator(ReadOptions(), /*seqno_to_time_mapping=*/nullptr,
-                              &arena);
+                              &arena, /*prefix_extractor=*/nullptr);
       arena_iter_guard.reset(iter);
     } else {
       iter = mem->NewRangeTombstoneIterator(ReadOptions(),

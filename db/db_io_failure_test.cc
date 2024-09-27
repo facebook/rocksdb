@@ -895,6 +895,81 @@ TEST_P(DBIOCorruptionTest, ManifestCorruptionRetry) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_P(DBIOCorruptionTest, FooterReadCorruptionRetry) {
+  Random rnd(300);
+  bool retry = false;
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "ReadFooterFromFileInternal:0", [&](void* arg) {
+        Slice* data = static_cast<Slice*>(arg);
+        if (!retry) {
+          std::memcpy(const_cast<char*>(data->data()),
+                      rnd.RandomString(static_cast<int>(data->size())).c_str(),
+                      data->size());
+          retry = true;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("key1", "val1"));
+  Status s = Flush();
+  if (std::get<2>(GetParam())) {
+    ASSERT_OK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
+
+    std::string val;
+    ReadOptions ro;
+    ro.async_io = std::get<1>(GetParam());
+    ASSERT_OK(dbfull()->Get(ro, "key1", &val));
+    ASSERT_EQ(val, "val1");
+  } else {
+    ASSERT_NOK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
+    ASSERT_GT(stats()->getTickerCount(SST_FOOTER_CORRUPTION_COUNT), 0);
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(DBIOCorruptionTest, TablePropertiesCorruptionRetry) {
+  Random rnd(300);
+  bool retry = false;
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "ReadTablePropertiesHelper:0", [&](void* arg) {
+        Slice* data = static_cast<Slice*>(arg);
+        if (!retry) {
+          std::memcpy(const_cast<char*>(data->data()),
+                      rnd.RandomString(static_cast<int>(data->size())).c_str(),
+                      data->size());
+          retry = true;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("key1", "val1"));
+  Status s = Flush();
+  if (std::get<2>(GetParam())) {
+    ASSERT_OK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
+
+    std::string val;
+    ReadOptions ro;
+    ro.async_io = std::get<1>(GetParam());
+    ASSERT_OK(dbfull()->Get(ro, "key1", &val));
+    ASSERT_EQ(val, "val1");
+  } else {
+    ASSERT_NOK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 // The parameters are - 1. Use FS provided buffer, 2. Use async IO ReadOption,
 // 3. Retry with verify_and_reconstruct_read IOOption
 INSTANTIATE_TEST_CASE_P(DBIOCorruptionTest, DBIOCorruptionTest,

@@ -403,8 +403,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, avoid_unnecessary_blocking_io),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"prefix_seek_opt_in_only",
+         {offsetof(struct ImmutableDBOptions, prefix_seek_opt_in_only),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"write_dbid_to_manifest",
          {offsetof(struct ImmutableDBOptions, write_dbid_to_manifest),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"write_identity_file",
+         {offsetof(struct ImmutableDBOptions, write_identity_file),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"log_readahead_size",
@@ -770,8 +778,10 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       background_close_inactive_wals(options.background_close_inactive_wals),
       atomic_flush(options.atomic_flush),
       avoid_unnecessary_blocking_io(options.avoid_unnecessary_blocking_io),
+      prefix_seek_opt_in_only(options.prefix_seek_opt_in_only),
       persist_stats_to_disk(options.persist_stats_to_disk),
       write_dbid_to_manifest(options.write_dbid_to_manifest),
+      write_identity_file(options.write_identity_file),
       log_readahead_size(options.log_readahead_size),
       file_checksum_gen_factory(options.file_checksum_gen_factory),
       best_efforts_recovery(options.best_efforts_recovery),
@@ -943,10 +953,14 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "            Options.avoid_unnecessary_blocking_io: %d",
                    avoid_unnecessary_blocking_io);
+  ROCKS_LOG_HEADER(log, "            Options.prefix_seek_opt_in_only: %d",
+                   prefix_seek_opt_in_only);
   ROCKS_LOG_HEADER(log, "                Options.persist_stats_to_disk: %u",
                    persist_stats_to_disk);
   ROCKS_LOG_HEADER(log, "                Options.write_dbid_to_manifest: %d",
                    write_dbid_to_manifest);
+  ROCKS_LOG_HEADER(log, "                Options.write_identity_file: %d",
+                   write_identity_file);
   ROCKS_LOG_HEADER(
       log, "                Options.log_readahead_size: %" ROCKSDB_PRIszt,
       log_readahead_size);

@@ -466,14 +466,27 @@ struct CompactionServiceJobInfo {
 
   Env::Priority priority;
 
+  // Additional Compaction Details that can be useful in the CompactionService
+  CompactionReason compaction_reason;
+  bool is_full_compaction;
+  bool is_manual_compaction;
+  bool bottommost_level;
+
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
                            std::string db_session_id_, uint64_t job_id_,
-                           Env::Priority priority_)
+                           Env::Priority priority_,
+                           CompactionReason compaction_reason_,
+                           bool is_full_compaction_, bool is_manual_compaction_,
+                           bool bottommost_level_)
       : db_name(std::move(db_name_)),
         db_id(std::move(db_id_)),
         db_session_id(std::move(db_session_id_)),
         job_id(job_id_),
-        priority(priority_) {}
+        priority(priority_),
+        compaction_reason(compaction_reason_),
+        is_full_compaction(is_full_compaction_),
+        is_manual_compaction(is_manual_compaction_),
+        bottommost_level(bottommost_level_) {}
 };
 
 struct CompactionServiceScheduleResponse {
@@ -1380,16 +1393,35 @@ struct DBOptions {
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;
 
-  // Historically DB ID has always been stored in Identity File in DB folder.
-  // If this flag is true, the DB ID is written to Manifest file in addition
-  // to the Identity file. By doing this 2 problems are solved
-  // 1. We don't checksum the Identity file where as Manifest file is.
-  // 2. Since the source of truth for DB is Manifest file DB ID will sit with
-  //    the source of truth. Previously the Identity file could be copied
-  //    independent of Manifest and that can result in wrong DB ID.
-  // We recommend setting this flag to true.
-  // Default: false
-  bool write_dbid_to_manifest = false;
+  // The DB unique ID can be saved in the DB manifest (preferred, this option)
+  // or an IDENTITY file (historical, deprecated), or both. If this option is
+  // set to false (old behavior), then write_identity_file must be set to true.
+  // The manifest is preferred because
+  // 1. The IDENTITY file is not checksummed, so it is not as safe against
+  //    corruption.
+  // 2. The IDENTITY file may or may not be copied with the DB (e.g. not
+  //    copied by BackupEngine), so is not reliable for the provenance of a DB.
+  // This option might eventually be obsolete and removed as Identity files
+  // are phased out.
+  bool write_dbid_to_manifest = true;
+
+  // It is expected that the Identity file will be obsoleted by recording
+  // DB ID in the manifest (see write_dbid_to_manifest). Setting this to true
+  // maintains the historical behavior of writing an Identity file, while
+  // setting to false is expected to be the future default. This option might
+  // eventually be obsolete and removed as Identity files are phased out.
+  bool write_identity_file = true;
+
+  // Historically, when prefix_extractor != nullptr, iterators have an
+  // unfortunate default semantics of *possibly* only returning data
+  // within the same prefix. To avoid "spooky action at a distance," iterator
+  // bounds should come from the instantiation or seeking of the iterator,
+  // not from a mutable column family option.
+  //
+  // When set to true, it is as if every iterator is created with
+  // total_order_seek=true and only auto_prefix_mode=true and
+  // prefix_same_as_start=true can take advantage of prefix seek optimizations.
+  bool prefix_seek_opt_in_only = false;
 
   // The number of bytes to prefetch when reading the log. This is mostly useful
   // for reading a remotely located log, as it can save the number of
@@ -1840,10 +1872,10 @@ struct ReadOptions {
   bool auto_prefix_mode = false;
 
   // Enforce that the iterator only iterates over the same prefix as the seek.
-  // This option is effective only for prefix seeks, i.e. prefix_extractor is
-  // non-null for the column family and total_order_seek is false.  Unlike
-  // iterate_upper_bound, prefix_same_as_start only works within a prefix
-  // but in both directions.
+  // This makes the iterator bounds dependent on the column family's current
+  // prefix_extractor, which is mutable. When SST files have been built with
+  // the same prefix extractor, prefix filtering optimizations will be used
+  // for both Seek and SeekForPrev.
   bool prefix_same_as_start = false;
 
   // Keep the blocks loaded by the iterator pinned in memory as long as the
@@ -2287,9 +2319,6 @@ struct SizeApproximationOptions {
 };
 
 struct CompactionServiceOptionsOverride {
-  // Currently pointer configurations are not passed to compaction service
-  // compaction so the user needs to set it. It will be removed once pointer
-  // configuration passing is supported.
   Env* env = Env::Default();
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
 

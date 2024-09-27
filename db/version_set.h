@@ -49,8 +49,8 @@
 #include "db/write_controller.h"
 #include "env/file_system_tracer.h"
 #if USE_COROUTINES
-#include "folly/experimental/coro/BlockingWait.h"
-#include "folly/experimental/coro/Collect.h"
+#include "folly/coro/BlockingWait.h"
+#include "folly/coro/Collect.h"
 #endif
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"

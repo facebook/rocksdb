@@ -530,6 +530,11 @@ Status DBImpl::MaybeReleaseTimestampedSnapshotsAndCheck() {
   return Status::OK();
 }
 
+void DBImpl::UntrackDataFiles() {
+  TrackOrUntrackFiles(/*existing_data_files=*/{},
+                      /*track=*/false);
+}
+
 Status DBImpl::CloseHelper() {
   // Guarantee that there is no background error recovery in progress before
   // continuing with the shutdown
@@ -667,6 +672,13 @@ Status DBImpl::CloseHelper() {
 
   for (auto& txn_entry : recovered_transactions_) {
     delete txn_entry.second;
+  }
+
+  // Return an unowned SstFileManager to a consistent state
+  if (immutable_db_options_.sst_file_manager && !own_sfm_) {
+    mutex_.Unlock();
+    UntrackDataFiles();
+    mutex_.Lock();
   }
 
   // versions need to be destroyed before table_cache since it can hold
@@ -1526,7 +1538,7 @@ Status DBImpl::FlushWAL(const WriteOptions& write_options, bool sync) {
                       io_s.ToString().c_str());
       // In case there is a fs error we should set it globally to prevent the
       // future writes
-      IOStatusCheck(io_s);
+      WALIOStatusCheck(io_s);
       // whether sync or not, we should abort the rest of function upon error
       return static_cast<Status>(io_s);
     }
@@ -1683,7 +1695,7 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
                     io_s.ToString().c_str());
     // In case there is a fs error we should set it globally to prevent the
     // future writes
-    IOStatusCheck(io_s);
+    WALIOStatusCheck(io_s);
   }
   if (io_s.ok() && need_wal_dir_sync) {
     io_s = directories_.GetWalDir()->FsyncWithDirOptions(
@@ -2054,15 +2066,19 @@ InternalIterator* DBImpl::NewInternalIterator(
     bool allow_unprepared_value, ArenaWrappedDBIter* db_iter) {
   InternalIterator* internal_iter;
   assert(arena != nullptr);
+  auto prefix_extractor =
+      super_version->mutable_cf_options.prefix_extractor.get();
   // Need to create internal iterator from the arena.
   MergeIteratorBuilder merge_iter_builder(
       &cfd->internal_comparator(), arena,
-      !read_options.total_order_seek &&
-          super_version->mutable_cf_options.prefix_extractor != nullptr,
+      // FIXME? It's not clear what interpretation of prefix seek is needed
+      // here, and no unit test cares about the value provided here.
+      !read_options.total_order_seek && prefix_extractor != nullptr,
       read_options.iterate_upper_bound);
   // Collect iterator for mutable memtable
   auto mem_iter = super_version->mem->NewIterator(
-      read_options, super_version->GetSeqnoToTimeMapping(), arena);
+      read_options, super_version->GetSeqnoToTimeMapping(), arena,
+      super_version->mutable_cf_options.prefix_extractor.get());
   Status s;
   if (!read_options.ignore_range_deletions) {
     std::unique_ptr<TruncatedRangeDelIterator> mem_tombstone_iter;
@@ -2086,6 +2102,7 @@ InternalIterator* DBImpl::NewInternalIterator(
   if (s.ok()) {
     super_version->imm->AddIterators(
         read_options, super_version->GetSeqnoToTimeMapping(),
+        super_version->mutable_cf_options.prefix_extractor.get(),
         &merge_iter_builder, !read_options.ignore_range_deletions);
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::NewInternalIterator:StatusCallback", &s);
@@ -3831,6 +3848,9 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
     }
   }
   if (read_options.tailing) {
+    read_options.total_order_seek |=
+        immutable_db_options_.prefix_seek_opt_in_only;
+
     auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                     /* allow_unprepared_value */ true);
     result = NewDBIterator(
@@ -4032,6 +4052,9 @@ Status DBImpl::NewIterators(
 
   assert(cf_sv_pairs.size() == column_families.size());
   if (read_options.tailing) {
+    read_options.total_order_seek |=
+        immutable_db_options_.prefix_seek_opt_in_only;
+
     for (const auto& cf_sv_pair : cf_sv_pairs) {
       auto iter = new ForwardIterator(this, read_options, cf_sv_pair.cfd,
                                       cf_sv_pair.super_version,
@@ -6744,6 +6767,62 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
   // clean up outside db mutex
   for (SuperVersionContext& sv_context : sv_contexts) {
     sv_context.Clean();
+  }
+}
+
+void DBImpl::TrackOrUntrackFiles(
+    const std::vector<std::string>& existing_data_files, bool track) {
+  auto sfm = static_cast_with_check<SstFileManagerImpl>(
+      immutable_db_options_.sst_file_manager.get());
+  assert(sfm);
+  std::vector<ColumnFamilyMetaData> metadata;
+  GetAllColumnFamilyMetaData(&metadata);
+  auto action = [&](const std::string& file_path,
+                    std::optional<uint64_t> size) {
+    if (track) {
+      if (size) {
+        sfm->OnAddFile(file_path, *size).PermitUncheckedError();
+      } else {
+        sfm->OnAddFile(file_path).PermitUncheckedError();
+      }
+    } else {
+      sfm->OnUntrackFile(file_path).PermitUncheckedError();
+    }
+  };
+
+  std::unordered_set<std::string> referenced_files;
+  for (const auto& md : metadata) {
+    for (const auto& lmd : md.levels) {
+      for (const auto& fmd : lmd.files) {
+        // We're assuming that each sst file name exists in at most one of
+        // the paths.
+        std::string file_path =
+            fmd.directory + kFilePathSeparator + fmd.relative_filename;
+        action(file_path, fmd.size);
+        referenced_files.insert(file_path);
+      }
+    }
+    for (const auto& bmd : md.blob_files) {
+      std::string name = bmd.blob_file_name;
+      // The BlobMetaData.blob_file_name may start with "/".
+      if (!name.empty() && name[0] == kFilePathSeparator) {
+        name = name.substr(1);
+      }
+      // We're assuming that each blob file name exists in at most one of
+      // the paths.
+      std::string file_path = bmd.blob_file_path + kFilePathSeparator + name;
+      action(file_path, bmd.blob_file_size);
+      referenced_files.insert(file_path);
+    }
+  }
+
+  for (const auto& file_path : existing_data_files) {
+    if (referenced_files.find(file_path) != referenced_files.end()) {
+      continue;
+    }
+    // There shouldn't be any duplicated files. In case there is, SstFileManager
+    // will take care of deduping it.
+    action(file_path, /*size=*/std::nullopt);
   }
 }
 

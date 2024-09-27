@@ -562,7 +562,7 @@ class LDBTestCase(unittest.TestCase):
             0
             == run_err_null(
                 "./ldb dump_wal --db=%s --walfile=%s --header"
-                % (origDbPath, os.path.join(origDbPath, "LOG"))
+                % (origDbPath, origDbPath)
             )
         )
         self.assertRunOK("scan", "x1 ==> y1\nx2 ==> y2\nx3 ==> y3\nx4 ==> y4")

@@ -497,7 +497,7 @@ DEFINE_double(blob_garbage_collection_force_threshold,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
-              "the oldest blob files for forcing garbage collection.");
+              "the eligible blob files for forcing garbage collection.");
 
 DEFINE_uint64(blob_compaction_readahead_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
@@ -992,6 +992,10 @@ DEFINE_bool(avoid_unnecessary_blocking_io,
 DEFINE_bool(write_dbid_to_manifest,
             ROCKSDB_NAMESPACE::Options().write_dbid_to_manifest,
             "Write DB_ID to manifest");
+
+DEFINE_bool(write_identity_file,
+            ROCKSDB_NAMESPACE::Options().write_identity_file,
+            "Write DB_ID to IDENTITY file");
 
 DEFINE_bool(avoid_flush_during_recovery,
             ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,

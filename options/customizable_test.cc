@@ -1396,6 +1396,19 @@ class MockFilterPolicy : public FilterPolicy {
   }
 };
 
+class MockCache : public CacheWrapper {
+ public:
+  static const char* kClassName() { return "MockCache"; }
+  const char* Name() const override { return kClassName(); }
+
+  MockCache()
+      : CacheWrapper(NewLRUCache(LRUCacheOptions(100, 0, false, 0.0))) {}
+
+  bool IsInstanceOf(const std::string& name) const override {
+    return name.find(Name()) == 0;
+  }
+};
+
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
   size_t num_types;
@@ -1516,6 +1529,15 @@ static int RegisterLocalObjects(ObjectLibrary& library,
       [](const std::string& /*uri*/, std::unique_ptr<const FilterPolicy>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MockFilterPolicy());
+        return guard->get();
+      });
+
+  library.AddFactory<Cache>(
+      ObjectLibrary::PatternEntry(MockCache::kClassName())
+          .AddSeparator("://", /*at_least_one=*/false),
+      [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockCache());
         return guard->get();
       });
 
@@ -2108,6 +2130,15 @@ TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
     ASSERT_NE(bbto->flush_block_policy_factory.get(), nullptr);
     ASSERT_STREQ(bbto->flush_block_policy_factory->Name(),
                  TestFlushBlockPolicyFactory::kClassName());
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadCacheTest) {
+  if (RegisterTests("Test")) {
+    std::string uri(MockCache::kClassName());
+    uri.append("://");
+    auto cache = ExpectCreateShared<Cache>(uri);
+    ASSERT_TRUE(cache->IsInstanceOf(MockCache::kClassName()));
   }
 }
 

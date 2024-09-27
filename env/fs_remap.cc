@@ -77,6 +77,17 @@ IOStatus RemapFileSystem::NewWritableFile(
                                             result, dbg);
 }
 
+IOStatus RemapFileSystem::ReopenWritableFile(
+    const std::string& fname, const FileOptions& options,
+    std::unique_ptr<FSWritableFile>* result, IODebugContext* dbg) {
+  auto status_and_enc_path = EncodePathWithNewBasename(fname);
+  if (!status_and_enc_path.first.ok()) {
+    return status_and_enc_path.first;
+  }
+  return FileSystemWrapper::ReopenWritableFile(status_and_enc_path.second,
+                                               options, result, dbg);
+}
+
 IOStatus RemapFileSystem::ReuseWritableFile(
     const std::string& fname, const std::string& old_fname,
     const FileOptions& options, std::unique_ptr<FSWritableFile>* result,

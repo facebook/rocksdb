@@ -379,6 +379,7 @@ class WALDumperCommand : public LDBCommand {
   bool print_header_;
   std::string wal_file_;
   bool print_values_;
+  bool only_print_seqno_gaps_;
   bool is_write_committed_;  // default will be set to true
   bool no_db_open_ = true;
 
@@ -386,6 +387,7 @@ class WALDumperCommand : public LDBCommand {
   static const std::string ARG_WRITE_COMMITTED;
   static const std::string ARG_PRINT_HEADER;
   static const std::string ARG_PRINT_VALUE;
+  static const std::string ARG_ONLY_PRINT_SEQNO_GAPS;
 };
 
 class GetCommand : public LDBCommand {

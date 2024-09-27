@@ -44,8 +44,8 @@
 #include "table/compaction_merging_iterator.h"
 
 #if USE_COROUTINES
-#include "folly/experimental/coro/BlockingWait.h"
-#include "folly/experimental/coro/Collect.h"
+#include "folly/coro/BlockingWait.h"
+#include "folly/coro/Collect.h"
 #endif
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -3772,14 +3772,17 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     return;
   }
 
-  // Compute the sum of total and garbage bytes over the oldest batch of blob
-  // files. The oldest batch is defined as the set of blob files which are
-  // kept alive by the same SSTs as the very oldest one. Here is a toy example.
-  // Let's assume we have three SSTs 1, 2, and 3, and four blob files 10, 11,
-  // 12, and 13. Also, let's say SSTs 1 and 2 both rely on blob file 10 and
-  // potentially some higher-numbered ones, while SST 3 relies on blob file 12
-  // and potentially some higher-numbered ones. Then, the SST to oldest blob
-  // file mapping is as follows:
+  // Compute the sum of total and garbage bytes over the batch of blob files
+  // currently eligible for garbage collection based on
+  // blob_garbage_collection_age_cutoff, and if the garbage ratio exceeds
+  // blob_garbage_collection_force_threshold, schedule compaction for the
+  // SST files that reference the oldest batch of blob files. Here is a toy
+  // example. Let's assume we have three SSTs 1, 2, and 3, and four blob files
+  // 10, 11, 12, and 13, which correspond to the range that is eligible for GC
+  // and satisfy the garbage ratio threshold. Also, let's say SSTs 1 and 2 both
+  // rely on blob file 10 and potentially some higher-numbered ones, while SST 3
+  // relies on blob file 12 and potentially some higher-numbered ones. Then, the
+  // SST to oldest blob file mapping is as follows:
   //
   // SST file number               Oldest blob file number
   // 1                             10
@@ -3797,11 +3800,6 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
   //
   // Then, the oldest batch of blob files consists of blob files 10 and 11,
   // and we can get rid of them by forcing the compaction of SSTs 1 and 2.
-  //
-  // Note that the overall ratio of garbage computed for the batch has to exceed
-  // blob_garbage_collection_force_threshold and the entire batch has to be
-  // eligible for GC according to blob_garbage_collection_age_cutoff in order
-  // for us to schedule any compactions.
   const auto& oldest_meta = blob_files_.front();
   assert(oldest_meta);
 
@@ -3818,23 +3816,8 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     const auto& meta = blob_files_[count];
     assert(meta);
 
-    if (!meta->GetLinkedSsts().empty()) {
-      // Found the beginning of the next batch of blob files
-      break;
-    }
-
     sum_total_blob_bytes += meta->GetTotalBlobBytes();
     sum_garbage_blob_bytes += meta->GetGarbageBlobBytes();
-  }
-
-  if (count < blob_files_.size()) {
-    const auto& meta = blob_files_[count];
-    assert(meta);
-
-    if (meta->GetLinkedSsts().empty()) {
-      // Some files in the oldest batch are not eligible for GC
-      return;
-    }
   }
 
   if (sum_garbage_blob_bytes <
@@ -5143,6 +5126,7 @@ VersionSet::VersionSet(
       fs_(_db_options->fs, io_tracer),
       clock_(_db_options->clock),
       dbname_(dbname),
+      db_id_(db_id),
       db_options_(_db_options),
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
