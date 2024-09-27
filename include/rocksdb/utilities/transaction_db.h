@@ -460,7 +460,10 @@ class TransactionDB : public StackableDB {
   //
   // If old_txn is not null, BeginTransaction will reuse this Transaction
   // handle instead of allocating a new one.  This is an optimization to avoid
-  // extra allocations when repeatedly creating transactions.
+  // extra allocations when repeatedly creating transactions. **Note that this
+  // may not free all the allocated memory by the previous transaction (see
+  // WriteBatch::Clear()). To ensure that all allocated memory is freed, users
+  // must destruct the transaction object.
   virtual Transaction* BeginTransaction(
       const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions(),
