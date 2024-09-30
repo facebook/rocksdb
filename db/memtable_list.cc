@@ -713,7 +713,9 @@ void MemTableList::InstallNewVersion() {
   } else {
     // somebody else holds the current version, we need to create new one
     MemTableListVersion* version = current_;
+    uint64_t mlv_id = last_memtable_list_version_id_.fetch_add(1) + 1;
     current_ = new MemTableListVersion(&current_memory_usage_, *version);
+    current_->SetID(mlv_id);
     current_->Ref();
     version->Unref();
   }

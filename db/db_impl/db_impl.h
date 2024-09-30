@@ -2078,15 +2078,17 @@ class DBImpl : public DB {
   // from background error.
   Status WaitForFlushMemTable(ColumnFamilyData* cfd,
                               const uint64_t* flush_memtable_id = nullptr,
-                              bool resuming_from_bg_err = false) {
+                              bool resuming_from_bg_err = false,
+                              bool wait_for_results_readable = false) {
     return WaitForFlushMemTables({cfd}, {flush_memtable_id},
-                                 resuming_from_bg_err);
+                                 resuming_from_bg_err,
+                                 wait_for_results_readable);
   }
   // Wait for memtables to be flushed for multiple column families.
   Status WaitForFlushMemTables(
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const uint64_t*>& flush_memtable_ids,
-      bool resuming_from_bg_err);
+      bool resuming_from_bg_err, bool wait_for_results_readable);
 
   inline void WaitForPendingWrites() {
     mutex_.AssertHeld();

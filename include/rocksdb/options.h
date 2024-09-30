@@ -2037,7 +2037,19 @@ struct FlushOptions {
   // is performed by someone else (foreground call or background thread).
   // Default: false
   bool allow_write_stall;
-  FlushOptions() : wait(true), allow_write_stall(false) {}
+
+  // This flag is only effective if wait is also true. If true, the flush will
+  // wait until the flushed files are available for user reads. This means after
+  // this wait returns, all future reads will read the flushed files as opposed
+  // to the memtables. If false and wait is true, we just wait until flush is
+  // done, but not necessarily when the files are available for user reads. This
+  // means upcoming reads could still be reading the memtables.
+  // Default: false
+  bool wait_for_results_readable;
+  FlushOptions()
+      : wait(true),
+        allow_write_stall(false),
+        wait_for_results_readable(false) {}
 };
 
 // Create a Logger from provided DBOptions
