@@ -705,6 +705,16 @@ uint64_t InlineSkipList<Comparator>::ApproximateNumEntries(
   // (see sufficient_samples below). This seems to yield roughly consistent
   // relative error (stddev around 20%, less for large results) and roughly
   // consistent query time around the time of two memtable point queries.
+  //
+  // Engineering observation: it is tempting to think that taking into account
+  // what we already found in how many entries occur on higher levels, not just
+  // the first iterated level with a sufficient number of samples, would yield
+  // a more accurate estimate. But that doesn't work because of the particular
+  // correlations and independences of the data: each level higher is just an
+  // independently probabilistic filtering of the level below it. That
+  // filtering from level l to l+1 has no more information about levels
+  // 0 .. l-1 than we can get from level l. The structure of RandomHeight() is
+  // a clue to these correlations and independences.
 
   Node* lb = head_;
   Node* ub = nullptr;
