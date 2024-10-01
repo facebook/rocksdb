@@ -166,7 +166,11 @@ class MemTableListVersion {
   // REQUIRE: m is an immutable memtable
   void Remove(MemTable* m, autovector<MemTable*>* to_delete);
 
-  // Return true if memtable is trimmed
+  // Return true if the memtable list should be trimmed to get memory usage
+  // under budget.
+  bool HistoryShouldBeTrimmed(size_t usage);
+
+  // Trim history, Return true if memtable is trimmed
   bool TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
