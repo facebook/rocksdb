@@ -153,10 +153,11 @@ DEFINE_string(
     "randomtransaction,"
     "randomreplacekeys,"
     "timeseries,"
-    "getmergeoperands,",
+    "getmergeoperands,"
     "readrandomoperands,"
     "backup,"
-    "restore"
+    "restore,"
+    "approximatememtablestats",
 
     "Comma-separated list of operations to run in the specified"
     " order. Available benchmarks:\n"
@@ -243,9 +244,14 @@ DEFINE_string(
     "operation includes a rare but possible retry in case it got "
     "`Status::Incomplete()`. This happens upon encountering more keys than "
     "have ever been seen by the thread (or eight initially)\n"
-    "\tbackup --  Create a backup of the current DB and verify that a new backup is corrected. "
+    "\tbackup --  Create a backup of the current DB and verify that a new "
+    "backup is corrected. "
     "Rate limit can be specified through --backup_rate_limit\n"
-    "\trestore -- Restore the DB from the latest backup available, rate limit can be specified through --restore_rate_limit\n");
+    "\trestore -- Restore the DB from the latest backup available, rate limit "
+    "can be specified through --restore_rate_limit\n"
+    "\tapproximatememtablestats -- Tests accuracy of "
+    "GetApproximateMemTableStats, ideally\n"
+    "after fillrandom, where actual answer is batch_size");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -3621,6 +3627,8 @@ class Benchmark {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
         method = &Benchmark::ApproximateSizeRandom;
+      } else if (name == "approximatememtablestats") {
+        method = &Benchmark::ApproximateMemtableStats;
       } else if (name == "mixgraph") {
         method = &Benchmark::MixGraph;
       } else if (name == "readmissing") {
@@ -6296,6 +6304,35 @@ class Benchmark {
              read);
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
+  }
+
+  void ApproximateMemtableStats(ThreadState* thread) {
+    const size_t batch_size = entries_per_batch_;
+    std::unique_ptr<const char[]> skey_guard;
+    Slice skey = AllocateKey(&skey_guard);
+    std::unique_ptr<const char[]> ekey_guard;
+    Slice ekey = AllocateKey(&ekey_guard);
+    Duration duration(FLAGS_duration, reads_);
+    if (FLAGS_num < static_cast<int64_t>(batch_size)) {
+      std::terminate();
+    }
+    uint64_t range = static_cast<uint64_t>(FLAGS_num) - batch_size;
+    auto count_hist = std::make_shared<HistogramImpl>();
+    while (!duration.Done(1)) {
+      DB* db = SelectDB(thread);
+      uint64_t start_key = thread->rand.Uniform(range);
+      GenerateKeyFromInt(start_key, FLAGS_num, &skey);
+      uint64_t end_key = start_key + batch_size;
+      GenerateKeyFromInt(end_key, FLAGS_num, &ekey);
+      uint64_t count = UINT64_MAX;
+      uint64_t size = UINT64_MAX;
+      db->GetApproximateMemTableStats({skey, ekey}, &count, &size);
+      count_hist->Add(count);
+      thread->stats.FinishedOps(nullptr, db, 1, kOthers);
+    }
+    thread->stats.AddMessage("\nReported entry count stats (expected " +
+                             std::to_string(batch_size) + "):");
+    thread->stats.AddMessage("\n" + count_hist->ToString());
   }
 
   // Calls ApproximateSize over random key ranges.
