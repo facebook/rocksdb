@@ -23,17 +23,17 @@ $ java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar
 
 NOTE: you can append `-help` to the command above to see all of the JMH runtime options.
 
-#### Before (multi)
+### Performance bug in Java `get()`
 
-ah, multi doesn't use this... irrelevant
+See this [issue](https://github.com/facebook/rocksdb/issues/13023)
 
-#### Before (single)
+#### Before fix (single)
 
 Benchmark                              (columnFamilyTestType)  (keyCount)  (keySize)  (nthMissingKey)  (valueSize)   Mode  Cnt       Score      Error  Units
 GetNotFoundBenchmarks.getNotFoundEven        no_column_family      100000         12                2           16  thrpt   15  289245.405 ± 1727.615  ops/s
 GetNotFoundBenchmarks.getNotFoundOdd         no_column_family      100000         12                2           16  thrpt   15  717300.753 ± 7040.178  ops/s
 
-#### After (single)
+#### After fix (single)
 
 Benchmark                              (columnFamilyTestType)  (keyCount)  (keySize)  (nthMissingKey)  (valueSize)   Mode  Cnt       Score       Error  Units
 GetNotFoundBenchmarks.getNotFoundEven        no_column_family      100000         12                2           16  thrpt   15  856149.231 ± 10159.858  ops/s
