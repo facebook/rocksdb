@@ -44,18 +44,18 @@ public class LoggerFromOptionsTest {
 
     // Expect these configured options to be output in the log
     List<String> remainingMatches = new ArrayList<>(
-        Arrays.asList("Options.max_log_file_size: 1048576", "Options.log_file_time_to_roll: 2048",
-            "Options.keep_log_file_num: 24", "Options.recycle_log_file_num: 8"));
+        Arrays.asList("Options.max_log_file_size: 65536", "Options.log_file_time_to_roll: 2048",
+            "Options.keep_log_file_num: 8", "Options.recycle_log_file_num: 3"));
 
     // Configure the log in order for the dump of log configuration to the log to be unique
     // Open the DB readonly and give it the new logger to use
     try (final Options options = new Options()
                                      .setInfoLogLevel(InfoLogLevel.DEBUG_LEVEL)
                                      .setLogger(logger)
-                                     .setMaxLogFileSize(1024L * 1024L)
-                                     .setRecycleLogFileNum(8)
+                                     .setMaxLogFileSize(1024L * 64L)
+                                     .setRecycleLogFileNum(3)
                                      .setLogFileTimeToRoll(2048)
-                                     .setKeepLogFileNum(24);
+                                     .setKeepLogFileNum(8);
          final RocksDB db = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db.getDBOptions()).isNotNull();
     }
