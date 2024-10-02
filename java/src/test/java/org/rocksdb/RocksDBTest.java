@@ -626,6 +626,57 @@ public class RocksDBTest {
   }
 
   @Test
+  public void notFound() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      assertThat(db.get("key1".getBytes())).isNull();
+      assertThat(db.get("key2".getBytes())).isNull();
+
+      db.put("key1".getBytes(), "value".getBytes());
+      db.put("key2".getBytes(), "12345678".getBytes());
+
+      assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
+      assertThat(db.get("key2".getBytes())).isEqualTo("12345678".getBytes());
+
+      db.delete("key1".getBytes());
+      db.delete("key2".getBytes());
+
+      assertThat(db.get("key1".getBytes())).isNull();
+      assertThat(db.get("key2".getBytes())).isNull();
+    }
+  }
+
+  @Test
+  public void notFoundBB() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final ReadOptions readOptions = new ReadOptions()) {
+      final ByteBuffer keyBuffer = ByteBuffer.allocateDirect(256);
+      final ByteBuffer valueBuffer = ByteBuffer.allocateDirect(256);
+
+      keyBuffer.clear();
+      keyBuffer.put("key1".getBytes()).flip();
+
+      valueBuffer.clear();
+      assertThat(db.get(readOptions, keyBuffer, valueBuffer)).isEqualTo(RocksDB.NOT_FOUND);
+
+      db.put("key1".getBytes(), "value".getBytes());
+
+      keyBuffer.clear();
+      keyBuffer.put("key1".getBytes()).flip();
+      valueBuffer.clear();
+      assertThat(db.get(readOptions, keyBuffer, valueBuffer)).isEqualTo("value".getBytes().length);
+
+      db.delete("key1".getBytes());
+      assertThat(db.get(readOptions, keyBuffer, valueBuffer)).isEqualTo(RocksDB.NOT_FOUND);
+
+      db.put("key1".getBytes(), "".getBytes());
+      keyBuffer.clear();
+      keyBuffer.put("key1".getBytes()).flip();
+      valueBuffer.clear();
+      assertThat(db.get(readOptions, keyBuffer, valueBuffer)).isEqualTo(0);
+    }
+  }
+
+  @Test
   public void clipColumnFamily() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       db.put("key1".getBytes(), "value".getBytes());
