@@ -370,6 +370,7 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
 Status ExternalSstFileIngestionJob::Run() {
   Status status;
   SuperVersion* super_version = cfd_->GetSuperVersion();
+#ifndef NDEBUG
   // We should never run the job with a memtable that is overlapping
   // with the files we are ingesting
   bool need_flush = false;
@@ -381,6 +382,7 @@ Status ExternalSstFileIngestionJob::Run() {
     return Status::TryAgain("need_flush");
   }
   assert(status.ok() && need_flush == false);
+#endif
 
   bool force_global_seqno = false;
 

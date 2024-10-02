@@ -516,7 +516,7 @@ class MemTableList {
 
   // Last memtabe list version id, increase by 1 each time a new
   // MemtableListVersion is installed.
-  std::atomic<uint64_t> last_memtable_list_version_id_;
+  uint64_t last_memtable_list_version_id_;
 };
 
 // Installs memtable atomic flush results.
