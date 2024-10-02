@@ -216,7 +216,8 @@ class JByteArrayPinnableSlice {
   /**
    * @brief create a new Java buffer and copy the result into it
    *
-   * @return jbyteArray the java buffer holding the result, nullptr if a buffer could not be allocated
+   * @return jbyteArray the java buffer holding the result, nullptr if a buffer
+   * could not be allocated
    */
   jbyteArray NewByteArray() {
     const jint pinnable_len = static_cast<jint>(pinnable_slice_.size());
