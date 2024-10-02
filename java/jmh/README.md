@@ -35,10 +35,9 @@ GetNotFoundBenchmarks.getNotFoundOdd         no_column_family      100000       
 
 #### After (single)
 
-Benchmark                              (columnFamilyTestType)  (keyCount)  (keySize)  (nthMissingKey)  (valueSize)   Mode  Cnt       Score      Error  Units
-GetNotFoundBenchmarks.getNotFoundEven        no_column_family      100000         12                2           16  thrpt   15  846319.264 ± 3018.297  ops/s
-GetNotFoundBenchmarks.getNotFoundOdd         no_column_family      100000         12                2           16  thrpt   15  710512.885 ± 7933.743  ops/s
-
+Benchmark                              (columnFamilyTestType)  (keyCount)  (keySize)  (nthMissingKey)  (valueSize)   Mode  Cnt       Score       Error  Units
+GetNotFoundBenchmarks.getNotFoundEven        no_column_family      100000         12                2           16  thrpt   15  856149.231 ± 10159.858  ops/s
+GetNotFoundBenchmarks.getNotFoundOdd         no_column_family      100000         12                2           16  thrpt   15  726021.153 ±  4047.159  ops/s
 
 
 
