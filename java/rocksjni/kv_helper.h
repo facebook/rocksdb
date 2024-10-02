@@ -34,25 +34,32 @@ class KVException : public std::exception {
  public:
   // These values are expected on Java API calls to represent the result of a
   // Get() which has failed; a negative length is returned to indicate an error.
-  static const int kNotFound = -1;  // the key was not found in RocksDB
-  static const int kStatusError =
-      -2;  // there was some other error fetching the value for the key
+
+  // the key was not found in RocksDB
+  // The return of NotFound is usually not implemented through this exception
+  // mechanism, but rather it is tested directly from a RocksDB Status. This
+  // because it can be considered an expected result (e.g. for get() methods),
+  // and the performance of C++ exceptions is "horrible when thrown". This is
+  // still the most sensible place to define the value.
+  static const int kNotFound = -1;
+
+  // there was some other error fetching the value for the key
+  // Almost certainly this will mean that the JNI Env contains an exception,
+  // which will trigger a Java exception when the JNI call returns to Java.
+  static const int kStatusError = -2;
 
   /**
-   * @brief Throw a KVException (and potentially a Java exception) if the
+   * @brief Throw a KVException and a Java exception if the
    * RocksDB status is "bad"
+   *
+   *
    *
    * @param env JNI environment needed to create a Java exception
    * @param status RocksDB status to examine
    */
-  static void ThrowOnError(JNIEnv* env, const Status& status) {
-    if (status.ok()) {
-      return;
-    }
-    if (status.IsNotFound()) {
-      // IsNotFound does not generate a Java Exception, any other bad status
-      // does..
-      throw KVException(kNotFound);
+  static inline const Status ThrowOnError(JNIEnv* env, const Status& status) {
+    if (status.ok() || status.IsNotFound()) {
+      return status;
     }
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
     throw KVException(kStatusError);
