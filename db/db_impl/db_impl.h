@@ -2076,19 +2076,18 @@ class DBImpl : public DB {
   // memtable pending flush.
   // resuming_from_bg_err indicates whether the caller is attempting to resume
   // from background error.
-  Status WaitForFlushMemTable(ColumnFamilyData* cfd,
-                              const uint64_t* flush_memtable_id = nullptr,
-                              bool resuming_from_bg_err = false,
-                              bool wait_for_results_readable = false) {
+  Status WaitForFlushMemTable(
+      ColumnFamilyData* cfd, const uint64_t* flush_memtable_id = nullptr,
+      bool resuming_from_bg_err = false,
+      std::optional<FlushReason> flush_reason = std::nullopt) {
     return WaitForFlushMemTables({cfd}, {flush_memtable_id},
-                                 resuming_from_bg_err,
-                                 wait_for_results_readable);
+                                 resuming_from_bg_err, flush_reason);
   }
   // Wait for memtables to be flushed for multiple column families.
   Status WaitForFlushMemTables(
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const uint64_t*>& flush_memtable_ids,
-      bool resuming_from_bg_err, bool wait_for_results_readable);
+      bool resuming_from_bg_err, std::optional<FlushReason> flush_reason);
 
   inline void WaitForPendingWrites() {
     mutex_.AssertHeld();

@@ -1,1 +1,0 @@
-*New FlushOptions.wait_for_results_readable option will wait until the flushed files are available for read requests. After such a wait returns, all future reads are guaranteed to read the flushed files as opposed to the memtables.

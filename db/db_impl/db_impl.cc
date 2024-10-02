@@ -5987,7 +5987,6 @@ Status DBImpl::IngestExternalFiles(
 
     if (status.ok() && at_least_one_cf_need_flush) {
       FlushOptions flush_opts;
-      flush_opts.wait_for_results_readable = true;
       flush_opts.allow_write_stall = true;
       if (immutable_db_options_.atomic_flush) {
         mutex_.Unlock();
