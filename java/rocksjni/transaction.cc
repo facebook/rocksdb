@@ -177,9 +177,10 @@ jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BIIJ(
   try {
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+    auto status = ROCKSDB_NAMESPACE::KVException::ThrowOnError(
         env, txn->Get(*read_options, column_family_handle, key.slice(),
                       &value.pinnable_slice()));
+                      if (status.IsNotFound()) return nullptr;
     return value.NewByteArray();
   } catch (ROCKSDB_NAMESPACE::KVException&) {
     return nullptr;
@@ -200,8 +201,9 @@ jbyteArray Java_org_rocksdb_Transaction_get__JJ_3BII(
   try {
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+    auto status = ROCKSDB_NAMESPACE::KVException::ThrowOnError(
         env, txn->Get(*read_options, key.slice(), &value.pinnable_slice()));
+        if (status.IsNotFound()) return nullptr;
     return value.NewByteArray();
   } catch (ROCKSDB_NAMESPACE::KVException&) {
     return nullptr;
@@ -227,9 +229,10 @@ jint Java_org_rocksdb_Transaction_get__JJ_3BII_3BIIJ(
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
                                                      jval_part_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+    auto status = ROCKSDB_NAMESPACE::KVException::ThrowOnError(
         env, txn->Get(*read_options, column_family_handle, key.slice(),
                       &value.pinnable_slice()));
+                      if (status.IsNotFound()) return ROCKSDB_NAMESPACE::KVException::kNotFound;
     return value.Fetch();
   } catch (ROCKSDB_NAMESPACE::KVException& e) {
     return e.Code();
@@ -259,9 +262,10 @@ jint Java_org_rocksdb_Transaction_getDirect(JNIEnv* env, jclass, jlong jhandle,
                                               jkey_part_len);
     ROCKSDB_NAMESPACE::JDirectBufferPinnableSlice value(env, jval_bb, jval_off,
                                                         jval_part_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+    auto status = ROCKSDB_NAMESPACE::KVException::ThrowOnError(
         env, txn->Get(*read_options, column_family_handle, key.slice(),
                       &value.pinnable_slice()));
+                      if (status.IsNotFound()) return ROCKSDB_NAMESPACE::KVException::kNotFound;
     return value.Fetch();
   } catch (const ROCKSDB_NAMESPACE::KVException& e) {
     return e.Code();
@@ -359,10 +363,11 @@ jbyteArray Java_org_rocksdb_Transaction_getForUpdate__JJ_3BIIJZZ(
   try {
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+    auto status = ROCKSDB_NAMESPACE::KVException::ThrowOnError(
         env,
         txn->GetForUpdate(*read_options, column_family_handle, key.slice(),
                           &value.pinnable_slice(), jexclusive, jdo_validate));
+    if (status.IsNotFound()) return nullptr;
     return value.NewByteArray();
   } catch (ROCKSDB_NAMESPACE::KVException&) {
     return nullptr;
@@ -389,10 +394,11 @@ jint Java_org_rocksdb_Transaction_getForUpdate__JJ_3BII_3BIIJZZ(
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, jkey_off, jkey_part_len);
     ROCKSDB_NAMESPACE::JByteArrayPinnableSlice value(env, jval, jval_off,
                                                      jval_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+    auto status = ROCKSDB_NAMESPACE::KVException::ThrowOnError(
         env,
         txn->GetForUpdate(*read_options, column_family_handle, key.slice(),
                           &value.pinnable_slice(), jexclusive, jdo_validate));
+    if (status.IsNotFound()) return ROCKSDB_NAMESPACE::KVException::kNotFound;
     return value.Fetch();
   } catch (ROCKSDB_NAMESPACE::KVException& e) {
     return e.Code();
@@ -420,9 +426,10 @@ jint Java_org_rocksdb_Transaction_getDirect(
                                               jkey_part_len);
     ROCKSDB_NAMESPACE::JDirectBufferPinnableSlice value(env, jval_bb, jval_off,
                                                         jval_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+    auto status = ROCKSDB_NAMESPACE::KVException::ThrowOnError(
         env, txn->Get(*read_options, column_family_handle, key.slice(),
                       &value.pinnable_slice()));
+    if (status.IsNotFound()) return ROCKSDB_NAMESPACE::KVException::kNotFound;
     return value.Fetch();
   } catch (const ROCKSDB_NAMESPACE::KVException& e) {
     return e.Code();
@@ -451,10 +458,11 @@ jint Java_org_rocksdb_Transaction_getDirectForUpdate(
                                               jkey_part_len);
     ROCKSDB_NAMESPACE::JDirectBufferPinnableSlice value(env, jval_bb, jval_off,
                                                         jval_len);
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+    auto status = ROCKSDB_NAMESPACE::KVException::ThrowOnError(
         env,
         txn->GetForUpdate(*read_options, column_family_handle, key.slice(),
                           &value.pinnable_slice(), jexclusive, jdo_validate));
+    if (status.IsNotFound()) return ROCKSDB_NAMESPACE::KVException::kNotFound;
     return value.Fetch();
   } catch (const ROCKSDB_NAMESPACE::KVException& e) {
     return e.Code();
