@@ -1210,7 +1210,8 @@ jint Java_org_rocksdb_RocksDB_getDirect(JNIEnv* env, jclass /*jdb*/,
           db->DefaultColumnFamily(), key.slice(), &value.pinnable_slice());
     }
 
-    ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
+    auto status = ROCKSDB_NAMESPACE::KVException::ThrowOnError(env, s);
+    if (status.IsNotFound()) return ROCKSDB_NAMESPACE::KVException::kNotFound;
     return value.Fetch();
   } catch (ROCKSDB_NAMESPACE::KVException& e) {
     return e.Code();

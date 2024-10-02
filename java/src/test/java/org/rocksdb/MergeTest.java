@@ -111,6 +111,13 @@ public class MergeTest {
           final byte[] value = db.get(columnFamilyHandleList.get(1), "cfkey".getBytes());
           final String strValue = new String(value);
           assertThat(strValue).isEqualTo("aa,bb");
+
+          // check merge of bb under key2, with no preceding value
+          db.merge(columnFamilyHandleList.get(1), "cfkey2".getBytes(), "bb2".getBytes());
+
+          final byte[] value2 = db.get(columnFamilyHandleList.get(1), "cfkey2".getBytes());
+          final String strValue2 = new String(value2);
+          assertThat(strValue2).isEqualTo("bb2");
         } finally {
           for (final ColumnFamilyHandle handle : columnFamilyHandleList) {
             handle.close();
