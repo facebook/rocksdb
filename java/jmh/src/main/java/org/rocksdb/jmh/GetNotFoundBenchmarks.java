@@ -26,7 +26,8 @@ public class GetNotFoundBenchmarks {
   @Param({"no_column_family", "20_column_families"}) String columnFamilyTestType;
 
   @Param({"1000", "100000"}) int keyCount;
-  private final static int extraKeyCount = 16; // some slack to deal with odd/even tests rounding up key values
+  private final static int extraKeyCount =
+      16; // some slack to deal with odd/even tests rounding up key values
 
   @Param({"12"}) int keySize;
 
@@ -176,7 +177,7 @@ public class GetNotFoundBenchmarks {
    */
   @Benchmark
   public void getNotFoundEven(Blackhole blackhole) throws RocksDBException {
-    blackhole.consume(db.get(getColumnFamily(), getKeyArr(0,2)));
+    blackhole.consume(db.get(getColumnFamily(), getKeyArr(0, 2)));
   }
 
   /**
@@ -185,6 +186,6 @@ public class GetNotFoundBenchmarks {
    */
   @Benchmark
   public void getNotFoundOdd(Blackhole blackhole) throws RocksDBException {
-    blackhole.consume(db.get(getColumnFamily(), getKeyArr(1,2)));
+    blackhole.consume(db.get(getColumnFamily(), getKeyArr(1, 2)));
   }
 }
