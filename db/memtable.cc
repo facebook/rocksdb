@@ -622,18 +622,20 @@ class TimestampStrippingIterator : public InternalIterator {
       const ReadOptions& read_options,
       UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
       const SliceTransform* cf_prefix_extractor, size_t ts_sz)
-      : ts_sz_(ts_sz) {
-    assert(arena != nullptr);
+      : kind_(kind), ts_sz_(ts_sz) {
     assert(ts_sz_ != 0);
-    void* mem = arena->AllocateAligned(sizeof(MemTableIterator));
-    iter_.reset(new (mem) MemTableIterator(kind, memtable, read_options,
-                                           seqno_to_time_mapping, arena,
-                                           cf_prefix_extractor));
+    void* mem = arena ? arena->AllocateAligned(sizeof(MemTableIterator)) :
+                      operator new(sizeof(MemTableIterator));
+    iter_ = new (mem)
+        MemTableIterator(kind, memtable, read_options, seqno_to_time_mapping,
+                         arena, cf_prefix_extractor);
   }
 
   // No copying allowed
   TimestampStrippingIterator(const TimestampStrippingIterator&) = delete;
   void operator=(const TimestampStrippingIterator&) = delete;
+
+  ~TimestampStrippingIterator() { iter_->~MemTableIterator(); }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     iter_->SetPinnedItersMgr(pinned_iters_mgr);
@@ -642,27 +644,27 @@ class TimestampStrippingIterator : public InternalIterator {
   bool Valid() const override { return iter_->Valid(); }
   void Seek(const Slice& k) override {
     iter_->Seek(k);
-    UpdateKeyBuffer();
+    UpdateKeyAndValueBuffer();
   }
   void SeekForPrev(const Slice& k) override {
     iter_->SeekForPrev(k);
-    UpdateKeyBuffer();
+    UpdateKeyAndValueBuffer();
   }
   void SeekToFirst() override {
     iter_->SeekToFirst();
-    UpdateKeyBuffer();
+    UpdateKeyAndValueBuffer();
   }
   void SeekToLast() override {
     iter_->SeekToLast();
-    UpdateKeyBuffer();
+    UpdateKeyAndValueBuffer();
   }
   void Next() override {
     iter_->Next();
-    UpdateKeyBuffer();
+    UpdateKeyAndValueBuffer();
   }
   bool NextAndGetResult(IterateResult* result) override {
     iter_->Next();
-    UpdateKeyBuffer();
+    UpdateKeyAndValueBuffer();
     bool is_valid = Valid();
     if (is_valid) {
       result->key = key();
@@ -673,7 +675,7 @@ class TimestampStrippingIterator : public InternalIterator {
   }
   void Prev() override {
     iter_->Prev();
-    UpdateKeyBuffer();
+    UpdateKeyAndValueBuffer();
   }
   Slice key() const override {
     assert(Valid());
@@ -681,27 +683,45 @@ class TimestampStrippingIterator : public InternalIterator {
   }
 
   uint64_t write_unix_time() const override { return iter_->write_unix_time(); }
-  Slice value() const override { return iter_->value(); }
+  Slice value() const override {
+    if (kind_ == MemTableIterator::Kind::kRangeDelEntries) {
+      return value_buf_;
+    }
+    return iter_->value();
+  }
   Status status() const override { return iter_->status(); }
   bool IsKeyPinned() const override {
     // Key is only in a buffer that is updated in each iteration.
     return false;
   }
-  bool IsValuePinned() const override { return iter_->IsValuePinned(); }
+  bool IsValuePinned() const override {
+    if (kind_ == MemTableIterator::Kind::kRangeDelEntries) {
+      return false;
+    }
+    return iter_->IsValuePinned();
+  }
 
  private:
-  void UpdateKeyBuffer() {
+  void UpdateKeyAndValueBuffer() {
     key_buf_.clear();
+    if (kind_ == MemTableIterator::Kind::kRangeDelEntries) {
+      value_buf_.clear();
+    }
     if (!Valid()) {
       return;
     }
     Slice original_key = iter_->key();
     ReplaceInternalKeyWithMinTimestamp(&key_buf_, original_key, ts_sz_);
+    if (kind_ == MemTableIterator::Kind::kRangeDelEntries) {
+      Slice original_value = iter_->value();
+      AppendUserKeyWithMinTimestamp(&value_buf_, original_value, ts_sz_);
+    }
   }
-
+  MemTableIterator::Kind kind_;
   size_t ts_sz_;
-  ScopedArenaPtr<MemTableIterator> iter_;
+  MemTableIterator* iter_;
   std::string key_buf_;
+  std::string value_buf_;
 };
 
 InternalIterator* MemTable::NewTimestampStrippingIterator(
@@ -724,6 +744,30 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
   }
   return NewRangeTombstoneIteratorInternal(read_options, read_seq,
                                            immutable_memtable);
+}
+
+FragmentedRangeTombstoneIterator*
+MemTable::NewTimestampStrippingRangeTombstoneIterator(
+    const ReadOptions& read_options, SequenceNumber read_seq, size_t ts_sz) {
+  if (read_options.ignore_range_deletions ||
+      is_range_del_table_empty_.load(std::memory_order_relaxed)) {
+    return nullptr;
+  }
+  if (!timestamp_stripping_fragmented_range_tombstone_list_) {
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    auto* unfragmented_iter = new TimestampStrippingIterator(
+        MemTableIterator::kRangeDelEntries, *this, ReadOptions(),
+        /*seqno_to_time_mapping*/ nullptr, /* arena */ nullptr,
+        /* prefix_extractor */ nullptr, ts_sz);
+
+    timestamp_stripping_fragmented_range_tombstone_list_ =
+        std::make_unique<FragmentedRangeTombstoneList>(
+            std::unique_ptr<InternalIterator>(unfragmented_iter),
+            comparator_.comparator);
+  }
+  return new FragmentedRangeTombstoneIterator(
+      timestamp_stripping_fragmented_range_tombstone_list_.get(),
+      comparator_.comparator, read_seq, read_options.timestamp);
 }
 
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(

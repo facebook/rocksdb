@@ -1714,11 +1714,14 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
           range_del_iters;
       auto range_del_iter =
-          // This is called during recovery, where a live memtable is flushed
-          // directly. In this case, no fragmented tombstone list is cached in
-          // this memtable yet.
-          mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber,
-                                         false /* immutable_memtable */);
+          logical_strip_timestamp
+              ? mem->NewTimestampStrippingRangeTombstoneIterator(
+                    ro, kMaxSequenceNumber, ts_sz)
+              // This is called during recovery, where a live memtable is
+              // flushed directly. In this case, no fragmented tombstone list is
+              // cached in this memtable yet.
+              : mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber,
+                                               false /* immutable_memtable */);
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }

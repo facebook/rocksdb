@@ -908,8 +908,12 @@ Status FlushJob::WriteLevel0Table() {
             m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
                            /*prefix_extractor=*/nullptr));
       }
-      auto* range_del_iter = m->NewRangeTombstoneIterator(
-          ro, kMaxSequenceNumber, true /* immutable_memtable */);
+      auto* range_del_iter =
+          logical_strip_timestamp
+              ? m->NewTimestampStrippingRangeTombstoneIterator(
+                    ro, kMaxSequenceNumber, ts_sz)
+              : m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber,
+                                             true /* immutable_memtable */);
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
