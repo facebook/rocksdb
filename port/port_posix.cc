@@ -42,13 +42,13 @@ extern const bool kDefaultToAdaptiveMutex = false;
 
 namespace port {
 
-static int PthreadCall(const char* label, int result) {
-  if (result != 0 && result != ETIMEDOUT) {
-    fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
-    abort();
-  }
-  return result;
-}
+// static int PthreadCall(const char* label, int result) {
+//   if (result != 0 && result != ETIMEDOUT) {
+//     fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
+//     abort();
+//   }
+//   return result;
+// }
 
 Mutex::Mutex(bool adaptive) {
 }
@@ -97,7 +97,7 @@ bool CondVar::TimedWait(uint64_t abs_time_us) {
 #endif
   auto abs_now_us = std::chrono::duration_cast<std::chrono::microseconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count();
-  uint64_t timeout = abs_time_us > abs_now_us ? abs_time_us - abs_now_us : 0;
+  uint64_t timeout = abs_time_us > uint64_t(abs_now_us) ? abs_time_us - abs_now_us : 0;
   int ret = cv_.wait(mu_->mu_, timeout);
 #ifndef NDEBUG
   mu_->locked_ = true;

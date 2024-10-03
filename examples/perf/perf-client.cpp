@@ -63,7 +63,7 @@ void run_get(photon::net::EndPoint ep, photon::rpc::StubPool* pool) {
 
         KvGet::Response resp;
         ret = stub->call<KvGet>(req, resp);
-        if (ret < 0 || resp.ret != 0 || resp.value.size() != FLAGS_value_size) {
+        if (ret < 0 || resp.ret != 0 || resp.value.size() != (uint64_t) FLAGS_value_size) {
             abort();
         }
     }

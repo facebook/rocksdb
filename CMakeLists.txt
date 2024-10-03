@@ -48,8 +48,10 @@ include(FetchContent)
 set(PHOTON_ENABLE_URING OFF CACHE INTERNAL "Enable iouring")
 FetchContent_Declare(
         photon
-        GIT_REPOSITORY https://github.com/alibaba/PhotonLibOS.git
-        GIT_TAG release/0.8
+        # GIT_REPOSITORY https://github.com/alibaba/PhotonLibOS.git
+        GIT_REPOSITORY https://github.com/beef9999/PhotonLibOS.git
+        # GIT_TAG release/0.8
+        GIT_TAG fix-more-Wshadow-warnings
 )
 FetchContent_MakeAvailable(photon)
 set(PHOTON_INCLUDE_DIR ${photon_SOURCE_DIR}/include/)
@@ -58,9 +60,9 @@ if (PHOTON_ENABLE_URING)
     add_compile_definitions("PHOTON_ENABLE_URING")
 endif ()
 
-option(INIT_PHOTON_IN_ROCKSDB "INIT PHOTON IN ROCKSDB" OFF)
-if(INIT_PHOTON_IN_ROCKSDB)
-    add_definitions(-DINIT_PHOTON_IN_ROCKSDB)
+option(INIT_PHOTON_IN_ENV "INIT PHOTON IN ROCKSDB" OFF)
+if(INIT_PHOTON_IN_ENV)
+    add_definitions(-DINIT_PHOTON_IN_ENV)
 endif()
 
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
