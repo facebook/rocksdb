@@ -10,6 +10,7 @@
 #pragma once
 #include <stdio.h>
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>
@@ -562,6 +563,9 @@ inline uint64_t GetInternalKeySeqno(const Slice& internal_key) {
 //    allocation for smaller keys.
 // 3. It tracks user key or internal key, and allow conversion between them.
 class IterKey {
+  static constexpr size_t kInlineBufferSize = 39;
+  // This is only used by user-defined timestamps in MemTable only feature,
+  // which only supports uint64_t timestamps.
   static constexpr char kTsMin[] = "\x00\x00\x00\x00\x00\x00\x00\x00";
 
  public:
@@ -569,10 +573,10 @@ class IterKey {
       : buf_(space_),
         key_(buf_),
         key_size_(0),
-        buf_size_(sizeof(space_)),
+        buf_size_(kInlineBufferSize),
         is_user_key_(true),
         secondary_buf_(space_for_secondary_buf_),
-        secondary_buf_size_(sizeof(space_for_secondary_buf_)) {}
+        secondary_buf_size_(kInlineBufferSize) {}
   // No copying allowed
   IterKey(const IterKey&) = delete;
   void operator=(const IterKey&) = delete;
@@ -827,7 +831,7 @@ class IterKey {
   const char* key_;
   size_t key_size_;
   size_t buf_size_;
-  char space_[39];  // Avoid allocation for short keys
+  char space_[kInlineBufferSize];  // Avoid allocation for short keys
   bool is_user_key_;
   // Below variables are only used by user-defined timestamps in MemTable only
   // feature for iterating keys in an index block or a data block.
@@ -836,13 +840,14 @@ class IterKey {
   // will be modified in accordance to point to the right one. This is to avoid
   // an extra copy when we need to copy some shared bytes from previous key
   // (delta encoding), and we need to pad a min timestamp at the right location.
+  char space_for_secondary_buf_[kInlineBufferSize];  // Avoid allocation for
+                                                     // short keys
   char* secondary_buf_;
-  char space_for_secondary_buf_[39];  // Avoid allocation for short keys
   size_t secondary_buf_size_;
   // Use to track the pieces that together make the whole key. We then copy
   // these pieces in order either into buf_ or secondary_buf_ depending on where
   // the previous key is held.
-  Slice key_slices_[5];
+  std::array<Slice, 5> key_slices_;
   // End of variables used by user-defined timestamps in MemTable only feature.
 
   Slice SetKeyImpl(const Slice& key, bool copy) {
@@ -879,11 +884,11 @@ class IterKey {
     size_t actual_total_bytes = 0;
 #endif  // NDEBUG
     for (size_t i = 0; i < num_key_slices; i++) {
-      size_t key_size = key_slices_[i].size();
-      memcpy(buf_start, key_slices_[i].data(), key_size);
-      buf_start += key_size;
+      size_t key_slice_size = key_slices_[i].size();
+      memcpy(buf_start, key_slices_[i].data(), key_slice_size);
+      buf_start += key_slice_size;
 #ifndef NDEBUG
-      actual_total_bytes += key_size;
+      actual_total_bytes += key_slice_size;
 #endif  // NDEBUG
     }
 #ifndef NDEBUG
@@ -894,26 +899,30 @@ class IterKey {
   }
 
   void ResetBuffer() {
+    if (key_ == buf_) {
+      key_size_ = 0;
+    }
     if (buf_ != space_) {
       delete[] buf_;
       buf_ = space_;
     }
-    buf_size_ = sizeof(space_);
-    key_size_ = 0;
+    buf_size_ = kInlineBufferSize;
   }
 
   void ResetSecondaryBuffer() {
+    if (key_ == secondary_buf_) {
+      key_size_ = 0;
+    }
     if (secondary_buf_ != space_for_secondary_buf_) {
       delete[] secondary_buf_;
       secondary_buf_ = space_for_secondary_buf_;
     }
-    secondary_buf_size_ = sizeof(space_for_secondary_buf_);
-    key_size_ = 0;
+    secondary_buf_size_ = kInlineBufferSize;
   }
 
   // Enlarge the buffer size if needed based on key_size.
-  // By default, static allocated buffer is used. Once there is a key
-  // larger than the static allocated buffer, another buffer is dynamically
+  // By default, inline buffer is used. Once there is a key
+  // larger than the inline buffer, another buffer is dynamically
   // allocated, until a larger key buffer is requested. In that case, we
   // reallocate buffer and delete the old one.
   void EnlargeBufferIfNeeded(size_t key_size) {
@@ -933,6 +942,7 @@ class IterKey {
                                      const size_t left_sz, const size_t ts_sz,
                                      size_t* next_key_slice_idx,
                                      bool* ts_added) {
+    assert(next_key_slice_idx);
     if (add_timestamp && !*ts_added) {
       assert(slice_sz >= left_sz);
       key_slices_[(*next_key_slice_idx)++] = Slice(slice_data, left_sz);
@@ -943,6 +953,7 @@ class IterKey {
     } else {
       key_slices_[(*next_key_slice_idx)++] = Slice(slice_data, slice_sz);
     }
+    assert(*next_key_slice_idx <= 5);
   }
 };
 

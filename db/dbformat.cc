@@ -272,7 +272,7 @@ LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s,
 
 void IterKey::EnlargeBuffer(size_t key_size) {
   // If size is smaller than buffer size, continue using current buffer,
-  // or the static allocated one, as default
+  // or the inline one, as default
   assert(key_size > buf_size_);
   // Need to enlarge the buffer.
   ResetBuffer();
@@ -282,7 +282,7 @@ void IterKey::EnlargeBuffer(size_t key_size) {
 
 void IterKey::EnlargeSecondaryBufferIfNeeded(size_t key_size) {
   // If size is smaller than buffer size, continue using current buffer,
-  // or the static allocated one, as default
+  // or the inline one, as default
   if (key_size <= secondary_buf_size_) {
     return;
   }
