@@ -141,6 +141,11 @@ class MemTableListVersion {
   // Return kMaxSequenceNumber if the list is empty.
   SequenceNumber GetFirstSequenceNumber() const;
 
+  // REQUIRES: db_mutex held.
+  void SetID(uint64_t id) { id_ = id; }
+
+  uint64_t GetID() const { return id_; }
+
  private:
   friend class MemTableList;
 
@@ -161,7 +166,11 @@ class MemTableListVersion {
   // REQUIRE: m is an immutable memtable
   void Remove(MemTable* m, autovector<MemTable*>* to_delete);
 
-  // Return true if memtable is trimmed
+  // Return true if the memtable list should be trimmed to get memory usage
+  // under budget.
+  bool HistoryShouldBeTrimmed(size_t usage);
+
+  // Trim history, Return true if memtable is trimmed
   bool TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
@@ -205,6 +214,9 @@ class MemTableListVersion {
   int refs_ = 0;
 
   size_t* parent_memtable_list_memory_usage_;
+
+  // MemtableListVersion id to track for flush results checking.
+  uint64_t id_ = 0;
 };
 
 // This class stores references to all the immutable memtables.
@@ -235,7 +247,8 @@ class MemTableList {
         flush_requested_(false),
         current_memory_usage_(0),
         current_memory_allocted_bytes_excluding_last_(0),
-        current_has_history_(false) {
+        current_has_history_(false),
+        last_memtable_list_version_id_(0) {
     current_->Ref();
   }
 
@@ -500,6 +513,10 @@ class MemTableList {
 
   // Cached value of current_->HasHistory().
   std::atomic<bool> current_has_history_;
+
+  // Last memtabe list version id, increase by 1 each time a new
+  // MemtableListVersion is installed.
+  uint64_t last_memtable_list_version_id_;
 };
 
 // Installs memtable atomic flush results.

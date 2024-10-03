@@ -359,11 +359,15 @@ bool MemTableListVersion::MemtableLimitExceeded(size_t usage) {
   }
 }
 
+bool MemTableListVersion::HistoryShouldBeTrimmed(size_t usage) {
+  return MemtableLimitExceeded(usage) && !memlist_history_.empty();
+}
+
 // Make sure we don't use up too much space in history
 bool MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete,
                                       size_t usage) {
   bool ret = false;
-  while (MemtableLimitExceeded(usage) && !memlist_history_.empty()) {
+  while (HistoryShouldBeTrimmed(usage)) {
     MemTable* x = memlist_history_.back();
     memlist_history_.pop_back();
 
@@ -661,8 +665,16 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
 }
 
 bool MemTableList::TrimHistory(autovector<MemTable*>* to_delete, size_t usage) {
+  // Check if history trim is needed first, so that we can avoid installing a
+  // new MemTableListVersion without installing a SuperVersion (installed based
+  // on return value of this function).
+  if (!current_->HistoryShouldBeTrimmed(usage)) {
+    ResetTrimHistoryNeeded();
+    return false;
+  }
   InstallNewVersion();
   bool ret = current_->TrimHistory(to_delete, usage);
+  assert(ret);
   UpdateCachedValuesFromMemTableListVersion();
   ResetTrimHistoryNeeded();
   return ret;
@@ -714,6 +726,7 @@ void MemTableList::InstallNewVersion() {
     // somebody else holds the current version, we need to create new one
     MemTableListVersion* version = current_;
     current_ = new MemTableListVersion(&current_memory_usage_, *version);
+    current_->SetID(++last_memtable_list_version_id_);
     current_->Ref();
     version->Unref();
   }

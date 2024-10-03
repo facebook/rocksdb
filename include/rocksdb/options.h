@@ -2037,6 +2037,7 @@ struct FlushOptions {
   // is performed by someone else (foreground call or background thread).
   // Default: false
   bool allow_write_stall;
+
   FlushOptions() : wait(true), allow_write_stall(false) {}
 };
 
