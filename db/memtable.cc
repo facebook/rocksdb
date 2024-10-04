@@ -625,18 +625,15 @@ class TimestampStrippingIterator : public InternalIterator {
       : ts_sz_(ts_sz) {
     assert(arena != nullptr);
     assert(ts_sz_ != 0);
-    void* mem = arena ? arena->AllocateAligned(sizeof(MemTableIterator)) :
-                      operator new(sizeof(MemTableIterator));
-    iter_ = new (mem)
-        MemTableIterator(kind, memtable, read_options, seqno_to_time_mapping,
-                         arena, cf_prefix_extractor);
+    void* mem = arena->AllocateAligned(sizeof(MemTableIterator));
+    iter_.reset(new (mem) MemTableIterator(kind, memtable, read_options,
+                                           seqno_to_time_mapping, arena,
+                                           cf_prefix_extractor));
   }
 
   // No copying allowed
   TimestampStrippingIterator(const TimestampStrippingIterator&) = delete;
   void operator=(const TimestampStrippingIterator&) = delete;
-
-  ~TimestampStrippingIterator() override { iter_->~MemTableIterator(); }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     iter_->SetPinnedItersMgr(pinned_iters_mgr);
@@ -703,7 +700,7 @@ class TimestampStrippingIterator : public InternalIterator {
   }
 
   size_t ts_sz_;
-  MemTableIterator* iter_;
+  ScopedArenaPtr<MemTableIterator> iter_;
   std::string key_buf_;
 };
 

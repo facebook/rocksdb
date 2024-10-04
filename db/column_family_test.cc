@@ -24,7 +24,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
-#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -3888,25 +3887,14 @@ TEST_F(ManualFlushSkipRetainUDTTest, FlushRemovesStaleEntries) {
   }
 
   ASSERT_OK(Flush(0));
-  std::vector<LiveFileMetaData> live_files;
-  db_->GetLiveFilesMetaData(&live_files);
-  ASSERT_EQ(1, live_files.size());
-  std::string filename = live_files[0].directory + kFilePathSeparator +
-                         live_files[0].relative_filename;
-  Options options(db_options_, column_family_options_);
-  SstFileReader reader(options);
-  ASSERT_OK(reader.Open(filename));
-  ASSERT_OK(reader.VerifyChecksum());
-  {
-    std::unique_ptr<Iterator> table_iterator = reader.NewTableIterator();
-    int num_entries = 0;
-    table_iterator->SeekToFirst();
-    while (table_iterator->Valid()) {
-      num_entries += 1;
-      table_iterator->Next();
-    }
-    ASSERT_EQ(1, num_entries);
-  }
+  TablePropertiesCollection tables_properties;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&tables_properties));
+  ASSERT_EQ(1, tables_properties.size());
+  std::shared_ptr<const TableProperties> table_properties =
+      tables_properties.begin()->second;
+  ASSERT_EQ(1, table_properties->num_entries);
+  ASSERT_EQ(0, table_properties->num_deletions);
+  ASSERT_EQ(0, table_properties->num_range_deletions);
   CheckEffectiveCutoffTime(100);
   CheckAutomaticFlushRetainUDT(101);
 
