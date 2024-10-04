@@ -951,6 +951,8 @@ TEST_F(ImportColumnFamilyTest, AssignEpochNumberToMultipleCF) {
   Options options = CurrentOptions();
   options.level_compaction_dynamic_level_bytes = true;
   options.max_background_jobs = 8;
+  // Always allow parallel compaction
+  options.soft_pending_compaction_bytes_limit = 10;
   env_->SetBackgroundThreads(2, Env::LOW);
   env_->SetBackgroundThreads(0, Env::BOTTOM);
   CreateAndReopenWithCF({"CF1", "CF2"}, options);

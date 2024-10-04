@@ -3012,19 +3012,25 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupForCompactionDebt) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   {
-    // 1MB debt is way bigger than bottommost data so definitely triggers
-    // speedup.
     VersionStorageInfo* vstorage = cfd->current()->storage_info();
-    vstorage->TEST_set_estimated_compaction_needed_bytes(1048576 /* 1MB */,
-                                                         dbmu);
-    RecalculateWriteStallConditions(cfd, mutable_cf_options);
-    ASSERT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
-
     // Eight bytes is way smaller than bottommost data so definitely does not
     // trigger speedup.
     vstorage->TEST_set_estimated_compaction_needed_bytes(8, dbmu);
     RecalculateWriteStallConditions(cfd, mutable_cf_options);
     ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+
+    // 1MB is much larger than bottommost level size. However, since it's too
+    // small in terms of absolute size, it does not trigger parallel compaction
+    // in this case (see GetPendingCompactionBytesForCompactionSpeedup()).
+    vstorage->TEST_set_estimated_compaction_needed_bytes(1048576 /* 1MB */,
+                                                         dbmu);
+    RecalculateWriteStallConditions(cfd, mutable_cf_options);
+    ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+
+    vstorage->TEST_set_estimated_compaction_needed_bytes(
+        2 * mutable_cf_options.max_bytes_for_level_base, dbmu);
+    RecalculateWriteStallConditions(cfd, mutable_cf_options);
+    ASSERT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
   }
 }
 

@@ -901,7 +901,11 @@ uint64_t GetPendingCompactionBytesForCompactionSpeedup(
     return slowdown_threshold;
   }
 
-  uint64_t size_threshold = bottommost_files_size / kBottommostSizeDivisor;
+  // Prevent a small CF from triggering parallel compactions for other CFs.
+  // Require compaction debt to be more than a full L0 to Lbase compaction.
+  const uint64_t kMinDebtSize = 2 * mutable_cf_options.max_bytes_for_level_base;
+  uint64_t size_threshold =
+      std::max(bottommost_files_size / kBottommostSizeDivisor, kMinDebtSize);
   return std::min(size_threshold, slowdown_threshold);
 }
 
