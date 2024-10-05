@@ -1,0 +1,1 @@
+* Fix an issue in level compaction where a small CF with small compaction debt can cause the DB to allow parallel compactions. (#13054) 

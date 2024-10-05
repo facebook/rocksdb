@@ -1826,21 +1826,30 @@ TEST_F(DBTest, GetApproximateMemTableStats) {
   uint64_t count;
   uint64_t size;
 
+  // Because Random::GetTLSInstance() seed is reset in DBTestBase,
+  // this test is deterministic.
+
   std::string start = Key(50);
   std::string end = Key(60);
   Range r(start, end);
   db_->GetApproximateMemTableStats(r, &count, &size);
-  ASSERT_GT(count, 0);
-  ASSERT_LE(count, N);
-  ASSERT_GT(size, 6000);
-  ASSERT_LT(size, 204800);
+  // When actual count is <= 10, it returns that as the minimum
+  EXPECT_EQ(count, 10);
+  EXPECT_EQ(size, 10440);
+
+  start = Key(20);
+  end = Key(100);
+  r = Range(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  EXPECT_EQ(count, 72);
+  EXPECT_EQ(size, 75168);
 
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
   db_->GetApproximateMemTableStats(r, &count, &size);
-  ASSERT_EQ(count, 0);
-  ASSERT_EQ(size, 0);
+  EXPECT_EQ(count, 0);
+  EXPECT_EQ(size, 0);
 
   ASSERT_OK(Flush());
 
@@ -1848,8 +1857,8 @@ TEST_F(DBTest, GetApproximateMemTableStats) {
   end = Key(60);
   r = Range(start, end);
   db_->GetApproximateMemTableStats(r, &count, &size);
-  ASSERT_EQ(count, 0);
-  ASSERT_EQ(size, 0);
+  EXPECT_EQ(count, 0);
+  EXPECT_EQ(size, 0);
 
   for (int i = 0; i < N; i++) {
     ASSERT_OK(Put(Key(1000 + i), rnd.RandomString(1024)));
@@ -1857,10 +1866,11 @@ TEST_F(DBTest, GetApproximateMemTableStats) {
 
   start = Key(100);
   end = Key(1020);
+  // Actually 20 keys in the range ^^
   r = Range(start, end);
   db_->GetApproximateMemTableStats(r, &count, &size);
-  ASSERT_GT(count, 20);
-  ASSERT_GT(size, 6000);
+  EXPECT_EQ(count, 20);
+  EXPECT_EQ(size, 20880);
 }
 
 TEST_F(DBTest, ApproximateSizes) {

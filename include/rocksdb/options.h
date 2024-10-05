@@ -388,6 +388,8 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // block cache entries (shared among copies) are obsolete. Such a scenerio
   // is the best case for uncache_aggressiveness = 0.
   //
+  // When using allow_mmap_reads=true, this option is ignored (no un-caching).
+  //
   // Once validated in production, the default will likely change to something
   // around 300.
   uint32_t uncache_aggressiveness = 0;
@@ -2037,6 +2039,7 @@ struct FlushOptions {
   // is performed by someone else (foreground call or background thread).
   // Default: false
   bool allow_write_stall;
+
   FlushOptions() : wait(true), allow_write_stall(false) {}
 };
 

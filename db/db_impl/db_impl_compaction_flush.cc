@@ -2407,7 +2407,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
-        flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */);
+        flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */,
+        flush_reason);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
       tmp_cfd->UnrefAndTryDelete();
@@ -2549,7 +2550,8 @@ Status DBImpl::AtomicFlushMemTables(
     }
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
-        flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */);
+        flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */,
+        flush_reason);
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* cfd : cfds) {
       cfd->UnrefAndTryDelete();
@@ -2612,7 +2614,7 @@ Status DBImpl::RetryFlushesForErrorRecovery(FlushReason flush_reason,
       flush_memtable_id_ptrs.push_back(&flush_memtable_id);
     }
     s = WaitForFlushMemTables(cfds, flush_memtable_id_ptrs,
-                              true /* resuming_from_bg_err */);
+                              true /* resuming_from_bg_err */, flush_reason);
     mutex_.Lock();
   }
 
@@ -2712,7 +2714,7 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
 Status DBImpl::WaitForFlushMemTables(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const uint64_t*>& flush_memtable_ids,
-    bool resuming_from_bg_err) {
+    bool resuming_from_bg_err, std::optional<FlushReason> flush_reason) {
   int num = static_cast<int>(cfds.size());
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
@@ -2750,7 +2752,15 @@ Status DBImpl::WaitForFlushMemTables(
                  (flush_memtable_ids[i] != nullptr &&
                   cfds[i]->imm()->GetEarliestMemTableID() >
                       *flush_memtable_ids[i])) {
-        ++num_finished;
+        // Make file ingestion's flush wait until SuperVersion is also updated
+        // since after flush, it does range overlapping check and file level
+        // assignment with the current SuperVersion.
+        if (!flush_reason.has_value() ||
+            flush_reason.value() != FlushReason::kExternalFileIngestion ||
+            cfds[i]->GetSuperVersion()->imm->GetID() ==
+                cfds[i]->imm()->current()->GetID()) {
+          ++num_finished;
+        }
       }
     }
     if (1 == num_dropped && 1 == num) {

@@ -16,11 +16,8 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
       const Comparator* comparator,
       const std::vector<ColumnFamilyHandle*>& column_families,
       const std::vector<Iterator*>& child_iterators)
-      : impl_(
-            comparator, column_families, child_iterators, [this]() { Reset(); },
-            [this](const autovector<MultiCfIteratorInfo>& items) {
-              AddToAttributeGroups(items);
-            }) {}
+      : impl_(comparator, column_families, child_iterators, ResetFunc(this),
+              PopulateFunc(this)) {}
   ~AttributeGroupIteratorImpl() override {}
 
   // No copy allowed
@@ -46,7 +43,33 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
   void Reset() { attribute_groups_.clear(); }
 
  private:
-  MultiCfIteratorImpl impl_;
+  class ResetFunc {
+   public:
+    explicit ResetFunc(AttributeGroupIteratorImpl* iter) : iter_(iter) {}
+
+    void operator()() const {
+      assert(iter_);
+      iter_->Reset();
+    }
+
+   private:
+    AttributeGroupIteratorImpl* iter_;
+  };
+
+  class PopulateFunc {
+   public:
+    explicit PopulateFunc(AttributeGroupIteratorImpl* iter) : iter_(iter) {}
+
+    void operator()(const autovector<MultiCfIteratorInfo>& items) const {
+      assert(iter_);
+      iter_->AddToAttributeGroups(items);
+    }
+
+   private:
+    AttributeGroupIteratorImpl* iter_;
+  };
+
+  MultiCfIteratorImpl<ResetFunc, PopulateFunc> impl_;
   IteratorAttributeGroups attribute_groups_;
   void AddToAttributeGroups(const autovector<MultiCfIteratorInfo>& items);
 };

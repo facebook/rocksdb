@@ -137,7 +137,13 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 
 BlockBasedTable::~BlockBasedTable() {
   auto ua = rep_->uncache_aggressiveness.LoadRelaxed();
-  if (ua > 0 && rep_->table_options.block_cache) {
+  // NOTE: there is an undiagnosed incompatibility with mmap reads,
+  // where attempting to read the index below can result in bus error.
+  // In theory the mmap should remain in place until destruction of
+  // rep_, so even a page fault should be satisfiable. But also, combining
+  // mmap reads with block cache is weird, so it's not a concerning loss.
+  if (ua > 0 && rep_->table_options.block_cache &&
+      !rep_->ioptions.allow_mmap_reads) {
     if (rep_->filter) {
       rep_->filter->EraseFromCacheBeforeDestruction(ua);
     }

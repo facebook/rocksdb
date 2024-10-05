@@ -21,14 +21,13 @@ struct MultiCfIteratorInfo {
   int order;
 };
 
+template <typename ResetFunc, typename PopulateFunc>
 class MultiCfIteratorImpl {
  public:
-  MultiCfIteratorImpl(
-      const Comparator* comparator,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const std::vector<Iterator*>& child_iterators,
-      std::function<void()> reset_func,
-      std::function<void(const autovector<MultiCfIteratorInfo>&)> populate_func)
+  MultiCfIteratorImpl(const Comparator* comparator,
+                      const std::vector<ColumnFamilyHandle*>& column_families,
+                      const std::vector<Iterator*>& child_iterators,
+                      ResetFunc reset_func, PopulateFunc populate_func)
       : comparator_(comparator),
         heap_(MultiCfMinHeap(
             MultiCfHeapItemComparator<std::greater<int>>(comparator_))),
@@ -136,8 +135,8 @@ class MultiCfIteratorImpl {
 
   MultiCfIterHeap heap_;
 
-  std::function<void()> reset_func_;
-  std::function<void(autovector<MultiCfIteratorInfo>)> populate_func_;
+  ResetFunc reset_func_;
+  PopulateFunc populate_func_;
 
   Iterator* current() const {
     if (std::holds_alternative<MultiCfMaxHeap>(heap_)) {
@@ -163,11 +162,11 @@ class MultiCfIteratorImpl {
   }
 
   void InitMinHeap() {
-    heap_.emplace<MultiCfMinHeap>(
+    heap_.template emplace<MultiCfMinHeap>(
         MultiCfHeapItemComparator<std::greater<int>>(comparator_));
   }
   void InitMaxHeap() {
-    heap_.emplace<MultiCfMaxHeap>(
+    heap_.template emplace<MultiCfMaxHeap>(
         MultiCfHeapItemComparator<std::less<int>>(comparator_));
   }
 
