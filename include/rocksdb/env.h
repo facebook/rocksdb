@@ -1458,11 +1458,11 @@ Env* NewTimedEnv(Env* base_env);
 class PhotonEnv {
 public:
     static PhotonEnv& Singleton() {
-        // 16 vCPU. Hardcoded for now.
+        // 8 vCPU. Hardcoded for now.
 #ifdef PHOTON_ENABLE_URING
-        static PhotonEnv instance(16, photon::INIT_EVENT_IOURING);
+        static PhotonEnv instance(8, photon::INIT_EVENT_IOURING);
 #else
-        static PhotonEnv instance(16, photon::INIT_EVENT_EPOLL);
+        static PhotonEnv instance(8, photon::INIT_EVENT_EPOLL);
 #endif
         return instance;
     }
