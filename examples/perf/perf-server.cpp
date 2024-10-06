@@ -148,7 +148,7 @@ public:
             options.allow_concurrent_memtable_write = false;
             options.enable_pipelined_write = false;
         } else {
-            options.IncreaseParallelism();
+            options.IncreaseParallelism(8);
         }
         options.OptimizeLevelStyleCompaction();
         options.compression = rocksdb::CompressionType::kNoCompression;
