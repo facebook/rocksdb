@@ -145,12 +145,12 @@ public:
         // Optimize RocksDB
         if (FLAGS_use_photon) {
             options.IncreaseParallelism(256);
+            options.allow_concurrent_memtable_write = false;
+            options.enable_pipelined_write = false;
         } else {
             options.IncreaseParallelism();
         }
         options.OptimizeLevelStyleCompaction();
-        options.allow_concurrent_memtable_write = false;
-        options.enable_pipelined_write = false;
         options.compression = rocksdb::CompressionType::kNoCompression;
         // create the DB if it's not already present
         options.create_if_missing = true;

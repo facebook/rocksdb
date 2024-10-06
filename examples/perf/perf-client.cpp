@@ -17,7 +17,7 @@ DEFINE_int32(value_size, 256 * 1024, "value size");
 
 static std::string random_value(size_t size) {
     static std::random_device rd;
-    static thread_local std::mt19937 gen(rd());
+    static thread_local std::mt19937_64 gen(rd());
     static const char alphabet[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     std::string s;
     s.resize(size);
@@ -29,7 +29,7 @@ static std::string random_value(size_t size) {
 
 static std::string random_key() {
     static std::random_device rd;
-    static thread_local std::mt19937 gen(rd());
+    static thread_local std::mt19937_64 gen(rd());
     return std::to_string(gen() % FLAGS_key_num);
 }
 
