@@ -357,7 +357,7 @@ struct DBOptions {
   // `total_threads` is used. Good value for `total_threads` is the number of
   // cores. You almost definitely want to call this function if your system is
   // bottlenecked by RocksDB.
-  DBOptions* IncreaseParallelism(int total_threads = 128);
+  DBOptions* IncreaseParallelism(int total_threads = 16);
 #endif  // ROCKSDB_LITE
 
   // If true, the database will be created if it is missing.

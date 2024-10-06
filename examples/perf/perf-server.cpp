@@ -142,15 +142,15 @@ public:
     }
 
     int run() {
-        // Optimize RocksDB. This is the easiest way to get RocksDB to perform well
-        options.IncreaseParallelism();
+        // Optimize RocksDB
+        if (FLAGS_use_photon) {
+            options.IncreaseParallelism(256);
+        } else {
+            options.IncreaseParallelism();
+        }
         options.OptimizeLevelStyleCompaction();
         options.allow_concurrent_memtable_write = false;
         options.enable_pipelined_write = false;
-
-        options.stats_dump_period_sec = 0;
-        options.stats_persist_period_sec = 0;
-        options.enable_pipelined_write = true;
         options.compression = rocksdb::CompressionType::kNoCompression;
         // create the DB if it's not already present
         options.create_if_missing = true;
