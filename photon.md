@@ -12,7 +12,7 @@ cmake --build build -t perf-client -t perf-server -j `nproc`
 
 # Build performance test on RPC client/server (Native RocksDB)
 git checkout 6.1.2
-git checkout photon-on-6.1.2 -- examples/ CMakeLists.txt
+git checkout origin/photon-on-6.1.2 -- examples/ CMakeLists.txt
 cmake -B build -D INIT_PHOTON_IN_ENV=off -D WITH_LZ4=on -D WITH_SNAPPY=on -D CMAKE_BUILD_TYPE=Release
 cmake --build build -t perf-client -t perf-server -j `nproc`
 

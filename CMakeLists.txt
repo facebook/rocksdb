@@ -48,10 +48,8 @@ include(FetchContent)
 set(PHOTON_ENABLE_URING OFF CACHE INTERNAL "Enable iouring")
 FetchContent_Declare(
         photon
-        # GIT_REPOSITORY https://github.com/alibaba/PhotonLibOS.git
-        GIT_REPOSITORY https://github.com/beef9999/PhotonLibOS.git
-        # GIT_TAG release/0.8
-        GIT_TAG fix-more-Wshadow-warnings
+        GIT_REPOSITORY https://github.com/alibaba/PhotonLibOS.git
+        GIT_TAG release/0.8
 )
 FetchContent_MakeAvailable(photon)
 set(PHOTON_INCLUDE_DIR ${photon_SOURCE_DIR}/include/)
@@ -195,7 +193,7 @@ if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204 /wd4324")
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
   if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
   endif()
