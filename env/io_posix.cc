@@ -28,7 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#ifdef OS_LINUX
+#if defined(OS_LINUX) || defined(OS_ANDROID)
 #include <sys/statfs.h>
 #include <sys/sysmacros.h>
 #endif
@@ -1376,9 +1376,10 @@ IOStatus PosixWritableFile::Close(const IOOptions& /*opts*/,
     // After ftruncate, we check whether ftruncate has the correct behavior.
     // If not, we should hack it with FALLOC_FL_PUNCH_HOLE
     if (result == 0 &&
-        (file_stats.st_size + file_stats.st_blksize - 1) /
-                file_stats.st_blksize !=
-            file_stats.st_blocks / (file_stats.st_blksize / 512)) {
+        static_cast<size_t>((file_stats.st_size + file_stats.st_blksize - 1) /
+                            file_stats.st_blksize) !=
+            static_cast<size_t>(file_stats.st_blocks /
+                                (file_stats.st_blksize / 512))) {
       IOSTATS_TIMER_GUARD(allocate_nanos);
       if (allow_fallocate_) {
         fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, filesize_,
