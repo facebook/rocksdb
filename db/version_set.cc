@@ -1050,6 +1050,11 @@ class LevelIterator final : public InternalIterator {
     return file_iter_.value();
   }
 
+  uint64_t write_unix_time() const override {
+    assert(Valid());
+    return file_iter_.write_unix_time();
+  }
+
   Status status() const override {
     return file_iter_.iter() ? file_iter_.status() : Status::OK();
   }
