@@ -3938,6 +3938,7 @@ TEST_F(ManualFlushSkipRetainUDTTest, RangeDeletionFlushRemovesStaleEntries) {
       iter->Next();
       i += 2;
     }
+    ASSERT_OK(iter->status());
     delete iter;
   }
   TablePropertiesCollection tables_properties;

@@ -622,7 +622,7 @@ class TimestampStrippingIterator : public InternalIterator {
       const ReadOptions& read_options,
       UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
       const SliceTransform* cf_prefix_extractor, size_t ts_sz)
-      : kind_(kind), ts_sz_(ts_sz) {
+      : arena_mode_(arena != nullptr), kind_(kind), ts_sz_(ts_sz) {
     assert(ts_sz_ != 0);
     void* mem = arena ? arena->AllocateAligned(sizeof(MemTableIterator)) :
                       operator new(sizeof(MemTableIterator));
@@ -635,7 +635,13 @@ class TimestampStrippingIterator : public InternalIterator {
   TimestampStrippingIterator(const TimestampStrippingIterator&) = delete;
   void operator=(const TimestampStrippingIterator&) = delete;
 
-  ~TimestampStrippingIterator() { iter_->~MemTableIterator(); }
+  ~TimestampStrippingIterator() override {
+    if (arena_mode_) {
+      iter_->~MemTableIterator();
+    } else {
+      delete iter_;
+    }
+  }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     iter_->SetPinnedItersMgr(pinned_iters_mgr);
@@ -717,6 +723,7 @@ class TimestampStrippingIterator : public InternalIterator {
       AppendUserKeyWithMinTimestamp(&value_buf_, original_value, ts_sz_);
     }
   }
+  bool arena_mode_;
   MemTableIterator::Kind kind_;
   size_t ts_sz_;
   MemTableIterator* iter_;
