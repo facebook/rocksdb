@@ -1,0 +1,1 @@
+*Assigning levels for external files are done in the same way for universal compaction and leveled compaction.
