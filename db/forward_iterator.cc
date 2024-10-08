@@ -167,6 +167,10 @@ class ForwardLevelIterator : public InternalIterator {
     assert(valid_);
     return file_iter_->value();
   }
+  uint64_t write_unix_time() const override {
+    assert(valid_);
+    return file_iter_->write_unix_time();
+  }
   Status status() const override {
     if (!status_.ok()) {
       return status_;
