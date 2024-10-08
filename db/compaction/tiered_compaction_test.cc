@@ -2512,6 +2512,7 @@ TEST_P(IteratorWriteTimeTest, ReadFromMemtables) {
                               start_time + kSecondsPerRecording * (i + 1));
       }
     }
+    ASSERT_EQ(kNumKeys, i);
     ASSERT_OK(iter->status());
   }
 
@@ -2531,12 +2532,13 @@ TEST_P(IteratorWriteTimeTest, ReadFromMemtables) {
       }
     }
     ASSERT_OK(iter->status());
+    ASSERT_EQ(-1, i);
   }
 
   // Reopen the DB and disable the seqno to time recording, data with user
   // specified write time can still get a write time before it's flushed.
   options.preserve_internal_time_seconds = 0;
-  DestroyAndReopen(options);
+  Reopen(options);
   ASSERT_OK(TimedPut(Key(kKeyWithWriteTime), rnd.RandomString(100),
                      kUserSpecifiedWriteTime));
   {
@@ -2613,6 +2615,7 @@ TEST_P(IteratorWriteTimeTest, ReadFromSstFile) {
       }
     }
     ASSERT_OK(iter->status());
+    ASSERT_EQ(kNumKeys, i);
   }
 
   // Backward iteration
@@ -2632,12 +2635,13 @@ TEST_P(IteratorWriteTimeTest, ReadFromSstFile) {
       }
     }
     ASSERT_OK(iter->status());
+    ASSERT_EQ(-1, i);
   }
 
   // Reopen the DB and disable the seqno to time recording. Data retrieved from
   // SST files still have write time available.
   options.preserve_internal_time_seconds = 0;
-  DestroyAndReopen(options);
+  Reopen(options);
 
   dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(kSecondsPerRecording); });
@@ -2663,6 +2667,7 @@ TEST_P(IteratorWriteTimeTest, ReadFromSstFile) {
                               start_time + kSecondsPerRecording * (i + 1));
       }
     }
+    ASSERT_EQ(kNumKeys, i);
     ASSERT_OK(iter->status());
   }
 
@@ -2686,6 +2691,7 @@ TEST_P(IteratorWriteTimeTest, ReadFromSstFile) {
       VerifyKeyAndWriteTime(iter.get(), Key(i), 0);
     }
     ASSERT_OK(iter->status());
+    ASSERT_EQ(kNumKeys, i);
   }
   Close();
 }

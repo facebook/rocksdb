@@ -27,6 +27,7 @@
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/filter_policy.h"
@@ -110,6 +111,7 @@ const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
 const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
     "dump_uncompressed_blobs";
 const std::string LDBCommand::ARG_READ_TIMESTAMP = "read_timestamp";
+const std::string LDBCommand::ARG_GET_WRITE_UNIX_TIME = "get_write_unix_time";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -3622,11 +3624,12 @@ void BatchPutCommand::OverrideBaseOptions() {
 ScanCommand::ScanCommand(const std::vector<std::string>& /*params*/,
                          const std::map<std::string, std::string>& options,
                          const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true,
-                 BuildCmdLineOptions(
-                     {ARG_TTL, ARG_NO_VALUE, ARG_HEX, ARG_KEY_HEX, ARG_TO,
-                      ARG_VALUE_HEX, ARG_FROM, ARG_TIMESTAMP, ARG_MAX_KEYS,
-                      ARG_TTL_START, ARG_TTL_END, ARG_READ_TIMESTAMP})),
+    : LDBCommand(
+          options, flags, true,
+          BuildCmdLineOptions({ARG_TTL, ARG_NO_VALUE, ARG_HEX, ARG_KEY_HEX,
+                               ARG_TO, ARG_VALUE_HEX, ARG_FROM, ARG_TIMESTAMP,
+                               ARG_MAX_KEYS, ARG_TTL_START, ARG_TTL_END,
+                               ARG_READ_TIMESTAMP, ARG_GET_WRITE_UNIX_TIME})),
       start_key_specified_(false),
       end_key_specified_(false),
       max_keys_scanned_(-1),
@@ -3670,6 +3673,7 @@ ScanCommand::ScanCommand(const std::vector<std::string>& /*params*/,
           ARG_MAX_KEYS + " has a value out-of-range");
     }
   }
+  get_write_unix_time_ = IsFlagPresent(flags_, ARG_GET_WRITE_UNIX_TIME);
 }
 
 void ScanCommand::Help(std::string& ret) {
@@ -3683,6 +3687,7 @@ void ScanCommand::Help(std::string& ret) {
   ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
   ret.append(" [--" + ARG_NO_VALUE + "]");
   ret.append(" [--" + ARG_READ_TIMESTAMP + "=<uint64_ts>] ");
+  ret.append(" [--" + ARG_GET_WRITE_UNIX_TIME + "]");
   ret.append("\n");
 }
 
@@ -3765,6 +3770,22 @@ void ScanCommand::DoCommand() {
       fprintf(stdout, "%s\n", str.c_str());
     }
 
+    if (get_write_unix_time_) {
+      std::string write_unix_time;
+      uint64_t write_time_int = std::numeric_limits<uint64_t>::max();
+      Status s =
+          it->GetProperty("rocksdb.iterator.write-time", &write_unix_time);
+      if (s.ok()) {
+        s = DecodeU64Ts(write_unix_time, &write_time_int);
+      }
+      if (!s.ok()) {
+        fprintf(stdout, "  Failed to get write unix time: %s\n",
+                s.ToString().c_str());
+      } else {
+        fprintf(stdout, "  write unix time: %s\n",
+                std::to_string(write_time_int).c_str());
+      }
+    }
     num_keys_scanned++;
     if (max_keys_scanned_ >= 0 && num_keys_scanned >= max_keys_scanned_) {
       break;
