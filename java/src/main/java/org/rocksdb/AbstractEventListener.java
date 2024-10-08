@@ -5,12 +5,12 @@
 
 package org.rocksdb;
 
-import static org.rocksdb.AbstractEventListener.EnabledEventCallback.*;
+import static org.rocksdb.AbstractEventListener.EnabledEventCallback.*; //NOPMD
 
 /**
  * Base class for Event Listeners.
  */
-@SuppressWarnings("PMD.AvoidDuplicateLiterals")
+@SuppressWarnings({"PMD.AvoidDuplicateLiterals", "PMD.UnnecessaryImport"})
 public abstract class AbstractEventListener extends RocksCallbackObject implements EventListener {
   public enum EnabledEventCallback {
     ON_FLUSH_COMPLETED((byte) 0x0),
