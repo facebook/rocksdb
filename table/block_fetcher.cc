@@ -357,9 +357,6 @@ void BlockFetcher::ReadBlock(bool retry) {
 IOStatus BlockFetcher::ReadBlockContents() {
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
-#ifndef NDEBUG
-    contents_->has_trailer = footer_.GetBlockTrailerSize() > 0;
-#endif  // NDEBUG
     return IOStatus::OK();
   }
   if (TryGetFromPrefetchBuffer()) {
