@@ -213,6 +213,14 @@ class MemTable {
       UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
       const SliceTransform* prefix_extractor);
 
+  // Returns an iterator that wraps a MemTableIterator and logically strips the
+  // user-defined timestamp of each key. This API is only used by flush when
+  // user-defined timestamps in MemTable only feature is enabled.
+  InternalIterator* NewTimestampStrippingIterator(
+      const ReadOptions& read_options,
+      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
+      const SliceTransform* prefix_extractor, size_t ts_sz);
+
   // Returns an iterator that yields the range tombstones of the memtable.
   // The caller must ensure that the underlying MemTable remains live
   // while the returned iterator is live.
@@ -226,6 +234,13 @@ class MemTable {
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options, SequenceNumber read_seq,
       bool immutable_memtable);
+
+  // Returns an iterator that yields the range tombstones of the memtable and
+  // logically strips the user-defined timestamp of each key (including start
+  // key, and end key). This API is only used by flush when user-defined
+  // timestamps in MemTable only feature is enabled.
+  FragmentedRangeTombstoneIterator* NewTimestampStrippingRangeTombstoneIterator(
+      const ReadOptions& read_options, SequenceNumber read_seq, size_t ts_sz);
 
   Status VerifyEncodedEntry(Slice encoded,
                             const ProtectionInfoKVOS64& kv_prot_info);
@@ -703,6 +718,12 @@ class MemTable {
   // if !is_range_del_table_empty_.
   std::unique_ptr<FragmentedRangeTombstoneList>
       fragmented_range_tombstone_list_;
+
+  // The fragmented range tombstone of this memtable with all keys' user-defined
+  // timestamps logically stripped. This is constructed and used by flush when
+  // user-defined timestamps in memtable only feature is enabled.
+  std::unique_ptr<FragmentedRangeTombstoneList>
+      timestamp_stripping_fragmented_range_tombstone_list_;
 
   // makes sure there is a single range tombstone writer to invalidate cache
   std::mutex range_del_mutex_;

@@ -206,10 +206,6 @@ Status BuildTable(
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
 
-    const size_t ts_sz = ucmp->timestamp_size();
-    const bool logical_strip_timestamp =
-        ts_sz > 0 && !ioptions.persist_user_defined_timestamps;
-
     SequenceNumber smallest_preferred_seqno = kMaxSequenceNumber;
     std::string key_after_flush_buf;
     std::string value_buf;
@@ -221,16 +217,6 @@ Status BuildTable(
       key_after_flush_buf.assign(key.data(), key.size());
       Slice key_after_flush = key_after_flush_buf;
       Slice value_after_flush = value;
-
-      // If user defined timestamps will be stripped from user key after flush,
-      // the in memory version of the key act logically the same as one with a
-      // minimum timestamp. We update the timestamp here so file boundary and
-      // output validator, block builder all see the effect of the stripping.
-      if (logical_strip_timestamp) {
-        key_after_flush_buf.clear();
-        ReplaceInternalKeyWithMinTimestamp(&key_after_flush_buf, key, ts_sz);
-        key_after_flush = key_after_flush_buf;
-      }
 
       if (ikey.type == kTypeValuePreferredSeqno) {
         auto [unpacked_value, unix_write_time] =
@@ -291,11 +277,7 @@ Status BuildTable(
       Slice last_tombstone_start_user_key{};
       for (range_del_it->SeekToFirst(); range_del_it->Valid();
            range_del_it->Next()) {
-        // When user timestamp should not be persisted, we logically strip a
-        // range tombstone's start and end key's timestamp (replace it with min
-        // timestamp) before passing them along to table builder and to update
-        // file boundaries.
-        auto tombstone = range_del_it->Tombstone(logical_strip_timestamp);
+        auto tombstone = range_del_it->Tombstone();
         std::pair<InternalKey, Slice> kv = tombstone.Serialize();
         builder->Add(kv.first.Encode(), kv.second);
         InternalKey tombstone_end = tombstone.SerializeEndKey();

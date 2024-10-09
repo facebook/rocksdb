@@ -874,9 +874,15 @@ TEST_P(FlushJobTimestampTest, NoKeyExpired) {
       expected_full_history_ts_low = full_history_ts_low;
     }
     InternalKey smallest(smallest_key, curr_seq_ - 1, ValueType::kTypeValue);
-    InternalKey largest(largest_key, kStartSeq, ValueType::kTypeValue);
-    CheckFileMetaData(cfd, smallest, largest, &fmeta);
-    CheckFullHistoryTsLow(cfd, expected_full_history_ts_low);
+    if (!persist_udt_) {
+      InternalKey largest(largest_key, curr_seq_ - 1, ValueType::kTypeValue);
+      CheckFileMetaData(cfd, smallest, largest, &fmeta);
+      CheckFullHistoryTsLow(cfd, expected_full_history_ts_low);
+    } else {
+      InternalKey largest(largest_key, kStartSeq, ValueType::kTypeValue);
+      CheckFileMetaData(cfd, smallest, largest, &fmeta);
+      CheckFullHistoryTsLow(cfd, expected_full_history_ts_low);
+    }
   }
   job_context.Clean();
   ASSERT_TRUE(to_delete.empty());

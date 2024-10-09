@@ -1027,22 +1027,13 @@ struct RangeTombstone {
   // User-defined timestamp is enabled, `sk` and `ek` should be user key
   // with timestamp, `ts` will replace the timestamps in `sk` and
   // `ek`.
-  // When `logical_strip_timestamp` is true, the timestamps in `sk` and `ek`
-  // will be replaced with min timestamp.
-  RangeTombstone(Slice sk, Slice ek, SequenceNumber sn, Slice ts,
-                 bool logical_strip_timestamp)
-      : seq_(sn) {
+  RangeTombstone(Slice sk, Slice ek, SequenceNumber sn, Slice ts) : seq_(sn) {
     const size_t ts_sz = ts.size();
     assert(ts_sz > 0);
     pinned_start_key_.reserve(sk.size());
     pinned_end_key_.reserve(ek.size());
-    if (logical_strip_timestamp) {
-      AppendUserKeyWithMinTimestamp(&pinned_start_key_, sk, ts_sz);
-      AppendUserKeyWithMinTimestamp(&pinned_end_key_, ek, ts_sz);
-    } else {
-      AppendUserKeyWithDifferentTimestamp(&pinned_start_key_, sk, ts);
-      AppendUserKeyWithDifferentTimestamp(&pinned_end_key_, ek, ts);
-    }
+    AppendUserKeyWithDifferentTimestamp(&pinned_start_key_, sk, ts);
+    AppendUserKeyWithDifferentTimestamp(&pinned_end_key_, ek, ts);
     start_key_ = pinned_start_key_;
     end_key_ = pinned_end_key_;
     ts_ = Slice(pinned_start_key_.data() + sk.size() - ts_sz, ts_sz);
