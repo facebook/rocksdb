@@ -1485,7 +1485,7 @@ class NonBatchedOpsStressTest : public StressTest {
     Status s;
 
     for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
-      // If upper and prefix bounds are specified, only keys of the target
+      // If upper or prefix bounds is specified, only keys of the target
       // prefix should show up. Otherwise, we need to manual exit the loop when
       // we see the first key that is not in the target prefix show up.
       if (ro_copy.iterate_upper_bound != nullptr ||

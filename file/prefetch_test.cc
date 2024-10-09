@@ -1557,7 +1557,9 @@ TEST_F(PrefetchTest, TrimReadaheadSizeForPrefixSameAsStart) {
   ASSERT_OK(s);
 
   // To create a DB with data block layout (denoted as "[...]" below ) as the
-  // following: [prefix_1 + "a": random value] [prefix_1 + "aa": random value]
+  // following:
+  // [prefix_1 + "a": random value]
+  // [prefix_1 + "aa": random value]
   // ....
   // [prefix_1 + "z.....z": random value]
   // [prefix_2 + "a": random value]
@@ -1590,13 +1592,13 @@ TEST_F(PrefetchTest, TrimReadaheadSizeForPrefixSameAsStart) {
   ASSERT_OK(db_->Write(WriteOptions(), &prefix_2_batch));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
-  // To verify readahead is trimmed based on prefix by ratio between
+  // To verify readahead is trimmed based on prefix based on ratio between
   // PREFETCH_BYTES_USEFUL and PREFETCH_BYTES
   ReadOptions ro;
   ro.prefix_same_as_start = true;
   ro.auto_readahead_size = true;
-  // Set a large readahead size to introduce readahead waste if without trimming
-  // based on prefix
+  // Set a large readahead size to introduce readahead waste when without
+  // trimming based on prefix
   ro.readahead_size = 1024 * 1024 * 1024;
 
   ASSERT_OK(options.statistics->Reset());

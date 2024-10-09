@@ -356,7 +356,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // The prefix of the key called with SeekImpl().
   // This is for readahead trimming so no data blocks containing keys of a
   // different prefix are prefetched
-  Slice seek_key_prefix_for_readahead_trimming_ = nullptr;
+  std::string seek_key_prefix_for_readahead_trimming_ = "";
 
   void SeekSecondPass(const Slice* target);
 
@@ -414,7 +414,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   }
 
   bool IsNextBlockOutOfReadaheadBound() {
-    auto index_iter_user_key = index_iter_->user_key();
+    const Slice& index_iter_user_key = index_iter_->user_key();
     // If curr block's index key >= iterate_upper_bound, it means all the keys
     // in next block or above are out of bound.
     bool out_of_upper_bound =
@@ -434,7 +434,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     // seek key's.
     bool out_of_prefix_bound =
         (read_options_.prefix_same_as_start &&
-         seek_key_prefix_for_readahead_trimming_ != nullptr &&
+         !seek_key_prefix_for_readahead_trimming_.empty() &&
          prefix_extractor_->InDomain(index_iter_user_key) &&
          prefix_extractor_->Transform(index_iter_user_key)
                  .compare(seek_key_prefix_for_readahead_trimming_) != 0);
