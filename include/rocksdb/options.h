@@ -1926,7 +1926,7 @@ struct ReadOptions {
   // upper bound
   // (2) When `prefix_same_as_start` is set to true, trim the
   // readahead so data blocks containing keys that are not in the same prefix as
-  // the seek key in `Seek()` are not included
+  // the seek key in `Seek()` are not prefetched
   //  - Limition: `Seek(key)` instead of `SeekToFirst()` needs to be called in
   //  order for this trimming to take effect
   //

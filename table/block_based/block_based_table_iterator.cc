@@ -35,15 +35,15 @@ void BlockBasedTableIterator::SeekSecondPass(const Slice* target) {
 
 void BlockBasedTableIterator::SeekImpl(const Slice* target,
                                        bool async_prefetch) {
-  // TODO(hx235): set `seek_key_prefix_for_readahead_trimming_` even if `target
-  // == nullptr` when `SeekToFirst()` is called
+  // TODO(hx235): set `seek_key_prefix_for_readahead_trimming_`
+  // even when `target == nullptr` that is when `SeekToFirst()` is called
   if (target != nullptr && prefix_extractor_ &&
       read_options_.prefix_same_as_start) {
-    Slice seek_user_key = ExtractUserKey(*target);
+    const Slice& seek_user_key = ExtractUserKey(*target);
     seek_key_prefix_for_readahead_trimming_ =
         prefix_extractor_->InDomain(seek_user_key)
-            ? prefix_extractor_->Transform(seek_user_key)
-            : nullptr;
+            ? prefix_extractor_->Transform(seek_user_key).ToString()
+            : "";
   }
 
   bool is_first_pass = !async_read_in_progress_;
