@@ -52,7 +52,9 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       user_comparator_(cmp),
       merge_operator_(ioptions.merge_operator.get()),
       iter_(iter),
-      version_(version),
+      blob_reader_(version, read_options.read_tier,
+                   read_options.verify_checksums, read_options.fill_cache,
+                   read_options.io_activity),
       read_callback_(read_callback),
       sequence_(s),
       statistics_(ioptions.stats),
@@ -71,13 +73,9 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       expect_total_order_inner_iter_(prefix_extractor_ == nullptr ||
                                      read_options.total_order_seek ||
                                      read_options.auto_prefix_mode),
-      read_tier_(read_options.read_tier),
-      fill_cache_(read_options.fill_cache),
-      verify_checksums_(read_options.verify_checksums),
       expose_blob_index_(expose_blob_index),
       is_blob_(false),
       arena_mode_(arena_mode),
-      io_activity_(read_options.io_activity),
       cfh_(cfh),
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
@@ -151,7 +149,7 @@ void DBIter::Next() {
   PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, clock_);
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
-  ResetBlobValue();
+  ResetBlobData();
   ResetValueAndColumns();
   local_stats_.skip_count_ += num_internal_keys_skipped_;
   local_stats_.skip_count_--;
@@ -194,29 +192,21 @@ void DBIter::Next() {
   }
 }
 
-bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
-                                  const Slice& blob_index) {
-  assert(!is_blob_);
+Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
+                                                   const Slice& blob_index) {
   assert(blob_value_.empty());
 
-  if (expose_blob_index_) {  // Stacked BlobDB implementation
-    is_blob_ = true;
-    return true;
-  }
-
   if (!version_) {
-    status_ = Status::Corruption("Encountered unexpected blob index.");
-    valid_ = false;
-    return false;
+    return Status::Corruption("Encountered unexpected blob index.");
   }
 
   // TODO: consider moving ReadOptions from ArenaWrappedDBIter to DBIter to
   // avoid having to copy options back and forth.
-  // TODO: plumb Env::IOActivity, Env::IOPriority
+  // TODO: plumb Env::IOPriority
   ReadOptions read_options;
   read_options.read_tier = read_tier_;
-  read_options.fill_cache = fill_cache_;
   read_options.verify_checksums = verify_checksums_;
+  read_options.fill_cache = fill_cache_;
   read_options.io_activity = io_activity_;
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
@@ -225,12 +215,32 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
                                      prefetch_buffer, &blob_value_, bytes_read);
 
   if (!s.ok()) {
+    return s;
+  }
+
+  return Status::OK();
+}
+
+bool DBIter::SetValueAndColumnsFromBlob(const Slice& user_key,
+                                        const Slice& blob_index) {
+  assert(!is_blob_);
+  is_blob_ = true;
+
+  if (expose_blob_index_) {
+    SetValueAndColumnsFromPlain(blob_index);
+    return true;
+  }
+
+  const Status s = blob_reader_.RetrieveAndSetBlobValue(user_key, blob_index);
+  if (!s.ok()) {
     status_ = s;
     valid_ = false;
+    is_blob_ = false;
     return false;
   }
 
-  is_blob_ = true;
+  SetValueAndColumnsFromPlain(blob_reader_.GetBlobValue());
+
   return true;
 }
 
@@ -420,12 +430,9 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             }
 
             if (ikey_.type == kTypeBlobIndex) {
-              if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+              if (!SetValueAndColumnsFromBlob(ikey_.user_key, iter_.value())) {
                 return false;
               }
-
-              SetValueAndColumnsFromPlain(expose_blob_index_ ? iter_.value()
-                                                             : blob_value_);
             } else if (ikey_.type == kTypeWideColumnEntity) {
               if (!SetValueAndColumnsFromEntity(iter_.value())) {
                 return false;
@@ -619,23 +626,9 @@ bool DBIter::MergeValuesNewToOld() {
           iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (kTypeBlobIndex == ikey.type) {
-      if (expose_blob_index_) {
-        status_ =
-            Status::NotSupported("BlobDB does not support merge operator.");
-        valid_ = false;
+      if (!MergeWithBlobBaseValue(iter_.value(), ikey.user_key)) {
         return false;
       }
-      // hit a put, merge the put value with operands and store the
-      // final result in saved_value_. We are done!
-      if (!SetBlobValueIfNeeded(ikey.user_key, iter_.value())) {
-        return false;
-      }
-      valid_ = true;
-      if (!MergeWithPlainBaseValue(blob_value_, ikey.user_key)) {
-        return false;
-      }
-
-      ResetBlobValue();
 
       // iter_ is positioned after put
       iter_.Next();
@@ -643,6 +636,7 @@ bool DBIter::MergeValuesNewToOld() {
         valid_ = false;
         return false;
       }
+
       return true;
     } else if (kTypeWideColumnEntity == ikey.type) {
       if (!MergeWithWideColumnBaseValue(iter_.value(), ikey.user_key)) {
@@ -689,7 +683,7 @@ void DBIter::Prev() {
   PERF_COUNTER_ADD(iter_prev_count, 1);
   PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, clock_);
   ReleaseTempPinnedData();
-  ResetBlobValue();
+  ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
   bool ok = true;
@@ -1041,21 +1035,9 @@ bool DBIter::FindValueForCurrentKey() {
         }
         return true;
       } else if (last_not_merge_type == kTypeBlobIndex) {
-        if (expose_blob_index_) {
-          status_ =
-              Status::NotSupported("BlobDB does not support merge operator.");
-          valid_ = false;
+        if (!MergeWithBlobBaseValue(pinned_value_, saved_key_.GetUserKey())) {
           return false;
         }
-        if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
-          return false;
-        }
-        valid_ = true;
-        if (!MergeWithPlainBaseValue(blob_value_, saved_key_.GetUserKey())) {
-          return false;
-        }
-
-        ResetBlobValue();
 
         return true;
       } else if (last_not_merge_type == kTypeWideColumnEntity) {
@@ -1080,13 +1062,9 @@ bool DBIter::FindValueForCurrentKey() {
 
       break;
     case kTypeBlobIndex:
-      if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
+      if (!SetValueAndColumnsFromBlob(saved_key_.GetUserKey(), pinned_value_)) {
         return false;
       }
-
-      SetValueAndColumnsFromPlain(expose_blob_index_ ? pinned_value_
-                                                     : blob_value_);
-
       break;
     case kTypeWideColumnEntity:
       if (!SetValueAndColumnsFromEntity(pinned_value_)) {
@@ -1190,12 +1168,9 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       pinned_value_ = iter_.value();
     }
     if (ikey.type == kTypeBlobIndex) {
-      if (!SetBlobValueIfNeeded(ikey.user_key, pinned_value_)) {
+      if (!SetValueAndColumnsFromBlob(ikey.user_key, pinned_value_)) {
         return false;
       }
-
-      SetValueAndColumnsFromPlain(expose_blob_index_ ? pinned_value_
-                                                     : blob_value_);
     } else if (ikey.type == kTypeWideColumnEntity) {
       if (!SetValueAndColumnsFromEntity(pinned_value_)) {
         return false;
@@ -1261,21 +1236,9 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
           iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (ikey.type == kTypeBlobIndex) {
-      if (expose_blob_index_) {
-        status_ =
-            Status::NotSupported("BlobDB does not support merge operator.");
-        valid_ = false;
+      if (!MergeWithBlobBaseValue(iter_.value(), saved_key_.GetUserKey())) {
         return false;
       }
-      if (!SetBlobValueIfNeeded(ikey.user_key, iter_.value())) {
-        return false;
-      }
-      valid_ = true;
-      if (!MergeWithPlainBaseValue(blob_value_, saved_key_.GetUserKey())) {
-        return false;
-      }
-
-      ResetBlobValue();
 
       return true;
     } else if (ikey.type == kTypeWideColumnEntity) {
@@ -1340,6 +1303,35 @@ bool DBIter::MergeWithPlainBaseValue(const Slice& value,
       /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
       &saved_value_, &pinned_value_, &result_type);
   return SetValueAndColumnsFromMergeResult(s, result_type);
+}
+
+bool DBIter::MergeWithBlobBaseValue(const Slice& blob_index,
+                                    const Slice& user_key) {
+  assert(!is_blob_);
+
+  if (expose_blob_index_) {
+    status_ =
+        Status::NotSupported("Legacy BlobDB does not support merge operator.");
+    valid_ = false;
+    return false;
+  }
+
+  const Status s = blob_reader_.RetrieveAndSetBlobValue(user_key, blob_index);
+  if (!s.ok()) {
+    status_ = s;
+    valid_ = false;
+    return false;
+  }
+
+  valid_ = true;
+
+  if (!MergeWithPlainBaseValue(blob_reader_.GetBlobValue(), user_key)) {
+    return false;
+  }
+
+  blob_reader_.ResetBlobValue();
+
+  return true;
 }
 
 bool DBIter::MergeWithWideColumnBaseValue(const Slice& entity,
@@ -1531,7 +1523,7 @@ void DBIter::Seek(const Slice& target) {
 
   status_ = Status::OK();
   ReleaseTempPinnedData();
-  ResetBlobValue();
+  ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
 
@@ -1607,7 +1599,7 @@ void DBIter::SeekForPrev(const Slice& target) {
 
   status_ = Status::OK();
   ReleaseTempPinnedData();
-  ResetBlobValue();
+  ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
 
@@ -1668,7 +1660,7 @@ void DBIter::SeekToFirst() {
   status_.PermitUncheckedError();
   direction_ = kForward;
   ReleaseTempPinnedData();
-  ResetBlobValue();
+  ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();
@@ -1731,7 +1723,7 @@ void DBIter::SeekToLast() {
   status_.PermitUncheckedError();
   direction_ = kReverse;
   ReleaseTempPinnedData();
-  ResetBlobValue();
+  ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();
