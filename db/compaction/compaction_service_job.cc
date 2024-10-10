@@ -346,6 +346,9 @@ Status CompactionServiceCompactionJob::Run() {
         meta.unique_id);
   }
 
+  TEST_SYNC_POINT_CALLBACK("CompactionServiceCompactionJob::Run:0",
+                           &compaction_result_);
+
   // Verify compaction result using SST File Reader
   if (status.ok()) {
     // GetLatestCFOptions() normally requires DB Mutex held, but we don't expect
