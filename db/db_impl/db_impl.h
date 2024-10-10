@@ -2975,6 +2975,15 @@ DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
                           bool read_only = false,
                           Status* logger_creation_s = nullptr);
 
+#ifdef OS_LINUX
+// Get the minimum linux system limit (i.e, largest I/O size that the OS issues
+// to a block device) among all the block devices in the `db_paths`. Return 0 if
+// no such system limit can be found or there is an error in retrieving such
+// limit
+size_t GetCompactionReadaheadSizeSystemLimit(
+    const std::vector<DbPath>& db_paths);
+#endif  // OS_LINUX
+
 CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions,
                                     const MutableCFOptions& mutable_cf_options);
 
