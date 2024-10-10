@@ -502,7 +502,9 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
       break;
     }
     default:
-      return Status::Corruption("unknown WriteBatch tag");
+      return Status::Corruption(
+          "unknown WriteBatch tag",
+          std::to_string(static_cast<unsigned int>(*tag)));
   }
   return Status::OK();
 }
@@ -750,7 +752,9 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         }
         break;
       default:
-        return Status::Corruption("unknown WriteBatch tag");
+        return Status::Corruption(
+            "unknown WriteBatch tag",
+            std::to_string(static_cast<unsigned int>(tag)));
     }
   }
   if (!s.ok()) {
