@@ -219,6 +219,31 @@ class DBIter final : public Iterator {
   void set_valid(bool v) { valid_ = v; }
 
  private:
+  class BlobReader {
+   public:
+    BlobReader(const Version* version, ReadTier read_tier,
+               bool verify_checksums, bool fill_cache,
+               Env::IOActivity io_activity)
+        : version_(version),
+          read_tier_(read_tier),
+          verify_checksums_(verify_checksums),
+          fill_cache_(fill_cache),
+          io_activity_(io_activity) {}
+
+    const Slice& GetBlobValue() const { return blob_value_; }
+    Status RetrieveAndSetBlobValue(const Slice& user_key,
+                                   const Slice& blob_index);
+    void ResetBlobValue() { blob_value_.Reset(); }
+
+   private:
+    PinnableSlice blob_value_;
+    const Version* version_;
+    ReadTier read_tier_;
+    bool verify_checksums_;
+    bool fill_cache_;
+    Env::IOActivity io_activity_;
+  };
+
   // For all methods in this block:
   // PRE: iter_->Valid() && status_.ok()
   // Return false if there was an error, and status() is non-ok, valid_ = false;
@@ -299,15 +324,6 @@ class DBIter final : public Iterator {
                : user_comparator_.CompareWithoutTimestamp(a, b);
   }
 
-  // Retrieves the blob value for the specified user key using the given blob
-  // index when using the integrated BlobDB implementation.
-  bool SetBlobValueIfNeeded(const Slice& user_key, const Slice& blob_index);
-
-  void ResetBlobValue() {
-    is_blob_ = false;
-    blob_value_.Reset();
-  }
-
   void SetValueAndColumnsFromPlain(const Slice& slice) {
     assert(value_.empty());
     assert(wide_columns_.empty());
@@ -315,6 +331,9 @@ class DBIter final : public Iterator {
     value_ = slice;
     wide_columns_.emplace_back(kDefaultWideColumnName, slice);
   }
+
+  bool SetValueAndColumnsFromBlob(const Slice& user_key,
+                                  const Slice& blob_index);
 
   bool SetValueAndColumnsFromEntity(Slice slice);
 
@@ -326,11 +345,17 @@ class DBIter final : public Iterator {
     wide_columns_.clear();
   }
 
+  void ResetBlobData() {
+    blob_reader_.ResetBlobValue();
+    is_blob_ = false;
+  }
+
   // The following methods perform the actual merge operation for the
-  // no base value/plain base value/wide-column base value cases.
+  // no/plain/blob/wide-column base value cases.
   // If user-defined timestamp is enabled, `user_key` includes timestamp.
   bool MergeWithNoBaseValue(const Slice& user_key);
   bool MergeWithPlainBaseValue(const Slice& value, const Slice& user_key);
+  bool MergeWithBlobBaseValue(const Slice& blob_index, const Slice& user_key);
   bool MergeWithWideColumnBaseValue(const Slice& entity, const Slice& user_key);
 
   bool PrepareValue() {
@@ -356,7 +381,7 @@ class DBIter final : public Iterator {
   UserComparatorWrapper user_comparator_;
   const MergeOperator* const merge_operator_;
   IteratorWrapper iter_;
-  const Version* version_;
+  BlobReader blob_reader_;
   ReadCallback* read_callback_;
   // Max visible sequence number. It is normally the snapshot seq unless we have
   // uncommitted data in db as in WriteUnCommitted.
@@ -376,7 +401,6 @@ class DBIter final : public Iterator {
   std::string saved_value_;
   Slice pinned_value_;
   // for prefix seek mode to support prev()
-  PinnableSlice blob_value_;
   // Value of the default column
   Slice value_;
   // All columns (i.e. name-value pairs)
@@ -410,15 +434,11 @@ class DBIter final : public Iterator {
   // Expect the inner iterator to maintain a total order.
   // prefix_extractor_ must be non-NULL if the value is false.
   const bool expect_total_order_inner_iter_;
-  ReadTier read_tier_;
-  bool fill_cache_;
-  bool verify_checksums_;
   // Whether the iterator is allowed to expose blob references. Set to true when
   // the stacked BlobDB implementation is used, false otherwise.
   bool expose_blob_index_;
   bool is_blob_;
   bool arena_mode_;
-  const Env::IOActivity io_activity_;
   // List of operands for merge operator.
   MergeContext merge_context_;
   LocalStatistics local_stats_;
