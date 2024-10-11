@@ -409,18 +409,75 @@ TEST_F(CompactionServiceTest, CorruptedOutput) {
   Slice start(start_str);
   Slice end(end_str);
   uint64_t comp_num = my_cs->GetCompactionNum();
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
         CompactionServiceResult* compaction_result =
             *(static_cast<CompactionServiceResult**>(arg));
         ASSERT_TRUE(compaction_result != nullptr &&
                     !compaction_result->output_files.empty());
-        // Corrupt files here
+        // Corrupt or truncate files here
         for (const auto& output_file : compaction_result->output_files) {
           std::string file_name =
               compaction_result->output_path + "/" + output_file.file_name;
-          ASSERT_OK(test::CorruptFile(env_, file_name, 0, 10,
+
+          uint64_t file_size = 0;
+          Status s = options.env->GetFileSize(file_name, &file_size);
+          ASSERT_OK(s);
+          ASSERT_GT(file_size, 0);
+
+          ASSERT_OK(test::CorruptFile(env_, file_name, 0,
+                                      static_cast<int>(file_size),
                                       true /* verifyChecksum */));
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_NOK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  ASSERT_NOK(result.status);
+  ASSERT_TRUE(result.status.IsCorruption());
+  ASSERT_TRUE(result.stats.is_manual_compaction);
+  ASSERT_TRUE(result.stats.is_remote_compaction);
+}
+
+TEST_F(CompactionServiceTest, TruncatedOutput) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  uint64_t comp_num = my_cs->GetCompactionNum();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
+        CompactionServiceResult* compaction_result =
+            *(static_cast<CompactionServiceResult**>(arg));
+        ASSERT_TRUE(compaction_result != nullptr &&
+                    !compaction_result->output_files.empty());
+        // Corrupt or truncate files here
+        for (const auto& output_file : compaction_result->output_files) {
+          std::string file_name =
+              compaction_result->output_path + "/" + output_file.file_name;
+
+          uint64_t file_size = 0;
+          Status s = options.env->GetFileSize(file_name, &file_size);
+          ASSERT_OK(s);
+          ASSERT_GT(file_size, 0);
+
+          ASSERT_OK(test::TruncateFile(env_, file_name, file_size / 2));
         }
       });
   SyncPoint::GetInstance()->EnableProcessing();

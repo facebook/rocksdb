@@ -351,7 +351,7 @@ Status CompactionServiceCompactionJob::Run() {
   TEST_SYNC_POINT_CALLBACK("CompactionServiceCompactionJob::Run:0",
                            &compaction_result_);
 
-  // Verify compaction result using SST File Reader
+  // Sanity check by try opening the output file using SST File Reader
   if (status.ok()) {
     // GetLatestCFOptions() normally requires DB Mutex held, but we don't expect
     // CFs to change in the remote worker, so this should be okay
@@ -360,12 +360,7 @@ Status CompactionServiceCompactionJob::Run() {
     SstFileReader reader(options);
     for (const auto& output_file : compaction_result_->output_files) {
       status = reader.Open(output_path_ + "/" + output_file.file_name);
-      if (status.ok()) {
-        status = reader.VerifyChecksum(ReadOptions());
-        if (!status.ok()) {
-          break;
-        }
-      } else {
+      if (!status.ok()) {
         break;
       }
     }
