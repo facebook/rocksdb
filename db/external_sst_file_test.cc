@@ -1941,9 +1941,9 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedUniversal) {
       options, file_data, -1, true, write_global_seqno,
       verify_checksums_before_ingest, false, false, &true_data));
 
-  // This file overlap with files in L4, we will ingest it into the last
-  // non-overlapping and non-empty level, in this case, it's L0.
-  ASSERT_EQ("3,0,0,0,3", FilesPerLevel());
+  // This file overlap with files in L4, we will ingest it into the closest
+  // non-overlapping level, in this case, it's L3.
+  ASSERT_EQ("2,0,0,1,3", FilesPerLevel());
 
   size_t kcnt = 0;
   VerifyDBFromMap(true_data, &kcnt, false);

@@ -1065,8 +1065,6 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
         overlap_with_db = true;
         break;
       }
-    } else if (compaction_style == kCompactionStyleUniversal) {
-      continue;
     }
 
     // We don't overlap with any keys in this level, but we still need to check
