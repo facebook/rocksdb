@@ -1,0 +1,1 @@
+* The following BlockBasedTableOptions are now dynamically changeable through SetOptions(): `index_type`, `index_block_restart_interval`, `metadata_block_size` and `pin_top_level_index_and_filter`.
