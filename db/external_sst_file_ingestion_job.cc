@@ -427,6 +427,10 @@ Status ExternalSstFileIngestionJob::Run() {
     if (!status.ok()) {
       return status;
     }
+
+    // When `files_overlap_` is true, we use a new sequence number for each file
+    // and there will be multiple batches. This tracks the starting point of
+    // sequence number for each batch.
     batch_start_last_seqno = batch_end_last_seqno;
     prev_batch_uppermost_level = batch_uppermost_level;
   }

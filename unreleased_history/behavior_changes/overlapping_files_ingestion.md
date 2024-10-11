@@ -1,1 +1,1 @@
-*Overlapping files level assignment are done in multiple batches, so that they can potentially be assigned to lower levels other than always land on L0.
+*During file ingestion, overlapping files level assignment are done in multiple batches, so that they can potentially be assigned to lower levels other than always land on L0.

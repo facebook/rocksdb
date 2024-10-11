@@ -1840,6 +1840,8 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
 
 TEST_F(ExternalSSTFileBasicTest, AtomicReplaceData) {
   Options options = CurrentOptions();
+  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  DestroyAndReopen(options);
 
   std::vector<std::string> files;
   {
@@ -1899,7 +1901,10 @@ TEST_F(ExternalSSTFileBasicTest, AtomicReplaceData) {
     files.push_back(std::move(file4));
   }
 
+  auto seqno_before_ingestion = db_->GetLatestSequenceNumber();
   ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  // Overlapping files each occupy one new sequence number.
+  ASSERT_EQ(db_->GetLatestSequenceNumber(), seqno_before_ingestion + 3);
   ASSERT_EQ(Get("a"), "a2");
   ASSERT_EQ(Get("b"), "b2");
   ASSERT_EQ(Get("x"), "x2");
