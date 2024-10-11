@@ -196,6 +196,8 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.oldest_ancester_time = file.oldest_ancester_time;
     meta.file_creation_time = file.file_creation_time;
     meta.epoch_number = file.epoch_number;
+    meta.file_checksum = file.file_checksum;
+    meta.file_checksum_func_name = file.file_checksum_func_name;
     meta.marked_for_compaction = file.marked_for_compaction;
     meta.unique_id = file.unique_id;
 
@@ -341,9 +343,9 @@ Status CompactionServiceCompactionJob::Run() {
         MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
         meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
         meta.largest.Encode().ToString(), meta.oldest_ancester_time,
-        meta.file_creation_time, meta.epoch_number,
-        output_file.validator.GetHash(), meta.marked_for_compaction,
-        meta.unique_id);
+        meta.file_creation_time, meta.epoch_number, meta.file_checksum,
+        meta.file_checksum_func_name, output_file.validator.GetHash(),
+        meta.marked_for_compaction, meta.unique_id);
   }
 
   TEST_SYNC_POINT_CALLBACK("CompactionServiceCompactionJob::Run:0",
