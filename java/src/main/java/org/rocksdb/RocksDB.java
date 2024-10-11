@@ -43,6 +43,8 @@ public class RocksDB extends RocksObject {
 
   final List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
 
+  final List<RocksIterator> ownedIterators = new ArrayList<>();
+
   /**
    * Loads the necessary library files.
    * Calling this method twice will have no effect.
@@ -684,6 +686,12 @@ public class RocksDB extends RocksObject {
   @SuppressWarnings("PMD.EmptyCatchBlock")
   @Override
   public void close() {
+    final List<RocksIterator> removeIterators = new ArrayList<>(ownedIterators);
+    for (final RocksIterator rocksIterator : removeIterators) {
+      //The lambda supplied to rocksIterator on construction will remove it from ownedIterators
+      rocksIterator.close();
+    }
+
     for (final ColumnFamilyHandle columnFamilyHandle : // NOPMD - CloseResource
         ownedColumnFamilyHandles) {
       columnFamilyHandle.close();
@@ -3272,8 +3280,7 @@ public class RocksDB extends RocksObject {
    * @return instance of iterator object.
    */
   public RocksIterator newIterator() {
-    return new RocksIterator(this,
-        iterator(nativeHandle_, defaultColumnFamilyHandle_.nativeHandle_,
+    return makeIterator(iterator(nativeHandle_, defaultColumnFamilyHandle_.nativeHandle_,
             defaultReadOptions_.nativeHandle_));
   }
 
@@ -3291,9 +3298,8 @@ public class RocksDB extends RocksObject {
    * @return instance of iterator object.
    */
   public RocksIterator newIterator(final ReadOptions readOptions) {
-    return new RocksIterator(this,
-        iterator(
-            nativeHandle_, defaultColumnFamilyHandle_.nativeHandle_, readOptions.nativeHandle_));
+    return makeIterator(iterator(
+        nativeHandle_, defaultColumnFamilyHandle_.nativeHandle_, readOptions.nativeHandle_));
   }
 
   /**
@@ -3312,7 +3318,7 @@ public class RocksDB extends RocksObject {
    */
   public RocksIterator newIterator(
       final ColumnFamilyHandle columnFamilyHandle) {
-    return new RocksIterator(this,
+    return makeIterator(
         iterator(
             nativeHandle_, columnFamilyHandle.nativeHandle_, defaultReadOptions_.nativeHandle_));
   }
@@ -3334,8 +3340,7 @@ public class RocksDB extends RocksObject {
    */
   public RocksIterator newIterator(final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions readOptions) {
-    return new RocksIterator(
-        this, iterator(nativeHandle_, columnFamilyHandle.nativeHandle_, readOptions.nativeHandle_));
+    return makeIterator(iterator(nativeHandle_, columnFamilyHandle.nativeHandle_, readOptions.nativeHandle_));
   }
 
   /**
@@ -3386,7 +3391,7 @@ public class RocksDB extends RocksObject {
     final List<RocksIterator> iterators = new ArrayList<>(
         columnFamilyHandleList.size());
     for (int i=0; i<columnFamilyHandleList.size(); i++){
-      iterators.add(new RocksIterator(this, iteratorRefs[i]));
+      iterators.add(makeIterator(iteratorRefs[i]));
     }
     return iterators;
   }
@@ -4747,6 +4752,20 @@ public class RocksDB extends RocksObject {
 
     deleteFilesInRanges(nativeHandle_, columnFamily == null ? 0 : columnFamily.nativeHandle_,
         rangesArray, includeEnd);
+  }
+
+  /**
+   * Wrap a (newly created) native iterator in a RocksIterator,
+   * and record it in our list of owned iterators for consistent removal prior to db close.
+   *
+   * @param nativeIterator the native iterator to wrap
+   * @return the wrapped iterator
+   */
+  private RocksIterator makeIterator(final long nativeIterator) {
+    final RocksIterator rocksIterator = new RocksIterator(this, nativeIterator, ownedIterators::remove);
+    ownedIterators.add(rocksIterator);
+
+    return rocksIterator;
   }
 
   /**

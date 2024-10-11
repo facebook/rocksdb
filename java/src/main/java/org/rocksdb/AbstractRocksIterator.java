@@ -6,6 +6,7 @@
 package org.rocksdb;
 
 import java.nio.ByteBuffer;
+import java.util.function.Function;
 
 /**
  * Base class implementation for Rocks Iterators
@@ -24,9 +25,10 @@ import java.nio.ByteBuffer;
 public abstract class AbstractRocksIterator<P extends RocksObject>
     extends RocksObject implements RocksIteratorInterface {
   final P parent_;
+  final Function<AbstractRocksIterator<P>, Boolean> removeOnClosure_;
 
   protected AbstractRocksIterator(final P parent,
-      final long nativeHandle) {
+      final long nativeHandle, final Function<AbstractRocksIterator<P>, Boolean> removeOnClosure) {
     super(nativeHandle);
     // parent must point to a valid RocksDB instance.
     assert (parent != null);
@@ -34,6 +36,12 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
     // to guarantee that while a GC cycle starts RocksIterator instances
     // are freed prior to parent instances.
     parent_ = parent;
+    removeOnClosure_ = removeOnClosure;
+  }
+
+  protected AbstractRocksIterator(final P parent,
+                                  final long nativeHandle) {
+    this(parent, nativeHandle, null);
   }
 
   @Override
@@ -118,6 +126,14 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
   public void status() throws RocksDBException {
     assert (isOwningHandle());
     status0(nativeHandle_);
+  }
+
+  @Override
+  public void close() {
+    super.close();
+    if (removeOnClosure_ != null) {
+      removeOnClosure_.apply(this);
+    }
   }
 
   /**
