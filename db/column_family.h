@@ -407,9 +407,11 @@ class ColumnFamilyData {
   // REQUIRES: DB mutex held
   bool NeedsCompaction() const;
   // REQUIRES: DB mutex held
-  Compaction* PickCompaction(const MutableCFOptions& mutable_options,
-                             const MutableDBOptions& mutable_db_options,
-                             LogBuffer* log_buffer);
+  Compaction* PickCompaction(
+      const MutableCFOptions& mutable_options,
+      const MutableDBOptions& mutable_db_options,
+      const std::vector<SequenceNumber>& existing_snapshots,
+      LogBuffer* log_buffer);
 
   // Check if the passed range overlap with any running compactions.
   // REQUIRES: DB mutex held

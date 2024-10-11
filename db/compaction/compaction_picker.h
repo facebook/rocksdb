@@ -55,17 +55,16 @@ class CompactionPicker {
   // Returns nullptr if there is no compaction to be done.
   // Otherwise returns a pointer to a heap-allocated object that
   // describes the compaction.  Caller should delete the result.
-  virtual Compaction* PickCompaction(const std::string& cf_name,
-                                     const MutableCFOptions& mutable_cf_options,
-                                     const MutableDBOptions& mutable_db_options,
-                                     VersionStorageInfo* vstorage,
-                                     LogBuffer* log_buffer) = 0;
+  // Currently, only universal compaction will query existing snapshots and
+  // pass it to aid compaction picking. And it's only passed when user-defined
+  // timestamps is not enabled. The other compaction styles do not pass that
+  // info or use that info yet.
+  virtual Compaction* PickCompaction(
+      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+      const MutableDBOptions& mutable_db_options,
+      const std::vector<SequenceNumber>& existing_snapshots,
+      VersionStorageInfo* vstorage, LogBuffer* log_buffer) = 0;
 
-  // Return a compaction object for compacting the range [begin,end] in
-  // the specified level.  Returns nullptr if there is nothing in that
-  // level that overlaps the specified range.  Caller should delete
-  // the result.
-  //
   // The returned Compaction might not include the whole requested range.
   // In that case, compaction_end will be set to the next key that needs
   // compacting. In case the compaction will compact the whole range,
@@ -203,10 +202,10 @@ class CompactionPicker {
                        const CompactionInputFiles& output_level_inputs,
                        std::vector<FileMetaData*>* grandparents);
 
-  void PickFilesMarkedForCompaction(const std::string& cf_name,
-                                    VersionStorageInfo* vstorage,
-                                    int* start_level, int* output_level,
-                                    CompactionInputFiles* start_level_inputs);
+  void PickFilesMarkedForCompaction(
+      const std::string& cf_name, VersionStorageInfo* vstorage,
+      std::optional<SequenceNumber> earliest_snapshot, int* start_level,
+      int* output_level, CompactionInputFiles* start_level_inputs);
 
   bool GetOverlappingL0Files(VersionStorageInfo* vstorage,
                              CompactionInputFiles* start_level_inputs,
@@ -257,11 +256,12 @@ class NullCompactionPicker : public CompactionPicker {
   virtual ~NullCompactionPicker() {}
 
   // Always return "nullptr"
-  Compaction* PickCompaction(const std::string& /*cf_name*/,
-                             const MutableCFOptions& /*mutable_cf_options*/,
-                             const MutableDBOptions& /*mutable_db_options*/,
-                             VersionStorageInfo* /*vstorage*/,
-                             LogBuffer* /* log_buffer */) override {
+  Compaction* PickCompaction(
+      const std::string& /*cf_name*/,
+      const MutableCFOptions& /*mutable_cf_options*/,
+      const MutableDBOptions& /*mutable_db_options*/,
+      const std::vector<SequenceNumber>& /*existing_snapshots*/,
+      VersionStorageInfo* /*vstorage*/, LogBuffer* /* log_buffer */) override {
     return nullptr;
   }
 

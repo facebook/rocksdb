@@ -380,7 +380,7 @@ Compaction* CompactionPicker::CompactFiles(
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       mutable_cf_options.default_write_temperature,
       compact_options.max_subcompactions,
-      /* grandparents */ {}, true);
+      /* grandparents */ {}, /* earliest_snapshot */ std::nullopt, true);
   RegisterCompaction(c);
   return c;
 }
@@ -677,7 +677,8 @@ Compaction* CompactionPicker::CompactRange(
         GetCompressionOptions(mutable_cf_options, vstorage, output_level),
         mutable_cf_options.default_write_temperature,
         compact_range_options.max_subcompactions,
-        /* grandparents */ {}, /* is manual */ true, trim_ts, /* score */ -1,
+        /* grandparents */ {}, /* earliest_snapshot */ std::nullopt,
+        /* is manual */ true, trim_ts, /* score */ -1,
         /* deletion_compaction */ false, /* l0_files_might_overlap */ true,
         CompactionReason::kUnknown,
         compact_range_options.blob_garbage_collection_policy,
@@ -866,6 +867,7 @@ Compaction* CompactionPicker::CompactRange(
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       mutable_cf_options.default_write_temperature,
       compact_range_options.max_subcompactions, std::move(grandparents),
+      /* earliest_snapshot */ std::nullopt,
       /* is manual */ true, trim_ts, /* score */ -1,
       /* deletion_compaction */ false, /* l0_files_might_overlap */ true,
       CompactionReason::kUnknown,
@@ -1170,7 +1172,8 @@ void CompactionPicker::UnregisterCompaction(Compaction* c) {
 }
 
 void CompactionPicker::PickFilesMarkedForCompaction(
-    const std::string& cf_name, VersionStorageInfo* vstorage, int* start_level,
+    const std::string& cf_name, VersionStorageInfo* vstorage,
+    std::optional<SequenceNumber> earliest_snapshot, int* start_level,
     int* output_level, CompactionInputFiles* start_level_inputs) {
   if (vstorage->FilesMarkedForCompaction().empty()) {
     return;
@@ -1181,6 +1184,15 @@ void CompactionPicker::PickFilesMarkedForCompaction(
     // If this assert() fails that means that some function marked some
     // files as being_compacted, but didn't call ComputeCompactionScore()
     assert(!level_file.second->being_compacted);
+    // We attempt to involve standalone range tombstone file in compaction only
+    // when the oldest snapshot is at or above its sequence number. That can
+    // help make the best use of such file to possibly obsolete other input
+    // files as a whole.
+    if (earliest_snapshot.has_value() &&
+        level_file.second->FileIsStandAloneRangeTombstone() &&
+        earliest_snapshot.value() < level_file.second->fd.smallest_seqno) {
+      return false;
+    }
     *start_level = level_file.first;
     *output_level =
         (*start_level == 0) ? vstorage->base_level() : *start_level + 1;

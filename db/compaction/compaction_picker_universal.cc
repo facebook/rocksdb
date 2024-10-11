@@ -35,8 +35,10 @@ class UniversalCompactionBuilder {
   UniversalCompactionBuilder(
       const ImmutableOptions& ioptions, const InternalKeyComparator* icmp,
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-      UniversalCompactionPicker* picker, LogBuffer* log_buffer)
+      const MutableDBOptions& mutable_db_options,
+      const std::vector<SequenceNumber>& existing_snapshots,
+      VersionStorageInfo* vstorage, UniversalCompactionPicker* picker,
+      LogBuffer* log_buffer)
       : ioptions_(ioptions),
         icmp_(icmp),
         cf_name_(cf_name),
@@ -44,7 +46,14 @@ class UniversalCompactionBuilder {
         mutable_db_options_(mutable_db_options),
         vstorage_(vstorage),
         picker_(picker),
-        log_buffer_(log_buffer) {}
+        log_buffer_(log_buffer) {
+    const auto* ucmp = icmp->user_comparator();
+    if (ucmp->timestamp_size() == 0) {
+      earliest_snapshot_ = existing_snapshots.empty()
+                               ? kMaxSequenceNumber
+                               : existing_snapshots.at(0);
+    }
+  }
 
   // Form and return the compaction object. The caller owns return object.
   Compaction* PickCompaction();
@@ -234,6 +243,9 @@ class UniversalCompactionBuilder {
   VersionStorageInfo* vstorage_;
   UniversalCompactionPicker* picker_;
   LogBuffer* log_buffer_;
+  // Optional earliest snapshot at time of compaction picking. This is only
+  // provided if the column family doesn't enable user-defined timestamps.
+  std::optional<SequenceNumber> earliest_snapshot_;
 
   static std::vector<UniversalCompactionBuilder::SortedRun> CalculateSortedRuns(
       const VersionStorageInfo& vstorage, int last_level,
@@ -394,11 +406,12 @@ bool UniversalCompactionPicker::NeedsCompaction(
 
 Compaction* UniversalCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer) {
-  UniversalCompactionBuilder builder(ioptions_, icmp_, cf_name,
-                                     mutable_cf_options, mutable_db_options,
-                                     vstorage, this, log_buffer);
+    const MutableDBOptions& mutable_db_options,
+    const std::vector<SequenceNumber>& existing_snapshots,
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+  UniversalCompactionBuilder builder(
+      ioptions_, icmp_, cf_name, mutable_cf_options, mutable_db_options,
+      existing_snapshots, vstorage, this, log_buffer);
   return builder.PickCompaction();
 }
 
@@ -923,6 +936,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
                                               output_level, enable_compression),
                         mutable_cf_options_.default_write_temperature,
                         /* max_subcompactions */ 0, grandparents,
+                        earliest_snapshot_,
                         /* is manual */ false, /* trim_ts */ "", score_,
                         false /* deletion_compaction */,
                         /* l0_files_might_overlap */ true, compaction_reason);
@@ -1257,7 +1271,8 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level,
                             true /* enable_compression */),
       mutable_cf_options_.default_write_temperature,
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
+      /* max_subcompactions */ 0, /* grandparents */ {}, earliest_snapshot_,
+      /* is manual */ false,
       /* trim_ts */ "", score_, false /* deletion_compaction */,
       /* l0_files_might_overlap */ true,
       CompactionReason::kUniversalSizeAmplification);
@@ -1288,7 +1303,15 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
         continue;
       }
       FileMetaData* f = vstorage_->LevelFiles(0)[loop];
-      if (f->marked_for_compaction) {
+      // We attempt to involve standalone range tombstone file in compaction
+      // only when the oldest snapshot is at or above its sequence number. That
+      // can help make the best use of such file to possibly obsolete other
+      // input files as a whole.
+      if (f->marked_for_compaction && earliest_snapshot_.has_value()) {
+        if (f->FileIsStandAloneRangeTombstone() &&
+            earliest_snapshot_.value() < f->fd.smallest_seqno) {
+          continue;
+        }
         start_level_inputs.files.push_back(f);
         start_index =
             static_cast<int>(loop);  // Consider this as the first candidate.
@@ -1320,7 +1343,8 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
     // For multi-level universal, the strategy is to make this look more like
     // leveled. We pick one of the files marked for compaction and compact with
     // overlapping files in the adjacent level.
-    picker_->PickFilesMarkedForCompaction(cf_name_, vstorage_, &start_level,
+    picker_->PickFilesMarkedForCompaction(cf_name_, vstorage_,
+                                          earliest_snapshot_, &start_level,
                                           &output_level, &start_level_inputs);
     if (start_level_inputs.empty()) {
       return nullptr;
@@ -1401,7 +1425,8 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       GetCompressionType(vstorage_, mutable_cf_options_, output_level, 1),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level),
       mutable_cf_options_.default_write_temperature,
-      /* max_subcompactions */ 0, grandparents, /* is manual */ false,
+      /* max_subcompactions */ 0, grandparents, earliest_snapshot_,
+      /* is manual */ false,
       /* trim_ts */ "", score_, false /* deletion_compaction */,
       /* l0_files_might_overlap */ true,
       CompactionReason::kFilesMarkedForCompaction);
@@ -1494,7 +1519,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level,
                             true /* enable_compression */),
       mutable_cf_options_.default_write_temperature,
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
+      /* max_subcompactions */ 0, /* grandparents */ {}, earliest_snapshot_,
+      /* is manual */ false,
       /* trim_ts */ "", score_, false /* deletion_compaction */,
       /* l0_files_might_overlap */ true, compaction_reason);
 }

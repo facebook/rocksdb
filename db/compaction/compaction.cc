@@ -283,9 +283,9 @@ Compaction::Compaction(
     uint32_t _output_path_id, CompressionType _compression,
     CompressionOptions _compression_opts, Temperature _output_temperature,
     uint32_t _max_subcompactions, std::vector<FileMetaData*> _grandparents,
-    bool _manual_compaction, const std::string& _trim_ts, double _score,
-    bool _deletion_compaction, bool l0_files_might_overlap,
-    CompactionReason _compaction_reason,
+    std::optional<SequenceNumber> _earliest_snapshot, bool _manual_compaction,
+    const std::string& _trim_ts, double _score, bool _deletion_compaction,
+    bool l0_files_might_overlap, CompactionReason _compaction_reason,
     BlobGarbageCollectionPolicy _blob_garbage_collection_policy,
     double _blob_garbage_collection_age_cutoff)
     : input_vstorage_(vstorage),
@@ -307,6 +307,7 @@ Compaction::Compaction(
       l0_files_might_overlap_(l0_files_might_overlap),
       inputs_(PopulateWithAtomicBoundaries(vstorage, std::move(_inputs))),
       grandparents_(std::move(_grandparents)),
+      earliest_snapshot_(_earliest_snapshot),
       score_(_score),
       bottommost_level_(
           // For simplicity, we don't support the concept of "bottommost level"
@@ -371,6 +372,10 @@ Compaction::Compaction(
       DoGenerateLevelFilesBrief(&input_levels_[which], inputs_[which].files,
                                 &arena_);
     }
+  }
+
+  if (earliest_snapshot_.has_value()) {
+    FilterInputsForCompactionIterator();
   }
 
   GetBoundaryKeys(vstorage, inputs_, &smallest_user_key_, &largest_user_key_);
@@ -989,6 +994,78 @@ int Compaction::EvaluatePenultimateLevel(
   }
 
   return penultimate_level;
+}
+
+void Compaction::FilterInputsForCompactionIterator() {
+  assert(earliest_snapshot_.has_value());
+  // cfd_ is not populated at Compaction construction time, get it from
+  // VersionStorageInfo instead.
+  assert(input_vstorage_);
+  const auto* ucmp = input_vstorage_->user_comparator();
+  assert(ucmp);
+  // Simply comparing file boundaries when user-defined timestamp is defined
+  // is not as safe because we need to also compare timestamp to know for
+  // sure. Although entries with higher timestamp is also supposed to have
+  // higher sequence number for the same user key (without timestamp).
+  assert(ucmp->timestamp_size() == 0);
+  std::vector<std::tuple<Slice, Slice, SequenceNumber>>
+      standalone_range_tombstones_for_filtering;
+  const LevelFilesBrief* flevel_start = input_levels(0);
+  for (size_t i = 0; i < flevel_start->num_files; i++) {
+    FileMetaData* fmeta = flevel_start->files[i].file_metadata;
+    if (!fmeta->FileIsStandAloneRangeTombstone()) {
+      continue;
+    }
+    if (earliest_snapshot_.value() < fmeta->fd.smallest_seqno) {
+      continue;
+    }
+    standalone_range_tombstones_for_filtering.emplace_back(
+        fmeta->smallest.user_key(), fmeta->largest.user_key(),
+        fmeta->fd.smallest_seqno);
+  }
+  if (standalone_range_tombstones_for_filtering.empty()) {
+    return;
+  }
+
+  std::vector<std::vector<FileMetaData*>> level_files;
+  size_t num_input_levels = input_levels_.size();
+  level_files.reserve(num_input_levels - 1);
+  for (size_t level = 1; level < num_input_levels; level++) {
+    level_files.emplace_back();
+    const LevelFilesBrief* flevel = input_levels(level);
+    for (size_t i = 0; i < flevel->num_files; i++) {
+      FileMetaData* file = flevel->files[i].file_metadata;
+      bool file_is_filtered = false;
+      for (const auto& [start_ukey, end_ukey, seqno] :
+           standalone_range_tombstones_for_filtering) {
+        if (seqno < file->fd.largest_seqno) {
+          continue;
+        }
+
+        if (ucmp->CompareWithoutTimestamp(start_ukey,
+                                          file->smallest.user_key()) <= 0 &&
+            ucmp->CompareWithoutTimestamp(end_ukey, file->largest.user_key()) >
+                0) {
+          file_is_filtered = true;
+          filtered_input_files_.emplace(file->fd.GetNumber());
+          continue;
+        }
+      }
+      if (!file_is_filtered) {
+        level_files.back().push_back(file);
+      }
+    }
+  }
+
+  if (filtered_input_files_.empty()) {
+    return;
+  }
+  assert(level_files.size() == num_input_levels - 1);
+  filtered_non_start_input_level_.resize(num_input_levels - 1);
+  for (size_t level = 1; level < num_input_levels; level++) {
+    DoGenerateLevelFilesBrief(&filtered_non_start_input_level_[level - 1],
+                              level_files[level - 1], &arena_);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

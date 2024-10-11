@@ -2019,6 +2019,11 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
     }
     for (size_t i = 0; i < num_input_files; ++i) {
       const FileMetaData* file_meta = compaction->input(input_level, i);
+      if (compaction->InputFileIsFiltered(file_meta)) {
+        // TODO(yuzhangyu): We can build some dedicated stats for filtered
+        // files.
+        continue;
+      }
       *bytes_read += file_meta->fd.GetFileSize();
       uint64_t file_input_entries = file_meta->num_entries;
       uint64_t file_num_range_del = file_meta->num_range_deletions;

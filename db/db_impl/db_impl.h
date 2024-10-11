@@ -2891,6 +2891,11 @@ class DBImpl : public DB {
   // garbages, among all column families.
   SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
 
+  // The min threshold to trigger compactions for standalone range deletion
+  // files that are marked for compaction.
+  SequenceNumber standalone_range_deletion_files_mark_threshold_ =
+      kMaxSequenceNumber;
+
   LogsWithPrepTracker logs_with_prep_tracker_;
 
   // Callback for compaction to check if a key is visible to a snapshot.
