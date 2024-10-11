@@ -28,7 +28,10 @@ public abstract class AbstractImmutableNativeReference
 
   @Override
   public boolean isOwningHandle() {
-    return owningHandle_.get();
+    if (!owningHandle_.get()) {
+      throw new RuntimeException("Object does not own its native handle.");
+    }
+    return true;
   }
 
   /**
