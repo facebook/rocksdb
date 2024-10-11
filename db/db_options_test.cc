@@ -1625,7 +1625,6 @@ TEST_F(DBOptionsTest, SetMutableBlockBasedTableOptions) {
   ASSERT_EQ(t->block_size, 4096);
   ASSERT_EQ(t->metadata_block_size, 4096);
   ASSERT_EQ(t->pin_top_level_index_and_filter, true);
-
 }
 }  // namespace ROCKSDB_NAMESPACE
 
