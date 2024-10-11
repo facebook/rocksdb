@@ -1586,7 +1586,7 @@ TEST_F(DBOptionsTest, SetMutableBlockBasedTableOptions) {
   bbto.metadata_block_size = 16384;
   bbto.pin_top_level_index_and_filter = false;
   options.table_factory.reset(new BlockBasedTableFactory(bbto));
-  Status s = TryReopen(options);
+  ASSERT_OK(TryReopen(options));
   ASSERT_OK(Put("foo", "13"));
   ASSERT_OK(Flush());
   TablePropertiesCollection tp;
@@ -1609,7 +1609,7 @@ TEST_F(DBOptionsTest, SetMutableBlockBasedTableOptions) {
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
   tp.clear();
-  db_->GetPropertiesOfAllTables(&tp);
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&tp));
   ASSERT_EQ(1, tp.size());
   for (const auto& entry : tp) {
     auto props = entry.second->user_collected_properties;
@@ -1625,6 +1625,7 @@ TEST_F(DBOptionsTest, SetMutableBlockBasedTableOptions) {
   ASSERT_EQ(t->block_size, 4096);
   ASSERT_EQ(t->metadata_block_size, 4096);
   ASSERT_EQ(t->pin_top_level_index_and_filter, true);
+
 }
 }  // namespace ROCKSDB_NAMESPACE
 
