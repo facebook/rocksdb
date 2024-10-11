@@ -20,6 +20,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/stats_history.h"
 #include "rocksdb/utilities/options_util.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
@@ -1575,6 +1576,56 @@ TEST_F(DBOptionsTest, TempOptionsFailTest) {
   ASSERT_FALSE(found_temp_file);
 }
 
+TEST_F(DBOptionsTest, SetMutableBlockBasedTableOptions) {
+  Options options = CurrentOptions();
+  Destroy(options);
+  BlockBasedTableOptions bbto;
+  bbto.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+  bbto.index_block_restart_interval = 16;
+  bbto.block_size = 16384;
+  bbto.metadata_block_size = 16384;
+  bbto.pin_top_level_index_and_filter = false;
+  options.table_factory.reset(new BlockBasedTableFactory(bbto));
+  Status s = TryReopen(options);
+  ASSERT_OK(Put("foo", "13"));
+  ASSERT_OK(Flush());
+  TablePropertiesCollection tp;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&tp));
+  ASSERT_EQ(1, tp.size());
+  for (const auto& entry : tp) {
+    auto props = entry.second->user_collected_properties;
+    auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
+    ASSERT_NE(pos, props.end());
+    auto index_type_on_file = static_cast<BlockBasedTableOptions::IndexType>(
+        DecodeFixed32(pos->second.c_str()));
+    ASSERT_EQ(index_type_on_file, BlockBasedTableOptions::kTwoLevelIndexSearch);
+  }
+  ASSERT_OK(db_->SetOptions({{"block_based_table_factory",
+                              "{index_type=kBinarySearch;index_block_restart_"
+                              "interval=1;block_size=4096;metadata_block_size="
+                              "4096;pin_top_level_index_and_filter=true}"}}));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  tp.clear();
+  db_->GetPropertiesOfAllTables(&tp);
+  ASSERT_EQ(1, tp.size());
+  for (const auto& entry : tp) {
+    auto props = entry.second->user_collected_properties;
+    auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
+    ASSERT_NE(pos, props.end());
+    auto index_type_on_file = static_cast<BlockBasedTableOptions::IndexType>(
+        DecodeFixed32(pos->second.c_str()));
+    ASSERT_EQ(index_type_on_file, BlockBasedTableOptions::kBinarySearch);
+  }
+  Options new_opts = db_->GetOptions();
+  auto t = new_opts.table_factory->GetOptions<BlockBasedTableOptions>();
+  ASSERT_EQ(t->index_block_restart_interval, 1);
+  ASSERT_EQ(t->block_size, 4096);
+  ASSERT_EQ(t->metadata_block_size, 4096);
+  ASSERT_EQ(t->pin_top_level_index_and_filter, true);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

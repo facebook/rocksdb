@@ -1664,16 +1664,39 @@ TEST_F(OptionsTest, MutableTableOptions) {
   ASSERT_NE(bbto, nullptr);
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_align", "true"));
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
+  ASSERT_OK(bbtf->ConfigureOption(config_options, "index_type", "kHashSearch"));
+  ASSERT_OK(bbtf->ConfigureOption(config_options,
+                                  "pin_top_level_index_and_filter", "false"));
+  ASSERT_OK(
+      bbtf->ConfigureOption(config_options, "metadata_block_size", "16384"));
+  ASSERT_OK(bbtf->ConfigureOption(config_options,
+                                  "index_block_restart_interval", "16"));
   ASSERT_EQ(bbto->block_align, true);
   ASSERT_EQ(bbto->block_size, 1024);
+  ASSERT_EQ(bbto->index_type, BlockBasedTableOptions::kHashSearch);
+  ASSERT_EQ(bbto->pin_top_level_index_and_filter, false);
+  ASSERT_EQ(bbto->metadata_block_size, 16384);
+  ASSERT_EQ(bbto->index_block_restart_interval, 16);
   ASSERT_OK(bbtf->PrepareOptions(config_options));
   config_options.mutable_options_only = true;
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
   ASSERT_EQ(bbto->block_align, true);
   ASSERT_NOK(bbtf->ConfigureOption(config_options, "block_align", "false"));
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "2048"));
+  ASSERT_OK(bbtf->ConfigureOption(config_options, "index_type",
+                                  "kTwoLevelIndexSearch"));
+  ASSERT_OK(bbtf->ConfigureOption(config_options,
+                                  "pin_top_level_index_and_filter", "true"));
+  ASSERT_OK(
+      bbtf->ConfigureOption(config_options, "metadata_block_size", "4096"));
+  ASSERT_OK(bbtf->ConfigureOption(config_options,
+                                  "index_block_restart_interval", "1"));
   ASSERT_EQ(bbto->block_align, true);
   ASSERT_EQ(bbto->block_size, 2048);
+  ASSERT_EQ(bbto->index_type, BlockBasedTableOptions::kTwoLevelIndexSearch);
+  ASSERT_EQ(bbto->pin_top_level_index_and_filter, true);
+  ASSERT_EQ(bbto->metadata_block_size, 4096);
+  ASSERT_EQ(bbto->index_block_restart_interval, 1);
 
   ColumnFamilyOptions cf_opts;
   cf_opts.table_factory = bbtf;
@@ -1694,7 +1717,8 @@ TEST_F(OptionsTest, MutableCFOptions) {
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, cf_opts,
       "paranoid_file_checks=true; block_based_table_factory.block_align=false; "
-      "block_based_table_factory.block_size=8192;",
+      "block_based_table_factory.block_size=8192;block_based_table_factory."
+      "index_type=kTwoLevelIndexSearch",
       &cf_opts));
   ASSERT_TRUE(cf_opts.paranoid_file_checks);
   ASSERT_NE(cf_opts.table_factory.get(), nullptr);
@@ -1702,10 +1726,20 @@ TEST_F(OptionsTest, MutableCFOptions) {
   ASSERT_NE(bbto, nullptr);
   ASSERT_EQ(bbto->block_size, 8192);
   ASSERT_EQ(bbto->block_align, false);
+  ASSERT_EQ(bbto->index_type, BlockBasedTableOptions::kTwoLevelIndexSearch);
   std::unordered_map<std::string, std::string> unused_opts;
   ASSERT_OK(GetColumnFamilyOptionsFromMap(
       config_options, cf_opts, {{"paranoid_file_checks", "false"}}, &cf_opts));
   ASSERT_EQ(cf_opts.paranoid_file_checks, false);
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, cf_opts,
+      "block_based_table_factory.pin_top_level_index_and_filter=false;"
+      "block_based_table_factory.metadata_block_size=8192;block_based_table_"
+      "factory.index_block_restart_interval=16",
+      &cf_opts));
+  ASSERT_EQ(bbto->pin_top_level_index_and_filter, false);
+  ASSERT_EQ(bbto->metadata_block_size, 8192);
+  ASSERT_EQ(bbto->index_block_restart_interval, 16);
 
   ASSERT_OK(GetColumnFamilyOptionsFromMap(
       config_options, cf_opts,
@@ -1758,6 +1792,19 @@ TEST_F(OptionsTest, MutableCFOptions) {
       &cf_opts));
   ASSERT_EQ(bbto, cf_opts.table_factory->GetOptions<BlockBasedTableOptions>());
   ASSERT_EQ(bbto->block_size, 32768);
+
+  // Attempt to change mutable option index_type, should succeed.
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(
+      config_options, cf_opts,
+      {{"block_based_table_factory",
+        "{index_type=kBinarySearch;pin_top_level_index_and_filter=true;"
+        "metadata_block_size=5000;index_block_restart_interval=7}"}},
+      &cf_opts));
+  ASSERT_EQ(bbto, cf_opts.table_factory->GetOptions<BlockBasedTableOptions>());
+  ASSERT_EQ(bbto->index_type, BlockBasedTableOptions::kBinarySearch);
+  ASSERT_EQ(bbto->pin_top_level_index_and_filter, true);
+  ASSERT_EQ(bbto->metadata_block_size, 5000);
+  ASSERT_EQ(bbto->index_block_restart_interval, 7);
 }
 
 
