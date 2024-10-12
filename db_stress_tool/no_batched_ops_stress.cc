@@ -2057,11 +2057,13 @@ class NonBatchedOpsStressTest : public StressTest {
       ingest_options.verify_checksums_before_ingest = thread->rand.OneInOpt(2);
       ingest_options.verify_checksums_readahead_size =
           thread->rand.OneInOpt(2) ? 1024 * 1024 : 0;
+      ingest_options.fill_cache = thread->rand.OneInOpt(4);
       ingest_options_oss << "move_files: " << ingest_options.move_files
                          << ", verify_checksums_before_ingest: "
                          << ingest_options.verify_checksums_before_ingest
                          << ", verify_checksums_readahead_size: "
-                         << ingest_options.verify_checksums_readahead_size;
+                         << ingest_options.verify_checksums_readahead_size
+                         << ", fill_cache: " << ingest_options.fill_cache;
       s = db_->IngestExternalFile(column_families_[column_family],
                                   {sst_filename}, ingest_options);
     }
