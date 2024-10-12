@@ -2259,6 +2259,14 @@ struct IngestExternalFileOptions {
   // RepairDB() may not recover these files correctly, potentially leading to
   // data loss.
   bool allow_db_generated_files = false;
+
+  // Controls whether data and metadata blocks (e.g. index, filter) read during
+  // file ingestion will be added to block cache. This does not apply when a
+  // file is ingested into L0 or when index and filter blocks are expected to be
+  // pinned (see metadata_cache_options and cache_index_and_filter_blocks).
+  // Users may wish to set this to false when bulk loading into a CF that is not
+  // available for reads yet.
+  bool fill_cache = true;
 };
 
 enum TraceFilterType : uint64_t {
