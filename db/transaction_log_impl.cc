@@ -19,7 +19,8 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
     std::unique_ptr<VectorWalPtr> files, VersionSet const* const versions,
-    const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer)
+    const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer,
+    const std::shared_ptr<TransactionLogSeqCache>& transaction_log_seq_cache)
     : dir_(dir),
       options_(options),
       read_options_(read_options),
@@ -32,6 +33,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       started_(false),
       is_valid_(false),
       current_file_index_(0),
+      transaction_log_seq_cache_(transaction_log_seq_cache),
       current_batch_seq_(0),
       current_last_seq_(0) {
   assert(files_ != nullptr);
@@ -113,8 +115,13 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
   } else if (!current_status_.ok()) {
     return;
   }
-  Status s =
-      OpenLogReader(files_->at(static_cast<size_t>(start_file_index)).get());
+  auto& file = files_->at(static_cast<size_t>(start_file_index));
+  uint64_t hint_block_index{0};
+  if (read_options_.with_cache_) {
+    transaction_log_seq_cache_->Lookup(
+        file->LogNumber(), starting_sequence_number_, &hint_block_index);
+  }
+  Status s = OpenLogReader(file.get(), hint_block_index * log::kBlockSize);
   if (!s.ok()) {
     current_status_ = s;
     reporter_.Info(current_status_.ToString().c_str());
@@ -207,7 +214,13 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
     // Open the next file
     if (current_file_index_ < files_->size() - 1) {
       ++current_file_index_;
-      Status s = OpenLogReader(files_->at(current_file_index_).get());
+      auto& file = files_->at(static_cast<size_t>(current_file_index_));
+      uint64_t hint_block_index{0};
+      if (read_options_.with_cache_) {
+        transaction_log_seq_cache_->Lookup(
+            file->LogNumber(), starting_sequence_number_, &hint_block_index);
+      }
+      Status s = OpenLogReader(file.get(), hint_block_index * log::kBlockSize);
       if (!s.ok()) {
         is_valid_ = false;
         current_status_ = s;
@@ -276,12 +289,28 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   // currentBatchSeq_ can only change here
   assert(current_last_seq_ <= versions_->LastSequence());
 
+  if (read_options_.with_cache_) {
+    // cache the mapping of sequence to log block index when seeking to the
+    // start or end sequence
+    if ((current_batch_seq_ <= starting_sequence_number_ &&
+         current_last_seq_ >= starting_sequence_number_) ||
+        current_last_seq_ == versions_->LastSequence()) {
+      transaction_log_seq_cache_->Insert(
+          current_log_reader_->GetLogNumber(), current_batch_seq_,
+          current_log_reader_->LastRecordOffset() / log::kBlockSize);
+    }
+  }
+
+  TEST_SYNC_POINT_CALLBACK("UpdateCurrentWriteBatch:TransactionLogIteratorImpl",
+                           current_log_reader_.get());
+
   current_batch_ = std::move(batch);
   is_valid_ = true;
   current_status_ = Status::OK();
 }
 
-Status TransactionLogIteratorImpl::OpenLogReader(const WalFile* log_file) {
+Status TransactionLogIteratorImpl::OpenLogReader(const WalFile* log_file,
+                                                 uint64_t hint_offset) {
   std::unique_ptr<SequentialFileReader> file;
   Status s = OpenLogFile(log_file, &file);
   if (!s.ok()) {
@@ -291,6 +320,11 @@ Status TransactionLogIteratorImpl::OpenLogReader(const WalFile* log_file) {
   current_log_reader_.reset(
       new log::Reader(options_->info_log, std::move(file), &reporter_,
                       read_options_.verify_checksums_, log_file->LogNumber()));
+  if (hint_offset > 0) {
+    TEST_SYNC_POINT_CALLBACK("TransactionLogIteratorImpl:OpenLogReader:Skip",
+                             &hint_offset);
+    return current_log_reader_->Skip(hint_offset);
+  }
   return Status::OK();
 }
 }  // namespace ROCKSDB_NAMESPACE
