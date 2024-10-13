@@ -336,7 +336,7 @@ TEST_F(ExternalSSTFileTest, NoBlockCache) {
                                        false, false, &true_data, nullptr,
                                        /*fill_cache=*/true));
   ASSERT_EQ(FilesPerLevel(), "0,0,0,0,0,0,1");
-  EXPECT_EQ(cache->GetUsage(), usage_before_ingestion);
+  EXPECT_GT(cache->GetUsage(), usage_before_ingestion);
 
   TablePropertiesCollection tp;
   ASSERT_OK(db_->GetPropertiesOfAllTables(&tp));
