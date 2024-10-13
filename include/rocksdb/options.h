@@ -2261,11 +2261,11 @@ struct IngestExternalFileOptions {
   bool allow_db_generated_files = false;
 
   // Controls whether data and metadata blocks (e.g. index, filter) read during
-  // file ingestion will be added to block cache. This does not apply when a
-  // file is ingested into L0 or when index and filter blocks are expected to be
-  // pinned (see metadata_cache_options and cache_index_and_filter_blocks).
+  // file ingestion will be added to block cache.
   // Users may wish to set this to false when bulk loading into a CF that is not
   // available for reads yet.
+  // When ingesting to multiple families, this option should be the same across
+  // ingestion options.
   bool fill_cache = true;
 };
 
