@@ -190,6 +190,7 @@ IOStatus WritableFileWriter::Append(const IOOptions& opts, const Slice& data,
   if (s.ok()) {
     uint64_t cur_size = filesize_.load(std::memory_order_acquire);
     filesize_.store(cur_size + data.size(), std::memory_order_release);
+    s = SyncIfNeeded(io_options);
   } else {
     set_seen_error(s);
   }
@@ -236,7 +237,7 @@ IOStatus WritableFileWriter::Pad(const IOOptions& opts,
   uint64_t cur_size = filesize_.load(std::memory_order_acquire);
   filesize_.store(cur_size + pad_bytes, std::memory_order_release);
 
-  return IOStatus::OK();
+  return SyncIfNeeded(io_options);
 }
 
 IOStatus WritableFileWriter::Close(const IOOptions& opts) {
@@ -399,22 +400,28 @@ IOStatus WritableFileWriter::Flush(const IOOptions& opts) {
     return s;
   }
 
+  return SyncIfNeeded(io_options);
+}
+
+IOStatus WritableFileWriter::SyncIfNeeded(const IOOptions& io_options) {
   // sync OS cache to disk for every bytes_per_sync_
   // TODO: give log file and sst file different options (log
   // files could be potentially cached in OS for their whole
   // life time, thus we might not want to flush at all).
 
-  // We try to avoid sync to the last 1MB of data. For two reasons:
+  // We try to avoid sync to the last 1MB of flushed data. For two reasons:
   // (1) avoid rewrite the same page that is modified later.
   // (2) for older version of OS, write can block while writing out
   //     the page.
   // Xfs does neighbor page flushing outside of the specified ranges. We
   // need to make sure sync range is far from the write offset.
+  IOStatus s;
+
   if (!use_direct_io() && bytes_per_sync_) {
     const uint64_t kBytesNotSyncRange =
         1024 * 1024;                                // recent 1MB is not synced.
     const uint64_t kBytesAlignWhenSync = 4 * 1024;  // Align 4KB.
-    uint64_t cur_size = filesize_.load(std::memory_order_acquire);
+    uint64_t cur_size = writable_file_->GetFileSize(io_options, nullptr);
     if (cur_size > kBytesNotSyncRange) {
       uint64_t offset_sync_to = cur_size - kBytesNotSyncRange;
       offset_sync_to -= offset_sync_to % kBytesAlignWhenSync;
