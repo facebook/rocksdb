@@ -128,12 +128,13 @@ struct CacheUsageOptions {
 // Configures how SST files using the block-based table format (standard)
 // are written and read.
 //
-// Except as specifically noted, all options here are "mutable" using
+// Except as specifically noted, all "simple" options here are "mutable" using
 // SetOptions(), with the caveat that only new table builders and new table
 // readers will pick up new options. This is nearly immediate effect for
-// SST building, but in the worse case, options affecting reads only take
+// SST building, but in the worst case, options affecting reads only take
 // effect for new files. (Unless the DB is closed and re-opened, table readers
 // can live as long as the SST file itself.)
+//
 // Examples (DB* db):
 // db->SetOptions({{"block_based_table_factory",
 //                  "{detect_filter_construct_corruption=true;}"}});
@@ -141,10 +142,9 @@ struct CacheUsageOptions {
 //                  "{max_auto_readahead_size=0;block_size=8192;}"}}));
 // db->SetOptions({{"block_based_table_factory",
 //                  "{prepopulate_block_cache=kFlushOnly;}"}}));
-// Not recommended because old table readers will reference old block cache
-// and new table readers will reference the new:
-// db->SetOptions({{"block_based_table_factory",
-//                  "{block_cache=2G;}"}}));
+//
+// For now, "simple" options are only non-pointer options that are 64 bits or
+// less.
 struct BlockBasedTableOptions {
   static const char* kName() { return "BlockTableOptions"; }
   // @flush_block_policy_factory creates the instances of flush block policy.
