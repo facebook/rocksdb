@@ -30,7 +30,7 @@ class BenchmarkRunner(ABC):
             # refer GetInfoLogPrefix() in rocksdb/util/filename.cc
             # example db_path: /dev/shm/dbbench
             file_name = db_path[1:]  # to ignore the leading '/' character
-            to_be_replaced = re.compile("[^0-9a-zA-Z\-_\.]")  # noqa
+            to_be_replaced = re.compile(r"[^0-9a-zA-Z\-_\.]")  # noqa
             for character in to_be_replaced.findall(db_path):
                 file_name = file_name.replace(character, "_")
             if not file_name.endswith("_"):

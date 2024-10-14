@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import argparse
 import math
@@ -1023,7 +1022,7 @@ def gen_cmd(params, unknown_params):
     cmd = (
         [stress_cmd]
         + [
-            "--{0}={1}".format(k, v)
+            f"--{k}={v}"
             for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
             if k
             not in {
@@ -1278,7 +1277,7 @@ def whitebox_crash_main(args, unknown_args):
         hit_timeout, retncode, stdoutdata, stderrdata = execute_cmd(
             cmd, exit_time - time.time() + 900
         )
-        msg = "check_mode={0}, kill option={1}, exitcode={2}\n".format(
+        msg = "check_mode={}, kill option={}, exitcode={}\n".format(
             check_mode, additional_opts["kill_random_test"], retncode
         )
 

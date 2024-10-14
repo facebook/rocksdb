@@ -143,7 +143,7 @@ class DatabaseOptions(DataSource):
 
     def load_from_source(self, options_path):
         self.options_dict = {}
-        with open(options_path, "r") as db_options:
+        with open(options_path) as db_options:
             for line in db_options:
                 line = OptionsSpecParser.remove_trailing_comment(line)
                 if not line:

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 try:
     from builtins import str
@@ -132,7 +131,7 @@ def generate_targets(repo_path, deps_map):
     if len(sys.argv) >= 2:
         # Heuristically quote and canonicalize whitespace for inclusion
         # in how the file was generated.
-        extra_argv = " '{0}'".format(" ".join(sys.argv[1].split()))
+        extra_argv = " '{}'".format(" ".join(sys.argv[1].split()))
 
     TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path, extra_argv)
 
@@ -213,7 +212,7 @@ def generate_targets(repo_path, deps_map):
     for src in src_mk.get("MICROBENCH_SOURCES", []):
         name = src.rsplit("/", 1)[1].split(".")[0] if "/" in src else src.split(".")[0]
         TARGETS.add_binary(name, [src], [], extra_bench_libs=True)
-    print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
+    print(f"Extra dependencies:\n{json.dumps(deps_map)}")
 
     # Dictionary test executable name -> relative source file path
     test_source_map = {}
