@@ -197,11 +197,10 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
     pinned_seq_pos_ = tombstones_->seq_end();
   }
 
-  RangeTombstone Tombstone(bool logical_strip_timestamp = false) const {
+  RangeTombstone Tombstone() const {
     assert(Valid());
     if (icmp_->user_comparator()->timestamp_size()) {
-      return RangeTombstone(start_key(), end_key(), seq(), timestamp(),
-                            logical_strip_timestamp);
+      return RangeTombstone(start_key(), end_key(), seq(), timestamp());
     }
     return RangeTombstone(start_key(), end_key(), seq());
   }
