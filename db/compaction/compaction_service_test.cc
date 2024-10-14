@@ -416,7 +416,7 @@ TEST_F(CompactionServiceTest, CorruptedOutput) {
             *(static_cast<CompactionServiceResult**>(arg));
         ASSERT_TRUE(compaction_result != nullptr &&
                     !compaction_result->output_files.empty());
-        // Corrupt or truncate files here
+        // Corrupt files here
         for (const auto& output_file : compaction_result->output_files) {
           std::string file_name =
               compaction_result->output_path + "/" + output_file.file_name;
@@ -433,16 +433,21 @@ TEST_F(CompactionServiceTest, CorruptedOutput) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_NOK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+  // CompactRange() should fail
+  Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsCorruption());
+
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
+  // On the worker side, the compaction is considered success
+  // Verification is done on the primary side
   CompactionServiceResult result;
   my_cs->GetResult(&result);
-  ASSERT_NOK(result.status);
-  ASSERT_TRUE(result.status.IsCorruption());
+  ASSERT_OK(result.status);
   ASSERT_TRUE(result.stats.is_manual_compaction);
   ASSERT_TRUE(result.stats.is_remote_compaction);
 }
@@ -467,7 +472,7 @@ TEST_F(CompactionServiceTest, TruncatedOutput) {
             *(static_cast<CompactionServiceResult**>(arg));
         ASSERT_TRUE(compaction_result != nullptr &&
                     !compaction_result->output_files.empty());
-        // Corrupt or truncate files here
+        // Truncate files here
         for (const auto& output_file : compaction_result->output_files) {
           std::string file_name =
               compaction_result->output_path + "/" + output_file.file_name;
@@ -482,16 +487,21 @@ TEST_F(CompactionServiceTest, TruncatedOutput) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_NOK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+  // CompactRange() should fail
+  Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsCorruption());
+
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
+  // On the worker side, the compaction is considered success
+  // Verification is done on the primary side
   CompactionServiceResult result;
   my_cs->GetResult(&result);
-  ASSERT_NOK(result.status);
-  ASSERT_TRUE(result.status.IsCorruption());
+  ASSERT_OK(result.status);
   ASSERT_TRUE(result.stats.is_manual_compaction);
   ASSERT_TRUE(result.stats.is_remote_compaction);
 }

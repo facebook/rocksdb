@@ -14,7 +14,6 @@
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
-#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/utilities/options_type.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -350,21 +349,6 @@ Status CompactionServiceCompactionJob::Run() {
 
   TEST_SYNC_POINT_CALLBACK("CompactionServiceCompactionJob::Run:0",
                            &compaction_result_);
-
-  // Sanity check by try opening the output file using SST File Reader
-  if (status.ok()) {
-    // GetLatestCFOptions() normally requires DB Mutex held, but we don't expect
-    // CFs to change in the remote worker, so this should be okay
-    Options options(BuildDBOptions(db_options_, mutable_db_options_copy_),
-                    c->column_family_data()->GetLatestCFOptions());
-    SstFileReader reader(options);
-    for (const auto& output_file : compaction_result_->output_files) {
-      status = reader.Open(output_path_ + "/" + output_file.file_name);
-      if (!status.ok()) {
-        break;
-      }
-    }
-  }
 
   InternalStats::CompactionStatsFull compaction_stats;
   sub_compact->AggregateCompactionStats(compaction_stats);
