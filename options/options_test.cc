@@ -1662,28 +1662,28 @@ TEST_F(OptionsTest, MutableTableOptions) {
   bbtf.reset(NewBlockBasedTableFactory());
   auto bbto = bbtf->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(bbto, nullptr);
-  ASSERT_OK(bbtf->ConfigureOption(config_options, "block_align", "true"));
+  ASSERT_OK(bbtf->ConfigureOption(config_options, "no_block_cache", "true"));
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
-  ASSERT_EQ(bbto->block_align, true);
+  ASSERT_EQ(bbto->no_block_cache, true);
   ASSERT_EQ(bbto->block_size, 1024);
   ASSERT_OK(bbtf->PrepareOptions(config_options));
   config_options.mutable_options_only = true;
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
-  ASSERT_EQ(bbto->block_align, true);
-  ASSERT_NOK(bbtf->ConfigureOption(config_options, "block_align", "false"));
+  ASSERT_EQ(bbto->no_block_cache, true);
+  ASSERT_NOK(bbtf->ConfigureOption(config_options, "no_block_cache", "false"));
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "2048"));
-  ASSERT_EQ(bbto->block_align, true);
+  ASSERT_EQ(bbto->no_block_cache, true);
   ASSERT_EQ(bbto->block_size, 2048);
 
   ColumnFamilyOptions cf_opts;
   cf_opts.table_factory = bbtf;
   ASSERT_NOK(GetColumnFamilyOptionsFromString(
-      config_options, cf_opts, "block_based_table_factory.block_align=false",
+      config_options, cf_opts, "block_based_table_factory.no_block_cache=false",
       &cf_opts));
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, cf_opts, "block_based_table_factory.block_size=8192",
       &cf_opts));
-  ASSERT_EQ(bbto->block_align, true);
+  ASSERT_EQ(bbto->no_block_cache, true);
   ASSERT_EQ(bbto->block_size, 8192);
 }
 

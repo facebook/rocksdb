@@ -339,6 +339,16 @@ bool StressTest::BuildOptionsTable() {
            "2",
        }},
       {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
+      // XXX: BlockBasedTableOptions fields are mutable, but there is a
+      // read-write race condition affecting them with SetOptions.
+      // See https://github.com/facebook/rocksdb/issues/10079
+      // {"block_based_table_factory", {"{block_size=2048}",
+      //                                "{block_size=4096}"}},
+      // Also TODO: a way here to modify many different BBTO fields
+      // {"block_based_table_factory", {"{filter_policy=bloomfilter:2.34",
+      //                                "{filter_policy=ribbonfilter:3.45",
+      //                                "{filter_policy=ribbonfilter:4.56:-1",
+      //                                "{filter_policy=ribbonfilter:6.67:3"}},
   };
   if (FLAGS_compaction_style == kCompactionStyleUniversal &&
       FLAGS_universal_max_read_amp > 0) {
