@@ -412,6 +412,8 @@ static struct BlockBasedTableTypeInfo {
           if (i.first == "no_block_cache") {
             // Special case of not being mutable; only makes sense at
             // initialization time, and for non-expert users
+            assert((i.second.GetFlags() & OptionTypeFlags::kMutable) ==
+                   OptionTypeFlags::kNone);
           } else {
             // Values up to 64 bits should be generally safe to mutate despite
             // the read-write race.
@@ -420,9 +422,6 @@ static struct BlockBasedTableTypeInfo {
           break;
       }
     }
-
-    // Exceptions to mutability:
-    info.find("no_block_cache")->second.SetFlags(OptionTypeFlags::kNone);
   }
 } block_based_table_type_info;
 
