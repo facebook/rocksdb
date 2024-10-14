@@ -691,7 +691,8 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
           /* unique_id */ {}, /* largest_seqno */ 0,
           /* tail_size */ 0, user_defined_timestamps_persisted),
       std::move(sst_file_reader), file_to_ingest->file_size, table_reader,
-      true);  // No need to prefetch index/filter if caching is not needed.
+      // No need to prefetch index/filter if caching is not needed.
+      /*prefetch_index_and_filter_in_cache=*/ingestion_options_.fill_cache);
   return status;
 }
 
