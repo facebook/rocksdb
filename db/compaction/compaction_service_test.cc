@@ -494,7 +494,7 @@ TEST_F(CompactionServiceTest, CorruptedOutputParanoidFileCheck) {
     Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
     if (paranoid_file_check_enabled) {
       ASSERT_NOK(s);
-      ASSERT_TRUE(s.IsCorruption());
+      ASSERT_EQ(Status::Corruption("Paranoid checksums do not match"), s);
     } else {
       // CompactRange() goes through if paranoid file check is not enabled
       ASSERT_OK(s);
