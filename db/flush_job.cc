@@ -858,6 +858,12 @@ Status FlushJob::WriteLevel0Table() {
   meta_.temperature = mutable_cf_options_.default_write_temperature;
   file_options_.temperature = meta_.temperature;
 
+  const auto* ucmp = cfd_->internal_comparator().user_comparator();
+  assert(ucmp);
+  const size_t ts_sz = ucmp->timestamp_size();
+  const bool logical_strip_timestamp =
+      ts_sz > 0 && !cfd_->ioptions()->persist_user_defined_timestamps;
+
   std::vector<BlobFileAddition> blob_file_additions;
 
   {
@@ -893,10 +899,21 @@ Status FlushJob::WriteLevel0Table() {
           db_options_.info_log,
           "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
-      memtables.push_back(m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr,
-                                         &arena, /*prefix_extractor=*/nullptr));
-      auto* range_del_iter = m->NewRangeTombstoneIterator(
-          ro, kMaxSequenceNumber, true /* immutable_memtable */);
+      if (logical_strip_timestamp) {
+        memtables.push_back(m->NewTimestampStrippingIterator(
+            ro, /*seqno_to_time_mapping=*/nullptr, &arena,
+            /*prefix_extractor=*/nullptr, ts_sz));
+      } else {
+        memtables.push_back(
+            m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
+                           /*prefix_extractor=*/nullptr));
+      }
+      auto* range_del_iter =
+          logical_strip_timestamp
+              ? m->NewTimestampStrippingRangeTombstoneIterator(
+                    ro, kMaxSequenceNumber, ts_sz)
+              : m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber,
+                                             true /* immutable_memtable */);
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
