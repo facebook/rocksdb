@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.7.2 (10/08/2024)
+### Bug Fixes
+* Fix a bug for surfacing write unix time: `Iterator::GetProperty("rocksdb.iterator.write-time")` for non-L0 files.
+
 ## 9.7.1 (09/26/2024)
 ### Bug Fixes
 * Several DB option settings could be lost through `GetOptionsFromString()`, possibly elsewhere as well. Affected options, now fixed:`background_close_inactive_wals`, `write_dbid_to_manifest`, `write_identity_file`, `prefix_seek_opt_in_only`
