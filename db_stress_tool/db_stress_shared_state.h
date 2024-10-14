@@ -94,6 +94,11 @@ class SharedState {
             "Cannot use --expected_values_dir on platforms without lock-free "
             "std::atomic<uint32_t>");
       }
+      if (!std::atomic<uint64_t>{}.is_lock_free()) {
+        status = Status::InvalidArgument(
+            "Cannot use --expected_values_dir on platforms without lock-free "
+            "std::atomic<uint64_t>");
+      }
       if (status.ok() && FLAGS_clear_column_family_one_in > 0) {
         status = Status::InvalidArgument(
             "Cannot use --expected_values_dir on when "
@@ -258,6 +263,14 @@ class SharedState {
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) {
     return expected_state_manager_->ClearColumnFamily(cf);
+  }
+
+  void SetPersistedSeqno(SequenceNumber seqno) {
+    return expected_state_manager_->SetPersistedSeqno(seqno);
+  }
+
+  SequenceNumber GetPersistedSeqno() {
+    return expected_state_manager_->GetPersistedSeqno();
   }
 
   // Prepare a Put that will be started but not finish yet
