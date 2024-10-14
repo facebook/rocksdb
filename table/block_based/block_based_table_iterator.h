@@ -435,9 +435,14 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     bool out_of_prefix_bound =
         (read_options_.prefix_same_as_start &&
          !seek_key_prefix_for_readahead_trimming_.empty() &&
-         prefix_extractor_->InDomain(index_iter_user_key) &&
-         prefix_extractor_->Transform(index_iter_user_key)
-                 .compare(seek_key_prefix_for_readahead_trimming_) != 0);
+         (prefix_extractor_->InDomain(index_iter_user_key)
+              ? (prefix_extractor_->Transform(index_iter_user_key)
+                     .compare(seek_key_prefix_for_readahead_trimming_) != 0)
+              : user_comparator_.CompareWithoutTimestamp(
+                    index_iter_user_key,
+                    /*a_has_ts=*/true, seek_key_prefix_for_readahead_trimming_,
+                    /*b_has_ts=*/false) > 0));
+
     if (out_of_prefix_bound) {
       return true;
     }

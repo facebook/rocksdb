@@ -1522,81 +1522,108 @@ TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
   Close();
 }
 
-TEST_F(PrefetchTest, TrimReadaheadSizeForPrefixSameAsStart) {
+class PrefetchTrimReadaheadTestParam
+    : public DBTestBase,
+      public ::testing::WithParamInterface<
+          std::tuple<BlockBasedTableOptions::IndexShorteningMode, bool>> {
+ public:
+  const std::string kPrefix = "a_prefix_";
+  Random rnd = Random(309);
+
+  PrefetchTrimReadaheadTestParam()
+      : DBTestBase("prefetch_trim_readahead_test_param", true) {}
+  virtual void SetGenericOptions(Env* env, Options& options) {
+    options = CurrentOptions();
+    options.env = env;
+    options.create_if_missing = true;
+    options.disable_auto_compactions = true;
+    options.statistics = CreateDBStatistics();
+
+    // To make all the data bocks fit in one file for testing purpose
+    options.write_buffer_size = 1024 * 1024 * 1024;
+    options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefix.size()));
+  }
+
+  void SetBlockBasedTableOptions(BlockBasedTableOptions& table_options) {
+    table_options.no_block_cache = false;
+    table_options.index_shortening = std::get<0>(GetParam());
+
+    // To force keys with different prefixes are in different data blocks of the
+    // file for testing purpose
+    table_options.block_size = 1;
+    table_options.flush_block_policy_factory.reset(
+        new FlushBlockBySizePolicyFactory());
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(
+    PrefetchTrimReadaheadTestParam, PrefetchTrimReadaheadTestParam,
+    ::testing::Combine(
+        // Params are as follows -
+        // Param 0 - TableOptions::index_shortening
+        // Param 2 - ReadOptinos::auto_readahead_size
+        ::testing::Values(
+            BlockBasedTableOptions::IndexShorteningMode::kNoShortening,
+            BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators,
+            BlockBasedTableOptions::IndexShorteningMode::
+                kShortenSeparatorsAndSuccessor),
+        ::testing::Bool()));
+
+TEST_P(PrefetchTrimReadaheadTestParam, PrefixSameAsStart) {
   if (mem_env_ || encrypted_env_) {
     ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
     return;
   }
+  const bool auto_readahead_size = std::get<1>(GetParam());
 
-  // First param is if the mockFS support_prefetch or not
-  std::shared_ptr<MockFS> fs =
-      std::make_shared<MockFS>(FileSystem::Default(), false);
-
+  std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
+      FileSystem::Default(), false /* support_prefetch */,
+      true /* small_buffer_alignment */);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   Options options;
-  SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
-  options.statistics = CreateDBStatistics();
-  options.write_buffer_size = 1024 * 1024 * 1024;
-
-  const std::string prefix_1 = "a_prefix";
-  const std::string prefix_2 = "b_prefix";
-  assert(prefix_1.size() == prefix_2.size());
-  options.prefix_extractor.reset(NewFixedPrefixTransform(prefix_1.size()));
-
-  BlockBasedTableOptions table_options;
-  SetBlockBasedTableOptions(table_options);
-  table_options.no_block_cache = false;
-  // To force keys with different prefixes are in different data blocks of the
-  // file for testing purpose
-  table_options.block_size = 1;
-  table_options.flush_block_policy_factory.reset(
-      new FlushBlockBySizePolicyFactory());
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  SetGenericOptions(env.get(), options);
+  BlockBasedTableOptions table_optoins;
+  SetBlockBasedTableOptions(table_optoins);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_optoins));
 
   Status s = TryReopen(options);
   ASSERT_OK(s);
 
   // To create a DB with data block layout (denoted as "[...]" below ) as the
   // following:
-  // [prefix_1 + "a": random value]
-  // [prefix_1 + "aa": random value]
-  // ....
-  // [prefix_1 + "z.....z": random value]
-  // [prefix_2 + "a": random value]
+  // ["a_prefix_0": random value]
+  // ["a_prefix_1": random value]
   // ...
-  // [prefix_2 + "z.....z": random value]
+  // ["a_prefix_9": random value]
+  // ["c_prefix_0": random value]
+  // ["d_prefix_1": random value]
+  // ...
+  // ["l_prefix_9": random value]
   //
-  // We want to verify readahead is trimmed so no data block containing keys of
-  // prefix_2 is prefetched
-  WriteBatch prefix_1_batch;
-  Random rnd(309);
-  for (int i = 0; i < 26; i++) {
-    std::string key = prefix_1;
-
-    for (int j = 0; j < 10; j++) {
-      key += char('a' + i);
-      ASSERT_OK(prefix_1_batch.Put(key, rnd.RandomString(1000)));
-    }
+  // We want to verify keys not with prefix "a_prefix_" are not prefetched due
+  // to trimming
+  WriteBatch prefix_batch;
+  for (int i = 0; i < 10; i++) {
+    std::string key = kPrefix + std::to_string(i);
+    ASSERT_OK(prefix_batch.Put(key, rnd.RandomString(100)));
   }
-  ASSERT_OK(db_->Write(WriteOptions(), &prefix_1_batch));
+  ASSERT_OK(db_->Write(WriteOptions(), &prefix_batch));
 
-  WriteBatch prefix_2_batch;
-  for (int i = 0; i < 26; i++) {
-    std::string key = "prefix_2";
-
-    for (int j = 0; j < 10; j++) {
-      key += char('a' + i);
-      ASSERT_OK(prefix_2_batch.Put(key, rnd.RandomString(1000)));
-    }
+  WriteBatch diff_prefix_batch;
+  for (int i = 0; i < 10; i++) {
+    std::string diff_prefix = std::string(1, char('c' + i)) + kPrefix.substr(1);
+    std::string key = diff_prefix + std::to_string(i);
+    ASSERT_OK(diff_prefix_batch.Put(key, rnd.RandomString(100)));
   }
-  ASSERT_OK(db_->Write(WriteOptions(), &prefix_2_batch));
+  ASSERT_OK(db_->Write(WriteOptions(), &diff_prefix_batch));
+
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   // To verify readahead is trimmed based on prefix based on ratio between
   // PREFETCH_BYTES_USEFUL and PREFETCH_BYTES
   ReadOptions ro;
   ro.prefix_same_as_start = true;
-  ro.auto_readahead_size = true;
+  ro.auto_readahead_size = auto_readahead_size;
   // Set a large readahead size to introduce readahead waste when without
   // trimming based on prefix
   ro.readahead_size = 1024 * 1024 * 1024;
@@ -1604,7 +1631,8 @@ TEST_F(PrefetchTest, TrimReadaheadSizeForPrefixSameAsStart) {
   ASSERT_OK(options.statistics->Reset());
   {
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
-    for (iter->Seek(prefix_1); iter->Valid(); iter->Next()) {
+    for (iter->Seek(kPrefix); iter->status().ok() && iter->Valid();
+         iter->Next()) {
     }
   }
 
@@ -1614,9 +1642,16 @@ TEST_F(PrefetchTest, TrimReadaheadSizeForPrefixSameAsStart) {
       options.statistics->getTickerCount(PREFETCH_BYTES_USEFUL);
   ASSERT_TRUE(prefetch_bytes_useful > 0);
 
-  // Without trimming based on prefix, below ratio will be a lot smaller than
-  // 0.9 due to readahead waste
-  ASSERT_TRUE(prefetch_bytes_useful * 1.0 / (prefetch_bytes * 1.0) > 0.9);
+  const double kRatioWithTrimming = 0.8;
+  const double kRatioWithoutTrimming = 0.5;
+  // Below ratio will high with readahead trimming and low without
+  if (auto_readahead_size) {
+    ASSERT_TRUE(prefetch_bytes_useful * 1.0 / (prefetch_bytes * 1.0) >
+                kRatioWithTrimming);
+  } else {
+    ASSERT_TRUE(prefetch_bytes_useful * 1.0 / (prefetch_bytes * 1.0) <
+                kRatioWithoutTrimming);
+  }
   Close();
 }
 
