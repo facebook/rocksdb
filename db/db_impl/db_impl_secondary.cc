@@ -956,16 +956,16 @@ Status DB::OpenAndCompact(
   ConfigOptions config_options;
   config_options.env = override_options.env;
   std::vector<ColumnFamilyDescriptor> all_column_families;
-  s = LoadLatestOptions(config_options, name, &db_options,
-                        &all_column_families);
+
+  std::string options_file_name =
+      OptionsFileName(name, compaction_input.options_file_number);
+
+  s = LoadOptionsFromFile(config_options, options_file_name, &db_options,
+                          &all_column_families);
   // In a very rare scenario, loading options may fail if the options changed by
   // the primary host at the same time. Just retry once for now.
   if (!s.ok()) {
-    s = LoadLatestOptions(config_options, name, &db_options,
-                          &all_column_families);
-    if (!s.ok()) {
       return s;
-    }
   }
 
   // 3. Override pointer configurations in DBOptions with

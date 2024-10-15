@@ -43,6 +43,14 @@ uint64_t DBImpl::GetObsoleteSstFilesSize() {
   return versions_->GetObsoleteSstFilesSize();
 }
 
+uint64_t DBImpl::MinOptionsFileNumberToKeep() {
+  mutex_.AssertHeld();
+  if (!min_options_file_numbers_.empty()) {
+    return *min_options_file_numbers_.begin();
+  }
+  return std::numeric_limits<uint64_t>::max();
+}
+
 Status DBImpl::DisableFileDeletions() {
   Status s;
   int my_disable_delete_obsolete_files;
@@ -147,6 +155,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // here but later find newer generated unfinalized files while scanning.
   job_context->min_pending_output = MinObsoleteSstNumberToKeep();
   job_context->files_to_quarantine = error_handler_.GetFilesToQuarantine();
+  job_context->min_options_file_number = MinOptionsFileNumberToKeep();
 
   // Get obsolete files.  This function will also update the list of
   // pending files in VersionSet().
@@ -498,7 +507,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
                                 dbname_);
 
   // File numbers of most recent two OPTIONS file in candidate_files (found in
-  // previos FindObsoleteFiles(full_scan=true))
+  // previous FindObsoleteFiles(full_scan=true))
   // At this point, there must not be any duplicate file numbers in
   // candidate_files.
   uint64_t optsfile_num1 = std::numeric_limits<uint64_t>::min();
@@ -518,6 +527,11 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       optsfile_num2 = number;
     }
   }
+
+  // For remote compactions, we need to keep OPTIONS file that may get
+  // referenced by the remote worker
+
+  optsfile_num2 = std::min(optsfile_num2, state.min_options_file_number);
 
   // Close WALs before trying to delete them.
   for (const auto w : state.logs_to_free) {

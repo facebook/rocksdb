@@ -202,6 +202,10 @@ struct JobContext {
   // that corresponds to the set of files in 'live'.
   uint64_t manifest_file_number;
   uint64_t pending_manifest_file_number;
+
+  // Used for remote compaction. To prevent OPTIONS files from getting
+  // purged by PurgeObsoleteFiles() of the primary host
+  uint64_t min_options_file_number;
   uint64_t log_number;
   uint64_t prev_log_number;
 

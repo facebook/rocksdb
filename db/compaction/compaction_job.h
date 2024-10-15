@@ -396,6 +396,8 @@ struct CompactionServiceInput {
   bool has_end = false;
   std::string end;
 
+  uint64_t options_file_number;
+
   // serialization interface to read and write the object
   static Status Read(const std::string& data_str, CompactionServiceInput* obj);
   Status Write(std::string* output);
