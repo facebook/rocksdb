@@ -443,6 +443,8 @@ blackbox_default_params = {
     "duration": 6000,
     # time for one db_stress instance to run
     "interval": 120,
+    # time for the final verification step
+    "verify_timeout": 1200,
     # since we will be killing anyway, use large value for ops_per_thread
     "ops_per_thread": 100000000,
     "reopen": 0,
@@ -1047,6 +1049,7 @@ def gen_cmd(params, unknown_params):
                 "cleanup_cmd",
                 "skip_tmpdir_check",
                 "print_stderr_separately",
+                "verify_timeout",
             }
             and v is not None
         ]
@@ -1055,9 +1058,10 @@ def gen_cmd(params, unknown_params):
     return cmd
 
 
-def execute_cmd(cmd, timeout=None):
+def execute_cmd(cmd, timeout=None, timeout_pstack=False):
     child = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
     print("Running db_stress with pid=%d: %s\n\n" % (child.pid, " ".join(cmd)))
+    pid = child.pid
 
     try:
         outs, errs = child.communicate(timeout=timeout)
@@ -1065,6 +1069,8 @@ def execute_cmd(cmd, timeout=None):
         print("WARNING: db_stress ended before kill: exitcode=%d\n" % child.returncode)
     except subprocess.TimeoutExpired:
         hit_timeout = True
+        if timeout_pstack:
+            os.system("pstack %d" % pid)
         child.kill()
         print("KILLED %d\n" % child.pid)
         outs, errs = child.communicate()
@@ -1139,7 +1145,7 @@ def blackbox_crash_main(args, unknown_args):
     cmd = gen_cmd(
         dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
     )
-    hit_timeout, retcode, outs, errs = execute_cmd(cmd)
+    hit_timeout, retcode, outs, errs = execute_cmd(cmd, cmd_params["verify_timeout"], True)
 
     # For the final run
     print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
