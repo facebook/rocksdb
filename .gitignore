@@ -35,6 +35,7 @@ ldb
 manifest_dump
 sst_dump
 blob_dump
+expected_state_dump
 block_cache_trace_analyzer
 tools/block_cache_analyzer/*.pyc
 column_aware_encoding_exp
