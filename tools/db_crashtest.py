@@ -965,6 +965,8 @@ def finalize_and_sanitize(src_params):
     ):
         # At least one must be true
         dest_params["write_dbid_to_manifest"] = 1
+    # Checkpoint creation skips flush if the WAL is locked, so enabling lock_wal_one_in
+    # can cause checkpoint verification to fail. So make the two mutually exclusive.
     if dest_params.get("checkpoint_one_in") != 0:
         dest_params["lock_wal_one_in"] = 0
     return dest_params
