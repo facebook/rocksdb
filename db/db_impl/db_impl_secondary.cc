@@ -962,8 +962,6 @@ Status DB::OpenAndCompact(
 
   s = LoadOptionsFromFile(config_options, options_file_name, &db_options,
                           &all_column_families);
-  // In a very rare scenario, loading options may fail if the options changed by
-  // the primary host at the same time. Just retry once for now.
   if (!s.ok()) {
       return s;
   }

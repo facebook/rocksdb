@@ -491,7 +491,8 @@ TEST_F(CompactionServiceTest, PreservedOptionsRemoteCompaction) {
         DBOptions db_options;
         ConfigOptions config_options;
         std::vector<ColumnFamilyDescriptor> all_column_families;
-        ASSERT_OK(LoadOptionsFromFile(ConfigOptions(), options_file_name,
+        config_options.env = env_;
+        ASSERT_OK(LoadOptionsFromFile(config_options, options_file_name,
                                       &db_options, &all_column_families));
         bool has_cf = false;
         for (auto& cf : all_column_families) {
