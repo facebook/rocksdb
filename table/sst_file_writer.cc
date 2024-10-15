@@ -533,4 +533,9 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 
 uint64_t SstFileWriter::FileSize() { return rep_->file_info.file_size; }
 
+bool SstFileWriter::CreatedBySstFileWriter(const TableProperties& tp) {
+  const auto& uprops = tp.user_collected_properties;
+  return uprops.find(ExternalSstFilePropertyNames::kVersion) != uprops.end();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
