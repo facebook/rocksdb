@@ -175,7 +175,7 @@ struct FileBatchInfo : public KeyRangeInfo {
     }
   }
 
-  FileBatchInfo(bool _track_batch_range)
+  explicit FileBatchInfo(bool _track_batch_range)
       : track_batch_range(_track_batch_range) {}
 };
 
