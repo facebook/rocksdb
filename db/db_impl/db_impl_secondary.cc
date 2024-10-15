@@ -951,7 +951,7 @@ Status DB::OpenAndCompact(
     return s;
   }
 
-  // 2. Load the options from latest OPTIONS file
+  // 2. Load the options
   DBOptions db_options;
   ConfigOptions config_options;
   config_options.env = override_options.env;
@@ -963,7 +963,7 @@ Status DB::OpenAndCompact(
   s = LoadOptionsFromFile(config_options, options_file_name, &db_options,
                           &all_column_families);
   if (!s.ok()) {
-      return s;
+    return s;
   }
 
   // 3. Override pointer configurations in DBOptions with
