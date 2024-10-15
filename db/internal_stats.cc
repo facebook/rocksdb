@@ -79,9 +79,7 @@ const std::map<InternalStats::InternalDBStatsType, DBStatInfo>
         {InternalStats::kIntStatsWriteStallMicros,
          DBStatInfo{"db.user_write_stall_micros"}},
         {InternalStats::kIntStatsWriteBufferManagerLimitStopsCounts,
-         DBStatInfo{WriteStallStatsMapKeys::CauseConditionCount(
-             WriteStallCause::kWriteBufferManagerLimit,
-             WriteStallCondition::kStopped)}},
+         DBStatInfo{"db.write_buffer_manager_limit_stops"}},
 };
 
 namespace {
@@ -1681,8 +1679,12 @@ void InternalStats::DumpDBMapStatsWriteStall(
         continue;
       }
 
-      std::string name =
-          WriteStallStatsMapKeys::CauseConditionCount(cause, condition);
+      std::string name;
+      Status s =
+          WriteStallStatsMapKeys::CauseConditionCount(cause, condition, name);
+      assert(s.ok());
+      s.PermitUncheckedError();
+
       uint64_t stat =
           db_stats_[static_cast<std::size_t>(internal_db_stat)].load(
               std::memory_order_relaxed);
@@ -1853,8 +1855,12 @@ void InternalStats::DumpCFMapStatsWriteStall(
         continue;
       }
 
-      std::string name =
-          WriteStallStatsMapKeys::CauseConditionCount(cause, condition);
+      std::string name;
+      Status s =
+          WriteStallStatsMapKeys::CauseConditionCount(cause, condition, name);
+      assert(s.ok());
+      s.PermitUncheckedError();
+
       uint64_t stat =
           cf_stats_count_[static_cast<std::size_t>(internal_cf_stat)];
       (*value)[name] = std::to_string(stat);
