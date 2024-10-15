@@ -47,7 +47,7 @@ default_params = {
     "charge_filter_construction": lambda: random.choice([0, 1]),
     "charge_table_reader": lambda: random.choice([0, 1]),
     "charge_file_metadata": lambda: random.choice([0, 1]),
-    "checkpoint_one_in": lambda: random.choice([10000, 1000000]),
+    "checkpoint_one_in": lambda: random.choice([0, 0, 10000, 1000000]),
     "compression_type": lambda: random.choice(
         ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
     ),
@@ -840,7 +840,7 @@ def finalize_and_sanitize(src_params):
         # WriteCommitted only
         dest_params["use_put_entity_one_in"] = 0
         # MultiCfIterator is currently only compatible with write committed policy
-        dest_params["use_multi_cf_iterator"] = 0        
+        dest_params["use_multi_cf_iterator"] = 0
     # TODO(hx235): enable test_multi_ops_txns with fault injection after stabilizing the CI
     if dest_params.get("test_multi_ops_txns") == 1:
         dest_params["write_fault_one_in"] = 0
@@ -965,6 +965,10 @@ def finalize_and_sanitize(src_params):
     ):
         # At least one must be true
         dest_params["write_dbid_to_manifest"] = 1
+    # Checkpoint creation skips flush if the WAL is locked, so enabling lock_wal_one_in
+    # can cause checkpoint verification to fail. So make the two mutually exclusive.
+    if dest_params.get("checkpoint_one_in") != 0:
+        dest_params["lock_wal_one_in"] = 0
     return dest_params
 
 
