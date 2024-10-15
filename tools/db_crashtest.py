@@ -1049,6 +1049,7 @@ def gen_cmd(params, unknown_params):
                 "cleanup_cmd",
                 "skip_tmpdir_check",
                 "print_stderr_separately",
+                "verify_timeout",
             }
             and v is not None
         ]
