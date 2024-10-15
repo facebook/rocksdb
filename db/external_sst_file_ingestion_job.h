@@ -301,8 +301,7 @@ class ExternalSstFileIngestionJob {
   Status AssignLevelsForOneBatch(FileBatchInfo& batch,
                                  SuperVersion* super_version,
                                  bool force_global_seqno,
-                                 SequenceNumber batch_start_last_seqno,
-                                 SequenceNumber* batch_end_last_seqno,
+                                 SequenceNumber* last_seqno,
                                  int* batch_uppermost_level,
                                  std::optional<int> prev_batch_uppermost_level);
 

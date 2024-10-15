@@ -412,26 +412,20 @@ Status ExternalSstFileIngestionJob::Run() {
   }
   // It is safe to use this instead of LastAllocatedSequence since we are
   // the only active writer, and hence they are equal
-  SequenceNumber batch_start_last_seqno = versions_->LastSequence();
+  SequenceNumber last_seqno = versions_->LastSequence();
   edit_.SetColumnFamily(cfd_->GetID());
   // The levels that the files will be ingested into
 
   std::optional<int> prev_batch_uppermost_level;
   for (auto& batch : file_batches_to_ingest_) {
-    SequenceNumber batch_end_last_seqno = 0;
     int batch_uppermost_level = 0;
-    status = AssignLevelsForOneBatch(
-        batch, super_version, force_global_seqno, batch_start_last_seqno,
-        &batch_end_last_seqno, &batch_uppermost_level,
-        prev_batch_uppermost_level);
+    status = AssignLevelsForOneBatch(batch, super_version, force_global_seqno,
+                                     &last_seqno, &batch_uppermost_level,
+                                     prev_batch_uppermost_level);
     if (!status.ok()) {
       return status;
     }
 
-    // When `files_overlap_` is true, we use a new sequence number for each file
-    // and there will be multiple batches. This tracks the starting point of
-    // sequence number for each batch.
-    batch_start_last_seqno = batch_end_last_seqno;
     prev_batch_uppermost_level = batch_uppermost_level;
   }
 
@@ -441,14 +435,11 @@ Status ExternalSstFileIngestionJob::Run() {
 
 Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
     FileBatchInfo& batch, SuperVersion* super_version, bool force_global_seqno,
-    SequenceNumber batch_start_last_seqno, SequenceNumber* batch_end_last_seqno,
-    int* batch_uppermost_level, std::optional<int> prev_batch_uppermost_level) {
+    SequenceNumber* last_seqno, int* batch_uppermost_level,
+    std::optional<int> prev_batch_uppermost_level) {
   Status status;
   assert(batch_uppermost_level);
   *batch_uppermost_level = std::numeric_limits<int>::max();
-  // Make a copy of batch_start_last_seqno as we will be updating it during file
-  // iterations.
-  SequenceNumber last_seqno = batch_start_last_seqno;
   for (IngestedFileInfo* file : batch.files) {
     assert(file);
     SequenceNumber assigned_seqno = 0;
@@ -457,7 +448,7 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
     } else {
       status = AssignLevelAndSeqnoForIngestedFile(
           super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
-          last_seqno, file, &assigned_seqno, prev_batch_uppermost_level);
+          *last_seqno, file, &assigned_seqno, prev_batch_uppermost_level);
     }
 
     // Modify the smallest/largest internal key to include the sequence number
@@ -491,9 +482,9 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
     }
     TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Run",
                              &assigned_seqno);
-    assert(assigned_seqno == 0 || assigned_seqno == last_seqno + 1);
-    if (assigned_seqno > last_seqno) {
-      last_seqno = assigned_seqno;
+    assert(assigned_seqno == 0 || assigned_seqno == *last_seqno + 1);
+    if (assigned_seqno > *last_seqno) {
+      *last_seqno = assigned_seqno;
       ++consumed_seqno_count_;
     }
 
@@ -536,7 +527,6 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
     f_metadata.temperature = file->file_temperature;
     edit_.AddFile(file->picked_level, f_metadata);
 
-    *batch_end_last_seqno = std::max(*batch_end_last_seqno, assigned_seqno);
     *batch_uppermost_level =
         std::min(*batch_uppermost_level, file->picked_level);
   }
