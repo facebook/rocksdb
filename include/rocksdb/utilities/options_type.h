@@ -241,42 +241,13 @@ using ValidateFunc = std::function<Status(
 // option type, and offset.
 class OptionTypeInfo {
  public:
-  // A simple "normal", non-mutable Type "type" at offset
-  OptionTypeInfo(int offset, OptionType type)
-      : offset_(offset),
-        parse_func_(nullptr),
-        serialize_func_(nullptr),
-        equals_func_(nullptr),
-        type_(type),
-        verification_(OptionVerificationType::kNormal),
-        flags_(OptionTypeFlags::kNone) {}
-
-  OptionTypeInfo(int offset, OptionType type,
-                 OptionVerificationType verification, OptionTypeFlags flags)
-      : offset_(offset),
-        parse_func_(nullptr),
-        serialize_func_(nullptr),
-        equals_func_(nullptr),
-        type_(type),
-        verification_(verification),
-        flags_(flags) {}
-
-  OptionTypeInfo(int offset, OptionType type,
-                 OptionVerificationType verification, OptionTypeFlags flags,
-                 const ParseFunc& parse_func)
-      : offset_(offset),
-        parse_func_(parse_func),
-        serialize_func_(nullptr),
-        equals_func_(nullptr),
-        type_(type),
-        verification_(verification),
-        flags_(flags) {}
-
-  OptionTypeInfo(int offset, OptionType type,
-                 OptionVerificationType verification, OptionTypeFlags flags,
-                 const ParseFunc& parse_func,
-                 const SerializeFunc& serialize_func,
-                 const EqualsFunc& equals_func)
+  OptionTypeInfo(
+      int offset, OptionType type,
+      OptionVerificationType verification = OptionVerificationType::kNormal,
+      OptionTypeFlags flags = OptionTypeFlags::kNone,
+      const ParseFunc& parse_func = {},
+      const SerializeFunc& serialize_func = {},
+      const EqualsFunc& equals_func = {})
       : offset_(offset),
         parse_func_(parse_func),
         serialize_func_(serialize_func),
@@ -476,18 +447,17 @@ class OptionTypeInfo {
   //
   // @param offset The offset for the Customizable from the base pointer
   // @param ovt How to verify this option
-  // @param flags, Extra flags specifying the behavior of this option
-  // @param _sfunc Optional function for serializing this option
-  // @param _efunc Optional function for comparing this option
+  // @param flags Extra flags specifying the behavior of this option
+  // @param serialize_func Optional function for serializing this option
+  // @param equals_func Optional function for comparing this option
   template <typename T>
-  static OptionTypeInfo AsCustomSharedPtr(int offset,
-                                          OptionVerificationType ovt,
-                                          OptionTypeFlags flags) {
-    OptionTypeInfo info(offset, OptionType::kCustomizable, ovt,
-                        flags | OptionTypeFlags::kShared);
-    return info.SetParseFunc([](const ConfigOptions& opts,
-                                const std::string& name,
-                                const std::string& value, void* addr) {
+  static OptionTypeInfo AsCustomSharedPtr(
+      int offset, OptionVerificationType ovt,
+      OptionTypeFlags flags = OptionTypeFlags::kNone,
+      const SerializeFunc& serialize_func = {},
+      const EqualsFunc& equals_func = {}) {
+    auto parse_func = [](const ConfigOptions& opts, const std::string& name,
+                         const std::string& value, void* addr) {
       auto* shared = static_cast<std::shared_ptr<T>*>(addr);
       if (name == kIdPropName() && value.empty()) {
         shared->reset();
@@ -495,19 +465,10 @@ class OptionTypeInfo {
       } else {
         return T::CreateFromString(opts, value, shared);
       }
-    });
-  }
-
-  template <typename T>
-  static OptionTypeInfo AsCustomSharedPtr(int offset,
-                                          OptionVerificationType ovt,
-                                          OptionTypeFlags flags,
-                                          const SerializeFunc& serialize_func,
-                                          const EqualsFunc& equals_func) {
-    OptionTypeInfo info(AsCustomSharedPtr<T>(offset, ovt, flags));
-    info.SetSerializeFunc(serialize_func);
-    info.SetEqualsFunc(equals_func);
-    return info;
+    };
+    return OptionTypeInfo(offset, OptionType::kCustomizable, ovt,
+                          flags | OptionTypeFlags::kShared, parse_func,
+                          serialize_func, equals_func);
   }
 
   // Create a new std::unique_ptr<Customizable> OptionTypeInfo
@@ -612,6 +573,9 @@ class OptionTypeInfo {
     return *this;
   }
 
+  OptionTypeFlags GetFlags() const { return flags_; }
+  void SetFlags(OptionTypeFlags flags) { flags_ = flags; }
+
   bool IsEnabled(OptionTypeFlags otf) const { return (flags_ & otf) == otf; }
 
   bool IsEditable(const ConfigOptions& opts) const {
@@ -713,6 +677,8 @@ class OptionTypeInfo {
   }
 
   bool IsCustomizable() const { return (type_ == OptionType::kCustomizable); }
+
+  OptionType GetType() const { return type_; }
 
   inline const void* GetOffset(const void* base) const {
     return static_cast<const char*>(base) + offset_;

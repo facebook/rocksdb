@@ -125,7 +125,26 @@ struct CacheUsageOptions {
   std::map<CacheEntryRole, CacheEntryRoleOptions> options_overrides;
 };
 
-// For advanced user only
+// Configures how SST files using the block-based table format (standard)
+// are written and read.
+//
+// Except as specifically noted, all "simple" options here are "mutable" using
+// SetOptions(), with the caveat that only new table builders and new table
+// readers will pick up new options. This is nearly immediate effect for
+// SST building, but in the worst case, options affecting reads only take
+// effect for new files. (Unless the DB is closed and re-opened, table readers
+// can live as long as the SST file itself.)
+//
+// Examples (DB* db):
+// db->SetOptions({{"block_based_table_factory",
+//                  "{detect_filter_construct_corruption=true;}"}});
+// db->SetOptions({{"block_based_table_factory",
+//                  "{max_auto_readahead_size=0;block_size=8192;}"}}));
+// db->SetOptions({{"block_based_table_factory",
+//                  "{prepopulate_block_cache=kFlushOnly;}"}}));
+//
+// For now, "simple" options are only non-pointer options that are 64 bits or
+// less.
 struct BlockBasedTableOptions {
   static const char* kName() { return "BlockTableOptions"; }
   // @flush_block_policy_factory creates the instances of flush block policy.
@@ -256,13 +275,16 @@ struct BlockBasedTableOptions {
   // even though they have different checksum type.
   ChecksumType checksum = kXXH3;
 
-  // Disable block cache. If this is set to true,
-  // then no block cache should be used, and the block_cache should
-  // point to a nullptr object.
+  // Disable block cache. If this is set to true, then no block cache
+  // will be configured (block_cache reset to nullptr).
+  //
+  // This option cannot be used with SetOptions because it only affects
+  // the value of `block_cache` during initialization.
   bool no_block_cache = false;
 
-  // If non-NULL use the specified cache for blocks.
-  // If NULL, rocksdb will automatically create and use a 32MB internal cache.
+  // If non-nullptr and no_block_cache == false, use the specified cache for
+  // blocks. If nullptr and no_block_cache == false, a 32MB internal cache
+  // will be created and used.
   std::shared_ptr<Cache> block_cache = nullptr;
 
   // If non-NULL use the specified cache for pages read from device
@@ -468,10 +490,6 @@ struct BlockBasedTableOptions {
   // useful in detecting software bugs or CPU+memory malfunction.
   // Turning on this feature increases filter construction time by 30%.
   //
-  // This parameter can be changed dynamically by
-  // DB::SetOptions({{"block_based_table_factory",
-  //                  "{detect_filter_construct_corruption=true;}"}});
-  //
   // TODO: optimize this performance
   bool detect_filter_construct_corruption = false;
 
@@ -602,13 +620,6 @@ struct BlockBasedTableOptions {
   // Found that 256 KB readahead size provides the best performance, based on
   // experiments, for auto readahead. Experiment data is in PR #3282.
   //
-  // This parameter can be changed dynamically by
-  // DB::SetOptions({{"block_based_table_factory",
-  //                  "{max_auto_readahead_size=0;}"}}));
-  //
-  // Changing the value dynamically will only affect files opened after the
-  // change.
-  //
   // Default: 256 KB (256 * 1024).
   size_t max_auto_readahead_size = 256 * 1024;
 
@@ -620,10 +631,6 @@ struct BlockBasedTableOptions {
   // further helps if the workload exhibits high temporal locality, where most
   // of the reads go to recently written data. This also helps in case of
   // Distributed FileSystem.
-  //
-  // This parameter can be changed dynamically by
-  // DB::SetOptions({{"block_based_table_factory",
-  //                  "{prepopulate_block_cache=kFlushOnly;}"}}));
   enum class PrepopulateBlockCache : char {
     // Disable prepopulate block cache.
     kDisable,
@@ -652,13 +659,6 @@ struct BlockBasedTableOptions {
   //
   // Value should be provided along with KB i.e. 8 * 1024 as it will prefetch
   // the blocks.
-  //
-  // This parameter can be changed dynamically by
-  // DB::SetOptions({{"block_based_table_factory",
-  //                  "{initial_auto_readahead_size=0;}"}}));
-  //
-  // Changing the value dynamically will only affect files opened after the
-  // change.
   //
   // Default: 8 KB (8 * 1024).
   size_t initial_auto_readahead_size = 8 * 1024;
