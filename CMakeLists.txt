@@ -1167,6 +1167,16 @@ if(ROCKSDB_BUILD_SHARED)
                           VERSION ${rocksdb_VERSION}
                           SOVERSION ${rocksdb_VERSION_MAJOR}
                           OUTPUT_NAME "rocksdb${ARTIFACT_SUFFIX}")
+    
+    if(HIDE_PRIVATE_SYMBOLS AND CMAKE_BUILD_TYPE STREQUAL "Release")  # Do not export private symbols in output shared library
+      message("HIDING symbols")
+      set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES                           
+                          CXX_VISIBILITY_PRESET hidden
+                          VISIBILITY_INLINES_HIDDEN ON
+      )
+      target_compile_definitions(${ROCKSDB_SHARED_LIB} PUBLIC HIDE_PRIVATE_SYMBOLS)    
+    endif()
+
   endif()
 endif()
 
