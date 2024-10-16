@@ -545,9 +545,8 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
   Status s = builder->LoadTableHandlers(
       cfd->internal_stats(),
       version_set_->db_options_->max_file_opening_threads,
-      prefetch_index_and_filter_in_cache, is_initial_load,
-      moptions->prefix_extractor, MaxFileSizeForL0MetaPin(*moptions),
-      read_options_, moptions->block_protection_bytes_per_key);
+      prefetch_index_and_filter_in_cache, is_initial_load, *moptions,
+      MaxFileSizeForL0MetaPin(*moptions), read_options_);
   if ((s.IsPathNotFound() || s.IsCorruption()) && no_error_if_files_missing_) {
     s = Status::OK();
   }
@@ -870,8 +869,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
     s = builder->LoadSavePointTableHandlers(
         cfd->internal_stats(),
         version_set_->db_options_->max_file_opening_threads, false, true,
-        cf_opts_ptr->prefix_extractor, MaxFileSizeForL0MetaPin(*cf_opts_ptr),
-        read_options_, cf_opts_ptr->block_protection_bytes_per_key);
+        *cf_opts_ptr, MaxFileSizeForL0MetaPin(*cf_opts_ptr), read_options_);
     if (!s.ok()) {
       delete version;
       if (s.IsCorruption()) {

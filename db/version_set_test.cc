@@ -1182,6 +1182,9 @@ class VersionSetTestBase {
     immutable_options_.fs = fs_;
     immutable_options_.clock = env_->GetSystemClock().get();
 
+    cf_options_.table_factory = table_factory_;
+    mutable_cf_options_.table_factory = table_factory_;
+
     versions_.reset(new VersionSet(
         dbname_, &db_options_, env_options_, table_cache_.get(),
         &write_buffer_manager_, &write_controller_,

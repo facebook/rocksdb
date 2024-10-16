@@ -1199,9 +1199,7 @@ class DBImpl : public DB {
 
   uint64_t TEST_total_log_size() const { return total_log_size_; }
 
-  // Returns column family name to ImmutableCFOptions map.
-  Status TEST_GetAllImmutableCFOptions(
-      std::unordered_map<std::string, const ImmutableCFOptions*>* iopts_map);
+  void TEST_GetAllBlockCaches(std::unordered_set<const Cache*>* cache_set);
 
   // Return the lastest MutableCFOptions of a column family
   Status TEST_GetLatestMutableCFOptions(ColumnFamilyHandle* column_family,

@@ -53,7 +53,7 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
-  return tboptions.ioptions.table_factory->NewTableBuilder(tboptions, file);
+  return tboptions.moptions.table_factory->NewTableBuilder(tboptions, file);
 }
 
 Status BuildTable(
@@ -420,8 +420,7 @@ Status BuildTable(
       // the goal is to cache it here for further user reads.
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           tboptions.read_options, file_options, tboptions.internal_comparator,
-          *meta, nullptr /* range_del_agg */,
-          mutable_cf_options.prefix_extractor, nullptr,
+          *meta, nullptr /* range_del_agg */, mutable_cf_options, nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
           TableReaderCaller::kFlush, /*arena=*/nullptr,
@@ -429,8 +428,7 @@ Status BuildTable(
           MaxFileSizeForL0MetaPin(mutable_cf_options),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key*/ nullptr,
-          /*allow_unprepared_value*/ false,
-          mutable_cf_options.block_protection_bytes_per_key));
+          /*allow_unprepared_value*/ false));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         OutputValidator file_validator(tboptions.internal_comparator,

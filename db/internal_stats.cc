@@ -1495,8 +1495,10 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
 }
 
 Cache* InternalStats::GetBlockCacheForStats() {
-  auto* table_factory = cfd_->ioptions()->table_factory.get();
+  // NOTE: called in startup before GetCurrentMutableCFOptions() is ready
+  auto* table_factory = cfd_->GetLatestMutableCFOptions()->table_factory.get();
   assert(table_factory != nullptr);
+  // FIXME: need to a shared_ptr if/when block_cache is going to be mutable
   return table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
 }
 
@@ -2161,7 +2163,8 @@ class BlockCachePropertyAggregator : public IntPropertyAggregator {
   virtual ~BlockCachePropertyAggregator() override = default;
 
   void Add(ColumnFamilyData* cfd, uint64_t value) override {
-    auto* table_factory = cfd->ioptions()->table_factory.get();
+    auto* table_factory =
+        cfd->GetCurrentMutableCFOptions()->table_factory.get();
     assert(table_factory != nullptr);
     Cache* cache =
         table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());

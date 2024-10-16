@@ -2623,10 +2623,11 @@ class MemTableInserter : public WriteBatch::Handler {
       if (!cfd->is_delete_range_supported()) {
         // TODO(ajkr): refactor `SeekToColumnFamily()` so it returns a `Status`.
         ret_status.PermitUncheckedError();
+        InstrumentedMutexLock lock(db_->mutex());
         return Status::NotSupported(
             std::string("DeleteRange not supported for table type ") +
-            cfd->ioptions()->table_factory->Name() + " in CF " +
-            cfd->GetName());
+            cfd->GetCurrentMutableCFOptions()->table_factory->Name() +
+            " in CF " + cfd->GetName());
       }
       int cmp =
           cfd->user_comparator()->CompareWithoutTimestamp(begin_key, end_key);

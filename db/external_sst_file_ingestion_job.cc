@@ -725,7 +725,7 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
   table_reader->reset();
   ReadOptions ro;
   ro.fill_cache = ingestion_options_.fill_cache;
-  status = cfd_->ioptions()->table_factory->NewTableReader(
+  status = sv->mutable_cf_options.table_factory->NewTableReader(
       ro,
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
@@ -920,7 +920,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     file_to_ingest->smallest_internal_key.SetFrom(key);
 
     Slice largest;
-    if (strcmp(cfd_->ioptions()->table_factory->Name(), "PlainTable") == 0) {
+    if (strcmp(sv->mutable_cf_options.table_factory->Name(), "PlainTable") ==
+        0) {
       // PlainTable iterator does not support SeekToLast().
       largest = iter->key();
       for (; iter->Valid(); iter->Next()) {
