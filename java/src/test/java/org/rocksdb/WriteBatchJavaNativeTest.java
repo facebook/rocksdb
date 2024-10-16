@@ -70,6 +70,20 @@ public class WriteBatchJavaNativeTest {
     }
   }
 
+  @Test public void putAndFlushAndReadFromDB() throws RocksDBException {
+
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      try (WriteBatchJavaNative wb = new WriteBatchJavaNative(256)) {
+        wb.put("k1".getBytes(), "v1".getBytes());
+        wb.put("k2".getBytes(), "v2".getBytes());
+        wb.flush();
+        db.write(new WriteOptions(), wb);
+        byte[] v1 = db.get("k1".getBytes());
+        assertThat(v1).isEqualTo("v1".getBytes());
+      }
+    }
+  }
+
   static byte[] getContents(final WriteBatchJavaNative wb) {
     return WriteBatchTest.getContents(wb.nativeHandle_);
   }

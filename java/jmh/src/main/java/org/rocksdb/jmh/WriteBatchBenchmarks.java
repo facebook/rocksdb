@@ -4,6 +4,7 @@ import org.openjdk.jmh.annotations.*;
 import org.rocksdb.*;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,9 +12,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static org.rocksdb.util.KVUtils.ba;
+import static org.rocksdb.util.KVUtils.*;
 
 @State(Scope.Benchmark)
 @Fork(1)
@@ -25,11 +27,10 @@ public class WriteBatchBenchmarks {
     RocksDB.loadLibrary();
   }
 
-  @Param ({"10000"}) int numOpsPerFlush;
-  //@Param({"8", "16", "64", "256"}) int keySize;
+  @Param ({"100000"}) int keyCount;
 
-  //@Param({"16", "64", "256", "1024", "65536"}) int valueSize;
-
+  //maximum number of bytes needed to encode numbers (key or value) so we can pad to size and layout easily
+  static final int KEY_VALUE_MAX_WIDTH = 10;
 
   private Path dbPath;
   private RocksDB rocksDB;
@@ -38,18 +39,152 @@ public class WriteBatchBenchmarks {
 
   private final AtomicLong index = new AtomicLong(0);
 
-  @State(Scope.Thread)
-  public static class ThreadState {
-    private WriteBatch writeBatchBaseline;
+  /**
+   * Base class for thread state of write batch tests
+   *
+   * This class is responsible for deciding when a batch should be closed/opened
+   * by counting the number of operations performed on it.
+   */
+  public abstract static class WriteBatchThreadBase<TBatch extends WriteBatchInterface> {
 
-    private WriteBatchJavaNative writeBatchJavaNative;
+    @Param ({"1000"}) int numOpsPerFlush;
+
+    @Param ({"131072"}) int writeBatchAllocation;
+
+    final AtomicInteger opIndex = new AtomicInteger();
+
+    TBatch writeBatch;
+
+    RocksDB rocksDB;
+
+    public abstract void startBatch();
+
+    public abstract void stopBatch() throws RocksDBException;
+
+    public void put(final byte[] key, final byte[] value) throws RocksDBException {
+
+      int index = opIndex.getAndIncrement();
+      if (index % numOpsPerFlush == 0) {
+        startBatch();
+      }
+      writeBatch.put(key, value);
+      if ((index + 1) % numOpsPerFlush == 0) {
+        stopBatch();
+      }
+
+    }
+
+    public void put(final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
+
+      int index = opIndex.getAndIncrement();
+      if (index % numOpsPerFlush == 0) {
+        startBatch();
+      }
+      writeBatch.put(key, value);
+      if ((index + 1) % numOpsPerFlush == 0) {
+        stopBatch();
+      }
+    }
+
+    @Setup public void setup(WriteBatchBenchmarks bm) {
+      this.rocksDB = bm.rocksDB;
+    }
+
   }
 
-  private final byte[] key = new byte[] {'k', 'e', 'y', '\0', '\0', '\0', '\0'};
-  private final byte[] value = new byte[] {'v', 'a', 'l', 'u', 'e', '\0', '\0', '\0', '\0'};
+  /**
+   * Holds a standard (cross JNI at every operation) write batch
+   */
+  @State(Scope.Thread)
+  public static class WriteBatchThreadDefault extends WriteBatchThreadBase<WriteBatch> {
 
-  @Setup(Level.Iteration)
-  public void createCreateDb() throws IOException, RocksDBException {
+    @Override
+    public void startBatch() {
+      writeBatch = new WriteBatch(writeBatchAllocation);
+    }
+
+    @Override
+    public void stopBatch() throws RocksDBException {
+      if (writeBatch != null) {
+        try {
+          rocksDB.write(new WriteOptions(), writeBatch);
+        } finally {
+          writeBatch.close();
+          writeBatch = null;
+        }
+      }
+    }
+
+    @TearDown public void teardown() throws RocksDBException {
+      stopBatch();
+    }
+  }
+
+  /**
+   * Holds a JavaNative (buffer ops on the Java side) write batch
+   */
+  @State(Scope.Thread)
+  public static class WriteBatchThreadNative extends WriteBatchThreadBase<WriteBatchJavaNative> {
+
+    @Override
+    public void startBatch() {
+      writeBatch = new WriteBatchJavaNative(writeBatchAllocation);
+    }
+
+    @Override
+    public void stopBatch() throws RocksDBException {
+      if (writeBatch != null) {
+        try {
+          writeBatch.flush();
+          rocksDB.write(new WriteOptions(), writeBatch);
+        } finally {
+          writeBatch.close();
+          writeBatch = null;
+        }
+      }
+    }
+
+    @TearDown public void teardown() throws RocksDBException {
+      stopBatch();
+    }
+  }
+
+  public static class BaseData {
+
+    @Param({"16", "64", "256"}) int keySize;
+    @Param({"16", "1024", "65536"}) int valueSize;
+  }
+
+  @State(Scope.Thread)
+  public static class ByteArrayData extends BaseData {
+
+    private byte[] key;
+    private byte[] value;
+
+    @Setup public void setup() {
+      key = new byte[keySize];
+      value = new byte[valueSize];
+    }
+  }
+
+  @State(Scope.Thread)
+  public static class ByteBufferData extends BaseData {
+
+    private ByteBuffer key;
+    private ByteBuffer value;
+
+    private final byte[] fill = new byte[KEY_VALUE_MAX_WIDTH];
+
+    @Setup public void setup() {
+      key = ByteBuffer.allocateDirect(keySize);
+      value = ByteBuffer.allocateDirect(valueSize);
+
+      Arrays.fill(fill, (byte)'0');
+    }
+  }
+
+  @Setup(Level.Trial)
+  public void createDb() throws IOException, RocksDBException {
     dbPath = Files.createTempDirectory("JMH").toAbsolutePath();
     System.out.println("temp dir: " + dbPath);
     List<ColumnFamilyDescriptor> descriptors =
@@ -60,19 +195,14 @@ public class WriteBatchBenchmarks {
     dbOptions.setCreateIfMissing(true);
     dbOptions.setCreateMissingColumnFamilies(true);
     rocksDB = RocksDB.open(dbOptions, dbPath.toString(), descriptors, cfHandles);
-    this.cfHandles = cfHandles.toArray(new ColumnFamilyHandle[cfHandles.size()]);
+    this.cfHandles = cfHandles.toArray(new ColumnFamilyHandle[0]);
   }
 
-  @TearDown(Level.Iteration)
-  public void closeDb(ThreadState threadState) throws IOException {
+  @TearDown(Level.Trial)
+  public void closeDb() throws IOException {
     Arrays.stream(cfHandles).forEach(ColumnFamilyHandle::close);
     rocksDB.close();
     dbOptions.close();
-
-    if (threadState.writeBatchBaseline != null) {
-      threadState.writeBatchBaseline.close();
-      threadState.writeBatchBaseline = null;
-    }
 
     try (var files = Files.walk(dbPath).sorted(Comparator.reverseOrder())) {
       files.forEach(file -> {
@@ -88,104 +218,35 @@ public class WriteBatchBenchmarks {
   }
 
   @Benchmark
-  public void putWriteBatch(ThreadState threadState) throws RocksDBException {
+  public void putWriteBatch(WriteBatchThreadDefault batch, ByteArrayData data) throws RocksDBException {
 
-    long keyIndex = index.getAndIncrement() % numOpsPerFlush;
+    long i = index.getAndIncrement() % keyCount;
 
-    if (keyIndex == 0) {
-      threadState.writeBatchBaseline = new WriteBatch();
-    }
+    baFillValue(data.key, "key", i, KEY_VALUE_MAX_WIDTH, (byte)'0');
+    baFillValue(data.value, "value", i, KEY_VALUE_MAX_WIDTH, (byte)'0');
 
-    threadState.writeBatchBaseline.put(ba("key" + keyIndex), ba("value" + keyIndex));
-
-    if (keyIndex == numOpsPerFlush -1) {
-      threadState.writeBatchBaseline.close();
-    }
+    batch.put(data.key, data.value);
   }
 
   @Benchmark
-  public void putWriteBatchNative(ThreadState threadState) throws RocksDBException {
+  public void putWriteBatchBB(WriteBatchThreadDefault batch, ByteBufferData data) throws RocksDBException {
 
-    long keyIndex = index.getAndIncrement() % numOpsPerFlush;
-    if (keyIndex == 0) {
-      threadState.writeBatchJavaNative = new WriteBatchJavaNative();
-    }
+    long i = index.getAndIncrement() % keyCount;
 
-    threadState.writeBatchJavaNative.put(ba("key" + keyIndex), ba("value" + keyIndex));
+    bbFillValue(data.key, "key", i, KEY_VALUE_MAX_WIDTH, data.fill);
+    bbFillValue(data.value, "value", i, KEY_VALUE_MAX_WIDTH, data.fill);
 
-    if (keyIndex == numOpsPerFlush -1) {
-      threadState.writeBatchJavaNative.flush();
-      threadState.writeBatchJavaNative.close();
-    }
+    batch.put(data.key, data.value);
   }
 
-  //@Benchmark
-  public void putWriteBatchByteArray() throws RocksDBException {
-    WriteBatch wb = new WriteBatch();
-    try {
-      for (int i = 0; i < numOpsPerFlush; i++) {
-        key[3] = (byte) i;
-        key[4] = (byte) (i >>> 8);
-        key[5] = (byte) (i >>> 16);
-        key[6] = (byte) (i >>> 24);
+  @Benchmark
+  public void putWriteBatchNativeBB(WriteBatchThreadNative batch, ByteBufferData data) throws RocksDBException {
 
-        value[5] = (byte) i;
-        value[6] = (byte) (i >>> 8);
-        value[7] = (byte) (i >>> 16);
-        value[8] = (byte) (i >>> 24);
+    long i = index.getAndIncrement() % keyCount;
 
-        wb.put(key, value);
-      }
-    } finally {
-      wb.close();
-    }
-  }
+    bbFillValue(data.key, "key", i, KEY_VALUE_MAX_WIDTH, data.fill);
+    bbFillValue(data.value, "value", i, KEY_VALUE_MAX_WIDTH, data.fill);
 
-  //@Benchmark
-  public void putWriteBatchCF() throws RocksDBException {
-    WriteBatch wb = new WriteBatch();
-    try {
-      for (int i = 0; i < numOpsPerFlush; i++) {
-        wb.put(cfHandles[i % 2], ba("key" + i), ba("value" + i));
-      }
-    } finally {
-      wb.close();
-    }
-  }
-
-  //@Benchmark
-  public void putWriteBatchNativeByteArray() throws RocksDBException {
-    WriteBatchJavaNative wb = new WriteBatchJavaNative();
-    try {
-      for (int i = 0; i < numOpsPerFlush; i++) {
-        key[3] = (byte) i;
-        key[4] = (byte) (i >>> 8);
-        key[5] = (byte) (i >>> 16);
-        key[6] = (byte) (i >>> 24);
-
-        value[5] = (byte) i;
-        value[6] = (byte) (i >>> 8);
-        value[7] = (byte) (i >>> 16);
-        value[8] = (byte) (i >>> 24);
-
-        wb.put(key, value);
-      }
-      wb.flush();
-    } finally {
-      wb.close();
-    }
-  }
-
-  //@Benchmark
-  public void putWriteBatchNativeCF() throws RocksDBException {
-    WriteBatchJavaNative wb = new WriteBatchJavaNative();
-    try {
-      for (int i = 0; i < numOpsPerFlush; i++) {
-        wb.put(cfHandles[i % 2], ba("key" + i), ba("value" + i));
-      }
-      wb.flush();
-    } finally {
-      wb.close();
-    }
+    batch.put(data.key, data.value);
   }
 }

@@ -9,7 +9,9 @@ package org.rocksdb.util;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public final class KVUtils {
@@ -25,6 +27,26 @@ public final class KVUtils {
    */
   public static byte[] ba(final String string) {
     return string.getBytes(UTF_8);
+  }
+
+  public static void baFillValue(byte[] dst, String prefix, long value, int valueWidth, byte pad) {
+    byte[] prefixBytes = prefix.getBytes(UTF_8);
+    System.arraycopy(prefixBytes, 0, dst, 0, prefixBytes.length);
+    byte[] valueBytes = Long.toString(value).getBytes(UTF_8);
+    int padWidth = valueWidth - valueBytes.length;
+    Arrays.fill(dst, prefixBytes.length, prefixBytes.length + padWidth, pad);
+    System.arraycopy(valueBytes, 0, dst, prefixBytes.length + padWidth, valueBytes.length);
+  }
+
+  public static void bbFillValue(ByteBuffer dst, String prefix, long value, int valueWidth, byte[] pad) {
+    byte[] prefixBytes = prefix.getBytes(UTF_8);
+    dst.put(0, prefixBytes, 0, prefixBytes.length);
+    byte[] valueBytes = Long.toString(value).getBytes(UTF_8);
+    int padWidth = valueWidth - valueBytes.length;
+    dst.put(prefixBytes.length, pad, 0, padWidth);
+    dst.put(prefixBytes.length + padWidth, valueBytes, 0, valueBytes.length);
+
+    dst.clear();
   }
 
   /**

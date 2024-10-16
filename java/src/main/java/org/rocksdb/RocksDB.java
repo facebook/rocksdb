@@ -1851,6 +1851,22 @@ public class RocksDB extends RocksObject {
 
   /**
    * Apply the specified updates to the database.
+   * We know that the <code>nativeHandle_</code> of <code>WriteBatchJavaNative</code>
+   * is a (C++) <code>WriteBatch</code>, so we can use the existing method as for (Java) <code>WriteBatch</code>.
+   *
+   * @param writeOpts WriteOptions instance
+   * @param updates WriteBatchJavaNative instance
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void write(final WriteOptions writeOpts, final WriteBatchJavaNative updates)
+      throws RocksDBException {
+    write0(nativeHandle_, writeOpts.nativeHandle_, updates.nativeHandle_);
+  }
+
+  /**
+   * Apply the specified updates to the database.
    *
    * @param writeOpts WriteOptions instance
    * @param updates WriteBatchWithIndex instance
@@ -4931,6 +4947,8 @@ public class RocksDB extends RocksObject {
 
   private static native void write0(
       final long handle, final long writeOptHandle, final long wbHandle) throws RocksDBException;
+  private static native void writeJavaNative0(
+      final long handle, final long writeOptHandle, final long wbJavaNativeHandle) throws RocksDBException;
   private static native void write1(
       final long handle, final long writeOptHandle, final long wbwiHandle) throws RocksDBException;
   private static native int get(final long handle, final byte[] key, final int keyOffset,
