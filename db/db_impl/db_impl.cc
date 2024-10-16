@@ -5829,7 +5829,6 @@ Status DBImpl::IngestExternalFile(
 Status DBImpl::IngestExternalFiles(
     const std::vector<IngestExternalFileArg>& args) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
-  const ReadOptions read_options;
   const WriteOptions write_options;
 
   if (args.empty()) {
@@ -5854,6 +5853,10 @@ Status DBImpl::IngestExternalFiles(
       char err_msg[128] = {0};
       snprintf(err_msg, 128, "external_files[%zu] is empty", i);
       return Status::InvalidArgument(err_msg);
+    }
+    if (i && args[i].options.fill_cache != args[i - 1].options.fill_cache) {
+      return Status::InvalidArgument(
+          "fill_cache should be the same across ingestion options.");
     }
   }
   for (const auto& arg : args) {
@@ -6042,6 +6045,8 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     if (status.ok()) {
+      ReadOptions read_options;
+      read_options.fill_cache = args[0].options.fill_cache;
       autovector<ColumnFamilyData*> cfds_to_commit;
       autovector<const MutableCFOptions*> mutable_cf_options_list;
       autovector<autovector<VersionEdit*>> edit_lists;

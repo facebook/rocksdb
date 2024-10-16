@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <table/block_based/block_based_table_factory.h>
+
 #include <functional>
 #include <memory>
 
@@ -150,7 +152,7 @@ class ExternalSSTFileTest
       bool verify_checksums_before_ingest = true, bool ingest_behind = false,
       bool sort_data = false,
       std::map<std::string, std::string>* true_data = nullptr,
-      ColumnFamilyHandle* cfh = nullptr) {
+      ColumnFamilyHandle* cfh = nullptr, bool fill_cache = false) {
     // Generate a file id if not provided
     if (file_id == -1) {
       file_id = last_file_id_ + 1;
@@ -194,6 +196,7 @@ class ExternalSSTFileTest
       ifo.write_global_seqno = allow_global_seqno ? write_global_seqno : false;
       ifo.verify_checksums_before_ingest = verify_checksums_before_ingest;
       ifo.ingest_behind = ingest_behind;
+      ifo.fill_cache = fill_cache;
       if (cfh) {
         s = db_->IngestExternalFile(cfh, {file_path}, ifo);
       } else {
@@ -267,15 +270,15 @@ class ExternalSSTFileTest
       bool verify_checksums_before_ingest = true, bool ingest_behind = false,
       bool sort_data = false,
       std::map<std::string, std::string>* true_data = nullptr,
-      ColumnFamilyHandle* cfh = nullptr) {
+      ColumnFamilyHandle* cfh = nullptr, bool fill_cache = false) {
     std::vector<std::pair<std::string, std::string>> file_data;
     for (auto& k : keys) {
       file_data.emplace_back(Key(k), Key(k) + std::to_string(file_id));
     }
-    return GenerateAndAddExternalFile(options, file_data, file_id,
-                                      allow_global_seqno, write_global_seqno,
-                                      verify_checksums_before_ingest,
-                                      ingest_behind, sort_data, true_data, cfh);
+    return GenerateAndAddExternalFile(
+        options, file_data, file_id, allow_global_seqno, write_global_seqno,
+        verify_checksums_before_ingest, ingest_behind, sort_data, true_data,
+        cfh, fill_cache);
   }
 
   Status DeprecatedAddFile(const std::vector<std::string>& files,
@@ -312,6 +315,49 @@ TEST_F(ExternalSSTFileTest, ComparatorMismatch) {
 
   DestroyAndReopen(options);
   ASSERT_NOK(DeprecatedAddFile({file}));
+}
+
+TEST_F(ExternalSSTFileTest, NoBlockCache) {
+  LRUCacheOptions co;
+  co.capacity = 32 << 20;
+  std::shared_ptr<Cache> cache = NewLRUCache(co);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  table_options.cache_index_and_filter_blocks = true;
+  Options options = CurrentOptions();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  size_t usage_before_ingestion = cache->GetUsage();
+  std::map<std::string, std::string> true_data;
+  // Ingest with fill_cache = true
+  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 2}, -1, false, false, true,
+                                       false, false, &true_data, nullptr,
+                                       /*fill_cache=*/true));
+  ASSERT_EQ(FilesPerLevel(), "0,0,0,0,0,0,1");
+  EXPECT_GT(cache->GetUsage(), usage_before_ingestion);
+
+  TablePropertiesCollection tp;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&tp));
+  for (const auto& entry : tp) {
+    EXPECT_GT(entry.second->index_size, 0);
+    EXPECT_GT(entry.second->filter_size, 0);
+  }
+
+  usage_before_ingestion = cache->GetUsage();
+  // Ingest with fill_cache = false
+  ASSERT_OK(GenerateAndAddExternalFile(options, {3, 4}, -1, false, false, true,
+                                       false, false, &true_data, nullptr,
+                                       /*fill_cache=*/false));
+  EXPECT_EQ(usage_before_ingestion, cache->GetUsage());
+
+  tp.clear();
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&tp));
+  for (const auto& entry : tp) {
+    EXPECT_GT(entry.second->index_size, 0);
+    EXPECT_GT(entry.second->filter_size, 0);
+  }
 }
 
 TEST_F(ExternalSSTFileTest, Basic) {

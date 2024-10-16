@@ -567,13 +567,9 @@ void ExternalSstFileIngestionJob::CreateEquivalentFileIngestingCompactions() {
     file_ingesting_compactions_.push_back(new Compaction(
         cfd_->current()->storage_info(), *cfd_->ioptions(), mutable_cf_options,
         mutable_db_options_, {input}, output_level,
-        MaxFileSizeForLevel(
-            mutable_cf_options, output_level,
-            cfd_->ioptions()->compaction_style) /* output file size
-            limit,
-                                                 * not applicable
-                                                 */
-        ,
+        /* output file size limit not applicable */
+        MaxFileSizeForLevel(mutable_cf_options, output_level,
+                            cfd_->ioptions()->compaction_style),
         LLONG_MAX /* max compaction bytes, not applicable */,
         0 /* output path ID, not applicable */, mutable_cf_options.compression,
         mutable_cf_options.compression_opts,
@@ -727,7 +723,10 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
       new RandomAccessFileReader(std::move(sst_file), external_file,
                                  nullptr /*Env*/, io_tracer_));
   table_reader->reset();
+  ReadOptions ro;
+  ro.fill_cache = ingestion_options_.fill_cache;
   status = cfd_->ioptions()->table_factory->NewTableReader(
+      ro,
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
@@ -739,7 +738,9 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
           /*cur_file_num*/ new_file_number,
           /* unique_id */ {}, /* largest_seqno */ 0,
           /* tail_size */ 0, user_defined_timestamps_persisted),
-      std::move(sst_file_reader), file_to_ingest->file_size, table_reader);
+      std::move(sst_file_reader), file_to_ingest->file_size, table_reader,
+      // No need to prefetch index/filter if caching is not needed.
+      /*prefetch_index_and_filter_in_cache=*/ingestion_options_.fill_cache);
   return status;
 }
 
@@ -885,6 +886,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     // TODO: plumb Env::IOActivity, Env::IOPriority
     ReadOptions ro;
     ro.readahead_size = ingestion_options_.verify_checksums_readahead_size;
+    ro.fill_cache = ingestion_options_.fill_cache;
     status = table_reader->VerifyChecksum(
         ro, TableReaderCaller::kExternalSSTIngestion);
     if (!status.ok()) {
@@ -895,6 +897,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   ParsedInternalKey key;
   // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions ro;
+  ro.fill_cache = ingestion_options_.fill_cache;
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
       ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
@@ -1064,6 +1067,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
   Arena arena;
   // TODO: plumb Env::IOActivity, Env::IOPriority
   ReadOptions ro;
+  ro.fill_cache = ingestion_options_.fill_cache;
   ro.total_order_seek = true;
   int target_level = 0;
   auto* vstorage = cfd_->current()->storage_info();
