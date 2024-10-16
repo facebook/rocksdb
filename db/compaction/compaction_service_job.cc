@@ -354,16 +354,22 @@ Status CompactionServiceCompactionJob::Run() {
 
   // Build Compaction Job Stats
 
-  // Aggregate CompactionOutputStats
+  // 1. Aggregate CompactionOutputStats into Internal Compaction Stats
+  // (compaction_stats_) and aggregate Compaction Job Stats
+  // (compaction_job_stats_) from the sub compactions
   compact_->AggregateCompactionStats(compaction_stats_, *compaction_job_stats_);
+
+  // 2. Update the Output information in the Compaction Job Stats with
+  // aggregated Internal Compaction Stats.
   UpdateCompactionJobStats(compaction_stats_.stats);
 
-  // Set fields that are not propagated as part of aggregation
+  // 3. Set fields that are not propagated as part of aggregations above
   compaction_result_->stats.is_manual_compaction = c->is_manual_compaction();
   compaction_result_->stats.is_full_compaction = c->is_full_compaction();
   compaction_result_->stats.is_remote_compaction = true;
 
-  // Update IO Stats (bytes_read, bytes_written)
+  // 4. Update IO Stats that are not part of the aggregations above (bytes_read,
+  // bytes_written)
   RecordCompactionIOStats();
 
   // Build Output
