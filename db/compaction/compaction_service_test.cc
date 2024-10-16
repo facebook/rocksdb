@@ -353,8 +353,18 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   ASSERT_GE(result.stats.cpu_micros, 1);
 
   ASSERT_EQ(20, result.stats.num_output_records);
-  ASSERT_EQ(1, result.stats.num_output_files);
-  ASSERT_EQ(1332, result.stats.total_output_bytes);
+  ASSERT_EQ(result.output_files.size(), result.stats.num_output_files);
+
+  uint64_t total_size = 0;
+  for (auto output_file : result.output_files) {
+    std::string file_name = result.output_path + "/" + output_file.file_name;
+
+    uint64_t file_size = 0;
+    ASSERT_OK(options.env->GetFileSize(file_name, &file_size));
+    ASSERT_GT(file_size, 0);
+    total_size += file_size;
+  }
+  ASSERT_EQ(total_size, result.stats.total_output_bytes);
 
   ASSERT_TRUE(result.stats.is_remote_compaction);
   ASSERT_TRUE(result.stats.is_manual_compaction);
