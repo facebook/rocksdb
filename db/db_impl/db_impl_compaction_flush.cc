@@ -1561,6 +1561,12 @@ Status DBImpl::CompactFilesImpl(
 
   compaction_job.Prepare();
 
+  std::unique_ptr<std::list<uint64_t>::iterator> min_options_file_number_elem;
+  if (immutable_db_options().compaction_service != nullptr) {
+    min_options_file_number_elem.reset(
+        new std::list<uint64_t>::iterator(CaptureOptionsFileNumber()));
+  }
+
   mutex_.Unlock();
   TEST_SYNC_POINT("CompactFilesImpl:0");
   TEST_SYNC_POINT("CompactFilesImpl:1");
@@ -1569,6 +1575,10 @@ Status DBImpl::CompactFilesImpl(
   TEST_SYNC_POINT("CompactFilesImpl:2");
   TEST_SYNC_POINT("CompactFilesImpl:3");
   mutex_.Lock();
+
+  if (immutable_db_options().compaction_service != nullptr) {
+    ReleaseOptionsFileNumber(min_options_file_number_elem);
+  }
 
   bool compaction_released = false;
   Status status =
@@ -3911,6 +3921,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         &bg_bottom_compaction_scheduled_);
     compaction_job.Prepare();
 
+    std::unique_ptr<std::list<uint64_t>::iterator> min_options_file_number_elem;
+    if (immutable_db_options().compaction_service != nullptr) {
+      min_options_file_number_elem.reset(
+          new std::list<uint64_t>::iterator(CaptureOptionsFileNumber()));
+    }
+
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
     mutex_.Unlock();
@@ -3920,6 +3936,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     compaction_job.Run().PermitUncheckedError();
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
+
+    if (immutable_db_options().compaction_service != nullptr) {
+      ReleaseOptionsFileNumber(min_options_file_number_elem);
+    }
+
     status =
         compaction_job.Install(*c->mutable_cf_options(), &compaction_released);
     io_s = compaction_job.io_status();

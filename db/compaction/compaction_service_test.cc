@@ -3,9 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/utilities/options_util.h"
 #include "table/unique_id_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -388,6 +388,137 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
   VerifyTestData();
+
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_TRUE(result.stats.is_manual_compaction);
+  ASSERT_TRUE(result.stats.is_remote_compaction);
+}
+
+TEST_F(CompactionServiceTest, PreservedOptionsLocalCompaction) {
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (auto i = 0; i < 2; ++i) {
+    for (auto j = 0; j < 10; ++j) {
+      ASSERT_OK(
+          Put("foo" + std::to_string(i * 10 + j), rnd.RandomString(1024)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompaction()::Processing", [&](void* arg) {
+        auto compaction = static_cast<Compaction*>(arg);
+        std::string options_file_name = OptionsFileName(
+            dbname_,
+            compaction->input_version()->version_set()->options_file_number());
+
+        // Change option twice to make sure the very first OPTIONS file gets
+        // purged
+        ASSERT_OK(dbfull()->SetOptions(
+            {{"level0_file_num_compaction_trigger", "4"}}));
+        ASSERT_EQ(4, dbfull()->GetOptions().level0_file_num_compaction_trigger);
+        ASSERT_OK(dbfull()->SetOptions(
+            {{"level0_file_num_compaction_trigger", "6"}}));
+        ASSERT_EQ(6, dbfull()->GetOptions().level0_file_num_compaction_trigger);
+        dbfull()->TEST_DeleteObsoleteFiles();
+
+        // For non-remote compactions, OPTIONS file can be deleted while
+        // using option at the start of the compaction
+        Status s = env_->FileExists(options_file_name);
+        ASSERT_NOK(s);
+        ASSERT_TRUE(s.IsNotFound());
+        // Should be old value
+        ASSERT_EQ(2, compaction->mutable_cf_options()
+                         ->level0_file_num_compaction_trigger);
+        ASSERT_TRUE(dbfull()->min_options_file_numbers_.empty());
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  Status s = dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.ok());
+}
+
+TEST_F(CompactionServiceTest, PreservedOptionsRemoteCompaction) {
+  // For non-remote compaction do not preserve options file
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  Random rnd(301);
+  for (auto i = 0; i < 2; ++i) {
+    for (auto j = 0; j < 10; ++j) {
+      ASSERT_OK(
+          Put("foo" + std::to_string(i * 10 + j), rnd.RandomString(1024)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  bool is_primary_called = false;
+  // This will be called twice. One from primary and one from remote.
+  // Try changing the option when called from remote. Otherwise, the new option
+  // will be used
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", [&](void* /*arg*/) {
+        if (!is_primary_called) {
+          is_primary_called = true;
+          return;
+        }
+        // Change the option right before the compaction run
+        ASSERT_OK(dbfull()->SetOptions(
+            {{"level0_file_num_compaction_trigger", "4"}}));
+        ASSERT_EQ(4, dbfull()->GetOptions().level0_file_num_compaction_trigger);
+        dbfull()->TEST_DeleteObsoleteFiles();
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
+      [&](void* arg) {
+        auto input = static_cast<CompactionServiceInput*>(arg);
+        std::string options_file_name =
+            OptionsFileName(dbname_, input->options_file_number);
+
+        ASSERT_OK(env_->FileExists(options_file_name));
+        ASSERT_FALSE(dbfull()->min_options_file_numbers_.empty());
+        ASSERT_EQ(dbfull()->min_options_file_numbers_.front(),
+                  input->options_file_number);
+
+        DBOptions db_options;
+        ConfigOptions config_options;
+        std::vector<ColumnFamilyDescriptor> all_column_families;
+        config_options.env = env_;
+        ASSERT_OK(LoadOptionsFromFile(config_options, options_file_name,
+                                      &db_options, &all_column_families));
+        bool has_cf = false;
+        for (auto& cf : all_column_families) {
+          if (cf.name == input->cf_name) {
+            // Should be old value
+            ASSERT_EQ(2, cf.options.level0_file_num_compaction_trigger);
+            has_cf = true;
+          }
+        }
+        ASSERT_TRUE(has_cf);
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompaction()::Processing", [&](void* arg) {
+        auto compaction = static_cast<Compaction*>(arg);
+        ASSERT_EQ(2, compaction->mutable_cf_options()
+                         ->level0_file_num_compaction_trigger);
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  Status s = dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.ok());
 
   CompactionServiceResult result;
   my_cs->GetResult(&result);
