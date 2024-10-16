@@ -4779,6 +4779,24 @@ void DBImpl::ReleaseFileNumberFromPendingOutputs(
   }
 }
 
+std::list<uint64_t>::iterator DBImpl::CaptureOptionsFileNumber() {
+  // We need to remember the iterator of our insert, because after the
+  // compaction is done, we need to remove that element from
+  // min_options_file_numbers_.
+  min_options_file_numbers_.push_back(versions_->options_file_number());
+  auto min_options_file_numbers_inserted_elem = min_options_file_numbers_.end();
+  --min_options_file_numbers_inserted_elem;
+  return min_options_file_numbers_inserted_elem;
+}
+
+void DBImpl::ReleaseOptionsFileNumber(
+    std::unique_ptr<std::list<uint64_t>::iterator>& v) {
+  if (v.get() != nullptr) {
+    min_options_file_numbers_.erase(*v.get());
+    v.reset();
+  }
+}
+
 Status DBImpl::GetUpdatesSince(
     SequenceNumber seq, std::unique_ptr<TransactionLogIterator>* iter,
     const TransactionLogIterator::ReadOptions& read_options) {

@@ -48,6 +48,14 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   compaction_input.has_end = sub_compact->end.has_value();
   compaction_input.end =
       compaction_input.has_end ? sub_compact->end->ToString() : "";
+  compaction_input.options_file_number =
+      sub_compact->compaction->input_version()
+          ->version_set()
+          ->options_file_number();
+
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
+      &compaction_input);
 
   std::string compaction_input_binary;
   Status s = compaction_input.Write(&compaction_input_binary);
@@ -438,6 +446,10 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
     {"end",
      {offsetof(struct CompactionServiceInput, end), OptionType::kEncodedString,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+    {"options_file_number",
+     {offsetof(struct CompactionServiceInput, options_file_number),
+      OptionType::kUInt64T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
