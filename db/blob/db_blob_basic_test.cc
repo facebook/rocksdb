@@ -374,6 +374,115 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCachePinning) {
   }
 }
 
+TEST_F(DBBlobBasicTest, IterateBlobsAllowUnpreparedValue) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+
+  Reopen(options);
+
+  constexpr size_t num_blobs = 5;
+  std::vector<std::string> keys;
+  std::vector<std::string> blobs;
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    keys.emplace_back("key" + std::to_string(i));
+    blobs.emplace_back("blob" + std::to_string(i));
+    ASSERT_OK(Put(keys[i], blobs[i]));
+  }
+
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+  {
+    size_t i = 0;
+
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(iter->key(), keys[i]);
+      ASSERT_TRUE(iter->value().empty());
+      ASSERT_OK(iter->status());
+
+      ASSERT_TRUE(iter->PrepareValue());
+
+      ASSERT_EQ(iter->key(), keys[i]);
+      ASSERT_EQ(iter->value(), blobs[i]);
+      ASSERT_OK(iter->status());
+
+      ++i;
+    }
+
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(i, num_blobs);
+  }
+
+  {
+    size_t i = 0;
+
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      ASSERT_EQ(iter->key(), keys[num_blobs - 1 - i]);
+      ASSERT_TRUE(iter->value().empty());
+      ASSERT_OK(iter->status());
+
+      ASSERT_TRUE(iter->PrepareValue());
+
+      ASSERT_EQ(iter->key(), keys[num_blobs - 1 - i]);
+      ASSERT_EQ(iter->value(), blobs[num_blobs - 1 - i]);
+      ASSERT_OK(iter->status());
+
+      ++i;
+    }
+
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(i, num_blobs);
+  }
+
+  {
+    size_t i = 1;
+
+    for (iter->Seek(keys[i]); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(iter->key(), keys[i]);
+      ASSERT_TRUE(iter->value().empty());
+      ASSERT_OK(iter->status());
+
+      ASSERT_TRUE(iter->PrepareValue());
+
+      ASSERT_EQ(iter->key(), keys[i]);
+      ASSERT_EQ(iter->value(), blobs[i]);
+      ASSERT_OK(iter->status());
+
+      ++i;
+    }
+
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(i, num_blobs);
+  }
+
+  {
+    size_t i = 1;
+
+    for (iter->SeekForPrev(keys[num_blobs - 1 - i]); iter->Valid();
+         iter->Prev()) {
+      ASSERT_EQ(iter->key(), keys[num_blobs - 1 - i]);
+      ASSERT_TRUE(iter->value().empty());
+      ASSERT_OK(iter->status());
+
+      ASSERT_TRUE(iter->PrepareValue());
+
+      ASSERT_EQ(iter->key(), keys[num_blobs - 1 - i]);
+      ASSERT_EQ(iter->value(), blobs[num_blobs - 1 - i]);
+      ASSERT_OK(iter->status());
+
+      ++i;
+    }
+
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(i, num_blobs);
+  }
+}
+
 TEST_F(DBBlobBasicTest, MultiGetBlobs) {
   constexpr size_t min_blob_size = 6;
 
@@ -1650,6 +1759,46 @@ TEST_P(DBBlobBasicIOErrorTest, CompactionFilterReadBlob_IOError) {
   ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
                                 /*end=*/nullptr)
                   .IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(DBBlobBasicIOErrorTest, IterateBlobsAllowUnpreparedValue_IOError) {
+  Options options;
+  options.env = fault_injection_env_.get();
+  options.enable_blob_files = true;
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  ASSERT_OK(Put(key, blob_value));
+
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_->SetFilesystemActive(false,
+                                              Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->SeekToFirst();
+
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), key);
+  ASSERT_TRUE(iter->value().empty());
+  ASSERT_OK(iter->status());
+
+  ASSERT_FALSE(iter->PrepareValue());
+
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsIOError());
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

@@ -74,6 +74,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                                      read_options.total_order_seek ||
                                      read_options.auto_prefix_mode),
       expose_blob_index_(expose_blob_index),
+      allow_unprepared_value_(read_options.allow_unprepared_value),
       is_blob_(false),
       arena_mode_(arena_mode),
       cfh_(cfh),
@@ -221,16 +222,8 @@ Status DBIter::BlobReader::RetrieveAndSetBlobValue(const Slice& user_key,
   return Status::OK();
 }
 
-bool DBIter::SetValueAndColumnsFromBlob(const Slice& user_key,
-                                        const Slice& blob_index) {
-  assert(!is_blob_);
-  is_blob_ = true;
-
-  if (expose_blob_index_) {
-    SetValueAndColumnsFromPlain(blob_index);
-    return true;
-  }
-
+bool DBIter::SetValueAndColumnsFromBlobImpl(const Slice& user_key,
+                                            const Slice& blob_index) {
   const Status s = blob_reader_.RetrieveAndSetBlobValue(user_key, blob_index);
   if (!s.ok()) {
     status_ = s;
@@ -242,6 +235,29 @@ bool DBIter::SetValueAndColumnsFromBlob(const Slice& user_key,
   SetValueAndColumnsFromPlain(blob_reader_.GetBlobValue());
 
   return true;
+}
+
+bool DBIter::SetValueAndColumnsFromBlob(const Slice& user_key,
+                                        const Slice& blob_index) {
+  assert(!is_blob_);
+  is_blob_ = true;
+
+  if (expose_blob_index_) {
+    SetValueAndColumnsFromPlain(blob_index);
+    return true;
+  }
+
+  if (allow_unprepared_value_) {
+    assert(value_.empty());
+    assert(wide_columns_.empty());
+
+    assert(lazy_blob_index_.empty());
+    lazy_blob_index_ = blob_index;
+
+    return true;
+  }
+
+  return SetValueAndColumnsFromBlobImpl(user_key, blob_index);
 }
 
 bool DBIter::SetValueAndColumnsFromEntity(Slice slice) {
@@ -287,6 +303,24 @@ bool DBIter::SetValueAndColumnsFromMergeResult(const Status& merge_status,
                                                    : saved_value_);
   valid_ = true;
   return true;
+}
+
+bool DBIter::PrepareValue() {
+  assert(valid_);
+
+  if (lazy_blob_index_.empty()) {
+    return true;
+  }
+
+  assert(allow_unprepared_value_);
+  assert(is_blob_);
+
+  const bool result =
+      SetValueAndColumnsFromBlobImpl(saved_key_.GetUserKey(), lazy_blob_index_);
+
+  lazy_blob_index_.clear();
+
+  return result;
 }
 
 // PRE: saved_key_ has the current user key if skipping_saved_key
@@ -418,7 +452,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           case kTypeValuePreferredSeqno:
           case kTypeBlobIndex:
           case kTypeWideColumnEntity:
-            if (!PrepareValue()) {
+            if (!PrepareValueInternal()) {
               return false;
             }
             if (timestamp_lb_) {
@@ -452,7 +486,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             return true;
             break;
           case kTypeMerge:
-            if (!PrepareValue()) {
+            if (!PrepareValueInternal()) {
               return false;
             }
             saved_key_.SetUserKey(
@@ -597,7 +631,7 @@ bool DBIter::MergeValuesNewToOld() {
       iter_.Next();
       break;
     }
-    if (!PrepareValue()) {
+    if (!PrepareValueInternal()) {
       return false;
     }
 
@@ -920,7 +954,7 @@ bool DBIter::FindValueForCurrentKey() {
       return FindValueForCurrentKeyUsingSeek();
     }
 
-    if (!PrepareValue()) {
+    if (!PrepareValueInternal()) {
       return false;
     }
 
@@ -1151,7 +1185,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     }
     return true;
   }
-  if (!PrepareValue()) {
+  if (!PrepareValueInternal()) {
     return false;
   }
   if (timestamp_size_ > 0) {
@@ -1218,7 +1252,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         ikey.type == kTypeDeletionWithTimestamp) {
       break;
     }
-    if (!PrepareValue()) {
+    if (!PrepareValueInternal()) {
       return false;
     }
 

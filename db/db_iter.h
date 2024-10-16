@@ -218,6 +218,8 @@ class DBIter final : public Iterator {
   }
   void set_valid(bool v) { valid_ = v; }
 
+  bool PrepareValue() override;
+
  private:
   class BlobReader {
    public:
@@ -332,6 +334,8 @@ class DBIter final : public Iterator {
     wide_columns_.emplace_back(kDefaultWideColumnName, slice);
   }
 
+  bool SetValueAndColumnsFromBlobImpl(const Slice& user_key,
+                                      const Slice& blob_index);
   bool SetValueAndColumnsFromBlob(const Slice& user_key,
                                   const Slice& blob_index);
 
@@ -347,6 +351,7 @@ class DBIter final : public Iterator {
 
   void ResetBlobData() {
     blob_reader_.ResetBlobValue();
+    lazy_blob_index_.clear();
     is_blob_ = false;
   }
 
@@ -358,7 +363,7 @@ class DBIter final : public Iterator {
   bool MergeWithBlobBaseValue(const Slice& blob_index, const Slice& user_key);
   bool MergeWithWideColumnBaseValue(const Slice& entity, const Slice& user_key);
 
-  bool PrepareValue() {
+  bool PrepareValueInternal() {
     if (!iter_.PrepareValue()) {
       assert(!iter_.status().ok());
       valid_ = false;
@@ -437,6 +442,8 @@ class DBIter final : public Iterator {
   // Whether the iterator is allowed to expose blob references. Set to true when
   // the stacked BlobDB implementation is used, false otherwise.
   bool expose_blob_index_;
+  bool allow_unprepared_value_;
+  Slice lazy_blob_index_;
   bool is_blob_;
   bool arena_mode_;
   // List of operands for merge operator.
