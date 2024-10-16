@@ -13,6 +13,7 @@
 #include "db/error_handler.h"
 #include "db/periodic_task_scheduler.h"
 #include "env/composite_env_wrapper.h"
+#include "env/io_posix.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
 #include "file/sst_file_manager_impl.h"
@@ -144,6 +145,23 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.wal_dir = result.wal_dir.substr(0, result.wal_dir.size() - 1);
   }
 
+#ifdef OS_LINUX
+  // To fix https://github.com/facebook/rocksdb/issues/12038
+  if (!result.use_direct_reads && result.compaction_readahead_size > 0) {
+    size_t system_limit =
+        GetCompactionReadaheadSizeSystemLimit(result.db_paths);
+    if (system_limit > 0 && result.compaction_readahead_size > system_limit) {
+      result.compaction_readahead_size = system_limit;
+      std::stringstream msg;
+      msg << "Compaction readahead size is set to no more than the POSIX "
+             "system limit (i.e, max_sectors_kb * 1024) "
+             ": "
+          << result.compaction_readahead_size;
+      ROCKS_LOG_INFO(result.info_log, "%s", msg.str().c_str());
+    }
+  }
+#endif  // OS_LINUX
+
   // Force flush on DB open if 2PC is enabled, since with 2PC we have no
   // guarantee that consecutive log files have consecutive sequence id, which
   // make recovery complicated.
@@ -199,6 +217,28 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
 
   return result;
 }
+
+#ifdef OS_LINUX
+size_t GetCompactionReadaheadSizeSystemLimit(
+    const std::vector<DbPath>& db_paths) {
+  Status s;
+  size_t max_sectors_kb = 0;
+
+  for (const auto& db_path : db_paths) {
+    size_t dir_max_sectors_kb = 0;
+    s = PosixHelper::GetMaxSectorsKBOfDirectory(db_path.path,
+                                                &dir_max_sectors_kb);
+    if (!s.ok()) {
+      break;
+    }
+
+    max_sectors_kb = (max_sectors_kb == 0)
+                         ? dir_max_sectors_kb
+                         : std::min(max_sectors_kb, dir_max_sectors_kb);
+  }
+  return max_sectors_kb * 1024;
+}
+#endif  // OS_LINUX
 
 namespace {
 Status ValidateOptionsByTable(

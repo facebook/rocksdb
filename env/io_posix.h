@@ -57,6 +57,24 @@ class PosixHelper {
   static size_t GetLogicalBlockSizeOfFd(int fd);
   static Status GetLogicalBlockSizeOfDirectory(const std::string& directory,
                                                size_t* size);
+  static size_t GetMaxSectorsKBOfFd(int fd);
+  static Status GetMaxSectorsKBOfDirectory(const std::string& directory,
+                                           size_t* kb);
+
+ private:
+  static const std::string kLogicalBlockSizeFileName;
+  static const std::string kMaxSectorsKBFileName;
+  static const size_t kDefaultMaxSectorsKB = 2 * 1024;
+
+  // Similar to `GetQueueSysfsFileValueFd()` but for directory
+  static Status GetQueueSysfsFileValueofDirectory(const std::string& directory,
+                                                  const std::string& file_name,
+                                                  size_t* value);
+  // Return the value in the specified file `file_name` under
+  // `/sys/block/xxx/queue/` for the device where the file of `fd` is on.
+  // If not found, then return the specified `default_return_value`
+  static size_t GetQueueSysfsFileValueOfFd(int fd, const std::string& file_name,
+                                           size_t default_return_value);
 };
 
 /*
