@@ -418,10 +418,11 @@ TEST_F(CompactionServiceTest, PreservedOptionsLocalCompaction) {
             dbname_,
             compaction->input_version()->version_set()->options_file_number());
 
+        // Change option twice to make sure the very first OPTIONS file gets
+        // purged
         ASSERT_OK(dbfull()->SetOptions(
             {{"level0_file_num_compaction_trigger", "4"}}));
         ASSERT_EQ(4, dbfull()->GetOptions().level0_file_num_compaction_trigger);
-
         ASSERT_OK(dbfull()->SetOptions(
             {{"level0_file_num_compaction_trigger", "6"}}));
         ASSERT_EQ(6, dbfull()->GetOptions().level0_file_num_compaction_trigger);
@@ -429,7 +430,10 @@ TEST_F(CompactionServiceTest, PreservedOptionsLocalCompaction) {
 
         // For non-remote compactions, OPTIONS file can be deleted while
         // using option at the start of the compaction
-        ASSERT_NOK(env_->FileExists(options_file_name));
+        Status s = env_->FileExists(options_file_name);
+        ASSERT_NOK(s);
+        ASSERT_TRUE(s.IsNotFound());
+        // Should be old value
         ASSERT_EQ(2, compaction->mutable_cf_options()
                          ->level0_file_num_compaction_trigger);
         ASSERT_TRUE(dbfull()->min_options_file_numbers_.empty());

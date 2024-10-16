@@ -4779,8 +4779,7 @@ void DBImpl::ReleaseFileNumberFromPendingOutputs(
   }
 }
 
-std::list<uint64_t>::iterator
-DBImpl::CaptureOptionsFileNumberForRemoteCompaction() {
+std::list<uint64_t>::iterator DBImpl::CaptureOptionsFileNumber() {
   // We need to remember the iterator of our insert, because after the
   // compaction is done, we need to remove that element from
   // min_options_file_numbers_.
@@ -4790,7 +4789,7 @@ DBImpl::CaptureOptionsFileNumberForRemoteCompaction() {
   return min_options_file_numbers_inserted_elem;
 }
 
-void DBImpl::ReleaseOptionsFileNumberFromRemoteCompaction(
+void DBImpl::ReleaseOptionsFileNumber(
     std::unique_ptr<std::list<uint64_t>::iterator>& v) {
   if (v.get() != nullptr) {
     min_options_file_numbers_.erase(*v.get());

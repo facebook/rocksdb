@@ -1563,8 +1563,8 @@ Status DBImpl::CompactFilesImpl(
 
   std::unique_ptr<std::list<uint64_t>::iterator> min_options_file_number_elem;
   if (immutable_db_options().compaction_service != nullptr) {
-    min_options_file_number_elem.reset(new std::list<uint64_t>::iterator(
-        CaptureOptionsFileNumberForRemoteCompaction()));
+    min_options_file_number_elem.reset(
+        new std::list<uint64_t>::iterator(CaptureOptionsFileNumber()));
   }
 
   mutex_.Unlock();
@@ -1577,7 +1577,7 @@ Status DBImpl::CompactFilesImpl(
   mutex_.Lock();
 
   if (immutable_db_options().compaction_service != nullptr) {
-    ReleaseOptionsFileNumberFromRemoteCompaction(min_options_file_number_elem);
+    ReleaseOptionsFileNumber(min_options_file_number_elem);
   }
 
   bool compaction_released = false;
@@ -3923,8 +3923,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     std::unique_ptr<std::list<uint64_t>::iterator> min_options_file_number_elem;
     if (immutable_db_options().compaction_service != nullptr) {
-      min_options_file_number_elem.reset(new std::list<uint64_t>::iterator(
-          CaptureOptionsFileNumberForRemoteCompaction()));
+      min_options_file_number_elem.reset(
+          new std::list<uint64_t>::iterator(CaptureOptionsFileNumber()));
     }
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
@@ -3938,8 +3938,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     mutex_.Lock();
 
     if (immutable_db_options().compaction_service != nullptr) {
-      ReleaseOptionsFileNumberFromRemoteCompaction(
-          min_options_file_number_elem);
+      ReleaseOptionsFileNumber(min_options_file_number_elem);
     }
 
     status =

@@ -1969,9 +1969,10 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
-  // Similar to pending_outputs, preserve OPTIONS file for remote compaction
-  std::list<uint64_t>::iterator CaptureOptionsFileNumberForRemoteCompaction();
-  void ReleaseOptionsFileNumberFromRemoteCompaction(
+  // Similar to pending_outputs, preserve OPTIONS file. Used for remote
+  // compaction.
+  std::list<uint64_t>::iterator CaptureOptionsFileNumber();
+  void ReleaseOptionsFileNumber(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
   // Sets bg error if there is an error writing to WAL.
