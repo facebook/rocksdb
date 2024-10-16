@@ -74,6 +74,25 @@ class IteratorBase : public Cleanable {
     return Status::NotSupported("Refresh() is not supported");
   }
 
+  // When ReadOptions::allow_unprepared_value is set, the iterator may defer
+  // loading the value when moving to a different entry (i.e. during
+  // SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev operations). This can be
+  // used to save on I/O when the values associated with certain keys may not be
+  // used by the application. When allow_unprepared_value is true, the
+  // application is expected to call this method before accessing the value to
+  // ensure it is loaded (for all entries whose values are actually needed).
+  // Note: it is safe to call this method for entries whose values are already
+  // loaded.
+  //
+  // Returns true on success. Returns false and sets Valid() to false and
+  // status() to non-OK if there is an error while loading the value.
+  //
+  // Note: this method is currently only applicable to large values stored in
+  // blob files using BlobDB, and has no effect otherwise.
+  //
+  // REQUIRES: Valid()
+  virtual bool PrepareValue() { return true; }
+
   // Return the key for the current entry.  The underlying storage for
   // the returned slice is valid only until the next modification of the
   // iterator (i.e. the next SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev
