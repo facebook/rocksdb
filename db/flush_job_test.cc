@@ -198,8 +198,12 @@ TEST_F(FlushJobTest, Empty) {
       Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_);
   {
     InstrumentedMutexLock l(&mutex_);
-    flush_job.PickMemTable();
-    ASSERT_OK(flush_job.Run());
+    bool need_cleanup = false;
+    flush_job.PickMemTable(&need_cleanup);
+    ASSERT_OK(flush_job.Run(&need_cleanup));
+    if (need_cleanup) {
+      flush_job.Cleanup();
+    }
   }
   job_context.Clean();
 }
@@ -286,8 +290,12 @@ TEST_F(FlushJobTest, NonEmpty) {
   HistogramData hist;
   FileMetaData file_meta;
   mutex_.Lock();
-  flush_job.PickMemTable();
-  ASSERT_OK(flush_job.Run(nullptr, &file_meta));
+  bool need_cleanup = false;
+  flush_job.PickMemTable(&need_cleanup);
+  ASSERT_OK(flush_job.Run(&need_cleanup, nullptr, &file_meta));
+  if (need_cleanup) {
+    flush_job.Cleanup();
+  }
   mutex_.Unlock();
   db_options_.statistics->histogramData(FLUSH_TIME, &hist);
   ASSERT_GT(hist.average, 0.0);
@@ -348,8 +356,13 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
   HistogramData hist;
   FileMetaData file_meta;
   mutex_.Lock();
-  flush_job.PickMemTable();
-  ASSERT_OK(flush_job.Run(nullptr /* prep_tracker */, &file_meta));
+  bool need_cleanup = false;
+  flush_job.PickMemTable(&need_cleanup);
+  ASSERT_OK(
+      flush_job.Run(&need_cleanup, nullptr /* prep_tracker */, &file_meta));
+  if (need_cleanup) {
+    flush_job.Cleanup();
+  }
   mutex_.Unlock();
   db_options_.statistics->histogramData(FLUSH_TIME, &hist);
   ASSERT_GT(hist.average, 0.0);
@@ -423,17 +436,23 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
   }
   HistogramData hist;
   std::vector<FileMetaData> file_metas;
+  std::deque<bool> need_cleanup(flush_jobs.size(), false);
   // Call reserve to avoid auto-resizing
   file_metas.reserve(flush_jobs.size());
   mutex_.Lock();
-  for (auto& job : flush_jobs) {
-    job->PickMemTable();
+  for (size_t i = 0; i < flush_jobs.size(); i++) {
+    flush_jobs[i]->PickMemTable(&(need_cleanup.at(i)));
   }
-  for (auto& job : flush_jobs) {
+  for (size_t i = 0; i < flush_jobs.size(); i++) {
     FileMetaData meta;
     // Run will release and re-acquire  mutex
-    ASSERT_OK(job->Run(nullptr /**/, &meta));
+    ASSERT_OK(flush_jobs[i]->Run(&(need_cleanup.at(i)), nullptr /**/, &meta));
     file_metas.emplace_back(meta);
+  }
+  for (size_t i = 0; i < flush_jobs.size(); i++) {
+    if (need_cleanup[i]) {
+      flush_jobs[i]->Cleanup();
+    }
   }
   autovector<FileMetaData*> file_meta_ptrs;
   for (auto& meta : file_metas) {
@@ -547,8 +566,12 @@ TEST_F(FlushJobTest, Snapshots) {
       true, true /* sync_output_directory */, true /* write_manifest */,
       Env::Priority::USER, nullptr /*IOTracer*/, empty_seqno_to_time_mapping_);
   mutex_.Lock();
-  flush_job.PickMemTable();
-  ASSERT_OK(flush_job.Run());
+  bool need_cleanup = false;
+  flush_job.PickMemTable(&need_cleanup);
+  ASSERT_OK(flush_job.Run(&need_cleanup));
+  if (need_cleanup) {
+    flush_job.Cleanup();
+  }
   mutex_.Unlock();
   mock_table_factory_->AssertSingleFile(inserted_keys);
   HistogramData hist;
@@ -675,8 +698,12 @@ TEST_F(FlushJobTest, ReplaceTimedPutWriteTimeWithPreferredSeqno) {
 
   FileMetaData file_meta;
   mutex_.Lock();
-  flush_job.PickMemTable();
-  ASSERT_OK(flush_job.Run(nullptr, &file_meta));
+  bool need_cleanup = false;
+  flush_job.PickMemTable(&need_cleanup);
+  ASSERT_OK(flush_job.Run(&need_cleanup, nullptr, &file_meta));
+  if (need_cleanup) {
+    flush_job.Cleanup();
+  }
   mutex_.Unlock();
 
   ASSERT_EQ(smallest_internal_key.Encode().ToString(),
@@ -784,8 +811,12 @@ TEST_P(FlushJobTimestampTest, AllKeysExpired) {
 
   FileMetaData fmeta;
   mutex_.Lock();
-  flush_job.PickMemTable();
-  ASSERT_OK(flush_job.Run(/*prep_tracker=*/nullptr, &fmeta));
+  bool need_cleanup = false;
+  flush_job.PickMemTable(&need_cleanup);
+  ASSERT_OK(flush_job.Run(&need_cleanup, /*prep_tracker=*/nullptr, &fmeta));
+  if (need_cleanup) {
+    flush_job.Cleanup();
+  }
   mutex_.Unlock();
 
   {
@@ -846,8 +877,12 @@ TEST_P(FlushJobTimestampTest, NoKeyExpired) {
 
   FileMetaData fmeta;
   mutex_.Lock();
-  flush_job.PickMemTable();
-  ASSERT_OK(flush_job.Run(/*prep_tracker=*/nullptr, &fmeta));
+  bool need_cleanup = false;
+  flush_job.PickMemTable(&need_cleanup);
+  ASSERT_OK(flush_job.Run(&need_cleanup, /*prep_tracker=*/nullptr, &fmeta));
+  if (need_cleanup) {
+    flush_job.Cleanup();
+  }
   mutex_.Unlock();
 
   {
