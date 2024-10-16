@@ -756,6 +756,7 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
   // Get table version
   auto version_iter = uprops.find(ExternalSstFilePropertyNames::kVersion);
   if (version_iter == uprops.end()) {
+    assert(!SstFileWriter::CreatedBySstFileWriter(*props));
     if (!ingestion_options_.allow_db_generated_files) {
       return Status::Corruption("External file version not found");
     } else {
@@ -764,6 +765,7 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
       file_to_ingest->version = 0;
     }
   } else {
+    assert(SstFileWriter::CreatedBySstFileWriter(*props));
     file_to_ingest->version = DecodeFixed32(version_iter->second.c_str());
   }
 
