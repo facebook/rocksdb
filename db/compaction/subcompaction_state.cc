@@ -13,7 +13,7 @@
 #include "rocksdb/sst_partitioner.h"
 
 namespace ROCKSDB_NAMESPACE {
-void SubcompactionState::AggregateCompactionStats(
+void SubcompactionState::AggregateCompactionOutputStats(
     InternalStats::CompactionStatsFull& compaction_stats) const {
   compaction_stats.stats.Add(compaction_outputs_.stats_);
   if (HasPenultimateLevelOutputs()) {

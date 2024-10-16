@@ -349,7 +349,17 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   } else {
     ASSERT_OK(result.status);
   }
+  ASSERT_GE(result.stats.elapsed_micros, 1);
+  ASSERT_GE(result.stats.cpu_micros, 1);
+
+  ASSERT_EQ(20, result.stats.num_output_records);
+  ASSERT_EQ(1, result.stats.num_output_files);
+  ASSERT_EQ(1332, result.stats.total_output_bytes);
+
   ASSERT_TRUE(result.stats.is_remote_compaction);
+  ASSERT_TRUE(result.stats.is_manual_compaction);
+  ASSERT_FALSE(result.stats.is_full_compaction);
+
   Close();
 }
 
