@@ -2678,10 +2678,9 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           if (!skip_filters) {
             Status status = table_cache_->MultiGetFilter(
                 read_options, *internal_comparator(), *f->file_metadata,
-                mutable_cf_options_.prefix_extractor,
+                mutable_cf_options_,
                 cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
-                fp.GetHitFileLevel(), &file_range, &table_handle,
-                mutable_cf_options_.block_protection_bytes_per_key);
+                fp.GetHitFileLevel(), &file_range, &table_handle);
             skip_range_deletions = true;
             if (status.ok()) {
               skip_filters = true;
@@ -2865,10 +2864,9 @@ Status Version::ProcessBatch(
     if (!skip_filters) {
       Status status = table_cache_->MultiGetFilter(
           read_options, *internal_comparator(), *f->file_metadata,
-          mutable_cf_options_.prefix_extractor,
+          mutable_cf_options_,
           cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
-          fp.GetHitFileLevel(), &file_range, &table_handle,
-          mutable_cf_options_.block_protection_bytes_per_key);
+          fp.GetHitFileLevel(), &file_range, &table_handle);
       if (status.ok()) {
         skip_filters = true;
         skip_range_deletions = true;
