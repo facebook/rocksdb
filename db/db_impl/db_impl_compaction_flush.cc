@@ -3561,6 +3561,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       is_manual && manual_compaction->disallow_trivial_move;
 
   CompactionJobStats compaction_job_stats;
+  // Set is_remote_compaction to true on CompactionBegin Event if
+  // compaction_service is set except for trivial moves. We do not know whether
+  // remote compaction will actually be successfully scheduled, or fall back to
+  // local at this time. CompactionCompleted event will tell the truth where
+  // the compaction actually happened.
+  compaction_job_stats.is_remote_compaction =
+      immutable_db_options().compaction_service != nullptr;
+
   Status status;
   if (!error_handler_.IsBGWorkStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
@@ -3786,6 +3794,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
 
     compaction_job_stats.num_input_files = c->num_input_files(0);
+    // Trivial moves do not get compacted remotely
+    compaction_job_stats.is_remote_compaction = false;
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
