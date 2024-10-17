@@ -513,6 +513,10 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
       tail_size = file_size - file->table_properties.tail_start_offset;
     }
 
+    bool marked_for_compaction =
+        file->table_properties.num_range_deletions == 1 &&
+        (file->table_properties.num_entries ==
+         file->table_properties.num_range_deletions);
     FileMetaData f_metadata(
         file->fd.GetNumber(), file->fd.GetPathId(), file->fd.GetFileSize(),
         file->smallest_internal_key, file->largest_internal_key,
@@ -525,6 +529,7 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
         file->file_checksum, file->file_checksum_func_name, file->unique_id, 0,
         tail_size, file->user_defined_timestamps_persisted);
     f_metadata.temperature = file->file_temperature;
+    f_metadata.marked_for_compaction = marked_for_compaction;
     edit_.AddFile(file->picked_level, f_metadata);
 
     *batch_uppermost_level =
@@ -575,8 +580,9 @@ void ExternalSstFileIngestionJob::CreateEquivalentFileIngestingCompactions() {
         mutable_cf_options.compression_opts,
         mutable_cf_options.default_write_temperature,
         0 /* max_subcompaction, not applicable */,
-        {} /* grandparents, not applicable */, false /* is manual */,
-        "" /* trim_ts */, -1 /* score, not applicable */,
+        {} /* grandparents, not applicable */,
+        std::nullopt /* earliest_snapshot */, nullptr /* snapshot_checker */,
+        false /* is manual */, "" /* trim_ts */, -1 /* score, not applicable */,
         false /* is deletion compaction, not applicable */,
         files_overlap_ /* l0_files_might_overlap, not applicable */,
         CompactionReason::kExternalSstIngestion));

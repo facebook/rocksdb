@@ -2012,6 +2012,8 @@ class NonBatchedOpsStressTest : public StressTest {
     if (s.ok()) {
       s = sst_file_writer.Open(sst_filename);
     }
+
+    bool test_standalone_range_deletion = thread->rand.OneInOpt(10);
     int64_t key_base = rand_keys[0];
     int column_family = rand_column_families[0];
     std::vector<std::unique_ptr<MutexLock>> range_locks;
@@ -2025,7 +2027,6 @@ class NonBatchedOpsStressTest : public StressTest {
     SharedState* shared = thread->shared;
 
     assert(FLAGS_nooverwritepercent < 100);
-    // Grab locks, set pending state on expected values, and add keys
     for (int64_t key = key_base;
          s.ok() && key < shared->GetMaxKey() &&
          static_cast<int32_t>(keys.size()) < FLAGS_ingest_external_file_width;
@@ -2035,31 +2036,77 @@ class NonBatchedOpsStressTest : public StressTest {
         range_locks.emplace_back(
             new MutexLock(shared->GetMutexForKey(column_family, key)));
       }
-      if (!shared->AllowsOverwrite(key)) {
-        // We could alternatively include `key` that is deleted.
-        continue;
+    }
+
+    if (test_standalone_range_deletion) {
+      for (int64_t key = key_base;
+           s.ok() && key < shared->GetMaxKey() &&
+           static_cast<int32_t>(keys.size()) < FLAGS_ingest_external_file_width;
+           ++key) {
+        if (shared->AllowsOverwrite(key)) {
+          if (keys.empty() || (!keys.empty() && keys.back() == key - 1)) {
+            keys.push_back(key);
+          } else {
+            keys.clear();
+            keys.push_back(key);
+          }
+        } else {
+          if (keys.size() > 0) {
+            break;
+          } else {
+            continue;
+          }
+        }
       }
-      keys.push_back(key);
+      if (!keys.empty()) {
+        int64_t start_key = keys.at(0);
+        int64_t end_key = keys.back() + 1;
+        pending_expected_values =
+            shared->PrepareDeleteRange(column_family, start_key, end_key);
+        auto start_key_str = Key(start_key);
+        const Slice start_key_slice(start_key_str);
+        auto end_key_str = Key(end_key);
+        const Slice end_key_slice(end_key_str);
+        s = sst_file_writer.DeleteRange(start_key_slice, end_key_slice);
+      }
+    } else {
+      // Grab locks, set pending state on expected values, and add keys
+      for (int64_t key = key_base;
+           s.ok() && key < shared->GetMaxKey() &&
+           static_cast<int32_t>(keys.size()) < FLAGS_ingest_external_file_width;
+           ++key) {
+        if (key == key_base ||
+            (key & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
+          range_locks.emplace_back(
+              new MutexLock(shared->GetMutexForKey(column_family, key)));
+        }
+        if (!shared->AllowsOverwrite(key)) {
+          // We could alternatively include `key` that is deleted.
+          continue;
+        }
+        keys.push_back(key);
 
-      PendingExpectedValue pending_expected_value =
-          shared->PreparePut(column_family, key);
+        PendingExpectedValue pending_expected_value =
+            shared->PreparePut(column_family, key);
 
-      const uint32_t value_base = pending_expected_value.GetFinalValueBase();
-      values.push_back(value_base);
-      pending_expected_values.push_back(pending_expected_value);
+        const uint32_t value_base = pending_expected_value.GetFinalValueBase();
+        values.push_back(value_base);
+        pending_expected_values.push_back(pending_expected_value);
 
-      char value[100];
-      auto key_str = Key(key);
-      const size_t value_len = GenerateValue(value_base, value, sizeof(value));
-      const Slice k(key_str);
-      const Slice v(value, value_len);
+        char value[100];
+        auto key_str = Key(key);
+        const size_t value_len =
+            GenerateValue(value_base, value, sizeof(value));
+        const Slice k(key_str);
+        const Slice v(value, value_len);
 
-      if (FLAGS_use_put_entity_one_in > 0 &&
-          (value_base % FLAGS_use_put_entity_one_in) == 0) {
-        WideColumns columns = GenerateWideColumns(value_base, v);
-        s = sst_file_writer.PutEntity(k, columns);
-      } else {
-        s = sst_file_writer.Put(k, v);
+        if (FLAGS_use_put_entity_one_in > 0 &&
+            (value_base % FLAGS_use_put_entity_one_in) == 0) {
+          WideColumns columns = GenerateWideColumns(value_base, v);
+          s = sst_file_writer.PutEntity(k, columns);
+        } else {
+          s = sst_file_writer.Put(k, v);
+        }
       }
     }
 
