@@ -147,8 +147,8 @@ class PrefetchTest
       cmp_iter->Next();
     }
 
-    ASSERT_OK(cmp_iter->status());
-    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!cmp_iter->Valid() && !iter->Valid());
+    ASSERT_TRUE(cmp_iter->status().ok() && iter->status().ok());
   }
 
   void VerifySeekPrevSeek(ReadOptions& iter_ro, ReadOptions& cmp_iter_ro,
@@ -181,8 +181,8 @@ class PrefetchTest
     ASSERT_OK(cmp_iter->status());
 
     iter->Prev();
-    ASSERT_OK(iter->status());
     ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
 
     ASSERT_EQ(iter->key(), cmp_iter->key());
 
@@ -192,8 +192,9 @@ class PrefetchTest
     ASSERT_OK(cmp_iter->status());
 
     iter->Seek(*seek_key);
-    ASSERT_OK(iter->status());
     ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+
     ASSERT_EQ(iter->key(), cmp_iter->key());
   }
 };
@@ -1619,8 +1620,8 @@ TEST_P(PrefetchTrimReadaheadTestParam, PrefixSameAsStart) {
 
   ASSERT_OK(db_->Flush(FlushOptions()));
 
-  // To verify readahead is trimmed based on prefix based on ratio between
-  // PREFETCH_BYTES_USEFUL and PREFETCH_BYTES
+  // To verify readahead is trimmed based on prefix by checking the counter
+  // READAHEAD_TRIMMED
   ReadOptions ro;
   ro.prefix_same_as_start = true;
   ro.auto_readahead_size = auto_readahead_size;
@@ -1636,21 +1637,13 @@ TEST_P(PrefetchTrimReadaheadTestParam, PrefixSameAsStart) {
     }
   }
 
-  auto prefetch_bytes = options.statistics->getTickerCount(PREFETCH_BYTES);
-  ASSERT_TRUE(prefetch_bytes > 0);
-  auto prefetch_bytes_useful =
-      options.statistics->getTickerCount(PREFETCH_BYTES_USEFUL);
-  ASSERT_TRUE(prefetch_bytes_useful > 0);
+  auto readahead_trimmed =
+      options.statistics->getTickerCount(READAHEAD_TRIMMED);
 
-  const double kRatioWithTrimming = 0.8;
-  const double kRatioWithoutTrimming = 0.5;
-  // Below ratio will high with readahead trimming and low without
   if (auto_readahead_size) {
-    ASSERT_TRUE(prefetch_bytes_useful * 1.0 / (prefetch_bytes * 1.0) >
-                kRatioWithTrimming);
+    ASSERT_GT(readahead_trimmed, 0);
   } else {
-    ASSERT_TRUE(prefetch_bytes_useful * 1.0 / (prefetch_bytes * 1.0) <
-                kRatioWithoutTrimming);
+    ASSERT_EQ(readahead_trimmed, 0);
   }
   Close();
 }
