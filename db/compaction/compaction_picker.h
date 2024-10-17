@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "db/compaction/compaction.h"
+#include "db/snapshot_checker.h"
 #include "db/version_set.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"
@@ -57,13 +58,14 @@ class CompactionPicker {
   // describes the compaction.  Caller should delete the result.
   // Currently, only universal compaction will query existing snapshots and
   // pass it to aid compaction picking. And it's only passed when user-defined
-  // timestamps is not enabled. The other compaction styles do not pass that
-  // info or use that info yet.
+  // timestamps is not enabled. The other compaction styles do not pass or use
+  // `existing_snapshots` or `snapshot_checker`.
   virtual Compaction* PickCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options,
       const std::vector<SequenceNumber>& existing_snapshots,
-      VersionStorageInfo* vstorage, LogBuffer* log_buffer) = 0;
+      const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
+      LogBuffer* log_buffer) = 0;
 
   // The returned Compaction might not include the whole requested range.
   // In that case, compaction_end will be set to the next key that needs
@@ -261,6 +263,7 @@ class NullCompactionPicker : public CompactionPicker {
       const MutableCFOptions& /*mutable_cf_options*/,
       const MutableDBOptions& /*mutable_db_options*/,
       const std::vector<SequenceNumber>& /*existing_snapshots*/,
+      const SnapshotChecker* /*snapshot_checker*/,
       VersionStorageInfo* /*vstorage*/, LogBuffer* /* log_buffer */) override {
     return nullptr;
   }

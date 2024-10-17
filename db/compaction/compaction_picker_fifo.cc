@@ -119,6 +119,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       mutable_cf_options.compression_opts,
       mutable_cf_options.default_write_temperature,
       /* max_subcompactions */ 0, {}, /* earliest_snapshot */ std::nullopt,
+      /* snapshot_checker */ nullptr,
       /* is manual */ false,
       /* trim_ts */ "", vstorage->CompactionScore(0),
       /* is deletion compaction */ true, /* l0_files_might_overlap */ true,
@@ -190,7 +191,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
             mutable_cf_options.compression_opts,
             mutable_cf_options.default_write_temperature,
             0 /* max_subcompactions */, {},
-            /* earliest_snapshot */ std::nullopt, /* is manual */ false,
+            /* earliest_snapshot */ std::nullopt,
+            /* snapshot_checker */ nullptr, /* is manual */ false,
             /* trim_ts */ "", vstorage->CompactionScore(0),
             /* is deletion compaction */ false,
             /* l0_files_might_overlap */ true,
@@ -287,6 +289,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       mutable_cf_options.compression_opts,
       mutable_cf_options.default_write_temperature,
       /* max_subcompactions */ 0, {}, /* earliest_snapshot */ std::nullopt,
+      /* snapshot_checker */ nullptr,
       /* is manual */ false,
       /* trim_ts */ "", vstorage->CompactionScore(0),
       /* is deletion compaction */ true,
@@ -414,6 +417,7 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
       mutable_cf_options.compression, mutable_cf_options.compression_opts,
       compaction_target_temp,
       /* max_subcompactions */ 0, {}, /* earliest_snapshot */ std::nullopt,
+      /* snapshot_checker */ nullptr,
       /* is manual */ false, /* trim_ts */ "", vstorage->CompactionScore(0),
       /* is deletion compaction */ false, /* l0_files_might_overlap */ true,
       CompactionReason::kChangeTemperature);
@@ -424,7 +428,8 @@ Compaction* FIFOCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& /* existing_snapshots */,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+    const SnapshotChecker* /* snapshot_checker */, VersionStorageInfo* vstorage,
+    LogBuffer* log_buffer) {
   Compaction* c = nullptr;
   if (mutable_cf_options.ttl > 0) {
     c = PickTTLCompaction(cf_name, mutable_cf_options, mutable_db_options,
@@ -460,7 +465,8 @@ Compaction* FIFOCompactionPicker::CompactRange(
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, ioptions_.logger);
   Compaction* c =
       PickCompaction(cf_name, mutable_cf_options, mutable_db_options,
-                     /*existing_snapshots*/ {}, vstorage, &log_buffer);
+                     /*existing_snapshots*/ {}, /*snapshot_checker*/ nullptr,
+                     vstorage, &log_buffer);
   log_buffer.FlushBufferToLog();
   return c;
 }

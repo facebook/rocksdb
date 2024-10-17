@@ -283,7 +283,8 @@ Compaction::Compaction(
     uint32_t _output_path_id, CompressionType _compression,
     CompressionOptions _compression_opts, Temperature _output_temperature,
     uint32_t _max_subcompactions, std::vector<FileMetaData*> _grandparents,
-    std::optional<SequenceNumber> _earliest_snapshot, bool _manual_compaction,
+    std::optional<SequenceNumber> _earliest_snapshot,
+    const SnapshotChecker* _snapshot_checker, bool _manual_compaction,
     const std::string& _trim_ts, double _score, bool _deletion_compaction,
     bool l0_files_might_overlap, CompactionReason _compaction_reason,
     BlobGarbageCollectionPolicy _blob_garbage_collection_policy,
@@ -308,6 +309,7 @@ Compaction::Compaction(
       inputs_(PopulateWithAtomicBoundaries(vstorage, std::move(_inputs))),
       grandparents_(std::move(_grandparents)),
       earliest_snapshot_(_earliest_snapshot),
+      snapshot_checker_(_snapshot_checker),
       score_(_score),
       bottommost_level_(
           // For simplicity, we don't support the concept of "bottommost level"
@@ -1016,7 +1018,14 @@ void Compaction::FilterInputsForCompactionIterator() {
     if (!fmeta->FileIsStandAloneRangeTombstone()) {
       continue;
     }
-    if (earliest_snapshot_.value() < fmeta->fd.smallest_seqno) {
+    bool range_del_in_snapshot =
+        ((fmeta->fd.smallest_seqno) <= (earliest_snapshot_.value()) &&
+         (snapshot_checker_ == nullptr ||
+          LIKELY(
+              snapshot_checker_->CheckInSnapshot(
+                  (fmeta->fd.smallest_seqno), (earliest_snapshot_.value())) ==
+              SnapshotCheckerResult::kInSnapshot)));
+    if (!range_del_in_snapshot) {
       continue;
     }
     standalone_range_tombstones_for_filtering.emplace_back(

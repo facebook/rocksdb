@@ -7137,8 +7137,7 @@ InternalIterator* VersionSet::MakeInputIterator(
             nullptr;
         list[num++] = new LevelIterator(
             cfd->table_cache(), read_options, file_options_compactions,
-            cfd->internal_comparator(), flevel,
-            *c->mutable_cf_options(),
+            cfd->internal_comparator(), flevel, *c->mutable_cf_options(),
             /*should_sample=*/false,
             /*no per level latency histogram=*/nullptr,
             TableReaderCaller::kCompaction, /*skip_filters=*/false,

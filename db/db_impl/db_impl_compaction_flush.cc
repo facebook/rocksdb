@@ -1863,8 +1863,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
         mutable_cf_options.default_write_temperature,
         0 /* max_subcompactions, not applicable */,
         {} /* grandparents, not applicable */,
-        std::nullopt /* earliest_snapshot */, false /* is manual */,
-        "" /* trim_ts */, -1 /* score, not applicable */,
+        std::nullopt /* earliest_snapshot */, nullptr /* snapshot_checker */,
+        false /* is manual */, "" /* trim_ts */, -1 /* score, not applicable */,
         false /* is deletion compaction, not applicable */,
         false /* l0_files_might_overlap, not applicable */,
         CompactionReason::kRefitLevel));
@@ -3690,20 +3690,20 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       // compaction is not necessary. Need to make sure mutex is held
       // until we make a copy in the following code
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():BeforePickCompaction");
+      SnapshotChecker* snapshot_checker;
       std::vector<SequenceNumber> snapshot_seqs;
       // This info is not useful for other scenarios, so save querying existing
       // snapshots for those cases.
       if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
           cfd->user_comparator()->timestamp_size() == 0) {
         SequenceNumber earliest_write_conflict_snapshot;
-        SnapshotChecker* snapshot_checker;
         GetSnapshotContext(job_context, &snapshot_seqs,
                            &earliest_write_conflict_snapshot,
                            &snapshot_checker);
         assert(is_snapshot_supported_ || snapshots_.empty());
       }
       c.reset(cfd->PickCompaction(*mutable_cf_options, mutable_db_options_,
-                                  snapshot_seqs, log_buffer));
+                                  snapshot_seqs, snapshot_checker, log_buffer));
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
 
       if (c != nullptr) {

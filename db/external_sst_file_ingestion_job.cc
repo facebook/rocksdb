@@ -581,8 +581,8 @@ void ExternalSstFileIngestionJob::CreateEquivalentFileIngestingCompactions() {
         mutable_cf_options.default_write_temperature,
         0 /* max_subcompaction, not applicable */,
         {} /* grandparents, not applicable */,
-        std::nullopt /* earliest_snapshot */, false /* is manual */,
-        "" /* trim_ts */, -1 /* score, not applicable */,
+        std::nullopt /* earliest_snapshot */, nullptr /* snapshot_checker */,
+        false /* is manual */, "" /* trim_ts */, -1 /* score, not applicable */,
         false /* is deletion compaction, not applicable */,
         files_overlap_ /* l0_files_might_overlap, not applicable */,
         CompactionReason::kExternalSstIngestion));

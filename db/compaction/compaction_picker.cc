@@ -380,7 +380,8 @@ Compaction* CompactionPicker::CompactFiles(
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       mutable_cf_options.default_write_temperature,
       compact_options.max_subcompactions,
-      /* grandparents */ {}, /* earliest_snapshot */ std::nullopt, true);
+      /* grandparents */ {}, /* earliest_snapshot */ std::nullopt,
+      /* snapshot_checker */ nullptr, true);
   RegisterCompaction(c);
   return c;
 }
@@ -678,6 +679,7 @@ Compaction* CompactionPicker::CompactRange(
         mutable_cf_options.default_write_temperature,
         compact_range_options.max_subcompactions,
         /* grandparents */ {}, /* earliest_snapshot */ std::nullopt,
+        /* snapshot_checker */ nullptr,
         /* is manual */ true, trim_ts, /* score */ -1,
         /* deletion_compaction */ false, /* l0_files_might_overlap */ true,
         CompactionReason::kUnknown,
@@ -867,7 +869,7 @@ Compaction* CompactionPicker::CompactRange(
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       mutable_cf_options.default_write_temperature,
       compact_range_options.max_subcompactions, std::move(grandparents),
-      /* earliest_snapshot */ std::nullopt,
+      /* earliest_snapshot */ std::nullopt, /* snapshot_checker */ nullptr,
       /* is manual */ true, trim_ts, /* score */ -1,
       /* deletion_compaction */ false, /* l0_files_might_overlap */ true,
       CompactionReason::kUnknown,

@@ -10,6 +10,7 @@
 #pragma once
 #include <set>
 
+#include "db/snapshot_checker.h"
 #include "db/version_set.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
@@ -93,6 +94,7 @@ class Compaction {
              Temperature output_temperature, uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
              std::optional<SequenceNumber> earliest_snapshot,
+             const SnapshotChecker* snapshot_checker,
              bool manual_compaction = false, const std::string& trim_ts = "",
              double score = -1, bool deletion_compaction = false,
              bool l0_files_might_overlap = true,
@@ -545,10 +547,11 @@ class Compaction {
   // (grandparent == "output_level_ + 1")
   std::vector<FileMetaData*> grandparents_;
 
-  // The earliest snapshot at compaction picking time. Currently, this field is
-  // only set for compactions picked in universal compaction. And when
-  // user-defined timestamp is not enabled.
+  // The earliest snapshot and snapshot checker at compaction picking time.
+  // Currently, these fields are only set for compactions picked in universal
+  // compaction. And when user-defined timestamp is not enabled.
   std::optional<SequenceNumber> earliest_snapshot_;
+  const SnapshotChecker* snapshot_checker_;
   autovector<LevelFilesBrief, 1> filtered_non_start_input_level_;
   std::set<uint64_t> filtered_input_files_;
   //  bool standalone_range_tombstones_used_for_filtering_inputs_;

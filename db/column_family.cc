@@ -1178,10 +1178,10 @@ Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options,
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& existing_snapshots,
-    LogBuffer* log_buffer) {
+    const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer) {
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, existing_snapshots,
-      current_->storage_info(), log_buffer);
+      snapshot_checker, current_->storage_info(), log_buffer);
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }
