@@ -332,10 +332,19 @@ Iterator* WriteBatchWithIndex::NewIteratorWithBase(
                                GetColumnFamilyUserComparator(column_family));
 }
 
-Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
+Iterator* WriteBatchWithIndex::NewIteratorWithBase(
+    Iterator* base_iterator, const ReadOptions* read_options) {
+  WBWIIteratorImpl* wbwiii;
   // default column family's comparator
-  auto wbwiii = new WBWIIteratorImpl(0, &(rep->skip_list), &rep->write_batch,
-                                     &rep->comparator);
+  if (read_options != nullptr) {
+    wbwiii = new WBWIIteratorImpl(
+        0, &(rep->skip_list), &rep->write_batch, &rep->comparator,
+        read_options->iterate_lower_bound, read_options->iterate_upper_bound);
+  } else {
+    wbwiii = new WBWIIteratorImpl(0, &(rep->skip_list), &rep->write_batch,
+                                  &rep->comparator);
+  }
+
   return new BaseDeltaIterator(nullptr, base_iterator, wbwiii,
                                rep->comparator.default_comparator());
 }
