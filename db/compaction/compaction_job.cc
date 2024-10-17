@@ -806,6 +806,12 @@ Status CompactionJob::Run() {
     }
   }
 
+  // Before the compaction starts, is_remote_compaction was set to true if
+  // compaction_service is set. We now know whether each sub_compaction was
+  // done remotely or not. Reset is_remote_compaction back to false and allow
+  // AggregateCompactionStats() to set the right value.
+  compaction_job_stats_->is_remote_compaction = false;
+
   // Finish up all bookkeeping to unify the subcompaction results.
   compact_->AggregateCompactionStats(compaction_stats_, *compaction_job_stats_);
   uint64_t num_input_range_del = 0;
@@ -1084,6 +1090,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
     // fallback to local compaction
     assert(comp_status == CompactionServiceJobStatus::kUseLocal);
+    sub_compact->compaction_job_stats.is_remote_compaction = false;
   }
 
   uint64_t prev_cpu_micros = db_options_.clock->CPUMicros();
