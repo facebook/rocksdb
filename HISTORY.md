@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.7.3 (10/16/2024)
+### Behavior Changes
+* OPTIONS file to be loaded by remote worker is now preserved so that it does not get purged by the primary host. A similar technique as how we are preserving new SST files from getting purged is used for this. min_options_file_numbers_ is tracked like pending_outputs_ is tracked.
+
 ## 9.7.2 (10/08/2024)
 ### Bug Fixes
 * Fix a bug for surfacing write unix time: `Iterator::GetProperty("rocksdb.iterator.write-time")` for non-L0 files.
