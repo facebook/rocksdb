@@ -1912,10 +1912,25 @@ struct ReadOptions {
   std::function<bool(const TableProperties&)> table_filter;
 
   // If auto_readahead_size is set to true, it will auto tune the readahead_size
-  // during scans internally.
-  // For this feature to enabled, iterate_upper_bound must also be specified.
+  // during scans internally based on block cache data when block cache is
+  // enabled, iteration upper bound when `iterate_upper_bound != nullptr` and
+  // prefix when `prefix_same_as_start == true`
   //
-  // NOTE: - Recommended for forward Scans only.
+  // Besides enabling block cache, it
+  // also requires `iterate_upper_bound != nullptr` or  `prefix_same_as_start ==
+  // true` for this option to take effect
+  //
+  // To be specific, it does the following:
+  // (1) When `iterate_upper_bound`
+  // is specified, trim the readahead so the readahead does not exceed iteration
+  // upper bound
+  // (2) When `prefix_same_as_start` is set to true, trim the
+  // readahead so data blocks containing keys that are not in the same prefix as
+  // the seek key in `Seek()` are not prefetched
+  //  - Limition: `Seek(key)` instead of `SeekToFirst()` needs to be called in
+  //  order for this trimming to take effect
+  //
+  // NOTE: - Used for forward Scans only.
   //       - If there is a backward scans, this option will be
   //          disabled internally and won't be enabled again if the forward scan
   //          is issued again.
