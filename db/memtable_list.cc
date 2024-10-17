@@ -92,14 +92,12 @@ void MemTableListVersion::Unref(autovector<ReadOnlyMemTable*>* to_delete) {
 }
 
 int MemTableList::NumNotFlushed() const {
-  int size = static_cast<int>(current_->memlist_.size());
+  int size = current_->NumNotFlushed();
   assert(num_flush_not_started_ <= size);
   return size;
 }
 
-int MemTableList::NumFlushed() const {
-  return static_cast<int>(current_->memlist_history_.size());
-}
+int MemTableList::NumFlushed() const { return current_->NumFlushed(); }
 
 // Search all the memtables starting from the most recent one.
 // Return the most recent value found, if any.

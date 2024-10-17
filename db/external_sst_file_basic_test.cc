@@ -1818,6 +1818,9 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
   }
 
   IngestExternalFileOptions ifo;
+  ifo.allow_global_seqno = false;
+  ASSERT_NOK(db_->IngestExternalFile(files, ifo));
+  ifo.allow_global_seqno = true;
   ASSERT_OK(db_->IngestExternalFile(files, ifo));
   ASSERT_EQ(Get("a"), "a1");
   ASSERT_EQ(Get("i"), "i2");
