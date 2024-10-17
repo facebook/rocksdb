@@ -54,12 +54,12 @@ class VersionBuilder {
   Status SaveTo(VersionStorageInfo* vstorage) const;
 
   // Load all the table handlers for the current Version in the builder.
-  Status LoadTableHandlers(
-      InternalStats* internal_stats, int max_threads,
-      bool prefetch_index_and_filter_in_cache, bool is_initial_load,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
-      uint8_t block_protection_bytes_per_key);
+  Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
+                           bool prefetch_index_and_filter_in_cache,
+                           bool is_initial_load,
+                           const MutableCFOptions& mutable_cf_options,
+                           size_t max_file_size_for_l0_meta_pin,
+                           const ReadOptions& read_options);
 
   //============APIs only used by VersionEditHandlerPointInTime ============//
 
@@ -99,12 +99,13 @@ class VersionBuilder {
 
   // Load all the table handlers for the Version in the save point.
   // Non-OK status will be returned if there is not a valid save point.
-  Status LoadSavePointTableHandlers(
-      InternalStats* internal_stats, int max_threads,
-      bool prefetch_index_and_filter_in_cache, bool is_initial_load,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
-      uint8_t block_protection_bytes_per_key);
+  Status LoadSavePointTableHandlers(InternalStats* internal_stats,
+                                    int max_threads,
+                                    bool prefetch_index_and_filter_in_cache,
+                                    bool is_initial_load,
+                                    const MutableCFOptions& mutable_cf_options,
+                                    size_t max_file_size_for_l0_meta_pin,
+                                    const ReadOptions& read_options);
 
   void ClearSavePoint();
 

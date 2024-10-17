@@ -865,7 +865,7 @@ bool Compaction::ShouldFormSubcompactions() const {
     return false;
   }
 
-  if (cfd_->ioptions()->table_factory->Name() ==
+  if (mutable_cf_options_.table_factory->Name() ==
       TableFactory::kPlainTableName()) {
     return false;
   }

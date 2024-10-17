@@ -250,6 +250,7 @@ class CompactionJobTestBase : public testing::Test {
     } else {
       assert(false);
     }
+    mutable_cf_options_.table_factory = cf_options_.table_factory;
   }
 
   std::string GenerateFileName(uint64_t file_number) {

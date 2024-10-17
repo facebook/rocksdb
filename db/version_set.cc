@@ -964,15 +964,15 @@ namespace {
 
 class LevelIterator final : public InternalIterator {
  public:
-  // @param read_options Must outlive this iterator.
+  // NOTE: many of the const& parameters are saved in this object (so
+  // must outlive this object)
   LevelIterator(
       TableCache* table_cache, const ReadOptions& read_options,
       const FileOptions& file_options, const InternalKeyComparator& icomparator,
-      const LevelFilesBrief* flevel,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor,
+      const LevelFilesBrief* flevel, const MutableCFOptions& mutable_cf_options,
       bool should_sample, HistogramImpl* file_read_hist,
       TableReaderCaller caller, bool skip_filters, int level,
-      uint8_t block_protection_bytes_per_key, RangeDelAggregator* range_del_agg,
+      RangeDelAggregator* range_del_agg,
       const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries =
           nullptr,
       bool allow_unprepared_value = false,
@@ -984,7 +984,8 @@ class LevelIterator final : public InternalIterator {
         icomparator_(icomparator),
         user_comparator_(icomparator.user_comparator()),
         flevel_(flevel),
-        prefix_extractor_(prefix_extractor),
+        mutable_cf_options_(mutable_cf_options),
+        prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
         file_read_hist_(file_read_hist),
         caller_(caller),
         file_index_(flevel_->num_files),
@@ -996,7 +997,6 @@ class LevelIterator final : public InternalIterator {
                       ? read_options.snapshot->GetSequenceNumber()
                       : kMaxSequenceNumber),
         level_(level),
-        block_protection_bytes_per_key_(block_protection_bytes_per_key),
         should_sample_(should_sample),
         skip_filters_(skip_filters),
         allow_unprepared_value_(allow_unprepared_value),
@@ -1147,12 +1147,12 @@ class LevelIterator final : public InternalIterator {
     ClearRangeTombstoneIter();
     return table_cache_->NewIterator(
         read_options_, file_options_, icomparator_, *file_meta.file_metadata,
-        range_del_agg_, prefix_extractor_,
+        range_del_agg_, mutable_cf_options_,
         nullptr /* don't need reference to table */, file_read_hist_, caller_,
         /*arena=*/nullptr, skip_filters_, level_,
         /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
-        largest_compaction_key, allow_unprepared_value_,
-        block_protection_bytes_per_key_, &read_seq_, range_tombstone_iter_);
+        largest_compaction_key, allow_unprepared_value_, &read_seq_,
+        range_tombstone_iter_);
   }
 
   // Check if current file being fully within iterate_lower_bound.
@@ -1176,10 +1176,8 @@ class LevelIterator final : public InternalIterator {
   const UserComparatorWrapper user_comparator_;
   const LevelFilesBrief* flevel_;
   mutable FileDescriptor current_value_;
-  // `prefix_extractor_` may be non-null even for total order seek. Checking
-  // this variable is not the right way to identify whether prefix iterator
-  // is used.
-  const std::shared_ptr<const SliceTransform>& prefix_extractor_;
+  const MutableCFOptions& mutable_cf_options_;
+  const SliceTransform* prefix_extractor_;
 
   HistogramImpl* file_read_hist_;
   TableReaderCaller caller_;
@@ -1213,7 +1211,6 @@ class LevelIterator final : public InternalIterator {
   SequenceNumber read_seq_;
 
   int level_;
-  uint8_t block_protection_bytes_per_key_;
   bool should_sample_;
   bool skip_filters_;
   bool allow_unprepared_value_;
@@ -1580,8 +1577,7 @@ Status Version::GetTableProperties(const ReadOptions& read_options,
   auto ioptions = cfd_->ioptions();
   Status s = table_cache->GetTableProperties(
       file_options_, read_options, cfd_->internal_comparator(), *file_meta, tp,
-      mutable_cf_options_.block_protection_bytes_per_key,
-      mutable_cf_options_.prefix_extractor, true /* no io */);
+      mutable_cf_options_, true /* no io */);
   if (s.ok()) {
     return s;
   }
@@ -1667,8 +1663,7 @@ Status Version::TablesRangeTombstoneSummary(int max_entries_to_print,
 
       Status s = table_cache->GetRangeTombstoneIterator(
           read_options, cfd_->internal_comparator(), *file_meta,
-          cfd_->GetLatestMutableCFOptions()->block_protection_bytes_per_key,
-          &tombstone_iter);
+          mutable_cf_options_, &tombstone_iter);
       if (!s.ok()) {
         return s;
       }
@@ -1785,9 +1780,7 @@ size_t Version::GetMemoryUsageByTableReaders(const ReadOptions& read_options) {
     for (size_t i = 0; i < file_level.num_files; i++) {
       total_usage += cfd_->table_cache()->GetMemoryUsageByTableReader(
           file_options_, read_options, cfd_->internal_comparator(),
-          *file_level.files[i].file_metadata,
-          mutable_cf_options_.block_protection_bytes_per_key,
-          mutable_cf_options_.prefix_extractor);
+          *file_level.files[i].file_metadata, mutable_cf_options_);
     }
   }
   return total_usage;
@@ -1936,10 +1929,9 @@ InternalIterator* Version::TEST_GetLevelIterator(
   auto level_iter = new (mem) LevelIterator(
       cfd_->table_cache(), read_options, file_options_,
       cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
-      mutable_cf_options_.prefix_extractor, should_sample_file_read(),
+      mutable_cf_options_, should_sample_file_read(),
       cfd_->internal_stats()->GetFileReadHist(level),
       TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-      mutable_cf_options_.block_protection_bytes_per_key,
       nullptr /* range_del_agg */, nullptr /* compaction_boundaries */,
       allow_unprepared_value, &tombstone_iter_ptr);
   if (read_options.ignore_range_deletions) {
@@ -2044,14 +2036,12 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
       const auto& file = storage_info_.LevelFilesBrief(0).files[i];
       auto table_iter = cfd_->table_cache()->NewIterator(
           read_options, soptions, cfd_->internal_comparator(),
-          *file.file_metadata, /*range_del_agg=*/nullptr,
-          mutable_cf_options_.prefix_extractor, nullptr,
-          cfd_->internal_stats()->GetFileReadHist(0),
+          *file.file_metadata, /*range_del_agg=*/nullptr, mutable_cf_options_,
+          nullptr, cfd_->internal_stats()->GetFileReadHist(0),
           TableReaderCaller::kUserIterator, arena,
           /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr, allow_unprepared_value,
-          mutable_cf_options_.block_protection_bytes_per_key,
           /*range_del_read_seqno=*/nullptr, &tombstone_iter);
       if (read_options.ignore_range_deletions) {
         merge_iter_builder->AddIterator(table_iter);
@@ -2078,10 +2068,9 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     auto level_iter = new (mem) LevelIterator(
         cfd_->table_cache(), read_options, soptions,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
-        mutable_cf_options_.prefix_extractor, should_sample_file_read(),
+        mutable_cf_options_, should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        mutable_cf_options_.block_protection_bytes_per_key,
         /*range_del_agg=*/nullptr,
         /*compaction_boundaries=*/nullptr, allow_unprepared_value,
         &tombstone_iter_ptr);
@@ -2120,15 +2109,13 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
       }
       ScopedArenaPtr<InternalIterator> iter(cfd_->table_cache()->NewIterator(
           read_options, file_options, cfd_->internal_comparator(),
-          *file->file_metadata, &range_del_agg,
-          mutable_cf_options_.prefix_extractor, nullptr,
+          *file->file_metadata, &range_del_agg, mutable_cf_options_, nullptr,
           cfd_->internal_stats()->GetFileReadHist(0),
           TableReaderCaller::kUserIterator, &arena,
           /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,
-          /*allow_unprepared_value=*/false,
-          mutable_cf_options_.block_protection_bytes_per_key));
+          /*allow_unprepared_value=*/false));
       status = OverlapWithIterator(ucmp, smallest_user_key, largest_user_key,
                                    iter.get(), overlap);
       if (!status.ok() || *overlap) {
@@ -2140,11 +2127,10 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
     ScopedArenaPtr<InternalIterator> iter(new (mem) LevelIterator(
         cfd_->table_cache(), read_options, file_options,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
-        mutable_cf_options_.prefix_extractor, should_sample_file_read(),
+        mutable_cf_options_, should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        mutable_cf_options_.block_protection_bytes_per_key, &range_del_agg,
-        nullptr, false));
+        &range_del_agg, nullptr, false));
     status = OverlapWithIterator(ucmp, smallest_user_key, largest_user_key,
                                  iter.get(), overlap);
   }
@@ -2457,8 +2443,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     StopWatchNano timer(clock_, timer_enabled /* auto_start */);
     *status = table_cache_->Get(
         read_options, *internal_comparator(), *f->file_metadata, ikey,
-        &get_context, mutable_cf_options_.block_protection_bytes_per_key,
-        mutable_cf_options_.prefix_extractor,
+        &get_context, mutable_cf_options_,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
         IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                         fp.IsHitFileLastInLevel()),
@@ -2693,10 +2678,9 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           if (!skip_filters) {
             Status status = table_cache_->MultiGetFilter(
                 read_options, *internal_comparator(), *f->file_metadata,
-                mutable_cf_options_.prefix_extractor,
+                mutable_cf_options_,
                 cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
-                fp.GetHitFileLevel(), &file_range, &table_handle,
-                mutable_cf_options_.block_protection_bytes_per_key);
+                fp.GetHitFileLevel(), &file_range, &table_handle);
             skip_range_deletions = true;
             if (status.ok()) {
               skip_filters = true;
@@ -2880,10 +2864,9 @@ Status Version::ProcessBatch(
     if (!skip_filters) {
       Status status = table_cache_->MultiGetFilter(
           read_options, *internal_comparator(), *f->file_metadata,
-          mutable_cf_options_.prefix_extractor,
+          mutable_cf_options_,
           cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
-          fp.GetHitFileLevel(), &file_range, &table_handle,
-          mutable_cf_options_.block_protection_bytes_per_key);
+          fp.GetHitFileLevel(), &file_range, &table_handle);
       if (status.ok()) {
         skip_filters = true;
         skip_range_deletions = true;
@@ -5545,10 +5528,8 @@ Status VersionSet::ProcessManifestWrites(
         s = builder_guards[i]->version_builder()->LoadTableHandlers(
             cfd->internal_stats(), 1 /* max_threads */,
             true /* prefetch_index_and_filter_in_cache */,
-            false /* is_initial_load */,
-            mutable_cf_options_ptrs[i]->prefix_extractor,
-            MaxFileSizeForL0MetaPin(*mutable_cf_options_ptrs[i]), read_options,
-            mutable_cf_options_ptrs[i]->block_protection_bytes_per_key);
+            false /* is_initial_load */, *mutable_cf_options_ptrs[i],
+            MaxFileSizeForL0MetaPin(*mutable_cf_options_ptrs[i]), read_options);
         if (!s.ok()) {
           if (db_options_->paranoid_checks) {
             break;
@@ -6935,8 +6916,7 @@ uint64_t VersionSet::ApproximateOffsetOf(const ReadOptions& read_options,
     const MutableCFOptions& cf_opts = v->GetMutableCFOptions();
     if (table_cache != nullptr) {
       result = table_cache->ApproximateOffsetOf(
-          read_options, key, *f.file_metadata, caller, icmp,
-          cf_opts.block_protection_bytes_per_key, cf_opts.prefix_extractor);
+          read_options, key, *f.file_metadata, caller, icmp, cf_opts);
     }
   }
   return result;
@@ -6977,9 +6957,8 @@ uint64_t VersionSet::ApproximateSize(const ReadOptions& read_options,
     return 0;
   }
   const MutableCFOptions& cf_opts = v->GetMutableCFOptions();
-  return table_cache->ApproximateSize(
-      read_options, start, end, *f.file_metadata, caller, icmp,
-      cf_opts.block_protection_bytes_per_key, cf_opts.prefix_extractor);
+  return table_cache->ApproximateSize(read_options, start, end,
+                                      *f.file_metadata, caller, icmp, cf_opts);
 }
 
 void VersionSet::RemoveLiveFiles(
@@ -7129,7 +7108,7 @@ InternalIterator* VersionSet::MakeInputIterator(
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, file_options_compactions,
               cfd->internal_comparator(), fmd, range_del_agg,
-              c->mutable_cf_options()->prefix_extractor,
+              *c->mutable_cf_options(),
               /*table_reader_ptr=*/nullptr,
               /*file_read_hist=*/nullptr, TableReaderCaller::kCompaction,
               /*arena=*/nullptr,
@@ -7139,7 +7118,6 @@ InternalIterator* VersionSet::MakeInputIterator(
               /*smallest_compaction_key=*/nullptr,
               /*largest_compaction_key=*/nullptr,
               /*allow_unprepared_value=*/false,
-              c->mutable_cf_options()->block_protection_bytes_per_key,
               /*range_del_read_seqno=*/nullptr,
               /*range_del_iter=*/&range_tombstone_iter);
           range_tombstones.emplace_back(std::move(range_tombstone_iter),
@@ -7152,13 +7130,12 @@ InternalIterator* VersionSet::MakeInputIterator(
         list[num++] = new LevelIterator(
             cfd->table_cache(), read_options, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),
-            c->mutable_cf_options()->prefix_extractor,
+            *c->mutable_cf_options(),
             /*should_sample=*/false,
             /*no per level latency histogram=*/nullptr,
             TableReaderCaller::kCompaction, /*skip_filters=*/false,
-            /*level=*/static_cast<int>(c->level(which)),
-            c->mutable_cf_options()->block_protection_bytes_per_key,
-            range_del_agg, c->boundaries(which), false, &tombstone_iter_ptr);
+            /*level=*/static_cast<int>(c->level(which)), range_del_agg,
+            c->boundaries(which), false, &tombstone_iter_ptr);
         range_tombstones.emplace_back(nullptr, tombstone_iter_ptr);
       }
     }
@@ -7403,7 +7380,6 @@ Status VersionSet::VerifyFileMetadata(const ReadOptions& read_options,
 
     const MutableCFOptions* const cf_opts = cfd->GetLatestMutableCFOptions();
     assert(cf_opts);
-    std::shared_ptr<const SliceTransform> pe = cf_opts->prefix_extractor;
     size_t max_sz_for_l0_meta_pin = MaxFileSizeForL0MetaPin(*cf_opts);
 
     const FileOptions& file_opts = file_options();
@@ -7419,8 +7395,7 @@ Status VersionSet::VerifyFileMetadata(const ReadOptions& read_options,
     TableCache::TypedHandle* handle = nullptr;
     FileMetaData meta_copy = meta;
     status = table_cache->FindTable(
-        read_options, file_opts, *icmp, meta_copy, &handle,
-        cf_opts->block_protection_bytes_per_key, pe,
+        read_options, file_opts, *icmp, meta_copy, &handle, *cf_opts,
         /*no_io=*/false, internal_stats->GetFileReadHist(level), false, level,
         /*prefetch_index_and_filter_in_cache*/ false, max_sz_for_l0_meta_pin,
         meta_copy.temperature);

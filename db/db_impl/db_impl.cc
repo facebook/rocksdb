@@ -1153,6 +1153,13 @@ void DBImpl::DumpStats() {
         continue;
       }
 
+      auto* table_factory =
+          cfd->GetCurrentMutableCFOptions()->table_factory.get();
+      assert(table_factory != nullptr);
+      // FIXME: need to a shared_ptr if/when block_cache is going to be mutable
+      Cache* cache =
+          table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
+
       // Release DB mutex for gathering cache entry stats. Pass over all
       // column families for this first so that other stats are dumped
       // near-atomically.
@@ -1161,10 +1168,6 @@ void DBImpl::DumpStats() {
 
       // Probe block cache for problems (if not already via another CF)
       if (immutable_db_options_.info_log) {
-        auto* table_factory = cfd->ioptions()->table_factory.get();
-        assert(table_factory != nullptr);
-        Cache* cache =
-            table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
         if (cache && probed_caches.insert(cache).second) {
           cache->ReportProblems(immutable_db_options_.info_log);
         }
