@@ -75,20 +75,22 @@ class IteratorBase : public Cleanable {
   }
 
   // When ReadOptions::allow_unprepared_value is set, the iterator may defer
-  // loading the value when moving to a different entry (i.e. during
-  // SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev operations). This can be
-  // used to save on I/O when the values associated with certain keys may not be
-  // used by the application. When allow_unprepared_value is true, the
-  // application is expected to call this method before accessing the value to
-  // ensure it is loaded (for all entries whose values are actually needed).
-  // Note: it is safe to call this method for entries whose values are already
-  // loaded.
+  // loading and/or preparing the value when moving to a different entry (i.e.
+  // during SeekToFirst/SeekToLast/Seek/SeekForPrev/Next/Prev operations). This
+  // can be used to save on I/O and/or CPU when the values associated with
+  // certain keys may not be used by the application. When
+  // allow_unprepared_value is true, the application is expected to call this
+  // method before accessing the value to ensure it is prepared (for all entries
+  // whose values are actually needed). Note: it is safe to call this method for
+  // entries whose values are already prepared.
   //
   // Returns true on success. Returns false and sets Valid() to false and
-  // status() to non-OK if there is an error while loading the value.
+  // status() to non-OK if there is an error while loading or preparing the
+  // value.
   //
-  // Note: this method is currently only applicable to large values stored in
-  // blob files using BlobDB, and has no effect otherwise.
+  // Note: this option currently only applies to 1) large values stored in blob
+  // files using BlobDB and 2) multi-column-family iterators (CoalescingIterator
+  // and AttributeGroupIterator). Otherwise, it has no effect.
   //
   // REQUIRES: Valid()
   virtual bool PrepareValue() { return true; }
