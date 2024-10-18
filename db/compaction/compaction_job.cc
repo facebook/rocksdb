@@ -1965,8 +1965,9 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       sub_compact->compaction->output_compression_opts(), cfd->GetID(),
       cfd->GetName(), sub_compact->compaction->output_level(),
       bottommost_level_, TableFileCreationReason::kCompaction,
-      0 /* oldest_key_time */, current_time, db_id_, db_session_id_,
-      sub_compact->compaction->max_output_file_size(), file_number,
+      0 /* oldest_key_time */, 0 /* newest_key_time */, current_time, db_id_,
+      db_session_id_, sub_compact->compaction->max_output_file_size(),
+      file_number,
       preclude_last_level_min_seqno_ == kMaxSequenceNumber
           ? preclude_last_level_min_seqno_
           : std::min(earliest_snapshot_, preclude_last_level_min_seqno_));

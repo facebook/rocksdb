@@ -1737,8 +1737,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           mutable_cf_options.compression_opts, cfd->GetID(), cfd->GetName(),
           0 /* level */, false /* is_bottommost */,
           TableFileCreationReason::kRecovery, 0 /* oldest_key_time */,
-          0 /* file_creation_time */, db_id_, db_session_id_,
-          0 /* target_file_size */, meta.fd.GetNumber(), kMaxSequenceNumber);
+          0 /* newest_key_time */, 0 /* file_creation_time */, db_id_,
+          db_session_id_, 0 /* target_file_size */, meta.fd.GetNumber(),
+          kMaxSequenceNumber);
       Version* version = cfd->current();
       version->Ref();
       uint64_t num_input_entries = 0;
