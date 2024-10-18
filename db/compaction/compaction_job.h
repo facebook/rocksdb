@@ -386,7 +386,7 @@ struct CompactionServiceInput {
   // files needed for this compaction, for both input level files and output
   // level files.
   std::vector<std::string> input_files;
-  int output_level;
+  int output_level = 0;
 
   // db_id is used to generate unique id of sst on the remote compactor
   std::string db_id;
@@ -397,7 +397,7 @@ struct CompactionServiceInput {
   bool has_end = false;
   std::string end;
 
-  uint64_t options_file_number;
+  uint64_t options_file_number = 0;
 
   // serialization interface to read and write the object
   static Status Read(const std::string& data_str, CompactionServiceInput* obj);
@@ -454,7 +454,7 @@ struct CompactionServiceOutputFile {
 struct CompactionServiceResult {
   Status status;
   std::vector<CompactionServiceOutputFile> output_files;
-  int output_level;
+  int output_level = 0;
 
   // location of the output files
   std::string output_path;
