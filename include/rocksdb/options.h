@@ -1938,14 +1938,15 @@ struct ReadOptions {
   // Default: true
   bool auto_readahead_size = true;
 
-  // When set, the iterator may defer loading the value when moving to a
-  // different entry (i.e. during SeekToFirst/SeekToLast/Seek/SeekForPrev/
-  // Next/Prev operations). This can be used to save on I/O when the values
-  // associated with certain keys may not be used by the application. See also
-  // IteratorBase::PrepareValue().
+  // When set, the iterator may defer loading and/or preparing the value when
+  // moving to a different entry (i.e. during SeekToFirst/SeekToLast/Seek/
+  // SeekForPrev/Next/Prev operations). This can be used to save on I/O and/or
+  // CPU when the values associated with certain keys may not be used by the
+  // application. See also IteratorBase::PrepareValue().
   //
-  // Note: this option currently only applies to large values stored in blob
-  // files using BlobDB, and has no effect otherwise.
+  // Note: this option currently only applies to 1) large values stored in blob
+  // files using BlobDB and 2) multi-column-family iterators (CoalescingIterator
+  // and AttributeGroupIterator). Otherwise, it has no effect.
   //
   // Default: false
   bool allow_unprepared_value = false;

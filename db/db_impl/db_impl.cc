@@ -3992,9 +3992,9 @@ std::unique_ptr<IterType> DBImpl::NewMultiCfIterator(
   if (!s.ok()) {
     return error_iterator_func(s);
   }
-  return std::make_unique<ImplType>(column_families[0]->GetComparator(),
-                                    column_families,
-                                    std::move(child_iterators));
+  return std::make_unique<ImplType>(
+      column_families[0]->GetComparator(), _read_options.allow_unprepared_value,
+      column_families, std::move(child_iterators));
 }
 
 Status DBImpl::NewIterators(
