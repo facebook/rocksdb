@@ -4298,8 +4298,8 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     }
     // Avoid to go through every column family by checking a global threshold
     // first.
+    CfdList cf_scheduled;
     if (oldest_snapshot > bottommost_files_mark_threshold_) {
-      CfdList cf_scheduled;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         if (!cfd->ioptions()->allow_ingest_behind) {
           cfd->current()->storage_info()->UpdateOldestSnapshot(
@@ -4330,6 +4330,24 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
             cfd->current()->storage_info()->bottommost_files_mark_threshold());
       }
       bottommost_files_mark_threshold_ = new_bottommost_files_mark_threshold;
+    }
+
+    // Avoid to go through every column family by checking a global threshold
+    // first.
+    if (oldest_snapshot >= standalone_range_deletion_files_mark_threshold_) {
+      for (auto* cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->IsDropped() || CfdListContains(cf_scheduled, cfd)) {
+          continue;
+        }
+        if (oldest_snapshot >=
+            cfd->current()
+                ->storage_info()
+                ->standalone_range_tombstone_files_mark_threshold()) {
+          EnqueuePendingCompaction(cfd);
+          MaybeScheduleFlushOrCompaction();
+          cf_scheduled.push_back(cfd);
+        }
+      }
     }
   }
   delete casted_s;
