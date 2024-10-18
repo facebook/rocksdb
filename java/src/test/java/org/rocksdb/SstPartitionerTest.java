@@ -46,11 +46,14 @@ public class SstPartitionerTest {
   @Test
   public void sstFixedPrefixFamily() throws RocksDBException {
     final byte[] cfName = "new_cf".getBytes(UTF_8);
-    final ColumnFamilyDescriptor cfDescriptor = new ColumnFamilyDescriptor(cfName,
-        new ColumnFamilyOptions().setSstPartitionerFactory(
-            new SstPartitionerFixedPrefixFactory(4)));
 
-    try (final Options opt = new Options().setCreateIfMissing(true);
+    try (final SstPartitionerFixedPrefixFactory sstPartitionerFactory =
+             new SstPartitionerFixedPrefixFactory(4);
+         final ColumnFamilyOptions columnFamilyOptions =
+             new ColumnFamilyOptions().setSstPartitionerFactory(sstPartitionerFactory);
+         final ColumnFamilyDescriptor cfDescriptor =
+             new ColumnFamilyDescriptor(cfName, columnFamilyOptions);
+         final Options opt = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       final ColumnFamilyHandle columnFamilyHandle = db.createColumnFamily(cfDescriptor);
 
