@@ -419,6 +419,8 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   }
 
   if (s.ok()) {
+    //DB has resumed，force writable file to be continue writable.
+    logs_.back().writer->file()->reset_seen_error();
     // This will notify and unblock threads waiting for error recovery to
     // finish. Those previouly waiting threads can now proceed, which may
     // include closing the db.
