@@ -2026,6 +2026,7 @@ class NonBatchedOpsStressTest : public StressTest {
     pending_expected_values.reserve(FLAGS_ingest_external_file_width);
     SharedState* shared = thread->shared;
 
+    // Grab locks, set pending state on expected values, and add keys
     assert(FLAGS_nooverwritepercent < 100);
     for (int64_t key = key_base;
          s.ok() && key < shared->GetMaxKey() &&
@@ -2070,16 +2071,10 @@ class NonBatchedOpsStressTest : public StressTest {
         s = sst_file_writer.DeleteRange(start_key_slice, end_key_slice);
       }
     } else {
-      // Grab locks, set pending state on expected values, and add keys
       for (int64_t key = key_base;
            s.ok() && key < shared->GetMaxKey() &&
            static_cast<int32_t>(keys.size()) < FLAGS_ingest_external_file_width;
            ++key) {
-        if (key == key_base ||
-            (key & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
-          range_locks.emplace_back(
-              new MutexLock(shared->GetMutexForKey(column_family, key)));
-        }
         if (!shared->AllowsOverwrite(key)) {
           // We could alternatively include `key` that is deleted.
           continue;

@@ -3690,7 +3690,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       // compaction is not necessary. Need to make sure mutex is held
       // until we make a copy in the following code
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():BeforePickCompaction");
-      SnapshotChecker* snapshot_checker;
+      SnapshotChecker* snapshot_checker = nullptr;
       std::vector<SequenceNumber> snapshot_seqs;
       // This info is not useful for other scenarios, so save querying existing
       // snapshots for those cases.
