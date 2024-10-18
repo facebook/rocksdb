@@ -166,6 +166,15 @@ else
 	CXXFLAGS += -DROCKSDB_USE_RTTI
 endif
 else
+ifeq ($(PLATFORM), OS_AIX)
+# no debug info
+else ifneq ($(PLATFORM), IOS)
+CFLAGS += -g
+CXXFLAGS += -g
+else
+# no debug info for IOS, that will make our library big
+OPT += -DNDEBUG
+endif
 ifneq ($(USE_RTTI), 0)
 	CXXFLAGS += -DROCKSDB_USE_RTTI
 else
@@ -306,16 +315,6 @@ missing_make_config_paths := $(shell				\
 
 $(foreach path, $(missing_make_config_paths), \
 	$(warning Warning: $(path) does not exist))
-
-ifeq ($(PLATFORM), OS_AIX)
-# no debug info
-else ifneq ($(PLATFORM), IOS)
-CFLAGS += -g
-CXXFLAGS += -g
-else
-# no debug info for IOS, that will make our library big
-OPT += -DNDEBUG
-endif
 
 ifeq ($(PLATFORM), OS_AIX)
 ARFLAGS = -X64 rs
