@@ -129,6 +129,7 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
         compression_opts(_compression_opts),
         column_family_name(_column_family_name),
         oldest_key_time(_oldest_key_time),
+        newest_key_time(_file_creation_time),
         target_file_size(_target_file_size),
         file_creation_time(_file_creation_time),
         db_id(_db_id),
@@ -147,6 +148,7 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
   const CompressionOptions& compression_opts;
   const std::string& column_family_name;
   const int64_t oldest_key_time;
+  const int64_t newest_key_time;
   const uint64_t target_file_size;
   const uint64_t file_creation_time;
   const std::string db_id;
