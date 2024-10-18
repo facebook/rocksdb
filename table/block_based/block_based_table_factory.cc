@@ -394,34 +394,6 @@ static struct BlockBasedTableTypeInfo {
                    num_file_reads_for_auto_readahead),
           OptionType::kUInt64T, OptionVerificationType::kNormal}},
     };
-
-    for (auto& i : info) {
-      switch (i.second.GetType()) {
-        case OptionType::kString:
-        case OptionType::kEnv:
-        case OptionType::kStruct:
-        case OptionType::kVector:
-        case OptionType::kConfigurable:
-        case OptionType::kCustomizable:
-        case OptionType::kEncodedString:
-        case OptionType::kArray:
-        case OptionType::kUnknown:
-          // Not mutable, at least until race condition is resolved
-          break;
-        default:
-          if (i.first == "no_block_cache") {
-            // Special case of not being mutable; only makes sense at
-            // initialization time, and for non-expert users
-            assert((i.second.GetFlags() & OptionTypeFlags::kMutable) ==
-                   OptionTypeFlags::kNone);
-          } else {
-            // Values up to 64 bits should be generally safe to mutate despite
-            // the read-write race.
-            i.second.SetFlags(i.second.GetFlags() | OptionTypeFlags::kMutable);
-          }
-          break;
-      }
-    }
   }
 } block_based_table_type_info;
 

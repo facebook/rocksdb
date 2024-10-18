@@ -186,7 +186,7 @@ TEST_F(DBOptionsTest, GetLatestDBOptions) {
   ASSERT_EQ(new_options, GetMutableDBOptionsMap(dbfull()->GetDBOptions()));
 }
 
-// FIXME osolete when table_factory is mutable
+// FIXME osolete when "table_factory" is mutable
 static std::unordered_map<std::string, std::string> WithoutTableFactory(
     const std::unordered_map<std::string, std::string>& opts) {
   auto opts_copy = opts;
@@ -215,7 +215,8 @@ TEST_F(DBOptionsTest, GetLatestCFOptions) {
                              dbfull()->GetOptions(handles_[1]))));
 }
 
-TEST_F(DBOptionsTest, SetMutableTableOptions) {
+// FIXME: "table_factory" mutability, etc.
+TEST_F(DBOptionsTest, DISABLED_SetMutableTableOptions) {
   Options options;
   options.create_if_missing = true;
   options.env = env_;
