@@ -322,6 +322,8 @@ IOStatus PosixSequentialFile::InvalidateCache(size_t offset, size_t length) {
 /*
  * PosixRandomAccessFile
  */
+const std::string PosixHelper::kLogicalBlockSizeFileName = "logical_block_size";
+const std::string PosixHelper::kMaxSectorsKBFileName = "max_sectors_kb";
 #if defined(OS_LINUX)
 size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
   if (max_size < kMaxVarint64Length * 3) {
@@ -455,38 +457,61 @@ size_t LogicalBlockSizeCache::GetLogicalBlockSize(const std::string& fname,
 
 Status PosixHelper::GetLogicalBlockSizeOfDirectory(const std::string& directory,
                                                    size_t* size) {
+  return GetQueueSysfsFileValueofDirectory(directory, kLogicalBlockSizeFileName,
+                                           size);
+}
+
+Status PosixHelper::GetMaxSectorsKBOfDirectory(const std::string& directory,
+                                               size_t* kb) {
+  return GetQueueSysfsFileValueofDirectory(directory, kMaxSectorsKBFileName,
+                                           kb);
+}
+
+Status PosixHelper::GetQueueSysfsFileValueofDirectory(
+    const std::string& directory, const std::string& file_name, size_t* value) {
   int fd = open(directory.c_str(), O_DIRECTORY | O_RDONLY);
   if (fd == -1) {
     return Status::IOError("Cannot open directory " + directory);
   }
-  *size = PosixHelper::GetLogicalBlockSizeOfFd(fd);
+  if (file_name == PosixHelper::kLogicalBlockSizeFileName) {
+    *value = PosixHelper::GetLogicalBlockSizeOfFd(fd);
+  } else if (file_name == PosixHelper::kMaxSectorsKBFileName) {
+    *value = PosixHelper::GetMaxSectorsKBOfFd(fd);
+  } else {
+    assert(false);
+  }
   close(fd);
   return Status::OK();
 }
 
-size_t PosixHelper::GetLogicalBlockSizeOfFd(int fd) {
+size_t PosixHelper::GetQueueSysfsFileValueOfFd(
+    int fd, const std::string& file_name, const size_t default_return_value) {
 #ifdef OS_LINUX
   struct stat buf;
   int result = fstat(fd, &buf);
   if (result == -1) {
-    return kDefaultPageSize;
+    return default_return_value;
   }
+
+  // Get device number
   if (major(buf.st_dev) == 0) {
     // Unnamed devices (e.g. non-device mounts), reserved as null device number.
     // These don't have an entry in /sys/dev/block/. Return a sensible default.
-    return kDefaultPageSize;
+    return default_return_value;
   }
 
-  // Reading queue/logical_block_size does not require special permissions.
+  // Get device path
   const int kBufferSize = 100;
   char path[kBufferSize];
   char real_path[PATH_MAX + 1];
   snprintf(path, kBufferSize, "/sys/dev/block/%u:%u", major(buf.st_dev),
            minor(buf.st_dev));
   if (realpath(path, real_path) == nullptr) {
-    return kDefaultPageSize;
+    return default_return_value;
   }
   std::string device_dir(real_path);
+
+  // Get the queue sysfs file path
   if (!device_dir.empty() && device_dir.back() == '/') {
     device_dir.pop_back();
   }
@@ -500,11 +525,11 @@ size_t PosixHelper::GetLogicalBlockSizeOfFd(int fd) {
   // ../../devices/pci0000:17/0000:17:00.0/0000:18:00.0/nvme/nvme0/nvme0n1/nvme0n1p1
   size_t parent_end = device_dir.rfind('/', device_dir.length() - 1);
   if (parent_end == std::string::npos) {
-    return kDefaultPageSize;
+    return default_return_value;
   }
   size_t parent_begin = device_dir.rfind('/', parent_end - 1);
   if (parent_begin == std::string::npos) {
-    return kDefaultPageSize;
+    return default_return_value;
   }
   std::string parent =
       device_dir.substr(parent_begin + 1, parent_end - parent_begin - 1);
@@ -513,25 +538,47 @@ size_t PosixHelper::GetLogicalBlockSizeOfFd(int fd) {
       (child.compare(0, 4, "nvme") || child.find('p') != std::string::npos)) {
     device_dir = device_dir.substr(0, parent_end);
   }
-  std::string fname = device_dir + "/queue/logical_block_size";
+  std::string fname = device_dir + "/queue/" + file_name;
+
+  // Get value in the queue sysfs file
   FILE* fp;
-  size_t size = 0;
+  size_t value = 0;
   fp = fopen(fname.c_str(), "r");
   if (fp != nullptr) {
     char* line = nullptr;
     size_t len = 0;
     if (getline(&line, &len, fp) != -1) {
-      sscanf(line, "%zu", &size);
+      sscanf(line, "%zu", &value);
     }
     free(line);
     fclose(fp);
   }
-  if (size != 0 && (size & (size - 1)) == 0) {
-    return size;
+
+  if (file_name == kLogicalBlockSizeFileName) {
+    if (value != 0 && (value & (value - 1)) == 0) {
+      return value;
+    }
+  } else if (file_name == kMaxSectorsKBFileName) {
+    if (value != 0) {
+      return value;
+    }
+  } else {
+    assert(false);
   }
 #endif
   (void)fd;
-  return kDefaultPageSize;
+  (void)file_name;
+  return default_return_value;
+}
+
+size_t PosixHelper::GetLogicalBlockSizeOfFd(int fd) {
+  return GetQueueSysfsFileValueOfFd(fd, kLogicalBlockSizeFileName,
+                                    kDefaultPageSize);
+}
+
+size_t PosixHelper::GetMaxSectorsKBOfFd(int fd) {
+  return GetQueueSysfsFileValueOfFd(fd, kMaxSectorsKBFileName,
+                                    kDefaultMaxSectorsKB);
 }
 
 /*
