@@ -62,8 +62,9 @@ class CompactionOutputs {
   }
 
   // TODO: Remove it when remote compaction support tiered compaction
-  void SetTotalBytes(uint64_t bytes) { stats_.bytes_written += bytes; }
+  void AddBytesWritten(uint64_t bytes) { stats_.bytes_written += bytes; }
   void SetNumOutputRecords(uint64_t num) { stats_.num_output_records = num; }
+  void SetNumOutputFiles(uint64_t num) { stats_.num_output_files = num; }
 
   // TODO: Move the BlobDB builder into CompactionOutputs
   const std::vector<BlobFileAddition>& GetBlobFileAdditions() const {

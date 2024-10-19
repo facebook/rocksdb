@@ -20,23 +20,24 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-BlobSource::BlobSource(const ImmutableOptions* immutable_options,
+BlobSource::BlobSource(const ImmutableOptions& immutable_options,
+                       const MutableCFOptions& mutable_cf_options,
                        const std::string& db_id,
                        const std::string& db_session_id,
                        BlobFileCache* blob_file_cache)
     : db_id_(db_id),
       db_session_id_(db_session_id),
-      statistics_(immutable_options->statistics.get()),
+      statistics_(immutable_options.statistics.get()),
       blob_file_cache_(blob_file_cache),
-      blob_cache_(immutable_options->blob_cache),
-      lowest_used_cache_tier_(immutable_options->lowest_used_cache_tier) {
+      blob_cache_(immutable_options.blob_cache),
+      lowest_used_cache_tier_(immutable_options.lowest_used_cache_tier) {
   auto bbto =
-      immutable_options->table_factory->GetOptions<BlockBasedTableOptions>();
+      mutable_cf_options.table_factory->GetOptions<BlockBasedTableOptions>();
   if (bbto &&
       bbto->cache_usage_options.options_overrides.at(CacheEntryRole::kBlobCache)
               .charged == CacheEntryRoleOptions::Decision::kEnabled) {
     blob_cache_ = SharedCacheInterface{std::make_shared<ChargedCache>(
-        immutable_options->blob_cache, bbto->block_cache)};
+        immutable_options.blob_cache, bbto->block_cache)};
   }
 }
 

@@ -1561,6 +1561,12 @@ Status DBImpl::CompactFilesImpl(
 
   compaction_job.Prepare();
 
+  std::unique_ptr<std::list<uint64_t>::iterator> min_options_file_number_elem;
+  if (immutable_db_options().compaction_service != nullptr) {
+    min_options_file_number_elem.reset(
+        new std::list<uint64_t>::iterator(CaptureOptionsFileNumber()));
+  }
+
   mutex_.Unlock();
   TEST_SYNC_POINT("CompactFilesImpl:0");
   TEST_SYNC_POINT("CompactFilesImpl:1");
@@ -1569,6 +1575,10 @@ Status DBImpl::CompactFilesImpl(
   TEST_SYNC_POINT("CompactFilesImpl:2");
   TEST_SYNC_POINT("CompactFilesImpl:3");
   mutex_.Lock();
+
+  if (immutable_db_options().compaction_service != nullptr) {
+    ReleaseOptionsFileNumber(min_options_file_number_elem);
+  }
 
   bool compaction_released = false;
   Status status =
@@ -3551,6 +3561,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       is_manual && manual_compaction->disallow_trivial_move;
 
   CompactionJobStats compaction_job_stats;
+  // Set is_remote_compaction to true on CompactionBegin Event if
+  // compaction_service is set except for trivial moves. We do not know whether
+  // remote compaction will actually be successfully scheduled, or fall back to
+  // local at this time. CompactionCompleted event will tell the truth where
+  // the compaction actually happened.
+  compaction_job_stats.is_remote_compaction =
+      immutable_db_options().compaction_service != nullptr;
+
   Status status;
   if (!error_handler_.IsBGWorkStopped()) {
     if (shutting_down_.load(std::memory_order_acquire)) {
@@ -3776,6 +3794,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
 
     compaction_job_stats.num_input_files = c->num_input_files(0);
+    // Trivial moves do not get compacted remotely
+    compaction_job_stats.is_remote_compaction = false;
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
@@ -3911,6 +3931,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         &bg_bottom_compaction_scheduled_);
     compaction_job.Prepare();
 
+    std::unique_ptr<std::list<uint64_t>::iterator> min_options_file_number_elem;
+    if (immutable_db_options().compaction_service != nullptr) {
+      min_options_file_number_elem.reset(
+          new std::list<uint64_t>::iterator(CaptureOptionsFileNumber()));
+    }
+
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
     mutex_.Unlock();
@@ -3920,6 +3946,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     compaction_job.Run().PermitUncheckedError();
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
+
+    if (immutable_db_options().compaction_service != nullptr) {
+      ReleaseOptionsFileNumber(min_options_file_number_elem);
+    }
+
     status =
         compaction_job.Install(*c->mutable_cf_options(), &compaction_released);
     io_s = compaction_job.io_status();

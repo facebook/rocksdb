@@ -1450,8 +1450,10 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
 
-    // Get the next prefix first and then see if we want to set upper bound.
-    // We'll use the next prefix in an assertion later on
+    // Randomly test with `iterate_upper_bound` and `prefix_same_as_start`
+    //
+    // Get the next prefix first and then see if we want to set it to be the
+    // upper bound. We'll use the next prefix in an assertion later on
     if (GetNextPrefix(prefix, &upper_bound) && thread->rand.OneIn(2)) {
       // For half of the time, set the upper bound to the next prefix
       ub_slice = Slice(upper_bound);
@@ -1460,6 +1462,8 @@ class NonBatchedOpsStressTest : public StressTest {
         ro_copy.table_filter =
             sqfc_factory_->GetTableFilterForRangeQuery(prefix, ub_slice);
       }
+    } else if (options_.prefix_extractor && thread->rand.OneIn(2)) {
+      ro_copy.prefix_same_as_start = true;
     }
 
     std::string read_ts_str;
@@ -1480,8 +1484,16 @@ class NonBatchedOpsStressTest : public StressTest {
     uint64_t count = 0;
     Status s;
 
-    for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
-         iter->Next()) {
+    for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
+      // If upper or prefix bounds is specified, only keys of the target
+      // prefix should show up. Otherwise, we need to manual exit the loop when
+      // we see the first key that is not in the target prefix show up.
+      if (ro_copy.iterate_upper_bound != nullptr ||
+          ro_copy.prefix_same_as_start) {
+        assert(iter->key().starts_with(prefix));
+      } else if (!iter->key().starts_with(prefix)) {
+        break;
+      }
       ++count;
 
       // When iter_start_ts is set, iterator exposes internal keys, including
@@ -1535,7 +1547,14 @@ class NonBatchedOpsStressTest : public StressTest {
     if (s.ok()) {
       thread->stats.AddPrefixes(1, count);
     } else if (injected_error_count == 0 || !IsErrorInjectedAndRetryable(s)) {
-      fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
+      fprintf(stderr,
+              "TestPrefixScan error: %s with ReadOptions::iterate_upper_bound: "
+              "%s, prefix_same_as_start: %s \n",
+              s.ToString().c_str(),
+              ro_copy.iterate_upper_bound
+                  ? ro_copy.iterate_upper_bound->ToString(true).c_str()
+                  : "nullptr",
+              ro_copy.prefix_same_as_start ? "true" : "false");
       thread->shared->SetVerificationFailure();
     }
 
@@ -2057,11 +2076,13 @@ class NonBatchedOpsStressTest : public StressTest {
       ingest_options.verify_checksums_before_ingest = thread->rand.OneInOpt(2);
       ingest_options.verify_checksums_readahead_size =
           thread->rand.OneInOpt(2) ? 1024 * 1024 : 0;
+      ingest_options.fill_cache = thread->rand.OneInOpt(4);
       ingest_options_oss << "move_files: " << ingest_options.move_files
                          << ", verify_checksums_before_ingest: "
                          << ingest_options.verify_checksums_before_ingest
                          << ", verify_checksums_readahead_size: "
-                         << ingest_options.verify_checksums_readahead_size;
+                         << ingest_options.verify_checksums_readahead_size
+                         << ", fill_cache: " << ingest_options.fill_cache;
       s = db_->IngestExternalFile(column_families_[column_family],
                                   {sst_filename}, ingest_options);
     }

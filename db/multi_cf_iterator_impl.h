@@ -211,32 +211,41 @@ class MultiCfIteratorImpl {
     // 2. Make sure all others have iterated past the top iterator key slice
     // 3. Advance the top iterator, and add it back to the heap if valid
     auto top = heap.top();
+    assert(top.iterator);
+    assert(top.iterator->Valid());
+    assert(top.iterator->status().ok());
+
     heap.pop();
-    if (!heap.empty()) {
+
+    while (!heap.empty()) {
       auto current = heap.top();
       assert(current.iterator);
-      while (current.iterator->Valid() &&
-             comparator_->Compare(top.iterator->key(),
-                                  current.iterator->key()) == 0) {
+      assert(current.iterator->Valid());
+      assert(current.iterator->status().ok());
+
+      if (comparator_->Compare(current.iterator->key(), top.iterator->key()) !=
+          0) {
+        break;
+      }
+
+      advance_func(current.iterator);
+
+      if (current.iterator->Valid()) {
         assert(current.iterator->status().ok());
-        advance_func(current.iterator);
-        if (current.iterator->Valid()) {
-          heap.replace_top(heap.top());
+        heap.replace_top(current);
+      } else {
+        considerStatus(current.iterator->status());
+        if (!status_.ok()) {
+          heap.clear();
+          return;
         } else {
-          considerStatus(current.iterator->status());
-          if (!status_.ok()) {
-            heap.clear();
-            return;
-          } else {
-            heap.pop();
-          }
-        }
-        if (!heap.empty()) {
-          current = heap.top();
+          heap.pop();
         }
       }
     }
+
     advance_func(top.iterator);
+
     if (top.iterator->Valid()) {
       assert(top.iterator->status().ok());
       heap.push(top);
@@ -264,30 +273,37 @@ class MultiCfIteratorImpl {
     //    populate the value/columns and attribute_groups from the list
     //    collected in step 1 and 2 and add all the iters back to the heap
     assert(!heap.empty());
+
     auto top = heap.top();
+    assert(top.iterator);
+    assert(top.iterator->Valid());
+    assert(top.iterator->status().ok());
+
     heap.pop();
+
     autovector<MultiCfIteratorInfo> to_populate;
     to_populate.push_back(top);
-    if (!heap.empty()) {
+
+    while (!heap.empty()) {
       auto current = heap.top();
       assert(current.iterator);
-      while (current.iterator->Valid() &&
-             comparator_->Compare(top.iterator->key(),
-                                  current.iterator->key()) == 0) {
-        assert(current.iterator->status().ok());
-        to_populate.push_back(current);
-        heap.pop();
-        if (!heap.empty()) {
-          current = heap.top();
-        } else {
-          break;
-        }
+      assert(current.iterator->Valid());
+      assert(current.iterator->status().ok());
+
+      if (comparator_->Compare(current.iterator->key(), top.iterator->key()) !=
+          0) {
+        break;
       }
+
+      to_populate.push_back(current);
+      heap.pop();
     }
+
     // Add the items back to the heap
     for (auto& item : to_populate) {
       heap.push(item);
     }
+
     populate_func_(to_populate);
   }
 };

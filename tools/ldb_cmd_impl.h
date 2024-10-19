@@ -511,6 +511,7 @@ class ScanCommand : public LDBCommand {
   bool end_key_specified_;
   int max_keys_scanned_;
   bool no_value_;
+  bool get_write_unix_time_;
 };
 
 class DeleteCommand : public LDBCommand {

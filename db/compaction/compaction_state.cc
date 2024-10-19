@@ -39,7 +39,7 @@ void CompactionState::AggregateCompactionStats(
     InternalStats::CompactionStatsFull& compaction_stats,
     CompactionJobStats& compaction_job_stats) {
   for (const auto& sc : sub_compact_states) {
-    sc.AggregateCompactionStats(compaction_stats);
+    sc.AggregateCompactionOutputStats(compaction_stats);
     compaction_job_stats.Add(sc.compaction_job_stats);
   }
 }

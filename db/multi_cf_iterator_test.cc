@@ -15,53 +15,65 @@ class CoalescingIteratorTest : public DBTestBase {
 
   // Verify Iteration of CoalescingIterator
   // by SeekToFirst() + Next() and SeekToLast() + Prev()
-  void verifyCoalescingIterator(const std::vector<ColumnFamilyHandle*>& cfhs,
+  void VerifyCoalescingIterator(const std::vector<ColumnFamilyHandle*>& cfhs,
                                 const std::vector<Slice>& expected_keys,
                                 const std::vector<Slice>& expected_values,
                                 const std::optional<std::vector<WideColumns>>&
                                     expected_wide_columns = std::nullopt,
                                 const Slice* lower_bound = nullptr,
                                 const Slice* upper_bound = nullptr) {
-    int i = 0;
+    const size_t num_keys = expected_keys.size();
+
     ReadOptions read_options;
     read_options.iterate_lower_bound = lower_bound;
     read_options.iterate_upper_bound = upper_bound;
+
     std::unique_ptr<Iterator> iter =
         db_->NewCoalescingIterator(read_options, cfhs);
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_EQ(expected_keys[i], iter->key());
-      ASSERT_EQ(expected_values[i], iter->value());
-      if (expected_wide_columns.has_value()) {
-        ASSERT_EQ(expected_wide_columns.value()[i], iter->columns());
-      }
-      ++i;
-    }
-    ASSERT_EQ(expected_keys.size(), i);
-    ASSERT_OK(iter->status());
 
-    int rev_i = i - 1;
-    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
-      ASSERT_EQ(expected_keys[rev_i], iter->key());
-      ASSERT_EQ(expected_values[rev_i], iter->value());
+    auto check_iter_entry = [&](size_t idx) {
+      ASSERT_EQ(iter->key(), expected_keys[idx]);
+      ASSERT_EQ(iter->value(), expected_values[idx]);
       if (expected_wide_columns.has_value()) {
-        ASSERT_EQ(expected_wide_columns.value()[rev_i], iter->columns());
+        ASSERT_EQ(iter->columns(), expected_wide_columns.value()[idx]);
       }
-      rev_i--;
+    };
+
+    {
+      size_t i = 0;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        check_iter_entry(i);
+        ++i;
+      }
+
+      ASSERT_EQ(num_keys, i);
+      ASSERT_OK(iter->status());
     }
-    ASSERT_OK(iter->status());
+
+    {
+      size_t i = 0;
+      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        check_iter_entry(num_keys - 1 - i);
+        ++i;
+      }
+
+      ASSERT_EQ(num_keys, i);
+      ASSERT_OK(iter->status());
+    }
   }
 
-  void verifyExpectedKeys(ColumnFamilyHandle* cfh,
+  void VerifyExpectedKeys(ColumnFamilyHandle* cfh,
                           const std::vector<Slice>& expected_keys) {
-    int i = 0;
-    Iterator* iter = db_->NewIterator(ReadOptions(), cfh);
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions(), cfh));
+
+    size_t i = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_EQ(expected_keys[i], iter->key());
+      ASSERT_EQ(iter->key(), expected_keys[i]);
       ++i;
     }
-    ASSERT_EQ(expected_keys.size(), i);
+
+    ASSERT_EQ(i, expected_keys.size());
     ASSERT_OK(iter->status());
-    delete iter;
   }
 };
 
@@ -96,7 +108,7 @@ TEST_F(CoalescingIteratorTest, SimpleValues) {
     // Test for iteration over CF default->1->2->3
     std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
         handles_[0], handles_[1], handles_[2], handles_[3]};
-    verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
+    VerifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
                              expected_values);
 
     // Test for iteration over CF 3->1->default_cf->2
@@ -104,7 +116,7 @@ TEST_F(CoalescingIteratorTest, SimpleValues) {
         handles_[3], handles_[1], handles_[0], handles_[2]};
     // Iteration order and the return values should be the same since keys are
     // unique per CF
-    verifyCoalescingIterator(cfhs_order_3_1_0_2, expected_keys,
+    VerifyCoalescingIterator(cfhs_order_3_1_0_2, expected_keys,
                              expected_values);
 
     // Verify Seek()
@@ -163,14 +175,14 @@ TEST_F(CoalescingIteratorTest, SimpleValues) {
         handles_[0], handles_[1], handles_[2], handles_[3]};
     std::vector<Slice> expected_values = {"key_1_cf_3_val", "key_2_cf_2_val",
                                           "key_3_cf_3_val"};
-    verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
+    VerifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
                              expected_values);
 
     // Test for iteration over CFs 3->2->default_cf->1
     std::vector<ColumnFamilyHandle*> cfhs_order_3_2_0_1 = {
         handles_[3], handles_[2], handles_[0], handles_[1]};
     expected_values = {"key_1_cf_0_val", "key_2_cf_1_val", "key_3_cf_1_val"};
-    verifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys,
+    VerifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys,
                              expected_values);
 
     // Verify Seek()
@@ -227,7 +239,7 @@ TEST_F(CoalescingIteratorTest, LowerAndUpperBounds) {
       std::vector<Slice> expected_keys = {"key_2", "key_3", "key_4"};
       std::vector<Slice> expected_values = {"key_2_cf_1_val", "key_3_cf_2_val",
                                             "key_4_cf_3_val"};
-      verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
+      VerifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
                                expected_values, std::nullopt, &lb);
     }
     // with upper_bound
@@ -236,7 +248,7 @@ TEST_F(CoalescingIteratorTest, LowerAndUpperBounds) {
       Slice ub = Slice("key_3");
       std::vector<Slice> expected_keys = {"key_1", "key_2"};
       std::vector<Slice> expected_values = {"key_1_cf_0_val", "key_2_cf_1_val"};
-      verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
+      VerifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
                                expected_values, std::nullopt, nullptr, &ub);
     }
     // with lower and upper bound
@@ -245,7 +257,7 @@ TEST_F(CoalescingIteratorTest, LowerAndUpperBounds) {
       Slice ub = Slice("key_4");
       std::vector<Slice> expected_keys = {"key_2", "key_3"};
       std::vector<Slice> expected_values = {"key_2_cf_1_val", "key_3_cf_2_val"};
-      verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
+      VerifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
                                expected_values, std::nullopt, &lb, &ub);
     }
 
@@ -312,7 +324,7 @@ TEST_F(CoalescingIteratorTest, LowerAndUpperBounds) {
       Slice lb = Slice("key_2");
       std::vector<Slice> expected_keys = {"key_2", "key_3"};
       std::vector<Slice> expected_values = {"key_2_cf_2_val", "key_3_cf_3_val"};
-      verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
+      VerifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
                                expected_values, std::nullopt, &lb);
     }
     // with upper_bound
@@ -321,7 +333,7 @@ TEST_F(CoalescingIteratorTest, LowerAndUpperBounds) {
       Slice ub = Slice("key_3");
       std::vector<Slice> expected_keys = {"key_1", "key_2"};
       std::vector<Slice> expected_values = {"key_1_cf_3_val", "key_2_cf_2_val"};
-      verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
+      VerifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
                                expected_values, std::nullopt, nullptr, &ub);
     }
     // with lower and upper bound
@@ -330,7 +342,7 @@ TEST_F(CoalescingIteratorTest, LowerAndUpperBounds) {
       Slice ub = Slice("key_3");
       std::vector<Slice> expected_keys = {"key_2"};
       std::vector<Slice> expected_values = {"key_2_cf_2_val"};
-      verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
+      VerifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys,
                                expected_values, std::nullopt, &lb, &ub);
     }
 
@@ -342,7 +354,7 @@ TEST_F(CoalescingIteratorTest, LowerAndUpperBounds) {
       Slice lb = Slice("key_2");
       std::vector<Slice> expected_keys = {"key_2", "key_3"};
       std::vector<Slice> expected_values = {"key_2_cf_1_val", "key_3_cf_1_val"};
-      verifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys,
+      VerifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys,
                                expected_values, std::nullopt, &lb);
     }
     // with upper_bound
@@ -351,7 +363,7 @@ TEST_F(CoalescingIteratorTest, LowerAndUpperBounds) {
       Slice ub = Slice("key_3");
       std::vector<Slice> expected_keys = {"key_1", "key_2"};
       std::vector<Slice> expected_values = {"key_1_cf_0_val", "key_2_cf_1_val"};
-      verifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys,
+      VerifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys,
                                expected_values, std::nullopt, nullptr, &ub);
     }
     // with lower and upper bound
@@ -360,7 +372,7 @@ TEST_F(CoalescingIteratorTest, LowerAndUpperBounds) {
       Slice ub = Slice("key_3");
       std::vector<Slice> expected_keys = {"key_2"};
       std::vector<Slice> expected_values = {"key_2_cf_1_val"};
-      verifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys,
+      VerifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys,
                                expected_values, std::nullopt, &lb, &ub);
     }
     {
@@ -662,7 +674,7 @@ TEST_F(CoalescingIteratorTest, WideColumns) {
         key_2_expected_columns_cfh_order_1_2, key_3_expected_columns,
         key_4_expected_columns};
 
-    verifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys, expected_values,
+    VerifyCoalescingIterator(cfhs_order_0_1_2_3, expected_keys, expected_values,
                              expected_wide_columns_0_1_2_3);
   }
 
@@ -677,7 +689,7 @@ TEST_F(CoalescingIteratorTest, WideColumns) {
         key_2_expected_columns_cfh_order_2_1, key_3_expected_columns,
         key_4_expected_columns};
 
-    verifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys, expected_values,
+    VerifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys, expected_values,
                              expected_wide_columns_3_2_0_1);
   }
 }
@@ -700,8 +712,8 @@ TEST_F(CoalescingIteratorTest, DifferentComparatorsInMultiCFs) {
   ASSERT_OK(Put(1, "key_2", "value_2"));
   ASSERT_OK(Put(1, "key_3", "value_3"));
 
-  verifyExpectedKeys(handles_[0], {"key_1", "key_2", "key_3"});
-  verifyExpectedKeys(handles_[1], {"key_3", "key_2", "key_1"});
+  VerifyExpectedKeys(handles_[0], {"key_1", "key_2", "key_3"});
+  VerifyExpectedKeys(handles_[1], {"key_3", "key_2", "key_1"});
 
   std::unique_ptr<Iterator> iter =
       db_->NewCoalescingIterator(ReadOptions(), handles_);
@@ -742,10 +754,10 @@ TEST_F(CoalescingIteratorTest, CustomComparatorsInMultiCFs) {
   ASSERT_OK(Put(1, "key_003_005", "value_1_5"));
   ASSERT_OK(Put(1, "key_003_006", "value_1_4"));
 
-  verifyExpectedKeys(
+  VerifyExpectedKeys(
       handles_[0], {"key_001_003", "key_001_002", "key_001_001", "key_002_003",
                     "key_002_002", "key_002_001"});
-  verifyExpectedKeys(
+  VerifyExpectedKeys(
       handles_[1], {"key_001_003", "key_001_002", "key_001_001", "key_003_006",
                     "key_003_005", "key_003_004"});
 
@@ -755,14 +767,17 @@ TEST_F(CoalescingIteratorTest, CustomComparatorsInMultiCFs) {
   std::vector<Slice> expected_values = {"value_1_1", "value_1_2", "value_1_3",
                                         "value_0_4", "value_0_5", "value_0_6",
                                         "value_1_4", "value_1_5", "value_1_6"};
-  int i = 0;
   std::unique_ptr<Iterator> iter =
       db_->NewCoalescingIterator(ReadOptions(), handles_);
+
+  size_t i = 0;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ASSERT_EQ(expected_keys[i], iter->key());
     ASSERT_EQ(expected_values[i], iter->value());
     ++i;
   }
+
+  ASSERT_EQ(expected_keys.size(), i);
   ASSERT_OK(iter->status());
 }
 
@@ -771,50 +786,45 @@ class AttributeGroupIteratorTest : public DBTestBase {
   AttributeGroupIteratorTest()
       : DBTestBase("attribute_group_iterator_test", /*env_do_fsync=*/true) {}
 
-  void verifyAttributeGroupIterator(
+  void VerifyAttributeGroupIterator(
       const std::vector<ColumnFamilyHandle*>& cfhs,
       const std::vector<Slice>& expected_keys,
-      const std::vector<AttributeGroups>& expected_attribute_groups,
+      const std::vector<IteratorAttributeGroups>& expected_attribute_groups,
       const Slice* lower_bound = nullptr, const Slice* upper_bound = nullptr) {
-    int i = 0;
+    const size_t num_keys = expected_keys.size();
+
     ReadOptions read_options;
     read_options.iterate_lower_bound = lower_bound;
     read_options.iterate_upper_bound = upper_bound;
     std::unique_ptr<AttributeGroupIterator> iter =
         db_->NewAttributeGroupIterator(read_options, cfhs);
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_EQ(expected_keys[i], iter->key());
-      auto iterator_attribute_groups = iter->attribute_groups();
-      ASSERT_EQ(expected_attribute_groups[i].size(),
-                iterator_attribute_groups.size());
-      for (size_t cfh_i = 0; cfh_i < iterator_attribute_groups.size();
-           cfh_i++) {
-        ASSERT_EQ(expected_attribute_groups[i][cfh_i].column_family(),
-                  iterator_attribute_groups[cfh_i].column_family());
-        ASSERT_EQ(expected_attribute_groups[i][cfh_i].columns(),
-                  iterator_attribute_groups[cfh_i].columns());
-      }
-      ++i;
-    }
-    ASSERT_EQ(expected_keys.size(), i);
-    ASSERT_OK(iter->status());
 
-    int rev_i = i - 1;
-    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
-      ASSERT_EQ(expected_keys[rev_i], iter->key());
-      auto iterator_attribute_groups = iter->attribute_groups();
-      ASSERT_EQ(expected_attribute_groups[rev_i].size(),
-                iterator_attribute_groups.size());
-      for (size_t cfh_i = 0; cfh_i < iterator_attribute_groups.size();
-           cfh_i++) {
-        ASSERT_EQ(expected_attribute_groups[rev_i][cfh_i].column_family(),
-                  iterator_attribute_groups[cfh_i].column_family());
-        ASSERT_EQ(expected_attribute_groups[rev_i][cfh_i].columns(),
-                  iterator_attribute_groups[cfh_i].columns());
+    auto check_iter_entry = [&](size_t idx) {
+      ASSERT_EQ(iter->key(), expected_keys[idx]);
+      ASSERT_EQ(iter->attribute_groups(), expected_attribute_groups[idx]);
+    };
+
+    {
+      size_t i = 0;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        check_iter_entry(i);
+        ++i;
       }
-      rev_i--;
+
+      ASSERT_EQ(i, num_keys);
+      ASSERT_OK(iter->status());
     }
-    ASSERT_OK(iter->status());
+
+    {
+      size_t i = 0;
+      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        check_iter_entry(num_keys - 1 - i);
+        ++i;
+      }
+
+      ASSERT_EQ(i, num_keys);
+      ASSERT_OK(iter->status());
+    }
   }
 };
 
@@ -870,41 +880,60 @@ TEST_F(AttributeGroupIteratorTest, IterateAttributeGroups) {
   ASSERT_OK(db_->PutEntity(WriteOptions(), key_3, key_3_attribute_groups));
   ASSERT_OK(db_->PutEntity(WriteOptions(), key_4, key_4_attribute_groups));
 
+  IteratorAttributeGroups key_1_expected_attribute_groups{
+      IteratorAttributeGroup(key_1_attribute_groups[0]),
+      IteratorAttributeGroup(key_1_attribute_groups[1])};
+  IteratorAttributeGroups key_2_expected_attribute_groups{
+      IteratorAttributeGroup(key_2_attribute_groups[0]),
+      IteratorAttributeGroup(key_2_attribute_groups[1])};
+  IteratorAttributeGroups key_3_expected_attribute_groups{
+      IteratorAttributeGroup(key_3_attribute_groups[0]),
+      IteratorAttributeGroup(key_3_attribute_groups[1])};
+  IteratorAttributeGroups key_4_expected_attribute_groups{
+      IteratorAttributeGroup(key_4_attribute_groups[0]),
+      IteratorAttributeGroup(key_4_attribute_groups[1])};
+
   // Test for iteration over CF default->1->2->3
   std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3 = {
       handles_[0], handles_[1], handles_[2], handles_[3]};
   {
     std::vector<Slice> expected_keys = {key_1, key_2, key_3, key_4};
-    std::vector<AttributeGroups> expected_attribute_groups = {
-        key_1_attribute_groups, key_2_attribute_groups, key_3_attribute_groups,
-        key_4_attribute_groups};
-    verifyAttributeGroupIterator(cfhs_order_0_1_2_3, expected_keys,
+    std::vector<IteratorAttributeGroups> expected_attribute_groups{
+        key_1_expected_attribute_groups, key_2_expected_attribute_groups,
+        key_3_expected_attribute_groups, key_4_expected_attribute_groups};
+    VerifyAttributeGroupIterator(cfhs_order_0_1_2_3, expected_keys,
                                  expected_attribute_groups);
   }
+
   Slice lb = Slice("key_2");
   Slice ub = Slice("key_4");
+
   // Test for lower bound only
   {
     std::vector<Slice> expected_keys = {key_2, key_3, key_4};
-    std::vector<AttributeGroups> expected_attribute_groups = {
-        key_2_attribute_groups, key_3_attribute_groups, key_4_attribute_groups};
-    verifyAttributeGroupIterator(cfhs_order_0_1_2_3, expected_keys,
+    std::vector<IteratorAttributeGroups> expected_attribute_groups{
+        key_2_expected_attribute_groups, key_3_expected_attribute_groups,
+        key_4_expected_attribute_groups};
+    VerifyAttributeGroupIterator(cfhs_order_0_1_2_3, expected_keys,
                                  expected_attribute_groups, &lb);
   }
+
   // Test for upper bound only
   {
     std::vector<Slice> expected_keys = {key_1, key_2, key_3};
-    std::vector<AttributeGroups> expected_attribute_groups = {
-        key_1_attribute_groups, key_2_attribute_groups, key_3_attribute_groups};
-    verifyAttributeGroupIterator(cfhs_order_0_1_2_3, expected_keys,
+    std::vector<IteratorAttributeGroups> expected_attribute_groups{
+        key_1_expected_attribute_groups, key_2_expected_attribute_groups,
+        key_3_expected_attribute_groups};
+    VerifyAttributeGroupIterator(cfhs_order_0_1_2_3, expected_keys,
                                  expected_attribute_groups, nullptr, &ub);
   }
+
   // Test for lower and upper bound
   {
     std::vector<Slice> expected_keys = {key_2, key_3};
-    std::vector<AttributeGroups> expected_attribute_groups = {
-        key_2_attribute_groups, key_3_attribute_groups};
-    verifyAttributeGroupIterator(cfhs_order_0_1_2_3, expected_keys,
+    std::vector<IteratorAttributeGroups> expected_attribute_groups{
+        key_2_expected_attribute_groups, key_3_expected_attribute_groups};
+    VerifyAttributeGroupIterator(cfhs_order_0_1_2_3, expected_keys,
                                  expected_attribute_groups, &lb, &ub);
   }
 }

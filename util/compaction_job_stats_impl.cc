@@ -89,6 +89,8 @@ void CompactionJobStats::Add(const CompactionJobStats& stats) {
 
   num_single_del_fallthru += stats.num_single_del_fallthru;
   num_single_del_mismatch += stats.num_single_del_mismatch;
+
+  is_remote_compaction |= stats.is_remote_compaction;
 }
 
 

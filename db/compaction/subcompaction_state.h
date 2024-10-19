@@ -179,7 +179,7 @@ class SubcompactionState {
 
   void Cleanup(Cache* cache);
 
-  void AggregateCompactionStats(
+  void AggregateCompactionOutputStats(
       InternalStats::CompactionStatsFull& compaction_stats) const;
 
   CompactionOutputs& Current() const {

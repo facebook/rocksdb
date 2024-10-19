@@ -1790,8 +1790,8 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
     SstFileWriter sst_file_writer(EnvOptions(), options);
     std::string file1 = sst_files_dir_ + "file1.sst";
     ASSERT_OK(sst_file_writer.Open(file1));
-    ASSERT_OK(sst_file_writer.Put("a", "z"));
-    ASSERT_OK(sst_file_writer.Put("i", "m"));
+    ASSERT_OK(sst_file_writer.Put("a", "a1"));
+    ASSERT_OK(sst_file_writer.Put("i", "i1"));
     ExternalSstFileInfo file1_info;
     ASSERT_OK(sst_file_writer.Finish(&file1_info));
     files.push_back(std::move(file1));
@@ -1800,16 +1800,29 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
     SstFileWriter sst_file_writer(EnvOptions(), options);
     std::string file2 = sst_files_dir_ + "file2.sst";
     ASSERT_OK(sst_file_writer.Open(file2));
-    ASSERT_OK(sst_file_writer.Put("i", "k"));
+    ASSERT_OK(sst_file_writer.Put("i", "i2"));
     ExternalSstFileInfo file2_info;
     ASSERT_OK(sst_file_writer.Finish(&file2_info));
     files.push_back(std::move(file2));
   }
 
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file3 = sst_files_dir_ + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    ASSERT_OK(sst_file_writer.Put("j", "j1"));
+    ASSERT_OK(sst_file_writer.Put("m", "m1"));
+    ExternalSstFileInfo file3_info;
+    ASSERT_OK(sst_file_writer.Finish(&file3_info));
+    files.push_back(std::move(file3));
+  }
+
   IngestExternalFileOptions ifo;
   ASSERT_OK(db_->IngestExternalFile(files, ifo));
-  ASSERT_EQ(Get("a"), "z");
-  ASSERT_EQ(Get("i"), "k");
+  ASSERT_EQ(Get("a"), "a1");
+  ASSERT_EQ(Get("i"), "i2");
+  ASSERT_EQ(Get("j"), "j1");
+  ASSERT_EQ(Get("m"), "m1");
 
   int total_keys = 0;
   Iterator* iter = db_->NewIterator(ReadOptions());
@@ -1817,10 +1830,98 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
     ASSERT_OK(iter->status());
     total_keys++;
   }
+  ASSERT_OK(iter->status());
   delete iter;
-  ASSERT_EQ(total_keys, 2);
+  ASSERT_EQ(total_keys, 4);
 
-  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(6));
+  ASSERT_EQ(2, NumTableFilesAtLevel(5));
+}
+
+TEST_F(ExternalSSTFileBasicTest, AtomicReplaceData) {
+  Options options = CurrentOptions();
+  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  DestroyAndReopen(options);
+
+  std::vector<std::string> files;
+  {
+    // Writes first version of data in range partitioned files.
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file1 = sst_files_dir_ + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    ASSERT_OK(sst_file_writer.Put("a", "a1"));
+    ASSERT_OK(sst_file_writer.Put("b", "b1"));
+    ExternalSstFileInfo file1_info;
+    ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    files.push_back(std::move(file1));
+
+    std::string file2 = sst_files_dir_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.Put("x", "x1"));
+    ASSERT_OK(sst_file_writer.Put("y", "y1"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+  }
+
+  IngestExternalFileOptions ifo;
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  ASSERT_EQ(Get("a"), "a1");
+  ASSERT_EQ(Get("b"), "b1");
+  ASSERT_EQ(Get("x"), "x1");
+  ASSERT_EQ(Get("y"), "y1");
+  ASSERT_EQ(2, NumTableFilesAtLevel(6));
+
+  {
+    // Atomically delete old version of data with one range delete file.
+    // And a new batch of range partitioned files with new version of data.
+    files.clear();
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file2 = sst_files_dir_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.DeleteRange("a", "z"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+
+    std::string file3 = sst_files_dir_ + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    ASSERT_OK(sst_file_writer.Put("a", "a2"));
+    ASSERT_OK(sst_file_writer.Put("b", "b2"));
+    ExternalSstFileInfo file3_info;
+    ASSERT_OK(sst_file_writer.Finish(&file3_info));
+    files.push_back(std::move(file3));
+
+    std::string file4 = sst_files_dir_ + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    ASSERT_OK(sst_file_writer.Put("x", "x2"));
+    ASSERT_OK(sst_file_writer.Put("y", "y2"));
+    ExternalSstFileInfo file4_info;
+    ASSERT_OK(sst_file_writer.Finish(&file4_info));
+    files.push_back(std::move(file4));
+  }
+
+  auto seqno_before_ingestion = db_->GetLatestSequenceNumber();
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  // Overlapping files each occupy one new sequence number.
+  ASSERT_EQ(db_->GetLatestSequenceNumber(), seqno_before_ingestion + 3);
+  ASSERT_EQ(Get("a"), "a2");
+  ASSERT_EQ(Get("b"), "b2");
+  ASSERT_EQ(Get("x"), "x2");
+  ASSERT_EQ(Get("y"), "y2");
+
+  // Check old version of data, big range deletion, new version of data are
+  // on separate levels.
+  ASSERT_EQ(2, NumTableFilesAtLevel(4));
+  ASSERT_EQ(1, NumTableFilesAtLevel(5));
+  ASSERT_EQ(2, NumTableFilesAtLevel(6));
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ(0, NumTableFilesAtLevel(4));
+  ASSERT_EQ(0, NumTableFilesAtLevel(5));
+  ASSERT_EQ(1, NumTableFilesAtLevel(6));
 }
 
 TEST_F(ExternalSSTFileBasicTest, IngestFileAfterDBPut) {
@@ -2045,7 +2146,7 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevel) {
     ifo.fail_if_not_bottommost_level = true;
     ifo.snapshot_consistency = true;
     const Status s = db_->IngestExternalFile({file_path}, ifo);
-    ASSERT_TRUE(s.IsTryAgain());
+    ASSERT_TRUE(s.ok());
   }
 
   // Test level compaction

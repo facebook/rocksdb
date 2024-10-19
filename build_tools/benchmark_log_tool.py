@@ -102,7 +102,7 @@ class BenchmarkUtils:
 
 
 class ResultParser:
-    def __init__(self, field="(\w|[+-:.%])+", intrafield="(\s)+", separator="\t"):
+    def __init__(self, field=r"(\w|[+-:.%])+", intrafield=r"(\s)+", separator="\t"):
         self.field = re.compile(field)
         self.intra = re.compile(intrafield)
         self.sep = re.compile(separator)
@@ -159,7 +159,7 @@ class ResultParser:
 
 
 def load_report_from_tsv(filename: str):
-    file = open(filename, "r")
+    file = open(filename)
     contents = file.readlines()
     file.close()
     parser = ResultParser()

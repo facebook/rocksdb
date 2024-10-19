@@ -1912,16 +1912,43 @@ struct ReadOptions {
   std::function<bool(const TableProperties&)> table_filter;
 
   // If auto_readahead_size is set to true, it will auto tune the readahead_size
-  // during scans internally.
-  // For this feature to enabled, iterate_upper_bound must also be specified.
+  // during scans internally based on block cache data when block cache is
+  // enabled, iteration upper bound when `iterate_upper_bound != nullptr` and
+  // prefix when `prefix_same_as_start == true`
   //
-  // NOTE: - Recommended for forward Scans only.
+  // Besides enabling block cache, it
+  // also requires `iterate_upper_bound != nullptr` or  `prefix_same_as_start ==
+  // true` for this option to take effect
+  //
+  // To be specific, it does the following:
+  // (1) When `iterate_upper_bound`
+  // is specified, trim the readahead so the readahead does not exceed iteration
+  // upper bound
+  // (2) When `prefix_same_as_start` is set to true, trim the
+  // readahead so data blocks containing keys that are not in the same prefix as
+  // the seek key in `Seek()` are not prefetched
+  //  - Limition: `Seek(key)` instead of `SeekToFirst()` needs to be called in
+  //  order for this trimming to take effect
+  //
+  // NOTE: - Used for forward Scans only.
   //       - If there is a backward scans, this option will be
   //          disabled internally and won't be enabled again if the forward scan
   //          is issued again.
   //
   // Default: true
   bool auto_readahead_size = true;
+
+  // When set, the iterator may defer loading the value when moving to a
+  // different entry (i.e. during SeekToFirst/SeekToLast/Seek/SeekForPrev/
+  // Next/Prev operations). This can be used to save on I/O when the values
+  // associated with certain keys may not be used by the application. See also
+  // IteratorBase::PrepareValue().
+  //
+  // Note: this option currently only applies to large values stored in blob
+  // files using BlobDB, and has no effect otherwise.
+  //
+  // Default: false
+  bool allow_unprepared_value = false;
 
   // *** END options only relevant to iterators or scans ***
 
@@ -2259,6 +2286,14 @@ struct IngestExternalFileOptions {
   // RepairDB() may not recover these files correctly, potentially leading to
   // data loss.
   bool allow_db_generated_files = false;
+
+  // Controls whether data and metadata blocks (e.g. index, filter) read during
+  // file ingestion will be added to block cache.
+  // Users may wish to set this to false when bulk loading into a CF that is not
+  // available for reads yet.
+  // When ingesting to multiple families, this option should be the same across
+  // ingestion options.
+  bool fill_cache = true;
 };
 
 enum TraceFilterType : uint64_t {

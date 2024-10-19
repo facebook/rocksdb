@@ -79,6 +79,8 @@ class Configurable {
   }
   template <typename T>
   T* GetOptions(const std::string& name) {
+    // FIXME: Is this sometimes reading a raw pointer from a shared_ptr,
+    // unsafely relying on the object layout?
     return reinterpret_cast<T*>(const_cast<void*>(GetOptionsPtr(name)));
   }
 

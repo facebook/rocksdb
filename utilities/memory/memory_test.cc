@@ -34,15 +34,6 @@ class MemoryTest : public testing::Test {
     }
   }
 
-  void GetCachePointersFromTableFactory(
-      const TableFactory* factory,
-      std::unordered_set<const Cache*>* cache_set) {
-    const auto bbto = factory->GetOptions<BlockBasedTableOptions>();
-    if (bbto != nullptr) {
-      cache_set->insert(bbto->block_cache.get());
-    }
-  }
-
   void GetCachePointers(const std::vector<DB*>& dbs,
                         std::unordered_set<const Cache*>* cache_set) {
     cache_set->clear();
@@ -61,13 +52,8 @@ class MemoryTest : public testing::Test {
       cache_set->insert(db->GetDBOptions().row_cache.get());
 
       // Cache from table factories
-      std::unordered_map<std::string, const ImmutableCFOptions*> iopts_map;
       if (db_impl != nullptr) {
-        ASSERT_OK(db_impl->TEST_GetAllImmutableCFOptions(&iopts_map));
-      }
-      for (const auto& pair : iopts_map) {
-        GetCachePointersFromTableFactory(pair.second->table_factory.get(),
-                                         cache_set);
+        db_impl->TEST_GetAllBlockCaches(cache_set);
       }
     }
   }
@@ -266,4 +252,3 @@ int main(int argc, char** argv) {
   return 0;
 #endif
 }
-
