@@ -79,10 +79,10 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       FileMetaData* f = *ritr;
       assert(f);
       if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
-        uint64_t creation_time =
-            f->fd.table_reader->GetTableProperties()->creation_time;
-        if (creation_time == 0 ||
-            creation_time >= (current_time - mutable_cf_options.ttl)) {
+        uint64_t newest_key_time =
+            f->fd.table_reader->GetTableProperties()->newest_key_time;
+        if (newest_key_time == 0 ||
+            newest_key_time >= (current_time - mutable_cf_options.ttl)) {
           break;
         }
       }

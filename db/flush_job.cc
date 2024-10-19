@@ -988,8 +988,9 @@ Status FlushJob::WriteLevel0Table() {
           output_compression_, mutable_cf_options_.compression_opts,
           cfd_->GetID(), cfd_->GetName(), 0 /* level */,
           false /* is_bottommost */, TableFileCreationReason::kFlush,
-          oldest_key_time, current_time, current_time, db_id_, db_session_id_,
-          0 /* target_file_size */, meta_.fd.GetNumber(),
+          oldest_key_time, current_time /* newest_key_time */, current_time,
+          db_id_, db_session_id_, 0 /* target_file_size */,
+          meta_.fd.GetNumber(),
           preclude_last_level_min_seqno_ == kMaxSequenceNumber
               ? preclude_last_level_min_seqno_
               : std::min(earliest_snapshot_, preclude_last_level_min_seqno_));

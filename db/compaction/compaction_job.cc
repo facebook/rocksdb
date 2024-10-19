@@ -792,6 +792,13 @@ Status CompactionJob::Run() {
 
   TablePropertiesCollection tp;
   for (const auto& state : compact_->sub_compact_states) {
+    uint64_t newest_key_time = 0;
+    for (const auto& [fn, props] :
+         state.compaction->GetInputTableProperties()) {
+      newest_key_time = std::max(newest_key_time, props.get()->newest_key_time);
+    }
+    // TODO: this should be the newest_key_time that we want. need to figure out
+    // where to actually set the output table properties
     for (const auto& output : state.GetOutputs()) {
       auto fn =
           TableFileName(state.compaction->immutable_options()->cf_paths,
