@@ -7092,7 +7092,7 @@ InternalIterator* VersionSet::MakeInputIterator(
   size_t num = 0;
   [[maybe_unused]] size_t num_input_files = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
-    const LevelFilesBrief* flevel = c->input_levels_for_compaction_iter(which);
+    const LevelFilesBrief* flevel = c->input_levels(which);
     num_input_files += flevel->num_files;
     if (flevel->num_files != 0) {
       if (c->level(which) == 0) {

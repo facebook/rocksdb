@@ -1174,9 +1174,9 @@ void CompactionPicker::UnregisterCompaction(Compaction* c) {
 }
 
 void CompactionPicker::PickFilesMarkedForCompaction(
-    const std::string& cf_name, VersionStorageInfo* vstorage,
-    std::optional<SequenceNumber> earliest_snapshot, int* start_level,
-    int* output_level, CompactionInputFiles* start_level_inputs) {
+    const std::string& cf_name, VersionStorageInfo* vstorage, int* start_level,
+    int* output_level, CompactionInputFiles* start_level_inputs,
+    std::function<bool(const FileMetaData*)> skip_marked_file) {
   if (vstorage->FilesMarkedForCompaction().empty()) {
     return;
   }
@@ -1186,13 +1186,7 @@ void CompactionPicker::PickFilesMarkedForCompaction(
     // If this assert() fails that means that some function marked some
     // files as being_compacted, but didn't call ComputeCompactionScore()
     assert(!level_file.second->being_compacted);
-    // We attempt to involve standalone range tombstone file in compaction only
-    // when the oldest snapshot is at or above its sequence number. That can
-    // help make the best use of such file to possibly obsolete other input
-    // files as a whole.
-    if (earliest_snapshot.has_value() &&
-        level_file.second->FileIsStandAloneRangeTombstone() &&
-        earliest_snapshot.value() < level_file.second->fd.smallest_seqno) {
+    if (skip_marked_file(level_file.second)) {
       return false;
     }
     *start_level = level_file.first;

@@ -10,6 +10,7 @@
 #pragma once
 
 #include "db/compaction/compaction_picker.h"
+#include "db/snapshot_checker.h"
 
 namespace ROCKSDB_NAMESPACE {
 class UniversalCompactionPicker : public CompactionPicker {

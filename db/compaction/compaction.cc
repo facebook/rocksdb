@@ -370,14 +370,14 @@ Compaction::Compaction(
   // setup input_levels_
   {
     input_levels_.resize(num_input_levels());
-    for (size_t which = 0; which < num_input_levels(); which++) {
-      DoGenerateLevelFilesBrief(&input_levels_[which], inputs_[which].files,
-                                &arena_);
+    if (earliest_snapshot_.has_value()) {
+      FilterInputsForCompactionIterator();
+    } else {
+      for (size_t which = 0; which < num_input_levels(); which++) {
+        DoGenerateLevelFilesBrief(&input_levels_[which], inputs_[which].files,
+                                  &arena_);
+      }
     }
-  }
-
-  if (earliest_snapshot_.has_value()) {
-    FilterInputsForCompactionIterator();
   }
 
   GetBoundaryKeys(vstorage, inputs_, &smallest_user_key_, &largest_user_key_);
@@ -752,8 +752,10 @@ void Compaction::ResetNextCompactionIndex() {
 }
 
 namespace {
-int InputSummary(const std::vector<FileMetaData*>& files, char* output,
+int InputSummary(const std::vector<FileMetaData*>& files,
+                 const std::vector<bool>& files_filtered, char* output,
                  int len) {
+  assert(files_filtered.empty() || (files.size() == files_filtered.size()));
   *output = '\0';
   int write = 0;
   for (size_t i = 0; i < files.size(); i++) {
@@ -761,8 +763,14 @@ int InputSummary(const std::vector<FileMetaData*>& files, char* output,
     int ret;
     char sztxt[16];
     AppendHumanBytes(files.at(i)->fd.GetFileSize(), sztxt, 16);
-    ret = snprintf(output + write, sz, "%" PRIu64 "(%s) ",
-                   files.at(i)->fd.GetNumber(), sztxt);
+    if (files_filtered.empty()) {
+      ret = snprintf(output + write, sz, "%" PRIu64 "(%s) ",
+                     files.at(i)->fd.GetNumber(), sztxt);
+    } else {
+      ret = snprintf(output + write, sz, "%" PRIu64 "(%s filtered:%s) ",
+                     files.at(i)->fd.GetNumber(), sztxt,
+                     files_filtered.at(i) ? "true" : "false");
+    }
     if (ret < 0 || ret >= sz) {
       break;
     }
@@ -788,8 +796,15 @@ void Compaction::Summary(char* output, int len) {
         return;
       }
     }
-    write +=
-        InputSummary(inputs_[level_iter].files, output + write, len - write);
+
+    assert(non_start_level_input_files_filtered_.empty() ||
+           non_start_level_input_files_filtered_.size() == inputs_.size() - 1);
+    write += InputSummary(
+        inputs_[level_iter].files,
+        (level_iter == 0 || non_start_level_input_files_filtered_.empty())
+            ? std::vector<bool>{}
+            : non_start_level_input_files_filtered_[level_iter - 1],
+        output + write, len - write);
     if (write < 0 || write >= len) {
       return;
     }
@@ -1010,70 +1025,56 @@ void Compaction::FilterInputsForCompactionIterator() {
   // sure. Although entries with higher timestamp is also supposed to have
   // higher sequence number for the same user key (without timestamp).
   assert(ucmp->timestamp_size() == 0);
-  std::vector<std::tuple<Slice, Slice, SequenceNumber>>
-      standalone_range_tombstones_for_filtering;
-  const LevelFilesBrief* flevel_start = input_levels(0);
-  for (size_t i = 0; i < flevel_start->num_files; i++) {
-    FileMetaData* fmeta = flevel_start->files[i].file_metadata;
-    if (!fmeta->FileIsStandAloneRangeTombstone()) {
-      continue;
+  size_t num_input_levels = inputs_.size();
+  // TODO(yuzhangyu): filtering of older L0 file by new L0 file is not
+  // supported yet.
+  FileMetaData* rangedel_candidate = inputs_[0].level == 0
+                                         ? inputs_[0].files.back()
+                                         : inputs_[0].files.front();
+  assert(rangedel_candidate);
+  if (!rangedel_candidate->FileIsStandAloneRangeTombstone() ||
+      !DataIsDefinitelyInSnapshot(rangedel_candidate->fd.smallest_seqno,
+                                  earliest_snapshot_.value(),
+                                  snapshot_checker_)) {
+    for (size_t level = 0; level < num_input_levels; level++) {
+      DoGenerateLevelFilesBrief(&input_levels_[level], inputs_[level].files,
+                                &arena_);
     }
-    bool range_del_in_snapshot =
-        ((fmeta->fd.smallest_seqno) <= (earliest_snapshot_.value()) &&
-         (snapshot_checker_ == nullptr ||
-          LIKELY(
-              snapshot_checker_->CheckInSnapshot(
-                  (fmeta->fd.smallest_seqno), (earliest_snapshot_.value())) ==
-              SnapshotCheckerResult::kInSnapshot)));
-    if (!range_del_in_snapshot) {
-      continue;
-    }
-    standalone_range_tombstones_for_filtering.emplace_back(
-        fmeta->smallest.user_key(), fmeta->largest.user_key(),
-        fmeta->fd.smallest_seqno);
-  }
-  if (standalone_range_tombstones_for_filtering.empty()) {
     return;
   }
 
-  std::vector<std::vector<FileMetaData*>> level_files;
-  size_t num_input_levels = input_levels_.size();
-  level_files.reserve(num_input_levels - 1);
-  for (size_t level = 1; level < num_input_levels; level++) {
-    level_files.emplace_back();
-    const LevelFilesBrief* flevel = input_levels(level);
-    for (size_t i = 0; i < flevel->num_files; i++) {
-      FileMetaData* file = flevel->files[i].file_metadata;
-      bool file_is_filtered = false;
-      for (const auto& [start_ukey, end_ukey, seqno] :
-           standalone_range_tombstones_for_filtering) {
-        if (seqno < file->fd.largest_seqno) {
-          continue;
-        }
+  Slice rangedel_start_ukey = rangedel_candidate->smallest.user_key();
+  Slice rangedel_end_ukey = rangedel_candidate->largest.user_key();
+  SequenceNumber rangedel_seqno = rangedel_candidate->fd.smallest_seqno;
 
-        if (ucmp->CompareWithoutTimestamp(start_ukey,
-                                          file->smallest.user_key()) <= 0 &&
-            ucmp->CompareWithoutTimestamp(end_ukey, file->largest.user_key()) >
-                0) {
-          file_is_filtered = true;
-          filtered_input_files_.emplace(file->fd.GetNumber());
-          continue;
-        }
-      }
-      if (!file_is_filtered) {
-        level_files.back().push_back(file);
+  std::vector<std::vector<FileMetaData*>> non_start_level_input_files;
+  non_start_level_input_files.reserve(num_input_levels - 1);
+  non_start_level_input_files_filtered_.reserve(num_input_levels - 1);
+  for (size_t level = 1; level < num_input_levels; level++) {
+    non_start_level_input_files.emplace_back();
+    non_start_level_input_files_filtered_.emplace_back();
+    for (FileMetaData* file : inputs_[level].files) {
+      non_start_level_input_files_filtered_.back().push_back(false);
+      // When range data and point data has the same sequence number, point
+      // data wins. Range deletion end key is exclusive, so check it's bigger
+      // than file right boundary user key.
+      if (rangedel_seqno > file->fd.largest_seqno &&
+          ucmp->CompareWithoutTimestamp(rangedel_start_ukey,
+                                        file->smallest.user_key()) <= 0 &&
+          ucmp->CompareWithoutTimestamp(rangedel_end_ukey,
+                                        file->largest.user_key()) > 0) {
+        non_start_level_input_files_filtered_.back().back() = true;
+      } else {
+        non_start_level_input_files.back().push_back(file);
       }
     }
   }
 
-  if (filtered_input_files_.empty()) {
-    return;
-  }
-  assert(level_files.size() == num_input_levels - 1);
-  filtered_non_start_input_level_.resize(num_input_levels - 1);
+  DoGenerateLevelFilesBrief(&input_levels_[0], inputs_[0].files, &arena_);
+  assert(non_start_level_input_files.size() == num_input_levels - 1);
   for (size_t level = 1; level < num_input_levels; level++) {
-    DoGenerateLevelFilesBrief(&filtered_non_start_input_level_[level - 1],
-                              level_files[level - 1], &arena_);
+    DoGenerateLevelFilesBrief(&input_levels_[level],
+                              non_start_level_input_files[level - 1], &arena_);
   }
 }
 

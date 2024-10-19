@@ -206,8 +206,9 @@ class CompactionPicker {
 
   void PickFilesMarkedForCompaction(
       const std::string& cf_name, VersionStorageInfo* vstorage,
-      std::optional<SequenceNumber> earliest_snapshot, int* start_level,
-      int* output_level, CompactionInputFiles* start_level_inputs);
+      int* start_level, int* output_level,
+      CompactionInputFiles* start_level_inputs,
+      std::function<bool(const FileMetaData*)> skip_marked_file);
 
   bool GetOverlappingL0Files(VersionStorageInfo* vstorage,
                              CompactionInputFiles* start_level_inputs,

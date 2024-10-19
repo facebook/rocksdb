@@ -351,7 +351,8 @@ struct FileMetaData {
     return usage;
   }
 
-  // Returns whether this file is one with just one range tombstone.
+  // Returns whether this file is one with just one range tombstone. These type
+  // of file should always be marked for compaction.
   bool FileIsStandAloneRangeTombstone() const {
     bool res = num_range_deletions == 1 && num_entries == num_range_deletions;
     assert(!res || fd.smallest_seqno == fd.largest_seqno);

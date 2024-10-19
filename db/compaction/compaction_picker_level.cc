@@ -262,8 +262,10 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   parent_index_ = base_index_ = -1;
 
   compaction_picker_->PickFilesMarkedForCompaction(
-      cf_name_, vstorage_, /* earliest_snapshot */ std::nullopt, &start_level_,
-      &output_level_, &start_level_inputs_);
+      cf_name_, vstorage_, &start_level_, &output_level_, &start_level_inputs_,
+      /*skip_marked_file*/ [](const FileMetaData* /* file */) {
+        return false;
+      });
   if (!start_level_inputs_.empty()) {
     compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
     return;
