@@ -141,6 +141,8 @@ std::string TableProperties::ToString(const std::string& prop_delim,
 
   AppendProperty(result, "time stamp of earliest key", oldest_key_time,
                  prop_delim, kv_delim);
+  AppendProperty(result, "time stamp of newest key", newest_key_time,
+                 prop_delim, kv_delim);
 
   AppendProperty(result, "file creation time", file_creation_time, prop_delim,
                  kv_delim);
