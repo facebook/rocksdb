@@ -44,23 +44,15 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 
-include(FetchContent)
+# Photon
 set(PHOTON_ENABLE_URING OFF CACHE INTERNAL "Enable iouring")
-FetchContent_Declare(
-        photon
-        GIT_REPOSITORY https://github.com/alibaba/PhotonLibOS.git
-        GIT_TAG release/0.8
-)
-FetchContent_MakeAvailable(photon)
-set(PHOTON_INCLUDE_DIR ${photon_SOURCE_DIR}/include/)
-
+add_subdirectory(third-party/PhotonLibOS)
 if (PHOTON_ENABLE_URING)
     add_compile_definitions("PHOTON_ENABLE_URING")
 endif ()
-
 option(INIT_PHOTON_IN_ENV "INIT PHOTON IN ROCKSDB" OFF)
 if(INIT_PHOTON_IN_ENV)
-    add_definitions(-DINIT_PHOTON_IN_ENV)
+    add_compile_definitions("INIT_PHOTON_IN_ENV")
 endif()
 
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
@@ -477,8 +469,7 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
-include_directories(${PHOTON_INCLUDE_DIR})
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src ${PROJECT_SOURCE_DIR}/third-party/PhotonLibOS/include)
 find_package(Threads REQUIRED)
 
 add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
