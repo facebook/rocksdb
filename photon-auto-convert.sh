@@ -2,8 +2,8 @@
 
 set -e
 
-cc_files=$(find . -type f -name "*.cc" -not -path "./build/*")
-h_files=$(find . -type f -name "*.h" -not -path "./build/*")
+cc_files=$(find . -type f -name "*.cc" -not -path "./build/*" -not -path "./third-party/PhotonLibOS/*")
+h_files=$(find . -type f -name "*.h" -not -path "./build/*" -not -path "./third-party/PhotonLibOS/*")
 files="${cc_files} ${h_files}"
 
 sed -i 's|#include <thread>|#include "port/port.h"|g' $files
