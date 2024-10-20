@@ -2182,7 +2182,7 @@ void BlockBasedTableBuilder::SetSeqnoTimeTableProperties(
   assert(rep_->props.seqno_to_time_mapping.empty());
   relevant_mapping.EncodeTo(rep_->props.seqno_to_time_mapping);
   rep_->props.creation_time = oldest_ancestor_time;
-  // Even with this, newest_key_time still seems to be 0 inside the test case
+  // For now, just replicate behavior of creation_time with newest_key_time
   rep_->props.newest_key_time = oldest_ancestor_time;
 }
 

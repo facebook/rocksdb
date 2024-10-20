@@ -857,8 +857,6 @@ Status FlushJob::WriteLevel0Table() {
 
   meta_.temperature = mutable_cf_options_.default_write_temperature;
   file_options_.temperature = meta_.temperature;
-  // This does not affect the test case either
-  table_properties_.newest_key_time = 1729447999;
 
   const auto* ucmp = cfd_->internal_comparator().user_comparator();
   assert(ucmp);
