@@ -935,6 +935,30 @@ bool Compaction::DoesInputReferenceBlobFiles() const {
   return false;
 }
 
+uint64_t Compaction::MaxInputFileNewestKeyTime(const InternalKey* start,
+                                               const InternalKey* end) const {
+  uint64_t newest_key_time = 0;
+  const InternalKeyComparator& icmp =
+      column_family_data()->internal_comparator();
+  for (const auto& level_files : inputs_) {
+    for (const auto& file : level_files.files) {
+      if (start != nullptr && icmp.Compare(file->largest, *start) < 0) {
+        continue;
+      }
+      if (end != nullptr && icmp.Compare(file->smallest, *end) > 0) {
+        continue;
+      }
+      if (file->fd.table_reader != nullptr &&
+          file->fd.table_reader->GetTableProperties() != nullptr) {
+        newest_key_time = std::max(
+            newest_key_time,
+            file->fd.table_reader->GetTableProperties()->newest_key_time);
+      }
+    }
+  }
+  return newest_key_time;
+}
+
 uint64_t Compaction::MinInputFileOldestAncesterTime(
     const InternalKey* start, const InternalKey* end) const {
   uint64_t min_oldest_ancester_time = std::numeric_limits<uint64_t>::max();
