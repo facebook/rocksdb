@@ -1,6 +1,9 @@
 package org.rocksdb.jmh;
 
 import org.openjdk.jmh.annotations.*;
+import org.openjdk.jmh.runner.Runner;
+import org.openjdk.jmh.runner.RunnerException;
+import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.rocksdb.*;
 
 import java.io.IOException;
@@ -229,6 +232,17 @@ public class WriteBatchBenchmarks {
   }
 
   @Benchmark
+  public void putWriteBatchNative(WriteBatchThreadNative batch, ByteArrayData data) throws RocksDBException {
+
+    long i = index.getAndIncrement() % keyCount;
+
+    baFillValue(data.key, "key", i, KEY_VALUE_MAX_WIDTH, (byte)'0');
+    baFillValue(data.value, "value", i, KEY_VALUE_MAX_WIDTH, (byte)'0');
+
+    batch.put(data.key, data.value);
+  }
+
+  @Benchmark
   public void putWriteBatchBB(WriteBatchThreadDefault batch, ByteBufferData data) throws RocksDBException {
 
     long i = index.getAndIncrement() % keyCount;
@@ -248,5 +262,14 @@ public class WriteBatchBenchmarks {
     bbFillValue(data.value, "value", i, KEY_VALUE_MAX_WIDTH, data.fill);
 
     batch.put(data.key, data.value);
+  }
+
+  public static void main(String[] args) throws RunnerException {
+    org.openjdk.jmh.runner.options.Options opt = new OptionsBuilder()
+        .include("WriteBatchBenchmarks.putWriteBatchNativeBB")
+        .forks(0)
+        .build();
+
+    new Runner(opt).run();
   }
 }
