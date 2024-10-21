@@ -82,11 +82,15 @@ public class WriteBatchJavaNative extends RocksObject implements WriteBatchInter
   }
 
   @Override
-  public void put(ByteBuffer key, ByteBuffer value) throws RocksDBException {}
+  public void put(ByteBuffer key, ByteBuffer value) throws RocksDBException {
+    throw new UnsupportedOperationException(getClass().getName() + "<ByteBuffer put()>");
+  }
 
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value)
-      throws RocksDBException {}
+      throws RocksDBException {
+    throw new UnsupportedOperationException(getClass().getName() + "<CF ByteBuffer put()>");
+  }
 
   @Override
   public void merge(byte[] key, byte[] value) throws RocksDBException {}
