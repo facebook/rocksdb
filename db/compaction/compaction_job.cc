@@ -792,13 +792,6 @@ Status CompactionJob::Run() {
 
   TablePropertiesCollection tp;
   for (const auto& state : compact_->sub_compact_states) {
-    // It seems like setting newest_key_time makes more sense in
-    // OpenCompactionOutputFile
-    uint64_t newest_key_time = 0;
-    for (const auto& [fn, props] :
-         state.compaction->GetInputTableProperties()) {
-      newest_key_time = std::max(newest_key_time, props.get()->newest_key_time);
-    }
     for (const auto& output : state.GetOutputs()) {
       auto fn =
           TableFileName(state.compaction->immutable_options()->cf_paths,
