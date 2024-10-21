@@ -253,7 +253,7 @@ public class WriteBatchBenchmarks {
     batch.put(data.key, data.value);
   }
 
-  @Benchmark
+  //@Benchmark
   public void putWriteBatchNativeBB(WriteBatchThreadNative batch, ByteBufferData data) throws RocksDBException {
 
     long i = index.getAndIncrement() % keyCount;
