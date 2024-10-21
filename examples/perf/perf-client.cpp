@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
     auto ep = photon::net::EndPoint(photon::net::IPAddr(FLAGS_host.c_str()),
                                     FLAGS_port);
 
-    auto pool = photon::rpc::new_stub_pool(-1, -1, -1);
+    auto pool = photon::rpc::new_stub_pool(-1, -1);
     DEFER(delete pool);
 
     if (FLAGS_type == "fill") {
