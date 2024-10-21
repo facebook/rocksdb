@@ -792,13 +792,13 @@ Status CompactionJob::Run() {
 
   TablePropertiesCollection tp;
   for (const auto& state : compact_->sub_compact_states) {
+    // It seems like setting newest_key_time makes more sense in
+    // OpenCompactionOutputFile
     uint64_t newest_key_time = 0;
     for (const auto& [fn, props] :
          state.compaction->GetInputTableProperties()) {
       newest_key_time = std::max(newest_key_time, props.get()->newest_key_time);
     }
-    // TODO: this should be the newest_key_time that we want. need to figure out
-    // where to actually set the output table properties
     for (const auto& output : state.GetOutputs()) {
       auto fn =
           TableFileName(state.compaction->immutable_options()->cf_paths,
@@ -1961,6 +1961,22 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       db_options_.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile), false));
 
+  uint64_t newest_key_time = 0;
+  for (size_t lvl_idx = 0;
+       lvl_idx < sub_compact->compaction->num_input_levels(); lvl_idx++) {
+    const std::vector<FileMetaData*>* inputs =
+        sub_compact->compaction->inputs(lvl_idx);
+    assert(inputs);
+    for (auto fm : *inputs) {
+      if (fm->fd.table_reader != nullptr &&
+          fm->fd.table_reader->GetTableProperties() != nullptr) {
+        newest_key_time = std::max(
+            newest_key_time,
+            fm->fd.table_reader->GetTableProperties()->newest_key_time);
+      }
+    }
+  }
+
   // TODO(hx235): pass in the correct `oldest_key_time` instead of `0`
   const ReadOptions read_options(Env::IOActivity::kCompaction);
   const WriteOptions write_options(Env::IOActivity::kCompaction);
@@ -1972,9 +1988,9 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       sub_compact->compaction->output_compression_opts(), cfd->GetID(),
       cfd->GetName(), sub_compact->compaction->output_level(),
       bottommost_level_, TableFileCreationReason::kCompaction,
-      0 /* oldest_key_time */, 0 /* newest_key_time */, current_time, db_id_,
-      db_session_id_, sub_compact->compaction->max_output_file_size(),
-      file_number,
+      0 /* oldest_key_time */, newest_key_time /* newest_key_time */,
+      current_time, db_id_, db_session_id_,
+      sub_compact->compaction->max_output_file_size(), file_number,
       preclude_last_level_min_seqno_ == kMaxSequenceNumber
           ? preclude_last_level_min_seqno_
           : std::min(earliest_snapshot_, preclude_last_level_min_seqno_));
