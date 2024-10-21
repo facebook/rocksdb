@@ -80,7 +80,11 @@ WriteBatchBenchmarks.putWriteBatch            100000         16              100
 WriteBatchBenchmarks.putWriteBatchBB          100000         16              1000        16384                   20000  thrpt    5  42738.300 ± 6917.658  ops/s
 WriteBatchBenchmarks.putWriteBatchNative      100000         16              1000        16384                   20000  thrpt    5  39963.741 ± 8203.994  ops/s
 
-Not clear here why `putWriteBatch` performance has changed at all. It does make sense that the performance of `putWriteBatchNative` is a bit lower than `putWriteBatch`.
+Why has `putWriteBatch` performance improved ? Because the write batch on both sides auto-extends, so that we do in fact end up cacheing on the LHS. In the default case,
+we are writing to the batch, but not to the DB, and that saves us a lot of work.
+
+It does make sense that the performance of `putWriteBatchNative()` is a bit lower than `putWriteBatch()`, because we do the single extra copy (Java buffer to C++ buffer),
+but we also do some extending copies on the Java side.
 
 With a bigger allocation, it turns out that not much changes:
 ```
