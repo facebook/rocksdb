@@ -21,18 +21,27 @@ class CoalescingIteratorTest : public DBTestBase {
                                 const std::optional<std::vector<WideColumns>>&
                                     expected_wide_columns = std::nullopt,
                                 const Slice* lower_bound = nullptr,
-                                const Slice* upper_bound = nullptr) {
+                                const Slice* upper_bound = nullptr,
+                                bool allow_unprepared_value = false) {
     const size_t num_keys = expected_keys.size();
 
     ReadOptions read_options;
     read_options.iterate_lower_bound = lower_bound;
     read_options.iterate_upper_bound = upper_bound;
+    read_options.allow_unprepared_value = allow_unprepared_value;
 
     std::unique_ptr<Iterator> iter =
         db_->NewCoalescingIterator(read_options, cfhs);
 
     auto check_iter_entry = [&](size_t idx) {
       ASSERT_EQ(iter->key(), expected_keys[idx]);
+
+      if (allow_unprepared_value) {
+        ASSERT_TRUE(iter->value().empty());
+        ASSERT_TRUE(iter->PrepareValue());
+        ASSERT_TRUE(iter->Valid());
+      }
+
       ASSERT_EQ(iter->value(), expected_values[idx]);
       if (expected_wide_columns.has_value()) {
         ASSERT_EQ(iter->columns(), expected_wide_columns.value()[idx]);
@@ -781,6 +790,137 @@ TEST_F(CoalescingIteratorTest, CustomComparatorsInMultiCFs) {
   ASSERT_OK(iter->status());
 }
 
+TEST_F(CoalescingIteratorTest, AllowUnpreparedValue) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+
+  CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
+
+  ASSERT_OK(Put(0, "key_1", "key_1_cf_0_val"));
+  ASSERT_OK(Put(3, "key_1", "key_1_cf_3_val"));
+  ASSERT_OK(Put(1, "key_2", "key_2_cf_1_val"));
+  ASSERT_OK(Put(2, "key_2", "key_2_cf_2_val"));
+  ASSERT_OK(Put(0, "key_3", "key_3_cf_0_val"));
+  ASSERT_OK(Put(1, "key_3", "key_3_cf_1_val"));
+  ASSERT_OK(Put(3, "key_3", "key_3_cf_3_val"));
+
+  ASSERT_OK(Flush());
+
+  std::vector<ColumnFamilyHandle*> cfhs_order_3_2_0_1{handles_[3], handles_[2],
+                                                      handles_[0], handles_[1]};
+  std::vector<Slice> expected_keys{"key_1", "key_2", "key_3"};
+  std::vector<Slice> expected_values{"key_1_cf_0_val", "key_2_cf_1_val",
+                                     "key_3_cf_1_val"};
+
+  VerifyCoalescingIterator(cfhs_order_3_2_0_1, expected_keys, expected_values,
+                           /* expected_wide_columns */ std::nullopt,
+                           /* lower_bound */ nullptr, /* upper_bound */ nullptr,
+                           /* allow_unprepared_value */ true);
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+
+  {
+    std::unique_ptr<Iterator> iter =
+        db_->NewCoalescingIterator(read_options, cfhs_order_3_2_0_1);
+    iter->Seek("");
+    ASSERT_EQ(IterStatus(iter.get()), "key_1->");
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
+
+    iter->Seek("key_1");
+    ASSERT_EQ(IterStatus(iter.get()), "key_1->");
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
+
+    iter->Seek("key_2");
+    ASSERT_EQ(IterStatus(iter.get()), "key_2->");
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(IterStatus(iter.get()), "key_2->key_2_cf_1_val");
+
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter.get()), "key_3->");
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(IterStatus(iter.get()), "key_3->key_3_cf_1_val");
+
+    iter->Seek("key_x");
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+  }
+
+  {
+    std::unique_ptr<Iterator> iter =
+        db_->NewCoalescingIterator(read_options, cfhs_order_3_2_0_1);
+    iter->SeekForPrev("");
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+
+    iter->SeekForPrev("key_1");
+    ASSERT_EQ(IterStatus(iter.get()), "key_1->");
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(IterStatus(iter.get()), "key_1->key_1_cf_0_val");
+
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter.get()), "key_2->");
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(IterStatus(iter.get()), "key_2->key_2_cf_1_val");
+
+    iter->SeekForPrev("key_x");
+    ASSERT_EQ(IterStatus(iter.get()), "key_3->");
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(IterStatus(iter.get()), "key_3->key_3_cf_1_val");
+
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter.get()), "(invalid)");
+  }
+}
+
+TEST_F(CoalescingIteratorTest, AllowUnpreparedValue_Corruption) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+
+  CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
+
+  ASSERT_OK(Put(0, "key_1", "key_1_cf_0_val"));
+  ASSERT_OK(Put(3, "key_1", "key_1_cf_3_val"));
+  ASSERT_OK(Put(1, "key_2", "key_2_cf_1_val"));
+  ASSERT_OK(Put(2, "key_2", "key_2_cf_2_val"));
+  ASSERT_OK(Put(0, "key_3", "key_3_cf_0_val"));
+  ASSERT_OK(Put(1, "key_3", "key_3_cf_1_val"));
+  ASSERT_OK(Put(3, "key_3", "key_3_cf_3_val"));
+
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+
+  std::vector<ColumnFamilyHandle*> cfhs_order_3_2_0_1{handles_[3], handles_[2],
+                                                      handles_[0], handles_[1]};
+
+  std::unique_ptr<Iterator> iter =
+      db_->NewCoalescingIterator(read_options, cfhs_order_3_2_0_1);
+  iter->SeekToFirst();
+
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), "key_1");
+  ASSERT_TRUE(iter->value().empty());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileReader::GetBlob:TamperWithResult", [](void* arg) {
+        Slice* const blob_index = static_cast<Slice*>(arg);
+        assert(blob_index);
+        assert(!blob_index->empty());
+        blob_index->remove_prefix(1);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_FALSE(iter->PrepareValue());
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 class AttributeGroupIteratorTest : public DBTestBase {
  public:
   AttributeGroupIteratorTest()
@@ -790,17 +930,27 @@ class AttributeGroupIteratorTest : public DBTestBase {
       const std::vector<ColumnFamilyHandle*>& cfhs,
       const std::vector<Slice>& expected_keys,
       const std::vector<IteratorAttributeGroups>& expected_attribute_groups,
-      const Slice* lower_bound = nullptr, const Slice* upper_bound = nullptr) {
+      const Slice* lower_bound = nullptr, const Slice* upper_bound = nullptr,
+      bool allow_unprepared_value = false) {
     const size_t num_keys = expected_keys.size();
 
     ReadOptions read_options;
     read_options.iterate_lower_bound = lower_bound;
     read_options.iterate_upper_bound = upper_bound;
+    read_options.allow_unprepared_value = allow_unprepared_value;
+
     std::unique_ptr<AttributeGroupIterator> iter =
         db_->NewAttributeGroupIterator(read_options, cfhs);
 
     auto check_iter_entry = [&](size_t idx) {
       ASSERT_EQ(iter->key(), expected_keys[idx]);
+
+      if (allow_unprepared_value) {
+        ASSERT_TRUE(iter->attribute_groups().empty());
+        ASSERT_TRUE(iter->PrepareValue());
+        ASSERT_TRUE(iter->Valid());
+      }
+
       ASSERT_EQ(iter->attribute_groups(), expected_attribute_groups[idx]);
     };
 
@@ -936,6 +1086,82 @@ TEST_F(AttributeGroupIteratorTest, IterateAttributeGroups) {
     VerifyAttributeGroupIterator(cfhs_order_0_1_2_3, expected_keys,
                                  expected_attribute_groups, &lb, &ub);
   }
+}
+
+TEST_F(AttributeGroupIteratorTest, AllowUnpreparedValue) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, options);
+
+  constexpr char key_1[] = "key_1";
+  WideColumns key_1_columns_in_cf_2{
+      {kDefaultWideColumnName, "cf_2_col_val_0_key_1"},
+      {"cf_2_col_name_1", "cf_2_col_val_1_key_1"},
+      {"cf_2_col_name_2", "cf_2_col_val_2_key_1"}};
+  WideColumns key_1_columns_in_cf_3{
+      {"cf_3_col_name_1", "cf_3_col_val_1_key_1"},
+      {"cf_3_col_name_2", "cf_3_col_val_2_key_1"},
+      {"cf_3_col_name_3", "cf_3_col_val_3_key_1"}};
+
+  constexpr char key_2[] = "key_2";
+  WideColumns key_2_columns_in_cf_1{
+      {"cf_1_col_name_1", "cf_1_col_val_1_key_2"}};
+  WideColumns key_2_columns_in_cf_2{
+      {"cf_2_col_name_1", "cf_2_col_val_1_key_2"},
+      {"cf_2_col_name_2", "cf_2_col_val_2_key_2"}};
+
+  constexpr char key_3[] = "key_3";
+  WideColumns key_3_columns_in_cf_1{
+      {"cf_1_col_name_1", "cf_1_col_val_1_key_3"}};
+  WideColumns key_3_columns_in_cf_3{
+      {"cf_3_col_name_1", "cf_3_col_val_1_key_3"}};
+
+  constexpr char key_4[] = "key_4";
+  WideColumns key_4_columns_in_cf_0{
+      {"cf_0_col_name_1", "cf_0_col_val_1_key_4"}};
+  WideColumns key_4_columns_in_cf_2{
+      {"cf_2_col_name_1", "cf_2_col_val_1_key_4"}};
+
+  AttributeGroups key_1_attribute_groups{
+      AttributeGroup(handles_[2], key_1_columns_in_cf_2),
+      AttributeGroup(handles_[3], key_1_columns_in_cf_3)};
+  AttributeGroups key_2_attribute_groups{
+      AttributeGroup(handles_[1], key_2_columns_in_cf_1),
+      AttributeGroup(handles_[2], key_2_columns_in_cf_2)};
+  AttributeGroups key_3_attribute_groups{
+      AttributeGroup(handles_[1], key_3_columns_in_cf_1),
+      AttributeGroup(handles_[3], key_3_columns_in_cf_3)};
+  AttributeGroups key_4_attribute_groups{
+      AttributeGroup(handles_[0], key_4_columns_in_cf_0),
+      AttributeGroup(handles_[2], key_4_columns_in_cf_2)};
+
+  ASSERT_OK(db_->PutEntity(WriteOptions(), key_1, key_1_attribute_groups));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), key_2, key_2_attribute_groups));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), key_3, key_3_attribute_groups));
+  ASSERT_OK(db_->PutEntity(WriteOptions(), key_4, key_4_attribute_groups));
+
+  IteratorAttributeGroups key_1_expected_attribute_groups{
+      IteratorAttributeGroup(key_1_attribute_groups[0]),
+      IteratorAttributeGroup(key_1_attribute_groups[1])};
+  IteratorAttributeGroups key_2_expected_attribute_groups{
+      IteratorAttributeGroup(key_2_attribute_groups[0]),
+      IteratorAttributeGroup(key_2_attribute_groups[1])};
+  IteratorAttributeGroups key_3_expected_attribute_groups{
+      IteratorAttributeGroup(key_3_attribute_groups[0]),
+      IteratorAttributeGroup(key_3_attribute_groups[1])};
+  IteratorAttributeGroups key_4_expected_attribute_groups{
+      IteratorAttributeGroup(key_4_attribute_groups[0]),
+      IteratorAttributeGroup(key_4_attribute_groups[1])};
+
+  std::vector<ColumnFamilyHandle*> cfhs_order_0_1_2_3{handles_[0], handles_[1],
+                                                      handles_[2], handles_[3]};
+  std::vector<Slice> expected_keys{key_1, key_2, key_3, key_4};
+  std::vector<IteratorAttributeGroups> expected_attribute_groups{
+      key_1_expected_attribute_groups, key_2_expected_attribute_groups,
+      key_3_expected_attribute_groups, key_4_expected_attribute_groups};
+  VerifyAttributeGroupIterator(
+      cfhs_order_0_1_2_3, expected_keys, expected_attribute_groups,
+      /* lower_bound */ nullptr, /* upper_bound */ nullptr,
+      /* allow_unprepared_value */ true);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

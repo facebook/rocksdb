@@ -24,11 +24,12 @@ struct MultiCfIteratorInfo {
 template <typename ResetFunc, typename PopulateFunc>
 class MultiCfIteratorImpl {
  public:
-  MultiCfIteratorImpl(const Comparator* comparator,
+  MultiCfIteratorImpl(const Comparator* comparator, bool allow_unprepared_value,
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       const std::vector<Iterator*>& child_iterators,
                       ResetFunc reset_func, PopulateFunc populate_func)
       : comparator_(comparator),
+        allow_unprepared_value_(allow_unprepared_value),
         heap_(MultiCfMinHeap(
             MultiCfHeapItemComparator<std::greater<int>>(comparator_))),
         reset_func_(std::move(reset_func)),
@@ -100,6 +101,41 @@ class MultiCfIteratorImpl {
     AdvanceIterator(max_heap, [](Iterator* iter) { iter->Prev(); });
   }
 
+  bool PrepareValue() {
+    assert(Valid());
+
+    if (!allow_unprepared_value_) {
+      return true;
+    }
+
+    auto prepare_value_func = [this](auto& heap, Iterator* iterator) {
+      assert(iterator);
+      assert(iterator->Valid());
+      assert(iterator->status().ok());
+
+      if (!iterator->PrepareValue()) {
+        assert(!iterator->Valid());
+        assert(!iterator->status().ok());
+
+        considerStatus(iterator->status());
+        assert(!status_.ok());
+
+        heap.clear();
+        return false;
+      }
+
+      return true;
+    };
+
+    if (std::holds_alternative<MultiCfMaxHeap>(heap_)) {
+      return PopulateIterator(std::get<MultiCfMaxHeap>(heap_),
+                              prepare_value_func);
+    }
+
+    return PopulateIterator(std::get<MultiCfMinHeap>(heap_),
+                            prepare_value_func);
+  }
+
  private:
   std::vector<std::pair<ColumnFamilyHandle*, std::unique_ptr<Iterator>>>
       cfh_iter_pairs_;
@@ -124,7 +160,10 @@ class MultiCfIteratorImpl {
    private:
     const Comparator* comparator_;
   };
+
   const Comparator* comparator_;
+  bool allow_unprepared_value_;
+
   using MultiCfMinHeap =
       BinaryHeap<MultiCfIteratorInfo,
                  MultiCfHeapItemComparator<std::greater<int>>>;
@@ -185,13 +224,16 @@ class MultiCfIteratorImpl {
         if (!status_.ok()) {
           // Non-OK status from the iterator. Bail out early
           heap.clear();
-          break;
+          return;
         }
       }
       ++i;
     }
-    if (!heap.empty()) {
-      PopulateIterator(heap);
+    if (!allow_unprepared_value_ && !heap.empty()) {
+      [[maybe_unused]] const bool result = PopulateIterator(
+          heap,
+          [](auto& /* heap */, Iterator* /* iterator */) { return true; });
+      assert(result);
     }
   }
 
@@ -257,13 +299,16 @@ class MultiCfIteratorImpl {
       }
     }
 
-    if (!heap.empty()) {
-      PopulateIterator(heap);
+    if (!allow_unprepared_value_ && !heap.empty()) {
+      [[maybe_unused]] const bool result = PopulateIterator(
+          heap,
+          [](auto& /* heap */, Iterator* /* iterator */) { return true; });
+      assert(result);
     }
   }
 
-  template <typename BinaryHeap>
-  void PopulateIterator(BinaryHeap& heap) {
+  template <typename BinaryHeap, typename PrepareValueFunc>
+  bool PopulateIterator(BinaryHeap& heap, PrepareValueFunc prepare_value_func) {
     // 1. Keep the top iterator (by popping it from the heap) and add it to list
     //    to populate
     // 2. For all non-top iterators having the same key as top iter popped
@@ -279,10 +324,14 @@ class MultiCfIteratorImpl {
     assert(top.iterator->Valid());
     assert(top.iterator->status().ok());
 
-    heap.pop();
+    if (!prepare_value_func(heap, top.iterator)) {
+      return false;
+    }
 
     autovector<MultiCfIteratorInfo> to_populate;
+
     to_populate.push_back(top);
+    heap.pop();
 
     while (!heap.empty()) {
       auto current = heap.top();
@@ -295,6 +344,10 @@ class MultiCfIteratorImpl {
         break;
       }
 
+      if (!prepare_value_func(heap, current.iterator)) {
+        return false;
+      }
+
       to_populate.push_back(current);
       heap.pop();
     }
@@ -305,6 +358,8 @@ class MultiCfIteratorImpl {
     }
 
     populate_func_(to_populate);
+
+    return true;
   }
 };
 
