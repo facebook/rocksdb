@@ -735,17 +735,6 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     size_t total_byte_size = 0;
 
     if (w.status.ok()) {
-      // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
-      // grabs but does not seem thread-safe.
-      if (tracer_) {
-        InstrumentedMutexLock lock(&trace_mutex_);
-        if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
-          for (auto* writer : wal_write_group) {
-            // TODO: maybe handle the tracing status?
-            tracer_->Write(writer->batch).PermitUncheckedError();
-          }
-        }
-      }
       SequenceNumber next_sequence = current_sequence;
       for (auto* writer : wal_write_group) {
         assert(writer);
@@ -757,6 +746,22 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                 total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
             next_sequence += count;
             total_count += count;
+          }
+        }
+      }
+      // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+      // grabs but does not seem thread-safe.
+      if (tracer_) {
+        InstrumentedMutexLock lock(&trace_mutex_);
+        if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+          for (auto* writer : wal_write_group) {
+            if (writer->CallbackFailed()) {
+              // When optimisitc txn conflict checking fails, we should
+              // not record to trace.
+              continue;
+            }
+            // TODO: maybe handle the tracing status?
+            tracer_->Write(writer->batch).PermitUncheckedError();
           }
         }
       }
@@ -1005,19 +1010,6 @@ Status DBImpl::WriteImplWALOnly(
   WriteThread::WriteGroup write_group;
   uint64_t last_sequence;
   write_thread->EnterAsBatchGroupLeader(&w, &write_group);
-  // Note: no need to update last_batch_group_size_ here since the batch writes
-  // to WAL only
-  // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
-  // grabs but does not seem thread-safe.
-  if (tracer_) {
-    InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
-      for (auto* writer : write_group) {
-        // TODO: maybe handle the tracing status?
-        tracer_->Write(writer->batch).PermitUncheckedError();
-      }
-    }
-  }
 
   size_t pre_release_callback_cnt = 0;
   size_t total_byte_size = 0;
@@ -1028,6 +1020,23 @@ Status DBImpl::WriteImplWALOnly(
           total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
       if (writer->pre_release_callback) {
         pre_release_callback_cnt++;
+      }
+    }
+  }
+
+  // Note: no need to update last_batch_group_size_ here since the batch writes
+  // to WAL only
+  // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+  // grabs but does not seem thread-safe.
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+      for (auto* writer : write_group) {
+        if (writer->CallbackFailed()) {
+          continue;
+        }
+        // TODO: maybe handle the tracing status?
+        tracer_->Write(writer->batch).PermitUncheckedError();
       }
     }
   }
