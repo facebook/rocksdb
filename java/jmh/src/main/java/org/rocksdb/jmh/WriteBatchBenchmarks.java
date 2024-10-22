@@ -126,13 +126,7 @@ public class WriteBatchBenchmarks {
   /**
    * Holds a JavaNative (buffer ops on the Java side) write batch
    */
-  @State(Scope.Thread)
-  public static class WriteBatchThreadNative extends WriteBatchThreadBase<WriteBatchJavaNative> {
-
-    @Override
-    public void startBatch() {
-      writeBatch = new WriteBatchJavaNative(writeBatchAllocation);
-    }
+  public abstract static class WriteBatchThreadNative<TBatch extends WriteBatchJavaNative> extends WriteBatchThreadBase<TBatch> {
 
     @Override
     public void stopBatch() throws RocksDBException {
@@ -149,6 +143,24 @@ public class WriteBatchBenchmarks {
 
     @TearDown public void teardown() throws RocksDBException {
       stopBatch();
+    }
+  }
+
+  @State(Scope.Thread)
+  public static class WriteBatchThreadNativeArray extends WriteBatchThreadNative<WriteBatchJavaNativeArray> {
+
+    @Override
+    public void startBatch() {
+      writeBatch = new WriteBatchJavaNativeArray(writeBatchAllocation);
+    }
+  }
+
+  @State(Scope.Thread)
+  public static class WriteBatchThreadNativeDirect extends WriteBatchThreadNative<WriteBatchJavaNativeDirect> {
+
+    @Override
+    public void startBatch() {
+      writeBatch = new WriteBatchJavaNativeDirect(writeBatchAllocation);
     }
   }
 
@@ -232,7 +244,7 @@ public class WriteBatchBenchmarks {
   }
 
   @Benchmark
-  public void putWriteBatchNative(WriteBatchThreadNative batch, ByteArrayData data) throws RocksDBException {
+  public void putWriteBatchNative(WriteBatchThreadNativeArray batch, ByteArrayData data) throws RocksDBException {
 
     long i = index.getAndIncrement() % keyCount;
 
@@ -253,8 +265,8 @@ public class WriteBatchBenchmarks {
     batch.put(data.key, data.value);
   }
 
-  //@Benchmark
-  public void putWriteBatchNativeBB(WriteBatchThreadNative batch, ByteBufferData data) throws RocksDBException {
+  @Benchmark
+  public void putWriteBatchNativeBB(WriteBatchThreadNativeDirect batch, ByteBufferData data) throws RocksDBException {
 
     long i = index.getAndIncrement() % keyCount;
 

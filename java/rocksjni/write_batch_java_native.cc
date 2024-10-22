@@ -39,24 +39,17 @@ void Java_org_rocksdb_WriteBatchJavaNative_disposeInternalWriteBatchJavaNative(
   delete wb;
 }
 
-/*
- * Class:     org_rocksdb_WriteBatchJavaNative
- * Method:    flushWriteBatchJavaNative
- * Signature: (JJ[B)V
+/**
+ * @brief copy operations from Java-side write batch cache to C++ side write
+ * batch
+ *
+ * @param wb write batch
+ * @param bp
  */
-void Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNative(
-    JNIEnv* env, jclass /*jcls*/, jlong jwb_handle, jlong jbuf_len,
-    jbyteArray jbuf) {
-  auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchJavaNative*>(jwb_handle);
-  assert(wb != nullptr);
-
-  jbyte* buf = env->GetByteArrayElements(jbuf, nullptr);
-  if (env->ExceptionCheck()) {
-    // exception thrown: OutOfMemoryError
-    return;
-  }
-  auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(buf, jbuf_len);
-
+void copy_write_batch_from_java(
+    JNIEnv* env,
+    ROCKSDB_NAMESPACE::WriteBatchJavaNative* wb,
+    std::unique_ptr<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>& bp) {
   while (bp->has_next()) {
     jint op = bp->next_int();
     switch (op) {
@@ -102,6 +95,53 @@ void Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNative(
       } break;
     }
   }
+}
 
-  env->ReleaseByteArrayElements(jbuf, buf, JNI_ABORT);
+/**
+ * @brief 
+ * 
+ */
+void Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNativeDirect(
+    JNIEnv* env, jclass /*jcls*/, jlong jwb_handle, jlong jbuf_len,
+    jobject jbuf) {
+  auto* wb =
+      reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchJavaNative*>(jwb_handle);
+  assert(wb != nullptr);
+
+  jbyte* buf = reinterpret_cast<jbyte*>(env->GetDirectBufferAddress(jbuf));
+
+  if (env->ExceptionCheck()) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+  auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(
+        buf, jbuf_len);
+
+  copy_write_batch_from_java(env, wb, bp);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchJavaNative
+ * Method:    flushWriteBatchJavaNativeArray
+ * Signature: (JJ[B)V
+ */
+void Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNativeArray(
+    JNIEnv* env, jclass /*jcls*/, jlong jwb_handle, jlong jbuf_len,
+    jbyteArray jbuf) {
+  auto* wb =
+      reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchJavaNative*>(jwb_handle);
+  assert(wb != nullptr);
+
+  jbyte* buf = env->GetByteArrayElements(jbuf, nullptr);
+  if (env->ExceptionCheck()) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+  
+    auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(
+        buf, jbuf_len);
+
+    copy_write_batch_from_java(env, wb, bp);
+  
+    env->ReleaseByteArrayElements(jbuf, buf, JNI_ABORT);
 }
