@@ -401,7 +401,8 @@ static struct BlockBasedTableTypeInfo {
 // options
 BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
-    : table_options_(_table_options) {
+    : table_options_(_table_options),
+      shared_state_(std::make_shared<SharedState>()) {
   InitializeOptions();
   RegisterOptions(&table_options_, &block_based_table_type_info.info);
 
@@ -411,10 +412,11 @@ BlockBasedTableFactory::BlockBasedTableFactory(
           .charged;
   if (table_options_.block_cache &&
       table_reader_charged == CacheEntryRoleOptions::Decision::kEnabled) {
-    table_reader_cache_res_mgr_.reset(new ConcurrentCacheReservationManager(
-        std::make_shared<CacheReservationManagerImpl<
-            CacheEntryRole::kBlockBasedTableReader>>(
-            table_options_.block_cache)));
+    shared_state_->table_reader_cache_res_mgr =
+        std::make_shared<ConcurrentCacheReservationManager>(
+            std::make_shared<CacheReservationManagerImpl<
+                CacheEntryRole::kBlockBasedTableReader>>(
+                table_options_.block_cache));
   }
 }
 
@@ -552,11 +554,13 @@ Status BlockBasedTableFactory::NewTableReader(
       ro, table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
       file_size, table_reader_options.block_protection_bytes_per_key,
-      table_reader, table_reader_options.tail_size, table_reader_cache_res_mgr_,
+      table_reader, table_reader_options.tail_size,
+      shared_state_->table_reader_cache_res_mgr,
       table_reader_options.prefix_extractor, prefetch_index_and_filter_in_cache,
       table_reader_options.skip_filters, table_reader_options.level,
       table_reader_options.immortal, table_reader_options.largest_seqno,
-      table_reader_options.force_direct_prefetch, &tail_prefetch_stats_,
+      table_reader_options.force_direct_prefetch,
+      &shared_state_->tail_prefetch_stats,
       table_reader_options.block_cache_tracer,
       table_reader_options.max_file_size_for_l0_meta_pin,
       table_reader_options.cur_db_session_id, table_reader_options.cur_file_num,

@@ -934,6 +934,9 @@ class TableFactory : public Customizable {
       const TableBuilderOptions& table_builder_options,
       WritableFileWriter* file) const = 0;
 
+  // TODO: doc
+  virtual std::unique_ptr<TableFactory> Clone() const = 0;
+
   // Return is delete range supported
   virtual bool IsDeleteRangeSupported() const { return false; }
 };

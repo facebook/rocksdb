@@ -305,6 +305,17 @@ class RibbonFilterPolicy : public BloomLikeFilterPolicy {
   static const char* kName();
   std::string GetId() const override;
 
+ protected:
+  /*
+  Status ConfigureOptions(
+      const ConfigOptions& ,
+      const std::unordered_map<std::string, std::string>& ,
+      std::unordered_map<std::string, std::string>* ) override {
+    assert(false);
+    return Status::NotSupported("ConfigureOptions not supported");
+  }
+  */
+
  private:
   std::atomic<int> bloom_before_level_;
 };

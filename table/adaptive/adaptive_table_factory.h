@@ -46,6 +46,10 @@ class AdaptiveTableFactory : public TableFactory {
 
   std::string GetPrintableOptions() const override;
 
+  std::unique_ptr<TableFactory> Clone() const override {
+    return std::make_unique<AdaptiveTableFactory>(*this);
+  }
+
  private:
   std::shared_ptr<TableFactory> table_factory_to_write_;
   std::shared_ptr<TableFactory> block_based_table_factory_;

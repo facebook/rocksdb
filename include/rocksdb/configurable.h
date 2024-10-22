@@ -47,8 +47,10 @@ class Configurable {
   struct RegisteredOptions {
     // The name of the options being registered
     std::string name;
-    // Pointer to the object being registered
-    void* opt_ptr;
+    // Pointer to the object being registered, relative to `this` so that
+    // RegisteredOptions are copyable from one Configurable to another of the
+    // same type, assuming the option is a member of `this`.
+    intptr_t opt_offset;
     // The map of options being registered
     const std::unordered_map<std::string, OptionTypeInfo>* type_map;
   };
@@ -384,9 +386,9 @@ class Configurable {
   inline bool HasRegisteredOptions() const { return !options_.empty(); }
 
  private:
-  // Contains the collection of options (name, opt_ptr, opt_map) associated with
-  // this object. This collection is typically set in the constructor of the
-  // Configurable option via
+  // Contains the collection of options (name, opt_offset, opt_map) associated
+  // with this object. This collection is typically set in the constructor of
+  // the specific Configurable via RegisterOptions().
   std::vector<RegisteredOptions> options_;
 };
 }  // namespace ROCKSDB_NAMESPACE
