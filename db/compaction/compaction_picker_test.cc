@@ -118,13 +118,7 @@ class CompactionPickerTestBase : public testing::Test {
     ioptions_.level_compaction_dynamic_level_bytes = false;
   }
 
-  ~CompactionPickerTestBase() override {
-    for (auto& file : files_) {
-      if (file->fd.table_reader != nullptr) {
-        delete file->fd.table_reader;
-      }
-    }
-  }
+  ~CompactionPickerTestBase() override { ClearFiles(); }
 
   void NewVersionStorage(int num_levels, CompactionStyle style) {
     DeleteVersionStorage();
@@ -150,7 +144,7 @@ class CompactionPickerTestBase : public testing::Test {
   void DeleteVersionStorage() {
     vstorage_.reset();
     temp_vstorage_.reset();
-    files_.clear();
+    ClearFiles();
     file_map_.clear();
     input_files_.clear();
   }
@@ -255,6 +249,15 @@ class CompactionPickerTestBase : public testing::Test {
     Options opts;
     opts.comparator = ucmp;
     return opts;
+  }
+
+  void ClearFiles() {
+    for (auto& file : files_) {
+      if (file->fd.table_reader != nullptr) {
+        delete file->fd.table_reader;
+      }
+    }
+    files_.clear();
   }
 
   std::unique_ptr<VersionStorageInfo> temp_vstorage_;
