@@ -386,7 +386,7 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
         ROCKS_LOG_BUFFER(
             log_buffer,
             "[%s] FIFO compaction: picking file %" PRIu64
-            " with next file's oldest time %" PRIu64 " for temperature %s.",
+            " with newest key time %" PRIu64 " for temperature %s.",
             cf_name.c_str(), cur_file->fd.GetNumber(), newest_key_time,
             temperature_to_string[cur_target_temp].c_str());
         break;
