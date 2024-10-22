@@ -29,7 +29,8 @@ class CountingLogger : public Logger {
 
 class DummyTablePropertiesReader : public TableReader {
  public:
-  DummyTablePropertiesReader(TableProperties* tp) : tp_(tp) {}
+  DummyTablePropertiesReader(uint64_t newest_key_time)
+      : newest_key_time_(newest_key_time) {}
 
   InternalIterator* NewIterator(const ReadOptions&, const SliceTransform*,
                                 Arena*, bool, TableReaderCaller, size_t,
@@ -50,7 +51,10 @@ class DummyTablePropertiesReader : public TableReader {
   void SetupForCompaction() override {}
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override {
-    return std::shared_ptr<const TableProperties>(tp_);
+    TableProperties* tp = new TableProperties();
+    tp->newest_key_time = newest_key_time_;
+
+    return std::shared_ptr<const TableProperties>(tp);
   }
 
   size_t ApproximateMemoryUsage() const override { return 0; }
@@ -61,7 +65,7 @@ class DummyTablePropertiesReader : public TableReader {
   }
 
  private:
-  TableProperties* tp_;
+  uint64_t newest_key_time_;
 };
 
 class CompactionPickerTestBase : public testing::Test {
@@ -201,9 +205,7 @@ class CompactionPickerTestBase : public testing::Test {
     f->oldest_ancester_time = oldest_ancestor_time;
     // newest_key_time from TableProperties is replacing oldest_ancester_time in
     // file metadata
-    auto tp = new TableProperties();
-    tp->newest_key_time = oldest_ancestor_time;
-    f->fd.table_reader = new DummyTablePropertiesReader(tp);
+    f->fd.table_reader = new DummyTablePropertiesReader(oldest_ancestor_time);
 
     vstorage->AddFile(level, f);
     files_.emplace_back(f);
