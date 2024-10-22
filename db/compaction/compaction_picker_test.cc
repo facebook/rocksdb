@@ -27,6 +27,43 @@ class CountingLogger : public Logger {
   size_t log_count;
 };
 
+class DummyTablePropertiesReader : public TableReader {
+ public:
+  DummyTablePropertiesReader(TableProperties* tp) : tp_(tp) {}
+
+  InternalIterator* NewIterator(const ReadOptions&, const SliceTransform*,
+                                Arena*, bool, TableReaderCaller, size_t,
+                                bool) override {
+    return nullptr;
+  }
+
+  uint64_t ApproximateOffsetOf(const ReadOptions&, const Slice&,
+                               TableReaderCaller) override {
+    return 0;
+  }
+
+  uint64_t ApproximateSize(const ReadOptions&, const Slice&, const Slice&,
+                           TableReaderCaller) override {
+    return 0;
+  }
+
+  void SetupForCompaction() override {}
+
+  std::shared_ptr<const TableProperties> GetTableProperties() const override {
+    return std::shared_ptr<const TableProperties>(tp_);
+  }
+
+  size_t ApproximateMemoryUsage() const override { return 0; }
+
+  Status Get(const ReadOptions&, const Slice&, GetContext*,
+             const SliceTransform*, bool) override {
+    return Status();
+  }
+
+ private:
+  TableProperties* tp_;
+};
+
 class CompactionPickerTestBase : public testing::Test {
  public:
   const Comparator* ucmp_;
@@ -162,6 +199,12 @@ class CompactionPickerTestBase : public testing::Test {
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
     f->oldest_ancester_time = oldest_ancestor_time;
+    // newest_key_time from TableProperties is replacing oldest_ancester_time in
+    // file metadata
+    auto tp = new TableProperties();
+    tp->newest_key_time = oldest_ancestor_time;
+    f->fd.table_reader = new DummyTablePropertiesReader(tp);
+
     vstorage->AddFile(level, f);
     files_.emplace_back(f);
     file_map_.insert({file_number, {f, level}});
