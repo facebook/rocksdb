@@ -96,3 +96,14 @@ WriteBatchBenchmarks.putWriteBatch            100000         16              100
 WriteBatchBenchmarks.putWriteBatchBB          100000         16              1000        16384                 1000000  thrpt    5  39739.591 ± 7123.974  ops/s
 WriteBatchBenchmarks.putWriteBatchNative      100000         16              1000        16384                 1000000  thrpt    5  40875.350 ± 3258.271  ops/s
 
+We return to the first benchmark, but we have added writing to direct `ByteBuffer`(s) for the native case. The direct buffer does not seem particularly better:
+```
+java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatch -p keySize="16" -p valueSize="32" -p numOpsPerFlush="1000" -p writeBatchAllocation="65536"
+```
+
+Benchmark                                   (keyCount)  (keySize)  (numOpsPerFlush)  (valueSize)  (writeBatchAllocation)   Mode  Cnt       Score       Error  Units
+WriteBatchBenchmarks.putWriteBatch              100000         16              1000           32                   65536  thrpt    5  557242.202 ± 17512.382  ops/s
+WriteBatchBenchmarks.putWriteBatchBB            100000         16              1000           32                   65536  thrpt    5  583374.020 ± 28841.795  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000           32                   65536  thrpt    5  673348.944 ± 38294.671  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000           32                   65536  thrpt    5  659737.742 ± 35603.782  ops/s
+

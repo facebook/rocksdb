@@ -54,6 +54,8 @@ public class WriteBatchBenchmarks {
 
     @Param ({"131072"}) int writeBatchAllocation;
 
+    @Param ({"true","false"}) boolean flushToDB;
+
     final AtomicInteger opIndex = new AtomicInteger();
 
     TBatch writeBatch;
@@ -110,7 +112,9 @@ public class WriteBatchBenchmarks {
     public void stopBatch() throws RocksDBException {
       if (writeBatch != null) {
         try {
-          rocksDB.write(new WriteOptions(), writeBatch);
+          if (flushToDB) {
+            rocksDB.write(new WriteOptions(), writeBatch);
+          }
         } finally {
           writeBatch.close();
           writeBatch = null;
@@ -133,7 +137,9 @@ public class WriteBatchBenchmarks {
       if (writeBatch != null) {
         try {
           writeBatch.flush();
-          rocksDB.write(new WriteOptions(), writeBatch);
+          if (flushToDB) {
+            rocksDB.write(new WriteOptions(), writeBatch);
+          }
         } finally {
           writeBatch.close();
           writeBatch = null;
