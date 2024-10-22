@@ -424,6 +424,7 @@ struct CompactionServiceOutputFile {
   uint64_t paranoid_hash;
   bool marked_for_compaction;
   UniqueId64x2 unique_id{};
+  TableProperties table_properties;
 
   CompactionServiceOutputFile() = default;
   CompactionServiceOutputFile(
@@ -432,7 +433,8 @@ struct CompactionServiceOutputFile {
       uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
       uint64_t _epoch_number, const std::string& _file_checksum,
       const std::string& _file_checksum_func_name, uint64_t _paranoid_hash,
-      bool _marked_for_compaction, UniqueId64x2 _unique_id)
+      bool _marked_for_compaction, UniqueId64x2 _unique_id,
+      const std::shared_ptr<const TableProperties>& _table_properties)
       : file_name(name),
         smallest_seqno(smallest),
         largest_seqno(largest),
@@ -445,7 +447,8 @@ struct CompactionServiceOutputFile {
         file_checksum_func_name(_file_checksum_func_name),
         paranoid_hash(_paranoid_hash),
         marked_for_compaction(_marked_for_compaction),
-        unique_id(std::move(_unique_id)) {}
+        unique_id(std::move(_unique_id)),
+        table_properties(*_table_properties.get()) {}
 };
 
 // CompactionServiceResult contains the compaction result from a different db

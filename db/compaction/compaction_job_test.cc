@@ -1661,6 +1661,8 @@ TEST_F(CompactionJobTest, ResultSerialization) {
 
   std::string file_checksum = rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen));
   std::string file_checksum_func_name = "MyAwesomeChecksumGenerator";
+  std::shared_ptr<const TableProperties> table_properties =
+      std::make_shared<const TableProperties>();
   while (!rnd.OneIn(10)) {
     UniqueId64x2 id{rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX)};
     result.output_files.emplace_back(
@@ -1677,7 +1679,8 @@ TEST_F(CompactionJobTest, ResultSerialization) {
         file_checksum /* file_checksum */,
         file_checksum_func_name /* file_checksum_func_name */,
         rnd64.Uniform(UINT64_MAX) /* paranoid_hash */,
-        rnd.OneIn(2) /* marked_for_compaction */, id);
+        rnd.OneIn(2) /* marked_for_compaction */, id /* unique_id */,
+        table_properties);
   }
   result.output_level = rnd.Uniform(10);
   result.output_path = rnd.RandomString(rnd.Uniform(kStrMaxLen));
