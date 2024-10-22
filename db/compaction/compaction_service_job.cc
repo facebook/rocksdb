@@ -212,6 +212,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     sub_compact->Current().AddOutput(std::move(meta),
                                      cfd->internal_comparator(), false, true,
                                      file.paranoid_hash);
+    sub_compact->Current().UpdateTableProperties(file.table_properties);
   }
   sub_compact->compaction_job_stats = compaction_result.stats;
   sub_compact->Current().SetNumOutputRecords(
