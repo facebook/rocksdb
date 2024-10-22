@@ -118,7 +118,13 @@ class CompactionPickerTestBase : public testing::Test {
     ioptions_.level_compaction_dynamic_level_bytes = false;
   }
 
-  ~CompactionPickerTestBase() override = default;
+  ~CompactionPickerTestBase() override {
+    for (auto& file : files_) {
+      if (file->fd.table_reader != nullptr) {
+        delete file->fd.table_reader;
+      }
+    }
+  }
 
   void NewVersionStorage(int num_levels, CompactionStyle style) {
     DeleteVersionStorage();
@@ -203,8 +209,8 @@ class CompactionPickerTestBase : public testing::Test {
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
     f->oldest_ancester_time = oldest_ancestor_time;
-    // newest_key_time from TableProperties is replacing oldest_ancester_time in
-    // file metadata
+    // newest_key_time from TableProperties is replacing oldest_ancester_time
+    // in file metadata
     f->fd.table_reader = new DummyTablePropertiesReader(oldest_ancestor_time);
 
     vstorage->AddFile(level, f);
