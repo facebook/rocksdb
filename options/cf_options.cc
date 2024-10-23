@@ -142,12 +142,13 @@ static Status TableFactoryParseFn(const ConfigOptions& opts,
   Status s;
   if (name == "block_based_table_factory") {
     if (table_factory->get() != nullptr) {
-      if (std::string(table_factory->get()->Name()) ==
-          TableFactory::kBlockBasedTableName()) {
+      std::string factory_name = table_factory->get()->Name();
+      if (factory_name == TableFactory::kBlockBasedTableName()) {
         new_factory = table_factory->get()->Clone();
       } else {
-        return Status::InvalidArgument(  // TODO
-            "Blah ", name);
+        s = Status::InvalidArgument("Cannot modify " + factory_name + " as " +
+                                    name);
+        return s;
       }
     } else {
       new_factory.reset(NewBlockBasedTableFactory());
@@ -156,12 +157,13 @@ static Status TableFactoryParseFn(const ConfigOptions& opts,
     s = new_factory->ConfigureFromString(opts, value);
   } else if (name == "plain_table_factory") {
     if (table_factory->get() != nullptr) {
-      if (std::string(table_factory->get()->Name()) ==
-          TableFactory::kPlainTableName()) {
+      std::string factory_name = table_factory->get()->Name();
+      if (factory_name == TableFactory::kPlainTableName()) {
         new_factory = table_factory->get()->Clone();
       } else {
-        return Status::InvalidArgument(  // TODO
-            "Blah ", name);
+        s = Status::InvalidArgument("Cannot modify " + factory_name + " as " +
+                                    name);
+        return s;
       }
     } else {
       new_factory.reset(NewPlainTableFactory());
@@ -180,8 +182,9 @@ static Status TableFactoryParseFn(const ConfigOptions& opts,
     // Presumably passing a value for a specific field of the table factory
     s = new_factory->ConfigureOption(opts, name, value);
   } else {
-    return Status::NotFound(
-        "Unable to instantiate a table factory from option: ", name);
+    s = Status::NotFound("Unable to instantiate a table factory from option: ",
+                         name);
+    return s;
   }
 
   if (s.ok()) {
