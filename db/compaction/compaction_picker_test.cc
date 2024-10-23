@@ -155,7 +155,6 @@ class CompactionPickerTestBase : public testing::Test {
            SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
            size_t compensated_file_size = 0, bool marked_for_compact = false,
            Temperature temperature = Temperature::kUnknown,
-           uint64_t oldest_ancestor_time = kUnknownOldestAncesterTime,
            uint64_t newest_key_time = 0, Slice ts_of_smallest = Slice(),
            Slice ts_of_largest = Slice(),
            uint64_t epoch_number = kUnknownEpochNumber) {
@@ -203,8 +202,6 @@ class CompactionPickerTestBase : public testing::Test {
         true /* user_defined_timestamps_persisted */);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
-    // TODO: why do we still need f->oldest_ancester_time for tests to pass?
-    f->oldest_ancester_time = oldest_ancestor_time;
     f->fd.table_reader = new DummyTablePropertiesReader(newest_key_time);
 
     vstorage->AddFile(level, f);
@@ -1181,12 +1178,10 @@ TEST_F(CompactionPickerTest, FIFOToCold1) {
       static_cast<uint64_t>(current_time) - kColdThreshold;
   Add(0 /* level */, 4U /* file_number */, "260", "300", 1 * kFileSize, 0, 2500,
       2600, 0, true, Temperature::kUnknown,
-      threshold_time - 2000 /* oldest_ancestor_time */,
       threshold_time - 2000 /* newest_key_time */);
   // Qualifies for compaction to kCold.
   Add(0, 3U, "200", "300", 4 * kFileSize, 0, 2300, 2400, 0, true,
-      Temperature::kUnknown, threshold_time - 3000 /* oldest_ancestor_time */,
-      threshold_time - 3000 /* newest_key_time */);
+      Temperature::kUnknown, threshold_time - 3000 /* newest_key_time */);
   UpdateVersionStorageInfo();
 
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
@@ -1222,20 +1217,19 @@ TEST_F(CompactionPickerTest, FIFOToColdMaxCompactionSize) {
       static_cast<uint64_t>(current_time) - kColdThreshold;
   Add(0, 6U, "240", "290", 2 * kFileSize, 0, 2900, 3000, 0, true,
       Temperature::kUnknown,
-      static_cast<uint64_t>(current_time) - 100 /* oldest_ancestor_time */,
       static_cast<uint64_t>(current_time) - 100 /* newest_key_time */);
   Add(0, 5U, "240", "290", 2 * kFileSize, 0, 2700, 2800, 0, true,
-      Temperature::kUnknown, threshold_time + 100, threshold_time + 100);
+      Temperature::kUnknown, threshold_time + 100);
   Add(0, 4U, "260", "300", 1 * kFileSize, 0, 2500, 2600, 0, true,
-      Temperature::kUnknown, threshold_time - 2000, threshold_time - 2000);
+      Temperature::kUnknown, threshold_time - 2000);
   // The following two files qualify for compaction to kCold.
   // But only the last two should be included to respect `max_compaction_bytes`.
   Add(0, 3U, "200", "300", 4 * kFileSize, 0, 2300, 2400, 0, true,
-      Temperature::kUnknown, threshold_time - 3000, threshold_time - 3000);
+      Temperature::kUnknown, threshold_time - 3000);
   Add(0, 2U, "200", "300", 4 * kFileSize, 0, 2100, 2200, 0, true,
-      Temperature::kUnknown, threshold_time - 4000, threshold_time - 4000);
+      Temperature::kUnknown, threshold_time - 4000);
   Add(0, 1U, "200", "300", 4 * kFileSize, 0, 2000, 2100, 0, true,
-      Temperature::kUnknown, threshold_time - 5000, threshold_time - 5000);
+      Temperature::kUnknown, threshold_time - 5000);
   UpdateVersionStorageInfo();
 
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
@@ -1271,19 +1265,18 @@ TEST_F(CompactionPickerTest, FIFOToColdWithExistingCold) {
   uint64_t threshold_time =
       static_cast<uint64_t>(current_time) - kColdThreshold;
   Add(0, 6U, "240", "290", 2 * kFileSize, 0, 2900, 3000, 0, true,
-      Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100,
-      static_cast<uint64_t>(current_time) - 100);
+      Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100);
   Add(0, 5U, "240", "290", 2 * kFileSize, 0, 2700, 2800, 0, true,
-      Temperature::kUnknown, threshold_time + 100, threshold_time + 100);
+      Temperature::kUnknown, threshold_time + 100);
   Add(0, 4U, "260", "300", 1 * kFileSize, 0, 2500, 2600, 0, true,
-      Temperature::kUnknown, threshold_time - 2000, threshold_time - 2000);
+      Temperature::kUnknown, threshold_time - 2000);
   // The following two files qualify for compaction to kCold.
   Add(0, 3U, "200", "300", 4 * kFileSize, 0, 2300, 2400, 0, true,
-      Temperature::kUnknown, threshold_time - 3000, threshold_time - 3000);
+      Temperature::kUnknown, threshold_time - 3000);
   Add(0, 2U, "200", "300", 4 * kFileSize, 0, 2100, 2200, 0, true,
-      Temperature::kUnknown, threshold_time - 4000, threshold_time - 4000);
+      Temperature::kUnknown, threshold_time - 4000);
   Add(0, 1U, "200", "300", 4 * kFileSize, 0, 2000, 2100, 0, true,
-      Temperature::kCold, threshold_time - 5000, threshold_time - 5000);
+      Temperature::kCold, threshold_time - 5000);
   UpdateVersionStorageInfo();
 
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
@@ -1319,19 +1312,18 @@ TEST_F(CompactionPickerTest, FIFOToColdWithHotBetweenCold) {
   uint64_t threshold_time =
       static_cast<uint64_t>(current_time) - kColdThreshold;
   Add(0, 6U, "240", "290", 2 * kFileSize, 0, 2900, 3000, 0, true,
-      Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100,
-      static_cast<uint64_t>(current_time) - 100);
+      Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100);
   Add(0, 5U, "240", "290", 2 * kFileSize, 0, 2700, 2800, 0, true,
-      Temperature::kUnknown, threshold_time + 100, threshold_time + 100);
+      Temperature::kUnknown, threshold_time + 100);
   Add(0, 4U, "260", "300", 1 * kFileSize, 0, 2500, 2600, 0, true,
-      Temperature::kUnknown, threshold_time - 2000, threshold_time - 2000);
+      Temperature::kUnknown, threshold_time - 2000);
   Add(0, 3U, "200", "300", 4 * kFileSize, 0, 2300, 2400, 0, true,
-      Temperature::kCold, threshold_time - 3000, threshold_time - 3000);
+      Temperature::kCold, threshold_time - 3000);
   // Qualifies for compaction to kCold.
   Add(0, 2U, "200", "300", 4 * kFileSize, 0, 2100, 2200, 0, true,
-      Temperature::kUnknown, threshold_time - 4000, threshold_time - 4000);
+      Temperature::kUnknown, threshold_time - 4000);
   Add(0, 1U, "200", "300", 4 * kFileSize, 0, 2000, 2100, 0, true,
-      Temperature::kCold, threshold_time - 5000, threshold_time - 5000);
+      Temperature::kCold, threshold_time - 5000);
   UpdateVersionStorageInfo();
 
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
@@ -1370,25 +1362,19 @@ TEST_F(CompactionPickerTest, FIFOToHotAndWarm) {
   uint64_t warm_threshold_time =
       static_cast<uint64_t>(current_time) - kWarmThreshold;
   Add(0, 6U, "240", "290", 2 * kFileSize, 0, 2900, 3000, 0, true,
-      Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100,
-      static_cast<uint64_t>(current_time) - 100);
+      Temperature::kUnknown, static_cast<uint64_t>(current_time) - 100);
   Add(0, 5U, "240", "290", 2 * kFileSize, 0, 2700, 2800, 0, true,
-      Temperature::kUnknown, hot_threshold_time + 100,
-      hot_threshold_time + 100);
+      Temperature::kUnknown, hot_threshold_time + 100);
   Add(0, 4U, "260", "300", 1 * kFileSize, 0, 2500, 2600, 0, true,
-      Temperature::kUnknown, hot_threshold_time - 200,
-      hot_threshold_time - 200);
+      Temperature::kUnknown, hot_threshold_time - 200);
   // Qualifies for Hot
   Add(0, 3U, "200", "300", 4 * kFileSize, 0, 2300, 2400, 0, true,
-      Temperature::kUnknown, warm_threshold_time - 100,
-      warm_threshold_time - 100);
+      Temperature::kUnknown, warm_threshold_time - 100);
   // Qualifies for Warm
   Add(0, 2U, "200", "300", 4 * kFileSize, 0, 2100, 2200, 0, true,
-      Temperature::kUnknown, warm_threshold_time - 4000,
-      warm_threshold_time - 4000);
+      Temperature::kUnknown, warm_threshold_time - 4000);
   Add(0, 1U, "200", "300", 4 * kFileSize, 0, 2000, 2100, 0, true,
-      Temperature::kUnknown, warm_threshold_time - 5000,
-      warm_threshold_time - 5000);
+      Temperature::kUnknown, warm_threshold_time - 5000);
   UpdateVersionStorageInfo();
 
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
@@ -3162,21 +3148,18 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap) {
 
   Add(0, 1U, "150", "200", kFileSize, 0, 500, 550, /*compensated_file_size*/ 0,
       /*marked_for_compact*/ false, /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 3);
   Add(0, 2U, "201", "250", 2 * kFileSize, 0, 401, 450,
       /*compensated_file_size*/ 0, /*marked_for_compact*/ false,
       /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 2);
   Add(0, 4U, "260", "300", 4 * kFileSize, 0, 260, 300,
       /*compensated_file_size*/ 0, /*marked_for_compact*/ false,
       /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 1);
@@ -3204,7 +3187,6 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap) {
   // Simulate a flush and mark the file for compaction
   Add(0, 7U, "150", "200", kFileSize, 0, 551, 600, 0, true,
       /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 4);
@@ -3232,7 +3214,6 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap2) {
   // Mark file number 4 for compaction
   Add(0, 4U, "260", "300", 4 * kFileSize, 0, 260, 300, 0, true,
       /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 1);
@@ -3259,14 +3240,12 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap2) {
   AddVersionStorage();
   Add(0, 1U, "150", "200", kFileSize, 0, 500, 550, /*compensated_file_size*/ 0,
       /*marked_for_compact*/ false, /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 3);
   Add(0, 2U, "201", "250", 2 * kFileSize, 0, 401, 450,
       /*compensated_file_size*/ 0, /*marked_for_compact*/ false,
       /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 2);
@@ -3443,27 +3422,23 @@ TEST_F(CompactionPickerTest, UniversalMarkedL0Overlap2) {
   Add(0, 4U, "260", "300", 1 * kFileSize, 0, 260, 300,
       /*compensated_file_size*/ 0, /*marked_for_compact*/ false,
       /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 4);
   Add(0, 5U, "240", "290", 2 * kFileSize, 0, 201, 250, 0, true,
       /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 3);
   Add(0, 3U, "301", "350", 4 * kFileSize, 0, 101, 150,
       /*compensated_file_size*/ 0, /*marked_for_compact*/ false,
       /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 2);
   Add(0, 6U, "501", "750", 8 * kFileSize, 0, 50, 100,
       /*compensated_file_size*/ 0, /*marked_for_compact*/ false,
       /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 1);
@@ -3490,14 +3465,12 @@ TEST_F(CompactionPickerTest, UniversalMarkedL0Overlap2) {
   Add(0, 1U, "150", "200", kFileSize, 0, 500, 550, /*compensated_file_size*/ 0,
       /*marked_for_compact*/ false,
       /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 6);
   Add(0, 2U, "201", "250", kFileSize, 0, 401, 450, /*compensated_file_size*/ 0,
       /*marked_for_compact*/ false,
       /* temperature*/ Temperature::kUnknown,
-      /*oldest_ancestor_time*/ kUnknownOldestAncesterTime,
       /* newest_key_time*/ 0,
       /*ts_of_smallest*/ Slice(), /*ts_of_largest*/ Slice(),
       /*epoch_number*/ 5);
@@ -3732,7 +3705,6 @@ TEST_F(CompactionPickerU64TsTest, Overlap) {
         /*file_size=*/1U, /*path_id=*/0,
         /*smallest_seq=*/100, /*largest_seq=*/100, /*compensated_file_size=*/0,
         /*marked_for_compact=*/false, /*temperature=*/Temperature::kUnknown,
-        /*oldest_ancestor_time=*/kUnknownOldestAncesterTime,
         /* newest_key_time*/ 0, ts1, ts2);
     UpdateVersionStorageInfo();
   }
@@ -3799,11 +3771,11 @@ TEST_F(CompactionPickerU64TsTest, CannotTrivialMoveUniversal) {
   Add(1, 1U, "150", "150", kFileSize, /*path_id=*/0, /*smallest_seq=*/100,
       /*largest_seq=*/100, /*compensated_file_size=*/kFileSize,
       /*marked_for_compact=*/false, Temperature::kUnknown,
-      kUnknownOldestAncesterTime, /* newest_key_time*/ 0, ts1, ts2);
+      /* newest_key_time*/ 0, ts1, ts2);
   Add(2, 2U, "150", "150", kFileSize, /*path_id=*/0, /*smallest_seq=*/100,
       /*largest_seq=*/100, /*compensated_file_size=*/kFileSize,
       /*marked_for_compact=*/false, Temperature::kUnknown,
-      kUnknownOldestAncesterTime, /* newest_key_time*/ 0, ts3, ts4);
+      /* newest_key_time*/ 0, ts3, ts4);
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(

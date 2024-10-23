@@ -3393,26 +3393,27 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
     uint64_t create_time_threshold = current_time - ages[0].age;
     Temperature target_temp;
     assert(files.size() >= 1);
-    for (size_t index = files.size() - 1; index >= 1; --index) {
+    for (size_t index = files.size() - 1; index != 0; --index) {
       FileMetaData* cur_file = files[index];
-      FileMetaData* prev_file = files[index - 1];
       if (!cur_file->being_compacted) {
-        uint64_t oldest_ancestor_time = prev_file->TryGetOldestAncesterTime();
-        if (oldest_ancestor_time == kUnknownOldestAncesterTime) {
-          return false;
-        }
-        if (oldest_ancestor_time > create_time_threshold) {
-          return false;
-        }
-        target_temp = ages[0].temperature;
-        for (size_t i = 1; i < ages.size(); ++i) {
-          if (current_time >= ages[i].age &&
-              oldest_ancestor_time <= current_time - ages[i].age) {
-            target_temp = ages[i].temperature;
+        if (cur_file->fd.table_reader &&
+            cur_file->fd.table_reader->GetTableProperties()) {
+          uint64_t newest_key_time =
+              cur_file->fd.table_reader->GetTableProperties()->newest_key_time;
+          if (newest_key_time == 0 || newest_key_time > create_time_threshold) {
+            return false;
           }
-        }
-        if (cur_file->temperature != target_temp) {
-          return true;
+
+          target_temp = ages[0].temperature;
+          for (size_t i = 1; i < ages.size(); ++i) {
+            if (current_time >= ages[i].age &&
+                newest_key_time <= current_time - ages[i].age) {
+              target_temp = ages[i].temperature;
+            }
+          }
+          if (cur_file->temperature != target_temp) {
+            return true;
+          }
         }
       }
     }
