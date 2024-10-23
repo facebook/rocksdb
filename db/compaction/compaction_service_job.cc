@@ -621,6 +621,45 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"seqno_to_time_mapping",
          {offsetof(struct TableProperties, seqno_to_time_mapping),
           OptionType::kEncodedString}},
+        {"user_collected_properties",
+         {offsetof(struct TableProperties, user_collected_properties),
+          OptionType::kVector, OptionVerificationType::kByNameAllowNull,
+          OptionTypeFlags::kCompareNever,
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, void* addr) {
+            UserCollectedProperties properties;
+            Status s;
+            for (size_t start = 0, end = 0;
+                 s.ok() && start < value.size() && end != std::string::npos;
+                 start = end + 1) {
+              std::string token;
+              s = OptionTypeInfo::NextToken(value, ';', start, &end, &token);
+              if (s.ok() && !token.empty()) {
+                std::vector<std::string> kvPair = StringSplit(token, '=');
+                assert(kvPair.size() == 2);
+                properties.emplace(kvPair[0], kvPair[1]);
+              }
+            }
+            if (s.ok()) {  // It worked
+              *(static_cast<UserCollectedProperties*>(addr)) = properties;
+            }
+            return s;
+          },
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const void* addr, std::string* value) {
+            const auto properties =
+                static_cast<const UserCollectedProperties*>(addr);
+            value->append("{");
+            for (const auto& prop : *properties) {
+              value->append(prop.first);
+              value->append("=");
+              value->append(prop.second);
+              value->append(";");
+            }
+            value->append("}");
+            return Status::OK();
+          },
+          nullptr}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>

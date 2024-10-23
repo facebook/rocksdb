@@ -1661,9 +1661,15 @@ TEST_F(CompactionJobTest, ResultSerialization) {
 
   std::string file_checksum = rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen));
   std::string file_checksum_func_name = "MyAwesomeChecksumGenerator";
-  std::shared_ptr<const TableProperties> table_properties =
-      std::make_shared<const TableProperties>();
   while (!rnd.OneIn(10)) {
+    TableProperties tp;
+    tp.user_collected_properties.emplace(
+        "TestKey1", std::to_string(rnd64.Uniform(UINT64_MAX)));
+    tp.user_collected_properties.emplace(
+        "TestKey2", std::to_string(rnd64.Uniform(UINT64_MAX)));
+    std::shared_ptr<const TableProperties> table_properties =
+        std::make_shared<const TableProperties>(tp);
+
     UniqueId64x2 id{rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX)};
     result.output_files.emplace_back(
         rnd.RandomString(rnd.Uniform(kStrMaxLen)) /* file_name */,
@@ -1700,6 +1706,15 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   CompactionServiceResult deserialized1;
   ASSERT_OK(CompactionServiceResult::Read(output, &deserialized1));
   ASSERT_TRUE(deserialized1.TEST_Equals(&result));
+
+  for (size_t i = 0; i < result.output_files.size(); i++) {
+    for (const auto& prop :
+         result.output_files[i].table_properties.user_collected_properties) {
+      ASSERT_EQ(deserialized1.output_files[i]
+                    .table_properties.user_collected_properties[prop.first],
+                prop.second);
+    }
+  }
 
   // Test mismatch
   deserialized1.stats.num_input_files += 10;
