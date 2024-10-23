@@ -124,6 +124,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << "comparator" << table_properties.comparator_name
               << "user_defined_timestamps_persisted"
               << table_properties.user_defined_timestamps_persisted
+              << "key_largest_seqno" << table_properties.key_largest_seqno
               << "merge_operator" << table_properties.merge_operator_name
               << "prefix_extractor_name"
               << table_properties.prefix_extractor_name << "property_collectors"
@@ -228,15 +229,18 @@ void EventHelpers::NotifyOnErrorRecoveryEnd(
     InstrumentedMutex* db_mutex) {
   if (!listeners.empty()) {
     db_mutex->AssertHeld();
+    // Make copies before releasing mutex to avoid race.
+    Status old_bg_error_cp = old_bg_error;
+    Status new_bg_error_cp = new_bg_error;
     // release lock while notifying events
     db_mutex->Unlock();
     TEST_SYNC_POINT("NotifyOnErrorRecoveryEnd:MutexUnlocked:1");
     TEST_SYNC_POINT("NotifyOnErrorRecoveryEnd:MutexUnlocked:2");
     for (auto& listener : listeners) {
       BackgroundErrorRecoveryInfo info;
-      info.old_bg_error = old_bg_error;
-      info.new_bg_error = new_bg_error;
-      listener->OnErrorRecoveryCompleted(old_bg_error);
+      info.old_bg_error = old_bg_error_cp;
+      info.new_bg_error = new_bg_error_cp;
+      listener->OnErrorRecoveryCompleted(old_bg_error_cp);
       listener->OnErrorRecoveryEnd(info);
       info.old_bg_error.PermitUncheckedError();
       info.new_bg_error.PermitUncheckedError();

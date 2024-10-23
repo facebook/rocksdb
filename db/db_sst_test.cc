@@ -383,12 +383,16 @@ TEST_F(DBSSTTest, DBWithSstFileManager) {
   ASSERT_EQ(files_moved, 0);
 
   Close();
+  ASSERT_EQ(sfm->GetTrackedFiles().size(), 0) << "sfm should be empty";
+  ASSERT_EQ(sfm->GetTotalSize(), 0) << "sfm should be empty";
   Reopen(options);
   ASSERT_EQ(sfm->GetTrackedFiles(), files_in_db);
   ASSERT_EQ(sfm->GetTotalSize(), total_files_size);
 
   // Verify that we track all the files again after the DB is closed and opened
   Close();
+  ASSERT_EQ(sfm->GetTrackedFiles().size(), 0) << "sfm should be empty";
+  ASSERT_EQ(sfm->GetTotalSize(), 0) << "sfm should be empty";
   sst_file_manager.reset(NewSstFileManager(env_));
   options.sst_file_manager = sst_file_manager;
   sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
@@ -439,6 +443,11 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFiles) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "SstFileManagerImpl::OnMoveFile", [&](void* /*arg*/) { files_moved++; });
+
+  int64_t untracked_files = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::OnUntrackFile",
+      [&](void* /*arg*/) { ++untracked_files; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
@@ -485,6 +494,10 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFiles) {
   }
   ASSERT_EQ(sfm->GetTotalSize(), total_files_size);
   Close();
+  ASSERT_EQ(untracked_files, files_in_db.size());
+  untracked_files = 0;
+  ASSERT_EQ(sfm->GetTrackedFiles().size(), 0) << "sfm should be empty";
+  ASSERT_EQ(sfm->GetTotalSize(), 0) << "sfm should be empty";
 
   Reopen(options);
   ASSERT_EQ(sfm->GetTrackedFiles(), files_in_db);
@@ -492,6 +505,10 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFiles) {
 
   // Verify that we track all the files again after the DB is closed and opened.
   Close();
+  ASSERT_EQ(untracked_files, files_in_db.size());
+  untracked_files = 0;
+  ASSERT_EQ(sfm->GetTrackedFiles().size(), 0) << "sfm should be empty";
+  ASSERT_EQ(sfm->GetTotalSize(), 0) << "sfm should be empty";
 
   sst_file_manager.reset(NewSstFileManager(env_));
   options.sst_file_manager = sst_file_manager;
@@ -507,6 +524,27 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFiles) {
   ASSERT_EQ(files_deleted, 0);
   ASSERT_EQ(files_scheduled_to_delete, 0);
   Close();
+  ASSERT_EQ(untracked_files, files_in_db.size());
+  untracked_files = 0;
+  ASSERT_EQ(sfm->GetTrackedFiles().size(), 0) << "sfm should be empty";
+  ASSERT_EQ(sfm->GetTotalSize(), 0) << "sfm should be empty";
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleUnaccountedFileDeletion", [&](void* arg) {
+        assert(arg);
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          ++files_scheduled_to_delete;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::OnDeleteFile", [&](void* arg) {
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          files_deleted++;
+        }
+      });
   ASSERT_OK(DestroyDB(dbname_, options));
   ASSERT_EQ(files_deleted, blob_files.size());
   ASSERT_EQ(files_scheduled_to_delete, blob_files.size());
@@ -649,6 +687,26 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFilesWithGC) {
   }
 
   Close();
+  ASSERT_EQ(sfm->GetTrackedFiles().size(), 0) << "sfm should be empty";
+  ASSERT_EQ(sfm->GetTotalSize(), 0) << "sfm should be empty";
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleUnaccountedFileDeletion", [&](void* arg) {
+        assert(arg);
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          ++files_scheduled_to_delete;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::OnDeleteFile", [&](void* arg) {
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          files_deleted++;
+        }
+      });
   ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
   ASSERT_EQ(files_deleted, 5);
@@ -883,8 +941,9 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
   // Create 4 files in L0
   for (char v = 'a'; v <= 'd'; v++) {
     if (v == 'c') {
-      // Maximize the change that the last log file will be preserved in trash
-      // before restarting the DB.
+      // Maximize the chance that the last log file will be preserved in trash
+      // before restarting the DB. (Enable slow deletion but at a very slow
+      // deletion rate)
       // We have to set this on the 2nd to last file for it to delay deletion
       // on the last file. (Quirk of DeleteScheduler::BackgroundEmptyTrash())
       options.sst_file_manager->SetDeleteRateBytesPerSecond(1);
@@ -1902,6 +1961,24 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
   ASSERT_EQ(files_deleted, 1);
 
   Close();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleUnaccountedFileDeletion", [&](void* arg) {
+        assert(arg);
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          ++files_scheduled_to_delete;
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::OnDeleteFile", [&](void* arg) {
+        const std::string* const file_path =
+            static_cast<const std::string*>(arg);
+        if (EndsWith(*file_path, ".blob")) {
+          files_deleted++;
+        }
+      });
   ASSERT_OK(DestroyDB(dbname_, options));
 
   ASSERT_EQ(files_scheduled_to_delete, 4);

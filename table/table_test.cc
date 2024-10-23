@@ -379,7 +379,7 @@ class TableConstructor : public Constructor {
     std::string column_family_name;
     const ReadOptions read_options;
     const WriteOptions write_options;
-    builder.reset(ioptions.table_factory->NewTableBuilder(
+    builder.reset(moptions.table_factory->NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, read_options, write_options,
                             internal_comparator,
                             &internal_tbl_prop_coll_factories,
@@ -440,7 +440,7 @@ class TableConstructor : public Constructor {
         TEST_GetSink()->contents(), file_num_, ioptions.allow_mmap_reads));
 
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
-    return ioptions.table_factory->NewTableReader(
+    return moptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
                            *last_internal_comparator_,
                            0 /* block_protection_bytes_per_key */,
@@ -534,7 +534,7 @@ class MemTableConstructor : public Constructor {
       const SliceTransform* /*prefix_extractor*/) const override {
     return new KeyConvertingIterator(
         memtable_->NewIterator(ReadOptions(), /*seqno_to_time_mapping=*/nullptr,
-                               &arena_),
+                               &arena_, /*prefix_extractor=*/nullptr),
         true);
   }
 
@@ -4460,7 +4460,7 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   std::unique_ptr<TableBuilder> builder;
   const ReadOptions read_options;
   const WriteOptions write_options;
-  builder.reset(ioptions.table_factory->NewTableBuilder(
+  builder.reset(moptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, read_options, write_options,
                           *comparator, &internal_tbl_prop_coll_factories,
                           options.compression, options.compression_opts,
@@ -4498,7 +4498,7 @@ TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
   std::unique_ptr<TableBuilder> builder;
   const ReadOptions read_options;
   const WriteOptions write_options;
-  builder.reset(ioptions.table_factory->NewTableBuilder(
+  builder.reset(moptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, read_options, write_options,
                           *comparator, &internal_tbl_prop_coll_factories,
                           options.compression, options.compression_opts,
@@ -4726,7 +4726,7 @@ static void DoCompressionTest(CompressionType comp) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3550));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3550));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7075));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7100));
   c.ResetTableReader();
 }
 
@@ -4904,8 +4904,9 @@ TEST_F(MemTableTest, Simple) {
     std::unique_ptr<InternalIterator> iter_guard;
     InternalIterator* iter;
     if (i == 0) {
-      iter = GetMemTable()->NewIterator(
-          ReadOptions(), /*seqno_to_time_mapping=*/nullptr, &arena);
+      iter = GetMemTable()->NewIterator(ReadOptions(),
+                                        /*seqno_to_time_mapping=*/nullptr,
+                                        &arena, /*prefix_extractor=*/nullptr);
       arena_iter_guard.reset(iter);
     } else {
       iter = GetMemTable()->NewRangeTombstoneIterator(
@@ -5490,7 +5491,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   ImmutableOptions ioptions2(options2);
   const MutableCFOptions moptions2(options2);
 
-  ASSERT_OK(ioptions.table_factory->NewTableReader(
+  ASSERT_OK(moptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions2, moptions2.prefix_extractor, EnvOptions(),
                          GetPlainInternalComparator(options2.comparator),
                          0 /* block_protection_bytes_per_key */),

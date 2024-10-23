@@ -3,6 +3,7 @@ on:
   schedule:
   - cron: 0 9 * * *
   workflow_dispatch:
+permissions: {}
 jobs:
   build-format-compatible:
     if: ${{ github.repository_owner == 'facebook' }}
@@ -59,12 +60,15 @@ jobs:
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
+    env:
+      CC: clang-13
+      CXX: clang++-13
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
     - uses: "./.github/actions/build-folly"
-    - run: CC=clang-13 CXX=clang++-13 LIB_MODE=static USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
+    - run: LIB_MODE=static USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
     - uses: "./.github/actions/post-steps"
   build-linux-valgrind:
     if: ${{ github.repository_owner == 'facebook' }}
@@ -76,7 +80,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: PORTABLE=1 make V=1 -j32 valgrind_test
+    - run: make V=1 -j32 valgrind_test
     - uses: "./.github/actions/post-steps"
   build-windows-vs2022-avx2:
     if: ${{ github.repository_owner == 'facebook' }}

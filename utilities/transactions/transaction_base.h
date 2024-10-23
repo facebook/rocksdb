@@ -95,6 +95,11 @@ class TransactionBaseImpl : public Transaction {
                         exclusive, do_validate);
   }
 
+  Status GetEntityForUpdate(const ReadOptions& read_options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            PinnableWideColumns* columns, bool exclusive = true,
+                            bool do_validate = true) override;
+
   using Transaction::MultiGet;
   std::vector<Status> MultiGet(
       const ReadOptions& _read_options,

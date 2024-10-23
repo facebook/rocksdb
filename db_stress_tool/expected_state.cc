@@ -34,11 +34,19 @@ void ExpectedState::Precommit(int cf, int64_t key, const ExpectedValue& value) {
 
 PendingExpectedValue ExpectedState::PreparePut(int cf, int64_t key) {
   ExpectedValue expected_value = Load(cf, key);
+
+  // Calculate the original expected value
   const ExpectedValue orig_expected_value = expected_value;
+
+  // Calculate the pending expected value
   expected_value.Put(true /* pending */);
   const ExpectedValue pending_expected_value = expected_value;
+
+  // Calculate the final expected value
   expected_value.Put(false /* pending */);
   const ExpectedValue final_expected_value = expected_value;
+
+  // Precommit
   Precommit(cf, key, pending_expected_value);
   return PendingExpectedValue(&Value(cf, key), orig_expected_value,
                               final_expected_value);
@@ -46,21 +54,26 @@ PendingExpectedValue ExpectedState::PreparePut(int cf, int64_t key) {
 
 ExpectedValue ExpectedState::Get(int cf, int64_t key) { return Load(cf, key); }
 
-PendingExpectedValue ExpectedState::PrepareDelete(int cf, int64_t key,
-                                                  bool* prepared) {
+PendingExpectedValue ExpectedState::PrepareDelete(int cf, int64_t key) {
   ExpectedValue expected_value = Load(cf, key);
+
+  // Calculate the original expected value
   const ExpectedValue orig_expected_value = expected_value;
+
+  // Calculate the pending expected value
   bool res = expected_value.Delete(true /* pending */);
-  if (prepared) {
-    *prepared = res;
-  }
   if (!res) {
-    return PendingExpectedValue(&Value(cf, key), orig_expected_value,
-                                orig_expected_value);
+    PendingExpectedValue ret = PendingExpectedValue(
+        &Value(cf, key), orig_expected_value, orig_expected_value);
+    return ret;
   }
   const ExpectedValue pending_expected_value = expected_value;
+
+  // Calculate the final expected value
   expected_value.Delete(false /* pending */);
   const ExpectedValue final_expected_value = expected_value;
+
+  // Precommit
   Precommit(cf, key, pending_expected_value);
   return PendingExpectedValue(&Value(cf, key), orig_expected_value,
                               final_expected_value);
@@ -73,16 +86,11 @@ PendingExpectedValue ExpectedState::PrepareSingleDelete(int cf, int64_t key) {
 std::vector<PendingExpectedValue> ExpectedState::PrepareDeleteRange(
     int cf, int64_t begin_key, int64_t end_key) {
   std::vector<PendingExpectedValue> pending_expected_values;
+
   for (int64_t key = begin_key; key < end_key; ++key) {
-    bool prepared = false;
-    PendingExpectedValue pending_expected_value =
-        PrepareDelete(cf, key, &prepared);
-    if (prepared) {
-      pending_expected_values.push_back(pending_expected_value);
-    } else {
-      pending_expected_value.PermitUnclosedPendingState();
-    }
+    pending_expected_values.push_back(PrepareDelete(cf, key));
   }
+
   return pending_expected_values;
 }
 
@@ -724,8 +732,31 @@ Status FileExpectedStateManager::Restore(DB* db) {
     s = Env::Default()->DeleteFile(state_file_path);
   }
   if (s.ok()) {
-    saved_seqno_ = kMaxSequenceNumber;
-    s = Env::Default()->DeleteFile(trace_file_path);
+    std::vector<std::string> expected_state_dir_children;
+    s = Env::Default()->GetChildren(expected_state_dir_path_,
+                                    &expected_state_dir_children);
+    if (s.ok()) {
+      for (size_t i = 0; i < expected_state_dir_children.size(); ++i) {
+        const auto& filename = expected_state_dir_children[i];
+        if (filename.size() >= kTraceFilenameSuffix.size() &&
+            filename.rfind(kTraceFilenameSuffix) ==
+                filename.size() - kTraceFilenameSuffix.size()) {
+          SequenceNumber found_seqno = ParseUint64(filename.substr(
+              0, filename.size() - kTraceFilenameSuffix.size()));
+          // Delete older trace files, but keep the one we just replayed for
+          // debugging purposes
+          if (found_seqno < saved_seqno_) {
+            s = Env::Default()->DeleteFile(GetPathForFilename(filename));
+          }
+        }
+        if (!s.ok()) {
+          break;
+        }
+      }
+    }
+    if (s.ok()) {
+      saved_seqno_ = kMaxSequenceNumber;
+    }
   }
   return s;
 }

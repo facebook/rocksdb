@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "db/attribute_group_iterator_impl.h"
 #include "db/db_iter.h"
 #include "db/pre_release_callback.h"
 #include "db/read_callback.h"
@@ -100,6 +101,22 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   Status NewIterators(const ReadOptions& _read_options,
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       std::vector<Iterator*>* iterators) override;
+
+  using DB::NewCoalescingIterator;
+  std::unique_ptr<Iterator> NewCoalescingIterator(
+      const ReadOptions& /*options*/,
+      const std::vector<ColumnFamilyHandle*>& /*column_families*/) override {
+    return std::unique_ptr<Iterator>(
+        NewErrorIterator(Status::NotSupported("Not supported yet")));
+  }
+
+  using DB::NewAttributeGroupIterator;
+  std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
+      const ReadOptions& /*options*/,
+      const std::vector<ColumnFamilyHandle*>& /*column_families*/) override {
+    return NewAttributeGroupErrorIterator(
+        Status::NotSupported("Not supported yet"));
+  }
 
   // Check whether the transaction that wrote the value with sequence number seq
   // is visible to the snapshot with sequence number snapshot_seq.

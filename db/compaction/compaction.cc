@@ -63,7 +63,9 @@ uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   return sum;
 }
 
-void Compaction::SetInputVersion(Version* _input_version) {
+// TODO(hx235): consider making this function part of the construction so we
+// don't forget to call it
+void Compaction::FinalizeInputInfo(Version* _input_version) {
   input_version_ = _input_version;
   cfd_ = input_version_->cfd();
 
@@ -684,12 +686,11 @@ bool Compaction::KeyRangeNotExistsBeyondOutputLevel(
 };
 
 // Mark (or clear) each file that is being compacted
-void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
+void Compaction::MarkFilesBeingCompacted(bool being_compacted) const {
   for (size_t i = 0; i < num_input_levels(); i++) {
     for (size_t j = 0; j < inputs_[i].size(); j++) {
-      assert(mark_as_compacted ? !inputs_[i][j]->being_compacted
-                               : inputs_[i][j]->being_compacted);
-      inputs_[i][j]->being_compacted = mark_as_compacted;
+      assert(being_compacted != inputs_[i][j]->being_compacted);
+      inputs_[i][j]->being_compacted = being_compacted;
     }
   }
 }
@@ -733,7 +734,7 @@ uint64_t Compaction::CalculateTotalInputSize() const {
   return size;
 }
 
-void Compaction::ReleaseCompactionFiles(Status status) {
+void Compaction::ReleaseCompactionFiles(const Status& status) {
   MarkFilesBeingCompacted(false);
   cfd_->compaction_picker()->ReleaseCompactionFiles(this, status);
 }
@@ -861,6 +862,11 @@ bool Compaction::IsOutputLevelEmpty() const {
 
 bool Compaction::ShouldFormSubcompactions() const {
   if (cfd_ == nullptr) {
+    return false;
+  }
+
+  if (mutable_cf_options_.table_factory->Name() ==
+      TableFactory::kPlainTableName()) {
     return false;
   }
 

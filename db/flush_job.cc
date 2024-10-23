@@ -115,6 +115,9 @@ FlushJob::FlushJob(
       db_mutex_(db_mutex),
       shutting_down_(shutting_down),
       existing_snapshots_(std::move(existing_snapshots)),
+      earliest_snapshot_(existing_snapshots_.empty()
+                             ? kMaxSequenceNumber
+                             : existing_snapshots_.at(0)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
       job_context_(job_context),
@@ -194,6 +197,7 @@ void FlushJob::PickMemTable() {
   // Track effective cutoff user-defined timestamp during flush if
   // user-defined timestamps can be stripped.
   GetEffectiveCutoffUDTForPickedMemTables();
+  GetPrecludeLastLevelMinSeqno();
 
   ReportFlushInputSize(mems_);
 
@@ -231,7 +235,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
 
   AutoThreadOperationStageUpdater stage_run(ThreadStatus::STAGE_FLUSH_RUN);
   if (mems_.empty()) {
-    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Nothing in memtable to flush",
+    ROCKS_LOG_BUFFER(log_buffer_, "[%s] No memtable to flush",
                      cfd_->GetName().c_str());
     return Status::OK();
   }
@@ -417,8 +421,8 @@ Status FlushJob::MemPurge() {
   std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
       range_del_iters;
   for (MemTable* m : mems_) {
-    memtables.push_back(
-        m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
+    memtables.push_back(m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr,
+                                       &arena, /*prefix_extractor=*/nullptr));
     auto* range_del_iter = m->NewRangeTombstoneIterator(
         ro, kMaxSequenceNumber, true /* immutable_memtable */);
     if (range_del_iter != nullptr) {
@@ -502,7 +506,7 @@ Status FlushJob::MemPurge() {
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
         iter.get(), (cfd_->internal_comparator()).user_comparator(), &merge,
-        kMaxSequenceNumber, &existing_snapshots_,
+        kMaxSequenceNumber, &existing_snapshots_, earliest_snapshot_,
         earliest_write_conflict_snapshot_, job_snapshot_seq, snapshot_checker_,
         env, ShouldReportDetailedTime(env, ioptions->stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
@@ -626,7 +630,7 @@ Status FlushJob::MemPurge() {
         new_mem->SetNextLogNumber(mems_[0]->GetNextLogNumber());
 
         // This addition will not trigger another flush, because
-        // we do not call SchedulePendingFlush().
+        // we do not call EnqueuePendingFlush().
         cfd_->imm()->Add(new_mem, &job_context_->memtables_to_free);
         new_mem->Ref();
         // Piggyback FlushJobInfo on the first flushed memtable.
@@ -854,10 +858,16 @@ Status FlushJob::WriteLevel0Table() {
   meta_.temperature = mutable_cf_options_.default_write_temperature;
   file_options_.temperature = meta_.temperature;
 
+  const auto* ucmp = cfd_->internal_comparator().user_comparator();
+  assert(ucmp);
+  const size_t ts_sz = ucmp->timestamp_size();
+  const bool logical_strip_timestamp =
+      ts_sz > 0 && !cfd_->ioptions()->persist_user_defined_timestamps;
+
   std::vector<BlobFileAddition> blob_file_additions;
 
   {
-    auto write_hint = cfd_->CalculateSSTWriteHint(0);
+    auto write_hint = base_->storage_info()->CalculateSSTWriteHint(/*level=*/0);
     Env::IOPriority io_priority = GetRateLimiterPriority();
     db_mutex_->Unlock();
     if (log_buffer_) {
@@ -889,10 +899,21 @@ Status FlushJob::WriteLevel0Table() {
           db_options_.info_log,
           "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
-      memtables.push_back(
-          m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
-      auto* range_del_iter = m->NewRangeTombstoneIterator(
-          ro, kMaxSequenceNumber, true /* immutable_memtable */);
+      if (logical_strip_timestamp) {
+        memtables.push_back(m->NewTimestampStrippingIterator(
+            ro, /*seqno_to_time_mapping=*/nullptr, &arena,
+            /*prefix_extractor=*/nullptr, ts_sz));
+      } else {
+        memtables.push_back(
+            m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
+                           /*prefix_extractor=*/nullptr));
+      }
+      auto* range_del_iter =
+          logical_strip_timestamp
+              ? m->NewTimestampStrippingRangeTombstoneIterator(
+                    ro, kMaxSequenceNumber, ts_sz)
+              : m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber,
+                                             true /* immutable_memtable */);
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
@@ -968,14 +989,17 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->GetID(), cfd_->GetName(), 0 /* level */,
           false /* is_bottommost */, TableFileCreationReason::kFlush,
           oldest_key_time, current_time, db_id_, db_session_id_,
-          0 /* target_file_size */, meta_.fd.GetNumber());
+          0 /* target_file_size */, meta_.fd.GetNumber(),
+          preclude_last_level_min_seqno_ == kMaxSequenceNumber
+              ? preclude_last_level_min_seqno_
+              : std::min(earliest_snapshot_, preclude_last_level_min_seqno_));
       const SequenceNumber job_snapshot_seq =
           job_context_->GetJobSnapshotSequence();
 
       s = BuildTable(
           dbname_, versions_, db_options_, tboptions, file_options_,
           cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
-          &blob_file_additions, existing_snapshots_,
+          &blob_file_additions, existing_snapshots_, earliest_snapshot_,
           earliest_write_conflict_snapshot_, job_snapshot_seq,
           snapshot_checker_, mutable_cf_options_.paranoid_file_checks,
           cfd_->internal_stats(), &io_s, io_tracer_,
@@ -1010,10 +1034,15 @@ Status FlushJob::WriteLevel0Table() {
     ROCKS_LOG_BUFFER(log_buffer_,
                      "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
                      " bytes %s"
-                     "%s",
+                     " %s"
+                     " %s",
                      cfd_->GetName().c_str(), job_context_->job_id,
                      meta_.fd.GetNumber(), meta_.fd.GetFileSize(),
                      s.ToString().c_str(),
+                     s.ok() && meta_.fd.GetFileSize() == 0
+                         ? "It's an empty SST file from a successful flush so "
+                           "won't be kept in the DB"
+                         : "",
                      meta_.marked_for_compaction ? " (needs compaction)" : "");
 
     if (s.ok() && output_file_directory_ != nullptr && sync_output_directory_) {
@@ -1144,6 +1173,11 @@ void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
   // Find the newest user-defined timestamps from all the flushed memtables.
   for (MemTable* m : mems_) {
     Slice table_newest_udt = m->GetNewestUDT();
+    // Empty memtables can be legitimately created and flushed, for example
+    // by error recovery flush attempts.
+    if (table_newest_udt.empty()) {
+      continue;
+    }
     if (cutoff_udt_.empty() ||
         ucmp->CompareTimestamp(table_newest_udt, cutoff_udt_) > 0) {
       if (!cutoff_udt_.empty()) {
@@ -1151,6 +1185,26 @@ void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
       }
       cutoff_udt_.assign(table_newest_udt.data(), table_newest_udt.size());
     }
+  }
+}
+
+void FlushJob::GetPrecludeLastLevelMinSeqno() {
+  if (cfd_->ioptions()->preclude_last_level_data_seconds == 0) {
+    return;
+  }
+  int64_t current_time = 0;
+  Status s = db_options_.clock->GetCurrentTime(&current_time);
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to get current time in Flush: Status: %s",
+                   s.ToString().c_str());
+  } else {
+    SequenceNumber preserve_time_min_seqno;
+    seqno_to_time_mapping_->GetCurrentTieringCutoffSeqnos(
+        static_cast<uint64_t>(current_time),
+        cfd_->ioptions()->preserve_internal_time_seconds,
+        cfd_->ioptions()->preclude_last_level_data_seconds,
+        &preserve_time_min_seqno, &preclude_last_level_min_seqno_);
   }
 }
 

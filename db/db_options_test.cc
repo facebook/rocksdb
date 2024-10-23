@@ -186,6 +186,14 @@ TEST_F(DBOptionsTest, GetLatestDBOptions) {
   ASSERT_EQ(new_options, GetMutableDBOptionsMap(dbfull()->GetDBOptions()));
 }
 
+// FIXME osolete when table_factory is mutable
+static std::unordered_map<std::string, std::string> WithoutTableFactory(
+    const std::unordered_map<std::string, std::string>& opts) {
+  auto opts_copy = opts;
+  opts_copy.erase("table_factory");
+  return opts_copy;
+}
+
 TEST_F(DBOptionsTest, GetLatestCFOptions) {
   // GetOptions should be able to get latest option changed by SetOptions.
   Options options;
@@ -195,14 +203,16 @@ TEST_F(DBOptionsTest, GetLatestCFOptions) {
   Reopen(options);
   CreateColumnFamilies({"foo"}, options);
   ReopenWithColumnFamilies({"default", "foo"}, options);
-  auto options_default = GetRandomizedMutableCFOptionsMap(&rnd);
-  auto options_foo = GetRandomizedMutableCFOptionsMap(&rnd);
+  auto options_default =
+      WithoutTableFactory(GetRandomizedMutableCFOptionsMap(&rnd));
+  auto options_foo =
+      WithoutTableFactory(GetRandomizedMutableCFOptionsMap(&rnd));
   ASSERT_OK(dbfull()->SetOptions(handles_[0], options_default));
   ASSERT_OK(dbfull()->SetOptions(handles_[1], options_foo));
-  ASSERT_EQ(options_default,
-            GetMutableCFOptionsMap(dbfull()->GetOptions(handles_[0])));
-  ASSERT_EQ(options_foo,
-            GetMutableCFOptionsMap(dbfull()->GetOptions(handles_[1])));
+  ASSERT_EQ(options_default, WithoutTableFactory(GetMutableCFOptionsMap(
+                                 dbfull()->GetOptions(handles_[0]))));
+  ASSERT_EQ(options_foo, WithoutTableFactory(GetMutableCFOptionsMap(
+                             dbfull()->GetOptions(handles_[1]))));
 }
 
 TEST_F(DBOptionsTest, SetMutableTableOptions) {

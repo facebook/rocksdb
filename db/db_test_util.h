@@ -276,16 +276,16 @@ class SpecialEnv : public EnvWrapper {
       SpecialEnv* env_;
       std::unique_ptr<WritableFile> base_;
     };
-    class WalFile : public WritableFile {
+    class SpecialWalFile : public WritableFile {
      public:
-      WalFile(SpecialEnv* env, std::unique_ptr<WritableFile>&& b)
+      SpecialWalFile(SpecialEnv* env, std::unique_ptr<WritableFile>&& b)
           : env_(env), base_(std::move(b)) {
         env_->num_open_wal_file_.fetch_add(1);
       }
-      virtual ~WalFile() { env_->num_open_wal_file_.fetch_add(-1); }
+      virtual ~SpecialWalFile() { env_->num_open_wal_file_.fetch_add(-1); }
       Status Append(const Slice& data) override {
 #if !(defined NDEBUG) || !defined(OS_WIN)
-        TEST_SYNC_POINT("SpecialEnv::WalFile::Append:1");
+        TEST_SYNC_POINT("SpecialEnv::SpecialWalFile::Append:1");
 #endif
         Status s;
         if (env_->log_write_error_.load(std::memory_order_acquire)) {
@@ -299,7 +299,7 @@ class SpecialEnv : public EnvWrapper {
           s = base_->Append(data);
         }
 #if !(defined NDEBUG) || !defined(OS_WIN)
-        TEST_SYNC_POINT("SpecialEnv::WalFile::Append:2");
+        TEST_SYNC_POINT("SpecialEnv::SpecialWalFile::Append:2");
 #endif
         return s;
       }
@@ -419,7 +419,7 @@ class SpecialEnv : public EnvWrapper {
       } else if (strstr(f.c_str(), "MANIFEST") != nullptr) {
         r->reset(new ManifestFile(this, std::move(*r)));
       } else if (strstr(f.c_str(), "log") != nullptr) {
-        r->reset(new WalFile(this, std::move(*r)));
+        r->reset(new SpecialWalFile(this, std::move(*r)));
       } else {
         r->reset(new OtherFile(this, std::move(*r)));
       }
@@ -831,6 +831,15 @@ class FileTemperatureTestFS : public FileSystemWrapper {
     return count;
   }
 
+  std::map<Temperature, size_t> CountCurrentSstFilesByTemp() {
+    MutexLock lock(&mu_);
+    std::map<Temperature, size_t> ret;
+    for (const auto& e : current_sst_file_temperatures_) {
+      ret[e.second]++;
+    }
+    return ret;
+  }
+
   void OverrideSstFileTemperature(uint64_t number, Temperature temp) {
     MutexLock lock(&mu_);
     current_sst_file_temperatures_[number] = temp;
@@ -842,7 +851,7 @@ class FileTemperatureTestFS : public FileSystemWrapper {
       requested_sst_file_temperatures_;
   std::map<uint64_t, Temperature> current_sst_file_temperatures_;
 
-  std::string GetFileName(const std::string& fname) {
+  static std::string GetFileName(const std::string& fname) {
     auto filename = fname.substr(fname.find_last_of(kFilePathSeparator) + 1);
     // workaround only for Windows that the file path could contain both Windows
     // FilePathSeparator and '/'
@@ -1041,6 +1050,7 @@ class DBTestBase : public testing::Test {
     kPartitionedFilterWithNewTableReaderForCompactions,
     kUniversalSubcompactions,
     kUnorderedWrite,
+    kBlockBasedTableWithBinarySearchWithFirstKeyIndex,
     // This must be the last line
     kEnd,
   };

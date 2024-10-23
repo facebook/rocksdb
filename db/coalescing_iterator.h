@@ -12,14 +12,11 @@ namespace ROCKSDB_NAMESPACE {
 // EXPERIMENTAL
 class CoalescingIterator : public Iterator {
  public:
-  CoalescingIterator(const Comparator* comparator,
+  CoalescingIterator(const Comparator* comparator, bool allow_unprepared_value,
                      const std::vector<ColumnFamilyHandle*>& column_families,
                      const std::vector<Iterator*>& child_iterators)
-      : impl_(
-            comparator, column_families, child_iterators, [this]() { Reset(); },
-            [this](const autovector<MultiCfIteratorInfo>& items) {
-              Coalesce(items);
-            }) {}
+      : impl_(comparator, allow_unprepared_value, column_families,
+              child_iterators, ResetFunc(this), PopulateFunc(this)) {}
   ~CoalescingIterator() override {}
 
   // No copy allowed
@@ -50,8 +47,36 @@ class CoalescingIterator : public Iterator {
     wide_columns_.clear();
   }
 
+  bool PrepareValue() override { return impl_.PrepareValue(); }
+
  private:
-  MultiCfIteratorImpl impl_;
+  class ResetFunc {
+   public:
+    explicit ResetFunc(CoalescingIterator* iter) : iter_(iter) {}
+
+    void operator()() const {
+      assert(iter_);
+      iter_->Reset();
+    }
+
+   private:
+    CoalescingIterator* iter_;
+  };
+
+  class PopulateFunc {
+   public:
+    explicit PopulateFunc(CoalescingIterator* iter) : iter_(iter) {}
+
+    void operator()(const autovector<MultiCfIteratorInfo>& items) const {
+      assert(iter_);
+      iter_->Coalesce(items);
+    }
+
+   private:
+    CoalescingIterator* iter_;
+  };
+
+  MultiCfIteratorImpl<ResetFunc, PopulateFunc> impl_;
   Slice value_;
   WideColumns wide_columns_;
 

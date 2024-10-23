@@ -1662,28 +1662,28 @@ TEST_F(OptionsTest, MutableTableOptions) {
   bbtf.reset(NewBlockBasedTableFactory());
   auto bbto = bbtf->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(bbto, nullptr);
-  ASSERT_OK(bbtf->ConfigureOption(config_options, "block_align", "true"));
+  ASSERT_OK(bbtf->ConfigureOption(config_options, "no_block_cache", "true"));
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
-  ASSERT_EQ(bbto->block_align, true);
+  ASSERT_EQ(bbto->no_block_cache, true);
   ASSERT_EQ(bbto->block_size, 1024);
   ASSERT_OK(bbtf->PrepareOptions(config_options));
   config_options.mutable_options_only = true;
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
-  ASSERT_EQ(bbto->block_align, true);
-  ASSERT_NOK(bbtf->ConfigureOption(config_options, "block_align", "false"));
+  ASSERT_EQ(bbto->no_block_cache, true);
+  ASSERT_NOK(bbtf->ConfigureOption(config_options, "no_block_cache", "false"));
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "2048"));
-  ASSERT_EQ(bbto->block_align, true);
+  ASSERT_EQ(bbto->no_block_cache, true);
   ASSERT_EQ(bbto->block_size, 2048);
 
   ColumnFamilyOptions cf_opts;
   cf_opts.table_factory = bbtf;
   ASSERT_NOK(GetColumnFamilyOptionsFromString(
-      config_options, cf_opts, "block_based_table_factory.block_align=false",
+      config_options, cf_opts, "block_based_table_factory.no_block_cache=false",
       &cf_opts));
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, cf_opts, "block_based_table_factory.block_size=8192",
       &cf_opts));
-  ASSERT_EQ(bbto->block_align, true);
+  ASSERT_EQ(bbto->no_block_cache, true);
   ASSERT_EQ(bbto->block_size, 8192);
 }
 
@@ -3449,44 +3449,8 @@ TEST_F(OptionsParserTest, DuplicateCFOptions) {
 }
 
 TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
-  for (int case_id = 0; case_id < 5; case_id++) {
-    DBOptions db_opt;
-    db_opt.max_open_files = 12345;
-    db_opt.max_background_flushes = 301;
-    db_opt.max_total_wal_size = 1024;
-    ColumnFamilyOptions cf_opt;
-
-    std::string version_string;
-    bool should_ignore = true;
-    if (case_id == 0) {
-      // same version
-      should_ignore = false;
-      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
-                       std::to_string(ROCKSDB_MINOR) + ".0";
-    } else if (case_id == 1) {
-      // higher minor version
-      should_ignore = true;
-      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
-                       std::to_string(ROCKSDB_MINOR + 1) + ".0";
-    } else if (case_id == 2) {
-      // higher major version.
-      should_ignore = true;
-      version_string = std::to_string(ROCKSDB_MAJOR + 1) + ".0.0";
-    } else if (case_id == 3) {
-      // lower minor version
-#if ROCKSDB_MINOR == 0
-      continue;
-#else
-      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
-                       std::to_string(ROCKSDB_MINOR - 1) + ".0";
-      should_ignore = false;
-#endif
-    } else {
-      // lower major version
-      should_ignore = false;
-      version_string = std::to_string(ROCKSDB_MAJOR - 1) + "." +
-                       std::to_string(ROCKSDB_MINOR) + ".0";
-    }
+  auto testCase = [&](bool should_ignore, const std::string& version_string) {
+    SCOPED_TRACE(std::to_string(should_ignore) + ", " + version_string);
 
     std::string options_file_content =
         "# This is a testing option string.\n"
@@ -3519,16 +3483,45 @@ TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
     RocksDBOptionsParser parser;
     ASSERT_NOK(parser.Parse(kTestFileName, fs_.get(), false,
                             4096 /* readahead_size */));
+    Status parse_status = parser.Parse(kTestFileName, fs_.get(),
+                                       true /* ignore_unknown_options */,
+                                       4096 /* readahead_size */);
     if (should_ignore) {
-      ASSERT_OK(parser.Parse(kTestFileName, fs_.get(),
-                             true /* ignore_unknown_options */,
-                             4096 /* readahead_size */));
+      ASSERT_OK(parse_status);
     } else {
-      ASSERT_NOK(parser.Parse(kTestFileName, fs_.get(),
-                              true /* ignore_unknown_options */,
-                              4096 /* readahead_size */));
+      ASSERT_NOK(parse_status);
     }
-  }
+  };
+
+  // Same version
+  testCase(false, GetRocksVersionAsString());
+  // Same except .0 patch
+  testCase(false, std::to_string(ROCKSDB_MAJOR) + "." +
+                      std::to_string(ROCKSDB_MINOR) + ".0");
+  // Higher major version
+  testCase(true, std::to_string(ROCKSDB_MAJOR + 1) + "." +
+                     std::to_string(ROCKSDB_MINOR) + ".0");
+  // Higher minor version
+  testCase(true, std::to_string(ROCKSDB_MAJOR) + "." +
+                     std::to_string(ROCKSDB_MINOR + 1) + ".0");
+  // Higher patch version
+  testCase(true, std::to_string(ROCKSDB_MAJOR) + "." +
+                     std::to_string(ROCKSDB_MINOR) + "." +
+                     std::to_string(ROCKSDB_PATCH + 1));
+  // Lower major version
+  testCase(false, std::to_string(ROCKSDB_MAJOR - 1) + "." +
+                      std::to_string(ROCKSDB_MINOR) + ".0");
+#if ROCKSDB_MINOR > 0
+  // Lower minor version
+  testCase(false, std::to_string(ROCKSDB_MAJOR) + "." +
+                      std::to_string(ROCKSDB_MINOR - 1) + ".0");
+#endif
+#if ROCKSDB_PATCH > 0
+  // Lower patch version
+  testCase(false, std::to_string(ROCKSDB_MAJOR) + "." +
+                      std::to_string(ROCKSDB_MINOR - 1) + "." +
+                      std::to_string(ROCKSDB_PATCH - 1));
+#endif
 }
 
 TEST_F(OptionsParserTest, ParseVersion) {

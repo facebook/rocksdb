@@ -92,15 +92,14 @@ class TableCache {
       const ReadOptions& options, const FileOptions& toptions,
       const InternalKeyComparator& internal_comparator,
       const FileMetaData& file_meta, RangeDelAggregator* range_del_agg,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor,
+      const MutableCFOptions& mutable_cf_options,
       TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
       TableReaderCaller caller, Arena* arena, bool skip_filters, int level,
       size_t max_file_size_for_l0_meta_pin,
       const InternalKey* smallest_compaction_key,
       const InternalKey* largest_compaction_key, bool allow_unprepared_value,
-      uint8_t protection_bytes_per_key,
       const SequenceNumber* range_del_read_seqno = nullptr,
-      TruncatedRangeDelIterator** range_del_iter = nullptr);
+      std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
@@ -112,21 +111,20 @@ class TableCache {
   //                       recorded
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
-  Status Get(
-      const ReadOptions& options,
-      const InternalKeyComparator& internal_comparator,
-      const FileMetaData& file_meta, const Slice& k, GetContext* get_context,
-      uint8_t block_protection_bytes_per_key,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
-      HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
-      int level = -1, size_t max_file_size_for_l0_meta_pin = 0);
+  Status Get(const ReadOptions& options,
+             const InternalKeyComparator& internal_comparator,
+             const FileMetaData& file_meta, const Slice& k,
+             GetContext* get_context,
+             const MutableCFOptions& mutable_cf_options,
+             HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
+             int level = -1, size_t max_file_size_for_l0_meta_pin = 0);
 
   // Return the range delete tombstone iterator of the file specified by
   // `file_meta`.
   Status GetRangeTombstoneIterator(
       const ReadOptions& options,
       const InternalKeyComparator& internal_comparator,
-      const FileMetaData& file_meta, uint8_t block_protection_bytes_per_key,
+      const FileMetaData& file_meta, const MutableCFOptions& mutable_cf_options,
       std::unique_ptr<FragmentedRangeTombstoneIterator>* out_iter);
 
   // Call table reader's MultiGetFilter to use the bloom filter to filter out
@@ -134,14 +132,13 @@ class TableCache {
   // If the table cache is looked up to get the table reader, the cache handle
   // is returned in table_handle. This handle should be passed back to
   // MultiGet() so it can be released.
-  Status MultiGetFilter(
-      const ReadOptions& options,
-      const InternalKeyComparator& internal_comparator,
-      const FileMetaData& file_meta,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      HistogramImpl* file_read_hist, int level,
-      MultiGetContext::Range* mget_range, TypedHandle** table_handle,
-      uint8_t block_protection_bytes_per_key);
+  Status MultiGetFilter(const ReadOptions& options,
+                        const InternalKeyComparator& internal_comparator,
+                        const FileMetaData& file_meta,
+                        const MutableCFOptions& mutable_cf_options,
+                        HistogramImpl* file_read_hist, int level,
+                        MultiGetContext::Range* mget_range,
+                        TypedHandle** table_handle);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
@@ -152,33 +149,40 @@ class TableCache {
   //                   in the embedded GetContext
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
-  DECLARE_SYNC_AND_ASYNC(
-      Status, MultiGet, const ReadOptions& options,
-      const InternalKeyComparator& internal_comparator,
-      const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
-      uint8_t block_protection_bytes_per_key,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
-      HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
-      bool skip_range_deletions = false, int level = -1,
-      TypedHandle* table_handle = nullptr);
+  DECLARE_SYNC_AND_ASYNC(Status, MultiGet, const ReadOptions& options,
+                         const InternalKeyComparator& internal_comparator,
+                         const FileMetaData& file_meta,
+                         const MultiGetContext::Range* mget_range,
+                         const MutableCFOptions& mutable_cf_options,
+                         HistogramImpl* file_read_hist = nullptr,
+                         bool skip_filters = false,
+                         bool skip_range_deletions = false, int level = -1,
+                         TypedHandle* table_handle = nullptr);
 
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
 
+  // Handles releasing, erasing, etc. of what should be the last reference
+  // to an obsolete file.
+  static void ReleaseObsolete(Cache* cache, Cache::Handle* handle,
+                              uint32_t uncache_aggressiveness);
+
+  // Return handle to an existing cache entry if there is one
+  static Cache::Handle* Lookup(Cache* cache, uint64_t file_number);
+
   // Find table reader
   // @param skip_filters Disables loading/accessing the filter block
   // @param level == -1 means not specified
-  Status FindTable(
-      const ReadOptions& ro, const FileOptions& toptions,
-      const InternalKeyComparator& internal_comparator,
-      const FileMetaData& file_meta, TypedHandle**,
-      uint8_t block_protection_bytes_per_key,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
-      const bool no_io = false, HistogramImpl* file_read_hist = nullptr,
-      bool skip_filters = false, int level = -1,
-      bool prefetch_index_and_filter_in_cache = true,
-      size_t max_file_size_for_l0_meta_pin = 0,
-      Temperature file_temperature = Temperature::kUnknown);
+  Status FindTable(const ReadOptions& ro, const FileOptions& toptions,
+                   const InternalKeyComparator& internal_comparator,
+                   const FileMetaData& file_meta, TypedHandle**,
+                   const MutableCFOptions& mutable_cf_options,
+                   const bool no_io = false,
+                   HistogramImpl* file_read_hist = nullptr,
+                   bool skip_filters = false, int level = -1,
+                   bool prefetch_index_and_filter_in_cache = true,
+                   size_t max_file_size_for_l0_meta_pin = 0,
+                   Temperature file_temperature = Temperature::kUnknown);
 
   // Get the table properties of a given table.
   // @no_io: indicates if we should load table to the cache if it is not present
@@ -186,19 +190,18 @@ class TableCache {
   // @returns: `properties` will be reset on success. Please note that we will
   //            return Status::Incomplete() if table is not present in cache and
   //            we set `no_io` to be true.
-  Status GetTableProperties(
-      const FileOptions& toptions, const ReadOptions& read_options,
-      const InternalKeyComparator& internal_comparator,
-      const FileMetaData& file_meta,
-      std::shared_ptr<const TableProperties>* properties,
-      uint8_t block_protection_bytes_per_key,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
-      bool no_io = false);
+  Status GetTableProperties(const FileOptions& toptions,
+                            const ReadOptions& read_options,
+                            const InternalKeyComparator& internal_comparator,
+                            const FileMetaData& file_meta,
+                            std::shared_ptr<const TableProperties>* properties,
+                            const MutableCFOptions& mutable_cf_options,
+                            bool no_io = false);
 
   Status ApproximateKeyAnchors(const ReadOptions& ro,
                                const InternalKeyComparator& internal_comparator,
                                const FileMetaData& file_meta,
-                               uint8_t block_protection_bytes_per_key,
+                               const MutableCFOptions& mutable_cf_options,
                                std::vector<TableReader::Anchor>& anchors);
 
   // Return total memory usage of the table reader of the file.
@@ -206,25 +209,23 @@ class TableCache {
   size_t GetMemoryUsageByTableReader(
       const FileOptions& toptions, const ReadOptions& read_options,
       const InternalKeyComparator& internal_comparator,
-      const FileMetaData& file_meta, uint8_t block_protection_bytes_per_key,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr);
+      const FileMetaData& file_meta,
+      const MutableCFOptions& mutable_cf_options);
 
   // Returns approximated offset of a key in a file represented by fd.
-  uint64_t ApproximateOffsetOf(
-      const ReadOptions& read_options, const Slice& key,
-      const FileMetaData& file_meta, TableReaderCaller caller,
-      const InternalKeyComparator& internal_comparator,
-      uint8_t block_protection_bytes_per_key,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr);
+  uint64_t ApproximateOffsetOf(const ReadOptions& read_options,
+                               const Slice& key, const FileMetaData& file_meta,
+                               TableReaderCaller caller,
+                               const InternalKeyComparator& internal_comparator,
+                               const MutableCFOptions& mutable_cf_options);
 
   // Returns approximated data size between start and end keys in a file
   // represented by fd (the start key must not be greater than the end key).
-  uint64_t ApproximateSize(
-      const ReadOptions& read_options, const Slice& start, const Slice& end,
-      const FileMetaData& file_meta, TableReaderCaller caller,
-      const InternalKeyComparator& internal_comparator,
-      uint8_t block_protection_bytes_per_key,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr);
+  uint64_t ApproximateSize(const ReadOptions& read_options, const Slice& start,
+                           const Slice& end, const FileMetaData& file_meta,
+                           TableReaderCaller caller,
+                           const InternalKeyComparator& internal_comparator,
+                           const MutableCFOptions& mutable_cf_options);
 
   CacheInterface& get_cache() { return cache_; }
 
@@ -242,17 +243,16 @@ class TableCache {
 
  private:
   // Build a table reader
-  Status GetTableReader(
-      const ReadOptions& ro, const FileOptions& file_options,
-      const InternalKeyComparator& internal_comparator,
-      const FileMetaData& file_meta, bool sequential_mode,
-      uint8_t block_protection_bytes_per_key, HistogramImpl* file_read_hist,
-      std::unique_ptr<TableReader>* table_reader,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
-      bool skip_filters = false, int level = -1,
-      bool prefetch_index_and_filter_in_cache = true,
-      size_t max_file_size_for_l0_meta_pin = 0,
-      Temperature file_temperature = Temperature::kUnknown);
+  Status GetTableReader(const ReadOptions& ro, const FileOptions& file_options,
+                        const InternalKeyComparator& internal_comparator,
+                        const FileMetaData& file_meta, bool sequential_mode,
+                        HistogramImpl* file_read_hist,
+                        std::unique_ptr<TableReader>* table_reader,
+                        const MutableCFOptions& mutable_cf_options,
+                        bool skip_filters = false, int level = -1,
+                        bool prefetch_index_and_filter_in_cache = true,
+                        size_t max_file_size_for_l0_meta_pin = 0,
+                        Temperature file_temperature = Temperature::kUnknown);
 
   // Update the max_covering_tombstone_seq in the GetContext for each key based
   // on the range deletions in the table

@@ -366,6 +366,11 @@ Options DBTestBase::GetOptions(
     table_options.block_cache = NewLRUCache(/* too small */ 1);
   }
 
+  // Test anticipated new default as much as reasonably possible (and remove
+  // this code when obsolete)
+  assert(!table_options.decouple_partitioned_filters);
+  table_options.decouple_partitioned_filters = true;
+
   bool can_allow_mmap = IsMemoryMappedAccessSupported();
   switch (option_config) {
     case kHashSkipList:
@@ -563,6 +568,11 @@ Options DBTestBase::GetOptions(
     case kUnorderedWrite: {
       options.allow_concurrent_memtable_write = false;
       options.unordered_write = false;
+      break;
+    }
+    case kBlockBasedTableWithBinarySearchWithFirstKeyIndex: {
+      table_options.index_type =
+          BlockBasedTableOptions::kBinarySearchWithFirstKey;
       break;
     }
 

@@ -53,6 +53,14 @@ Writer::~Writer() {
 
 IOStatus Writer::WriteBuffer(const WriteOptions& write_options) {
   if (dest_->seen_error()) {
+#ifndef NDEBUG
+    if (dest_->seen_injected_error()) {
+      std::stringstream msg;
+      msg << "Seen " << FaultInjectionTestFS::kInjected
+          << " error. Skip writing buffer.";
+      return IOStatus::IOError(msg.str());
+    }
+#endif  // NDEBUG
     return IOStatus::IOError("Seen error. Skip writing buffer.");
   }
   IOOptions opts;
@@ -74,9 +82,26 @@ IOStatus Writer::Close(const WriteOptions& write_options) {
   return s;
 }
 
+bool Writer::PublishIfClosed() {
+  if (dest_->IsClosed()) {
+    dest_.reset();
+    return true;
+  } else {
+    return false;
+  }
+}
+
 IOStatus Writer::AddRecord(const WriteOptions& write_options,
                            const Slice& slice) {
   if (dest_->seen_error()) {
+#ifndef NDEBUG
+    if (dest_->seen_injected_error()) {
+      std::stringstream msg;
+      msg << "Seen " << FaultInjectionTestFS::kInjected
+          << " error. Skip writing buffer.";
+      return IOStatus::IOError(msg.str());
+    }
+#endif  // NDEBUG
     return IOStatus::IOError("Seen error. Skip writing buffer.");
   }
   const char* ptr = slice.data();
@@ -184,6 +209,14 @@ IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
   }
 
   if (dest_->seen_error()) {
+#ifndef NDEBUG
+    if (dest_->seen_injected_error()) {
+      std::stringstream msg;
+      msg << "Seen " << FaultInjectionTestFS::kInjected
+          << " error. Skip writing buffer.";
+      return IOStatus::IOError(msg.str());
+    }
+#endif  // NDEBUG
     return IOStatus::IOError("Seen error. Skip writing buffer.");
   }
 

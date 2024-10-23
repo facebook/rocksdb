@@ -55,7 +55,13 @@ Status ValidateOptions(const DBOptions& db_opts,
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options) {
   DBOptions options;
+  BuildDBOptions(immutable_db_options, mutable_db_options, options);
+  return options;
+}
 
+void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
+                    const MutableDBOptions& mutable_db_options,
+                    DBOptions& options) {
   options.create_if_missing = immutable_db_options.create_if_missing;
   options.create_missing_column_families =
       immutable_db_options.create_missing_column_families;
@@ -88,9 +94,6 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.max_background_jobs = mutable_db_options.max_background_jobs;
   options.max_background_compactions =
       mutable_db_options.max_background_compactions;
-  options.bytes_per_sync = mutable_db_options.bytes_per_sync;
-  options.wal_bytes_per_sync = mutable_db_options.wal_bytes_per_sync;
-  options.strict_bytes_per_sync = mutable_db_options.strict_bytes_per_sync;
   options.max_subcompactions = mutable_db_options.max_subcompactions;
   options.max_background_flushes = mutable_db_options.max_background_flushes;
   options.max_log_file_size = immutable_db_options.max_log_file_size;
@@ -127,6 +130,9 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.writable_file_max_buffer_size =
       mutable_db_options.writable_file_max_buffer_size;
   options.use_adaptive_mutex = immutable_db_options.use_adaptive_mutex;
+  options.bytes_per_sync = mutable_db_options.bytes_per_sync;
+  options.wal_bytes_per_sync = mutable_db_options.wal_bytes_per_sync;
+  options.strict_bytes_per_sync = mutable_db_options.strict_bytes_per_sync;
   options.listeners = immutable_db_options.listeners;
   options.enable_thread_tracking = immutable_db_options.enable_thread_tracking;
   options.delayed_write_rate = mutable_db_options.delayed_write_rate;
@@ -161,9 +167,15 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.two_write_queues = immutable_db_options.two_write_queues;
   options.manual_wal_flush = immutable_db_options.manual_wal_flush;
   options.wal_compression = immutable_db_options.wal_compression;
+  options.background_close_inactive_wals =
+      immutable_db_options.background_close_inactive_wals;
   options.atomic_flush = immutable_db_options.atomic_flush;
   options.avoid_unnecessary_blocking_io =
       immutable_db_options.avoid_unnecessary_blocking_io;
+  options.write_dbid_to_manifest = immutable_db_options.write_dbid_to_manifest;
+  options.write_identity_file = immutable_db_options.write_identity_file;
+  options.prefix_seek_opt_in_only =
+      immutable_db_options.prefix_seek_opt_in_only;
   options.log_readahead_size = immutable_db_options.log_readahead_size;
   options.file_checksum_gen_factory =
       immutable_db_options.file_checksum_gen_factory;
@@ -180,7 +192,15 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.enforce_single_del_contracts =
       immutable_db_options.enforce_single_del_contracts;
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
-  return options;
+  options.follower_refresh_catchup_period_ms =
+      immutable_db_options.follower_refresh_catchup_period_ms;
+  options.follower_catchup_retry_count =
+      immutable_db_options.follower_catchup_retry_count;
+  options.follower_catchup_retry_wait_ms =
+      immutable_db_options.follower_catchup_retry_wait_ms;
+  options.metadata_write_temperature =
+      immutable_db_options.metadata_write_temperature;
+  options.wal_write_temperature = immutable_db_options.wal_write_temperature;
 }
 
 ColumnFamilyOptions BuildColumnFamilyOptions(
@@ -213,11 +233,13 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.memtable_protection_bytes_per_key;
   cf_opts->block_protection_bytes_per_key =
       moptions.block_protection_bytes_per_key;
+  cf_opts->paranoid_memory_checks = moptions.paranoid_memory_checks;
   cf_opts->bottommost_file_compaction_delay =
       moptions.bottommost_file_compaction_delay;
 
   // Compaction related options
   cf_opts->disable_auto_compactions = moptions.disable_auto_compactions;
+  cf_opts->table_factory = moptions.table_factory;
   cf_opts->soft_pending_compaction_bytes_limit =
       moptions.soft_pending_compaction_bytes_limit;
   cf_opts->hard_pending_compaction_bytes_limit =
@@ -274,6 +296,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->last_level_temperature = moptions.last_level_temperature;
   cf_opts->default_write_temperature = moptions.default_write_temperature;
   cf_opts->memtable_max_range_deletions = moptions.memtable_max_range_deletions;
+  cf_opts->uncache_aggressiveness = moptions.uncache_aggressiveness;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
@@ -293,7 +316,6 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->inplace_update_support = ioptions.inplace_update_support;
   cf_opts->inplace_callback = ioptions.inplace_callback;
   cf_opts->memtable_factory = ioptions.memtable_factory;
-  cf_opts->table_factory = ioptions.table_factory;
   cf_opts->table_properties_collector_factories =
       ioptions.table_properties_collector_factories;
   cf_opts->bloom_locality = ioptions.bloom_locality;

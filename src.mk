@@ -304,6 +304,7 @@ LIB_SOURCES =                                                   \
   utilities/persistent_cache/volatile_tier_impl.cc              \
   utilities/simulator_cache/cache_simulator.cc                  \
   utilities/simulator_cache/sim_cache.cc                        \
+  utilities/table_properties_collectors/compact_for_tiering_collector.cc \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/trace/file_trace_reader_writer.cc                   \
   utilities/trace/replayer_impl.cc                              \
@@ -380,6 +381,7 @@ STRESS_LIB_SOURCES =                                            \
   db_stress_tool/cf_consistency_stress.cc                      \
   db_stress_tool/db_stress_common.cc                           \
   db_stress_tool/db_stress_driver.cc                           \
+  db_stress_tool/db_stress_filters.cc                          \
   db_stress_tool/db_stress_gflags.cc                           \
   db_stress_tool/db_stress_listener.cc                         \
   db_stress_tool/db_stress_shared_state.cc                     \
@@ -405,6 +407,7 @@ TEST_LIB_SOURCES =                                              \
 FOLLY_SOURCES =                                                 \
   $(FOLLY_DIR)/folly/container/detail/F14Table.cpp              \
   $(FOLLY_DIR)/folly/detail/Futex.cpp                           \
+  $(FOLLY_DIR)/folly/lang/Exception.cpp                         \
   $(FOLLY_DIR)/folly/lang/SafeAssert.cpp                        \
   $(FOLLY_DIR)/folly/lang/ToAscii.cpp                           \
   $(FOLLY_DIR)/folly/ScopeGuard.cpp                             \
@@ -628,6 +631,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/persistent_cache/persistent_cache_test.cc                   \
   utilities/simulator_cache/cache_simulator_test.cc                     \
   utilities/simulator_cache/sim_cache_test.cc                           \
+  utilities/table_properties_collectors/compact_for_tiering_collector_test.cc \
   utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \
   utilities/transactions/optimistic_transaction_test.cc                 \
   utilities/transactions/lock/range/range_locking_test.cc               \

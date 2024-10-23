@@ -434,6 +434,9 @@ rocksdb_create_column_family_with_ttl(
 extern ROCKSDB_LIBRARY_API void rocksdb_drop_column_family(
     rocksdb_t* db, rocksdb_column_family_handle_t* handle, char** errptr);
 
+extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t*
+    rocksdb_get_default_column_family_handle(rocksdb_t* db);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_column_family_handle_destroy(
     rocksdb_column_family_handle_t*);
 
@@ -501,6 +504,13 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_get_cf_with_ts(
     rocksdb_t* db, const rocksdb_readoptions_t* options,
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, size_t* vallen, char** ts, size_t* tslen, char** errptr);
+
+/**
+ * Returns a malloc() buffer with the DB identity, assigning the length to
+ * *id_len. Returns NULL if an error occurred.
+ */
+extern ROCKSDB_LIBRARY_API char* rocksdb_get_db_identity(rocksdb_t* db,
+                                                         size_t* id_len);
 
 // if values_list[i] == NULL and errs[i] == NULL,
 // then we got status.IsNotFound(), which we will not return.
@@ -640,6 +650,19 @@ extern ROCKSDB_LIBRARY_API void rocksdb_approximate_sizes_cf(
     const size_t* range_start_key_len, const char* const* range_limit_key,
     const size_t* range_limit_key_len, uint64_t* sizes, char** errptr);
 
+enum {
+  rocksdb_size_approximation_flags_none = 0,
+  rocksdb_size_approximation_flags_include_memtable = 1 << 0,
+  rocksdb_size_approximation_flags_include_files = 1 << 1,
+};
+
+extern ROCKSDB_LIBRARY_API void rocksdb_approximate_sizes_cf_with_flags(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    int num_ranges, const char* const* range_start_key,
+    const size_t* range_start_key_len, const char* const* range_limit_key,
+    const size_t* range_limit_key_len, uint8_t include_flags, uint64_t* sizes,
+    char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_compact_range(rocksdb_t* db,
                                                       const char* start_key,
                                                       size_t start_key_len,
@@ -727,6 +750,8 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_timestamp(
     const rocksdb_iterator_t*, size_t* tslen);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_get_error(
     const rocksdb_iterator_t*, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_iter_refresh(
+    const rocksdb_iterator_t* iter, char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_wal_iter_next(
     rocksdb_wal_iterator_t* iter);
@@ -747,6 +772,10 @@ extern ROCKSDB_LIBRARY_API rocksdb_writebatch_t* rocksdb_writebatch_create(
     void);
 extern ROCKSDB_LIBRARY_API rocksdb_writebatch_t* rocksdb_writebatch_create_from(
     const char* rep, size_t size);
+extern ROCKSDB_LIBRARY_API rocksdb_writebatch_t*
+rocksdb_writebatch_create_with_params(size_t reserved_bytes, size_t max_bytes,
+                                      size_t protection_bytes_per_key,
+                                      size_t default_cf_ts_sz);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_destroy(
     rocksdb_writebatch_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_clear(rocksdb_writebatch_t*);
@@ -834,6 +863,13 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate(
     rocksdb_writebatch_t*, void* state,
     void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
     void (*deleted)(void*, const char* k, size_t klen));
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate_cf(
+    rocksdb_writebatch_t*, void* state,
+    void (*put_cf)(void*, uint32_t cfid, const char* k, size_t klen,
+                   const char* v, size_t vlen),
+    void (*deleted_cf)(void*, uint32_t cfid, const char* k, size_t klen),
+    void (*merge_cf)(void*, uint32_t cfid, const char* k, size_t klen,
+                     const char* v, size_t vlen));
 extern ROCKSDB_LIBRARY_API const char* rocksdb_writebatch_data(
     rocksdb_writebatch_t*, size_t* size);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_set_save_point(
@@ -842,6 +878,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_rollback_to_save_point(
     rocksdb_writebatch_t*, char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_pop_save_point(
     rocksdb_writebatch_t*, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_update_timestamps(
+    rocksdb_writebatch_t* wb, const char* ts, size_t tslen, void* state,
+    size_t (*get_ts_size)(void*, uint32_t), char** errptr);
 
 /* Write batch with index */
 
@@ -850,6 +889,11 @@ rocksdb_writebatch_wi_create(size_t reserved_bytes,
                              unsigned char overwrite_keys);
 extern ROCKSDB_LIBRARY_API rocksdb_writebatch_wi_t*
 rocksdb_writebatch_wi_create_from(const char* rep, size_t size);
+extern ROCKSDB_LIBRARY_API rocksdb_writebatch_wi_t*
+rocksdb_writebatch_wi_create_with_params(
+    rocksdb_comparator_t* backup_index_comparator, size_t reserved_bytes,
+    unsigned char overwrite_key, size_t max_bytes,
+    size_t protection_bytes_per_key);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_destroy(
     rocksdb_writebatch_wi_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_clear(
@@ -960,6 +1004,9 @@ extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
 rocksdb_writebatch_wi_create_iterator_with_base_cf(
     rocksdb_writebatch_wi_t* wbwi, rocksdb_iterator_t* base_iterator,
     rocksdb_column_family_handle_t* cf);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_update_timestamps(
+    rocksdb_writebatch_wi_t* wbwi, const char* ts, size_t tslen, void* state,
+    size_t (*get_ts_size)(void*, uint32_t), char** errptr);
 
 /* Options utils */
 
@@ -1178,6 +1225,11 @@ extern ROCKSDB_LIBRARY_API int rocksdb_options_get_info_log_level(
     rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API rocksdb_logger_t*
 rocksdb_logger_create_stderr_logger(int log_level, const char* prefix);
+extern ROCKSDB_LIBRARY_API rocksdb_logger_t*
+rocksdb_logger_create_callback_logger(int log_level,
+                                      void (*)(void* priv, unsigned lev,
+                                               char* msg, size_t len),
+                                      void* priv);
 extern ROCKSDB_LIBRARY_API void rocksdb_logger_destroy(
     rocksdb_logger_t* logger);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_buffer_size(
@@ -1587,6 +1639,21 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_hash_link_list_rep(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_plain_table_factory(
     rocksdb_options_t*, uint32_t, int, double, size_t, size_t, char,
     unsigned char, unsigned char);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_write_dbid_to_manifest(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_dbid_to_manifest(
+    rocksdb_options_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_write_identity_file(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_identity_file(
+    rocksdb_options_t*, unsigned char);
+
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_track_and_verify_wals_in_manifest(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_track_and_verify_wals_in_manifest(rocksdb_options_t*,
+                                                      unsigned char);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_min_level_to_compress(
     rocksdb_options_t* opt, int level);

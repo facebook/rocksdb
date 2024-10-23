@@ -234,6 +234,12 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Number of files to trigger level-0 compaction. A value <0 means that
   // level-0 compaction will not be triggered by number of files at all.
   //
+  // Universal compaction: RocksDB will try to keep the number of sorted runs
+  //   no more than this number. If CompactionOptionsUniversal::max_read_amp is
+  //   set, then this option will be used only as a trigger to look for
+  //   compaction. CompactionOptionsUniversal::max_read_amp will be the limit
+  //   on the number of sorted runs.
+  //
   // Default: 4
   //
   // Dynamically changeable through SetOptions() API
@@ -344,6 +350,50 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint32_t memtable_max_range_deletions = 0;
 
+  // EXPERIMENTAL
+  // When > 0, RocksDB attempts to erase some block cache entries for files
+  // that have become obsolete, which means they are about to be deleted.
+  // To avoid excessive tracking, this "uncaching" process is iterative and
+  // speculative, meaning it could incur extra background CPU effort if the
+  // file's blocks are generally not cached. A larger number indicates more
+  // willingness to spend CPU time to maximize block cache hit rates by
+  // erasing known-obsolete entries.
+  //
+  // When uncache_aggressiveness=1, block cache entries for an obsolete file
+  // are only erased until any attempted erase operation fails because the
+  // block is not cached. Then no further attempts are made to erase cached
+  // blocks for that file.
+  //
+  // For larger values, erasure is attempted until evidence incidates that the
+  // chance of success is < 0.99^(a-1), where a = uncache_aggressiveness. For
+  // example:
+  // 2 -> Attempt only while expecting >= 99% successful/useful erasure
+  // 11 -> 90%
+  // 69 -> 50%
+  // 110 -> 33%
+  // 230 -> 10%
+  // 460 -> 1%
+  // 690 -> 0.1%
+  // 1000 -> 1 in 23000
+  // 10000 -> Always (for all practical purposes)
+  // NOTE: UINT32_MAX and nearby values could take additional special meanings
+  // in the future.
+  //
+  // Pinned cache entries (guaranteed present) are always erased if
+  // uncache_aggressiveness > 0, but are not used in predicting the chances of
+  // successful erasure of non-pinned entries.
+  //
+  // NOTE: In the case of copied DBs (such as Checkpoints) sharing a block
+  // cache, it is possible that a file becoming obsolete doesn't mean its
+  // block cache entries (shared among copies) are obsolete. Such a scenerio
+  // is the best case for uncache_aggressiveness = 0.
+  //
+  // When using allow_mmap_reads=true, this option is ignored (no un-caching).
+  //
+  // Once validated in production, the default will likely change to something
+  // around 300.
+  uint32_t uncache_aggressiveness = 0;
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -418,14 +468,27 @@ struct CompactionServiceJobInfo {
 
   Env::Priority priority;
 
+  // Additional Compaction Details that can be useful in the CompactionService
+  CompactionReason compaction_reason;
+  bool is_full_compaction;
+  bool is_manual_compaction;
+  bool bottommost_level;
+
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
                            std::string db_session_id_, uint64_t job_id_,
-                           Env::Priority priority_)
+                           Env::Priority priority_,
+                           CompactionReason compaction_reason_,
+                           bool is_full_compaction_, bool is_manual_compaction_,
+                           bool bottommost_level_)
       : db_name(std::move(db_name_)),
         db_id(std::move(db_id_)),
         db_session_id(std::move(db_session_id_)),
         job_id(job_id_),
-        priority(priority_) {}
+        priority(priority_),
+        compaction_reason(compaction_reason_),
+        is_full_compaction(is_full_compaction_),
+        is_manual_compaction(is_manual_compaction_),
+        bottommost_level(bottommost_level_) {}
 };
 
 struct CompactionServiceScheduleResponse {
@@ -463,6 +526,10 @@ class CompactionService : public Customizable {
       const std::string& /*scheduled_job_id*/, std::string* /*result*/) {
     return CompactionServiceJobStatus::kUseLocal;
   }
+
+  // Optional callback function upon Installation.
+  virtual void OnInstallation(const std::string& /*scheduled_job_id*/,
+                              CompactionServiceJobStatus /*status*/) {}
 
   // Deprecated. Please implement Schedule() and Wait() API to handle remote
   // compaction
@@ -597,9 +664,7 @@ struct DBOptions {
   bool verify_sst_unique_id_in_manifest = true;
 
   // Use the specified object to interact with the environment,
-  // e.g. to read/write files, schedule background work, etc. In the near
-  // future, support for doing storage operations such as read/write files
-  // through env will be deprecated in favor of file_system (see below)
+  // e.g. to read/write files, schedule background work, etc.
   // Default: Env::Default()
   Env* env = Env::Default();
 
@@ -1299,6 +1364,15 @@ struct DBOptions {
   // the WAL is read.
   CompressionType wal_compression = kNoCompression;
 
+  // Set to true to re-instate an old behavior of keeping complete, synced WAL
+  // files open for write until they are collected for deletion by a
+  // background thread. This should not be needed unless there is a
+  // performance issue with file Close(), but setting it to true means that
+  // Checkpoint might call LinkFile on a WAL still open for write, which might
+  // be unsupported on some FileSystem implementations. As this is intended as
+  // a temporary kill switch, it is already DEPRECATED.
+  bool background_close_inactive_wals = false;
+
   // If true, RocksDB supports flushing multiple column families and committing
   // their results atomically to MANIFEST. Note that it is not
   // necessary to set atomic_flush to true if WAL is always enabled since WAL
@@ -1321,16 +1395,35 @@ struct DBOptions {
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;
 
-  // Historically DB ID has always been stored in Identity File in DB folder.
-  // If this flag is true, the DB ID is written to Manifest file in addition
-  // to the Identity file. By doing this 2 problems are solved
-  // 1. We don't checksum the Identity file where as Manifest file is.
-  // 2. Since the source of truth for DB is Manifest file DB ID will sit with
-  //    the source of truth. Previously the Identity file could be copied
-  //    independent of Manifest and that can result in wrong DB ID.
-  // We recommend setting this flag to true.
-  // Default: false
-  bool write_dbid_to_manifest = false;
+  // The DB unique ID can be saved in the DB manifest (preferred, this option)
+  // or an IDENTITY file (historical, deprecated), or both. If this option is
+  // set to false (old behavior), then write_identity_file must be set to true.
+  // The manifest is preferred because
+  // 1. The IDENTITY file is not checksummed, so it is not as safe against
+  //    corruption.
+  // 2. The IDENTITY file may or may not be copied with the DB (e.g. not
+  //    copied by BackupEngine), so is not reliable for the provenance of a DB.
+  // This option might eventually be obsolete and removed as Identity files
+  // are phased out.
+  bool write_dbid_to_manifest = true;
+
+  // It is expected that the Identity file will be obsoleted by recording
+  // DB ID in the manifest (see write_dbid_to_manifest). Setting this to true
+  // maintains the historical behavior of writing an Identity file, while
+  // setting to false is expected to be the future default. This option might
+  // eventually be obsolete and removed as Identity files are phased out.
+  bool write_identity_file = true;
+
+  // Historically, when prefix_extractor != nullptr, iterators have an
+  // unfortunate default semantics of *possibly* only returning data
+  // within the same prefix. To avoid "spooky action at a distance," iterator
+  // bounds should come from the instantiation or seeking of the iterator,
+  // not from a mutable column family option.
+  //
+  // When set to true, it is as if every iterator is created with
+  // total_order_seek=true and only auto_prefix_mode=true and
+  // prefix_same_as_start=true can take advantage of prefix seek optimizations.
+  bool prefix_seek_opt_in_only = false;
 
   // The number of bytes to prefetch when reading the log. This is mostly useful
   // for reading a remotely located log, as it can save the number of
@@ -1379,7 +1472,17 @@ struct DBOptions {
   // For example, if an SST or blob file referenced by the MANIFEST is missing,
   // BER might be able to find a set of files corresponding to an old "point in
   // time" version of the column family, possibly from an older MANIFEST
-  // file. Some other kinds of DB files (e.g. CURRENT, LOCK, IDENTITY) are
+  // file.
+  // Besides complete "point in time" version, an incomplete version with
+  // only a suffix of L0 files missing can also be recovered to if the
+  // versioning history doesn't include an atomic flush.  From the users'
+  // perspective, missing a suffix of L0 files means missing the
+  // user's most recently written data. So the remaining available files still
+  // presents a valid point in time view, although for some previous time. It's
+  // not done for atomic flush because that guarantees a consistent view across
+  // column families. We cannot guarantee that if recovering an incomplete
+  // version.
+  // Some other kinds of DB files (e.g. CURRENT, LOCK, IDENTITY) are
   // either ignored or replaced with BER, or quietly fixed regardless of BER
   // setting. BER does require at least one valid MANIFEST to recover to a
   // non-trivial DB state, unlike `ldb repair`.
@@ -1511,6 +1614,16 @@ struct DBOptions {
   // Default 100ms
   uint64_t follower_catchup_retry_wait_ms = 100;
 
+  // When DB files other than SST, blob and WAL files are created, use this
+  // filesystem temperature. (See also `wal_write_temperature` and various
+  // `*_temperature` CF options.) When not `kUnknown`, this overrides any
+  // temperature set by OptimizeForManifestWrite functions.
+  Temperature metadata_write_temperature = Temperature::kUnknown;
+
+  // Use this filesystem temperature when creating WAL files. When not
+  // `kUnknown`, this overrides any temperature set by OptimizeForLogWrite
+  // functions.
+  Temperature wal_write_temperature = Temperature::kUnknown;
   // End EXPERIMENTAL
 };
 
@@ -1761,10 +1874,10 @@ struct ReadOptions {
   bool auto_prefix_mode = false;
 
   // Enforce that the iterator only iterates over the same prefix as the seek.
-  // This option is effective only for prefix seeks, i.e. prefix_extractor is
-  // non-null for the column family and total_order_seek is false.  Unlike
-  // iterate_upper_bound, prefix_same_as_start only works within a prefix
-  // but in both directions.
+  // This makes the iterator bounds dependent on the column family's current
+  // prefix_extractor, which is mutable. When SST files have been built with
+  // the same prefix extractor, prefix filtering optimizations will be used
+  // for both Seek and SeekForPrev.
   bool prefix_same_as_start = false;
 
   // Keep the blocks loaded by the iterator pinned in memory as long as the
@@ -1799,16 +1912,44 @@ struct ReadOptions {
   std::function<bool(const TableProperties&)> table_filter;
 
   // If auto_readahead_size is set to true, it will auto tune the readahead_size
-  // during scans internally.
-  // For this feature to enabled, iterate_upper_bound must also be specified.
+  // during scans internally based on block cache data when block cache is
+  // enabled, iteration upper bound when `iterate_upper_bound != nullptr` and
+  // prefix when `prefix_same_as_start == true`
   //
-  // NOTE: - Recommended for forward Scans only.
+  // Besides enabling block cache, it
+  // also requires `iterate_upper_bound != nullptr` or  `prefix_same_as_start ==
+  // true` for this option to take effect
+  //
+  // To be specific, it does the following:
+  // (1) When `iterate_upper_bound`
+  // is specified, trim the readahead so the readahead does not exceed iteration
+  // upper bound
+  // (2) When `prefix_same_as_start` is set to true, trim the
+  // readahead so data blocks containing keys that are not in the same prefix as
+  // the seek key in `Seek()` are not prefetched
+  //  - Limition: `Seek(key)` instead of `SeekToFirst()` needs to be called in
+  //  order for this trimming to take effect
+  //
+  // NOTE: - Used for forward Scans only.
   //       - If there is a backward scans, this option will be
   //          disabled internally and won't be enabled again if the forward scan
   //          is issued again.
   //
   // Default: true
   bool auto_readahead_size = true;
+
+  // When set, the iterator may defer loading and/or preparing the value when
+  // moving to a different entry (i.e. during SeekToFirst/SeekToLast/Seek/
+  // SeekForPrev/Next/Prev operations). This can be used to save on I/O and/or
+  // CPU when the values associated with certain keys may not be used by the
+  // application. See also IteratorBase::PrepareValue().
+  //
+  // Note: this option currently only applies to 1) large values stored in blob
+  // files using BlobDB and 2) multi-column-family iterators (CoalescingIterator
+  // and AttributeGroupIterator). Otherwise, it has no effect.
+  //
+  // Default: false
+  bool allow_unprepared_value = false;
 
   // *** END options only relevant to iterators or scans ***
 
@@ -1926,6 +2067,7 @@ struct FlushOptions {
   // is performed by someone else (foreground call or background thread).
   // Default: false
   bool allow_write_stall;
+
   FlushOptions() : wait(true), allow_write_stall(false) {}
 };
 
@@ -2052,8 +2194,16 @@ struct CompactRangeOptions {
 // IngestExternalFileOptions is used by IngestExternalFile()
 struct IngestExternalFileOptions {
   // Can be set to true to move the files instead of copying them.
+  // The input files will be unlinked after successful ingestion.
+  // The implementation depends on hard links (LinkFile) instead of traditional
+  // move (RenameFile) to maximize the chances to restore to the original
+  // state upon failure.
   bool move_files = false;
-  // If set to true, ingestion falls back to copy when move fails.
+  // Same as move_files except that input files will NOT be unlinked.
+  // Only one of `move_files` and `link_files` can be set at the same time.
+  bool link_files = false;
+  // If set to true, ingestion falls back to copy when hard linking fails.
+  // This applies to both `move_files` and `link_files`.
   bool failed_move_fall_back_to_copy = true;
   // If set to false, an ingested file keys could appear in existing snapshots
   // that where created before the file was ingested.
@@ -2124,6 +2274,27 @@ struct IngestExternalFileOptions {
   //
   // XXX: "bottommost" is obsolete/confusing terminology to refer to last level
   bool fail_if_not_bottommost_level = false;
+  // EXPERIMENTAL
+  // Enables ingestion of files not generated by SstFileWriter. When true:
+  // - Allows files to be ingested when their cf_id doesn't match the CF they
+  //   are being ingested into.
+  // REQUIREMENTS:
+  // - Ingested files must not overlap with existing keys.
+  // - `write_global_seqno` must be false.
+  // - All keys in ingested files should have sequence number 0. We fail
+  // ingestion if any sequence numbers is non-zero.
+  // WARNING: If a DB contains ingested files generated by another DB/CF,
+  // RepairDB() may not recover these files correctly, potentially leading to
+  // data loss.
+  bool allow_db_generated_files = false;
+
+  // Controls whether data and metadata blocks (e.g. index, filter) read during
+  // file ingestion will be added to block cache.
+  // Users may wish to set this to false when bulk loading into a CF that is not
+  // available for reads yet.
+  // When ingesting to multiple families, this option should be the same across
+  // ingestion options.
+  bool fill_cache = true;
 };
 
 enum TraceFilterType : uint64_t {
@@ -2187,9 +2358,6 @@ struct SizeApproximationOptions {
 };
 
 struct CompactionServiceOptionsOverride {
-  // Currently pointer configurations are not passed to compaction service
-  // compaction so the user needs to set it. It will be removed once pointer
-  // configuration passing is supported.
   Env* env = Env::Default();
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
 

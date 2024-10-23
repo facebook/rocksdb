@@ -53,9 +53,10 @@ class FIFOCompactionPicker : public CompactionPicker {
                                  VersionStorageInfo* version,
                                  LogBuffer* log_buffer);
 
+  // Will pick one file to compact at a time, starting from the oldest file.
   Compaction* PickTemperatureChangeCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-      LogBuffer* log_buffer);
+      LogBuffer* log_buffer) const;
 };
 }  // namespace ROCKSDB_NAMESPACE

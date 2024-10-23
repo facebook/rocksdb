@@ -1719,9 +1719,10 @@ TEST_P(OptimisticTransactionTest, PutEntitySuccess) {
     }
 
     {
-      PinnableSlice value;
-      ASSERT_OK(txn->GetForUpdate(ReadOptions(), foo, &value));
-      ASSERT_EQ(value, foo_columns[0].value());
+      PinnableWideColumns columns;
+      ASSERT_OK(txn->GetEntityForUpdate(
+          ReadOptions(), txn_db->DefaultColumnFamily(), foo, &columns));
+      ASSERT_EQ(columns.columns(), foo_columns);
     }
 
     ASSERT_OK(
@@ -1737,9 +1738,10 @@ TEST_P(OptimisticTransactionTest, PutEntitySuccess) {
     }
 
     {
-      PinnableSlice value;
-      ASSERT_OK(txn->GetForUpdate(ReadOptions(), foo, &value));
-      ASSERT_EQ(value, foo_new_columns[0].value());
+      PinnableWideColumns columns;
+      ASSERT_OK(txn->GetEntityForUpdate(
+          ReadOptions(), txn_db->DefaultColumnFamily(), foo, &columns));
+      ASSERT_EQ(columns.columns(), foo_new_columns);
     }
 
     ASSERT_OK(txn->Commit());
@@ -2034,6 +2036,60 @@ TEST_P(OptimisticTransactionTest, PutEntityWriteConflictTxnTxn) {
   }
 }
 
+TEST_P(OptimisticTransactionTest, PutEntityReadConflict) {
+  constexpr char foo[] = "foo";
+  const WideColumns foo_columns{
+      {kDefaultWideColumnName, "bar"}, {"col1", "val1"}, {"col2", "val2"}};
+
+  ASSERT_OK(txn_db->PutEntity(WriteOptions(), txn_db->DefaultColumnFamily(),
+                              foo, foo_columns));
+
+  std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
+  ASSERT_NE(txn, nullptr);
+
+  txn->SetSnapshot();
+
+  ReadOptions snapshot_read_options;
+  snapshot_read_options.snapshot = txn->GetSnapshot();
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntityForUpdate(
+        snapshot_read_options, txn_db->DefaultColumnFamily(), foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_columns);
+  }
+
+  // This PutEntity outside of a transaction will conflict with the previous
+  // write
+  const WideColumns foo_conflict_columns{{kDefaultWideColumnName, "X"},
+                                         {"conflicting", "write"}};
+  ASSERT_OK(txn_db->PutEntity(WriteOptions(), txn_db->DefaultColumnFamily(),
+                              foo, foo_conflict_columns));
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn_db->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(),
+                                foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_conflict_columns);
+  }
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(), foo,
+                             &columns));
+    ASSERT_EQ(columns.columns(), foo_conflict_columns);
+  }
+
+  ASSERT_TRUE(txn->Commit().IsBusy());  // Txn should not commit
+
+  {
+    PinnableWideColumns columns;
+    ASSERT_OK(txn_db->GetEntity(ReadOptions(), txn_db->DefaultColumnFamily(),
+                                foo, &columns));
+    ASSERT_EQ(columns.columns(), foo_conflict_columns);
+  }
+}
+
 TEST_P(OptimisticTransactionTest, EntityReadSanityChecks) {
   constexpr char foo[] = "foo";
   constexpr char bar[] = "bar";
@@ -2120,6 +2176,49 @@ TEST_P(OptimisticTransactionTest, EntityReadSanityChecks) {
                         sorted_input);
     ASSERT_TRUE(statuses[0].IsInvalidArgument());
     ASSERT_TRUE(statuses[1].IsInvalidArgument());
+  }
+
+  {
+    constexpr ColumnFamilyHandle* column_family = nullptr;
+    PinnableWideColumns columns;
+    ASSERT_TRUE(
+        txn->GetEntityForUpdate(ReadOptions(), column_family, foo, &columns)
+            .IsInvalidArgument());
+  }
+
+  {
+    constexpr PinnableWideColumns* columns = nullptr;
+    ASSERT_TRUE(txn->GetEntityForUpdate(ReadOptions(),
+                                        txn_db->DefaultColumnFamily(), foo,
+                                        columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kGet;
+
+    PinnableWideColumns columns;
+    ASSERT_TRUE(txn->GetEntityForUpdate(read_options,
+                                        txn_db->DefaultColumnFamily(), foo,
+                                        &columns)
+                    .IsInvalidArgument());
+  }
+
+  {
+    txn->SetSnapshot();
+
+    ReadOptions read_options;
+    read_options.snapshot = txn->GetSnapshot();
+
+    PinnableWideColumns columns;
+    constexpr bool exclusive = true;
+    constexpr bool do_validate = false;
+
+    ASSERT_TRUE(txn->GetEntityForUpdate(read_options,
+                                        txn_db->DefaultColumnFamily(), foo,
+                                        &columns, exclusive, do_validate)
+                    .IsInvalidArgument());
   }
 }
 

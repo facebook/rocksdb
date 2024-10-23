@@ -46,6 +46,7 @@ const std::set<uint32_t> kFooterFormatVersionsToTest{
     kDefaultFormatVersion,
     kLatestFormatVersion,
 };
+const ReadOptionsNoIo kReadOptionsNoIo;
 
 std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   // Make sure to generate a wide variety of characters so we
@@ -772,4 +773,6 @@ void RegisterTestLibrary(const std::string& arg) {
     ObjectRegistry::Default()->AddLibrary("test", RegisterTestObjects, arg);
   }
 }
+
+const std::string kUnitTestDbId = "UnitTest";
 }  // namespace ROCKSDB_NAMESPACE::test

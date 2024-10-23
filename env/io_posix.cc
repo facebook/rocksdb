@@ -457,7 +457,6 @@ Status PosixHelper::GetLogicalBlockSizeOfDirectory(const std::string& directory,
                                                    size_t* size) {
   int fd = open(directory.c_str(), O_DIRECTORY | O_RDONLY);
   if (fd == -1) {
-    close(fd);
     return Status::IOError("Cannot open directory " + directory);
   }
   *size = PosixHelper::GetLogicalBlockSizeOfFd(fd);

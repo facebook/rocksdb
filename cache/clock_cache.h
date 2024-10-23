@@ -1128,6 +1128,12 @@ class BaseHyperClockCache : public ShardedCache<ClockCacheShard<Table>> {
 
   const CacheItemHelper* GetCacheItemHelper(Handle* handle) const override;
 
+  void ApplyToHandle(
+      Cache* cache, Handle* handle,
+      const std::function<void(const Slice& key, Cache::ObjectPtr obj,
+                               size_t charge, const CacheItemHelper* helper)>&
+          callback) override;
+
   void ReportProblems(
       const std::shared_ptr<Logger>& /*info_log*/) const override;
 };

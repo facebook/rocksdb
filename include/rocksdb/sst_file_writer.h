@@ -195,6 +195,9 @@ class SstFileWriter {
   // Return the current file size.
   uint64_t FileSize();
 
+  // Check if a file with input table property is created by SstFileWriter.
+  static bool CreatedBySstFileWriter(const TableProperties&);
+
  private:
   void InvalidatePageCache(bool closing);
   struct Rep;

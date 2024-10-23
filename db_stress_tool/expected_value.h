@@ -37,7 +37,10 @@ class ExpectedValue {
   explicit ExpectedValue(uint32_t expected_value)
       : expected_value_(expected_value) {}
 
-  bool Exists() const { return PendingWrite() || !IsDeleted(); }
+  bool Exists() const {
+    assert(!PendingWrite() && !PendingDelete());
+    return !IsDeleted();
+  }
 
   uint32_t Read() const { return expected_value_; }
 

@@ -154,8 +154,9 @@ Status WritePreparedTxn::PrepareInternal() {
   const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
   s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
-                          !DISABLE_MEMTABLE, &seq_used, prepare_batch_cnt_,
+                          /*callback*/ nullptr, /*user_write_cb=*/nullptr,
+                          &log_number_, /*log ref*/ 0, !DISABLE_MEMTABLE,
+                          &seq_used, prepare_batch_cnt_,
                           &add_prepared_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   auto prepare_seq = seq_used;
@@ -247,9 +248,10 @@ Status WritePreparedTxn::CommitInternal() {
   // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery to
   // true. See the comments about GetCommitTimeWriteBatch() in
   // include/rocksdb/utilities/transaction.h.
-  s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                          zero_log_number, disable_memtable, &seq_used,
-                          batch_cnt, pre_release_callback);
+  s = db_impl_->WriteImpl(write_options_, working_batch, nullptr,
+                          /*user_write_cb=*/nullptr, nullptr, zero_log_number,
+                          disable_memtable, &seq_used, batch_cnt,
+                          pre_release_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   const SequenceNumber commit_batch_seq = seq_used;
   if (LIKELY(do_one_write || !s.ok())) {
@@ -284,8 +286,9 @@ Status WritePreparedTxn::CommitInternal() {
   const bool DISABLE_MEMTABLE = true;
   const size_t ONE_BATCH = 1;
   const uint64_t NO_REF_LOG = 0;
-  s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
-                          NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
+  s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr,
+                          /*user_write_cb=*/nullptr, nullptr, NO_REF_LOG,
+                          DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &update_commit_map_with_aux_batch);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   return s;
@@ -450,8 +453,9 @@ Status WritePreparedTxn::RollbackInternal() {
   // DB in one shot. min_uncommitted still works since it requires capturing
   // data that is written to DB but not yet committed, while
   // the rollback batch commits with PreReleaseCallback.
-  s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
-                          NO_REF_LOG, !DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
+  s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr,
+                          /*user_write_cb=*/nullptr, nullptr, NO_REF_LOG,
+                          !DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           pre_release_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (!s.ok()) {
@@ -476,8 +480,9 @@ Status WritePreparedTxn::RollbackInternal() {
   // In the absence of Prepare markers, use Noop as a batch separator
   s = WriteBatchInternal::InsertNoop(&empty_batch);
   assert(s.ok());
-  s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
-                          NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
+  s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr,
+                          /*user_write_cb=*/nullptr, nullptr, NO_REF_LOG,
+                          DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &update_commit_map_with_prepare);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
@@ -524,7 +529,8 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
   // TODO(yanqin): support user-defined timestamp
   return TransactionUtil::CheckKeyForConflicts(
       db_impl_, cfh, key.ToString(), snap_seq, /*ts=*/nullptr,
-      false /* cache_only */, &snap_checker, min_uncommitted);
+      false /* cache_only */, &snap_checker, min_uncommitted,
+      txn_db_impl_->GetTxnDBOptions().enable_udt_validation);
 }
 
 void WritePreparedTxn::SetSnapshot() {

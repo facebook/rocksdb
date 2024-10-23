@@ -53,8 +53,6 @@ struct ImmutableCFOptions {
 
   std::shared_ptr<MemTableRepFactory> memtable_factory;
 
-  std::shared_ptr<TableFactory> table_factory;
-
   Options::TablePropertiesCollectorFactories
       table_properties_collector_factories;
 
@@ -124,6 +122,7 @@ struct MutableCFOptions {
         experimental_mempurge_threshold(
             options.experimental_mempurge_threshold),
         disable_auto_compactions(options.disable_auto_compactions),
+        table_factory(options.table_factory),
         soft_pending_compaction_bytes_limit(
             options.soft_pending_compaction_bytes_limit),
         hard_pending_compaction_bytes_limit(
@@ -168,12 +167,14 @@ struct MutableCFOptions {
         memtable_protection_bytes_per_key(
             options.memtable_protection_bytes_per_key),
         block_protection_bytes_per_key(options.block_protection_bytes_per_key),
+        paranoid_memory_checks(options.paranoid_memory_checks),
         sample_for_compression(
             options.sample_for_compression),  // TODO: is 0 fine here?
         compression_per_level(options.compression_per_level),
         memtable_max_range_deletions(options.memtable_max_range_deletions),
         bottommost_file_compaction_delay(
-            options.bottommost_file_compaction_delay) {
+            options.bottommost_file_compaction_delay),
+        uncache_aggressiveness(options.uncache_aggressiveness) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -223,7 +224,9 @@ struct MutableCFOptions {
         memtable_protection_bytes_per_key(0),
         block_protection_bytes_per_key(0),
         sample_for_compression(0),
-        memtable_max_range_deletions(0) {}
+        memtable_max_range_deletions(0),
+        bottommost_file_compaction_delay(0),
+        uncache_aggressiveness(0) {}
 
   explicit MutableCFOptions(const Options& options);
 
@@ -254,6 +257,9 @@ struct MutableCFOptions {
   size_t max_successive_merges;
   bool strict_max_successive_merges;
   size_t inplace_update_num_locks;
+  // NOTE: if too many shared_ptr make their way into MutableCFOptions, the
+  // copy performance might suffer enough to warrant aggregating them in an
+  // immutable+copy-on-write sub-object managed through a single shared_ptr.
   std::shared_ptr<const SliceTransform> prefix_extractor;
   // [experimental]
   // Used to activate or deactive the Mempurge feature (memtable garbage
@@ -274,6 +280,7 @@ struct MutableCFOptions {
 
   // Compaction related options
   bool disable_auto_compactions;
+  std::shared_ptr<TableFactory> table_factory;
   uint64_t soft_pending_compaction_bytes_limit;
   uint64_t hard_pending_compaction_bytes_limit;
   int level0_file_num_compaction_trigger;
@@ -314,11 +321,13 @@ struct MutableCFOptions {
   Temperature default_write_temperature;
   uint32_t memtable_protection_bytes_per_key;
   uint8_t block_protection_bytes_per_key;
+  bool paranoid_memory_checks;
 
   uint64_t sample_for_compression;
   std::vector<CompressionType> compression_per_level;
   uint32_t memtable_max_range_deletions;
   uint32_t bottommost_file_compaction_delay;
+  uint32_t uncache_aggressiveness;
 
   // Derived options
   // Per-level target file size.

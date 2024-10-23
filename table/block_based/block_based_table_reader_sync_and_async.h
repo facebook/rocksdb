@@ -223,13 +223,16 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         s = VerifyBlockChecksum(footer, data, handle.size(),
                                 rep_->file->file_name(), handle.offset());
         RecordTick(ioptions.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
+        if (!s.ok()) {
+          RecordTick(ioptions.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+        }
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
         if (!s.ok() &&
             CheckFSFeatureSupport(ioptions.fs.get(),
                                   FSSupportedOps::kVerifyAndReconstructRead)) {
           assert(s.IsCorruption());
           assert(!ioptions.allow_mmap_reads);
-          RecordTick(ioptions.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+          RecordTick(ioptions.stats, FILE_READ_CORRUPTION_RETRY_COUNT);
 
           // Repeat the read for this particular block using the regular
           // synchronous Read API. We can use the same chunk of memory
@@ -246,6 +249,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
             assert(result.size() == BlockSizeWithTrailer(handle));
             s = VerifyBlockChecksum(footer, data, handle.size(),
                                     rep_->file->file_name(), handle.offset());
+            if (s.ok()) {
+              RecordTick(ioptions.stats,
+                         FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT);
+            }
           } else {
             s = io_s;
           }
@@ -362,7 +369,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
 
   // First check the full filter
   // If full filter not useful, Then go into each block
-  const bool no_io = read_options.read_tier == kBlockCacheTier;
   uint64_t tracing_mget_id = BlockCacheTraceHelper::kReservedGetId;
   if (sst_file_range.begin()->get_context) {
     tracing_mget_id = sst_file_range.begin()->get_context->get_tracing_get_id();
@@ -372,7 +378,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
   BlockCacheLookupContext metadata_lookup_context{
       TableReaderCaller::kUserMultiGet, tracing_mget_id,
       /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
-  FullFilterKeysMayMatch(filter, &sst_file_range, no_io, prefix_extractor,
+  FullFilterKeysMayMatch(filter, &sst_file_range, prefix_extractor,
                          &metadata_lookup_context, read_options);
 
   if (!sst_file_range.empty()) {
@@ -461,9 +467,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             uncompression_dict_status =
                 rep_->uncompression_dict_reader
                     ->GetOrReadUncompressionDictionary(
-                        nullptr /* prefetch_buffer */, read_options, no_io,
-                        read_options.verify_checksums, get_context,
-                        &metadata_lookup_context, &uncompression_dict);
+                        nullptr /* prefetch_buffer */, read_options,
+                        get_context, &metadata_lookup_context,
+                        &uncompression_dict);
             uncompression_dict_inited = true;
           }
 
@@ -668,7 +674,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             biter->status().IsIncomplete()) {
           // couldn't get block from block_cache
           // Update Saver.state to Found because we are only looking for
-          // whether we can guarantee the key is not there when "no_io" is set
+          // whether we can guarantee the key is not there with kBlockCacheTier
           get_context->MarkKeyMayExist();
           break;
         }

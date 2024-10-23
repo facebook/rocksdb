@@ -22,6 +22,9 @@
 #include "rocksdb/rate_limiter.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
+#ifndef NDEBUG
+#include "utilities/fault_injection_fs.h"
+#endif  // NDEBUG
 
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
@@ -150,11 +153,7 @@ class WritableFileWriter {
   bool pending_sync_;
   std::atomic<bool> seen_error_;
 #ifndef NDEBUG
-  // SyncWithoutFlush() is the function that is allowed to be called
-  // concurrently with other function. One of the concurrent call
-  // could set seen_error_, and the other one would hit assertion
-  // in debug mode.
-  std::atomic<bool> sync_without_flush_called_ = false;
+  std::atomic<bool> seen_injected_error_;
 #endif  // NDEBUG
   uint64_t last_sync_size_;
   uint64_t bytes_per_sync_;
@@ -190,6 +189,9 @@ class WritableFileWriter {
         next_write_offset_(0),
         pending_sync_(false),
         seen_error_(false),
+#ifndef NDEBUG
+        seen_injected_error_(false),
+#endif  // NDEBUG
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
@@ -234,13 +236,17 @@ class WritableFileWriter {
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;
 
   ~WritableFileWriter() {
-    ThreadStatus::OperationType cur_op_type =
+    IOOptions io_options;
+#ifndef NDEBUG
+    // This is needed to pass the IOActivity related checks in stress test.
+    // See DbStressWritableFileWrapper.
+    ThreadStatus::OperationType op_type =
         ThreadStatusUtil::GetThreadOperation();
-    ThreadStatusUtil::SetThreadOperation(
-        ThreadStatus::OperationType::OP_UNKNOWN);
-    auto s = Close(IOOptions());
+    io_options.io_activity =
+        ThreadStatusUtil::TEST_GetExpectedIOActivity(op_type);
+#endif
+    auto s = Close(io_options);
     s.PermitUncheckedError();
-    ThreadStatusUtil::SetThreadOperation(cur_op_type);
   }
 
   std::string file_name() const { return file_name_; }
@@ -263,6 +269,8 @@ class WritableFileWriter {
   // returns NotSupported status.
   IOStatus SyncWithoutFlush(const IOOptions& opts, bool use_fsync);
 
+  // Size including unflushed data written to this writer. If the next op is
+  // a successful Close, the file size will be this.
   uint64_t GetFileSize() const {
     return filesize_.load(std::memory_order_acquire);
   }
@@ -283,7 +291,9 @@ class WritableFileWriter {
 
   bool use_direct_io() { return writable_file_->use_direct_io(); }
 
-  bool BufferIsEmpty() { return buf_.CurrentSize() == 0; }
+  bool BufferIsEmpty() const { return buf_.CurrentSize() == 0; }
+
+  bool IsClosed() const { return writable_file_.get() == nullptr; }
 
   void TEST_SetFileChecksumGenerator(
       FileChecksumGenerator* checksum_generator) {
@@ -301,12 +311,35 @@ class WritableFileWriter {
   // operating on the file after an error happens.
   void reset_seen_error() {
     seen_error_.store(false, std::memory_order_relaxed);
+#ifndef NDEBUG
+    seen_injected_error_.store(false, std::memory_order_relaxed);
+#endif  // NDEBUG
   }
-  void set_seen_error() { seen_error_.store(true, std::memory_order_relaxed); }
+  void set_seen_error(const Status& s) {
+    seen_error_.store(true, std::memory_order_relaxed);
+    (void)s;
+#ifndef NDEBUG
+    if (s.getState() && std::strstr(s.getState(), "inject")) {
+      seen_injected_error_.store(true, std::memory_order_relaxed);
+    }
+#endif  // NDEBUG
+  }
+#ifndef NDEBUG
+  bool seen_injected_error() const {
+    return seen_injected_error_.load(std::memory_order_relaxed);
+  }
+#endif  // NDEBUG
 
-  IOStatus AssertFalseAndGetStatusForPrevError() {
-    // This should only happen if SyncWithoutFlush() was called.
-    assert(sync_without_flush_called_);
+  // TODO(hx235): store the actual previous error status and return it here
+  IOStatus GetWriterHasPreviousErrorStatus() {
+#ifndef NDEBUG
+    if (seen_injected_error_.load(std::memory_order_relaxed)) {
+      std::stringstream msg;
+      msg << "Writer has previous " << FaultInjectionTestFS::kInjected
+          << " error.";
+      return IOStatus::IOError(msg.str());
+    }
+#endif  // NDEBUG
     return IOStatus::IOError("Writer has previous error.");
   }
 

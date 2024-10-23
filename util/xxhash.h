@@ -11,6 +11,15 @@
 #ifndef XXH_NAMESPACE
 #define XXH_NAMESPACE ROCKSDB_
 #endif  // !defined(XXH_NAMESPACE)
+
+#if (defined(XXH_INLINE_ALL) || defined(XXH_PRIVATE_API) || \
+     defined(XXH_IMPLEMENTATION)) &&                        \
+    !defined(XXH_IMPLEM_13a8737387)
+#if defined(__cplusplus) && (__cplusplus > 202002L)
+/* C++23 and future versions have std::unreachable() */
+#include <utility> /* std::unreachable() */
+#endif
+#endif
 /* END RocksDB customizations */
 
 // clang-format off
@@ -1294,7 +1303,7 @@ struct XXH3_state_s {
  * Note that this doesn't prepare the state for a streaming operation,
  * it's still necessary to use XXH3_NNbits_reset*() afterwards.
  */
-#define XXH3_INITSTATE(XXH3_state_ptr)   { (XXH3_state_ptr)->seed = 0; }
+#define XXH3_INITSTATE(XXH3_state_ptr)   do { (XXH3_state_ptr)->seed = 0; } while (0)
 
 
 /*!
@@ -2064,8 +2073,6 @@ static int XXH_isLittleEndian(void)
 #  define XXH_UNREACHABLE() unreachable()
 
 #elif defined(__cplusplus) && (__cplusplus > 202002L)
-/* C++23 and future versions have std::unreachable() */
-#  include <utility> /* std::unreachable() */
 #  define XXH_UNREACHABLE() std::unreachable()
 
 #elif XXH_HAS_BUILTIN(__builtin_unreachable)

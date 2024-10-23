@@ -253,6 +253,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   // Disable paranoid_file_checks so that flush will not read back the newly
@@ -364,6 +365,7 @@ TEST_F(DBTieredSecondaryCacheTest, BasicMultiGetTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   options.paranoid_file_checks = false;
@@ -506,6 +508,7 @@ TEST_F(DBTieredSecondaryCacheTest, WaitAllTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   options.paranoid_file_checks = false;
@@ -606,6 +609,7 @@ TEST_F(DBTieredSecondaryCacheTest, ReadyBeforeWaitAllTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.statistics = CreateDBStatistics();
 
@@ -717,6 +721,7 @@ TEST_F(DBTieredSecondaryCacheTest, IterateTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   options.paranoid_file_checks = false;
@@ -760,6 +765,54 @@ TEST_F(DBTieredSecondaryCacheTest, IterateTest) {
   Destroy(options);
 }
 
+TEST_F(DBTieredSecondaryCacheTest, VolatileTierTest) {
+  if (!LZ4_Supported()) {
+    ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+    return;
+  }
+
+  BlockBasedTableOptions table_options;
+  // We want a block cache of size 5KB, and a compressed secondary cache of
+  // size 5KB. However, we specify a block cache size of 256KB here in order
+  // to take into account the cache reservation in the block cache on
+  // behalf of the compressed cache. The unit of cache reservation is 256KB.
+  // The effective block cache capacity will be calculated as 256 + 5 = 261KB,
+  // and 256KB will be reserved for the compressed cache, leaving 5KB for
+  // the primary block cache. We only have to worry about this here because
+  // the cache size is so small.
+  table_options.block_cache = NewCache(256 * 1024, 5 * 1024, 256 * 1024);
+  table_options.block_size = 4 * 1024;
+  table_options.cache_index_and_filter_blocks = false;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.compression = kLZ4Compression;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  // Disable paranoid_file_checks so that flush will not read back the newly
+  // written file
+  options.paranoid_file_checks = false;
+  options.lowest_used_cache_tier = CacheTier::kVolatileTier;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 256;
+  for (int i = 0; i < N; i++) {
+    std::string p_v;
+    test::CompressibleString(&rnd, 0.5, 1007, &p_v);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+
+  ASSERT_OK(Flush());
+
+  // Since lowest_used_cache_tier is the volatile tier, nothing should be
+  // inserted in the secondary cache.
+  std::string v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+  ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 0u);
+  ASSERT_EQ(nvm_sec_cache()->num_misses(), 0u);
+
+  Destroy(options);
+}
+
 class DBTieredAdmPolicyTest
     : public DBTieredSecondaryCacheTest,
       public testing::WithParamInterface<TieredAdmissionPolicy> {};
@@ -784,6 +837,7 @@ TEST_P(DBTieredAdmPolicyTest, CompressedOnlyTest) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   size_t comp_cache_usage = compressed_secondary_cache()->TEST_GetUsage();
@@ -836,6 +890,7 @@ TEST_P(DBTieredAdmPolicyTest, CompressedCacheAdmission) {
   table_options.cache_index_and_filter_blocks = false;
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.compression = kLZ4Compression;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   size_t comp_cache_usage = compressed_secondary_cache()->TEST_GetUsage();
@@ -870,6 +925,112 @@ TEST_P(DBTieredAdmPolicyTest, CompressedCacheAdmission) {
               comp_cache_usage + 128);
   }
 
+  Destroy(options);
+}
+
+TEST_F(DBTieredSecondaryCacheTest, FSBufferTest) {
+  class WrapFS : public FileSystemWrapper {
+   public:
+    explicit WrapFS(const std::shared_ptr<FileSystem>& _target)
+        : FileSystemWrapper(_target) {}
+    ~WrapFS() override {}
+    const char* Name() const override { return "WrapFS"; }
+
+    IOStatus NewRandomAccessFile(const std::string& fname,
+                                 const FileOptions& opts,
+                                 std::unique_ptr<FSRandomAccessFile>* result,
+                                 IODebugContext* dbg) override {
+      class WrappedRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+       public:
+        explicit WrappedRandomAccessFile(
+            std::unique_ptr<FSRandomAccessFile>& file)
+            : FSRandomAccessFileOwnerWrapper(std::move(file)) {}
+
+        IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                           const IOOptions& options,
+                           IODebugContext* dbg) override {
+          for (size_t i = 0; i < num_reqs; ++i) {
+            FSReadRequest& req = reqs[i];
+            FSAllocationPtr buffer(new char[req.len], [](void* ptr) {
+              delete[] static_cast<char*>(ptr);
+            });
+            req.fs_scratch = std::move(buffer);
+            req.status = Read(req.offset, req.len, options, &req.result,
+                              static_cast<char*>(req.fs_scratch.get()), dbg);
+          }
+          return IOStatus::OK();
+        }
+      };
+
+      std::unique_ptr<FSRandomAccessFile> file;
+      IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+      EXPECT_OK(s);
+      result->reset(new WrappedRandomAccessFile(file));
+
+      return s;
+    }
+
+    void SupportedOps(int64_t& supported_ops) override {
+      supported_ops = 1 << FSSupportedOps::kAsyncIO;
+      supported_ops |= 1 << FSSupportedOps::kFSBuffer;
+    }
+  };
+
+  if (!LZ4_Supported()) {
+    ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+    return;
+  }
+
+  std::shared_ptr<WrapFS> wrap_fs =
+      std::make_shared<WrapFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> wrap_env(new CompositeEnvWrapper(env_, wrap_fs));
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewCache(250 * 1024, 20 * 1024, 256 * 1024,
+                                       TieredAdmissionPolicy::kAdmPolicyAuto,
+                                       /*ready_before_wait=*/true);
+  table_options.block_size = 4 * 1024;
+  table_options.cache_index_and_filter_blocks = false;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.compression = kLZ4Compression;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.statistics = CreateDBStatistics();
+  options.env = wrap_env.get();
+
+  options.paranoid_file_checks = false;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  const int N = 256;
+  for (int i = 0; i < N; i++) {
+    std::string p_v;
+    test::CompressibleString(&rnd, 0.5, 1007, &p_v);
+    ASSERT_OK(Put(Key(i), p_v));
+  }
+
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+
+  keys.push_back(Key(0));
+  keys.push_back(Key(4));
+  keys.push_back(Key(8));
+  values = MultiGet(keys, /*snapshot=*/nullptr, /*async=*/true);
+  ASSERT_EQ(values.size(), keys.size());
+  for (const auto& value : values) {
+    ASSERT_EQ(1007, value.size());
+  }
+  ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 3u);
+  ASSERT_EQ(nvm_sec_cache()->num_misses(), 3u);
+  ASSERT_EQ(nvm_sec_cache()->num_hits(), 0u);
+
+  std::string v = Get(Key(12));
+  ASSERT_EQ(1007, v.size());
+  ASSERT_EQ(nvm_sec_cache()->num_insert_saved(), 4u);
+  ASSERT_EQ(nvm_sec_cache()->num_misses(), 4u);
+  ASSERT_EQ(options.statistics->getTickerCount(BLOCK_CACHE_MISS), 4u);
+
+  Close();
   Destroy(options);
 }
 

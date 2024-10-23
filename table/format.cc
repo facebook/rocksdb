@@ -475,10 +475,12 @@ std::string Footer::ToString() const {
   return result;
 }
 
-Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
-                          FileSystem& fs, FilePrefetchBuffer* prefetch_buffer,
-                          uint64_t file_size, Footer* footer,
-                          uint64_t enforce_table_magic_number) {
+static Status ReadFooterFromFileInternal(const IOOptions& opts,
+                                         RandomAccessFileReader* file,
+                                         FileSystem& fs,
+                                         FilePrefetchBuffer* prefetch_buffer,
+                                         uint64_t file_size, Footer* footer,
+                                         uint64_t enforce_table_magic_number) {
   if (file_size < Footer::kMinEncodedLength) {
     return Status::Corruption("file is too short (" +
                               std::to_string(file_size) +
@@ -487,7 +489,7 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                               file->file_name());
   }
 
-  std::string footer_buf;
+  std::array<char, Footer::kMaxEncodedLength + 1> footer_buf;
   AlignedBuf internal_buf;
   Slice footer_input;
   uint64_t read_offset = (file_size > Footer::kMaxEncodedLength)
@@ -508,7 +510,6 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
                      &footer_input, nullptr, &internal_buf);
     } else {
-      footer_buf.reserve(Footer::kMaxEncodedLength);
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
                      &footer_input, footer_buf.data(), nullptr);
     }
@@ -516,6 +517,8 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
       return s;
     }
   }
+
+  TEST_SYNC_POINT_CALLBACK("ReadFooterFromFileInternal:0", &footer_input);
 
   // Check that we actually read the whole footer from the file. It may be
   // that size isn't correct.
@@ -542,6 +545,30 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
     return s;
   }
   return Status::OK();
+}
+
+Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
+                          FileSystem& fs, FilePrefetchBuffer* prefetch_buffer,
+                          uint64_t file_size, Footer* footer,
+                          uint64_t enforce_table_magic_number,
+                          Statistics* stats) {
+  Status s =
+      ReadFooterFromFileInternal(opts, file, fs, prefetch_buffer, file_size,
+                                 footer, enforce_table_magic_number);
+  if (s.IsCorruption() &&
+      CheckFSFeatureSupport(&fs, FSSupportedOps::kVerifyAndReconstructRead)) {
+    IOOptions new_opts = opts;
+    new_opts.verify_and_reconstruct_read = true;
+    footer->Reset();
+    s = ReadFooterFromFileInternal(new_opts, file, fs, prefetch_buffer,
+                                   file_size, footer,
+                                   enforce_table_magic_number);
+    RecordTick(stats, FILE_READ_CORRUPTION_RETRY_COUNT);
+    if (s.ok()) {
+      RecordTick(stats, FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT);
+    }
+  }
+  return s;
 }
 
 namespace {

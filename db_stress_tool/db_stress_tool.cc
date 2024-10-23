@@ -20,10 +20,10 @@
 // NOTE that if FLAGS_test_batches_snapshots is set, the test will have
 // different behavior. See comment of the flag for details.
 
-#include "db_stress_tool/db_stress_shared_state.h"
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
+#include "db_stress_tool/db_stress_shared_state.h"
 #include "rocksdb/convenience.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -82,16 +82,18 @@ int db_stress_tool(int argc, char** argv) {
   dbsl_env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(raw_env);
   db_stress_listener_env = dbsl_env_wrapper_guard.get();
 
-  if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
-      FLAGS_write_fault_one_in || FLAGS_open_metadata_write_fault_one_in ||
-      FLAGS_open_write_fault_one_in || FLAGS_open_read_fault_one_in) {
+  if (FLAGS_open_metadata_read_fault_one_in ||
+      FLAGS_open_metadata_write_fault_one_in || FLAGS_open_read_fault_one_in ||
+      FLAGS_open_write_fault_one_in || FLAGS_metadata_read_fault_one_in ||
+      FLAGS_metadata_write_fault_one_in || FLAGS_read_fault_one_in ||
+      FLAGS_write_fault_one_in || FLAGS_sync_fault_injection) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
-    // Set it to direct writable here to not lose files created during DB open
-    // when no open fault injection is not enabled.
-    // This will be overwritten in StressTest::Open() for open fault injection
-    // and in RunStressTestImpl() for proper write fault injection setup.
+    // Set it to direct writable here to initially bypass any fault injection
+    // during DB open This will correspondingly be overwritten in
+    // StressTest::Open() for open fault injection and in RunStressTestImpl()
+    // for proper fault injection setup.
     fault_fs_guard->SetFilesystemDirectWritable(true);
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
@@ -301,11 +303,11 @@ int db_stress_tool(int argc, char** argv) {
   }
 
   if (FLAGS_use_put_entity_one_in > 0 &&
-      (FLAGS_use_full_merge_v1 || FLAGS_use_txn || FLAGS_test_multi_ops_txns ||
+      (FLAGS_use_full_merge_v1 || FLAGS_test_multi_ops_txns ||
        FLAGS_user_timestamp_size > 0)) {
     fprintf(stderr,
-            "Wide columns are incompatible with V1 Merge, transactions, and "
-            "user-defined timestamps\n");
+            "Wide columns are incompatible with V1 Merge, the multi-op "
+            "transaction test, and user-defined timestamps\n");
     exit(1);
   }
 
@@ -360,11 +362,11 @@ int db_stress_tool(int argc, char** argv) {
   // Initialize the Zipfian pre-calculated array
   InitializeHotKeyGenerator(FLAGS_hot_key_alpha);
   shared.reset(new SharedState(db_stress_env, stress.get()));
-  if (RunStressTest(shared.get())) {
-    return 0;
-  } else {
-    return 1;
-  }
+  bool run_stress_test = RunStressTest(shared.get());
+  // Close DB in CleanUp() before destructor to prevent race between destructor
+  // and operations in listener callbacks (e.g. MultiOpsTxnsStressListener).
+  stress->CleanUp();
+  return run_stress_test ? 0 : 1;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import argparse
-
+import math
 import os
 import random
 import shutil
@@ -48,13 +47,15 @@ default_params = {
     "charge_filter_construction": lambda: random.choice([0, 1]),
     "charge_table_reader": lambda: random.choice([0, 1]),
     "charge_file_metadata": lambda: random.choice([0, 1]),
-    "checkpoint_one_in":  lambda: random.choice([10000, 1000000]),
+    "checkpoint_one_in": lambda: random.choice([0, 0, 10000, 1000000]),
     "compression_type": lambda: random.choice(
         ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
     ),
-    "bottommost_compression_type": lambda: "disable"
-    if random.randint(0, 1) == 0
-    else random.choice(["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
+    "bottommost_compression_type": lambda: (
+        "disable"
+        if random.randint(0, 1) == 0
+        else random.choice(["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"])
+    ),
     "checksum_type": lambda: random.choice(
         ["kCRC32c", "kxxHash", "kxxHash64", "kXXH3"]
     ),
@@ -65,14 +66,15 @@ default_params = {
     "compression_use_zstd_dict_trainer": lambda: random.randint(0, 1),
     "compression_checksum": lambda: random.randint(0, 1),
     "clear_column_family_one_in": 0,
-    "compact_files_one_in":  lambda: random.choice([1000, 1000000]),
-    "compact_range_one_in":  lambda: random.choice([1000, 1000000]),
+    "compact_files_one_in": lambda: random.choice([1000, 1000000]),
+    "compact_range_one_in": lambda: random.choice([1000, 1000000]),
     # Disabled because of various likely related failures with
     # "Cannot delete table file #N from level 0 since it is on level X"
     "promote_l0_one_in": 0,
     "compaction_pri": random.randint(0, 4),
-    "key_may_exist_one_in":  lambda: random.choice([100, 100000]),
+    "key_may_exist_one_in": lambda: random.choice([100, 100000]),
     "data_block_index_type": lambda: random.choice([0, 1]),
+    "decouple_partitioned_filters": lambda: random.choice([0, 1, 1]),
     "delpercent": 4,
     "delrangepercent": 1,
     "destroy_db_initially": 0,
@@ -128,8 +130,12 @@ default_params = {
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
-    "recycle_log_file_num": lambda: random.randint(0, 1),
+    # See disabled DBWALTest.RecycleMultipleWalsCrash
+    "recycle_log_file_num": 0,
     "snapshot_hold_ops": 100000,
+    "sqfc_name": lambda: random.choice(["foo", "bar"]),
+    # 0 = disable writing SstQueryFilters
+    "sqfc_version": lambda: random.choice([0, 1, 1, 2, 2]),
     "sst_file_manager_bytes_per_sec": lambda: random.choice([0, 104857600]),
     "sst_file_manager_bytes_per_truncate": lambda: random.choice([0, 1048576]),
     "long_running_snapshots": lambda: random.randint(0, 1),
@@ -141,20 +147,31 @@ default_params = {
     "unpartitioned_pinning": lambda: random.randint(0, 3),
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
+    "use_sqfc_for_range_queries": lambda: random.choice([0, 1, 1, 1]),
     "mock_direct_io": False,
     "cache_type": lambda: random.choice(
-        ["lru_cache", "fixed_hyper_clock_cache", "auto_hyper_clock_cache",
-         "auto_hyper_clock_cache", "tiered_lru_cache",
-         "tiered_fixed_hyper_clock_cache", "tiered_auto_hyper_clock_cache",
-         "tiered_auto_hyper_clock_cache"]
+        [
+            "lru_cache",
+            "fixed_hyper_clock_cache",
+            "auto_hyper_clock_cache",
+            "auto_hyper_clock_cache",
+            "tiered_lru_cache",
+            "tiered_fixed_hyper_clock_cache",
+            "tiered_auto_hyper_clock_cache",
+            "tiered_auto_hyper_clock_cache",
+        ]
     ),
+    "uncache_aggressiveness": lambda: int(math.pow(10, 4.0 * random.random()) - 1.0),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # use_put_entity_one_in has to be the same across invocations for verification to work, hence no lambda
     "use_put_entity_one_in": random.choice([0] * 7 + [1, 5, 10]),
     "use_attribute_group": lambda: random.randint(0, 1),
+    "use_multi_cf_iterator": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
-    "bloom_before_level": lambda: random.choice([random.randint(-1, 2), random.randint(-1, 10), 0x7fffffff - 1, 0x7fffffff]),
+    "bloom_before_level": lambda: random.choice(
+        [random.randint(-1, 2), random.randint(-1, 10), 0x7FFFFFFF - 1, 0x7FFFFFFF]
+    ),
     "value_size_mult": 32,
     "verification_only": 0,
     "verify_checksum": 1,
@@ -167,13 +184,7 @@ default_params = {
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
     "daily_offpeak_time_utc": lambda: random.choice(
-        [
-            "",
-            "",
-            "00:00-23:59",
-            "04:00-08:00",
-            "23:30-03:15"
-        ]
+        ["", "", "00:00-23:59", "04:00-08:00", "23:30-03:15"]
     ),
     # 0 = never (used by some), 10 = often (for threading bugs), 600 = default
     "stats_dump_period_sec": lambda: random.choice([0, 10, 600]),
@@ -190,14 +201,14 @@ default_params = {
     # TODO(hx235): Enable `wal_bytes_per_sync` after fixing the DB recovery such
     # that it won't recover past the WAL data hole created by this option
     "wal_bytes_per_sync": 0,
-    "compaction_readahead_size": lambda: random.choice(
-        [0, 0, 1024 * 1024]),
+    "compaction_readahead_size": lambda: random.choice([0, 0, 1024 * 1024]),
     "db_write_buffer_size": lambda: random.choice(
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]
     ),
     "use_write_buffer_manager": lambda: random.randint(0, 1),
     "avoid_unnecessary_blocking_io": random.randint(0, 1),
     "write_dbid_to_manifest": random.randint(0, 1),
+    "write_identity_file": random.randint(0, 1),
     "avoid_flush_during_recovery": lambda: random.choice(
         [1 if t == 0 else 0 for t in range(0, 8)]
     ),
@@ -211,14 +222,19 @@ default_params = {
     "continuous_verification_interval": 0,
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
+    "error_recovery_with_no_fault_injection": lambda: random.randint(0, 1),
+    "metadata_read_fault_one_in": lambda: random.choice([0, 32, 1000]),
+    "metadata_write_fault_one_in": lambda: random.choice([0, 128, 1000]),
     "read_fault_one_in": lambda: random.choice([0, 32, 1000]),
     "write_fault_one_in": lambda: random.choice([0, 128, 1000]),
+    "exclude_wal_from_write_fault_injection": 0,
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
+    "open_metadata_read_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
     "sync_fault_injection": lambda: random.randint(0, 1),
-    "get_property_one_in":  lambda: random.choice([100000, 1000000]),
-    "get_properties_of_all_tables_one_in":  lambda: random.choice([100000, 1000000]),
+    "get_property_one_in": lambda: random.choice([100000, 1000000]),
+    "get_properties_of_all_tables_one_in": lambda: random.choice([100000, 1000000]),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "max_write_buffer_size_to_maintain": lambda: random.choice(
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]
@@ -255,14 +271,16 @@ default_params = {
     "bottommost_file_compaction_delay": lambda: random.choice(
         [0, 0, 0, 600, 3600, 86400]
     ),
-    "auto_readahead_size" : lambda: random.choice([0, 1]),
+    "auto_readahead_size": lambda: random.choice([0, 1]),
     "verify_iterator_with_expected_state_one_in": 5,
     "allow_fallocate": lambda: random.choice([0, 1]),
     "table_cache_numshardbits": lambda: random.choice([6] * 3 + [-1] * 2 + [0]),
     "enable_write_thread_adaptive_yield": lambda: random.choice([0, 1]),
     "log_readahead_size": lambda: random.choice([0, 16 * 1024 * 1024]),
-    "bgerror_resume_retry_interval": lambda: random.choice([10000, 1000000]),
-    "delete_obsolete_files_period_micros": lambda: random.choice([6 * 60 * 60 * 1000000, 30 * 1000000]),
+    "bgerror_resume_retry_interval": lambda: random.choice([100, 1000000]),
+    "delete_obsolete_files_period_micros": lambda: random.choice(
+        [6 * 60 * 60 * 1000000, 30 * 1000000]
+    ),
     "max_log_file_size": lambda: random.choice([0, 1024 * 1024]),
     "log_file_time_to_roll": lambda: random.choice([0, 60]),
     "use_adaptive_mutex": lambda: random.choice([0, 1]),
@@ -294,23 +312,35 @@ default_params = {
     "max_total_wal_size": lambda: random.choice([0] * 4 + [64 * 1024 * 1024]),
     "high_pri_pool_ratio": lambda: random.choice([0, 0.5]),
     "low_pri_pool_ratio": lambda: random.choice([0, 0.5]),
-    "soft_pending_compaction_bytes_limit" : lambda: random.choice([1024 * 1024] + [64 * 1073741824] * 4),
-    "hard_pending_compaction_bytes_limit" : lambda: random.choice([2 * 1024 * 1024] + [256 * 1073741824] * 4),
+    "soft_pending_compaction_bytes_limit": lambda: random.choice(
+        [1024 * 1024] + [64 * 1073741824] * 4
+    ),
+    "hard_pending_compaction_bytes_limit": lambda: random.choice(
+        [2 * 1024 * 1024] + [256 * 1073741824] * 4
+    ),
     "enable_sst_partitioner_factory": lambda: random.choice([0, 1]),
     "enable_do_not_compress_roles": lambda: random.choice([0, 1]),
     "block_align": lambda: random.choice([0, 1]),
     "lowest_used_cache_tier": lambda: random.choice([0, 1, 2]),
     "enable_custom_split_merge": lambda: random.choice([0, 1]),
     "adm_policy": lambda: random.choice([0, 1, 2, 3]),
-    "last_level_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
-    "default_write_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
-    "default_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm", "kCold"]),
+    "last_level_temperature": lambda: random.choice(
+        ["kUnknown", "kHot", "kWarm", "kCold"]
+    ),
+    "default_write_temperature": lambda: random.choice(
+        ["kUnknown", "kHot", "kWarm", "kCold"]
+    ),
+    "default_temperature": lambda: random.choice(
+        ["kUnknown", "kHot", "kWarm", "kCold"]
+    ),
     # TODO(hx235): enable `enable_memtable_insert_with_hint_prefix_extractor`
     # after fixing the surfaced issue with delete range
     "enable_memtable_insert_with_hint_prefix_extractor": 0,
     "check_multiget_consistency": lambda: random.choice([0, 0, 0, 1]),
     "check_multiget_entity_consistency": lambda: random.choice([0, 0, 0, 1]),
     "use_timed_put_one_in": lambda: random.choice([0] * 7 + [1, 5, 10]),
+    "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
+    "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
@@ -413,6 +443,8 @@ blackbox_default_params = {
     "duration": 6000,
     # time for one db_stress instance to run
     "interval": 120,
+    # time for the final verification step
+    "verify_timeout": 1200,
     # since we will be killing anyway, use large value for ops_per_thread
     "ops_per_thread": 100000000,
     "reopen": 0,
@@ -492,12 +524,12 @@ txn_params = {
     # pipeline write is not currnetly compatible with WritePrepared txns
     "enable_pipelined_write": 0,
     "create_timestamped_snapshot_one_in": random.choice([0, 20]),
-    # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in": 0,
     # Should not be used with TransactionDB which uses snapshot.
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
     "use_timed_put_one_in": 0,
+    # AttributeGroup not yet supported
+    "use_attribute_group": 0,
 }
 
 # For optimistic transaction db
@@ -507,12 +539,12 @@ optimistic_txn_params = {
     "occ_validation_policy": random.randint(0, 1),
     "share_occ_lock_buckets": random.randint(0, 1),
     "occ_lock_bucket_count": lambda: random.choice([10, 100, 500]),
-    # PutEntity in transactions is not yet implemented
-    "use_put_entity_one_in": 0,
     # Should not be used with OptimisticTransactionDB which uses snapshot.
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
     "use_timed_put_one_in": 0,
+    # AttributeGroup not yet supported
+    "use_attribute_group": 0,
 }
 
 best_efforts_recovery_params = {
@@ -520,7 +552,7 @@ best_efforts_recovery_params = {
     "disable_wal": 1,
     "column_families": 1,
     "skip_verifydb": 1,
-    "verify_db_one_in": 0
+    "verify_db_one_in": 0,
 }
 
 blob_params = {
@@ -615,9 +647,12 @@ multiops_txn_default_params = {
     "enable_compaction_filter": 0,
     "create_timestamped_snapshot_one_in": 50,
     "sync_fault_injection": 0,
+    "metadata_write_fault_one_in": 0,
+    "manual_wal_flush_one_in": 0,
     # This test has aggressive flush frequency and small write buffer size.
     # Disabling write fault to avoid writes being stopped.
     "write_fault_one_in": 0,
+    "metadata_write_fault_one_in": 0,
     # PutEntity in transactions is not yet implemented
     "use_put_entity_one_in": 0,
     "use_get_entity": 0,
@@ -628,6 +663,8 @@ multiops_txn_default_params = {
     "inplace_update_support": 0,
     # TimedPut not supported in transaction
     "use_timed_put_one_in": 0,
+    # AttributeGroup not yet supported
+    "use_attribute_group": 0,
 }
 
 multiops_wc_txn_params = {
@@ -654,6 +691,7 @@ multiops_wp_txn_params = {
     # disable it for now until we find another way to test LockWAL().
     "lock_wal_one_in": 0,
 }
+
 
 def finalize_and_sanitize(src_params):
     dest_params = {k: v() if callable(v) else v for (k, v) in src_params.items()}
@@ -684,8 +722,18 @@ def finalize_and_sanitize(src_params):
     if dest_params["test_batches_snapshots"] == 1:
         dest_params["enable_compaction_filter"] = 0
         dest_params["inplace_update_support"] = 0
+        # TODO(hx235): enable test_batches_snapshots with fault injection after stabilizing the CI
+        dest_params["write_fault_one_in"] = 0
+        dest_params["metadata_write_fault_one_in"] = 0
+        dest_params["read_fault_one_in"] = 0
+        dest_params["metadata_read_fault_one_in"] = 0
         if dest_params["prefix_size"] < 0:
             dest_params["prefix_size"] = 1
+
+    # BER disables WAL and tests unsynced data loss which
+    # does not work with inplace_update_support.
+    if dest_params.get("best_efforts_recovery") == 1:
+        dest_params["inplace_update_support"] = 0
 
     # Multi-key operations are not currently compatible with transactions or
     # timestamp.
@@ -701,14 +749,25 @@ def finalize_and_sanitize(src_params):
     ):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+    # Since the value of inplace_update_support needs to be fixed across runs,
+    # we disable other incompatible options here instead of disabling
+    # inplace_update_support based on other option values, which may change
+    # across runs.
     if dest_params["inplace_update_support"] == 1:
-       dest_params["delpercent"] += dest_params["delrangepercent"]
-       dest_params["delrangepercent"] = 0
-       dest_params["readpercent"] += dest_params["prefixpercent"]
-       dest_params["prefixpercent"] = 0
+        dest_params["delpercent"] += dest_params["delrangepercent"]
+        dest_params["delrangepercent"] = 0
+        dest_params["readpercent"] += dest_params["prefixpercent"]
+        dest_params["prefixpercent"] = 0
+        dest_params["allow_concurrent_memtable_write"] = 0
+        # inplace_update_support does not update sequence number. Our stress test recovery
+        # logic for unsynced data loss relies on max sequence number stored
+        # in MANIFEST, so they don't work together.
+        dest_params["sync_fault_injection"] = 0
+        dest_params["disable_wal"] = 0
+        dest_params["manual_wal_flush_one_in"] = 0
     if (
-        dest_params.get("disable_wal") == 1
-        or dest_params.get("sync_fault_injection") == 1
+        dest_params.get("sync_fault_injection") == 1
+        or dest_params.get("disable_wal") == 1
         or dest_params.get("manual_wal_flush_one_in") > 0
     ):
         # File ingestion does not guarantee prefix-recoverability when unsynced
@@ -723,12 +782,9 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
-        # TODO(hx235): re-enable "reopen" after supporting unsynced data loss
-        # verification upon reopen. Currently reopen does not restore expected state
-        # with potential data loss in mind like start of each `./db_stress` run.
-        # Therefore it always expects no data loss.
-        dest_params["reopen"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
+    # unordered_write is only enabled with --txn, and txn_params disables inplace_update_support, so
+    # setting allow_concurrent_memtable_write=1 won't conflcit with inplace_update_support.
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1
         dest_params["allow_concurrent_memtable_write"] = 1
@@ -778,9 +834,21 @@ def finalize_and_sanitize(src_params):
         dest_params["unordered_write"] = 0
     # For TransactionDB, correctness testing with unsync data loss is currently
     # compatible with only write committed policy
-    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0:
+    if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy", 0) != 0:
         dest_params["sync_fault_injection"] = 0
+        dest_params["disable_wal"] = 0
         dest_params["manual_wal_flush_one_in"] = 0
+        # Wide-column pessimistic transaction APIs are initially supported for
+        # WriteCommitted only
+        dest_params["use_put_entity_one_in"] = 0
+        # MultiCfIterator is currently only compatible with write committed policy
+        dest_params["use_multi_cf_iterator"] = 0
+    # TODO(hx235): enable test_multi_ops_txns with fault injection after stabilizing the CI
+    if dest_params.get("test_multi_ops_txns") == 1:
+        dest_params["write_fault_one_in"] = 0
+        dest_params["metadata_write_fault_one_in"] = 0
+        dest_params["read_fault_one_in"] = 0
+        dest_params["metadata_read_fault_one_in"] = 0
     # Wide column stress tests require FullMergeV3
     if dest_params["use_put_entity_one_in"] != 0:
         dest_params["use_full_merge_v1"] = 0
@@ -788,15 +856,21 @@ def finalize_and_sanitize(src_params):
         dest_params["verify_file_checksums_one_in"] = 0
     if dest_params["write_fault_one_in"] > 0:
         # background work may be disabled while DB is resuming after some error
-        dest_params["max_write_buffer_number"] = max(dest_params["max_write_buffer_number"], 10)
+        dest_params["max_write_buffer_number"] = max(
+            dest_params["max_write_buffer_number"], 10
+        )
     if dest_params["secondary_cache_uri"].find("compressed_secondary_cache") >= 0:
         dest_params["compressed_secondary_cache_size"] = 0
         dest_params["compressed_secondary_cache_ratio"] = 0.0
     if dest_params["cache_type"].find("tiered_") >= 0:
         if dest_params["compressed_secondary_cache_size"] > 0:
-            dest_params["compressed_secondary_cache_ratio"] = \
-                    float(dest_params["compressed_secondary_cache_size"]/ \
-                    (dest_params["cache_size"] + dest_params["compressed_secondary_cache_size"]))
+            dest_params["compressed_secondary_cache_ratio"] = float(
+                dest_params["compressed_secondary_cache_size"]
+                / (
+                    dest_params["cache_size"]
+                    + dest_params["compressed_secondary_cache_size"]
+                )
+            )
             dest_params["compressed_secondary_cache_size"] = 0
         else:
             dest_params["compressed_secondary_cache_ratio"] = 0.0
@@ -806,10 +880,12 @@ def finalize_and_sanitize(src_params):
             dest_params["compressed_secondary_cache_size"] = 0
             dest_params["compressed_secondary_cache_ratio"] = 0.0
     if dest_params["use_write_buffer_manager"]:
-        if (dest_params["cache_size"] <= 0
-            or dest_params["db_write_buffer_size"] <= 0):
+        if dest_params["cache_size"] <= 0 or dest_params["db_write_buffer_size"] <= 0:
             dest_params["use_write_buffer_manager"] = 0
-    if dest_params["user_timestamp_size"] > 0 and dest_params["persist_user_defined_timestamps"] == 0:
+    if (
+        dest_params["user_timestamp_size"] > 0
+        and dest_params["persist_user_defined_timestamps"] == 0
+    ):
         # Features that are not compatible with UDT in memtable only feature.
         dest_params["enable_blob_files"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
@@ -829,23 +905,42 @@ def finalize_and_sanitize(src_params):
         # Only best efforts recovery test support disabling wal and
         # disable atomic flush.
         if dest_params["test_best_efforts_recovery"] == 0:
-          dest_params["disable_wal"] = 0
+            dest_params["disable_wal"] = 0
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
         dest_params["memtablerep"] = "skip_list"
-        dest_params["inplace_update_support"] = 0
-    if (dest_params.get("enable_compaction_filter", 0) == 1
-        or dest_params.get("inplace_update_support", 0) == 1):
+    if (
+        dest_params.get("enable_compaction_filter", 0) == 1
+        or dest_params.get("inplace_update_support", 0) == 1
+    ):
         # Compaction filter, inplace update support are incompatible with snapshots. Need to avoid taking
         # snapshots, as well as avoid operations that use snapshots for
         # verification.
         dest_params["acquire_snapshot_one_in"] = 0
         dest_params["compact_range_one_in"] = 0
         # Redistribute to maintain 100% total
-        dest_params["readpercent"] += dest_params.get("iterpercent", 10) + dest_params.get("prefixpercent", 20)
+        dest_params["readpercent"] += dest_params.get(
+            "iterpercent", 10
+        ) + dest_params.get("prefixpercent", 20)
         dest_params["iterpercent"] = 0
         dest_params["prefixpercent"] = 0
         dest_params["check_multiget_consistency"] = 0
         dest_params["check_multiget_entity_consistency"] = 0
+    if dest_params.get("disable_wal") == 0:
+        if dest_params.get("reopen") > 0 or (dest_params.get("manual_wal_flush_one_in") and dest_params.get("column_families") != 1):
+            # Reopen with WAL currently requires persisting WAL data before closing for reopen.
+            # Previous injected WAL write errors may not be cleared by the time of closing and ready
+            # for persisting WAL.
+            # To simplify, we disable any WAL write error injection.
+            # TODO(hx235): support WAL write error injection with reopen
+            # TODO(hx235): support excluding WAL from metadata write fault injection so we don't
+            # have to disable metadata write fault injection to other file
+            #
+            # WAL write failure can drop buffered WAL data. This can cause
+            # inconsistency when one CF has a successful flush during auto
+            # recovery. Disable the fault injection in this path for now until
+            # we have a fix that allows auto recovery.
+            dest_params["exclude_wal_from_write_fault_injection"] = 1
+            dest_params["metadata_write_fault_one_in"] = 0
     if dest_params.get("disable_wal") == 1:
         # disableWAL and recycle_log_file_num options are not mutually
         # compatible at the moment
@@ -861,16 +956,23 @@ def finalize_and_sanitize(src_params):
     # `use_timed_put_one_in` option so that they make sense together.
     if dest_params.get("use_put_entity_one_in") == 1:
         dest_params["use_timed_put_one_in"] = 0
-    elif (dest_params.get("use_put_entity_one_in") > 1 and
-        dest_params.get("use_timed_put_one_in") == 1):
+    elif (
+        dest_params.get("use_put_entity_one_in") > 1
+        and dest_params.get("use_timed_put_one_in") == 1
+    ):
         dest_params["use_timed_put_one_in"] = 3
-    # TODO: re-enable this combination.
-    if dest_params.get("lock_wal_one_in") != 0 and dest_params["ingest_external_file_one_in"] != 0:
-        if random.choice([0, 1]) == 0:
-            dest_params["ingest_external_file_one_in"] = 0
-        else:
-            dest_params["lock_wal_one_in"] = 0
+    if (
+        dest_params.get("write_dbid_to_manifest") == 0
+        and dest_params.get("write_identity_file") == 0
+    ):
+        # At least one must be true
+        dest_params["write_dbid_to_manifest"] = 1
+    # Checkpoint creation skips flush if the WAL is locked, so enabling lock_wal_one_in
+    # can cause checkpoint verification to fail. So make the two mutually exclusive.
+    if dest_params.get("checkpoint_one_in") != 0:
+        dest_params["lock_wal_one_in"] = 0
     return dest_params
+
 
 def gen_cmd_params(args):
     params = {}
@@ -926,7 +1028,7 @@ def gen_cmd(params, unknown_params):
     cmd = (
         [stress_cmd]
         + [
-            "--{0}={1}".format(k, v)
+            f"--{k}={v}"
             for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
             if k
             not in {
@@ -946,7 +1048,8 @@ def gen_cmd(params, unknown_params):
                 "test_tiered_storage",
                 "cleanup_cmd",
                 "skip_tmpdir_check",
-                "print_stderr_separately"
+                "print_stderr_separately",
+                "verify_timeout",
             }
             and v is not None
         ]
@@ -955,9 +1058,10 @@ def gen_cmd(params, unknown_params):
     return cmd
 
 
-def execute_cmd(cmd, timeout=None):
+def execute_cmd(cmd, timeout=None, timeout_pstack=False):
     child = subprocess.Popen(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
     print("Running db_stress with pid=%d: %s\n\n" % (child.pid, " ".join(cmd)))
+    pid = child.pid
 
     try:
         outs, errs = child.communicate(timeout=timeout)
@@ -965,6 +1069,8 @@ def execute_cmd(cmd, timeout=None):
         print("WARNING: db_stress ended before kill: exitcode=%d\n" % child.returncode)
     except subprocess.TimeoutExpired:
         hit_timeout = True
+        if timeout_pstack:
+            os.system("pstack %d" % pid)
         child.kill()
         print("KILLED %d\n" % child.pid)
         outs, errs = child.communicate()
@@ -984,6 +1090,7 @@ def print_output_and_exit_on_error(stdout, stderr, print_stderr_separately=False
 
     sys.exit(2)
 
+
 def cleanup_after_success(dbname):
     shutil.rmtree(dbname, True)
     if cleanup_cmd is not None:
@@ -992,6 +1099,7 @@ def cleanup_after_success(dbname):
         if ret != 0:
             print("TEST FAILED. DB cleanup returned error %d\n" % ret)
             sys.exit(1)
+
 
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
@@ -1037,7 +1145,7 @@ def blackbox_crash_main(args, unknown_args):
     cmd = gen_cmd(
         dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
     )
-    hit_timeout, retcode, outs, errs = execute_cmd(cmd)
+    hit_timeout, retcode, outs, errs = execute_cmd(cmd, cmd_params["verify_timeout"], True)
 
     # For the final run
     print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
@@ -1179,12 +1287,14 @@ def whitebox_crash_main(args, unknown_args):
         hit_timeout, retncode, stdoutdata, stderrdata = execute_cmd(
             cmd, exit_time - time.time() + 900
         )
-        msg = "check_mode={0}, kill option={1}, exitcode={2}\n".format(
+        msg = "check_mode={}, kill option={}, exitcode={}\n".format(
             check_mode, additional_opts["kill_random_test"], retncode
         )
 
         print(msg)
-        print_output_and_exit_on_error(stdoutdata, stderrdata, args.print_stderr_separately)
+        print_output_and_exit_on_error(
+            stdoutdata, stderrdata, args.print_stderr_separately
+        )
 
         if hit_timeout:
             print("Killing the run for running too long")
@@ -1218,7 +1328,6 @@ def whitebox_crash_main(args, unknown_args):
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
-
 
     # If successfully finished or timed out (we currently treat timed out test as passing)
     # Clean up after ourselves

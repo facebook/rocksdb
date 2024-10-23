@@ -360,6 +360,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "Options.compaction_options_universal.stop_style: %s",
                      str_compaction_stop_style.c_str());
+    ROCKS_LOG_HEADER(log,
+                     "Options.compaction_options_universal.max_read_amp: %d",
+                     compaction_options_universal.max_read_amp);
     ROCKS_LOG_HEADER(
         log, "Options.compaction_options_fifo.max_table_files_size: %" PRIu64,
         compaction_options_fifo.max_table_files_size);

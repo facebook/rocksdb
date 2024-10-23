@@ -388,6 +388,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, wal_compression),
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"background_close_inactive_wals",
+         {offsetof(struct ImmutableDBOptions, background_close_inactive_wals),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"seq_per_batch",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
@@ -399,8 +403,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, avoid_unnecessary_blocking_io),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"prefix_seek_opt_in_only",
+         {offsetof(struct ImmutableDBOptions, prefix_seek_opt_in_only),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"write_dbid_to_manifest",
          {offsetof(struct ImmutableDBOptions, write_dbid_to_manifest),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"write_identity_file",
+         {offsetof(struct ImmutableDBOptions, write_identity_file),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"log_readahead_size",
@@ -571,6 +583,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"follower_catchup_retry_wait_ms",
          {offsetof(struct ImmutableDBOptions, follower_catchup_retry_wait_ms),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"metadata_write_temperature",
+         {offsetof(struct ImmutableDBOptions, metadata_write_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"wal_write_temperature",
+         {offsetof(struct ImmutableDBOptions, wal_write_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
 };
 
@@ -755,10 +775,13 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       two_write_queues(options.two_write_queues),
       manual_wal_flush(options.manual_wal_flush),
       wal_compression(options.wal_compression),
+      background_close_inactive_wals(options.background_close_inactive_wals),
       atomic_flush(options.atomic_flush),
       avoid_unnecessary_blocking_io(options.avoid_unnecessary_blocking_io),
+      prefix_seek_opt_in_only(options.prefix_seek_opt_in_only),
       persist_stats_to_disk(options.persist_stats_to_disk),
       write_dbid_to_manifest(options.write_dbid_to_manifest),
+      write_identity_file(options.write_identity_file),
       log_readahead_size(options.log_readahead_size),
       file_checksum_gen_factory(options.file_checksum_gen_factory),
       best_efforts_recovery(options.best_efforts_recovery),
@@ -773,7 +796,9 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       follower_refresh_catchup_period_ms(
           options.follower_refresh_catchup_period_ms),
       follower_catchup_retry_count(options.follower_catchup_retry_count),
-      follower_catchup_retry_wait_ms(options.follower_catchup_retry_wait_ms) {
+      follower_catchup_retry_wait_ms(options.follower_catchup_retry_wait_ms),
+      metadata_write_temperature(options.metadata_write_temperature),
+      wal_write_temperature(options.wal_write_temperature) {
   fs = env->GetFileSystem();
   clock = env->GetSystemClock().get();
   logger = info_log.get();
@@ -921,14 +946,21 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    manual_wal_flush);
   ROCKS_LOG_HEADER(log, "            Options.wal_compression: %d",
                    wal_compression);
+  ROCKS_LOG_HEADER(log,
+                   "            Options.background_close_inactive_wals: %d",
+                   background_close_inactive_wals);
   ROCKS_LOG_HEADER(log, "            Options.atomic_flush: %d", atomic_flush);
   ROCKS_LOG_HEADER(log,
                    "            Options.avoid_unnecessary_blocking_io: %d",
                    avoid_unnecessary_blocking_io);
+  ROCKS_LOG_HEADER(log, "            Options.prefix_seek_opt_in_only: %d",
+                   prefix_seek_opt_in_only);
   ROCKS_LOG_HEADER(log, "                Options.persist_stats_to_disk: %u",
                    persist_stats_to_disk);
   ROCKS_LOG_HEADER(log, "                Options.write_dbid_to_manifest: %d",
                    write_dbid_to_manifest);
+  ROCKS_LOG_HEADER(log, "                Options.write_identity_file: %d",
+                   write_identity_file);
   ROCKS_LOG_HEADER(
       log, "                Options.log_readahead_size: %" ROCKSDB_PRIszt,
       log_readahead_size);
@@ -948,6 +980,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    db_host_id.c_str());
   ROCKS_LOG_HEADER(log, "            Options.enforce_single_del_contracts: %s",
                    enforce_single_del_contracts ? "true" : "false");
+  ROCKS_LOG_HEADER(log, "            Options.metadata_write_temperature: %s",
+                   temperature_to_string[metadata_write_temperature].c_str());
+  ROCKS_LOG_HEADER(log, "            Options.wal_write_temperature: %s",
+                   temperature_to_string[wal_write_temperature].c_str());
 }
 
 bool ImmutableDBOptions::IsWalDirSameAsDBPath() const {

@@ -105,6 +105,7 @@ class Repairer {
             SanitizeOptions(immutable_db_options_, default_cf_opts)),
         default_iopts_(
             ImmutableOptions(immutable_db_options_, default_cf_opts_)),
+        default_mopts_(MutableCFOptions(default_cf_opts_)),
         unknown_cf_opts_(
             SanitizeOptions(immutable_db_options_, unknown_cf_opts)),
         create_unknown_cfs_(create_unknown_cfs),
@@ -261,6 +262,7 @@ class Repairer {
   const InternalKeyComparator icmp_;
   const ColumnFamilyOptions default_cf_opts_;
   const ImmutableOptions default_iopts_;  // table_cache_ holds reference
+  const MutableCFOptions default_mopts_;
   const ColumnFamilyOptions unknown_cf_opts_;
   const bool create_unknown_cfs_;
   std::shared_ptr<Cache> raw_table_cache_;
@@ -443,7 +445,8 @@ class Repairer {
       ro.total_order_seek = true;
       Arena arena;
       ScopedArenaPtr<InternalIterator> iter(
-          mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
+          mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
+                           /*prefix_extractor=*/nullptr));
       int64_t _current_time = 0;
       immutable_db_options_.clock->GetCurrentTime(&_current_time)
           .PermitUncheckedError();  // ignore error
@@ -451,7 +454,8 @@ class Repairer {
       meta.file_creation_time = current_time;
       SnapshotChecker* snapshot_checker = DisableGCSnapshotChecker::Instance();
 
-      auto write_hint = cfd->CalculateSSTWriteHint(0);
+      auto write_hint =
+          cfd->current()->storage_info()->CalculateSSTWriteHint(/*level=*/0);
       std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
           range_del_iters;
       auto range_del_iter = mem->NewRangeTombstoneIterator(
@@ -480,9 +484,10 @@ class Repairer {
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
           file_options_, table_cache_.get(), iter.get(),
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
-          {}, kMaxSequenceNumber, kMaxSequenceNumber, snapshot_checker,
-          false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
-          nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
+          {}, kMaxSequenceNumber, kMaxSequenceNumber, kMaxSequenceNumber,
+          snapshot_checker, false /* paranoid_file_checks*/,
+          nullptr /* internal_stats */, &io_s, nullptr /*IOTracer*/,
+          BlobFileCreationReason::kRecovery,
           nullptr /* seqno_to_time_mapping */, nullptr /* event_logger */,
           0 /* job_id */, nullptr /* table_properties */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
@@ -534,8 +539,7 @@ class Repairer {
       // TODO: plumb Env::IOActivity, Env::IOPriority
       const ReadOptions read_options;
       status = table_cache_->GetTableProperties(
-          file_options_, read_options, icmp_, t->meta, &props,
-          0 /* block_protection_bytes_per_key */);
+          file_options_, read_options, icmp_, t->meta, &props, default_mopts_);
     }
     if (status.ok()) {
       auto s =
@@ -599,15 +603,13 @@ class Repairer {
       ropts.total_order_seek = true;
       InternalIterator* iter = table_cache_->NewIterator(
           ropts, file_options_, cfd->internal_comparator(), t->meta,
-          nullptr /* range_del_agg */,
-          cfd->GetLatestMutableCFOptions()->prefix_extractor,
+          nullptr /* range_del_agg */, *cfd->GetLatestMutableCFOptions(),
           /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
           TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
           /*level=*/-1, /*max_file_size_for_l0_meta_pin=*/0,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,
-          /*allow_unprepared_value=*/false,
-          cfd->GetLatestMutableCFOptions()->block_protection_bytes_per_key);
+          /*allow_unprepared_value=*/false);
       ParsedInternalKey parsed;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
@@ -648,8 +650,7 @@ class Repairer {
       std::unique_ptr<FragmentedRangeTombstoneIterator> r_iter;
       status = table_cache_->GetRangeTombstoneIterator(
           ropts, cfd->internal_comparator(), t->meta,
-          cfd->GetLatestMutableCFOptions()->block_protection_bytes_per_key,
-          &r_iter);
+          *cfd->GetLatestMutableCFOptions(), &r_iter);
 
       if (r_iter) {
         r_iter->SeekToFirst();

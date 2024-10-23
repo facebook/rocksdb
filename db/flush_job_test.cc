@@ -68,7 +68,8 @@ class FlushJobTestBase : public testing::Test {
   }
 
   void NewDB() {
-    ASSERT_OK(SetIdentityFile(WriteOptions(), env_, dbname_));
+    ASSERT_OK(
+        SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
     VersionEdit new_db;
 
     new_db.SetLogNumber(0);
@@ -114,7 +115,8 @@ class FlushJobTestBase : public testing::Test {
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1, nullptr);
+    s = SetCurrentFile(WriteOptions(), fs_.get(), dbname_, 1,
+                       Temperature::kUnknown, nullptr);
     ASSERT_OK(s);
   }
 
@@ -140,12 +142,13 @@ class FlushJobTestBase : public testing::Test {
       column_families.emplace_back(cf_name, cf_options_);
     }
 
-    versions_.reset(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
-        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr, /*read_only=*/false));
+    versions_.reset(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       test::kUnitTestDbId, /*db_session_id=*/"",
+                       /*daily_offpeak_time_utc=*/"",
+                       /*error_handler=*/nullptr, /*read_only=*/false));
     EXPECT_OK(versions_->Recover(column_families, false));
   }
 
@@ -871,9 +874,15 @@ TEST_P(FlushJobTimestampTest, NoKeyExpired) {
       expected_full_history_ts_low = full_history_ts_low;
     }
     InternalKey smallest(smallest_key, curr_seq_ - 1, ValueType::kTypeValue);
-    InternalKey largest(largest_key, kStartSeq, ValueType::kTypeValue);
-    CheckFileMetaData(cfd, smallest, largest, &fmeta);
-    CheckFullHistoryTsLow(cfd, expected_full_history_ts_low);
+    if (!persist_udt_) {
+      InternalKey largest(largest_key, curr_seq_ - 1, ValueType::kTypeValue);
+      CheckFileMetaData(cfd, smallest, largest, &fmeta);
+      CheckFullHistoryTsLow(cfd, expected_full_history_ts_low);
+    } else {
+      InternalKey largest(largest_key, kStartSeq, ValueType::kTypeValue);
+      CheckFileMetaData(cfd, smallest, largest, &fmeta);
+      CheckFullHistoryTsLow(cfd, expected_full_history_ts_low);
+    }
   }
   job_context.Clean();
   ASSERT_TRUE(to_delete.empty());

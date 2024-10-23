@@ -5,7 +5,7 @@
 
 #pragma once
 
-
+#include <optional>
 #include <string>
 
 #include "db/compaction/compaction.h"
@@ -49,6 +49,9 @@ class SstFileManagerImpl : public SstFileManager {
   // DB will call OnMoveFile whenever a sst/blob file is move to a new path.
   Status OnMoveFile(const std::string& old_path, const std::string& new_path,
                     uint64_t* file_size = nullptr);
+
+  // DB will call OnUntrackFile when closing with an unowned SstFileManager.
+  Status OnUntrackFile(const std::string& file_path);
 
   // Update the maximum allowed space that should be used by RocksDB, if
   // the total size of the SST and blob files exceeds max_allowed_space, writes
@@ -118,16 +121,39 @@ class SstFileManagerImpl : public SstFileManager {
   // not guaranteed
   bool CancelErrorRecovery(ErrorHandler* db);
 
-  // Mark file as trash and schedule it's deletion. If force_bg is set, it
+  // Mark a file as trash and schedule its deletion. If force_bg is set, it
   // forces the file to be deleting in the background regardless of DB size,
-  // except when rate limited delete is disabled
+  // except when rate limited delete is disabled.
   virtual Status ScheduleFileDeletion(const std::string& file_path,
                                       const std::string& dir_to_sync,
                                       const bool force_bg = false);
 
-  // Wait for all files being deleteing in the background to finish or for
+  // Delete an unaccounted file. The file is deleted immediately if slow
+  // deletion is disabled. A file with more than 1 hard links will be deleted
+  // immediately unless force_bg is set. In other cases, files will be scheduled
+  // for slow deletion, and assigned to the specified bucket if a legitimate one
+  // is provided. A legitimate bucket is one that is created with the
+  // `NewTrashBucket` API, and for which `WaitForEmptyTrashBucket` hasn't been
+  // called yet.
+  virtual Status ScheduleUnaccountedFileDeletion(
+      const std::string& file_path, const std::string& dir_to_sync,
+      const bool force_bg = false,
+      std::optional<int32_t> bucket = std::nullopt);
+
+  // Wait for all files being deleted in the background to finish or for
   // destructor to be called.
   virtual void WaitForEmptyTrash();
+
+  // Creates a new trash bucket. A legitimate bucket is only created and
+  // returned when slow deletion is enabled.
+  // For each bucket that is created and used, the user should also call
+  // `WaitForEmptyTrashBucket` after scheduling file deletions to make sure all
+  // the trash files are cleared.
+  std::optional<int32_t> NewTrashBucket();
+
+  // Wait for all the files in the specified bucket to be deleted in the
+  // background or for destructor to be called.
+  virtual void WaitForEmptyTrashBucket(int32_t bucket);
 
   DeleteScheduler* delete_scheduler() { return &delete_scheduler_; }
 
@@ -194,4 +220,3 @@ class SstFileManagerImpl : public SstFileManager {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

@@ -44,6 +44,10 @@ Status ValidateOptions(const DBOptions& db_opts,
 
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options);
+// Overwrites `options`
+void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
+                    const MutableDBOptions& mutable_db_options,
+                    DBOptions& options);
 
 ColumnFamilyOptions BuildColumnFamilyOptions(
     const ColumnFamilyOptions& ioptions,

@@ -53,7 +53,7 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
-  return tboptions.ioptions.table_factory->NewTableBuilder(tboptions, file);
+  return tboptions.moptions.table_factory->NewTableBuilder(tboptions, file);
 }
 
 Status BuildTable(
@@ -64,7 +64,7 @@ Status BuildTable(
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
         range_del_iters,
     FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
-    std::vector<SequenceNumber> snapshots,
+    std::vector<SequenceNumber> snapshots, SequenceNumber earliest_snapshot,
     SequenceNumber earliest_write_conflict_snapshot,
     SequenceNumber job_snapshot, SnapshotChecker* snapshot_checker,
     bool paranoid_file_checks, InternalStats* internal_stats,
@@ -195,7 +195,7 @@ Status BuildTable(
 
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
-        iter, ucmp, &merge, kMaxSequenceNumber, &snapshots,
+        iter, ucmp, &merge, kMaxSequenceNumber, &snapshots, earliest_snapshot,
         earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
         ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
@@ -205,10 +205,6 @@ Status BuildTable(
         true /* must_count_input_entries */,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
-
-    const size_t ts_sz = ucmp->timestamp_size();
-    const bool logical_strip_timestamp =
-        ts_sz > 0 && !ioptions.persist_user_defined_timestamps;
 
     SequenceNumber smallest_preferred_seqno = kMaxSequenceNumber;
     std::string key_after_flush_buf;
@@ -221,16 +217,6 @@ Status BuildTable(
       key_after_flush_buf.assign(key.data(), key.size());
       Slice key_after_flush = key_after_flush_buf;
       Slice value_after_flush = value;
-
-      // If user defined timestamps will be stripped from user key after flush,
-      // the in memory version of the key act logically the same as one with a
-      // minimum timestamp. We update the timestamp here so file boundary and
-      // output validator, block builder all see the effect of the stripping.
-      if (logical_strip_timestamp) {
-        key_after_flush_buf.clear();
-        ReplaceInternalKeyWithMinTimestamp(&key_after_flush_buf, key, ts_sz);
-        key_after_flush = key_after_flush_buf;
-      }
 
       if (ikey.type == kTypeValuePreferredSeqno) {
         auto [unpacked_value, unix_write_time] =
@@ -291,11 +277,7 @@ Status BuildTable(
       Slice last_tombstone_start_user_key{};
       for (range_del_it->SeekToFirst(); range_del_it->Valid();
            range_del_it->Next()) {
-        // When user timestamp should not be persisted, we logically strip a
-        // range tombstone's start and end key's timestamp (replace it with min
-        // timestamp) before passing them along to table builder and to update
-        // file boundaries.
-        auto tombstone = range_del_it->Tombstone(logical_strip_timestamp);
+        auto tombstone = range_del_it->Tombstone();
         std::pair<InternalKey, Slice> kv = tombstone.Serialize();
         builder->Add(kv.first.Encode(), kv.second);
         InternalKey tombstone_end = tombstone.SerializeEndKey();
@@ -438,8 +420,7 @@ Status BuildTable(
       // the goal is to cache it here for further user reads.
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           tboptions.read_options, file_options, tboptions.internal_comparator,
-          *meta, nullptr /* range_del_agg */,
-          mutable_cf_options.prefix_extractor, nullptr,
+          *meta, nullptr /* range_del_agg */, mutable_cf_options, nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
           TableReaderCaller::kFlush, /*arena=*/nullptr,
@@ -447,8 +428,7 @@ Status BuildTable(
           MaxFileSizeForL0MetaPin(mutable_cf_options),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key*/ nullptr,
-          /*allow_unprepared_value*/ false,
-          mutable_cf_options.block_protection_bytes_per_key));
+          /*allow_unprepared_value*/ false));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         OutputValidator file_validator(tboptions.internal_comparator,

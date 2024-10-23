@@ -56,7 +56,9 @@ struct ConfigOptions {
                      // setting
   };
 
-  // When true, any unused options will be ignored and OK will be returned
+  // When true, any unused options will be ignored and OK will be returned.
+  // For options files that appear to be from the current version or earlier,
+  // unknown options are considered corruption regardless of this setting.
   bool ignore_unknown_options = false;
 
   // When true, any unsupported options will be ignored and OK will be returned

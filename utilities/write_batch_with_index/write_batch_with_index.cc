@@ -849,8 +849,22 @@ Status WriteBatchWithIndex::GetEntityFromBatchAndDB(
 
   const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
   size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
-  if (ts_sz > 0 && !read_options.timestamp) {
-    return Status::InvalidArgument("Must specify timestamp");
+  if (ts_sz > 0) {
+    if (!read_options.timestamp) {
+      return Status::InvalidArgument("Must specify timestamp");
+    }
+
+    if (read_options.timestamp->size() != ts_sz) {
+      return Status::InvalidArgument(
+          "Timestamp size does not match the timestamp size of the "
+          "column family");
+    }
+  } else {
+    if (read_options.timestamp) {
+      return Status::InvalidArgument(
+          "Cannot specify timestamp since the column family does not have "
+          "timestamps enabled");
+    }
   }
 
   if (!columns) {
@@ -948,12 +962,34 @@ void WriteBatchWithIndex::MultiGetEntityFromBatchAndDB(
 
   const Comparator* const ucmp = rep->comparator.GetComparator(column_family);
   const size_t ts_sz = ucmp ? ucmp->timestamp_size() : 0;
-  if (ts_sz > 0 && !read_options.timestamp) {
-    const Status s = Status::InvalidArgument("Must specify timestamp");
-    for (size_t i = 0; i < num_keys; ++i) {
-      statuses[i] = s;
+  if (ts_sz > 0) {
+    if (!read_options.timestamp) {
+      const Status s = Status::InvalidArgument("Must specify timestamp");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
     }
-    return;
+
+    if (read_options.timestamp->size() != ts_sz) {
+      const Status s = Status::InvalidArgument(
+          "Timestamp size does not match the timestamp size of the "
+          "column family");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
+  } else {
+    if (read_options.timestamp) {
+      const Status s = Status::InvalidArgument(
+          "Cannot specify timestamp since the column family does not have "
+          "timestamps enabled");
+      for (size_t i = 0; i < num_keys; ++i) {
+        statuses[i] = s;
+      }
+      return;
+    }
   }
 
   if (!keys) {

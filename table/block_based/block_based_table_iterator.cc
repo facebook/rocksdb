@@ -35,6 +35,17 @@ void BlockBasedTableIterator::SeekSecondPass(const Slice* target) {
 
 void BlockBasedTableIterator::SeekImpl(const Slice* target,
                                        bool async_prefetch) {
+  // TODO(hx235): set `seek_key_prefix_for_readahead_trimming_`
+  // even when `target == nullptr` that is when `SeekToFirst()` is called
+  if (target != nullptr && prefix_extractor_ &&
+      read_options_.prefix_same_as_start) {
+    const Slice& seek_user_key = ExtractUserKey(*target);
+    seek_key_prefix_for_readahead_trimming_ =
+        prefix_extractor_->InDomain(seek_user_key)
+            ? prefix_extractor_->Transform(seek_user_key).ToString()
+            : "";
+  }
+
   bool is_first_pass = !async_read_in_progress_;
 
   if (!is_first_pass) {
@@ -44,9 +55,9 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
 
   ResetBlockCacheLookupVar();
 
-  bool autotune_readaheadsize = is_first_pass &&
-                                read_options_.auto_readahead_size &&
-                                read_options_.iterate_upper_bound;
+  bool autotune_readaheadsize =
+      is_first_pass && read_options_.auto_readahead_size &&
+      (read_options_.iterate_upper_bound || read_options_.prefix_same_as_start);
 
   if (autotune_readaheadsize &&
       table_->get_rep()->table_options.block_cache.get() &&
@@ -778,7 +789,7 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 
   size_t footer = table_->get_rep()->footer.GetBlockTrailerSize();
   if (read_curr_block && !DoesContainBlockHandles() &&
-      IsNextBlockOutOfBound()) {
+      IsNextBlockOutOfReadaheadBound()) {
     end_offset = index_iter_->value().handle.offset() + footer +
                  index_iter_->value().handle.size();
     return;
@@ -823,6 +834,12 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
         read_options_, block_handle,
         &(block_handle_info.cachable_entry_).As<Block_kData>());
     if (!s.ok()) {
+#ifndef NDEBUG
+      // To allow fault injection verification to pass since non-okay status in
+      // `BlockCacheLookupForReadAheadSize()` won't fail the read but to have
+      // less or no readahead
+      IGNORE_STATUS_IF_ERROR(s);
+#endif
       break;
     }
 
@@ -844,13 +861,22 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
     // If curr block's index key >= iterate_upper_bound, it
     // means all the keys in next block or above are out of
     // bound.
-    if (IsNextBlockOutOfBound()) {
+    if (IsNextBlockOutOfReadaheadBound()) {
       is_index_out_of_bound_ = true;
       break;
     }
     index_iter_->Next();
     is_index_at_curr_block_ = false;
   }
+
+#ifndef NDEBUG
+  // To allow fault injection verification to pass since non-okay status in
+  // `BlockCacheLookupForReadAheadSize()` won't fail the read but to have less
+  // or no readahead
+  if (!index_iter_->status().ok()) {
+    IGNORE_STATUS_IF_ERROR(index_iter_->status());
+  }
+#endif
 
   if (found_first_miss_block) {
     // Iterate cache hit block handles from the end till a Miss is there, to

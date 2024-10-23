@@ -45,20 +45,23 @@ void ArenaWrappedDBIter::Init(
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iteration,
     uint64_t version_number, ReadCallback* read_callback,
     ColumnFamilyHandleImpl* cfh, bool expose_blob_index, bool allow_refresh) {
-  auto mem = arena_.AllocateAligned(sizeof(DBIter));
-  db_iter_ = new (mem) DBIter(
-      env, read_options, ioptions, mutable_cf_options, ioptions.user_comparator,
-      /* iter */ nullptr, version, sequence, true,
-      max_sequential_skip_in_iteration, read_callback, cfh, expose_blob_index);
-  sv_number_ = version_number;
   read_options_ = read_options;
-  allow_refresh_ = allow_refresh;
-  memtable_range_tombstone_iter_ = nullptr;
-
   if (!CheckFSFeatureSupport(env->GetFileSystem().get(),
                              FSSupportedOps::kAsyncIO)) {
     read_options_.async_io = false;
   }
+  read_options_.total_order_seek |= ioptions.prefix_seek_opt_in_only;
+
+  auto mem = arena_.AllocateAligned(sizeof(DBIter));
+  db_iter_ = new (mem) DBIter(env, read_options_, ioptions, mutable_cf_options,
+                              ioptions.user_comparator,
+                              /* iter */ nullptr, version, sequence, true,
+                              max_sequential_skip_in_iteration, read_callback,
+                              cfh, expose_blob_index);
+
+  sv_number_ = version_number;
+  allow_refresh_ = allow_refresh;
+  memtable_range_tombstone_iter_ = nullptr;
 }
 
 Status ArenaWrappedDBIter::Refresh() { return Refresh(nullptr); }
@@ -138,10 +141,10 @@ Status ArenaWrappedDBIter::Refresh(const Snapshot* snapshot) {
             reinit_internal_iter();
             break;
           } else {
-            delete *memtable_range_tombstone_iter_;
-            *memtable_range_tombstone_iter_ = new TruncatedRangeDelIterator(
-                std::unique_ptr<FragmentedRangeTombstoneIterator>(t),
-                &cfd->internal_comparator(), nullptr, nullptr);
+            *memtable_range_tombstone_iter_ =
+                std::make_unique<TruncatedRangeDelIterator>(
+                    std::unique_ptr<FragmentedRangeTombstoneIterator>(t),
+                    &cfd->internal_comparator(), nullptr, nullptr);
           }
         }
         db_impl->ReturnAndCleanupSuperVersion(cfd, sv);

@@ -1,5 +1,6 @@
 name: facebook/rocksdb/pr-jobs
 on: [push, pull_request]
+permissions: {}
 jobs:
   # NOTE: multiple workflows would be recommended, but the current GHA UI in
   # PRs doesn't make it clear when there's an overall error with a workflow,
@@ -90,6 +91,9 @@ jobs:
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
+    env:
+      CC: gcc-10
+      CXX: g++-10
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
@@ -104,38 +108,47 @@ jobs:
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
+    env:
+      CC: gcc-10
+      CXX: g++-10
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
     - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)"
     - uses: "./.github/actions/post-steps"
-  build-linux-gcc-7-with-folly:
+  build-linux-make-with-folly:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
+    env:
+      CC: gcc-10
+      CXX: g++-10
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
     - uses: "./.github/actions/build-folly"
-    - run: USE_FOLLY=1 LIB_MODE=static CC=gcc-7 CXX=g++-7 V=1 make -j32 check
+    - run: USE_FOLLY=1 LIB_MODE=static V=1 make -j32 check
     - uses: "./.github/actions/post-steps"
-  build-linux-gcc-7-with-folly-lite-no-test:
+  build-linux-make-with-folly-lite-no-test:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 16-core-ubuntu
     container:
       image: zjay437/rocksdb:0.6
       options: --shm-size=16gb
+    env:
+      CC: gcc-10
+      CXX: g++-10
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - uses: "./.github/actions/setup-folly"
-    - run: USE_FOLLY_LITE=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 all
+    - run: USE_FOLLY_LITE=1 V=1 make -j32 all
     - uses: "./.github/actions/post-steps"
   build-linux-cmake-with-folly-coroutines:
     if: ${{ github.repository_owner == 'facebook' }}

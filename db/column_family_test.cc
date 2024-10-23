@@ -23,6 +23,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -34,6 +35,13 @@
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+std::string EncodeAsUint64(uint64_t number) {
+  std::string result;
+  PutFixed64(&result, number);
+  return result;
+}
+}  // namespace
 
 static const int kValueSize = 1000;
 
@@ -3004,19 +3012,25 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupForCompactionDebt) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   {
-    // 1MB debt is way bigger than bottommost data so definitely triggers
-    // speedup.
     VersionStorageInfo* vstorage = cfd->current()->storage_info();
-    vstorage->TEST_set_estimated_compaction_needed_bytes(1048576 /* 1MB */,
-                                                         dbmu);
-    RecalculateWriteStallConditions(cfd, mutable_cf_options);
-    ASSERT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
-
     // Eight bytes is way smaller than bottommost data so definitely does not
     // trigger speedup.
     vstorage->TEST_set_estimated_compaction_needed_bytes(8, dbmu);
     RecalculateWriteStallConditions(cfd, mutable_cf_options);
     ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+
+    // 1MB is much larger than bottommost level size. However, since it's too
+    // small in terms of absolute size, it does not trigger parallel compaction
+    // in this case (see GetPendingCompactionBytesForCompactionSpeedup()).
+    vstorage->TEST_set_estimated_compaction_needed_bytes(1048576 /* 1MB */,
+                                                         dbmu);
+    RecalculateWriteStallConditions(cfd, mutable_cf_options);
+    ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+
+    vstorage->TEST_set_estimated_compaction_needed_bytes(
+        2 * mutable_cf_options.max_bytes_for_level_base, dbmu);
+    RecalculateWriteStallConditions(cfd, mutable_cf_options);
+    ASSERT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
   }
 }
 
@@ -3059,12 +3073,20 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupForMarkedFiles) {
   WaitForCompaction();
   AssertFilesPerLevel("0,1", 0 /* cf */);
 
+  // We should calculate the limit by obtaining the number of env background
+  // threads, because the current test case will share the same env
+  // with another case that may have already increased the number of
+  // background threads which is larger than kParallelismLimit
+  const auto limit = env_->GetBackgroundThreads(Env::Priority::LOW);
+
   // Block the compaction thread pool so marked files accumulate in L0.
-  test::SleepingBackgroundTask sleeping_tasks[kParallelismLimit];
-  for (int i = 0; i < kParallelismLimit; i++) {
+  std::vector<std::shared_ptr<test::SleepingBackgroundTask>> sleeping_tasks;
+  for (int i = 0; i < limit; i++) {
+    sleeping_tasks.emplace_back(
+        std::make_shared<test::SleepingBackgroundTask>());
     env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                   &sleeping_tasks[i], Env::Priority::LOW);
-    sleeping_tasks[i].WaitUntilSleeping();
+                   sleeping_tasks[i].get(), Env::Priority::LOW);
+    sleeping_tasks[i]->WaitUntilSleeping();
   }
 
   // Zero marked upper-level files. No speedup.
@@ -3083,9 +3105,9 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupForMarkedFiles) {
   ASSERT_EQ(kParallelismLimit, dbfull()->TEST_BGCompactionsAllowed());
   AssertFilesPerLevel("2,1", 0 /* cf */);
 
-  for (int i = 0; i < kParallelismLimit; i++) {
-    sleeping_tasks[i].WakeUp();
-    sleeping_tasks[i].WaitUntilDone();
+  for (int i = 0; i < limit; i++) {
+    sleeping_tasks[i]->WakeUp();
+    sleeping_tasks[i]->WaitUntilDone();
   }
 }
 
@@ -3170,6 +3192,8 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   SpecialEnv env(Env::Default());
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
+  // When this option is removed, the test will need re-engineering
+  db_options_.background_close_inactive_wals = true;
   column_family_options_.memtable_factory.reset(
       test::NewSpecialSkipListFactory(2));
   Open();
@@ -3222,6 +3246,8 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile2) {
   env.SetBackgroundThreads(2, Env::HIGH);
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
+  // When this option is removed, the test will need re-engineering
+  db_options_.background_close_inactive_wals = true;
   column_family_options_.memtable_factory.reset(
       test::NewSpecialSkipListFactory(2));
   Open();
@@ -3279,6 +3305,8 @@ TEST_P(ColumnFamilyTest, ForwardIteratorCloseWALFile) {
   env.SetBackgroundThreads(2, Env::HIGH);
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
+  // When this option is removed, the test will need re-engineering
+  db_options_.background_close_inactive_wals = true;
   column_family_options_.memtable_factory.reset(
       test::NewSpecialSkipListFactory(3));
   column_family_options_.level0_file_num_compaction_trigger = 2;
@@ -3603,7 +3631,9 @@ TEST(ColumnFamilyTest, ValidateMemtableKVChecksumOption) {
 }
 
 // Tests the flushing behavior of a column family to retain user-defined
-// timestamp when `persist_user_defined_timestamp` is false.
+// timestamp when `persist_user_defined_timestamp` is false. The behavior of
+// auto flush is it makes some effort to retain user-defined timestamps while
+// the behavior of manual flush is that it skips retaining UDTs.
 class ColumnFamilyRetainUDTTest : public ColumnFamilyTestBase {
  public:
   ColumnFamilyRetainUDTTest() : ColumnFamilyTestBase(kLatestFormatVersion) {}
@@ -3620,6 +3650,27 @@ class ColumnFamilyRetainUDTTest : public ColumnFamilyTestBase {
              const std::string& value) {
     return db_->Put(WriteOptions(), handles_[cf], Slice(key), Slice(ts),
                     Slice(value));
+  }
+
+  std::string Get(int cf, const std::string& key, const std::string& read_ts) {
+    ReadOptions ropts;
+    Slice timestamp = read_ts;
+    ropts.timestamp = &timestamp;
+    std::string value;
+    Status s = db_->Get(ropts, handles_[cf], Slice(key), &value);
+    if (s.IsNotFound()) {
+      return "NOT_FOUND";
+    } else if (s.ok()) {
+      return value;
+    }
+    return "";
+  }
+
+  void CheckEffectiveCutoffTime(uint64_t expected_cutoff) {
+    std::string effective_full_history_ts_low;
+    EXPECT_OK(
+        db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
+    EXPECT_EQ(EncodeAsUint64(expected_cutoff), effective_full_history_ts_low);
   }
 };
 
@@ -3664,7 +3715,9 @@ TEST_F(ColumnFamilyRetainUDTTest, SanityCheck) {
   Close();
 }
 
-TEST_F(ColumnFamilyRetainUDTTest, FullHistoryTsLowNotSet) {
+class AutoFlushRetainUDTTest : public ColumnFamilyRetainUDTTest {};
+
+TEST_F(AutoFlushRetainUDTTest, FullHistoryTsLowNotSet) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
         ASSERT_NE(nullptr, arg);
@@ -3674,28 +3727,22 @@ TEST_F(ColumnFamilyRetainUDTTest, FullHistoryTsLowNotSet) {
 
   SyncPoint::GetInstance()->EnableProcessing();
   Open();
-  std::string write_ts;
-  PutFixed64(&write_ts, 1);
-  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
-  // No `full_history_ts_low` explicitly set by user, flush is continued
+  ASSERT_OK(Put(0, "foo", EncodeAsUint64(1), "v1"));
+  // No `full_history_ts_low` explicitly set by user, auto flush is continued
   // without checking if its UDTs expired.
-  ASSERT_OK(Flush(0));
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
   // After flush, `full_history_ts_low` should be automatically advanced to
   // the effective cutoff timestamp: write_ts + 1
-  std::string cutoff_ts;
-  PutFixed64(&cutoff_ts, 2);
-  std::string effective_full_history_ts_low;
-  ASSERT_OK(
-      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
-  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  CheckEffectiveCutoffTime(2);
   Close();
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(ColumnFamilyRetainUDTTest, AllKeysExpired) {
+TEST_F(AutoFlushRetainUDTTest, AllKeysExpired) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
         ASSERT_NE(nullptr, arg);
@@ -3705,27 +3752,22 @@ TEST_F(ColumnFamilyRetainUDTTest, AllKeysExpired) {
 
   SyncPoint::GetInstance()->EnableProcessing();
   Open();
-  std::string write_ts;
-  PutFixed64(&write_ts, 1);
-  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
-  std::string cutoff_ts;
-  PutFixed64(&cutoff_ts, 3);
-  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
-  // All keys expired w.r.t the configured `full_history_ts_low`, flush continue
-  // without the need for a re-schedule.
-  ASSERT_OK(Flush(0));
+  ASSERT_OK(Put(0, "foo", EncodeAsUint64(1), "v1"));
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(3)));
+  // All keys expired w.r.t the configured `full_history_ts_low`, auto flush
+  // continue without the need for a re-schedule.
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
   // `full_history_ts_low` stays unchanged after flush.
-  std::string effective_full_history_ts_low;
-  ASSERT_OK(
-      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
-  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  CheckEffectiveCutoffTime(3);
   Close();
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
-TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredFlushToAvoidWriteStall) {
+
+TEST_F(AutoFlushRetainUDTTest, NotAllKeysExpiredFlushToAvoidWriteStall) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
         ASSERT_NE(nullptr, arg);
@@ -3735,70 +3777,301 @@ TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredFlushToAvoidWriteStall) {
 
   SyncPoint::GetInstance()->EnableProcessing();
   Open();
-  std::string cutoff_ts;
-  std::string write_ts;
-  PutFixed64(&write_ts, 1);
-  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
-  PutFixed64(&cutoff_ts, 1);
-  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  ASSERT_OK(Put(0, "foo", EncodeAsUint64(1), "v1"));
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(1)));
   ASSERT_OK(db_->SetOptions(handles_[0], {{"max_write_buffer_number", "1"}}));
-  // Not all keys expired, but flush is continued without a re-schedule because
-  // of risk of write stall.
-  ASSERT_OK(Flush(0));
+  // Not all keys expired, but auto flush is continued without a re-schedule
+  // because of risk of write stall.
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
   // After flush, `full_history_ts_low` should be automatically advanced to
   // the effective cutoff timestamp: write_ts + 1
-  std::string effective_full_history_ts_low;
-  ASSERT_OK(
-      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
-
-  cutoff_ts.clear();
-  PutFixed64(&cutoff_ts, 2);
-  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  CheckEffectiveCutoffTime(2);
   Close();
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(ColumnFamilyRetainUDTTest, NotAllKeysExpiredFlushRescheduled) {
-  std::string cutoff_ts;
+TEST_F(AutoFlushRetainUDTTest, NotAllKeysExpiredFlushRescheduled) {
+  std::atomic<int> local_counter{1};
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::AfterRetainUDTReschedule:cb", [&](void* /*arg*/) {
         // Increasing full_history_ts_low so all keys expired after the initial
         // FlushRequest is rescheduled
-        cutoff_ts.clear();
-        PutFixed64(&cutoff_ts, 3);
-        ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+        ASSERT_OK(
+            db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(3)));
       });
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
         ASSERT_NE(nullptr, arg);
         auto reschedule_count = *static_cast<int*>(arg);
         ASSERT_EQ(2, reschedule_count);
+        local_counter.fetch_add(1);
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
   Open();
-  std::string write_ts;
-  PutFixed64(&write_ts, 1);
-  ASSERT_OK(Put(0, "foo", write_ts, "v1"));
-  PutFixed64(&cutoff_ts, 1);
-  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], cutoff_ts));
+  ASSERT_OK(Put(0, "foo", EncodeAsUint64(1), "v1"));
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(1)));
   // Not all keys expired, and there is no risk of write stall. Flush is
   // rescheduled. The actual flush happens after `full_history_ts_low` is
   // increased to mark all keys expired.
-  ASSERT_OK(Flush(0));
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  // Make sure callback is not skipped.
+  ASSERT_EQ(2, local_counter);
 
-  std::string effective_full_history_ts_low;
-  ASSERT_OK(
-      db_->GetFullHistoryTsLow(handles_[0], &effective_full_history_ts_low));
-  // `full_history_ts_low` stays unchanged.
-  ASSERT_EQ(cutoff_ts, effective_full_history_ts_low);
+  CheckEffectiveCutoffTime(3);
   Close();
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+class ManualFlushSkipRetainUDTTest : public ColumnFamilyRetainUDTTest {
+ public:
+  // Write an entry with timestamp that is not expired w.r.t cutoff timestamp,
+  // and make sure automatic flush would be rescheduled to retain UDT.
+  void CheckAutomaticFlushRetainUDT(uint64_t write_ts) {
+    std::atomic<int> local_counter{1};
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::AfterRetainUDTReschedule:cb", [&](void* /*arg*/) {
+          // Increasing full_history_ts_low so all keys expired after the
+          // initial FlushRequest is rescheduled
+          ASSERT_OK(db_->IncreaseFullHistoryTsLow(
+              handles_[0], EncodeAsUint64(write_ts + 1)));
+        });
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::BackgroundFlush:CheckFlushRequest:cb", [&](void* arg) {
+          ASSERT_NE(nullptr, arg);
+          auto reschedule_count = *static_cast<int*>(arg);
+          ASSERT_EQ(2, reschedule_count);
+          local_counter.fetch_add(1);
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    EXPECT_OK(Put(0, "foo", EncodeAsUint64(write_ts),
+                  "foo" + std::to_string(write_ts)));
+    EXPECT_OK(dbfull()->TEST_SwitchWAL());
+    EXPECT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    // Make sure callback is not skipped.
+    EXPECT_EQ(2, local_counter);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+};
+
+TEST_F(ManualFlushSkipRetainUDTTest, ManualFlush) {
+  Open();
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(0)));
+
+  // Manual flush proceeds without trying to retain UDT.
+  ASSERT_OK(Put(0, "foo", EncodeAsUint64(1), "v1"));
+  ASSERT_OK(Flush(0));
+  CheckEffectiveCutoffTime(2);
+  CheckAutomaticFlushRetainUDT(3);
+
+  Close();
+}
+
+TEST_F(ManualFlushSkipRetainUDTTest, FlushRemovesStaleEntries) {
+  column_family_options_.max_write_buffer_number = 4;
+  Open();
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(0)));
+
+  ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
+  ColumnFamilyData* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
+  for (int version = 0; version < 100; version++) {
+    if (version == 50) {
+      ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable(cfd));
+    }
+    ASSERT_OK(
+        Put(0, "foo", EncodeAsUint64(version), "v" + std::to_string(version)));
+  }
+
+  ASSERT_OK(Flush(0));
+  TablePropertiesCollection tables_properties;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&tables_properties));
+  ASSERT_EQ(1, tables_properties.size());
+  std::shared_ptr<const TableProperties> table_properties =
+      tables_properties.begin()->second;
+  ASSERT_EQ(1, table_properties->num_entries);
+  ASSERT_EQ(0, table_properties->num_deletions);
+  ASSERT_EQ(0, table_properties->num_range_deletions);
+  CheckEffectiveCutoffTime(100);
+  CheckAutomaticFlushRetainUDT(101);
+
+  Close();
+}
+
+TEST_F(ManualFlushSkipRetainUDTTest, RangeDeletionFlushRemovesStaleEntries) {
+  column_family_options_.max_write_buffer_number = 4;
+  Open();
+  // TODO(yuzhangyu): a non 0 full history ts low is needed for this garbage
+  // collection to kick in. This doesn't work well for the very first flush of
+  // the column family. Not a big issue, but would be nice to improve this.
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(9)));
+
+  for (int i = 10; i < 100; i++) {
+    ASSERT_OK(Put(0, "foo" + std::to_string(i), EncodeAsUint64(i),
+                  "val" + std::to_string(i)));
+    if (i % 2 == 1) {
+      ASSERT_OK(db_->DeleteRange(WriteOptions(), "foo" + std::to_string(i - 1),
+                                 "foo" + std::to_string(i), EncodeAsUint64(i)));
+    }
+  }
+
+  ASSERT_OK(Flush(0));
+  CheckEffectiveCutoffTime(100);
+  std::string read_ts = EncodeAsUint64(100);
+  std::string min_ts = EncodeAsUint64(0);
+  ReadOptions ropts;
+  Slice read_ts_slice = read_ts;
+  std::string value;
+  ropts.timestamp = &read_ts_slice;
+  {
+    Iterator* iter = db_->NewIterator(ropts);
+    iter->SeekToFirst();
+    int i = 11;
+    while (iter->Valid()) {
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("foo" + std::to_string(i), iter->key());
+      ASSERT_EQ("val" + std::to_string(i), iter->value());
+      ASSERT_EQ(min_ts, iter->timestamp());
+      iter->Next();
+      i += 2;
+    }
+    ASSERT_OK(iter->status());
+    delete iter;
+  }
+  TablePropertiesCollection tables_properties;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&tables_properties));
+  ASSERT_EQ(1, tables_properties.size());
+  std::shared_ptr<const TableProperties> table_properties =
+      tables_properties.begin()->second;
+  // 45 point data + 45 range deletions. 45 obsolete point data are garbage
+  // collected.
+  ASSERT_EQ(90, table_properties->num_entries);
+  ASSERT_EQ(45, table_properties->num_deletions);
+  ASSERT_EQ(45, table_properties->num_range_deletions);
+
+  Close();
+}
+
+TEST_F(ManualFlushSkipRetainUDTTest, ManualCompaction) {
+  Open();
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(0)));
+
+  // Manual compaction proceeds without trying to retain UDT.
+  ASSERT_OK(Put(0, "foo", EncodeAsUint64(1), "v2"));
+  ASSERT_OK(
+      db_->CompactRange(CompactRangeOptions(), handles_[0], nullptr, nullptr));
+  CheckEffectiveCutoffTime(2);
+  CheckAutomaticFlushRetainUDT(3);
+
+  Close();
+}
+
+TEST_F(ManualFlushSkipRetainUDTTest, BulkLoading) {
+  Open();
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(0)));
+  ASSERT_OK(Put(0, "foo", EncodeAsUint64(1), "v1"));
+
+  // Test flush behavior in bulk loading scenarios.
+  Options options(db_options_, column_family_options_);
+  std::string sst_files_dir = dbname_ + "/sst_files/";
+  ASSERT_OK(DestroyDir(env_, sst_files_dir));
+  ASSERT_OK(env_->CreateDir(sst_files_dir));
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  std::string file1 = sst_files_dir + "file1.sst";
+  ASSERT_OK(sst_file_writer.Open(file1));
+  ASSERT_OK(sst_file_writer.Put("foo", EncodeAsUint64(0), "v2"));
+  ExternalSstFileInfo file1_info;
+  ASSERT_OK(sst_file_writer.Finish(&file1_info));
+
+  // Bulk loading in UDT mode doesn't support external file key range overlap
+  // with DB key range.
+  ASSERT_TRUE(db_->IngestExternalFile({file1}, IngestExternalFileOptions())
+                  .IsInvalidArgument());
+
+  std::string file2 = sst_files_dir + "file2.sst";
+  ASSERT_OK(sst_file_writer.Open(file2));
+  ASSERT_OK(sst_file_writer.Put("bar", EncodeAsUint64(0), "val"));
+  ExternalSstFileInfo file2_info;
+  ASSERT_OK(sst_file_writer.Finish(&file2_info));
+  // A successful bulk loading, and it doesn't trigger any flush. As a result
+  // the effective cutoff timestamp is also unchanged.
+  ASSERT_OK(db_->IngestExternalFile({file2}, IngestExternalFileOptions()));
+
+  ASSERT_EQ(Get(0, "foo", EncodeAsUint64(1)), "v1");
+  ASSERT_EQ(Get(0, "bar", EncodeAsUint64(0)), "val");
+  CheckEffectiveCutoffTime(0);
+  CheckAutomaticFlushRetainUDT(1);
+
+  Close();
+}
+
+TEST_F(ManualFlushSkipRetainUDTTest, AutomaticFlushQueued) {
+  Open();
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(0)));
+
+  ASSERT_OK(Put(0, "foo", EncodeAsUint64(1), "v1"));
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
+  CheckEffectiveCutoffTime(0);
+
+  // Default `max_write_buffer_number=2` used, writing another memtable can get
+  // automatic flush to proceed because of memory pressure. Not doing that so
+  // we can test automatic flush gets to proceed because of an ongoing manual
+  // flush attempt.
+  ASSERT_OK(Flush(0));
+  CheckEffectiveCutoffTime(2);
+  CheckAutomaticFlushRetainUDT(3);
+
+  Close();
+}
+
+TEST_F(ManualFlushSkipRetainUDTTest, ConcurrentManualFlushes) {
+  Open();
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(0)));
+
+  std::vector<ROCKSDB_NAMESPACE::port::Thread> manual_flush_tds;
+  std::atomic<int> next_ts{0};
+  std::mutex mtx;
+  std::condition_variable cv;
+
+  auto manual_flush = [&](int write_ts) {
+    {
+      std::unique_lock<std::mutex> lock(mtx);
+      cv.wait(lock,
+              [&write_ts, &next_ts] { return write_ts == next_ts.load(); });
+      ASSERT_OK(Put(0, "foo" + std::to_string(write_ts),
+                    EncodeAsUint64(write_ts),
+                    "val_" + std::to_string(write_ts)));
+      next_ts.fetch_add(1);
+      cv.notify_all();
+    }
+    if (write_ts % 2 == 0) {
+      ASSERT_OK(Flush(0));
+    } else {
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[0], nullptr,
+                                  nullptr));
+    }
+  };
+
+  for (int write_ts = 0; write_ts < 10; write_ts++) {
+    manual_flush_tds.emplace_back(manual_flush, write_ts);
+  }
+
+  for (auto& td : manual_flush_tds) {
+    td.join();
+  }
+
+  CheckEffectiveCutoffTime(10);
+  CheckAutomaticFlushRetainUDT(11);
+  Close();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

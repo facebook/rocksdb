@@ -7,11 +7,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/io_status.h"
 #ifdef GFLAGS
 #pragma once
 
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "rocksdb/experimental.h"
 
 namespace ROCKSDB_NAMESPACE {
 class SystemClock;
@@ -19,12 +21,13 @@ class Transaction;
 class TransactionDB;
 class OptimisticTransactionDB;
 struct TransactionDBOptions;
+using experimental::SstQueryFilterConfigsManager;
 
 class StressTest {
  public:
   StressTest();
 
-  virtual ~StressTest();
+  virtual ~StressTest() {}
 
   std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
@@ -41,8 +44,78 @@ class StressTest {
   virtual void VerifyDb(ThreadState* thread) const = 0;
   virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const = 0;
   void PrintStatistics();
+  bool MightHaveUnsyncedDataLoss() {
+    return FLAGS_sync_fault_injection || FLAGS_disable_wal ||
+           FLAGS_manual_wal_flush_one_in > 0;
+  }
+  Status EnableAutoCompaction() {
+    assert(options_.disable_auto_compactions);
+    Status s = db_->EnableAutoCompaction(column_families_);
+    return s;
+  }
+  void CleanUp();
 
  protected:
+  static int GetMinInjectedErrorCount(int error_count_1, int error_count_2) {
+    if (error_count_1 > 0 && error_count_2 > 0) {
+      return std::min(error_count_1, error_count_2);
+    } else if (error_count_1 > 0) {
+      return error_count_1;
+    } else if (error_count_2 > 0) {
+      return error_count_2;
+    } else {
+      return 0;
+    }
+  }
+
+  void UpdateIfInitialWriteFails(Env* db_stress_env, const Status& write_s,
+                                 Status* initial_write_s,
+                                 bool* initial_wal_write_may_succeed,
+                                 uint64_t* wait_for_recover_start_time) {
+    assert(db_stress_env && initial_write_s && initial_wal_write_may_succeed &&
+           wait_for_recover_start_time);
+    // Only update `initial_write_s`, `initial_wal_write_may_succeed` when the
+    // first write fails
+    if (!write_s.ok() && (*initial_write_s).ok()) {
+      *initial_write_s = write_s;
+      *initial_wal_write_may_succeed =
+          !FaultInjectionTestFS::IsFailedToWriteToWALError(*initial_write_s);
+      *wait_for_recover_start_time = db_stress_env->NowMicros();
+    }
+  }
+
+  void PrintWriteRecoveryWaitTimeIfNeeded(Env* db_stress_env,
+                                          const Status& initial_write_s,
+                                          bool initial_wal_write_may_succeed,
+                                          uint64_t wait_for_recover_start_time,
+                                          const std::string& thread_name) {
+    assert(db_stress_env);
+    bool waited_for_recovery = !initial_write_s.ok() &&
+                               IsErrorInjectedAndRetryable(initial_write_s) &&
+                               initial_wal_write_may_succeed;
+    if (waited_for_recovery) {
+      uint64_t elapsed_sec =
+          (db_stress_env->NowMicros() - wait_for_recover_start_time) / 1000000;
+      if (elapsed_sec > 10) {
+        fprintf(stdout,
+                "%s thread slept to wait for write recovery for "
+                "%" PRIu64 " seconds\n",
+                thread_name.c_str(), elapsed_sec);
+      }
+    }
+  }
+  void GetDeleteRangeKeyLocks(
+      ThreadState* thread, int rand_column_family, int64_t rand_key,
+      std::vector<std::unique_ptr<MutexLock>>* range_locks) {
+    for (int j = 0; j < FLAGS_range_deletion_width; ++j) {
+      if (j == 0 ||
+          ((rand_key + j) & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
+        range_locks->emplace_back(new MutexLock(
+            thread->shared->GetMutexForKey(rand_column_family, rand_key + j)));
+      }
+    }
+  }
+
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);
 
@@ -169,6 +242,20 @@ class StressTest {
                              const std::vector<int>& rand_column_families,
                              const std::vector<int64_t>& rand_keys);
 
+  // Given a key K, this creates an attribute group iterator which scans to K
+  // and then does a random sequence of Next/Prev operations. Called only when
+  // use_attribute_group=1
+  virtual Status TestIterateAttributeGroups(
+      ThreadState* thread, const ReadOptions& read_opts,
+      const std::vector<int>& rand_column_families,
+      const std::vector<int64_t>& rand_keys);
+
+  template <typename IterType, typename NewIterFunc, typename VerifyFunc>
+  Status TestIterateImpl(ThreadState* thread, const ReadOptions& read_opts,
+                         const std::vector<int>& rand_column_families,
+                         const std::vector<int64_t>& rand_keys,
+                         NewIterFunc new_iter_func, VerifyFunc verify_func);
+
   virtual Status TestIterateAgainstExpected(
       ThreadState* /* thread */, const ReadOptions& /* read_opts */,
       const std::vector<int>& /* rand_column_families */,
@@ -192,10 +279,12 @@ class StressTest {
   // diverged = true if the two iterator is already diverged.
   // True if verification passed, false if not.
   // op_logs is the information to print when validation fails.
+  template <typename IterType, typename VerifyFuncType>
   void VerifyIterator(ThreadState* thread, ColumnFamilyHandle* cmp_cfh,
-                      const ReadOptions& ro, Iterator* iter, Iterator* cmp_iter,
+                      const ReadOptions& ro, IterType* iter, Iterator* cmp_iter,
                       LastIterateOp op, const Slice& seek_key,
-                      const std::string& op_logs, bool* diverged);
+                      const std::string& op_logs, VerifyFuncType verifyFunc,
+                      bool* diverged);
 
   virtual Status TestBackupRestore(ThreadState* thread,
                                    const std::vector<int>& rand_column_families,
@@ -224,13 +313,13 @@ class StressTest {
 
   Status MaybeReleaseSnapshots(ThreadState* thread, uint64_t i);
 
-  Status VerifyGetLiveFiles() const;
-  Status VerifyGetLiveFilesMetaData() const;
-  Status VerifyGetLiveFilesStorageInfo() const;
-  Status VerifyGetAllColumnFamilyMetaData() const;
+  Status TestGetLiveFiles() const;
+  Status TestGetLiveFilesMetaData() const;
+  Status TestGetLiveFilesStorageInfo() const;
+  Status TestGetAllColumnFamilyMetaData() const;
 
-  Status VerifyGetSortedWalFiles() const;
-  Status VerifyGetCurrentWalFile() const;
+  Status TestGetSortedWalFiles() const;
+  Status TestGetCurrentWalFile() const;
   void TestGetProperty(ThreadState* thread) const;
   Status TestGetPropertiesOfAllTables() const;
 
@@ -243,6 +332,13 @@ class StressTest {
       ThreadState* /*thread*/,
       const std::vector<int>& /*rand_column_families*/) {
     return Status::NotSupported("TestCustomOperations() must be overridden");
+  }
+
+  bool IsErrorInjectedAndRetryable(const Status& error_s) const {
+    assert(!error_s.ok());
+    return error_s.getState() &&
+           FaultInjectionTestFS::IsInjectedError(error_s) &&
+           !status_to_io_status(Status(error_s)).GetDataLoss();
   }
 
   void ProcessStatus(SharedState* shared, std::string msg, const Status& s,
@@ -303,6 +399,7 @@ class StressTest {
   std::unordered_map<std::string, std::vector<std::string>> options_table_;
   std::vector<std::string> options_index_;
   std::atomic<bool> db_preload_finished_;
+  std::shared_ptr<SstQueryFilterConfigsManager::Factory> sqfc_factory_;
 
   // Fields used for continuous verification from another thread
   DB* cmp_db_;
@@ -344,7 +441,9 @@ void InitializeOptionsFromFlags(
 // from OPTIONS file.
 void InitializeOptionsGeneral(
     const std::shared_ptr<Cache>& cache,
-    const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
+    const std::shared_ptr<const FilterPolicy>& filter_policy,
+    const std::shared_ptr<SstQueryFilterConfigsManager::Factory>& sqfc_factory,
+    Options& options);
 
 // If no OPTIONS file is specified, set up `options` so that we can test
 // user-defined timestamp which requires `-user_timestamp_size=8`.
@@ -352,5 +451,6 @@ void InitializeOptionsGeneral(
 // user-defined timestamp.
 void CheckAndSetOptionsForUserTimestamp(Options& options);
 
+bool ShouldDisableAutoCompactionsBeforeVerifyDb();
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

@@ -21,15 +21,15 @@ struct MultiCfIteratorInfo {
   int order;
 };
 
+template <typename ResetFunc, typename PopulateFunc>
 class MultiCfIteratorImpl {
  public:
-  MultiCfIteratorImpl(
-      const Comparator* comparator,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const std::vector<Iterator*>& child_iterators,
-      std::function<void()> reset_func,
-      std::function<void(const autovector<MultiCfIteratorInfo>&)> populate_func)
+  MultiCfIteratorImpl(const Comparator* comparator, bool allow_unprepared_value,
+                      const std::vector<ColumnFamilyHandle*>& column_families,
+                      const std::vector<Iterator*>& child_iterators,
+                      ResetFunc reset_func, PopulateFunc populate_func)
       : comparator_(comparator),
+        allow_unprepared_value_(allow_unprepared_value),
         heap_(MultiCfMinHeap(
             MultiCfHeapItemComparator<std::greater<int>>(comparator_))),
         reset_func_(std::move(reset_func)),
@@ -85,7 +85,7 @@ class MultiCfIteratorImpl {
   void Next() {
     assert(Valid());
     auto& min_heap = GetHeap<MultiCfMinHeap>([this]() {
-      Slice target = key();
+      std::string target(key().data(), key().size());
       InitMinHeap();
       Seek(target);
     });
@@ -94,11 +94,46 @@ class MultiCfIteratorImpl {
   void Prev() {
     assert(Valid());
     auto& max_heap = GetHeap<MultiCfMaxHeap>([this]() {
-      Slice target = key();
+      std::string target(key().data(), key().size());
       InitMaxHeap();
       SeekForPrev(target);
     });
     AdvanceIterator(max_heap, [](Iterator* iter) { iter->Prev(); });
+  }
+
+  bool PrepareValue() {
+    assert(Valid());
+
+    if (!allow_unprepared_value_) {
+      return true;
+    }
+
+    auto prepare_value_func = [this](auto& heap, Iterator* iterator) {
+      assert(iterator);
+      assert(iterator->Valid());
+      assert(iterator->status().ok());
+
+      if (!iterator->PrepareValue()) {
+        assert(!iterator->Valid());
+        assert(!iterator->status().ok());
+
+        considerStatus(iterator->status());
+        assert(!status_.ok());
+
+        heap.clear();
+        return false;
+      }
+
+      return true;
+    };
+
+    if (std::holds_alternative<MultiCfMaxHeap>(heap_)) {
+      return PopulateIterator(std::get<MultiCfMaxHeap>(heap_),
+                              prepare_value_func);
+    }
+
+    return PopulateIterator(std::get<MultiCfMinHeap>(heap_),
+                            prepare_value_func);
   }
 
  private:
@@ -125,7 +160,10 @@ class MultiCfIteratorImpl {
    private:
     const Comparator* comparator_;
   };
+
   const Comparator* comparator_;
+  bool allow_unprepared_value_;
+
   using MultiCfMinHeap =
       BinaryHeap<MultiCfIteratorInfo,
                  MultiCfHeapItemComparator<std::greater<int>>>;
@@ -136,8 +174,8 @@ class MultiCfIteratorImpl {
 
   MultiCfIterHeap heap_;
 
-  std::function<void()> reset_func_;
-  std::function<void(autovector<MultiCfIteratorInfo>)> populate_func_;
+  ResetFunc reset_func_;
+  PopulateFunc populate_func_;
 
   Iterator* current() const {
     if (std::holds_alternative<MultiCfMaxHeap>(heap_)) {
@@ -163,11 +201,11 @@ class MultiCfIteratorImpl {
   }
 
   void InitMinHeap() {
-    heap_.emplace<MultiCfMinHeap>(
+    heap_.template emplace<MultiCfMinHeap>(
         MultiCfHeapItemComparator<std::greater<int>>(comparator_));
   }
   void InitMaxHeap() {
-    heap_.emplace<MultiCfMaxHeap>(
+    heap_.template emplace<MultiCfMaxHeap>(
         MultiCfHeapItemComparator<std::less<int>>(comparator_));
   }
 
@@ -186,51 +224,70 @@ class MultiCfIteratorImpl {
         if (!status_.ok()) {
           // Non-OK status from the iterator. Bail out early
           heap.clear();
-          break;
+          return;
         }
       }
       ++i;
     }
-    if (!heap.empty()) {
-      PopulateIterator(heap);
+    if (!allow_unprepared_value_ && !heap.empty()) {
+      [[maybe_unused]] const bool result = PopulateIterator(
+          heap,
+          [](auto& /* heap */, Iterator* /* iterator */) { return true; });
+      assert(result);
     }
   }
 
   template <typename BinaryHeap, typename AdvanceFuncType>
   void AdvanceIterator(BinaryHeap& heap, AdvanceFuncType advance_func) {
-    assert(!heap.empty());
     reset_func_();
+    // It is possible for one or more child iters are at invalid keys due to
+    // manual prefix iteration. For such cases, we consider the result of the
+    // multi-cf-iter is also undefined.
+    // https://github.com/facebook/rocksdb/wiki/Prefix-Seek#manual-prefix-iterating
+    // for details about manual prefix iteration
+    if (heap.empty()) {
+      return;
+    }
 
     // 1. Keep the top iterator (by popping it from the heap)
     // 2. Make sure all others have iterated past the top iterator key slice
     // 3. Advance the top iterator, and add it back to the heap if valid
     auto top = heap.top();
+    assert(top.iterator);
+    assert(top.iterator->Valid());
+    assert(top.iterator->status().ok());
+
     heap.pop();
-    if (!heap.empty()) {
+
+    while (!heap.empty()) {
       auto current = heap.top();
       assert(current.iterator);
-      while (current.iterator->Valid() &&
-             comparator_->Compare(top.iterator->key(),
-                                  current.iterator->key()) == 0) {
+      assert(current.iterator->Valid());
+      assert(current.iterator->status().ok());
+
+      if (comparator_->Compare(current.iterator->key(), top.iterator->key()) !=
+          0) {
+        break;
+      }
+
+      advance_func(current.iterator);
+
+      if (current.iterator->Valid()) {
         assert(current.iterator->status().ok());
-        advance_func(current.iterator);
-        if (current.iterator->Valid()) {
-          heap.replace_top(heap.top());
+        heap.replace_top(current);
+      } else {
+        considerStatus(current.iterator->status());
+        if (!status_.ok()) {
+          heap.clear();
+          return;
         } else {
-          considerStatus(current.iterator->status());
-          if (!status_.ok()) {
-            heap.clear();
-            return;
-          } else {
-            heap.pop();
-          }
-        }
-        if (!heap.empty()) {
-          current = heap.top();
+          heap.pop();
         }
       }
     }
+
     advance_func(top.iterator);
+
     if (top.iterator->Valid()) {
       assert(top.iterator->status().ok());
       heap.push(top);
@@ -242,13 +299,16 @@ class MultiCfIteratorImpl {
       }
     }
 
-    if (!heap.empty()) {
-      PopulateIterator(heap);
+    if (!allow_unprepared_value_ && !heap.empty()) {
+      [[maybe_unused]] const bool result = PopulateIterator(
+          heap,
+          [](auto& /* heap */, Iterator* /* iterator */) { return true; });
+      assert(result);
     }
   }
 
-  template <typename BinaryHeap>
-  void PopulateIterator(BinaryHeap& heap) {
+  template <typename BinaryHeap, typename PrepareValueFunc>
+  bool PopulateIterator(BinaryHeap& heap, PrepareValueFunc prepare_value_func) {
     // 1. Keep the top iterator (by popping it from the heap) and add it to list
     //    to populate
     // 2. For all non-top iterators having the same key as top iter popped
@@ -258,31 +318,48 @@ class MultiCfIteratorImpl {
     //    populate the value/columns and attribute_groups from the list
     //    collected in step 1 and 2 and add all the iters back to the heap
     assert(!heap.empty());
+
     auto top = heap.top();
-    heap.pop();
+    assert(top.iterator);
+    assert(top.iterator->Valid());
+    assert(top.iterator->status().ok());
+
+    if (!prepare_value_func(heap, top.iterator)) {
+      return false;
+    }
+
     autovector<MultiCfIteratorInfo> to_populate;
+
     to_populate.push_back(top);
-    if (!heap.empty()) {
+    heap.pop();
+
+    while (!heap.empty()) {
       auto current = heap.top();
       assert(current.iterator);
-      while (current.iterator->Valid() &&
-             comparator_->Compare(top.iterator->key(),
-                                  current.iterator->key()) == 0) {
-        assert(current.iterator->status().ok());
-        to_populate.push_back(current);
-        heap.pop();
-        if (!heap.empty()) {
-          current = heap.top();
-        } else {
-          break;
-        }
+      assert(current.iterator->Valid());
+      assert(current.iterator->status().ok());
+
+      if (comparator_->Compare(current.iterator->key(), top.iterator->key()) !=
+          0) {
+        break;
       }
+
+      if (!prepare_value_func(heap, current.iterator)) {
+        return false;
+      }
+
+      to_populate.push_back(current);
+      heap.pop();
     }
+
     // Add the items back to the heap
     for (auto& item : to_populate) {
       heap.push(item);
     }
+
     populate_func_(to_populate);
+
+    return true;
   }
 };
 

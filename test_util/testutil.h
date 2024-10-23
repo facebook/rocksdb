@@ -898,5 +898,13 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& /*arg*/);
 
 // Register the testutil classes with the default ObjectRegistry/Library
 void RegisterTestLibrary(const std::string& arg = "");
+
+struct ReadOptionsNoIo : public ReadOptions {
+  ReadOptionsNoIo() { read_tier = ReadTier::kBlockCacheTier; }
+};
+extern const ReadOptionsNoIo kReadOptionsNoIo;
+
+extern const std::string kUnitTestDbId;
+
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

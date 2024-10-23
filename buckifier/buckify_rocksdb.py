@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 try:
     from builtins import str
@@ -11,7 +10,7 @@ import json
 import os
 import sys
 
-from targets_builder import TARGETSBuilder
+from targets_builder import TARGETSBuilder, LiteralValue
 
 from util import ColorString
 
@@ -132,7 +131,7 @@ def generate_targets(repo_path, deps_map):
     if len(sys.argv) >= 2:
         # Heuristically quote and canonicalize whitespace for inclusion
         # in how the file was generated.
-        extra_argv = " '{0}'".format(" ".join(sys.argv[1].split()))
+        extra_argv = " '{}'".format(" ".join(sys.argv[1].split()))
 
     TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path, extra_argv)
 
@@ -150,6 +149,7 @@ def generate_targets(repo_path, deps_map):
             "//folly/experimental/coro:task",
             "//folly/synchronization:distributed_mutex",
         ],
+        headers=LiteralValue("glob([\"**/*.h\"])")
     )
     # rocksdb_whole_archive_lib
     TARGETS.add_library(
@@ -158,7 +158,6 @@ def generate_targets(repo_path, deps_map):
         deps=[
             ":rocksdb_lib",
         ],
-        headers=None,
         extra_external_deps="",
         link_whole=True,
     )
@@ -193,9 +192,17 @@ def generate_targets(repo_path, deps_map):
         + src_mk.get("STRESS_LIB_SOURCES", [])
         + ["test_util/testutil.cc"],
     )
+    # ldb binary
+    TARGETS.add_binary(
+        "ldb", ["tools/ldb.cc"], [":rocksdb_tools_lib"]
+    )
     # db_stress binary
     TARGETS.add_binary(
         "db_stress", ["db_stress_tool/db_stress.cc"], [":rocksdb_stress_lib"]
+    )
+    # db_bench binary
+    TARGETS.add_binary(
+        "db_bench", ["tools/db_bench.cc"], [":rocksdb_tools_lib"]
     )
     # cache_bench binary
     TARGETS.add_binary(
@@ -205,7 +212,7 @@ def generate_targets(repo_path, deps_map):
     for src in src_mk.get("MICROBENCH_SOURCES", []):
         name = src.rsplit("/", 1)[1].split(".")[0] if "/" in src else src.split(".")[0]
         TARGETS.add_binary(name, [src], [], extra_bench_libs=True)
-    print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
+    print(f"Extra dependencies:\n{json.dumps(deps_map)}")
 
     # Dictionary test executable name -> relative source file path
     test_source_map = {}

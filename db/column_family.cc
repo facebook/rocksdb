@@ -538,6 +538,7 @@ ColumnFamilyData::ColumnFamilyData(
       refs_(0),
       initialized_(false),
       dropped_(false),
+      flush_skip_reschedule_(false),
       internal_comparator_(cf_options.comparator),
       initial_cf_options_(SanitizeOptions(db_options, cf_options)),
       ioptions_(db_options, initial_cf_options_),
@@ -594,8 +595,8 @@ ColumnFamilyData::ColumnFamilyData(
     blob_file_cache_.reset(
         new BlobFileCache(_table_cache, ioptions(), soptions(), id_,
                           internal_stats_->GetBlobFileReadHist(), io_tracer));
-    blob_source_.reset(new BlobSource(ioptions(), db_id, db_session_id,
-                                      blob_file_cache_.get()));
+    blob_source_.reset(new BlobSource(ioptions_, mutable_cf_options_, db_id,
+                                      db_session_id, blob_file_cache_.get()));
 
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
@@ -900,7 +901,11 @@ uint64_t GetPendingCompactionBytesForCompactionSpeedup(
     return slowdown_threshold;
   }
 
-  uint64_t size_threshold = bottommost_files_size / kBottommostSizeDivisor;
+  // Prevent a small CF from triggering parallel compactions for other CFs.
+  // Require compaction debt to be more than a full L0 to Lbase compaction.
+  const uint64_t kMinDebtSize = 2 * mutable_cf_options.max_bytes_for_level_base;
+  uint64_t size_threshold =
+      std::max(bottommost_files_size / kBottommostSizeDivisor, kMinDebtSize);
   return std::min(size_threshold, slowdown_threshold);
 }
 
@@ -1200,8 +1205,10 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   read_opts.total_order_seek = true;
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
   merge_iter_builder.AddIterator(super_version->mem->NewIterator(
-      read_opts, /*seqno_to_time_mapping=*/nullptr, &arena));
+      read_opts, /*seqno_to_time_mapping=*/nullptr, &arena,
+      /*prefix_extractor=*/nullptr));
   super_version->imm->AddIterators(read_opts, /*seqno_to_time_mapping=*/nullptr,
+                                   /*prefix_extractor=*/nullptr,
                                    &merge_iter_builder,
                                    false /* add_range_tombstone_iter */);
   ScopedArenaPtr<InternalIterator> memtable_iter(merge_iter_builder.Finish());
@@ -1528,6 +1535,20 @@ Status ColumnFamilyData::ValidateOptions(
       }
     }
   }
+
+  if (cf_options.compaction_style == kCompactionStyleUniversal) {
+    int max_read_amp = cf_options.compaction_options_universal.max_read_amp;
+    if (max_read_amp < -1) {
+      return Status::NotSupported(
+          "CompactionOptionsUniversal::max_read_amp should be at least -1.");
+    } else if (0 < max_read_amp &&
+               max_read_amp < cf_options.level0_file_num_compaction_trigger) {
+      return Status::NotSupported(
+          "CompactionOptionsUniversal::max_read_amp limits the number of sorted"
+          " runs but is smaller than the compaction trigger "
+          "level0_file_num_compaction_trigger.");
+    }
+  }
   return s;
 }
 
@@ -1548,28 +1569,6 @@ Status ColumnFamilyData::SetOptions(
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
   }
   return s;
-}
-
-// REQUIRES: DB mutex held
-Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {
-  if (initial_cf_options_.compaction_style != kCompactionStyleLevel) {
-    return Env::WLTH_NOT_SET;
-  }
-  if (level == 0) {
-    return Env::WLTH_MEDIUM;
-  }
-  int base_level = current_->storage_info()->base_level();
-
-  // L1: medium, L2: long, ...
-  if (level - base_level >= 2) {
-    return Env::WLTH_EXTREME;
-  } else if (level < base_level) {
-    // There is no restriction which prevents level passed in to be smaller
-    // than base_level.
-    return Env::WLTH_MEDIUM;
-  }
-  return static_cast<Env::WriteLifeTimeHint>(
-      level - base_level + static_cast<int>(Env::WLTH_MEDIUM));
 }
 
 Status ColumnFamilyData::AddDirectories(
@@ -1607,6 +1606,19 @@ FSDirectory* ColumnFamilyData::GetDataDir(size_t path_id) const {
   return data_dirs_[path_id].get();
 }
 
+void ColumnFamilyData::SetFlushSkipReschedule() {
+  const Comparator* ucmp = user_comparator();
+  const size_t ts_sz = ucmp->timestamp_size();
+  if (ts_sz == 0 || ioptions_.persist_user_defined_timestamps) {
+    return;
+  }
+  flush_skip_reschedule_.store(true);
+}
+
+bool ColumnFamilyData::GetAndClearFlushSkipReschedule() {
+  return flush_skip_reschedule_.exchange(false);
+}
+
 bool ColumnFamilyData::ShouldPostponeFlushToRetainUDT(
     uint64_t max_memtable_id) {
   const Comparator* ucmp = user_comparator();
@@ -1624,6 +1636,9 @@ bool ColumnFamilyData::ShouldPostponeFlushToRetainUDT(
   }
   for (const Slice& table_newest_udt :
        imm()->GetTablesNewestUDT(max_memtable_id)) {
+    if (table_newest_udt.empty()) {
+      continue;
+    }
     assert(table_newest_udt.size() == full_history_ts_low.size());
     // Checking the newest UDT contained in MemTable with ascending ID up to
     // `max_memtable_id`. Return immediately on finding the first MemTable that

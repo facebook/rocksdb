@@ -6146,7 +6146,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
 
   std::vector<std::string> pending_compaction_cfs;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "SchedulePendingCompaction::cfd", [&](void* arg) {
+      "EnqueuePendingCompaction::cfd", [&](void* arg) {
         const std::string& cf_name =
             static_cast<ColumnFamilyData*>(arg)->GetName();
         pending_compaction_cfs.emplace_back(cf_name);
@@ -9357,12 +9357,13 @@ TEST_F(DBCompactionTest, FIFOChangeTemperature) {
     ASSERT_OK(Flush());
 
     ASSERT_OK(Put(Key(0), "value1"));
-    env_->MockSleepForSeconds(800);
     ASSERT_OK(Put(Key(2), "value2"));
     ASSERT_OK(Flush());
 
+    // First two L0 files both become eligible for temperature change compaction
+    // They should be compacted one-by-one.
     ASSERT_OK(Put(Key(0), "value1"));
-    env_->MockSleepForSeconds(800);
+    env_->MockSleepForSeconds(1200);
     ASSERT_OK(Put(Key(2), "value2"));
     ASSERT_OK(Flush());
     ASSERT_OK(dbfull()->TEST_WaitForCompact());

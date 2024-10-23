@@ -28,6 +28,7 @@
 #include "rocksdb/thread_status.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
+#include "rocksdb/user_write_callback.h"
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
@@ -582,6 +583,15 @@ class DB {
   // Returns OK on success, non-OK on failure.
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
+
+  // Same as DB::Write, and takes a `UserWriteCallback` argument to allow
+  // users to plug in custom logic in callback functions during the write.
+  virtual Status WriteWithCallback(const WriteOptions& /*options*/,
+                                   WriteBatch* /*updates*/,
+                                   UserWriteCallback* /*user_write_cb*/) {
+    return Status::NotSupported(
+        "WriteWithCallback not implemented for this interface.");
+  }
 
   // If the column family specified by "column_family" contains an entry for
   // "key", return the corresponding value in "*value". If the entry is a plain
@@ -1324,9 +1334,10 @@ class DB {
 
   // DB implementations export properties about their state via this method.
   // If "property" is a valid "string" property understood by this DB
-  // implementation (see Properties struct above for valid options), fills
-  // "*value" with its current value and returns true.  Otherwise, returns
-  // false.
+  // implementation (see Properties struct above for valid options) and the DB
+  // is able to get and fill "*value" with its current value, then return true.
+  // In all the other cases (e.g, "property" is an invalid "string" property, IO
+  // errors ..), it returns false.
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) = 0;
   virtual bool GetProperty(const Slice& property, std::string* value) {
@@ -1679,8 +1690,8 @@ class DB {
   // Freezes the logical state of the DB (by stopping writes), and if WAL is
   // enabled, ensures that state has been flushed to DB files (as in
   // FlushWAL()). This can be used for taking a Checkpoint at a known DB
-  // state, though the user must use options to insure no DB flush is invoked
-  // in this frozen state. Other operations allowed on a "read only" DB should
+  // state, though while the WAL is locked, flushes as part of CreateCheckpoint
+  // and simiar are skipped. Other operations allowed on a "read only" DB should
   // work while frozen. Each LockWAL() call that returns OK must eventually be
   // followed by a corresponding call to UnlockWAL(). Where supported, non-OK
   // status is generally only possible with some kind of corruption or I/O
@@ -1831,7 +1842,7 @@ class DB {
                               bool flush_memtable = true) = 0;
 
   // Retrieve the sorted list of all wal files with earliest file first
-  virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
+  virtual Status GetSortedWalFiles(VectorWalPtr& files) = 0;
 
   // Retrieve information about the current wal file
   //
@@ -1841,7 +1852,7 @@ class DB {
   // Additionally, for the sake of optimization current_log_file->StartSequence
   // would always be set to 0
   virtual Status GetCurrentWalFile(
-      std::unique_ptr<LogFile>* current_log_file) = 0;
+      std::unique_ptr<WalFile>* current_log_file) = 0;
 
   // IngestExternalFile() will load a list of external SST files (1) into the DB
   // Two primary modes are supported:

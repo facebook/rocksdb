@@ -56,7 +56,8 @@ class ErrorHandler {
   Status::Severity GetErrorSeverity(BackgroundErrorReason reason,
                                     Status::Code code, Status::SubCode subcode);
 
-  const Status& SetBGError(const Status& bg_err, BackgroundErrorReason reason);
+  void SetBGError(const Status& bg_err, BackgroundErrorReason reason,
+                  bool wal_related = false);
 
   Status GetBGError() const { return bg_error_; }
 
@@ -135,11 +136,10 @@ class ErrorHandler {
   // unsorted.
   autovector<uint64_t> files_to_quarantine_;
 
-  const Status& HandleKnownErrors(const Status& bg_err,
-                                  BackgroundErrorReason reason);
+  void HandleKnownErrors(const Status& bg_err, BackgroundErrorReason reason);
   Status OverrideNoSpaceError(const Status& bg_error, bool* auto_recovery);
   void RecoverFromNoSpace();
-  const Status& StartRecoverFromRetryableBGIOError(const IOStatus& io_error);
+  void StartRecoverFromRetryableBGIOError(const IOStatus& io_error);
   void RecoverFromRetryableBGIOError();
   // First, if it is in recovery and the recovery_error is ok. Set the
   // recovery_error_ to bg_err. Second, if the severity is higher than the

@@ -1689,7 +1689,7 @@ class JniUtil {
     } else if (env_rs == JNI_EDETACHED) {
       // current thread is not attached, attempt to attach
       const jint rs_attach =
-          jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), NULL);
+          jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr);
       if (rs_attach == JNI_OK) {
         *attached = JNI_TRUE;
         return env;
@@ -5269,6 +5269,10 @@ class TickerTypeJni {
         return -0x53;
       case ROCKSDB_NAMESPACE::Tickers::SST_FOOTER_CORRUPTION_COUNT:
         return -0x55;
+      case ROCKSDB_NAMESPACE::Tickers::FILE_READ_CORRUPTION_RETRY_COUNT:
+        return -0x56;
+      case ROCKSDB_NAMESPACE::Tickers::FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT:
+        return -0x57;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5726,6 +5730,11 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::PREFETCH_HITS;
       case -0x55:
         return ROCKSDB_NAMESPACE::Tickers::SST_FOOTER_CORRUPTION_COUNT;
+      case -0x56:
+        return ROCKSDB_NAMESPACE::Tickers::FILE_READ_CORRUPTION_RETRY_COUNT;
+      case -0x57:
+        return ROCKSDB_NAMESPACE::Tickers::
+            FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next

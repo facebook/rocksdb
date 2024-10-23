@@ -89,7 +89,6 @@ DECLARE_string(options_file);
 DECLARE_int64(active_width);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_bool(atomic_flush);
-DECLARE_int32(manual_wal_flush_one_in);
 DECLARE_int32(lock_wal_one_in);
 DECLARE_bool(test_cf_consistency);
 DECLARE_bool(test_multi_ops_txns);
@@ -126,7 +125,6 @@ DECLARE_int32(level0_stop_writes_trigger);
 DECLARE_int32(block_size);
 DECLARE_int32(format_version);
 DECLARE_int32(index_block_restart_interval);
-DECLARE_bool(disable_auto_compactions);
 DECLARE_int32(max_background_compactions);
 DECLARE_int32(num_bottom_pri_threads);
 DECLARE_int32(compaction_thread_pool_adjust_interval);
@@ -136,6 +134,7 @@ DECLARE_int32(universal_size_ratio);
 DECLARE_int32(universal_min_merge_width);
 DECLARE_int32(universal_max_merge_width);
 DECLARE_int32(universal_max_size_amplification_percent);
+DECLARE_int32(universal_max_read_amp);
 DECLARE_int32(clear_column_family_one_in);
 DECLARE_int32(get_live_files_apis_one_in);
 DECLARE_int32(get_all_column_family_metadata_one_in);
@@ -151,6 +150,7 @@ DECLARE_bool(charge_filter_construction);
 DECLARE_bool(charge_table_reader);
 DECLARE_bool(charge_file_metadata);
 DECLARE_bool(charge_blob_cache);
+DECLARE_bool(decouple_partitioned_filters);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
 DECLARE_int32(unpartitioned_pinning);
@@ -169,6 +169,9 @@ DECLARE_int32(bloom_before_level);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
 DECLARE_bool(detect_filter_construct_corruption);
+DECLARE_string(sqfc_name);
+DECLARE_uint32(sqfc_version);
+DECLARE_bool(use_sqfc_for_range_queries);
 DECLARE_int32(index_type);
 DECLARE_int32(data_block_index_type);
 DECLARE_string(db);
@@ -189,13 +192,11 @@ DECLARE_uint64(bytes_per_sync);
 DECLARE_uint64(wal_bytes_per_sync);
 DECLARE_int32(kill_random_test);
 DECLARE_string(kill_exclude_prefixes);
-DECLARE_bool(disable_wal);
 DECLARE_uint64(recycle_log_file_num);
 DECLARE_int64(target_file_size_base);
 DECLARE_int32(target_file_size_multiplier);
 DECLARE_uint64(max_bytes_for_level_base);
 DECLARE_double(max_bytes_for_level_multiplier);
-DECLARE_int32(range_deletion_width);
 DECLARE_uint64(rate_limiter_bytes_per_sec);
 DECLARE_bool(rate_limit_bg_reads);
 DECLARE_bool(rate_limit_user_ops);
@@ -254,10 +255,12 @@ DECLARE_int32(prefix_size);
 DECLARE_bool(use_merge);
 DECLARE_uint32(use_put_entity_one_in);
 DECLARE_bool(use_attribute_group);
+DECLARE_bool(use_multi_cf_iterator);
 DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);
 DECLARE_bool(write_dbid_to_manifest);
+DECLARE_bool(write_identity_file);
 DECLARE_bool(avoid_flush_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
@@ -272,6 +275,7 @@ DECLARE_bool(verification_only);
 DECLARE_string(last_level_temperature);
 DECLARE_string(default_write_temperature);
 DECLARE_string(default_temperature);
+DECLARE_bool(paranoid_memory_checks);
 
 // Options for transaction dbs.
 // Use TransactionDB (a.k.a. Pessimistic Transaction DB)
@@ -314,11 +318,8 @@ DECLARE_int32(blob_cache_numshardbits);
 DECLARE_int32(prepopulate_blob_cache);
 
 DECLARE_int32(approximate_size_one_in);
-DECLARE_bool(sync_fault_injection);
-
 DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
-DECLARE_bool(enable_compaction_filter);
 DECLARE_bool(paranoid_file_checks);
 DECLARE_bool(fail_if_options_file_error);
 DECLARE_uint64(batch_protection_bytes_per_key);
@@ -415,6 +416,7 @@ DECLARE_bool(enable_memtable_insert_with_hint_prefix_extractor);
 DECLARE_bool(check_multiget_consistency);
 DECLARE_bool(check_multiget_entity_consistency);
 DECLARE_bool(inplace_update_support);
+DECLARE_uint32(uncache_aggressiveness);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -761,6 +763,8 @@ WideColumns GenerateExpectedWideColumns(uint32_t value_base,
                                         const Slice& slice);
 bool VerifyWideColumns(const Slice& value, const WideColumns& columns);
 bool VerifyWideColumns(const WideColumns& columns);
+bool VerifyIteratorAttributeGroups(
+    const IteratorAttributeGroups& attribute_groups);
 
 AttributeGroups GenerateAttributeGroups(
     const std::vector<ColumnFamilyHandle*>& cfhs, uint32_t value_base,

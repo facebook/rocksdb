@@ -351,6 +351,24 @@ Status TransactionBaseImpl::GetForUpdate(const ReadOptions& read_options,
   return s;
 }
 
+Status TransactionBaseImpl::GetEntityForUpdate(
+    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const Slice& key, PinnableWideColumns* columns, bool exclusive,
+    bool do_validate) {
+  if (!do_validate && read_options.snapshot != nullptr) {
+    return Status::InvalidArgument(
+        "Snapshot must not be set if validation is disabled");
+  }
+
+  const Status s =
+      TryLock(column_family, key, true /* read_only */, exclusive, do_validate);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return GetEntityImpl(read_options, column_family, key, columns);
+}
+
 std::vector<Status> TransactionBaseImpl::MultiGet(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
@@ -814,11 +832,13 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
     }
 
     Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
-      return txn_->Put(db_->GetColumnFamilyHandle(cf), key, val);
+      Slice user_key = GetUserKey(cf, key);
+      return txn_->Put(db_->GetColumnFamilyHandle(cf), user_key, val);
     }
 
     Status PutEntityCF(uint32_t cf, const Slice& key,
                        const Slice& entity) override {
+      Slice user_key = GetUserKey(cf, key);
       Slice entity_copy = entity;
       WideColumns columns;
       const Status s =
@@ -827,19 +847,22 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
         return s;
       }
 
-      return txn_->PutEntity(db_->GetColumnFamilyHandle(cf), key, columns);
+      return txn_->PutEntity(db_->GetColumnFamilyHandle(cf), user_key, columns);
     }
 
     Status DeleteCF(uint32_t cf, const Slice& key) override {
-      return txn_->Delete(db_->GetColumnFamilyHandle(cf), key);
+      Slice user_key = GetUserKey(cf, key);
+      return txn_->Delete(db_->GetColumnFamilyHandle(cf), user_key);
     }
 
     Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
-      return txn_->SingleDelete(db_->GetColumnFamilyHandle(cf), key);
+      Slice user_key = GetUserKey(cf, key);
+      return txn_->SingleDelete(db_->GetColumnFamilyHandle(cf), user_key);
     }
 
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
-      return txn_->Merge(db_->GetColumnFamilyHandle(cf), key, val);
+      Slice user_key = GetUserKey(cf, key);
+      return txn_->Merge(db_->GetColumnFamilyHandle(cf), user_key, val);
     }
 
     // this is used for reconstructing prepared transactions upon
@@ -861,6 +884,21 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
 
     Status MarkRollback(const Slice&) override {
       return Status::InvalidArgument();
+    }
+    size_t GetTimestampSize(uint32_t cf_id) {
+      auto cfd = db_->versions_->GetColumnFamilySet()->GetColumnFamily(cf_id);
+      const Comparator* ucmp = cfd->user_comparator();
+      assert(ucmp);
+      return ucmp->timestamp_size();
+    }
+
+    Slice GetUserKey(uint32_t cf_id, const Slice& key) {
+      size_t ts_sz = GetTimestampSize(cf_id);
+      if (ts_sz == 0) {
+        return key;
+      }
+      assert(key.size() >= ts_sz);
+      return Slice(key.data(), key.size() - ts_sz);
     }
   };
 
