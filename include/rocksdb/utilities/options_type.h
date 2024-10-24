@@ -445,22 +445,23 @@ class OptionTypeInfo {
   static OptionTypeInfo StringMap(int _offset,
                                   OptionVerificationType _verification,
                                   OptionTypeFlags _flags,
-                                  char kvSeparater = '=',
-                                  char itemSeparator = ';') {
+                                  char kv_separater = '=',
+                                  char item_separater = ';') {
     OptionTypeInfo info(_offset, OptionType::kStringMap, _verification, _flags);
     info.SetParseFunc(
-        [kvSeparater, itemSeparator](const ConfigOptions&, const std::string&,
-                                     const std::string& value, void* addr) {
+        [kv_separater, item_separater](const ConfigOptions&, const std::string&,
+                                       const std::string& value, void* addr) {
           std::map<std::string, std::string> map;
           Status s;
           for (size_t start = 0, end = 0;
                s.ok() && start < value.size() && end != std::string::npos;
                start = end + 1) {
             std::string token;
-            s = OptionTypeInfo::NextToken(value, itemSeparator, start, &end,
+            s = OptionTypeInfo::NextToken(value, item_separater, start, &end,
                                           &token);
             if (s.ok() && !token.empty()) {
-              size_t pos = token.find(kvSeparater);
+              size_t pos = token.find(kv_separater);
+              assert(pos != std::string::npos);
               std::string k = token.substr(0, pos);
               std::string v = token.substr(pos + 1);
               std::string decoded_key;
@@ -476,16 +477,16 @@ class OptionTypeInfo {
           return s;
         });
     info.SetSerializeFunc(
-        [kvSeparater, itemSeparator](const ConfigOptions&, const std::string&,
-                                     const void* addr, std::string* value) {
+        [kv_separater, item_separater](const ConfigOptions&, const std::string&,
+                                       const void* addr, std::string* value) {
           const auto map =
               static_cast<const std::map<std::string, std::string>*>(addr);
           value->append("{");
           for (const auto& entry : *map) {
             value->append(Slice(entry.first).ToString(true));
-            *value += kvSeparater;
+            *value += kv_separater;
             value->append(Slice(entry.second).ToString(true));
-            *value += itemSeparator;
+            *value += item_separater;
           }
           value->append("}");
           return Status::OK();
