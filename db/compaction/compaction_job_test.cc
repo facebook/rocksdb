@@ -1664,9 +1664,14 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   while (!rnd.OneIn(10)) {
     TableProperties tp;
     tp.user_collected_properties.emplace(
-        "TestKey1", rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+        "UCP_Key1", rnd.RandomString(rnd.Uniform(kStrMaxLen)));
     tp.user_collected_properties.emplace(
-        "TestKey2", rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+        "UCP_Key2", rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+    tp.readable_properties.emplace("RP_Key1",
+                                   rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+    tp.readable_properties.emplace("RP_K2y2",
+                                   rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+
     std::shared_ptr<const TableProperties> table_properties =
         std::make_shared<const TableProperties>(tp);
 

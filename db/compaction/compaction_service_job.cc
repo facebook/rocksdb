@@ -622,49 +622,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct TableProperties, seqno_to_time_mapping),
           OptionType::kEncodedString}},
         {"user_collected_properties",
-         {offsetof(struct TableProperties, user_collected_properties),
-          OptionType::kVector, OptionVerificationType::kByNameAllowNull,
-          OptionTypeFlags::kCompareNever,
-          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
-             const std::string& value, void* addr) {
-            UserCollectedProperties properties;
-            Status s;
-            for (size_t start = 0, end = 0;
-                 s.ok() && start < value.size() && end != std::string::npos;
-                 start = end + 1) {
-              std::string token;
-              s = OptionTypeInfo::NextToken(value, ';', start, &end, &token);
-              if (s.ok() && !token.empty()) {
-                std::vector<std::string> kvPair = StringSplit(token, '=');
-                assert(kvPair.size() == 2);
-                std::string decoded_key;
-                std::string decoded_value;
-                (Slice(kvPair[0])).DecodeHex(&decoded_key);
-                (Slice(kvPair[1])).DecodeHex(&decoded_value);
-                properties.emplace(std::move(decoded_key),
-                                   std::move(decoded_value));
-              }
-            }
-            if (s.ok()) {  // It worked
-              *(static_cast<UserCollectedProperties*>(addr)) = properties;
-            }
-            return s;
-          },
-          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
-             const void* addr, std::string* value) {
-            const auto properties =
-                static_cast<const UserCollectedProperties*>(addr);
-            value->append("{");
-            for (const auto& prop : *properties) {
-              value->append(Slice(prop.first).ToString(true));
-              value->append("=");
-              value->append(Slice(prop.second).ToString(true));
-              value->append(";");
-            }
-            value->append("}");
-            return Status::OK();
-          },
-          nullptr}},
+         OptionTypeInfo::StringMap(
+             offsetof(struct TableProperties, user_collected_properties),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
+        {"readable_properties",
+         OptionTypeInfo::StringMap(
+             offsetof(struct TableProperties, readable_properties),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>

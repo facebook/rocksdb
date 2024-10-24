@@ -21,6 +21,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 class OptionTypeInfo;
@@ -58,6 +59,7 @@ enum class OptionType {
   kEncodedString,
   kTemperature,
   kArray,
+  kStringMap,  // Map of <std::string, std::string>
   kUnknown,
 };
 
@@ -437,6 +439,61 @@ class OptionTypeInfo {
       const auto& vec1 = *(static_cast<const std::vector<T>*>(addr1));
       const auto& vec2 = *(static_cast<const std::vector<T>*>(addr2));
       return VectorsAreEqual<T>(opts, elem_info, name, vec1, vec2, mismatch);
+    });
+    return info;
+  }
+
+  static OptionTypeInfo StringMap(int _offset,
+                                  OptionVerificationType _verification,
+                                  OptionTypeFlags _flags,
+                                  char kvSeparater = '=',
+                                  char itemSeparator = ';') {
+    OptionTypeInfo info(_offset, OptionType::kStringMap, _verification, _flags);
+    info.SetParseFunc(
+        [kvSeparater, itemSeparator](const ConfigOptions&, const std::string&,
+                                     const std::string& value, void* addr) {
+          std::map<std::string, std::string> map;
+          Status s;
+          for (size_t start = 0, end = 0;
+               s.ok() && start < value.size() && end != std::string::npos;
+               start = end + 1) {
+            std::string token;
+            s = OptionTypeInfo::NextToken(value, itemSeparator, start, &end,
+                                          &token);
+            if (s.ok() && !token.empty()) {
+              std::vector<std::string> kvPair = StringSplit(token, kvSeparater);
+              assert(kvPair.size() == 2);
+              std::string decoded_key;
+              std::string decoded_value;
+              (Slice(kvPair[0])).DecodeHex(&decoded_key);
+              (Slice(kvPair[1])).DecodeHex(&decoded_value);
+              map.emplace(std::move(decoded_key), std::move(decoded_value));
+            }
+          }
+          if (s.ok()) {
+            *(static_cast<std::map<std::string, std::string>*>(addr)) = map;
+          }
+          return s;
+        });
+    info.SetSerializeFunc(
+        [kvSeparater, itemSeparator](const ConfigOptions&, const std::string&,
+                                     const void* addr, std::string* value) {
+          const auto map =
+              static_cast<const std::map<std::string, std::string>*>(addr);
+          value->append("{");
+          for (const auto& entry : *map) {
+            value->append(Slice(entry.first).ToString(true));
+            *value += kvSeparater;
+            value->append(Slice(entry.second).ToString(true));
+            *value += itemSeparator;
+          }
+          value->append("}");
+          return Status::OK();
+        });
+    info.SetEqualsFunc([](const ConfigOptions&, const std::string&,
+                          const void* addr1, const void* addr2, std::string*) {
+      return (*static_cast<const std::map<std::string, std::string>*>(addr1) ==
+              *static_cast<const std::map<std::string, std::string>*>(addr2));
     });
     return info;
   }
