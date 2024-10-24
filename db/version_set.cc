@@ -3386,8 +3386,7 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
   int64_t _current_time;
   auto status = ioptions.clock->GetCurrentTime(&_current_time);
   const uint64_t current_time = static_cast<uint64_t>(_current_time);
-  // We use oldest_ancestor_time of a file to be the estimate age of
-  // the file just older than it. This is the same logic used in
+  // This is the same logic used in
   // FIFOCompactionPicker::PickTemperatureChangeCompaction().
   if (status.ok() && current_time >= ages[0].age) {
     uint64_t create_time_threshold = current_time - ages[0].age;

@@ -115,6 +115,19 @@ class DBCompactionTest : public DBTestBase {
     }
 #endif /* NDEBUG */
   }
+
+  std::vector<FileMetaData*> GetLevelFileMetadatas(int level, int cf = 0) {
+    VersionSet* const versions = dbfull()->GetVersionSet();
+    assert(versions);
+    ColumnFamilyData* const cfd =
+        versions->GetColumnFamilySet()->GetColumnFamily(cf);
+    assert(cfd);
+    Version* const current = cfd->current();
+    assert(current);
+    VersionStorageInfo* const storage_info = current->storage_info();
+    assert(storage_info);
+    return storage_info->LevelFiles(level);
+  }
 };
 
 class DBCompactionTestWithParam
@@ -9366,6 +9379,7 @@ TEST_F(DBCompactionTest, FIFOChangeTemperature) {
     env_->MockSleepForSeconds(1200);
     ASSERT_OK(Put(Key(2), "value2"));
     ASSERT_OK(Flush());
+
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
     if (write_time_default) {
@@ -10623,6 +10637,43 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(DBCompactionTest, NewestKeyTimeRecorded) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.num_levels = 2;
+  DestroyAndReopen(options);
+  Random rnd(301);
+  env_->SetMockSleep();
+
+  // Flush two files, one of which is 60s newer
+  ASSERT_OK(Put(Key(1), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+  env_->MockSleepForSeconds(60);
+  ASSERT_OK(Put(Key(1), rnd.RandomString(20)));
+  ASSERT_OK(Flush());
+
+  // Check that we are populating newest_key_time on flush
+  std::vector<FileMetaData*> file_metadatas = GetLevelFileMetadatas(0);
+  ASSERT_EQ(file_metadatas.size(), 2);
+  uint64_t older_newest_key_time =
+      file_metadatas[1]->fd.table_reader->GetTableProperties()->newest_key_time;
+  uint64_t newer_newest_key_time =
+      file_metadatas[0]->fd.table_reader->GetTableProperties()->newest_key_time;
+  ASSERT_NE(older_newest_key_time, 0);
+  ASSERT_LT(older_newest_key_time, newer_newest_key_time);
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+
+  // After compaction, the newest_key_time of the output file should be the max
+  // of the input files
+  file_metadatas = GetLevelFileMetadatas(1);
+  ASSERT_EQ(file_metadatas.size(), 1);
+  ASSERT_EQ(
+      file_metadatas[0]->fd.table_reader->GetTableProperties()->newest_key_time,
+      newer_newest_key_time);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
