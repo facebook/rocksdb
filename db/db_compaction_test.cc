@@ -10638,6 +10638,8 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
 }
 
 TEST_F(DBCompactionTest, NewestKeyTimeRecorded) {
+  // Test case for task T168616501: "Record newest key time and use it for FIFO
+  // TTL and temperature change compaction"
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.num_levels = 2;
@@ -10662,12 +10664,12 @@ TEST_F(DBCompactionTest, NewestKeyTimeRecorded) {
   ASSERT_NE(older_newest_key_time, 0);
   ASSERT_LT(older_newest_key_time, newer_newest_key_time);
 
+  // After compaction, the newest_key_time of the output file should be the max
+  // of the input files
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
 
-  // After compaction, the newest_key_time of the output file should be the max
-  // of the input files
   file_metadatas = GetLevelFileMetadatas(1);
   ASSERT_EQ(file_metadatas.size(), 1);
   ASSERT_EQ(

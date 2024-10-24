@@ -13,6 +13,7 @@
 #include "db/compaction/compaction_picker_universal.h"
 #include "db/compaction/file_pri.h"
 #include "rocksdb/advanced_options.h"
+#include "table/mock_table.h"
 #include "table/unique_id_impl.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -25,47 +26,6 @@ class CountingLogger : public Logger {
   using Logger::Logv;
   void Logv(const char* /*format*/, va_list /*ap*/) override { log_count++; }
   size_t log_count;
-};
-
-class DummyTablePropertiesReader : public TableReader {
- public:
-  DummyTablePropertiesReader(uint64_t newest_key_time)
-      : newest_key_time_(newest_key_time) {}
-
-  InternalIterator* NewIterator(const ReadOptions&, const SliceTransform*,
-                                Arena*, bool, TableReaderCaller, size_t,
-                                bool) override {
-    return nullptr;
-  }
-
-  uint64_t ApproximateOffsetOf(const ReadOptions&, const Slice&,
-                               TableReaderCaller) override {
-    return 0;
-  }
-
-  uint64_t ApproximateSize(const ReadOptions&, const Slice&, const Slice&,
-                           TableReaderCaller) override {
-    return 0;
-  }
-
-  void SetupForCompaction() override {}
-
-  std::shared_ptr<const TableProperties> GetTableProperties() const override {
-    TableProperties* tp = new TableProperties();
-    tp->newest_key_time = newest_key_time_;
-
-    return std::shared_ptr<const TableProperties>(tp);
-  }
-
-  size_t ApproximateMemoryUsage() const override { return 0; }
-
-  Status Get(const ReadOptions&, const Slice&, GetContext*,
-             const SliceTransform*, bool) override {
-    return Status();
-  }
-
- private:
-  uint64_t newest_key_time_;
 };
 
 class CompactionPickerTestBase : public testing::Test {
@@ -202,7 +162,9 @@ class CompactionPickerTestBase : public testing::Test {
         true /* user_defined_timestamps_persisted */);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
-    f->fd.table_reader = new DummyTablePropertiesReader(newest_key_time);
+    TableProperties tp;
+    tp.newest_key_time = newest_key_time;
+    f->fd.table_reader = new mock::MockTableReader(mock::KVVector{}, tp);
 
     vstorage->AddFile(level, f);
     files_.emplace_back(f);
