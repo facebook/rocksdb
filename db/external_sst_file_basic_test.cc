@@ -1999,6 +1999,7 @@ TEST_F(ExternalSSTFileBasicTest,
     files.push_back(std::move(file3));
     std::string file4 = sst_files_dir_ + "file4.sst";
     ASSERT_OK(sst_file_writer.Open(file4));
+    ASSERT_OK(sst_file_writer.Put("h", "h1"));
     ASSERT_OK(sst_file_writer.Put("x", "x2"));
     ExternalSstFileInfo file4_info;
     ASSERT_OK(sst_file_writer.Finish(&file4_info));
@@ -2025,6 +2026,7 @@ TEST_F(ExternalSSTFileBasicTest,
 
   ASSERT_EQ(Get("a"), "a2");
   ASSERT_EQ(Get("b"), "b2");
+  ASSERT_EQ(Get("h"), "h1");
   ASSERT_EQ(Get("x"), "x2");
   ASSERT_EQ(Get("y"), "y");
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();

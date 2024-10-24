@@ -1994,7 +1994,9 @@ class NonBatchedOpsStressTest : public StressTest {
     // a continuous range of keys, the second one with a standalone range
     // deletion for all the keys. This is to exercise the standalone range
     // deletion file's compaction input optimization.
-    bool test_standalone_range_deletion = thread->rand.OneInOpt(50);
+    // TODO(yuzhangyu): make this an option.
+    bool test_standalone_range_deletion =
+        thread->rand.OneInOpt(10) && FLAGS_delrangepercent > 0;
     std::vector<std::string> external_files;
     const std::string sst_filename =
         FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
@@ -2161,7 +2163,9 @@ class NonBatchedOpsStressTest : public StressTest {
                          << ingest_options.verify_checksums_before_ingest
                          << ", verify_checksums_readahead_size: "
                          << ingest_options.verify_checksums_readahead_size
-                         << ", fill_cache: " << ingest_options.fill_cache;
+                         << ", fill_cache: " << ingest_options.fill_cache
+                         << ", test_standalone_range_deletion: "
+                         << test_standalone_range_deletion;
       s = db_->IngestExternalFile(column_families_[column_family],
                                   external_files, ingest_options);
     }

@@ -1412,7 +1412,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
 
     for (size_t loop = start_index + 1; loop < sorted_runs_.size(); loop++) {
       SortedRun* sr = &sorted_runs_[loop];
-      if (sr->being_compacted) {
+      if (sr->being_compacted || sr->level_has_marked_standalone_rangedel) {
         break;
       }
 
