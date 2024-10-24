@@ -637,7 +637,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
               if (s.ok() && !token.empty()) {
                 std::vector<std::string> kvPair = StringSplit(token, '=');
                 assert(kvPair.size() == 2);
-                properties.emplace(kvPair[0], kvPair[1]);
+                std::string decoded_key;
+                std::string decoded_value;
+                (Slice(kvPair[0])).DecodeHex(&decoded_key);
+                (Slice(kvPair[1])).DecodeHex(&decoded_value);
+                properties.emplace(std::move(decoded_key),
+                                   std::move(decoded_value));
               }
             }
             if (s.ok()) {  // It worked
@@ -651,9 +656,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 static_cast<const UserCollectedProperties*>(addr);
             value->append("{");
             for (const auto& prop : *properties) {
-              value->append(prop.first);
+              value->append(Slice(prop.first).ToString(true));
               value->append("=");
-              value->append(prop.second);
+              value->append(Slice(prop.second).ToString(true));
               value->append(";");
             }
             value->append("}");

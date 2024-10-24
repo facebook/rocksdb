@@ -1664,9 +1664,9 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   while (!rnd.OneIn(10)) {
     TableProperties tp;
     tp.user_collected_properties.emplace(
-        "TestKey1", std::to_string(rnd64.Uniform(UINT64_MAX)));
+        "TestKey1", rnd.RandomString(rnd.Uniform(kStrMaxLen)));
     tp.user_collected_properties.emplace(
-        "TestKey2", std::to_string(rnd64.Uniform(UINT64_MAX)));
+        "TestKey2", rnd.RandomString(rnd.Uniform(kStrMaxLen)));
     std::shared_ptr<const TableProperties> table_properties =
         std::make_shared<const TableProperties>(tp);
 
