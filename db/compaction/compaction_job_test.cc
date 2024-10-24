@@ -1719,6 +1719,12 @@ TEST_F(CompactionJobTest, ResultSerialization) {
                     .table_properties.user_collected_properties[prop.first],
                 prop.second);
     }
+    for (const auto& prop :
+         result.output_files[i].table_properties.readable_properties) {
+      ASSERT_EQ(deserialized1.output_files[i]
+                    .table_properties.readable_properties[prop.first],
+                prop.second);
+    }
   }
 
   // Test mismatch

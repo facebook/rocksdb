@@ -21,7 +21,6 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 class OptionTypeInfo;
@@ -461,12 +460,13 @@ class OptionTypeInfo {
             s = OptionTypeInfo::NextToken(value, itemSeparator, start, &end,
                                           &token);
             if (s.ok() && !token.empty()) {
-              std::vector<std::string> kvPair = StringSplit(token, kvSeparater);
-              assert(kvPair.size() == 2);
+              size_t pos = token.find(kvSeparater);
+              std::string k = token.substr(0, pos);
+              std::string v = token.substr(pos + 1);
               std::string decoded_key;
               std::string decoded_value;
-              (Slice(kvPair[0])).DecodeHex(&decoded_key);
-              (Slice(kvPair[1])).DecodeHex(&decoded_value);
+              (Slice(k)).DecodeHex(&decoded_key);
+              (Slice(v)).DecodeHex(&decoded_value);
               map.emplace(std::move(decoded_key), std::move(decoded_value));
             }
           }
