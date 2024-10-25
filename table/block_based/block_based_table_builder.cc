@@ -624,6 +624,7 @@ struct BlockBasedTableBuilder::Rep {
     props.db_id = tbo.db_id;
     props.db_session_id = tbo.db_session_id;
     props.db_host_id = ioptions.db_host_id;
+    props.format_version = table_options.format_version;
     if (!ReifyDbHostIdProperty(ioptions.env, &props.db_host_id).ok()) {
       ROCKS_LOG_INFO(ioptions.logger, "db_host_id property will not be set");
     }
