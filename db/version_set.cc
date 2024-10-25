@@ -3630,6 +3630,7 @@ void VersionStorageInfo::ComputeCompactionScore(
 void VersionStorageInfo::ComputeFilesMarkedForCompaction(int last_level) {
   files_marked_for_compaction_.clear();
   int last_qualify_level = 0;
+  standalone_range_tombstone_files_mark_threshold_ = kMaxSequenceNumber;
 
   // Do not include files from the last level with data
   // If table properties collector suggests a file on the last level,
@@ -3645,6 +3646,11 @@ void VersionStorageInfo::ComputeFilesMarkedForCompaction(int last_level) {
     for (auto* f : files_[level]) {
       if (!f->being_compacted && f->marked_for_compaction) {
         files_marked_for_compaction_.emplace_back(level, f);
+        if (f->FileIsStandAloneRangeTombstone()) {
+          standalone_range_tombstone_files_mark_threshold_ =
+              std::min(standalone_range_tombstone_files_mark_threshold_,
+                       f->fd.smallest_seqno);
+        }
       }
     }
   }
@@ -7084,10 +7090,12 @@ InternalIterator* VersionSet::MakeInputIterator(
                         std::unique_ptr<TruncatedRangeDelIterator>**>>
       range_tombstones;
   size_t num = 0;
+  [[maybe_unused]] size_t num_input_files = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
-    if (c->input_levels(which)->num_files != 0) {
+    const LevelFilesBrief* flevel = c->input_levels(which);
+    num_input_files += flevel->num_files;
+    if (flevel->num_files != 0) {
       if (c->level(which) == 0) {
-        const LevelFilesBrief* flevel = c->input_levels(which);
         for (size_t i = 0; i < flevel->num_files; i++) {
           const FileMetaData& fmd = *flevel->files[i].file_metadata;
           if (start.has_value() &&
@@ -7129,8 +7137,7 @@ InternalIterator* VersionSet::MakeInputIterator(
             nullptr;
         list[num++] = new LevelIterator(
             cfd->table_cache(), read_options, file_options_compactions,
-            cfd->internal_comparator(), c->input_levels(which),
-            *c->mutable_cf_options(),
+            cfd->internal_comparator(), flevel, *c->mutable_cf_options(),
             /*should_sample=*/false,
             /*no per level latency histogram=*/nullptr,
             TableReaderCaller::kCompaction, /*skip_filters=*/false,
@@ -7140,6 +7147,9 @@ InternalIterator* VersionSet::MakeInputIterator(
       }
     }
   }
+  TEST_SYNC_POINT_CALLBACK(
+      "VersionSet::MakeInputIterator:NewCompactionMergingIterator",
+      &num_input_files);
   assert(num <= space);
   InternalIterator* result = NewCompactionMergingIterator(
       &c->column_family_data()->internal_comparator(), list,

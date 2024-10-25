@@ -616,6 +616,10 @@ class VersionStorageInfo {
     return bottommost_files_mark_threshold_;
   }
 
+  SequenceNumber standalone_range_tombstone_files_mark_threshold() const {
+    return standalone_range_tombstone_files_mark_threshold_;
+  }
+
   // Returns whether any key in [`smallest_key`, `largest_key`] could appear in
   // an older L0 file than `last_l0_idx` or in a greater level than `last_level`
   //
@@ -627,6 +631,8 @@ class VersionStorageInfo {
                                      int last_level, int last_l0_idx);
 
   Env::WriteLifeTimeHint CalculateSSTWriteHint(int level) const;
+
+  const Comparator* user_comparator() const { return user_comparator_; }
 
  private:
   void ComputeCompensatedSizes();
@@ -731,6 +737,12 @@ class VersionStorageInfo {
   // became eligible for compaction. It's defined as the min of the max nonzero
   // seqnums of unmarked bottommost files.
   SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+
+  // The minimum sequence number among all the standalone range tombstone files
+  // that are marked for compaction. A standalone range tombstone file is one
+  // with just one range tombstone.
+  SequenceNumber standalone_range_tombstone_files_mark_threshold_ =
+      kMaxSequenceNumber;
 
   // Monotonically increases as we release old snapshots. Zero indicates no
   // snapshots have been released yet. When no snapshots remain we set it to the

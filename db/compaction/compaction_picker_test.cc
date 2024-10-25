@@ -232,8 +232,9 @@ TEST_F(CompactionPickerTest, Empty) {
   NewVersionStorage(6, kCompactionStyleLevel);
   UpdateVersionStorageInfo();
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() == nullptr);
 }
 
@@ -244,8 +245,9 @@ TEST_F(CompactionPickerTest, Single) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() == nullptr);
 }
 
@@ -258,8 +260,9 @@ TEST_F(CompactionPickerTest, Level0Trigger) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
@@ -272,8 +275,9 @@ TEST_F(CompactionPickerTest, Level1Trigger) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(66U, compaction->input(0, 0)->fd.GetNumber());
@@ -291,8 +295,9 @@ TEST_F(CompactionPickerTest, Level1Trigger2) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(2U, compaction->num_input_files(1));
@@ -323,8 +328,9 @@ TEST_F(CompactionPickerTest, LevelMaxScore) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(7U, compaction->input(0, 0)->fd.GetNumber());
@@ -371,8 +377,9 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
@@ -396,8 +403,9 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic2) {
   ASSERT_EQ(vstorage_->base_level(), num_levels - 2);
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
@@ -422,8 +430,9 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic3) {
   ASSERT_EQ(vstorage_->base_level(), num_levels - 3);
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
@@ -452,8 +461,9 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic4) {
   ASSERT_EQ(vstorage_->base_level(), num_levels - 3);
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
@@ -485,8 +495,9 @@ TEST_F(CompactionPickerTest, LevelTriggerDynamic4) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(5U, compaction->input(0, 0)->fd.GetNumber());
@@ -540,8 +551,9 @@ TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   // output level should be the one above the bottom-most
   ASSERT_EQ(1, compaction->output_level());
@@ -583,8 +595,9 @@ TEST_F(CompactionPickerTest, CannotTrivialMoveUniversal) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   ASSERT_TRUE(!compaction->is_trivial_move());
 }
@@ -610,8 +623,9 @@ TEST_F(CompactionPickerTest, AllowsTrivialMoveUniversal) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   ASSERT_TRUE(compaction->is_trivial_move());
 }
@@ -639,8 +653,9 @@ TEST_F(CompactionPickerTest, UniversalPeriodicCompaction1) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   ASSERT_TRUE(compaction);
   ASSERT_EQ(4, compaction->output_level());
@@ -670,8 +685,9 @@ TEST_F(CompactionPickerTest, UniversalPeriodicCompaction2) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   ASSERT_FALSE(compaction);
 }
@@ -697,8 +713,9 @@ TEST_F(CompactionPickerTest, UniversalPeriodicCompaction3) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   ASSERT_FALSE(compaction);
 }
@@ -728,8 +745,9 @@ TEST_F(CompactionPickerTest, UniversalPeriodicCompaction4) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(!compaction ||
               compaction->start_level() != compaction->output_level());
 }
@@ -749,8 +767,9 @@ TEST_F(CompactionPickerTest, UniversalPeriodicCompaction5) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction);
   ASSERT_EQ(0, compaction->start_level());
   ASSERT_EQ(1U, compaction->num_input_files(0));
@@ -774,8 +793,9 @@ TEST_F(CompactionPickerTest, UniversalPeriodicCompaction6) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction);
   ASSERT_EQ(4, compaction->start_level());
   ASSERT_EQ(2U, compaction->num_input_files(0));
@@ -812,8 +832,9 @@ TEST_F(CompactionPickerTest, UniversalIncrementalSpace1) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction);
   ASSERT_EQ(4, compaction->output_level());
   ASSERT_EQ(3, compaction->start_level());
@@ -854,8 +875,9 @@ TEST_F(CompactionPickerTest, UniversalIncrementalSpace2) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction);
   ASSERT_EQ(4, compaction->output_level());
   ASSERT_EQ(2, compaction->start_level());
@@ -896,8 +918,9 @@ TEST_F(CompactionPickerTest, UniversalIncrementalSpace3) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction);
   ASSERT_EQ(4, compaction->output_level());
   ASSERT_EQ(2, compaction->start_level());
@@ -944,8 +967,9 @@ TEST_F(CompactionPickerTest, UniversalIncrementalSpace4) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction);
   ASSERT_EQ(4, compaction->output_level());
   ASSERT_EQ(3, compaction->start_level());
@@ -988,8 +1012,9 @@ TEST_F(CompactionPickerTest, UniversalIncrementalSpace5) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction);
   ASSERT_EQ(4, compaction->output_level());
   ASSERT_EQ(3, compaction->start_level());
@@ -1040,8 +1065,9 @@ TEST_F(CompactionPickerTest,
     ASSERT_TRUE(universal_compaction_picker.NeedsCompaction(vstorage_.get()));
     std::unique_ptr<Compaction> compaction(
         universal_compaction_picker.PickCompaction(
-            cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-            &log_buffer_));
+            cf_name_, mutable_cf_options_, mutable_db_options_,
+            /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+            vstorage_.get(), &log_buffer_));
     ASSERT_TRUE(compaction.get() != nullptr);
     ASSERT_EQ(compaction->compaction_reason(),
               CompactionReason::kUniversalSizeAmplification);
@@ -1109,8 +1135,9 @@ TEST_F(CompactionPickerTest, FIFOToCold1) {
 
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
   std::unique_ptr<Compaction> compaction(fifo_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(compaction->compaction_reason(),
             CompactionReason::kChangeTemperature);
@@ -1155,8 +1182,9 @@ TEST_F(CompactionPickerTest, FIFOToColdMaxCompactionSize) {
 
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
   std::unique_ptr<Compaction> compaction(fifo_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(compaction->compaction_reason(),
             CompactionReason::kChangeTemperature);
@@ -1201,8 +1229,9 @@ TEST_F(CompactionPickerTest, FIFOToColdWithExistingCold) {
 
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
   std::unique_ptr<Compaction> compaction(fifo_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(compaction->compaction_reason(),
             CompactionReason::kChangeTemperature);
@@ -1247,8 +1276,9 @@ TEST_F(CompactionPickerTest, FIFOToColdWithHotBetweenCold) {
 
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
   std::unique_ptr<Compaction> compaction(fifo_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(compaction->compaction_reason(),
             CompactionReason::kChangeTemperature);
@@ -1297,8 +1327,9 @@ TEST_F(CompactionPickerTest, FIFOToHotAndWarm) {
 
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), true);
   std::unique_ptr<Compaction> compaction(fifo_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(compaction->compaction_reason(),
             CompactionReason::kChangeTemperature);
@@ -1329,8 +1360,9 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping1) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   // Pick file 8 because it overlaps with 0 files on level 3.
@@ -1362,8 +1394,9 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping2) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   // Picking file 7 because overlapping ratio is the biggest.
@@ -1390,8 +1423,9 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping3) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   // Picking file 8 because overlapping ratio is the biggest.
@@ -1418,8 +1452,9 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping4) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   // Picking file 6 because overlapping ratio is the biggest.
@@ -1454,8 +1489,9 @@ TEST_F(CompactionPickerTest, CompactionPriRoundRobin) {
         LevelCompactionPicker(ioptions_, &icmp_);
     std::unique_ptr<Compaction> compaction(
         local_level_compaction_picker.PickCompaction(
-            cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-            &log_buffer_));
+            cf_name_, mutable_cf_options_, mutable_db_options_,
+            /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+            vstorage_.get(), &log_buffer_));
     ASSERT_TRUE(compaction.get() != nullptr);
     // Since the max bytes for level 2 is 120M, picking one file to compact
     // makes the post-compaction level size less than 120M, there is exactly one
@@ -1494,8 +1530,9 @@ TEST_F(CompactionPickerTest, CompactionPriMultipleFilesRoundRobin1) {
       LevelCompactionPicker(ioptions_, &icmp_);
   std::unique_ptr<Compaction> compaction(
       local_level_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
 
   // The maximum compaction bytes is very large in this case so we can igore its
@@ -1537,8 +1574,9 @@ TEST_F(CompactionPickerTest, CompactionPriMultipleFilesRoundRobin2) {
       LevelCompactionPicker(ioptions_, &icmp_);
   std::unique_ptr<Compaction> compaction(
       local_level_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
 
   // The maximum compaction bytes is only 2500 bytes now. Even though we are
@@ -1581,8 +1619,9 @@ TEST_F(CompactionPickerTest, CompactionPriMultipleFilesRoundRobin3) {
       LevelCompactionPicker(ioptions_, &icmp_);
   std::unique_ptr<Compaction> compaction(
       local_level_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
 
   // Cannot pick more files since we reach the last file in level 2
@@ -1640,8 +1679,9 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlappingManyFiles) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   // Picking file 8 because overlapping ratio is the biggest.
@@ -1668,8 +1708,9 @@ TEST_F(CompactionPickerTest, ParentIndexResetBug) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
 }
 
 // This test checks ExpandWhileOverlapping() by having overlapping user keys
@@ -1686,8 +1727,9 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_levels());
   ASSERT_EQ(2U, compaction->num_input_files(0));
@@ -1706,8 +1748,9 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys2) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(2U, compaction->num_input_files(0));
@@ -1734,8 +1777,9 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys3) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(5U, compaction->num_input_files(0));
@@ -1765,8 +1809,9 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys4) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(1U, compaction->num_input_files(0));
@@ -1789,8 +1834,9 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys5) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() == nullptr);
 }
 
@@ -1811,8 +1857,9 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys6) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(1U, compaction->num_input_files(0));
@@ -1832,8 +1879,9 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys7) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_GE(1U, compaction->num_input_files(0));
@@ -1861,8 +1909,9 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys8) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(3U, compaction->num_input_files(0));
@@ -1894,8 +1943,9 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys9) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(5U, compaction->num_input_files(0));
@@ -1935,8 +1985,9 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys10) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(1U, compaction->num_input_files(0));
@@ -1974,8 +2025,9 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys11) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(1U, compaction->num_input_files(0));
@@ -2081,8 +2133,9 @@ TEST_F(CompactionPickerTest, NotScheduleL1IfL0WithHigherPri1) {
   ASSERT_EQ(0, vstorage_->CompactionScoreLevel(0));
   ASSERT_EQ(1, vstorage_->CompactionScoreLevel(1));
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() == nullptr);
 }
 
@@ -2112,8 +2165,9 @@ TEST_F(CompactionPickerTest, NotScheduleL1IfL0WithHigherPri2) {
   ASSERT_EQ(0, vstorage_->CompactionScoreLevel(0));
   ASSERT_EQ(1, vstorage_->CompactionScoreLevel(1));
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
 }
 
@@ -2146,8 +2200,9 @@ TEST_F(CompactionPickerTest, NotScheduleL1IfL0WithHigherPri3) {
   ASSERT_EQ(1, vstorage_->CompactionScoreLevel(0));
   ASSERT_EQ(0, vstorage_->CompactionScoreLevel(1));
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
 }
 
@@ -2447,8 +2502,9 @@ TEST_F(CompactionPickerTest, CompactionLimitWhenAddFileFromInputLevel) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(4U, compaction->num_input_files(0));
@@ -2482,8 +2538,9 @@ TEST_F(CompactionPickerTest, HitCompactionLimitWhenAddFileFromInputLevel) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(1U, compaction->num_input_files(0));
@@ -2510,8 +2567,9 @@ TEST_F(CompactionPickerTest, IsTrivialMoveOn) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_TRUE(compaction->IsTrivialMove());
 }
@@ -2535,8 +2593,9 @@ TEST_F(CompactionPickerTest, L0TrivialMove1) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1, compaction->num_input_levels());
   ASSERT_EQ(2, compaction->num_input_files(0));
@@ -2564,8 +2623,9 @@ TEST_F(CompactionPickerTest, L0TrivialMoveOneFile) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1, compaction->num_input_levels());
   ASSERT_EQ(1, compaction->num_input_files(0));
@@ -2590,8 +2650,9 @@ TEST_F(CompactionPickerTest, L0TrivialMoveWholeL0) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1, compaction->num_input_levels());
   ASSERT_EQ(4, compaction->num_input_files(0));
@@ -2618,8 +2679,9 @@ TEST_F(CompactionPickerTest, NonL0TrivialMoveExtendBothDirection) {
   // File #2 should be picked first, and expand both directions to include
   // files #1 and #3.
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1, compaction->num_input_levels());
   ASSERT_EQ(3, compaction->num_input_files(0));
@@ -2648,8 +2710,9 @@ TEST_F(CompactionPickerTest, L0TrivialMoveToEmptyLevel) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1, compaction->num_input_levels());
   ASSERT_EQ(1, compaction->num_input_files(0));
@@ -2676,8 +2739,9 @@ TEST_F(CompactionPickerTest, IsTrivialMoveOffSstPartitioned) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   // No trivial move, because partitioning is applied
   ASSERT_TRUE(!compaction->IsTrivialMove());
@@ -2699,8 +2763,9 @@ TEST_F(CompactionPickerTest, IsTrivialMoveOff) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_FALSE(compaction->IsTrivialMove());
 }
@@ -2728,8 +2793,9 @@ TEST_F(CompactionPickerTest, TrivialMoveMultipleFiles1) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_TRUE(compaction->IsTrivialMove());
   ASSERT_EQ(1, compaction->num_input_levels());
@@ -2762,8 +2828,9 @@ TEST_F(CompactionPickerTest, TrivialMoveMultipleFiles2) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_TRUE(compaction->IsTrivialMove());
   ASSERT_EQ(1, compaction->num_input_levels());
@@ -2795,8 +2862,9 @@ TEST_F(CompactionPickerTest, TrivialMoveMultipleFiles3) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_TRUE(compaction->IsTrivialMove());
   ASSERT_EQ(1, compaction->num_input_levels());
@@ -2821,8 +2889,9 @@ TEST_F(CompactionPickerTest, TrivialMoveMultipleFiles4) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_TRUE(compaction->IsTrivialMove());
   ASSERT_EQ(1, compaction->num_input_levels());
@@ -2851,8 +2920,9 @@ TEST_F(CompactionPickerTest, TrivialMoveMultipleFiles5) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_TRUE(compaction->IsTrivialMove());
   ASSERT_EQ(1, compaction->num_input_levels());
@@ -2885,8 +2955,9 @@ TEST_F(CompactionPickerTest, TrivialMoveMultipleFiles6) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_TRUE(compaction->IsTrivialMove());
   ASSERT_EQ(1, compaction->num_input_levels());
@@ -2920,8 +2991,9 @@ TEST_F(CompactionPickerTest, CacheNextCompactionIndex) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(1U, compaction->num_input_files(0));
@@ -2930,8 +3002,9 @@ TEST_F(CompactionPickerTest, CacheNextCompactionIndex) {
   ASSERT_EQ(2, vstorage_->NextCompactionIndex(1 /* level */));
 
   compaction.reset(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(1U, compaction->num_input_files(0));
@@ -2940,8 +3013,9 @@ TEST_F(CompactionPickerTest, CacheNextCompactionIndex) {
   ASSERT_EQ(3, vstorage_->NextCompactionIndex(1 /* level */));
 
   compaction.reset(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() == nullptr);
   ASSERT_EQ(4, vstorage_->NextCompactionIndex(1 /* level */));
 }
@@ -2966,8 +3040,9 @@ TEST_F(CompactionPickerTest, IntraL0MaxCompactionBytesNotHit) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_levels());
   ASSERT_EQ(5U, compaction->num_input_files(0));
@@ -2997,8 +3072,9 @@ TEST_F(CompactionPickerTest, IntraL0MaxCompactionBytesHit) {
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_levels());
   ASSERT_EQ(4U, compaction->num_input_files(0));
@@ -3043,8 +3119,9 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   ASSERT_TRUE(compaction);
   // Validate that its a compaction to reduce sorted runs
@@ -3065,8 +3142,9 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap) {
 
   std::unique_ptr<Compaction> compaction2(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_FALSE(compaction2);
 }
 
@@ -3094,8 +3172,9 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap2) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   ASSERT_TRUE(compaction);
   // Validate that its a delete triggered compaction
@@ -3122,8 +3201,9 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap2) {
 
   std::unique_ptr<Compaction> compaction2(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_FALSE(compaction2);
 }
 
@@ -3163,8 +3243,9 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionStartOutputOverlap) {
 
     std::unique_ptr<Compaction> compaction(
         universal_compaction_picker.PickCompaction(
-            cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-            &log_buffer_));
+            cf_name_, mutable_cf_options_, mutable_db_options_,
+            /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+            vstorage_.get(), &log_buffer_));
 
     ASSERT_TRUE(compaction);
     // Validate that its a delete triggered compaction
@@ -3194,8 +3275,9 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionStartOutputOverlap) {
     random_index = 0;
     std::unique_ptr<Compaction> compaction2(
         universal_compaction_picker.PickCompaction(
-            cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-            &log_buffer_));
+            cf_name_, mutable_cf_options_, mutable_db_options_,
+            /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+            vstorage_.get(), &log_buffer_));
     ASSERT_FALSE(compaction2);
     DeleteVersionStorage();
   }
@@ -3220,8 +3302,9 @@ TEST_F(CompactionPickerTest, UniversalMarkedL0NoOverlap) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   ASSERT_TRUE(compaction);
   // Validate that its a delete triggered compaction
@@ -3257,8 +3340,9 @@ TEST_F(CompactionPickerTest, UniversalMarkedL0WithOverlap) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   ASSERT_TRUE(compaction);
   // Validate that its a delete triggered compaction
@@ -3310,8 +3394,9 @@ TEST_F(CompactionPickerTest, UniversalMarkedL0Overlap2) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   ASSERT_TRUE(compaction);
   // Validate that its a delete triggered compaction
@@ -3341,8 +3426,9 @@ TEST_F(CompactionPickerTest, UniversalMarkedL0Overlap2) {
 
   std::unique_ptr<Compaction> compaction2(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction2);
   ASSERT_EQ(3U, compaction->num_input_files(0));
   ASSERT_TRUE(file_map_[1].first->being_compacted);
@@ -3420,8 +3506,9 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNonLastLevel) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   // Make sure it's a size amp compaction and includes all files
   ASSERT_EQ(compaction->compaction_reason(),
@@ -3456,8 +3543,9 @@ TEST_F(CompactionPickerTest, UniversalSizeRatioTierCompactionLastLevel) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   // Internally, size amp compaction is evaluated before size ratio compaction.
   // Here to make sure it's size ratio compaction instead of size amp
@@ -3496,8 +3584,9 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNotSuport) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   // size amp compaction is still triggered even preclude_last_level is set
   ASSERT_EQ(compaction->compaction_reason(),
@@ -3530,8 +3619,9 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionLastLevel) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
 
   // It's a Size Amp compaction, but doesn't include the last level file and
   // output to the penultimate level.
@@ -3638,8 +3728,9 @@ TEST_F(CompactionPickerU64TsTest, CannotTrivialMoveUniversal) {
 
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.PickCompaction(
-          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          &log_buffer_));
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   assert(compaction);
   ASSERT_TRUE(!compaction->is_trivial_move());
 }
@@ -4169,8 +4260,9 @@ TEST_F(CompactionPickerTest,
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction);
   ASSERT_EQ(num_levels - 2, compaction->start_level());
   ASSERT_EQ(num_levels - 1, compaction->output_level());
@@ -4178,9 +4270,10 @@ TEST_F(CompactionPickerTest,
   ASSERT_EQ(5U, compaction->input(0, 0)->fd.GetNumber());
 
   std::unique_ptr<Compaction> second_compaction(
-      level_compaction_picker.PickCompaction(cf_name_, mutable_cf_options_,
-                                             mutable_db_options_,
-                                             vstorage_.get(), &log_buffer_));
+      level_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_,
+          /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+          vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(second_compaction);
   ASSERT_EQ(num_levels - 1, compaction->output_level());
   ASSERT_EQ(num_levels - 2, compaction->start_level());
@@ -4225,8 +4318,9 @@ TEST_F(CompactionPickerTest,
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
-      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-      &log_buffer_));
+      cf_name_, mutable_cf_options_, mutable_db_options_,
+      /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+      vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction);
   ASSERT_EQ(num_levels - 3, compaction->start_level());
   ASSERT_EQ(num_levels - 2, compaction->output_level());
@@ -4274,8 +4368,9 @@ TEST_F(CompactionPickerTest, IntraL0WhenL0IsSmall) {
 
     LevelCompactionPicker compaction_picker(ioptions_, &icmp_);
     std::unique_ptr<Compaction> compaction(compaction_picker.PickCompaction(
-        cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-        &log_buffer_));
+        cf_name_, mutable_cf_options_, mutable_db_options_,
+        /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+        vstorage_.get(), &log_buffer_));
     ASSERT_TRUE(compaction.get() != nullptr);
     ASSERT_EQ(CompactionReason::kLevelL0FilesNum,
               compaction->compaction_reason());
@@ -4351,6 +4446,7 @@ TEST_F(CompactionPickerTest, UniversalMaxReadAmpLargeDB) {
       std::unique_ptr<Compaction> compaction(
           universal_compaction_picker.PickCompaction(
               cf_name_, mutable_cf_options_, mutable_db_options_,
+              /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
               vstorage_.get(), &log_buffer_));
       if (i == kMaxRuns) {
         // There are in total i + 1 > kMaxRuns sorted runs.
@@ -4397,8 +4493,9 @@ TEST_F(CompactionPickerTest, UniversalMaxReadAmpSmallDB) {
     ASSERT_TRUE(universal_compaction_picker.NeedsCompaction(vstorage_.get()));
     std::unique_ptr<Compaction> compaction(
         universal_compaction_picker.PickCompaction(
-            cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-            &log_buffer_));
+            cf_name_, mutable_cf_options_, mutable_db_options_,
+            /*existing_snapshots=*/{}, /* snapshot_checker */ nullptr,
+            vstorage_.get(), &log_buffer_));
     ASSERT_EQ(nullptr, compaction);
   }
 }

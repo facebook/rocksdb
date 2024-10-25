@@ -118,7 +118,9 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       std::move(inputs), 0, 0, 0, 0, kNoCompression,
       mutable_cf_options.compression_opts,
       mutable_cf_options.default_write_temperature,
-      /* max_subcompactions */ 0, {}, /* is manual */ false,
+      /* max_subcompactions */ 0, {}, /* earliest_snapshot */ std::nullopt,
+      /* snapshot_checker */ nullptr,
+      /* is manual */ false,
       /* trim_ts */ "", vstorage->CompactionScore(0),
       /* is deletion compaction */ true, /* l0_files_might_overlap */ true,
       CompactionReason::kFIFOTtl);
@@ -188,7 +190,9 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
             0 /* output path ID */, mutable_cf_options.compression,
             mutable_cf_options.compression_opts,
             mutable_cf_options.default_write_temperature,
-            0 /* max_subcompactions */, {}, /* is manual */ false,
+            0 /* max_subcompactions */, {},
+            /* earliest_snapshot */ std::nullopt,
+            /* snapshot_checker */ nullptr, /* is manual */ false,
             /* trim_ts */ "", vstorage->CompactionScore(0),
             /* is deletion compaction */ false,
             /* l0_files_might_overlap */ true,
@@ -284,7 +288,9 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       /* output_path_id */ 0, kNoCompression,
       mutable_cf_options.compression_opts,
       mutable_cf_options.default_write_temperature,
-      /* max_subcompactions */ 0, {}, /* is manual */ false,
+      /* max_subcompactions */ 0, {}, /* earliest_snapshot */ std::nullopt,
+      /* snapshot_checker */ nullptr,
+      /* is manual */ false,
       /* trim_ts */ "", vstorage->CompactionScore(0),
       /* is deletion compaction */ true,
       /* l0_files_might_overlap */ true, CompactionReason::kFIFOMaxSize);
@@ -410,8 +416,9 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
       0 /* max compaction bytes, not applicable */, 0 /* output path ID */,
       mutable_cf_options.compression, mutable_cf_options.compression_opts,
       compaction_target_temp,
-      /* max_subcompactions */ 0, {}, /* is manual */ false, /* trim_ts */ "",
-      vstorage->CompactionScore(0),
+      /* max_subcompactions */ 0, {}, /* earliest_snapshot */ std::nullopt,
+      /* snapshot_checker */ nullptr,
+      /* is manual */ false, /* trim_ts */ "", vstorage->CompactionScore(0),
       /* is deletion compaction */ false, /* l0_files_might_overlap */ true,
       CompactionReason::kChangeTemperature);
   return c;
@@ -419,7 +426,9 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
 
 Compaction* FIFOCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+    const MutableDBOptions& mutable_db_options,
+    const std::vector<SequenceNumber>& /* existing_snapshots */,
+    const SnapshotChecker* /* snapshot_checker */, VersionStorageInfo* vstorage,
     LogBuffer* log_buffer) {
   Compaction* c = nullptr;
   if (mutable_cf_options.ttl > 0) {
@@ -454,8 +463,10 @@ Compaction* FIFOCompactionPicker::CompactRange(
   assert(output_level == 0);
   *compaction_end = nullptr;
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, ioptions_.logger);
-  Compaction* c = PickCompaction(cf_name, mutable_cf_options,
-                                 mutable_db_options, vstorage, &log_buffer);
+  Compaction* c =
+      PickCompaction(cf_name, mutable_cf_options, mutable_db_options,
+                     /*existing_snapshots*/ {}, /*snapshot_checker*/ nullptr,
+                     vstorage, &log_buffer);
   log_buffer.FlushBufferToLog();
   return c;
 }

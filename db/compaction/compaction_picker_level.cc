@@ -262,7 +262,10 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   parent_index_ = base_index_ = -1;
 
   compaction_picker_->PickFilesMarkedForCompaction(
-      cf_name_, vstorage_, &start_level_, &output_level_, &start_level_inputs_);
+      cf_name_, vstorage_, &start_level_, &output_level_, &start_level_inputs_,
+      /*skip_marked_file*/ [](const FileMetaData* /* file */) {
+        return false;
+      });
   if (!start_level_inputs_.empty()) {
     compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
     return;
@@ -554,7 +557,9 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
                          vstorage_->base_level()),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level_),
       mutable_cf_options_.default_write_temperature,
-      /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
+      /* max_subcompactions */ 0, std::move(grandparents_),
+      /* earliest_snapshot */ std::nullopt, /* snapshot_checker */ nullptr,
+      is_manual_,
       /* trim_ts */ "", start_level_score_, false /* deletion_compaction */,
       l0_files_might_overlap, compaction_reason_);
 
@@ -967,7 +972,9 @@ bool LevelCompactionBuilder::PickSizeBasedIntraL0Compaction() {
 
 Compaction* LevelCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+    const MutableDBOptions& mutable_db_options,
+    const std::vector<SequenceNumber>& /*existing_snapshots */,
+    const SnapshotChecker* /*snapshot_checker*/, VersionStorageInfo* vstorage,
     LogBuffer* log_buffer) {
   LevelCompactionBuilder builder(cf_name, vstorage, this, log_buffer,
                                  mutable_cf_options, ioptions_,

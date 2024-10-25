@@ -2003,10 +2003,12 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
   bool has_error = false;
   const ReadOptions read_options(Env::IOActivity::kCompaction);
   const auto& input_table_properties = compaction->GetInputTableProperties();
+  // TODO(yuzhangyu): add dedicated stats for filtered files.
   for (int input_level = 0;
        input_level < static_cast<int>(compaction->num_input_levels());
        ++input_level) {
-    size_t num_input_files = compaction->num_input_files(input_level);
+    const LevelFilesBrief* flevel = compaction->input_levels(input_level);
+    size_t num_input_files = flevel->num_files;
     uint64_t* bytes_read;
     if (compaction->level(input_level) != compaction->output_level()) {
       compaction_stats_.stats.num_input_files_in_non_output_levels +=
@@ -2018,7 +2020,7 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
       bytes_read = &compaction_stats_.stats.bytes_read_output_level;
     }
     for (size_t i = 0; i < num_input_files; ++i) {
-      const FileMetaData* file_meta = compaction->input(input_level, i);
+      const FileMetaData* file_meta = flevel->files[i].file_metadata;
       *bytes_read += file_meta->fd.GetFileSize();
       uint64_t file_input_entries = file_meta->num_entries;
       uint64_t file_num_range_del = file_meta->num_range_deletions;

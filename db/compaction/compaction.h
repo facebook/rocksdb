@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+
+#include "db/snapshot_checker.h"
 #include "db/version_set.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
@@ -90,6 +92,8 @@ class Compaction {
              CompressionOptions compression_opts,
              Temperature output_temperature, uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
+             std::optional<SequenceNumber> earliest_snapshot,
+             const SnapshotChecker* snapshot_checker,
              bool manual_compaction = false, const std::string& trim_ts = "",
              double score = -1, bool deletion_compaction = false,
              bool l0_files_might_overlap = true,
@@ -460,6 +464,13 @@ class Compaction {
   // `Compaction::WithinPenultimateLevelOutputRange()`.
   void PopulatePenultimateLevelOutputRange();
 
+  // If oldest snapshot is specified at Compaction construction time, we have
+  // an opportunity to optimize inputs for compaction iterator for this case:
+  // When a standalone range deletion file on the start level is recognized and
+  // can be determined to completely shadow some input files on non-start level.
+  // These files will be filtered out and later not feed to compaction iterator.
+  void FilterInputsForCompactionIterator();
+
   // Get the atomic file boundaries for all files in the compaction. Necessary
   // in order to avoid the scenario described in
   // https://github.com/facebook/rocksdb/pull/4432#discussion_r221072219 and
@@ -510,12 +521,27 @@ class Compaction {
   // Compaction input files organized by level. Constant after construction
   const std::vector<CompactionInputFiles> inputs_;
 
-  // A copy of inputs_, organized more closely in memory
+  // All files from inputs_ that are not filtered and will be fed to compaction
+  // iterator, organized more closely in memory.
   autovector<LevelFilesBrief, 2> input_levels_;
 
   // State used to check for number of overlapping grandparent files
   // (grandparent == "output_level_ + 1")
   std::vector<FileMetaData*> grandparents_;
+
+  // The earliest snapshot and snapshot checker at compaction picking time.
+  // These fields are only set for deletion triggered compactions picked in
+  // universal compaction. And when user-defined timestamp is not enabled.
+  // It will be used to possibly filter out some non start level input files.
+  std::optional<SequenceNumber> earliest_snapshot_;
+  const SnapshotChecker* snapshot_checker_;
+
+  // Markers for which non start level input files are filtered out if
+  // applicable. Only applicable if earliest_snapshot_ is provided and input
+  // start level has a standalone range deletion file.
+  std::vector<std::vector<bool>> non_start_level_input_files_filtered_;
+
+  //  bool standalone_range_tombstones_used_for_filtering_inputs_;
   const double score_;  // score that was used to pick this compaction.
 
   // Is this compaction creating a file in the bottom most level?

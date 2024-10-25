@@ -1862,8 +1862,9 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
         mutable_cf_options.compression_opts,
         mutable_cf_options.default_write_temperature,
         0 /* max_subcompactions, not applicable */,
-        {} /* grandparents, not applicable */, false /* is manual */,
-        "" /* trim_ts */, -1 /* score, not applicable */,
+        {} /* grandparents, not applicable */,
+        std::nullopt /* earliest_snapshot */, nullptr /* snapshot_checker */,
+        false /* is manual */, "" /* trim_ts */, -1 /* score, not applicable */,
         false /* is deletion compaction, not applicable */,
         false /* l0_files_might_overlap, not applicable */,
         CompactionReason::kRefitLevel));
@@ -3689,8 +3690,20 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       // compaction is not necessary. Need to make sure mutex is held
       // until we make a copy in the following code
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():BeforePickCompaction");
+      SnapshotChecker* snapshot_checker = nullptr;
+      std::vector<SequenceNumber> snapshot_seqs;
+      // This info is not useful for other scenarios, so save querying existing
+      // snapshots for those cases.
+      if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
+          cfd->user_comparator()->timestamp_size() == 0) {
+        SequenceNumber earliest_write_conflict_snapshot;
+        GetSnapshotContext(job_context, &snapshot_seqs,
+                           &earliest_write_conflict_snapshot,
+                           &snapshot_checker);
+        assert(is_snapshot_supported_ || snapshots_.empty());
+      }
       c.reset(cfd->PickCompaction(*mutable_cf_options, mutable_db_options_,
-                                  log_buffer));
+                                  snapshot_seqs, snapshot_checker, log_buffer));
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
 
       if (c != nullptr) {
@@ -4297,12 +4310,18 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   // newer snapshot created and released frequently, the compaction will be
   // triggered soon anyway.
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+  standalone_range_deletion_files_mark_threshold_ = kMaxSequenceNumber;
   for (auto* my_cfd : *versions_->GetColumnFamilySet()) {
     if (!my_cfd->ioptions()->allow_ingest_behind) {
       bottommost_files_mark_threshold_ = std::min(
           bottommost_files_mark_threshold_,
           my_cfd->current()->storage_info()->bottommost_files_mark_threshold());
     }
+    standalone_range_deletion_files_mark_threshold_ =
+        std::min(standalone_range_deletion_files_mark_threshold_,
+                 cfd->current()
+                     ->storage_info()
+                     ->standalone_range_tombstone_files_mark_threshold());
   }
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
