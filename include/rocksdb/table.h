@@ -934,7 +934,9 @@ class TableFactory : public Customizable {
       const TableBuilderOptions& table_builder_options,
       WritableFileWriter* file) const = 0;
 
-  // TODO: doc
+  // Clone this TableFactory with the same options, ideally a "shallow" clone
+  // in which shared_ptr members and hidden state are (safely) shared between
+  // this original and the returned clone.
   virtual std::unique_ptr<TableFactory> Clone() const = 0;
 
   // Return is delete range supported

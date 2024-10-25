@@ -1933,8 +1933,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
   }
 }
 
-// FIXME!
-TEST_F(DBBloomFilterTest, DISABLED_MutatingRibbonFilterPolicy) {
+TEST_F(DBBloomFilterTest, MutatingRibbonFilterPolicy) {
   // Test that RibbonFilterPolicy has a mutable bloom_before_level fields that
   // can be updated through SetOptions
 
@@ -1976,10 +1975,24 @@ TEST_F(DBBloomFilterTest, DISABLED_MutatingRibbonFilterPolicy) {
     if (configs.empty()) {
       break;
     }
+    std::string factory_field =
+        (v[0] & 1) ? "table_factory" : "block_based_table_factory";
 
+    // Some irrelevant SetOptions to be sure they don't interfere
+    ASSERT_OK(db_->SetOptions({{"level0_file_num_compaction_trigger", "10"}}));
     ASSERT_OK(
-        db_->SetOptions({{"table_factory.filter_policy.bloom_before_level",
+        db_->SetOptions({{"block_based_table_factory", "{block_size=1234}"}}));
+    ASSERT_OK(db_->SetOptions({{factory_field + ".block_size", "12345"}}));
+
+    // Test the mutable field we're interested in
+    ASSERT_OK(
+        db_->SetOptions({{factory_field + ".filter_policy.bloom_before_level",
                           configs.back().first}}));
+    // FilterPolicy pointer should not have changed
+    ASSERT_EQ(db_->GetOptions()
+                  .table_factory->GetOptions<BlockBasedTableOptions>()
+                  ->filter_policy.get(),
+              table_options.filter_policy.get());
 
     // Ensure original object is mutated
     std::string val;
@@ -1993,8 +2006,8 @@ TEST_F(DBBloomFilterTest, DISABLED_MutatingRibbonFilterPolicy) {
 }
 
 TEST_F(DBBloomFilterTest, MutableFilterPolicy) {
-  // Test that BlockBasedTableOptions::filter_policy is mutable with
-  // SetOptions.
+  // Test that BlockBasedTableOptions::filter_policy is mutable (replaceable)
+  // with SetOptions.
 
   Options options = CurrentOptions();
   options.statistics = CreateDBStatistics();

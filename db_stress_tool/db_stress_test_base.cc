@@ -274,6 +274,8 @@ bool StressTest::BuildOptionsTable() {
     return true;
   }
 
+  bool keepRibbonFilterPolicyOnly = FLAGS_bloom_before_level != INT_MAX;
+
   std::unordered_map<std::string, std::vector<std::string>> options_tbl = {
       {"write_buffer_size",
        {std::to_string(options_.write_buffer_size),
@@ -341,11 +343,11 @@ bool StressTest::BuildOptionsTable() {
       {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
       {"block_based_table_factory",
        {
-           "{filter_policy=bloomfilter:2.34}",
-           "{filter_policy=ribbonfilter:3.45}",
-           "{filter_policy=ribbonfilter:4.56:-1}",
-           "{filter_policy=ribbonfilter:6.67:3}",
-           "{filter_policy=nullptr}",
+           keepRibbonFilterPolicyOnly ? "{filter_policy=ribbonfilter:2.35}"
+                                      : "{filter_policy=bloomfilter:2.34}",
+           "{filter_policy=ribbonfilter:5.67:-1}",
+           keepRibbonFilterPolicyOnly ? "{filter_policy=ribbonfilter:8.9:3}"
+                                      : "{filter_policy=nullptr}",
            "{block_size=" + std::to_string(FLAGS_block_size) + "}",
            "{block_size=" +
                std::to_string(FLAGS_block_size + (FLAGS_seed & 0xFFFU)) + "}",
@@ -404,12 +406,11 @@ bool StressTest::BuildOptionsTable() {
                         std::vector<std::string>{"kDisable", "kFlushOnly"});
   }
 
-  if (FLAGS_bloom_before_level != INT_MAX) {
+  if (keepRibbonFilterPolicyOnly) {
     // Can modify RibbonFilterPolicy field
-    options_tbl.emplace(
-        "block_based_table_factory.filter_policy.bloom_before_level",
-        std::vector<std::string>{"-1", "0", "1", "2", "2147483646",
-                                 "2147483647"});
+    options_tbl.emplace("table_factory.filter_policy.bloom_before_level",
+                        std::vector<std::string>{"-1", "0", "1", "2",
+                                                 "2147483646", "2147483647"});
   }
 
   options_table_ = std::move(options_tbl);

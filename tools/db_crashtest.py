@@ -448,7 +448,7 @@ blackbox_default_params = {
     # since we will be killing anyway, use large value for ops_per_thread
     "ops_per_thread": 100000000,
     "reopen": 0,
-    "set_options_one_in": 100,
+    "set_options_one_in": 2000,
 }
 
 whitebox_default_params = {
@@ -486,7 +486,7 @@ simple_default_params = {
 
 blackbox_simple_default_params = {
     "open_files": -1,
-    "set_options_one_in": 100,
+    "set_options_one_in": 0,
 }
 
 whitebox_simple_default_params = {}

@@ -136,8 +136,32 @@ static Status TableFactoryParseFn(const ConfigOptions& opts,
                                   const std::string& name,
                                   const std::string& value, void* addr) {
   assert(addr);
-  // We might clone unnecessarily but that's ok (TODO: finish doc)
   auto table_factory = static_cast<std::shared_ptr<TableFactory>*>(addr);
+
+  // The general approach to mutating a table factory is to clone it, then
+  // mutate and save the clone. This avoids race conditions between SetOptions
+  // and consumers of table_factory/table options by leveraging
+  // MutableCFOptions infrastructure to track the table_factory pointer.
+
+  // However, in the atypical case of setting an option that is safely mutable
+  // under something pointed to by the table factory, we should avoid cloning.
+  // The simple way to detect that case is to try with "mutable_options_only"
+  // and see if it works. If it does, we are finished. If not, we proceed to
+  // cloning etc.
+  //
+  // The canonical example of what is handled here is
+  // table_factory.filter_policy.bloom_before_level for RibbonFilterPolicy.
+  if (table_factory->get() != nullptr && !EndsWith(name, "table_factory")) {
+    ConfigOptions opts_mutable_only{opts};
+    opts_mutable_only.mutable_options_only = true;
+    Status s =
+        table_factory->get()->ConfigureOption(opts_mutable_only, name, value);
+    if (s.ok()) {
+      return s;
+    }
+    s.PermitUncheckedError();
+  }
+
   std::shared_ptr<TableFactory> new_factory;
   Status s;
   if (name == "block_based_table_factory") {
@@ -187,6 +211,7 @@ static Status TableFactoryParseFn(const ConfigOptions& opts,
     return s;
   }
 
+  // Only keep the modified clone if everything went OK
   if (s.ok()) {
     *table_factory = std::move(new_factory);
   }
