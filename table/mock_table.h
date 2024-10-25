@@ -99,7 +99,8 @@ class MockTableReader : public TableReader {
     tp_.raw_key_size = 1;
     tp_.raw_value_size = 1;
   }
-  explicit MockTableReader(const mock::KVVector& table, TableProperties tp)
+  explicit MockTableReader(const mock::KVVector& table,
+                           const TableProperties& tp)
       : table_(table), tp_(tp) {}
 
   virtual InternalIterator* NewIterator(

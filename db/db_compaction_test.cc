@@ -9366,7 +9366,6 @@ TEST_F(DBCompactionTest, FIFOChangeTemperature) {
     env_->MockSleepForSeconds(1200);
     ASSERT_OK(Put(Key(2), "value2"));
     ASSERT_OK(Flush());
-
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
     if (write_time_default) {
@@ -10624,7 +10623,7 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(DBCompactionTest, NewestKeyTimeRecorded) {
+TEST_F(DBCompactionTest, RecordNewestKeyTime) {
   // Test case for task T168616501: "Record newest key time and use it for FIFO
   // TTL and temperature change compaction"
   Options options = CurrentOptions();
