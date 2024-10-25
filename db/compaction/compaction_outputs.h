@@ -108,6 +108,12 @@ class CompactionOutputs {
   Status Finish(const Status& intput_status,
                 const SeqnoToTimeMapping& seqno_to_time_mapping);
 
+  // Update output table properties from already populated TableProperties.
+  // Used for remote compaction
+  void UpdateTableProperties(const TableProperties& table_properties) {
+    current_output().table_properties =
+        std::make_shared<TableProperties>(table_properties);
+  }
   // Update output table properties from table builder
   void UpdateTableProperties() {
     current_output().table_properties =

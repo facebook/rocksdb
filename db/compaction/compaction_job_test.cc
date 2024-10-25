@@ -1662,6 +1662,19 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   std::string file_checksum = rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen));
   std::string file_checksum_func_name = "MyAwesomeChecksumGenerator";
   while (!rnd.OneIn(10)) {
+    TableProperties tp;
+    tp.user_collected_properties.emplace(
+        "UCP_Key1", rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+    tp.user_collected_properties.emplace(
+        "UCP_Key2", rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+    tp.readable_properties.emplace("RP_Key1",
+                                   rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+    tp.readable_properties.emplace("RP_K2y2",
+                                   rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+
+    std::shared_ptr<const TableProperties> table_properties =
+        std::make_shared<const TableProperties>(tp);
+
     UniqueId64x2 id{rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX)};
     result.output_files.emplace_back(
         rnd.RandomString(rnd.Uniform(kStrMaxLen)) /* file_name */,
@@ -1677,7 +1690,8 @@ TEST_F(CompactionJobTest, ResultSerialization) {
         file_checksum /* file_checksum */,
         file_checksum_func_name /* file_checksum_func_name */,
         rnd64.Uniform(UINT64_MAX) /* paranoid_hash */,
-        rnd.OneIn(2) /* marked_for_compaction */, id);
+        rnd.OneIn(2) /* marked_for_compaction */, id /* unique_id */,
+        table_properties);
   }
   result.output_level = rnd.Uniform(10);
   result.output_path = rnd.RandomString(rnd.Uniform(kStrMaxLen));
@@ -1697,6 +1711,21 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   CompactionServiceResult deserialized1;
   ASSERT_OK(CompactionServiceResult::Read(output, &deserialized1));
   ASSERT_TRUE(deserialized1.TEST_Equals(&result));
+
+  for (size_t i = 0; i < result.output_files.size(); i++) {
+    for (const auto& prop :
+         result.output_files[i].table_properties.user_collected_properties) {
+      ASSERT_EQ(deserialized1.output_files[i]
+                    .table_properties.user_collected_properties[prop.first],
+                prop.second);
+    }
+    for (const auto& prop :
+         result.output_files[i].table_properties.readable_properties) {
+      ASSERT_EQ(deserialized1.output_files[i]
+                    .table_properties.readable_properties[prop.first],
+                prop.second);
+    }
+  }
 
   // Test mismatch
   deserialized1.stats.num_input_files += 10;
