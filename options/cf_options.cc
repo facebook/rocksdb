@@ -132,6 +132,92 @@ static Status ParseCompressionOptions(const std::string& value,
   return Status::OK();
 }
 
+static Status TableFactoryParseFn(const ConfigOptions& opts,
+                                  const std::string& name,
+                                  const std::string& value, void* addr) {
+  assert(addr);
+  auto table_factory = static_cast<std::shared_ptr<TableFactory>*>(addr);
+
+  // The general approach to mutating a table factory is to clone it, then
+  // mutate and save the clone. This avoids race conditions between SetOptions
+  // and consumers of table_factory/table options by leveraging
+  // MutableCFOptions infrastructure to track the table_factory pointer.
+
+  // However, in the atypical case of setting an option that is safely mutable
+  // under something pointed to by the table factory, we should avoid cloning.
+  // The simple way to detect that case is to try with "mutable_options_only"
+  // and see if it works. If it does, we are finished. If not, we proceed to
+  // cloning etc.
+  //
+  // The canonical example of what is handled here is
+  // table_factory.filter_policy.bloom_before_level for RibbonFilterPolicy.
+  if (table_factory->get() != nullptr && !EndsWith(name, "table_factory")) {
+    ConfigOptions opts_mutable_only{opts};
+    opts_mutable_only.mutable_options_only = true;
+    Status s =
+        table_factory->get()->ConfigureOption(opts_mutable_only, name, value);
+    if (s.ok()) {
+      return s;
+    }
+    s.PermitUncheckedError();
+  }
+
+  std::shared_ptr<TableFactory> new_factory;
+  Status s;
+  if (name == "block_based_table_factory") {
+    if (table_factory->get() != nullptr) {
+      std::string factory_name = table_factory->get()->Name();
+      if (factory_name == TableFactory::kBlockBasedTableName()) {
+        new_factory = table_factory->get()->Clone();
+      } else {
+        s = Status::InvalidArgument("Cannot modify " + factory_name + " as " +
+                                    name);
+        return s;
+      }
+    } else {
+      new_factory.reset(NewBlockBasedTableFactory());
+    }
+    // Passing an object string to configure/instantiate a table factory
+    s = new_factory->ConfigureFromString(opts, value);
+  } else if (name == "plain_table_factory") {
+    if (table_factory->get() != nullptr) {
+      std::string factory_name = table_factory->get()->Name();
+      if (factory_name == TableFactory::kPlainTableName()) {
+        new_factory = table_factory->get()->Clone();
+      } else {
+        s = Status::InvalidArgument("Cannot modify " + factory_name + " as " +
+                                    name);
+        return s;
+      }
+    } else {
+      new_factory.reset(NewPlainTableFactory());
+    }
+    // Passing an object string to configure/instantiate a table factory
+    s = new_factory->ConfigureFromString(opts, value);
+  } else if (name == "table_factory" || name == OptionTypeInfo::kIdPropName()) {
+    // Related to OptionTypeInfo::AsCustomSharedPtr
+    if (value.empty()) {
+      new_factory = nullptr;
+    } else {
+      s = TableFactory::CreateFromString(opts, value, &new_factory);
+    }
+  } else if (table_factory->get() != nullptr) {
+    new_factory = table_factory->get()->Clone();
+    // Presumably passing a value for a specific field of the table factory
+    s = new_factory->ConfigureOption(opts, name, value);
+  } else {
+    s = Status::NotFound("Unable to instantiate a table factory from option: ",
+                         name);
+    return s;
+  }
+
+  // Only keep the modified clone if everything went OK
+  if (s.ok()) {
+    *table_factory = std::move(new_factory);
+  }
+  return s;
+}
+
 const std::string kOptNameBMCompOpts = "bottommost_compression_opts";
 const std::string kOptNameCompOpts = "compression_opts";
 
@@ -266,75 +352,25 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, disable_auto_compactions),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-        {"table_factory", OptionTypeInfo::AsCustomSharedPtr<TableFactory>(
-                              offsetof(struct MutableCFOptions, table_factory),
-                              OptionVerificationType::kByName,
-                              (OptionTypeFlags::kCompareLoose |
-                               OptionTypeFlags::kStringNameOnly |
-                               OptionTypeFlags::kDontPrepare))},
+        {"table_factory",
+         {offsetof(struct MutableCFOptions, table_factory),
+          OptionType::kCustomizable, OptionVerificationType::kByName,
+          OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
+              OptionTypeFlags::kStringNameOnly | OptionTypeFlags::kDontPrepare |
+              OptionTypeFlags::kMutable,
+          TableFactoryParseFn}},
         {"block_based_table_factory",
          {offsetof(struct MutableCFOptions, table_factory),
           OptionType::kCustomizable, OptionVerificationType::kAlias,
-          OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
-          // Parses the input value and creates a BlockBasedTableFactory
-          [](const ConfigOptions& opts, const std::string& name,
-             const std::string& value, void* addr) {
-            BlockBasedTableOptions* old_opts = nullptr;
-            auto table_factory =
-                static_cast<std::shared_ptr<TableFactory>*>(addr);
-            if (table_factory->get() != nullptr) {
-              old_opts =
-                  table_factory->get()->GetOptions<BlockBasedTableOptions>();
-            }
-            if (name == "block_based_table_factory") {
-              std::unique_ptr<TableFactory> new_factory;
-              if (old_opts != nullptr) {
-                new_factory.reset(NewBlockBasedTableFactory(*old_opts));
-              } else {
-                new_factory.reset(NewBlockBasedTableFactory());
-              }
-              Status s = new_factory->ConfigureFromString(opts, value);
-              if (s.ok()) {
-                table_factory->reset(new_factory.release());
-              }
-              return s;
-            } else if (old_opts != nullptr) {
-              return table_factory->get()->ConfigureOption(opts, name, value);
-            } else {
-              return Status::NotFound("Mismatched table option: ", name);
-            }
-          }}},
+          OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
+              OptionTypeFlags::kMutable,
+          TableFactoryParseFn}},
         {"plain_table_factory",
          {offsetof(struct MutableCFOptions, table_factory),
           OptionType::kCustomizable, OptionVerificationType::kAlias,
-          OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
-          // Parses the input value and creates a PlainTableFactory
-          [](const ConfigOptions& opts, const std::string& name,
-             const std::string& value, void* addr) {
-            PlainTableOptions* old_opts = nullptr;
-            auto table_factory =
-                static_cast<std::shared_ptr<TableFactory>*>(addr);
-            if (table_factory->get() != nullptr) {
-              old_opts = table_factory->get()->GetOptions<PlainTableOptions>();
-            }
-            if (name == "plain_table_factory") {
-              std::unique_ptr<TableFactory> new_factory;
-              if (old_opts != nullptr) {
-                new_factory.reset(NewPlainTableFactory(*old_opts));
-              } else {
-                new_factory.reset(NewPlainTableFactory());
-              }
-              Status s = new_factory->ConfigureFromString(opts, value);
-              if (s.ok()) {
-                table_factory->reset(new_factory.release());
-              }
-              return s;
-            } else if (old_opts != nullptr) {
-              return table_factory->get()->ConfigureOption(opts, name, value);
-            } else {
-              return Status::NotFound("Mismatched table option: ", name);
-            }
-          }}},
+          OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
+              OptionTypeFlags::kMutable,
+          TableFactoryParseFn}},
         {"filter_deletes",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},

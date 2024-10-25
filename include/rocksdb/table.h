@@ -128,7 +128,7 @@ struct CacheUsageOptions {
 // Configures how SST files using the block-based table format (standard)
 // are written and read.
 //
-// Except as specifically noted, all "simple" options here are "mutable" using
+// Except as specifically noted, all options here are "mutable" using
 // SetOptions(), with the caveat that only new table builders and new table
 // readers will pick up new options. This is nearly immediate effect for
 // SST building, but in the worst case, options affecting reads only take
@@ -142,9 +142,8 @@ struct CacheUsageOptions {
 //                  "{max_auto_readahead_size=0;block_size=8192;}"}}));
 // db->SetOptions({{"block_based_table_factory",
 //                  "{prepopulate_block_cache=kFlushOnly;}"}}));
-//
-// For now, "simple" options are only non-pointer options that are 64 bits or
-// less.
+// db->SetOptions({{"block_based_table_factory",
+//                  "{filter_policy=ribbonfilter:10;}"}});
 struct BlockBasedTableOptions {
   static const char* kName() { return "BlockTableOptions"; }
   // @flush_block_policy_factory creates the instances of flush block policy.
@@ -278,13 +277,17 @@ struct BlockBasedTableOptions {
   // Disable block cache. If this is set to true, then no block cache
   // will be configured (block_cache reset to nullptr).
   //
-  // This option cannot be used with SetOptions because it only affects
-  // the value of `block_cache` during initialization.
+  // This option should not be used with SetOptions.
   bool no_block_cache = false;
 
   // If non-nullptr and no_block_cache == false, use the specified cache for
   // blocks. If nullptr and no_block_cache == false, a 32MB internal cache
   // will be created and used.
+  //
+  // This option should not be used with SetOptions, because (a) the code
+  // to make it safe is incomplete, and (b) it is not clear when/if the
+  // old block cache would go away. For now, dynamic changes to block cache
+  // should be through the Cache object, e.g. Cache::SetCapacity().
   std::shared_ptr<Cache> block_cache = nullptr;
 
   // If non-NULL use the specified cache for pages read from device
@@ -933,6 +936,11 @@ class TableFactory : public Customizable {
   virtual TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       WritableFileWriter* file) const = 0;
+
+  // Clone this TableFactory with the same options, ideally a "shallow" clone
+  // in which shared_ptr members and hidden state are (safely) shared between
+  // this original and the returned clone.
+  virtual std::unique_ptr<TableFactory> Clone() const = 0;
 
   // Return is delete range supported
   virtual bool IsDeleteRangeSupported() const { return false; }

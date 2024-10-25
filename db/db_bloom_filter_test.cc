@@ -1975,10 +1975,24 @@ TEST_F(DBBloomFilterTest, MutatingRibbonFilterPolicy) {
     if (configs.empty()) {
       break;
     }
+    std::string factory_field =
+        (v[0] & 1) ? "table_factory" : "block_based_table_factory";
 
+    // Some irrelevant SetOptions to be sure they don't interfere
+    ASSERT_OK(db_->SetOptions({{"level0_file_num_compaction_trigger", "10"}}));
     ASSERT_OK(
-        db_->SetOptions({{"table_factory.filter_policy.bloom_before_level",
+        db_->SetOptions({{"block_based_table_factory", "{block_size=1234}"}}));
+    ASSERT_OK(db_->SetOptions({{factory_field + ".block_size", "12345"}}));
+
+    // Test the mutable field we're interested in
+    ASSERT_OK(
+        db_->SetOptions({{factory_field + ".filter_policy.bloom_before_level",
                           configs.back().first}}));
+    // FilterPolicy pointer should not have changed
+    ASSERT_EQ(db_->GetOptions()
+                  .table_factory->GetOptions<BlockBasedTableOptions>()
+                  ->filter_policy.get(),
+              table_options.filter_policy.get());
 
     // Ensure original object is mutated
     std::string val;
@@ -1986,6 +2000,59 @@ TEST_F(DBBloomFilterTest, MutatingRibbonFilterPolicy) {
         table_options.filter_policy->GetOption({}, "bloom_before_level", &val));
     ASSERT_EQ(configs.back().first, val);
 
+    expected_bpk = configs.back().second;
+    configs.pop_back();
+  }
+}
+
+TEST_F(DBBloomFilterTest, MutableFilterPolicy) {
+  // Test that BlockBasedTableOptions::filter_policy is mutable (replaceable)
+  // with SetOptions.
+
+  Options options = CurrentOptions();
+  options.statistics = CreateDBStatistics();
+  auto& stats = *options.statistics;
+  BlockBasedTableOptions table_options;
+  // First config, to make sure there's no issues with this shared ptr
+  // etc. when the DB switches filter policies.
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  double expected_bpk = 10.0;
+  // Other configs to try
+  std::vector<std::pair<std::string, double>> configs = {
+      {"ribbonfilter:10:-1", 7.0}, {"bloomfilter:5", 5.0}, {"nullptr", 0.0}};
+
+  table_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.level0_file_num_compaction_trigger =
+      static_cast<int>(configs.size()) + 2;
+
+  ASSERT_OK(TryReopen(options));
+
+  char v[] = "a";
+
+  for (;; ++(v[0])) {
+    const int maxKey = 8000;
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_OK(Put(Key(i), v));
+    }
+    ASSERT_OK(Flush());
+
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_EQ(Get(Key(i)), v);
+    }
+
+    uint64_t filter_bytes =
+        stats.getAndResetTickerCount(BLOCK_CACHE_FILTER_BYTES_INSERT);
+
+    EXPECT_NEAR(filter_bytes * 8.0 / maxKey, expected_bpk, 0.3);
+
+    if (configs.empty()) {
+      break;
+    }
+
+    ASSERT_OK(
+        db_->SetOptions({{"block_based_table_factory",
+                          "{filter_policy=" + configs.back().first + "}"}}));
     expected_bpk = configs.back().second;
     configs.pop_back();
   }
