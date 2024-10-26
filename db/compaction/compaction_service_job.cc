@@ -385,7 +385,7 @@ Status CompactionServiceCompactionJob::Run() {
         meta.file_creation_time, meta.epoch_number, meta.file_checksum,
         meta.file_checksum_func_name, output_file.validator.GetHash(),
         meta.marked_for_compaction, meta.unique_id,
-        output_file.table_properties);
+        *output_file.table_properties);
   }
 
   TEST_SYNC_POINT_CALLBACK("CompactionServiceCompactionJob::Run:0",
