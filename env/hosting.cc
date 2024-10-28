@@ -9,11 +9,15 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
 // Default implementation of hosting interface.
 class HostingImpl : public HostingInterface {
  public:
   void yield() override {}
 };
+
+} // namespace
 
 // Return hosting interface.
 HostingInterface* Hosting::get() {
@@ -29,6 +33,7 @@ void Hosting::set(std::shared_ptr<HostingInterface> hosting) {
   getPtr() = hosting;
 }
 
+// Return static shared pointer to hosting interface.
 std::shared_ptr<HostingInterface>& Hosting::getPtr() {
   static std::shared_ptr<HostingInterface> hosting{
       std::make_shared<HostingImpl>()};
