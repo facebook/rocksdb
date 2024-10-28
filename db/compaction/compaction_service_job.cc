@@ -551,12 +551,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
             *value = "{" + result + "}";
             return status;
           },
-          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
-             const void* addr1, const void* addr2,
-             std::string* /* mismatch */) {
+          [](const ConfigOptions& opts, const std::string& /*name*/,
+             const void* addr1, const void* addr2, std::string* mismatch) {
             const auto this_one = static_cast<const TableProperties*>(addr1);
             const auto that_one = static_cast<const TableProperties*>(addr2);
-            return this_one == that_one;
+            return this_one->AreEqual(opts, that_one, mismatch);
           }}}};
 
 static std::unordered_map<std::string, OptionTypeInfo>

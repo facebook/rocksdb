@@ -482,6 +482,12 @@ Status TableProperties::Parse(const ConfigOptions& opts,
   return OptionTypeInfo::ParseType(opts, serialized, table_properties_type_info,
                                    table_properties);
 }
+bool TableProperties::AreEqual(const ConfigOptions& opts,
+                               const TableProperties* other_table_properties,
+                               std::string* mismatch) const {
+  return OptionTypeInfo::TypesAreEqual(opts, table_properties_type_info, this,
+                                       other_table_properties, mismatch);
+}
 
 #ifndef NDEBUG
 // WARNING: TEST_SetRandomTableProperties assumes the following layout of

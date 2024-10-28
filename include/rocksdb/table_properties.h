@@ -376,6 +376,9 @@ struct TableProperties {
   Status Serialize(const ConfigOptions& opts, std::string* output) const;
   static Status Parse(const ConfigOptions& opts, const std::string& serialized,
                       TableProperties* table_properties);
+  bool AreEqual(const ConfigOptions& opts,
+                const TableProperties* other_table_properties,
+                std::string* mismatch) const;
 };
 
 // Extra properties
