@@ -9,9 +9,9 @@
 #include <utility>
 #include <vector>
 
-#include "env/hosting.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
+#include "rocksdb/hosting.h"
 #include "rocksdb/utilities/stackable_db.h"
 #include "rocksdb/utilities/transaction.h"
 

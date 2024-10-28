@@ -13,9 +13,9 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
-#include "env/hosting.h"
 #include "logging/logging.h"
 #include "rocksdb/db.h"
+#include "rocksdb/hosting.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
