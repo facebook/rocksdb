@@ -3399,20 +3399,16 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
             cur_file->fd.table_reader->GetTableProperties()) {
           uint64_t newest_key_time =
               cur_file->fd.table_reader->GetTableProperties()->newest_key_time;
-          if (newest_key_time == 0) {
-            if (index < 2) {
-              return false;
-            }
-            FileMetaData* prev_file = files[index - 2];
-            uint64_t oldest_ancestor_time =
-                prev_file->TryGetOldestAncesterTime();
-            if (oldest_ancestor_time == kUnknownOldestAncesterTime) {
-              return false;
-            }
-            if (oldest_ancestor_time > create_time_threshold) {
-              return false;
-            }
-          } else if (newest_key_time > create_time_threshold) {
+          uint64_t prev_oldest_ancestor_time =
+              index < 2 ? kUnknownOldestAncesterTime
+                        : files[index - 2]->TryGetOldestAncesterTime();
+          // Fall back to oldest ancestor time if newest key time is not
+          // available
+          uint64_t est_key_time = newest_key_time == kUnknownNewestKeyTime
+                                      ? prev_oldest_ancestor_time
+                                      : newest_key_time;
+          if (est_key_time == kUnknownNewestKeyTime ||
+              est_key_time > create_time_threshold) {
             return false;
           }
 

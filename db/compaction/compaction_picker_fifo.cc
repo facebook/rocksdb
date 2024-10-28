@@ -81,15 +81,14 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
         uint64_t newest_key_time =
             f->fd.table_reader->GetTableProperties()->newest_key_time;
-        if (newest_key_time == kUnknownNewestKeyTime) {
-          // Fall back to creation_time if newest_key_time is not available
-          uint64_t creation_time =
-              f->fd.table_reader->GetTableProperties()->creation_time;
-          if (creation_time == 0 ||
-              creation_time >= (current_time - mutable_cf_options.ttl)) {
-            break;
-          }
-        } else if (newest_key_time >= (current_time - mutable_cf_options.ttl)) {
+        // Fall back to creation_time if newest_key_time is not available
+        uint64_t creation_time =
+            f->fd.table_reader->GetTableProperties()->creation_time;
+        uint64_t est_key_time = newest_key_time == kUnknownNewestKeyTime
+                                    ? creation_time
+                                    : newest_key_time;
+        if (est_key_time == kUnknownNewestKeyTime ||
+            est_key_time >= (current_time - mutable_cf_options.ttl)) {
           break;
         }
       }
@@ -368,26 +367,15 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
         return nullptr;
       }
       uint64_t newest_key_time = cur_file->TryGetNewestKeyTime();
-
-      if (newest_key_time == kUnknownNewestKeyTime) {
-        // Fall back to oldest ancestor time if newest key time is not available
-        if (index < 2) {
-          break;
-        }
-        // prev_file is just younger than cur_file
-        FileMetaData* prev_file = level_files[index - 2];
-        uint64_t oldest_ancestor_time = prev_file->TryGetOldestAncesterTime();
-        if (oldest_ancestor_time == kUnknownOldestAncesterTime) {
-          // Older files might not have enough information. It is possible to
-          // handle these files by looking at newer files, but maintaining the
-          // logic isn't worth it.
-          break;
-        }
-        if (oldest_ancestor_time > create_time_threshold) {
-          // cur_file is too fresh
-          break;
-        }
-      } else if (newest_key_time > create_time_threshold) {
+      uint64_t prev_oldest_ancestor_time =
+          index < 2 ? kUnknownOldestAncesterTime
+                    : level_files[index - 2]->TryGetOldestAncesterTime();
+      // Fall back to oldest ancestor time if newest key time is not available
+      uint64_t est_newest_key_time = newest_key_time == kUnknownNewestKeyTime
+                                         ? prev_oldest_ancestor_time
+                                         : newest_key_time;
+      if (est_newest_key_time == kUnknownNewestKeyTime ||
+          est_newest_key_time > create_time_threshold) {
         break;
       }
 
