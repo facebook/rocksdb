@@ -360,20 +360,14 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
     for (size_t index = level_files.size(); index >= 1; --index) {
       // Try to add cur_file to compaction inputs.
       FileMetaData* cur_file = level_files[index - 1];
+      FileMetaData* prev_file = index < 2 ? nullptr : level_files[index - 2];
       if (cur_file->being_compacted) {
         // Should not happen since we check for
         // `level0_compactions_in_progress_` above. Here we simply just don't
         // schedule anything.
         return nullptr;
       }
-      uint64_t newest_key_time = cur_file->TryGetNewestKeyTime();
-      uint64_t prev_oldest_ancestor_time =
-          index < 2 ? kUnknownOldestAncesterTime
-                    : level_files[index - 2]->TryGetOldestAncesterTime();
-      // Fall back to oldest ancestor time if newest key time is not available
-      uint64_t est_newest_key_time = newest_key_time == kUnknownNewestKeyTime
-                                         ? prev_oldest_ancestor_time
-                                         : newest_key_time;
+      uint64_t est_newest_key_time = cur_file->TryGetNewestKeyTime(prev_file);
       if (est_newest_key_time == kUnknownNewestKeyTime ||
           est_newest_key_time > create_time_threshold) {
         break;
@@ -393,12 +387,12 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
       assert(compaction_target_temp == Temperature::kLastTemperature);
       compaction_target_temp = cur_target_temp;
       inputs[0].files.push_back(cur_file);
-      ROCKS_LOG_BUFFER(log_buffer,
-                       "[%s] FIFO compaction: picking file %" PRIu64
-                       " with newest key time %" PRIu64 " for temperature %s.",
-                       cf_name.c_str(), cur_file->fd.GetNumber(),
-                       newest_key_time,
-                       temperature_to_string[cur_target_temp].c_str());
+      ROCKS_LOG_BUFFER(
+          log_buffer,
+          "[%s] FIFO compaction: picking file %" PRIu64
+          " with estimated newest key time %" PRIu64 " for temperature %s.",
+          cf_name.c_str(), cur_file->fd.GetNumber(), est_newest_key_time,
+          temperature_to_string[cur_target_temp].c_str());
       break;
     }
   }

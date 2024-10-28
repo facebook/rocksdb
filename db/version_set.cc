@@ -3394,34 +3394,23 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
     assert(files.size() >= 1);
     for (size_t index = files.size(); index >= 1; --index) {
       FileMetaData* cur_file = files[index - 1];
+      FileMetaData* prev_file = index < 2 ? nullptr : files[index - 2];
       if (!cur_file->being_compacted) {
-        if (cur_file->fd.table_reader &&
-            cur_file->fd.table_reader->GetTableProperties()) {
-          uint64_t newest_key_time =
-              cur_file->fd.table_reader->GetTableProperties()->newest_key_time;
-          uint64_t prev_oldest_ancestor_time =
-              index < 2 ? kUnknownOldestAncesterTime
-                        : files[index - 2]->TryGetOldestAncesterTime();
-          // Fall back to oldest ancestor time if newest key time is not
-          // available
-          uint64_t est_key_time = newest_key_time == kUnknownNewestKeyTime
-                                      ? prev_oldest_ancestor_time
-                                      : newest_key_time;
-          if (est_key_time == kUnknownNewestKeyTime ||
-              est_key_time > create_time_threshold) {
-            return false;
-          }
+        uint64_t est_newest_key_time = cur_file->TryGetNewestKeyTime(prev_file);
+        if (est_newest_key_time == kUnknownNewestKeyTime ||
+            est_newest_key_time > create_time_threshold) {
+          return false;
+        }
 
-          target_temp = ages[0].temperature;
-          for (size_t i = 1; i < ages.size(); ++i) {
-            if (current_time >= ages[i].age &&
-                newest_key_time <= current_time - ages[i].age) {
-              target_temp = ages[i].temperature;
-            }
+        target_temp = ages[0].temperature;
+        for (size_t i = 1; i < ages.size(); ++i) {
+          if (current_time >= ages[i].age &&
+              est_newest_key_time <= current_time - ages[i].age) {
+            target_temp = ages[i].temperature;
           }
-          if (cur_file->temperature != target_temp) {
-            return true;
-          }
+        }
+        if (cur_file->temperature != target_temp) {
+          return true;
         }
       }
     }

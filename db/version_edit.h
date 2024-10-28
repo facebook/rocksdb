@@ -334,10 +334,23 @@ struct FileMetaData {
     return kUnknownFileCreationTime;
   }
 
-  uint64_t TryGetNewestKeyTime() {
+  // Tries to get the newest key time from the current file
+  // Falls back on oldest ancestor time of previous (newer) file
+  uint64_t TryGetNewestKeyTime(FileMetaData* prev_file = nullptr) {
     if (fd.table_reader != nullptr &&
         fd.table_reader->GetTableProperties() != nullptr) {
-      return fd.table_reader->GetTableProperties()->newest_key_time;
+      uint64_t newest_key_time =
+          fd.table_reader->GetTableProperties()->newest_key_time;
+      if (newest_key_time != kUnknownNewestKeyTime) {
+        return newest_key_time;
+      }
+    }
+    if (prev_file != nullptr) {
+      uint64_t prev_oldest_ancestor_time =
+          prev_file->TryGetOldestAncesterTime();
+      if (prev_oldest_ancestor_time != kUnknownOldestAncesterTime) {
+        return prev_oldest_ancestor_time;
+      }
     }
     return kUnknownNewestKeyTime;
   }
