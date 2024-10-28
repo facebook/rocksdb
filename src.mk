@@ -114,6 +114,7 @@ LIB_SOURCES =                                                   \
   env/fs_posix.cc                                               \
   env/fs_remap.cc                                               \
   env/file_system_tracer.cc                                     \
+  env/hosting.cc                                                \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
   env/unique_id_gen.cc                                          \

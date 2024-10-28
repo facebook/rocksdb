@@ -753,6 +753,7 @@ set(SOURCES
         env/file_system_tracer.cc
         env/fs_on_demand.cc
         env/fs_remap.cc
+        env/hosting.cc
         env/mock_env.cc
         env/unique_id_gen.cc
         file/delete_scheduler.cc

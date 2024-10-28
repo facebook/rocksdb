@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
+#include "env/hosting.h"
 #include "logging/logging.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -241,6 +242,11 @@ Status TransactionDB::Open(
     return Status::NotSupported(
         "WRITE_PREPARED is incompatible with unordered_writes if "
         "two_write_queues is not enabled.");
+  }
+
+  // Set hosting interface before opening db.
+  if (txn_db_options.hosting_interface) {
+    Hosting::set(txn_db_options.hosting_interface);
   }
 
   std::vector<ColumnFamilyDescriptor> column_families_copy = column_families;

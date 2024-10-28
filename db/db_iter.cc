@@ -19,6 +19,7 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
+#include "env/hosting.h"
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "memory/arena.h"
@@ -581,6 +582,9 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
     } else {
       iter_.Next();
     }
+
+    // This loop could be long so make sure to yield.
+    Hosting::get()->yield();
   } while (iter_.Valid());
 
   valid_ = false;
