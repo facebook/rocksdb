@@ -3401,7 +3401,6 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
             est_newest_key_time > create_time_threshold) {
           return false;
         }
-
         target_temp = ages[0].temperature;
         for (size_t i = 1; i < ages.size(); ++i) {
           if (current_time >= ages[i].age &&
