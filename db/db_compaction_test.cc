@@ -10647,7 +10647,7 @@ TEST_F(DBCompactionTest, RecordNewestKeyTime) {
       file_metadatas[1]->fd.table_reader->GetTableProperties()->newest_key_time;
   uint64_t newer_newest_key_time =
       file_metadatas[0]->fd.table_reader->GetTableProperties()->newest_key_time;
-  ASSERT_NE(older_newest_key_time, 0);
+  ASSERT_NE(older_newest_key_time, kUnknownNewestKeyTime);
   ASSERT_LT(older_newest_key_time, newer_newest_key_time);
 
   // After compaction, the newest_key_time of the output file should be the max

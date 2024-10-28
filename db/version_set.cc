@@ -3392,14 +3392,27 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
     uint64_t create_time_threshold = current_time - ages[0].age;
     Temperature target_temp;
     assert(files.size() >= 1);
-    for (size_t index = files.size() - 1; index != 0; --index) {
-      FileMetaData* cur_file = files[index];
+    for (size_t index = files.size(); index >= 1; --index) {
+      FileMetaData* cur_file = files[index - 1];
       if (!cur_file->being_compacted) {
         if (cur_file->fd.table_reader &&
             cur_file->fd.table_reader->GetTableProperties()) {
           uint64_t newest_key_time =
               cur_file->fd.table_reader->GetTableProperties()->newest_key_time;
-          if (newest_key_time == 0 || newest_key_time > create_time_threshold) {
+          if (newest_key_time == 0) {
+            if (index < 2) {
+              return false;
+            }
+            FileMetaData* prev_file = files[index - 2];
+            uint64_t oldest_ancestor_time =
+                prev_file->TryGetOldestAncesterTime();
+            if (oldest_ancestor_time == kUnknownOldestAncesterTime) {
+              return false;
+            }
+            if (oldest_ancestor_time > create_time_threshold) {
+              return false;
+            }
+          } else if (newest_key_time > create_time_threshold) {
             return false;
           }
 

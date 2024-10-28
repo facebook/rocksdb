@@ -358,9 +358,9 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
   if (current_time > min_age) {
     uint64_t create_time_threshold = current_time - min_age;
     assert(level_files.size() >= 1);
-    for (size_t index = level_files.size() - 1; index != 0; --index) {
+    for (size_t index = level_files.size(); index >= 1; --index) {
       // Try to add cur_file to compaction inputs.
-      FileMetaData* cur_file = level_files[index];
+      FileMetaData* cur_file = level_files[index - 1];
       if (cur_file->being_compacted) {
         // Should not happen since we check for
         // `level0_compactions_in_progress_` above. Here we simply just don't
@@ -371,11 +371,11 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
 
       if (newest_key_time == kUnknownNewestKeyTime) {
         // Fall back to oldest ancestor time if newest key time is not available
-        if (index == 0) {
+        if (index < 2) {
           break;
         }
         // prev_file is just younger than cur_file
-        FileMetaData* prev_file = level_files[index - 1];
+        FileMetaData* prev_file = level_files[index - 2];
         uint64_t oldest_ancestor_time = prev_file->TryGetOldestAncesterTime();
         if (oldest_ancestor_time == kUnknownOldestAncesterTime) {
           // Older files might not have enough information. It is possible to
