@@ -39,4 +39,9 @@ public class WriteBatchInternal {
       kTypeColumnFamilyValuePreferredSeqno, // WAL only
       kTypeMaxValid // Should be after the last valid type, only used for
     }
+
+    static final int kSequenceOffset = 0;
+    static final int kCountOffset = kSequenceOffset + Long.BYTES;
+
+    static final int kHeaderEnd = kCountOffset + Integer.BYTES;
 }

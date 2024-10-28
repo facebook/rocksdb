@@ -1852,7 +1852,11 @@ public class RocksDB extends RocksObject {
   /**
    * Apply the specified updates to the database.
    * We know that the <code>nativeHandle_</code> of <code>WriteBatchJavaNative</code>
-   * is a (C++) <code>WriteBatch</code>, so we can use the existing method as for (Java) <code>WriteBatch</code>.
+   * is a (C++) <code>WriteBatch</code>, so we can use the existing method as for (Java)
+   * <code>WriteBatch</code>. <p> But *first* we need to flush the current contents of the write
+   * batch, which exists only on the Java side, over to the Native C++ side.
+   *
+   * All this is done in the <code>write()</code> method of <code>WriteBatchJavaNative</code>
    *
    * @param writeOpts WriteOptions instance
    * @param updates WriteBatchJavaNative instance
@@ -1862,7 +1866,7 @@ public class RocksDB extends RocksObject {
    */
   public void write(final WriteOptions writeOpts, final WriteBatchJavaNative updates)
       throws RocksDBException {
-    write0(nativeHandle_, writeOpts.nativeHandle_, updates.nativeHandle_);
+    updates.write(this, writeOpts);
   }
 
   /**
