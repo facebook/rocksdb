@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "cache/cache_reservation_manager.h"
+#include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_meta.h"
 #include "db/dbformat.h"
 #include "db/internal_stats.h"
@@ -744,19 +745,18 @@ class VersionBuilder::Rep {
       return Status::Corruption("VersionBuilder", oss.str());
     }
 
-    // Note: we use C++11 for now but in C++14, this could be done in a more
-    // elegant way using generalized lambda capture.
-    VersionSet* const vs = version_set_;
-    const ImmutableCFOptions* const ioptions = ioptions_;
-
-    auto deleter = [vs, ioptions](SharedBlobFileMetaData* shared_meta) {
+    auto deleter = [vs = version_set_, ioptions = ioptions_,
+                    bc = cfd_ ? cfd_->blob_file_cache()
+                              : nullptr](SharedBlobFileMetaData* shared_meta) {
       if (vs) {
         assert(ioptions);
         assert(!ioptions->cf_paths.empty());
         assert(shared_meta);
+        assert(bc);
 
         vs->AddObsoleteBlobFile(shared_meta->GetBlobFileNumber(),
                                 ioptions->cf_paths.front().path);
+        bc->Evict(shared_meta->GetBlobFileNumber());
       }
 
       delete shared_meta;

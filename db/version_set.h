@@ -1526,7 +1526,6 @@ class VersionSet {
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
 
   void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
-    // TODO: Erase file from BlobFileCache?
     obsolete_blob_files_.emplace_back(blob_file_number, std::move(path));
   }
 
