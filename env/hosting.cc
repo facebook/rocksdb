@@ -17,7 +17,7 @@ class HostingImpl : public HostingInterface {
   void yield() override {}
 };
 
-} // namespace
+}  // namespace
 
 // Return hosting interface.
 HostingInterface* Hosting::get() {
