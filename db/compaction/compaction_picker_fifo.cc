@@ -81,8 +81,15 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
         uint64_t newest_key_time =
             f->fd.table_reader->GetTableProperties()->newest_key_time;
-        if (newest_key_time == 0 ||
-            newest_key_time >= (current_time - mutable_cf_options.ttl)) {
+        if (newest_key_time == kUnknownNewestKeyTime) {
+          // Fall back to creation_time if newest_key_time is not available
+          uint64_t creation_time =
+              f->fd.table_reader->GetTableProperties()->creation_time;
+          if (creation_time == 0 ||
+              creation_time >= (current_time - mutable_cf_options.ttl)) {
+            break;
+          }
+        } else if (newest_key_time >= (current_time - mutable_cf_options.ttl)) {
           break;
         }
       }
@@ -360,37 +367,52 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
         // schedule anything.
         return nullptr;
       }
-      if (cur_file->fd.table_reader &&
-          cur_file->fd.table_reader->GetTableProperties()) {
-        uint64_t newest_key_time =
-            cur_file->fd.table_reader->GetTableProperties()->newest_key_time;
-        if (newest_key_time == 0 || newest_key_time > create_time_threshold) {
+      uint64_t newest_key_time = cur_file->TryGetNewestKeyTime();
+
+      if (newest_key_time == kUnknownNewestKeyTime) {
+        // Fall back to oldest ancestor time if newest key time is not available
+        if (index == 0) {
           break;
         }
-
-        Temperature cur_target_temp = ages[0].temperature;
-        for (size_t i = 1; i < ages.size(); ++i) {
-          if (current_time >= ages[i].age &&
-              newest_key_time <= current_time - ages[i].age) {
-            cur_target_temp = ages[i].temperature;
-          }
+        // prev_file is just younger than cur_file
+        FileMetaData* prev_file = level_files[index - 1];
+        uint64_t oldest_ancestor_time = prev_file->TryGetOldestAncesterTime();
+        if (oldest_ancestor_time == kUnknownOldestAncesterTime) {
+          // Older files might not have enough information. It is possible to
+          // handle these files by looking at newer files, but maintaining the
+          // logic isn't worth it.
+          break;
         }
-        if (cur_file->temperature == cur_target_temp) {
-          continue;
+        if (oldest_ancestor_time > create_time_threshold) {
+          // cur_file is too fresh
+          break;
         }
-
-        // cur_file needs to change temperature
-        assert(compaction_target_temp == Temperature::kLastTemperature);
-        compaction_target_temp = cur_target_temp;
-        inputs[0].files.push_back(cur_file);
-        ROCKS_LOG_BUFFER(
-            log_buffer,
-            "[%s] FIFO compaction: picking file %" PRIu64
-            " with newest key time %" PRIu64 " for temperature %s.",
-            cf_name.c_str(), cur_file->fd.GetNumber(), newest_key_time,
-            temperature_to_string[cur_target_temp].c_str());
+      } else if (newest_key_time > create_time_threshold) {
         break;
       }
+
+      Temperature cur_target_temp = ages[0].temperature;
+      for (size_t i = 1; i < ages.size(); ++i) {
+        if (current_time >= ages[i].age &&
+            newest_key_time <= current_time - ages[i].age) {
+          cur_target_temp = ages[i].temperature;
+        }
+      }
+      if (cur_file->temperature == cur_target_temp) {
+        continue;
+      }
+
+      // cur_file needs to change temperature
+      assert(compaction_target_temp == Temperature::kLastTemperature);
+      compaction_target_temp = cur_target_temp;
+      inputs[0].files.push_back(cur_file);
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] FIFO compaction: picking file %" PRIu64
+                       " with newest key time %" PRIu64 " for temperature %s.",
+                       cf_name.c_str(), cur_file->fd.GetNumber(),
+                       newest_key_time,
+                       temperature_to_string[cur_target_temp].c_str());
+      break;
     }
   }
 

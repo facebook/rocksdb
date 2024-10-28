@@ -107,6 +107,7 @@ class VersionSet;
 
 constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
 constexpr uint64_t kUnknownOldestAncesterTime = 0;
+constexpr uint64_t kUnknownNewestKeyTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 constexpr uint64_t kUnknownEpochNumber = 0;
 // If `Options::allow_ingest_behind` is true, this epoch number
@@ -331,6 +332,14 @@ struct FileMetaData {
       return fd.table_reader->GetTableProperties()->file_creation_time;
     }
     return kUnknownFileCreationTime;
+  }
+
+  uint64_t TryGetNewestKeyTime() {
+    if (fd.table_reader != nullptr &&
+        fd.table_reader->GetTableProperties() != nullptr) {
+      return fd.table_reader->GetTableProperties()->newest_key_time;
+    }
+    return kUnknownNewestKeyTime;
   }
 
   // WARNING: manual update to this function is needed

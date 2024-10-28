@@ -937,7 +937,7 @@ bool Compaction::DoesInputReferenceBlobFiles() const {
 
 uint64_t Compaction::MaxInputFileNewestKeyTime(const InternalKey* start,
                                                const InternalKey* end) const {
-  uint64_t newest_key_time = 0;
+  uint64_t newest_key_time = kUnknownNewestKeyTime;
   const InternalKeyComparator& icmp =
       column_family_data()->internal_comparator();
   for (const auto& level_files : inputs_) {

@@ -115,8 +115,8 @@ class CompactionPickerTestBase : public testing::Test {
            SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
            size_t compensated_file_size = 0, bool marked_for_compact = false,
            Temperature temperature = Temperature::kUnknown,
-           uint64_t newest_key_time = 0, Slice ts_of_smallest = Slice(),
-           Slice ts_of_largest = Slice(),
+           uint64_t newest_key_time = kUnknownNewestKeyTime,
+           Slice ts_of_smallest = Slice(), Slice ts_of_largest = Slice(),
            uint64_t epoch_number = kUnknownEpochNumber) {
     assert(ts_of_smallest.size() == ucmp_->timestamp_size());
     assert(ts_of_largest.size() == ucmp_->timestamp_size());
