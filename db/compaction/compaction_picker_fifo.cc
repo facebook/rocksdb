@@ -378,11 +378,10 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
           est_newest_key_time > create_time_threshold) {
         break;
       }
-
       Temperature cur_target_temp = ages[0].temperature;
       for (size_t i = 1; i < ages.size(); ++i) {
         if (current_time >= ages[i].age &&
-            newest_key_time <= current_time - ages[i].age) {
+            est_newest_key_time <= current_time - ages[i].age) {
           cur_target_temp = ages[i].temperature;
         }
       }

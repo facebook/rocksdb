@@ -1124,6 +1124,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
 }
 
 TEST_F(CompactionPickerTest, FIFOToCold1) {
+  // Test fallback behavior from newest_key_time to oldest_ancestor_time
   for (auto newestKeyTimeKnown : {false, true}) {
     NewVersionStorage(1, kCompactionStyleFIFO);
     const uint64_t kFileSize = 100000;

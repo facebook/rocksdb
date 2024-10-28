@@ -948,12 +948,7 @@ uint64_t Compaction::MaxInputFileNewestKeyTime(const InternalKey* start,
       if (end != nullptr && icmp.Compare(file->smallest, *end) > 0) {
         continue;
       }
-      if (file->fd.table_reader != nullptr &&
-          file->fd.table_reader->GetTableProperties() != nullptr) {
-        newest_key_time = std::max(
-            newest_key_time,
-            file->fd.table_reader->GetTableProperties()->newest_key_time);
-      }
+      newest_key_time = std::max(newest_key_time, file->TryGetNewestKeyTime());
     }
   }
   return newest_key_time;
