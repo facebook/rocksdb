@@ -1,8 +1,12 @@
 package org.rocksdb;
 
+import org.rocksdb.util.Varint32;
+
 import java.io.Closeable;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Map;
+import java.util.HashMap;
 
 public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
   @Override
@@ -17,6 +21,20 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
       nativeWrapper = null;
     }
   }
+
+  static class CFIDCache {
+    private final Map<Long, Integer> idMap = new HashMap<>(4);
+
+    final int getCFID(final ColumnFamilyHandle columnFamilyHandle) {
+      long handle = columnFamilyHandle.getNativeHandle();
+      if (!idMap.containsKey(handle)) {
+        idMap.put(handle, columnFamilyHandle.getID());
+      }
+      return idMap.get(handle);
+    }
+  }
+
+  ThreadLocal<CFIDCache> cfidCacheThreadLocal;
 
   static class NativeWrapper extends RocksObject {
     protected NativeWrapper(long nativeHandle) {
@@ -60,23 +78,15 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
     return 0;
   }
 
-  private void alignBuffer() {
-    buffer.position(align(buffer.position()));
-  }
-
-  private int align(final int num) {
-    return (num + 3) & ~3;
-  }
 
   @Override
   public void put(byte[] key, byte[] value) throws RocksDBException {
-    int requiredSpace = Integer.BYTES // kTypeValue
-        + Integer.BYTES // key
-        + align(key.length) + Integer.BYTES // value
-        + align(value.length);
+    int requiredSpace = 1 // kTypeValue
+        + Varint32.numBytes(key.length) + key.length
+        + Varint32.numBytes(value.length) + value.length;
     if (bufferAvailable(requiredSpace)) {
       entryCount++;
-      buffer.putInt(WriteBatchInternal.ValueType.kTypeValue.ordinal());
+      buffer.put((byte)WriteBatchInternal.ValueType.kTypeValue.ordinal());
       putEntry(key);
       putEntry(value);
     } else {
@@ -165,23 +175,23 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
   }
 
   private void putEntry(final byte[] array) {
-    buffer.putInt(array.length);
+    putVarint32(array.length);
     buffer.put(array);
-    alignBuffer();
   }
 
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value)
       throws RocksDBException {
-    int requiredSpace = Integer.BYTES // kTypeColumnFamilyValue
-        + Long.BYTES // columnFamilyHandle
-        + Integer.BYTES // key
-        + align(key.length + Integer.BYTES // value
-            + align(value.length));
+    int columnFamilyID = cfidCacheThreadLocal.get().getCFID(columnFamilyHandle);
+    int requiredSpace = 1 // kTypeColumnFamilyValue
+        + Varint32.numBytes(columnFamilyID)
+        + Varint32.numBytes(key.length) + key.length
+        + Varint32.numBytes(value.length) + value.length;
+
     if (bufferAvailable(requiredSpace)) {
       entryCount++;
-      buffer.putInt(WriteBatchInternal.ValueType.kTypeColumnFamilyValue.ordinal());
-      buffer.putLong(columnFamilyHandle.getNativeHandle());
+      buffer.put((byte)WriteBatchInternal.ValueType.kTypeColumnFamilyValue.ordinal());
+      putVarint32(columnFamilyID);
       putEntry(key);
       putEntry(value);
     } else {
@@ -190,21 +200,24 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
     }
   }
 
+  private void putVarint32(final int value) {
+    Varint32.write(buffer, value);
+  }
+
   private void putEntry(final ByteBuffer bb) {
-    buffer.putInt(bb.remaining());
+    putVarint32(bb.remaining());
     buffer.put(bb);
-    alignBuffer();
   }
 
   @Override
   public void put(ByteBuffer key, ByteBuffer value) throws RocksDBException {
-    int requiredSpace = Integer.BYTES // kTypeValue
-        + Integer.BYTES // key
-        + align(key.remaining()) + Integer.BYTES // value
-        + align(value.remaining());
+    int requiredSpace = 1 // kTypeValue
+        + Varint32.numBytes(key.remaining()) + key.remaining()
+        + Varint32.numBytes(value.remaining()) + value.remaining();
+
     if (bufferAvailable(requiredSpace)) {
       entryCount++;
-      buffer.putInt(WriteBatchInternal.ValueType.kTypeValue.ordinal());
+      buffer.put((byte)WriteBatchInternal.ValueType.kTypeValue.ordinal());
       putEntry(key);
       putEntry(value);
     } else {
@@ -218,15 +231,16 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value)
       throws RocksDBException {
-    int requiredSpace = Integer.BYTES // kTypeColumnFamilyValue
-        + Long.BYTES // columnFamilyHandle
-        + Integer.BYTES // key
-        + align(key.remaining() + Integer.BYTES // value
-            + align(value.remaining()));
+    int columnFamilyID = cfidCacheThreadLocal.get().getCFID(columnFamilyHandle);
+    int requiredSpace = 1 // kTypeColumnFamilyValue
+        + Varint32.numBytes(columnFamilyID)
+        + Varint32.numBytes(key.remaining()) + key.remaining()
+        + Varint32.numBytes(value.remaining()) + value.remaining();
+
     if (bufferAvailable(requiredSpace)) {
       entryCount++;
-      buffer.putInt(WriteBatchInternal.ValueType.kTypeColumnFamilyValue.ordinal());
-      buffer.putLong(columnFamilyHandle.getNativeHandle());
+      buffer.put((byte)WriteBatchInternal.ValueType.kTypeColumnFamilyValue.ordinal());
+      putVarint32(columnFamilyID);
       putEntry(key);
       putEntry(value);
     } else {
