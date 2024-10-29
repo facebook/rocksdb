@@ -77,12 +77,8 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
     if (bufferAvailable(requiredSpace)) {
       entryCount++;
       buffer.putInt(WriteBatchInternal.ValueType.kTypeValue.ordinal());
-      buffer.putInt(key.length);
-      buffer.putInt(value.length);
-      buffer.put(key);
-      alignBuffer();
-      buffer.put(value);
-      alignBuffer();
+      putEntry(key);
+      putEntry(value);
     } else {
       setNativeHandle(putWriteBatchJavaNativeArray(
           getNativeHandle(), buffer.capacity(), key, key.length, value, value.length, 0L));
@@ -168,6 +164,12 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
     buffer.putLong(WriteBatchInternal.kSequenceOffset, sequence);
   }
 
+  private void putEntry(final byte[] array) {
+    buffer.putInt(array.length);
+    buffer.put(array);
+    alignBuffer();
+  }
+
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value)
       throws RocksDBException {
@@ -180,13 +182,18 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
       entryCount++;
       buffer.putInt(WriteBatchInternal.ValueType.kTypeColumnFamilyValue.ordinal());
       buffer.putLong(columnFamilyHandle.getNativeHandle());
-      buffer.putInt(key.length);
-      buffer.putInt(value.length);
-      buffer.put(key);
-      alignBuffer();
-      buffer.put(value);
-      alignBuffer();
+      putEntry(key);
+      putEntry(value);
+    } else {
+      setNativeHandle(putWriteBatchJavaNativeArray(
+          getNativeHandle(), buffer.capacity(), key, key.length, value, value.length, columnFamilyHandle.getNativeHandle()));
     }
+  }
+
+  private void putEntry(final ByteBuffer bb) {
+    buffer.putInt(bb.remaining());
+    buffer.put(bb);
+    alignBuffer();
   }
 
   @Override
@@ -198,12 +205,8 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
     if (bufferAvailable(requiredSpace)) {
       entryCount++;
       buffer.putInt(WriteBatchInternal.ValueType.kTypeValue.ordinal());
-      buffer.putInt(key.remaining());
-      buffer.putInt(value.remaining());
-      buffer.put(key);
-      alignBuffer();
-      buffer.put(value);
-      alignBuffer();
+      putEntry(key);
+      putEntry(value);
     } else {
       setNativeHandle(putWriteBatchJavaNativeDirect(getNativeHandle(), buffer.capacity(), key,
           key.position(), key.remaining(), value, value.position(), value.remaining(), 0L));
@@ -224,12 +227,8 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
       entryCount++;
       buffer.putInt(WriteBatchInternal.ValueType.kTypeColumnFamilyValue.ordinal());
       buffer.putLong(columnFamilyHandle.getNativeHandle());
-      buffer.putInt(key.remaining());
-      buffer.putInt(value.remaining());
-      buffer.put(key);
-      alignBuffer();
-      buffer.put(value);
-      alignBuffer();
+      putEntry(key);
+      putEntry(value);
     } else {
       setNativeHandle(putWriteBatchJavaNativeDirect(getNativeHandle(), buffer.capacity(), key,
           key.position(), key.remaining(), value, value.position(), value.remaining(),

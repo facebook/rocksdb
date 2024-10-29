@@ -123,7 +123,8 @@ class WriteBatchJavaNativeBuffer {
 
   bool has_next() { return pos < buf_len; };
 
-  const ROCKSDB_NAMESPACE::Slice slice(jint slice_len) {
+  const ROCKSDB_NAMESPACE::Slice slice() {
+    jint slice_len = next_int();
     jbyte* slice_ptr = ptr();
     skip_aligned(slice_len);
     return Slice(reinterpret_cast<char*>(slice_ptr), slice_len);

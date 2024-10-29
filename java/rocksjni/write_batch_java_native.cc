@@ -42,16 +42,14 @@ void ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer::copy_write_batch_from_java(
     jint op = next_int();
     switch (op) {
       case ROCKSDB_NAMESPACE::ValueType::kTypeValue: {
-        jint key_len = next_int();
-        jint value_len = next_int();
+        ROCKSDB_NAMESPACE::Slice key_slice = slice();
+        ROCKSDB_NAMESPACE::Slice value_slice = slice();
 
         // *** TODO (AP) how to handle exceptions here ?
         // *** pass in the message to bp->slice ?
         // *** throw Java exception like KVException
 
-        ROCKSDB_NAMESPACE::Slice key_slice = slice(key_len);
-        ROCKSDB_NAMESPACE::Slice value_slice = slice(value_len);
-
+        
         ROCKSDB_NAMESPACE::Status status = wb->Put(key_slice, value_slice);
         if (!status.ok()) {
           ROCKSDB_NAMESPACE::WriteBatchJavaNativeException::ThrowNew(env,
@@ -64,10 +62,8 @@ void ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer::copy_write_batch_from_java(
         jlong jcf_handle = next_long();
         auto* cfh = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
 
-        jint key_len = next_int();
-        jint value_len = next_int();
-        auto key_slice = slice(key_len);
-        auto value_slice = slice(value_len);
+        auto key_slice = slice();
+        auto value_slice = slice();
 
         auto status = wb->Put(cfh, key_slice, value_slice);
         if(!status.ok()) {
