@@ -182,6 +182,51 @@ public class WriteBatchJavaNativeTest {
     }
   }
 
+  private String stringOfSize(final int size, final String repeat) {
+    if (repeat.isEmpty()) {
+      throw new IllegalArgumentException("Append string is empty");
+    }
+    StringBuilder sb = new StringBuilder();
+    while (sb.length() < size) sb.append(repeat);
+    return sb.substring(0, size);
+  }
+
+  @Test
+  public void putTooBigForBuffer() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
+        wb.put("k1".getBytes(), stringOfSize(512,"v1").getBytes());
+        db.write(new WriteOptions(), wb);
+
+        byte[] v1 = db.get("k1".getBytes());
+        assertThat(v1).isEqualTo(stringOfSize(512,"v1").getBytes());
+      }
+    }
+  }
+
+  @Test
+  public void putSmallBigSmall() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
+        //small writes go into the buffer
+        wb.put("k0".getBytes(), "v0".getBytes());
+        wb.put("k3".getBytes(), "v3".getBytes());
+        // large write overflows the buffer, and forces flush of the buffer
+        // before the large write happens "direct"
+        wb.put("k1".getBytes(), stringOfSize(512,"v1").getBytes());
+        // further small write goes to the buffer
+        wb.put("k2".getBytes(), "v2".getBytes());
+        db.write(new WriteOptions(), wb);
+
+        byte[] v1 = db.get("k1".getBytes());
+        assertThat(v1).isEqualTo(stringOfSize(512,"v1").getBytes());
+        assertThat("v0".getBytes()).isEqualTo(db.get("k0".getBytes()));
+        assertThat("v3".getBytes()).isEqualTo(db.get("k3".getBytes()));
+        assertThat("v2".getBytes()).isEqualTo(db.get("k2".getBytes()));
+      }
+    }
+  }
+
   static byte[] getContents(final WriteBatchJavaNative wb) {
     return WriteBatchTest.getContents(wb.getNativeHandle());
   }

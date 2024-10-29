@@ -67,17 +67,18 @@ class WriteBatchJavaNativeBuffer {
  private:
   JNIEnv* env;
   jbyte* buf;
-  jlong buf_len;
+  jint buf_len;
   jint pos;
 
   const static int ALIGN = sizeof(int) - 1;
 
  public:
-  WriteBatchJavaNativeBuffer(JNIEnv* _env, jbyte* _buf, jlong _buf_len)
+  WriteBatchJavaNativeBuffer(JNIEnv* _env, jbyte* _buf, jint _buf_pos,
+                             jint _buf_len)
       : env(_env),
         buf(_buf),
         buf_len(_buf_len),
-        pos(sizeof(int64_t) + sizeof(int32_t)) {};
+        pos(_buf_pos + sizeof(int64_t) + sizeof(int32_t)) {};
 
   /**
    * @brief the sequence is a fixed field at the start of the buffer (header)

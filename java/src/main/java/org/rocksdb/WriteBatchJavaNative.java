@@ -31,7 +31,8 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
 
   private NativeWrapper nativeWrapper;
 
-  private ByteBuffer buffer;
+  private final ByteBuffer buffer;
+  final int entrySizeLimit;
   private int entryCount;
 
   public static WriteBatchJavaNative allocate(int reserved_bytes) {
@@ -50,6 +51,7 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
   private WriteBatchJavaNative(final ByteBuffer buffer) {
     super();
     this.buffer = buffer;
+    entrySizeLimit = buffer.capacity() / 2;
     resetBuffer();
   }
 
@@ -68,19 +70,23 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
 
   @Override
   public void put(byte[] key, byte[] value) throws RocksDBException {
-    flushIfFull(Integer.BYTES // kTypeValue
+    int requiredSpace = Integer.BYTES // kTypeValue
         + Integer.BYTES // key
         + align(key.length) + Integer.BYTES // value
-        + align(value.length));
-
-    entryCount++;
-    buffer.putInt(WriteBatchInternal.ValueType.kTypeValue.ordinal());
-    buffer.putInt(key.length);
-    buffer.putInt(value.length);
-    buffer.put(key);
-    alignBuffer();
-    buffer.put(value);
-    alignBuffer();
+        + align(value.length);
+    if (bufferAvailable(requiredSpace)) {
+      entryCount++;
+      buffer.putInt(WriteBatchInternal.ValueType.kTypeValue.ordinal());
+      buffer.putInt(key.length);
+      buffer.putInt(value.length);
+      buffer.put(key);
+      alignBuffer();
+      buffer.put(value);
+      alignBuffer();
+    } else {
+      setNativeHandle(putWriteBatchJavaNativeArray(
+          getNativeHandle(), buffer.capacity(), key, key.length, value, value.length, 0L));
+    }
   }
 
   /**
@@ -92,21 +98,14 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
   void flush() throws RocksDBException {
     buffer.putInt(WriteBatchInternal.kCountOffset, entryCount);
 
-    long nativeHandle = 0L;
-    if (nativeWrapper != null) {
-      nativeHandle = nativeWrapper.nativeHandle_;
-    }
-    long result;
-
+    buffer.flip();
     if (buffer.isDirect()) {
-      result = flushWriteBatchJavaNativeDirect(
-          nativeHandle, buffer.capacity(), buffer.position(), buffer);
+      setNativeHandle(flushWriteBatchJavaNativeDirect(
+          // assert position == 0
+          getNativeHandle(), buffer.capacity(), buffer, buffer.position(), buffer.limit()));
     } else {
-      result = flushWriteBatchJavaNativeArray(
-          nativeHandle, buffer.capacity(), buffer.position(), buffer.array());
-    }
-    if (nativeWrapper == null) {
-      nativeWrapper = new NativeWrapper(result);
+      setNativeHandle(flushWriteBatchJavaNativeArray(
+          getNativeHandle(), buffer.capacity(), buffer.array(), buffer.limit()));
     }
 
     resetBuffer();
@@ -114,11 +113,11 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
 
   /**
    * Write the write batch to the RocksDB database.
-   *
+   * <p></p>
    * A C++ write batch may not yet exist.
    * If it does not, the C++ method will create it,
    * and anyway it will flush the Java-side buffer to.
-   *
+   * <p></p>
    * This is like `flush()` followed by a `write()`, just more efficient;
    * it only crosses the JNI boundary once. There is no separate `write()` method
    * for `WriteBatchJavaNative`.
@@ -126,23 +125,18 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
    * @throws RocksDBException
    */
   void write(final RocksDB db, final WriteOptions writeOptions) throws RocksDBException {
-    final long sequence = buffer.getLong(WriteBatchInternal.kSequenceOffset);
     buffer.putInt(WriteBatchInternal.kCountOffset, entryCount);
 
-    long nativeHandle = 0L;
-    if (nativeWrapper != null) {
-      nativeHandle = nativeWrapper.nativeHandle_;
-    }
-    long result;
+    buffer.flip();
     if (buffer.isDirect()) {
-      result = writeWriteBatchJavaNativeDirect(db.getNativeHandle(), writeOptions.getNativeHandle(),
-          nativeHandle, buffer.capacity(), buffer.position(), buffer);
+      setNativeHandle(
+          writeWriteBatchJavaNativeDirect(db.getNativeHandle(), writeOptions.getNativeHandle(),
+              // assert position == 0 (we just flipped)
+              getNativeHandle(), buffer.capacity(), buffer, buffer.position(), buffer.limit()));
     } else {
-      result = writeWriteBatchJavaNativeArray(db.getNativeHandle(), writeOptions.getNativeHandle(),
-          nativeHandle, buffer.capacity(), buffer.position(), buffer.array());
-    }
-    if (nativeWrapper == null) {
-      nativeWrapper = new NativeWrapper(result);
+      setNativeHandle(
+          writeWriteBatchJavaNativeArray(db.getNativeHandle(), writeOptions.getNativeHandle(),
+              getNativeHandle(), buffer.capacity(), buffer.array(), buffer.limit()));
     }
 
     resetBuffer();
@@ -156,81 +150,93 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
     entryCount = 0;
   }
 
-  private void flushIfFull(int requiredSpace) throws RocksDBException {
+  private boolean bufferAvailable(int requiredSpace) throws RocksDBException {
     if (buffer.remaining() < requiredSpace) {
       if (entryCount > 0) {
         flush();
       }
     }
-    if (buffer.remaining() < requiredSpace) {
+    if (requiredSpace > entrySizeLimit || buffer.remaining() < requiredSpace) {
       // empty buffer is not big enough, so extend
-      throw new RocksDBException("Ni!");
+      return false;
     }
+
+    return true;
   }
 
   void setSequence(final long sequence) {
     buffer.putLong(WriteBatchInternal.kSequenceOffset, sequence);
   }
 
-  void countEntry() {
-    entryCount++;
-  }
-
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value)
       throws RocksDBException {
-    flushIfFull(Integer.BYTES // kTypeColumnFamilyValue
+    int requiredSpace = Integer.BYTES // kTypeColumnFamilyValue
         + Long.BYTES // columnFamilyHandle
         + Integer.BYTES // key
         + align(key.length + Integer.BYTES // value
-            + align(value.length)));
-
-    entryCount++;
-    buffer.putInt(WriteBatchInternal.ValueType.kTypeColumnFamilyValue.ordinal());
-    buffer.putLong(columnFamilyHandle.getNativeHandle());
-    buffer.putInt(key.length);
-    buffer.putInt(value.length);
-    buffer.put(key);
-    alignBuffer();
-    buffer.put(value);
-    alignBuffer();
+            + align(value.length));
+    if (bufferAvailable(requiredSpace)) {
+      entryCount++;
+      buffer.putInt(WriteBatchInternal.ValueType.kTypeColumnFamilyValue.ordinal());
+      buffer.putLong(columnFamilyHandle.getNativeHandle());
+      buffer.putInt(key.length);
+      buffer.putInt(value.length);
+      buffer.put(key);
+      alignBuffer();
+      buffer.put(value);
+      alignBuffer();
+    }
   }
 
   @Override
   public void put(ByteBuffer key, ByteBuffer value) throws RocksDBException {
-    flushIfFull(Integer.BYTES // kTypeValue
+    int requiredSpace = Integer.BYTES // kTypeValue
         + Integer.BYTES // key
         + align(key.remaining()) + Integer.BYTES // value
-        + align(value.remaining()));
-
-    entryCount++;
-    buffer.putInt(WriteBatchInternal.ValueType.kTypeValue.ordinal());
-    buffer.putInt(key.remaining());
-    buffer.putInt(value.remaining());
-    buffer.put(key);
-    alignBuffer();
-    buffer.put(value);
-    alignBuffer();
+        + align(value.remaining());
+    if (bufferAvailable(requiredSpace)) {
+      entryCount++;
+      buffer.putInt(WriteBatchInternal.ValueType.kTypeValue.ordinal());
+      buffer.putInt(key.remaining());
+      buffer.putInt(value.remaining());
+      buffer.put(key);
+      alignBuffer();
+      buffer.put(value);
+      alignBuffer();
+    } else {
+      setNativeHandle(putWriteBatchJavaNativeDirect(getNativeHandle(), buffer.capacity(), key,
+          key.position(), key.remaining(), value, value.position(), value.remaining(), 0L));
+      key.position(key.limit());
+      value.position(value.limit());
+    }
   }
 
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value)
       throws RocksDBException {
-    flushIfFull(Integer.BYTES // kTypeColumnFamilyValue
+    int requiredSpace = Integer.BYTES // kTypeColumnFamilyValue
         + Long.BYTES // columnFamilyHandle
         + Integer.BYTES // key
         + align(key.remaining() + Integer.BYTES // value
-            + align(value.remaining())));
-
-    entryCount++;
-    buffer.putInt(WriteBatchInternal.ValueType.kTypeColumnFamilyValue.ordinal());
-    buffer.putLong(columnFamilyHandle.getNativeHandle());
-    buffer.putInt(key.remaining());
-    buffer.putInt(value.remaining());
-    buffer.put(key);
-    alignBuffer();
-    buffer.put(value);
-    alignBuffer();
+            + align(value.remaining()));
+    if (bufferAvailable(requiredSpace)) {
+      entryCount++;
+      buffer.putInt(WriteBatchInternal.ValueType.kTypeColumnFamilyValue.ordinal());
+      buffer.putLong(columnFamilyHandle.getNativeHandle());
+      buffer.putInt(key.remaining());
+      buffer.putInt(value.remaining());
+      buffer.put(key);
+      alignBuffer();
+      buffer.put(value);
+      alignBuffer();
+    } else {
+      setNativeHandle(putWriteBatchJavaNativeDirect(getNativeHandle(), buffer.capacity(), key,
+          key.position(), key.remaining(), value, value.position(), value.remaining(),
+          columnFamilyHandle.getNativeHandle()));
+      key.position(key.limit());
+      value.position(value.limit());
+    }
   }
 
   @Override
@@ -319,18 +325,34 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
     return nativeWrapper.nativeHandle_;
   }
 
+  private void setNativeHandle(final long newHandle) {
+    if (nativeWrapper == null) {
+      nativeWrapper = new NativeWrapper(newHandle);
+    } else {
+      assert nativeWrapper.nativeHandle_ == newHandle;
+    }
+  }
+
   private static native void disposeInternalWriteBatchJavaNative(final long handle);
 
   private static native long flushWriteBatchJavaNativeArray(
-      final long handle, final long capacity, final long position, final byte[] buf);
+      final long handle, final long capacity, final byte[] buf, final int bufLen);
 
-  private static native long flushWriteBatchJavaNativeDirect(
-      final long handle, final long capacity, final long position, final ByteBuffer buf);
+  private static native long flushWriteBatchJavaNativeDirect(final long handle, final long capacity,
+      final ByteBuffer buf, final int bufPosition, final int bufLimit);
   private static native long writeWriteBatchJavaNativeArray(final long dbHandle,
-      final long woHandle, final long handle, final long capacity, final long position,
-      final byte[] buf);
+      final long woHandle, final long handle, final long capacity, final byte[] buf,
+      final int bufLen);
 
   private static native long writeWriteBatchJavaNativeDirect(final long dbHandle,
-      final long woHandle, final long handle, final long capacity, final long position,
-      final ByteBuffer buf);
+      final long woHandle, final long handle, final long capacity, final ByteBuffer buf,
+      final int bufPos, final int bufLimit);
+
+  private static native long putWriteBatchJavaNativeArray(final long handle, final long capacity,
+      final byte[] key, final int keyLen, final byte[] value, final int valueLen,
+      final long cfHandle);
+
+  private static native long putWriteBatchJavaNativeDirect(final long handle, final long capacity,
+      final ByteBuffer key, final int keyPosition, final int keyRemaining, final ByteBuffer value,
+      final int valuePosition, final int valueRemaining, final long cfHandle);
 }

@@ -8,12 +8,14 @@
 
 #include "rocksjni/write_batch_java_native.h"
 
+#include "db/column_family.h"
 #include "db/dbformat.h"
 #include "db/write_batch_internal.h"
 #include "include/org_rocksdb_WBWIRocksIterator.h"
 #include "include/org_rocksdb_WriteBatchJavaNative.h"
 #include "rocksdb/comparator.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
+#include "rocksjni/kv_helper.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -91,12 +93,12 @@ void ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer::copy_write_batch_from_java(
  * Signature: (JJ[B)V
  */
 jlong Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNativeArray(
-    JNIEnv* env, jclass /*jcls*/, jlong jwb_handle, jlong jbuf_capacity,
-    jlong jbuf_len, jbyteArray jbuf) {
+    JNIEnv* env, jclass /*jcls*/, jlong jwb_handle, jlong wb_capacity,
+    jbyteArray jbuf, jint jbuf_len) {
   ROCKSDB_NAMESPACE::WriteBatchJavaNative* wb;
   if (jwb_handle == 0) {
     wb = new ROCKSDB_NAMESPACE::WriteBatchJavaNative(
-        static_cast<size_t>(jbuf_capacity));
+        static_cast<size_t>(wb_capacity));
   } else {
     wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchJavaNative*>(jwb_handle);
   }
@@ -108,7 +110,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNativeArray(
   }
 
   auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(
-      env, buf, jbuf_len);
+      env, buf, 0, jbuf_len);
 
   if (bp->sequence() > 0) {
     ROCKSDB_NAMESPACE::WriteBatchInternal::SetSequence(
@@ -127,17 +129,18 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNativeArray(
   return GET_CPLUSPLUS_POINTER(wb);
 }
 
-/**
- * @brief 
- * 
+/*
+ * Class:     org_rocksdb_WriteBatchJavaNative
+ * Method:    flushWriteBatchJavaNativeDirect
+ * Signature: (JJLjava/nio/ByteBuffer;II)J
  */
 jlong Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNativeDirect(
-    JNIEnv* env, jclass /*jcls*/, jlong jwb_handle, jlong jbuf_capacity,
-    jlong jbuf_len, jobject jbuf) {
+    JNIEnv* env, jclass /*jcls*/, jlong jwb_handle, jlong wb_capacity,
+    jobject jbuf, jint jbuf_pos, jint jbuf_limit) {
   ROCKSDB_NAMESPACE::WriteBatchJavaNative* wb;
   if (jwb_handle == 0) {
     wb = new ROCKSDB_NAMESPACE::WriteBatchJavaNative(
-        static_cast<size_t>(jbuf_capacity));
+        static_cast<size_t>(wb_capacity));
   } else {
     wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchJavaNative*>(jwb_handle);
   }
@@ -149,7 +152,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNativeDirect(
     return -1L;
   }
   auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(
-      env, buf, jbuf_len);
+      env, buf, jbuf_pos, jbuf_limit);
 
   if (bp->sequence() > 0) {
     ROCKSDB_NAMESPACE::WriteBatchInternal::SetSequence(
@@ -177,7 +180,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNativeDirect(
  */
 jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeArray(
     JNIEnv* env, jclass, jlong jdb_handle, jlong jwrite_options_handle,
-    jlong jwb_handle, jlong jbuf_capacity, jlong jbuf_len, jbyteArray jbuf) {
+    jlong jwb_handle, jlong wb_capacity, jbyteArray jbuf, jint jbuf_len) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
@@ -185,7 +188,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeArray(
   ROCKSDB_NAMESPACE::WriteBatchJavaNative* wb;
   if (jwb_handle == 0) {
     wb = new ROCKSDB_NAMESPACE::WriteBatchJavaNative(
-        static_cast<size_t>(jbuf_capacity));
+        static_cast<size_t>(wb_capacity));
   } else {
     wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchJavaNative*>(jwb_handle);
   }
@@ -196,7 +199,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeArray(
     return -1L;
   }
   auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(
-      env, buf, jbuf_len);
+      env, buf, 0, jbuf_len);
 
   if (bp->sequence() > 0) {
     ROCKSDB_NAMESPACE::WriteBatchInternal::SetSequence(
@@ -230,7 +233,8 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeArray(
  */
 jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeDirect(
     JNIEnv* env, jclass, jlong jdb_handle, jlong jwrite_options_handle,
-    jlong jwb_handle, jlong jbuf_capacity, jlong jbuf_len, jobject jbuf) {
+    jlong jwb_handle, jlong jbuf_capacity, jobject jbuf, jint jbuf_pos,
+    jint jbuf_limit) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto* write_options =
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
@@ -249,7 +253,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeDirect(
     return -1L;
   }
   auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(
-      env, buf, jbuf_len);
+      env, buf, jbuf_pos, jbuf_limit);
 
   if (bp->sequence() > 0) {
     ROCKSDB_NAMESPACE::WriteBatchInternal::SetSequence(
@@ -265,6 +269,79 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeDirect(
 
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+
+  return GET_CPLUSPLUS_POINTER(wb);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchJavaNative
+ * Method:    putWriteBatchJavaNativeArray
+ * Signature: (JJ[BI[BIJ)J
+ */
+jlong Java_org_rocksdb_WriteBatchJavaNative_putWriteBatchJavaNativeArray(
+    JNIEnv* env, jclass, jlong jwb_handle, jlong jwb_capacity, jbyteArray jkey,
+    jint jkey_len, jbyteArray jvalue, jint jvalue_len, jlong jcf_handle) {
+  ROCKSDB_NAMESPACE::WriteBatchJavaNative* wb;
+  if (jwb_handle == 0) {
+    wb = new ROCKSDB_NAMESPACE::WriteBatchJavaNative(
+        static_cast<size_t>(jwb_capacity));
+  } else {
+    wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchJavaNative*>(jwb_handle);
+  }
+
+  try {
+    ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jvalue, 0, jvalue_len);
+    if (jcf_handle == 0) {
+      ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+          env, wb->Put(key.slice(), value.slice()));
+    } else {
+      ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle =
+          reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+      ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+          env, wb->Put(cf_handle, key.slice(), value.slice()));
+    }
+  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
+  }
+
+  return GET_CPLUSPLUS_POINTER(wb);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchJavaNative
+ * Method:    putWriteBatchJavaNativeDirect
+ * Signature: (JJLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;IIJ)J
+ */
+jlong Java_org_rocksdb_WriteBatchJavaNative_putWriteBatchJavaNativeDirect(
+    JNIEnv* env, jclass, jlong jwb_handle, jlong jwb_capacity, jobject jkey,
+    jint jkey_pos, jint jkey_remaining, jobject jvalue, jint jvalue_pos,
+    jint jvalue_remaining, jlong jcf_handle) {
+  ROCKSDB_NAMESPACE::WriteBatchJavaNative* wb;
+  if (jwb_handle == 0) {
+    wb = new ROCKSDB_NAMESPACE::WriteBatchJavaNative(
+        static_cast<size_t>(jwb_capacity));
+  } else {
+    wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchJavaNative*>(jwb_handle);
+  }
+
+  try {
+    ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey, jkey_pos,
+                                              jkey_remaining);
+    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jvalue, jvalue_pos,
+                                                jvalue_remaining);
+    if (jcf_handle == 0) {
+      ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+          env, wb->Put(key.slice(), value.slice()));
+    } else {
+      ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle =
+          reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+      ROCKSDB_NAMESPACE::KVException::ThrowOnError(
+          env, wb->Put(cf_handle, key.slice(), value.slice()));
+    }
+  } catch (const ROCKSDB_NAMESPACE::KVException& e) {
+    return e.Code();
   }
 
   return GET_CPLUSPLUS_POINTER(wb);
