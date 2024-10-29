@@ -321,16 +321,16 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
 
   private static native void disposeInternalWriteBatchJavaNative(final long handle);
 
-  protected static native long flushWriteBatchJavaNativeArray(
+  private static native long flushWriteBatchJavaNativeArray(
       final long handle, final long capacity, final long position, final byte[] buf);
 
-  protected static native long flushWriteBatchJavaNativeDirect(
+  private static native long flushWriteBatchJavaNativeDirect(
       final long handle, final long capacity, final long position, final ByteBuffer buf);
-  protected static native long writeWriteBatchJavaNativeArray(final long dbHandle,
+  private static native long writeWriteBatchJavaNativeArray(final long dbHandle,
       final long woHandle, final long handle, final long capacity, final long position,
       final byte[] buf);
 
-  protected static native long writeWriteBatchJavaNativeDirect(final long dbHandle,
+  private static native long writeWriteBatchJavaNativeDirect(final long dbHandle,
       final long woHandle, final long handle, final long capacity, final long position,
       final ByteBuffer buf);
 }
