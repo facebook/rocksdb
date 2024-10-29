@@ -79,16 +79,9 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       FileMetaData* f = *ritr;
       assert(f);
       if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
-        uint64_t newest_key_time =
-            f->fd.table_reader->GetTableProperties()->newest_key_time;
-        // Fall back to creation_time if newest_key_time is not available
-        uint64_t creation_time =
-            f->fd.table_reader->GetTableProperties()->creation_time;
-        uint64_t est_key_time = newest_key_time == kUnknownNewestKeyTime
-                                    ? creation_time
-                                    : newest_key_time;
-        if (est_key_time == kUnknownNewestKeyTime ||
-            est_key_time >= (current_time - mutable_cf_options.ttl)) {
+        uint64_t est_newest_key_time = f->TryGetNewestKeyTime();
+        if (est_newest_key_time == kUnknownNewestKeyTime ||
+            est_newest_key_time >= (current_time - mutable_cf_options.ttl)) {
           break;
         }
       }
@@ -108,15 +101,12 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   }
 
   for (const auto& f : inputs[0].files) {
-    uint64_t creation_time = 0;
     assert(f);
-    if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
-      creation_time = f->fd.table_reader->GetTableProperties()->creation_time;
-    }
+    uint64_t est_newest_key_time = f->TryGetNewestKeyTime();
     ROCKS_LOG_BUFFER(log_buffer,
                      "[%s] FIFO compaction: picking file %" PRIu64
-                     " with creation time %" PRIu64 " for deletion",
-                     cf_name.c_str(), f->fd.GetNumber(), creation_time);
+                     " with estimated newest key time %" PRIu64 " for deletion",
+                     cf_name.c_str(), f->fd.GetNumber(), est_newest_key_time);
   }
 
   Compaction* c = new Compaction(

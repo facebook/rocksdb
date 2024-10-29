@@ -301,13 +301,13 @@ class CompactionJobTestBase : public testing::Test {
     const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(
         cf_options_.table_factory->NewTableBuilder(
-            TableBuilderOptions(*cfd_->ioptions(), mutable_cf_options_,
-                                read_options, write_options,
-                                cfd_->internal_comparator(),
-                                cfd_->internal_tbl_prop_coll_factories(),
-                                CompressionType::kNoCompression,
-                                CompressionOptions(), 0 /* column_family_id */,
-                                kDefaultColumnFamilyName, -1 /* level */),
+            TableBuilderOptions(
+                *cfd_->ioptions(), mutable_cf_options_, read_options,
+                write_options, cfd_->internal_comparator(),
+                cfd_->internal_tbl_prop_coll_factories(),
+                CompressionType::kNoCompression, CompressionOptions(),
+                0 /* column_family_id */, kDefaultColumnFamilyName,
+                -1 /* level */, kUnknownNewestKeyTime),
             file_writer.get()));
     // Build table.
     for (const auto& kv : contents) {

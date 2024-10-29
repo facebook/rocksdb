@@ -474,8 +474,8 @@ class Repairer {
           write_option, cfd->internal_comparator(),
           cfd->internal_tbl_prop_coll_factories(), kNoCompression,
           default_compression, cfd->GetID(), cfd->GetName(), -1 /* level */,
-          false /* is_bottommost */, TableFileCreationReason::kRecovery,
-          0 /* oldest_key_time */, kUnknownNewestKeyTime,
+          current_time /* newest_key_time */, false /* is_bottommost */,
+          TableFileCreationReason::kRecovery, 0 /* oldest_key_time */,
           0 /* file_creation_time */, "DB Repairer" /* db_id */, db_session_id_,
           0 /*target_file_size*/, meta.fd.GetNumber());
 
