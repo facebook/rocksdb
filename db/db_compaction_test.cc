@@ -10623,44 +10623,90 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(DBCompactionTest, RecordNewestKeyTime) {
+TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
   // Test case for task T168616501: "Record newest key time and use it for FIFO
   // TTL and temperature change compaction"
-  Options options = CurrentOptions();
-  options.compaction_style = kCompactionStyleLevel;
-  options.num_levels = 2;
-  DestroyAndReopen(options);
-  Random rnd(301);
+  Options options;
+  options.env = CurrentOptions().env;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.write_buffer_size = 10 << 10;  // 10KB
+  options.arena_block_size = 4096;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options.compaction_options_fifo.allow_compaction = false;
+  options.num_levels = 1;
   env_->SetMockSleep();
+  options.env = env_;
 
-  // Flush two files, one of which is 60s newer
-  ASSERT_OK(Put(Key(1), rnd.RandomString(20)));
-  ASSERT_OK(Flush());
-  env_->MockSleepForSeconds(60);
-  ASSERT_OK(Put(Key(1), rnd.RandomString(20)));
-  ASSERT_OK(Flush());
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
+  // Test dynamically changing ttl.
+  options.ttl = 1 * 60 * 60;  // 1 hour
+  ASSERT_OK(TryReopen(options));
+
+  Random rnd(301);
+  for (int i = 0; i < 4; i++) {
+    // Generate and flush a file about 10KB.
+    for (int j = 0; j < 10; j++) {
+      ASSERT_OK(Put(std::to_string(i * 20 + j), rnd.RandomString(980)));
+    }
+    ASSERT_OK(Flush());
+    env_->MockSleepForSeconds(5);
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 4);
 
   // Check that we are populating newest_key_time on flush
   std::vector<FileMetaData*> file_metadatas = GetLevelFileMetadatas(0);
-  ASSERT_EQ(file_metadatas.size(), 2);
-  uint64_t older_newest_key_time =
-      file_metadatas[1]->fd.table_reader->GetTableProperties()->newest_key_time;
-  uint64_t newer_newest_key_time =
+  ASSERT_EQ(file_metadatas.size(), 4);
+  uint64_t first_newest_key_time =
       file_metadatas[0]->fd.table_reader->GetTableProperties()->newest_key_time;
-  ASSERT_NE(older_newest_key_time, kUnknownNewestKeyTime);
-  ASSERT_LT(older_newest_key_time, newer_newest_key_time);
+  ASSERT_NE(first_newest_key_time, kUnknownNewestKeyTime);
+  // Check that the newest_key_times are in expected ordering
+  uint64_t prev_newest_key_time = first_newest_key_time;
+  for (size_t idx = 1; idx < file_metadatas.size(); idx++) {
+    uint64_t newest_key_time = file_metadatas[idx]
+                                   ->fd.table_reader->GetTableProperties()
+                                   ->newest_key_time;
+
+    ASSERT_LT(newest_key_time, prev_newest_key_time);
+    prev_newest_key_time = newest_key_time;
+  }
+  // The delta between the first and last newest_key_times is already 180s
+  uint64_t last_newest_key_time = prev_newest_key_time;
+  ASSERT_EQ(15, first_newest_key_time - last_newest_key_time);
 
   // After compaction, the newest_key_time of the output file should be the max
   // of the input files
-  CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-  ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
-
-  file_metadatas = GetLevelFileMetadatas(1);
+  options.compaction_options_fifo.allow_compaction = true;
+  ASSERT_OK(TryReopen(options));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  file_metadatas = GetLevelFileMetadatas(0);
   ASSERT_EQ(file_metadatas.size(), 1);
   ASSERT_EQ(
       file_metadatas[0]->fd.table_reader->GetTableProperties()->newest_key_time,
-      newer_newest_key_time);
+      first_newest_key_time);
+
+  // Make sure TTL of 5s causes compaction
+  env_->MockSleepForSeconds(6);
+
+  // The oldest input file is older than 15s
+  // However the newest of the compaction input files is younger than 15s, so
+  // we don't compact
+  ASSERT_OK(dbfull()->SetOptions({{"ttl", "15"}}));
+  ASSERT_EQ(dbfull()->GetOptions().ttl, 15);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  // Now even the youngest input file is too old
+  ASSERT_OK(dbfull()->SetOptions({{"ttl", "5"}}));
+  ASSERT_EQ(dbfull()->GetOptions().ttl, 5);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 }
 }  // namespace ROCKSDB_NAMESPACE
 
