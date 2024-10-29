@@ -3,7 +3,7 @@
 
 ## 9.8.0 (10/25/2024)
 ### New Features
-* All "simple" options in `BlockBasedTableOptions` are now mutable with `DB::SetOptions()`. For now, "simple" only includes non-pointer options that are 64 bits or less.
+* All non-`block_cache` options in `BlockBasedTableOptions` are now mutable with `DB::SetOptions()`. See also Bug Fixes below.
 * When using iterators with BlobDB, it is now possible to load large values on an on-demand basis, i.e. only if they are actually needed by the application. This can save I/O in use cases where the values associated with certain keys are not needed. For more details, see the new read option `allow_unprepared_value` and the iterator API `PrepareValue`.
 * Add a new file ingestion option `IngestExternalFileOptions::fill_cache` to support not adding blocks from ingested files into block cache during file ingestion.
 * The option `allow_unprepared_value` is now also supported for multi-column-family iterators (i.e. `CoalescingIterator` and `AttributeGroupIterator`).
