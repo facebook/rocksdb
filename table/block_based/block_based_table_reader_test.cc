@@ -733,7 +733,7 @@ class StrictCapacityLimitReaderTest : public BlockBasedTableReaderTest {
 
     table_options.block_cache = std::make_shared<
         TargetCacheChargeTrackingCache<CacheEntryRole::kBlockBasedTableReader>>(
-        (NewLRUCache(8 * 1024, 0 /* num_shard_bits */,
+        (NewLRUCache(4 * 1024, 0 /* num_shard_bits */,
                      true /* strict_capacity_limit */)));
 
     table_options.cache_index_and_filter_blocks = false;
@@ -750,8 +750,8 @@ TEST_P(StrictCapacityLimitReaderTest, StrictCapacityLimitGet) {
   size_t ts_sz = options.comparator->timestamp_size();
   std::vector<std::pair<std::string, std::string>> kv =
       BlockBasedTableReaderBaseTest::GenerateKVMap(
-          1000 /* num_block */,
-          true /* mixed_with_human_readable_string_value */, ts_sz, false);
+          2 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz, false);
 
   std::string table_name = "BlockBasedTableReaderGetTest_Get" +
                            CompressionTypeToString(compression_type_);
@@ -771,6 +771,7 @@ TEST_P(StrictCapacityLimitReaderTest, StrictCapacityLimitGet) {
   ASSERT_OK(
       table->VerifyChecksum(read_opts, TableReaderCaller::kUserVerifyChecksum));
 
+  bool hit_memory_limit = false;
   for (size_t i = 0; i < kv.size(); i += 1) {
     Slice key = kv[i].first;
     Slice lkey = key;
@@ -778,7 +779,7 @@ TEST_P(StrictCapacityLimitReaderTest, StrictCapacityLimitGet) {
     // Reading the first entry in a block caches the whole block.
     if (i % kEntriesPerBlock == 0) {
       ASSERT_FALSE(table->TEST_KeyInCache(read_opts, lkey.ToString()));
-    } else {
+    } else if (!hit_memory_limit) {
       ASSERT_TRUE(table->TEST_KeyInCache(read_opts, lkey.ToString()));
     }
     PinnableSlice value;
@@ -787,10 +788,20 @@ TEST_P(StrictCapacityLimitReaderTest, StrictCapacityLimitGet) {
                            nullptr, nullptr, nullptr, nullptr,
                            true /* do_merge */, nullptr, nullptr, nullptr,
                            nullptr, nullptr, nullptr);
-    ASSERT_OK(table->Get(read_opts, lkey, &get_context, nullptr));
-    ASSERT_EQ(value.ToString(), kv[i].second);
-    ASSERT_TRUE(table->TEST_KeyInCache(read_opts, lkey.ToString()));
+    Status s = table->Get(read_opts, lkey, &get_context, nullptr);
+    if (!s.ok()) {
+      EXPECT_TRUE(s.IsMemoryLimit());
+      EXPECT_TRUE(s.ToString().find("Memory limit reached: Insert failed due "
+                                    "to LRU cache being full") !=
+                  std::string::npos);
+      hit_memory_limit = true;
+    } else {
+      ASSERT_EQ(value.ToString(), kv[i].second);
+      ASSERT_TRUE(table->TEST_KeyInCache(read_opts, lkey.ToString()));
+    }
   }
+
+  ASSERT_TRUE(hit_memory_limit);
 }
 
 class BlockBasedTableReaderTestVerifyChecksum
@@ -902,14 +913,11 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     StrictCapacityLimitReaderTest, StrictCapacityLimitReaderTest,
     ::testing::Combine(
-        ::testing::ValuesIn(GetSupportedCompressions()), ::testing::Bool(),
+        ::testing::Values(CompressionType::kNoCompression), ::testing::Bool(),
         ::testing::Values(
-            BlockBasedTableOptions::IndexType::kBinarySearch,
-            BlockBasedTableOptions::IndexType::kHashSearch,
-            BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
-            BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey),
+            BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch),
         ::testing::Values(false), ::testing::ValuesIn(test::GetUDTTestModes()),
-        ::testing::Values(1, 2), ::testing::Values(0, 4096),
+        ::testing::Values(1, 2), ::testing::Values(0),
         ::testing::Values(false, true)));
 INSTANTIATE_TEST_CASE_P(
     VerifyChecksum, BlockBasedTableReaderTestVerifyChecksum,
