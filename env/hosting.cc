@@ -7,37 +7,15 @@
 
 #include <cassert>
 
+// Hosting process can optionally implement these APIs.
+extern "C" void RocksDbThreadYield() __attribute__((__weak__));
+
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-// Default implementation of hosting interface.
-class HostingImpl : public HostingInterface {
- public:
-  void yield() override {}
-};
-
-}  // namespace
-
-// Return hosting interface.
-HostingInterface* Hosting::get() {
-  // Should always be set. Will catch cases when used after static shared_ptr
-  // is released. All threads should be gone before static object destruction.
-  assert(getPtr().get());
-  return getPtr().get();
-}
-
-// Set hosting interface.
-// Not thread safe! Should be called before starting other threads.
-void Hosting::set(std::shared_ptr<HostingInterface> hosting) {
-  getPtr() = hosting;
-}
-
-// Return static shared pointer to hosting interface.
-std::shared_ptr<HostingInterface>& Hosting::getPtr() {
-  static std::shared_ptr<HostingInterface> hosting{
-      std::make_shared<HostingImpl>()};
-  return hosting;
+void Hosting::ThreadYield() {
+  if (RocksDbThreadYield) {
+    RocksDbThreadYield();
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

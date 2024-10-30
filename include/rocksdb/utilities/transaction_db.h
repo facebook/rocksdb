@@ -11,7 +11,6 @@
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
-#include "rocksdb/hosting.h"
 #include "rocksdb/utilities/stackable_db.h"
 #include "rocksdb/utilities/transaction.h"
 
@@ -191,10 +190,6 @@ struct TransactionDBOptions {
   // condition variable for all transaction locking instead of the default
   // mutex/condvar implementation.
   std::shared_ptr<TransactionDBMutexFactory> custom_mutex_factory;
-
-  // Hosting interface implementing threading, synchronization and other
-  // policies of the hosting process.
-  std::shared_ptr<HostingInterface> hosting_interface;
 
   // The policy for when to write the data into the DB. The default policy is to
   // write only the committed data (WRITE_COMMITTED). The data could be written

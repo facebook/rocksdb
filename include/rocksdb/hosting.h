@@ -14,22 +14,9 @@ namespace ROCKSDB_NAMESPACE {
 // Interface to be used by a host process to implement various APIs
 // such as thread management, synchronization, and so on.
 // TransactionDBMutexFactory could be moved here as well.
-class HostingInterface {
- public:
-  virtual ~HostingInterface() {}
-
-  // Yield execution in long loops.
-  virtual void yield() = 0;
-};
-
-// Accessor for hosting interface.
 class Hosting {
  public:
-  static HostingInterface* get();
-  static void set(std::shared_ptr<HostingInterface> hosting);
-
- private:
-  static std::shared_ptr<HostingInterface>& getPtr();
+  static void ThreadYield();
 };
 
 }  // namespace ROCKSDB_NAMESPACE

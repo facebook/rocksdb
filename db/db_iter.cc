@@ -584,7 +584,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
     }
 
     // This loop could be long so make sure to yield.
-    Hosting::get()->yield();
+    Hosting::ThreadYield();
   } while (iter_.Valid());
 
   valid_ = false;
