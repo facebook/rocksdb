@@ -380,3 +380,6 @@ using port::pthread_setspecific;
 using port::truncate;
 
 }  // namespace ROCKSDB_NAMESPACE
+
+// Weak symbol not available on Windows (no-op)
+static inline void RocksDbThreadYield() {}
