@@ -5,8 +5,6 @@
 
 #include "rocksdb/hosting.h"
 
-#include <cassert>
-
 #if defined(OS_LINUX)
 // Hosting process can optionally implement these APIs.
 extern "C" void RocksDbThreadYield() __attribute__((__weak__));
