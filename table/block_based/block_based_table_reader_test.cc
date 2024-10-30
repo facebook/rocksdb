@@ -804,6 +804,114 @@ TEST_P(StrictCapacityLimitReaderTest, StrictCapacityLimitGet) {
   ASSERT_TRUE(hit_memory_limit);
 }
 
+TEST_P(StrictCapacityLimitReaderTest, MultiGet) {
+  Options options;
+  ReadOptions read_opts;
+  std::string dummy_ts(sizeof(uint64_t), '\0');
+  Slice read_timestamp = dummy_ts;
+  if (udt_enabled_) {
+    options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+    read_opts.timestamp = &read_timestamp;
+  }
+  options.persist_user_defined_timestamps = persist_udt_;
+  size_t ts_sz = options.comparator->timestamp_size();
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          100 /* num_block */,
+          true /* mixed_with_human_readable_string_value */, ts_sz);
+
+  // Prepare keys, values, and statuses for MultiGet.
+  autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> keys;
+  autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> keys_without_timestamps;
+  autovector<PinnableSlice, MultiGetContext::MAX_BATCH_SIZE> values;
+  autovector<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
+  autovector<const std::string*, MultiGetContext::MAX_BATCH_SIZE>
+      expected_values;
+  {
+    const int step =
+        static_cast<int>(kv.size()) / MultiGetContext::MAX_BATCH_SIZE;
+    auto it = kv.begin();
+    for (int i = 0; i < MultiGetContext::MAX_BATCH_SIZE; i++) {
+      keys.emplace_back(it->first);
+      if (ts_sz > 0) {
+        Slice ukey_without_ts =
+            ExtractUserKeyAndStripTimestamp(it->first, ts_sz);
+        keys_without_timestamps.push_back(ukey_without_ts);
+      } else {
+        keys_without_timestamps.emplace_back(ExtractUserKey(it->first));
+      }
+      values.emplace_back();
+      statuses.emplace_back();
+      expected_values.push_back(&(it->second));
+      std::advance(it, step);
+    }
+  }
+
+  std::string table_name = "BlockBasedTableReaderTest_MultiGet" +
+                           CompressionTypeToString(compression_type_);
+
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, compression_type_, kv,
+              compression_parallel_threads_, compression_dict_bytes_);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = use_direct_reads_;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* bool prefetch_index_and_filter_in_cache */,
+                           nullptr /* status */, persist_udt_);
+
+  ASSERT_OK(
+      table->VerifyChecksum(read_opts, TableReaderCaller::kUserVerifyChecksum));
+
+  // Ensure that keys are not in cache before MultiGet.
+  for (auto& key : keys) {
+    ASSERT_FALSE(table->TEST_KeyInCache(read_opts, key.ToString()));
+  }
+
+  // Prepare MultiGetContext.
+  autovector<GetContext, MultiGetContext::MAX_BATCH_SIZE> get_context;
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+  for (size_t i = 0; i < keys.size(); ++i) {
+    get_context.emplace_back(options.comparator, nullptr, nullptr, nullptr,
+                             GetContext::kNotFound, ExtractUserKey(keys[i]),
+                             &values[i], nullptr, nullptr, nullptr, nullptr,
+                             true /* do_merge */, nullptr, nullptr, nullptr,
+                             nullptr, nullptr, nullptr);
+    key_context.emplace_back(nullptr, keys_without_timestamps[i], &values[i],
+                             nullptr, nullptr, &statuses.back());
+    key_context.back().get_context = &get_context.back();
+  }
+  for (auto& key_ctx : key_context) {
+    sorted_keys.emplace_back(&key_ctx);
+  }
+  MultiGetContext ctx(&sorted_keys, 0, sorted_keys.size(), 0, read_opts,
+                      fs_.get(), nullptr);
+
+  // Execute MultiGet.
+  MultiGetContext::Range range = ctx.GetMultiGetRange();
+  PerfContext* perf_ctx = get_perf_context();
+  perf_ctx->Reset();
+  table->MultiGet(read_opts, &range, nullptr);
+
+  ASSERT_GE(perf_ctx->block_read_count - perf_ctx->index_block_read_count -
+                perf_ctx->filter_block_read_count -
+                perf_ctx->compression_dict_block_read_count,
+            1);
+  ASSERT_GE(perf_ctx->block_read_byte, 1);
+
+  for (const Status& status : statuses) {
+    ASSERT_OK(status);
+  }
+  // Check that keys are in cache after MultiGet.
+  for (size_t i = 0; i < keys.size(); i++) {
+    ASSERT_TRUE(table->TEST_KeyInCache(read_opts, keys[i]));
+    ASSERT_EQ(values[i].ToString(), *expected_values[i]);
+  }
+}
+
 class BlockBasedTableReaderTestVerifyChecksum
     : public BlockBasedTableReaderTest {
  public:
