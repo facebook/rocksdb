@@ -582,9 +582,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       iter_.Next();
     }
     // This could be a long-running operation due to tombstones, etc.
-    if (RocksDbThreadYield) {
-      RocksDbThreadYield();
-    }
+    ROCKSDB_THREAD_YIELD_HOOK();
   } while (iter_.Valid());
 
   valid_ = false;

@@ -244,8 +244,3 @@ bool GenerateRfcUuid(std::string* output);
 
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
-
-// A temporary hook into long-running RocksDB threads to support modifying their
-// priority etc. This should become a public API hook once the requirements
-// are better understood.
-extern "C" void RocksDbThreadYield() __attribute__((__weak__));
