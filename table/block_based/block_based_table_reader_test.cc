@@ -723,6 +723,76 @@ TEST_P(ChargeTableReaderTest, Basic) {
   }
 }
 
+class StrictCapacityLimitReaderTest : public BlockBasedTableReaderTest {
+ public:
+  StrictCapacityLimitReaderTest() : BlockBasedTableReaderTest() {}
+
+ protected:
+  void ConfigureTableFactory() override {
+    BlockBasedTableOptions table_options;
+
+    table_options.block_cache = std::make_shared<
+        TargetCacheChargeTrackingCache<CacheEntryRole::kBlockBasedTableReader>>(
+        (NewLRUCache(8 * 1024, 0 /* num_shard_bits */,
+                     true /* strict_capacity_limit */)));
+
+    table_options.cache_index_and_filter_blocks = false;
+    table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    table_options.partition_filters = true;
+    table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  }
+};
+
+TEST_P(StrictCapacityLimitReaderTest, StrictCapacityLimitGet) {
+  Options options;
+  size_t ts_sz = options.comparator->timestamp_size();
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          1000 /* num_block */,
+          true /* mixed_with_human_readable_string_value */, ts_sz, false);
+
+  std::string table_name = "BlockBasedTableReaderGetTest_Get" +
+                           CompressionTypeToString(compression_type_);
+
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, compression_type_, kv);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = true;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* prefetch_index_and_filter_in_cache */,
+                           nullptr /* status */);
+
+  ReadOptions read_opts;
+  ASSERT_OK(
+      table->VerifyChecksum(read_opts, TableReaderCaller::kUserVerifyChecksum));
+
+  for (size_t i = 0; i < kv.size(); i += 1) {
+    Slice key = kv[i].first;
+    Slice lkey = key;
+    std::string lookup_ikey;
+    // Reading the first entry in a block caches the whole block.
+    if (i % kEntriesPerBlock == 0) {
+      ASSERT_FALSE(table->TEST_KeyInCache(read_opts, lkey.ToString()));
+    } else {
+      ASSERT_TRUE(table->TEST_KeyInCache(read_opts, lkey.ToString()));
+    }
+    PinnableSlice value;
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, ExtractUserKey(key), &value,
+                           nullptr, nullptr, nullptr, nullptr,
+                           true /* do_merge */, nullptr, nullptr, nullptr,
+                           nullptr, nullptr, nullptr);
+    ASSERT_OK(table->Get(read_opts, lkey, &get_context, nullptr));
+    ASSERT_EQ(value.ToString(), kv[i].second);
+    ASSERT_TRUE(table->TEST_KeyInCache(read_opts, lkey.ToString()));
+  }
+}
+
 class BlockBasedTableReaderTestVerifyChecksum
     : public BlockBasedTableReaderTest {
  public:
@@ -819,6 +889,18 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(false)));
 INSTANTIATE_TEST_CASE_P(
     BlockBasedTableReaderGetTest, BlockBasedTableReaderGetTest,
+    ::testing::Combine(
+        ::testing::ValuesIn(GetSupportedCompressions()), ::testing::Bool(),
+        ::testing::Values(
+            BlockBasedTableOptions::IndexType::kBinarySearch,
+            BlockBasedTableOptions::IndexType::kHashSearch,
+            BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
+            BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey),
+        ::testing::Values(false), ::testing::ValuesIn(test::GetUDTTestModes()),
+        ::testing::Values(1, 2), ::testing::Values(0, 4096),
+        ::testing::Values(false, true)));
+INSTANTIATE_TEST_CASE_P(
+    StrictCapacityLimitReaderTest, StrictCapacityLimitReaderTest,
     ::testing::Combine(
         ::testing::ValuesIn(GetSupportedCompressions()), ::testing::Bool(),
         ::testing::Values(
