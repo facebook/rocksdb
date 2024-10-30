@@ -7,15 +7,19 @@
 
 #include <cassert>
 
+#if defined(OS_LINUX)
 // Hosting process can optionally implement these APIs.
 extern "C" void RocksDbThreadYield() __attribute__((__weak__));
+#endif
 
 namespace ROCKSDB_NAMESPACE {
 
 void Hosting::ThreadYield() {
+#if defined(OS_LINUX)
   if (RocksDbThreadYield) {
     RocksDbThreadYield();
   }
+#endif
 }
 
 }  // namespace ROCKSDB_NAMESPACE
