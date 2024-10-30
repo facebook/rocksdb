@@ -31,6 +31,24 @@ void Java_org_rocksdb_WriteBatchJavaNative_disposeInternalWriteBatchJavaNative(
 }
 
 /**
+ * @brief
+ *
+ * @param slice
+ * @return ROCKSDB_NAMESPACE::WriteBatchJavaNative& this
+ */
+ROCKSDB_NAMESPACE::WriteBatchJavaNative&
+ROCKSDB_NAMESPACE::WriteBatchJavaNative::Append(const Slice& slice) {
+  if (Count() == 0) {
+    WriteBatchInternal::SetContents(this, slice);
+  } else {
+    ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer javaNativeBuffer(slice);
+    javaNativeBuffer.copy_write_batch_from_java(this);
+  }
+
+  return *this;
+}
+
+/**
  * @brief copy operations from Java-side write batch cache to C++ side write
  * batch
  *
@@ -39,21 +57,15 @@ void Java_org_rocksdb_WriteBatchJavaNative_disposeInternalWriteBatchJavaNative(
 void ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer::copy_write_batch_from_java(
     ROCKSDB_NAMESPACE::WriteBatchJavaNative* wb) {
   while (has_next()) {
-    jint op = next_int();
+    jint op = next_byte();
     switch (op) {
       case ROCKSDB_NAMESPACE::ValueType::kTypeValue: {
         ROCKSDB_NAMESPACE::Slice key_slice = slice();
         ROCKSDB_NAMESPACE::Slice value_slice = slice();
 
-        // *** TODO (AP) how to handle exceptions here ?
-        // *** pass in the message to bp->slice ?
-        // *** throw Java exception like KVException
-
-        
         ROCKSDB_NAMESPACE::Status status = wb->Put(key_slice, value_slice);
         if (!status.ok()) {
-          ROCKSDB_NAMESPACE::WriteBatchJavaNativeException::ThrowNew(env,
-                                                                     status);
+          throw WriteBatchJavaNativeException(status);
           return;
         }
       } break;
@@ -67,15 +79,13 @@ void ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer::copy_write_batch_from_java(
 
         auto status = wb->Put(cfh, key_slice, value_slice);
         if(!status.ok()) {
-          ROCKSDB_NAMESPACE::WriteBatchJavaNativeException::ThrowNew(env,
-                                                                     status);
+          throw WriteBatchJavaNativeException(status.code());
           return;
         }
       } break;
 
       default: {
-        ROCKSDB_NAMESPACE::WriteBatchJavaNativeException::ThrowNew(
-            env, std::string("Unexpected writebatch command ")
+        throw WriteBatchJavaNativeException(std::string("Unexpected writebatch command ")
                      .append(std::to_string(op)));
         return;
       } break;
@@ -105,19 +115,12 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNativeArray(
     return -1L;
   }
 
-  auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(
-      env, buf, 0, jbuf_len);
-
-  if (bp->sequence() > 0) {
-    ROCKSDB_NAMESPACE::WriteBatchInternal::SetSequence(
-        wb, static_cast<ROCKSDB_NAMESPACE::SequenceNumber>(bp->sequence()));
-  }
-
   try {
-    bp->copy_write_batch_from_java(wb);
-  } catch (ROCKSDB_NAMESPACE::WriteBatchJavaNativeException&) {
-    // Java exception is set
-    return -1L;
+    wb->Append(
+        ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(buf), jbuf_len));
+  } catch (ROCKSDB_NAMESPACE::WriteBatchJavaNativeException& e) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, e.Message());
+    return e.Code();
   }
 
   env->ReleaseByteArrayElements(jbuf, buf, JNI_ABORT);
@@ -147,19 +150,13 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNativeDirect(
     // exception thrown: OutOfMemoryError
     return -1L;
   }
-  auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(
-      env, buf, jbuf_pos, jbuf_limit);
-
-  if (bp->sequence() > 0) {
-    ROCKSDB_NAMESPACE::WriteBatchInternal::SetSequence(
-        wb, static_cast<ROCKSDB_NAMESPACE::SequenceNumber>(bp->sequence()));
-  }
 
   try {
-    bp->copy_write_batch_from_java(wb);
-  } catch (ROCKSDB_NAMESPACE::WriteBatchJavaNativeException&) {
-    // Java exception is set
-    return -1L;
+    wb->Append(ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(buf + jbuf_pos),
+                                        jbuf_limit - jbuf_pos));
+  } catch (ROCKSDB_NAMESPACE::WriteBatchJavaNativeException& e) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, e.Message());
+    return e.Code();
   }
 
   return GET_CPLUSPLUS_POINTER(wb);
@@ -195,8 +192,8 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeArray(
     return -1L;
   }
   auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(
-      env, buf, 0, jbuf_len);
-
+    ROCKSDB_NAMESPACE::Slice(reinterpret_cast<const char *>(buf), jbuf_len));
+  
   if (bp->sequence() > 0) {
     ROCKSDB_NAMESPACE::WriteBatchInternal::SetSequence(
         wb, static_cast<ROCKSDB_NAMESPACE::SequenceNumber>(bp->sequence()));
@@ -249,7 +246,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeDirect(
     return -1L;
   }
   auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(
-      env, buf, jbuf_pos, jbuf_limit);
+    ROCKSDB_NAMESPACE::Slice(reinterpret_cast<const char *>(buf) + jbuf_pos, jbuf_limit - jbuf_pos));
 
   if (bp->sequence() > 0) {
     ROCKSDB_NAMESPACE::WriteBatchInternal::SetSequence(

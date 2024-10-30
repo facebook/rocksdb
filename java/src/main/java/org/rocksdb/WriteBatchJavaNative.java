@@ -34,7 +34,7 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
     }
   }
 
-  ThreadLocal<CFIDCache> cfidCacheThreadLocal;
+  ThreadLocal<CFIDCache> cfidCacheThreadLocal = ThreadLocal.withInitial(CFIDCache::new);
 
   static class NativeWrapper extends RocksObject {
     protected NativeWrapper(long nativeHandle) {
@@ -97,24 +97,28 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
 
   /**
    * Flush the Java-side buffer to the C++ over JNI
-   * Create the C++ write batch at this point if it does not exist.
+   * Does nothing if the write batch is empty
+   * Creates the C++ write batch at this point if it does not already exist,
+   * and there is data in the batch to send.
    *
    * @throws RocksDBException
    */
   void flush() throws RocksDBException {
-    buffer.putInt(WriteBatchInternal.kCountOffset, entryCount);
+    if (entryCount > 0) {
+      buffer.putInt(WriteBatchInternal.kCountOffset, entryCount);
 
-    buffer.flip();
-    if (buffer.isDirect()) {
-      setNativeHandle(flushWriteBatchJavaNativeDirect(
-          // assert position == 0
-          getNativeHandle(), buffer.capacity(), buffer, buffer.position(), buffer.limit()));
-    } else {
-      setNativeHandle(flushWriteBatchJavaNativeArray(
-          getNativeHandle(), buffer.capacity(), buffer.array(), buffer.limit()));
+      buffer.flip();
+      if (buffer.isDirect()) {
+        setNativeHandle(flushWriteBatchJavaNativeDirect(
+            // assert position == 0
+            getNativeHandle(), buffer.capacity(), buffer, buffer.position(), buffer.limit()));
+      } else {
+        setNativeHandle(flushWriteBatchJavaNativeArray(
+            getNativeHandle(), buffer.capacity(), buffer.array(), buffer.limit()));
+      }
+
+      resetBuffer();
     }
-
-    resetBuffer();
   }
 
   /**
@@ -163,7 +167,8 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
       }
     }
     if (requiredSpace > entrySizeLimit || buffer.remaining() < requiredSpace) {
-      // empty buffer is not big enough, so extend
+      // tell the caller not to use the buffer, it isn't big enough
+      // they should instead use the direct mode over JNI
       return false;
     }
 

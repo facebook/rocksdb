@@ -16,6 +16,7 @@
 
 #include "rocksdb/write_batch.h"
 #include "rocksjni/portal.h"
+#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -27,8 +28,7 @@ namespace ROCKSDB_NAMESPACE {
  */
 class WriteBatchJavaNativeException : public std::exception {
  public:
-  static const int kStatusError =
-      -2;  // there was some other error fetching the value for the key
+  static const int kStatusError = -1;  // generic error value
 
   /**
    * @brief Throw a KVException and a Java exception
@@ -50,55 +50,80 @@ class WriteBatchJavaNativeException : public std::exception {
   }
 
   WriteBatchJavaNativeException(jint code) : kCode_(code) {};
+  WriteBatchJavaNativeException(const Status& status) : kCode_(status.code()) {};
+  WriteBatchJavaNativeException(jint code, const std::string& message)
+      : kCode_(code), message_(message) {};
+  WriteBatchJavaNativeException(const std::string& message)
+      : kCode_(kStatusError), message_(message) {};
 
   jint Code() const { return kCode_; }
 
+  const std::string& Message() const { return message_; }
+
  private:
   jint kCode_;
+  const std::string message_;
 };
 class WriteBatchJavaNative : public WriteBatch {
  public:
   // just copy the simplest WB constructor
   explicit WriteBatchJavaNative(size_t reserved_bytes = 0, size_t max_bytes = 0)
       : WriteBatch(reserved_bytes, max_bytes, 0, 0) {}
+
+  WriteBatchJavaNative& Append(const Slice& slice);
 };
 
 class WriteBatchJavaNativeBuffer {
  private:
-  JNIEnv* env;
-  jbyte* buf;
-  jint buf_len;
-  jint pos;
-
-  const static int ALIGN = sizeof(int) - 1;
+  Slice slice_;
+  uint32_t pos;
 
  public:
-  WriteBatchJavaNativeBuffer(JNIEnv* _env, jbyte* _buf, jint _buf_pos,
-                             jint _buf_len)
-      : env(_env),
-        buf(_buf),
-        buf_len(_buf_len),
-        pos(_buf_pos + sizeof(int64_t) + sizeof(int32_t)) {};
+  WriteBatchJavaNativeBuffer(const Slice& slice)
+      : slice_(slice.data(), slice.size()),
+        pos(sizeof(int64_t) + sizeof(int32_t)) {};
 
   /**
-   * @brief the sequence is a fixed field at the start of the buffer (header)
+   * @brief the sequence value is a fixed field at the start of the buffer (header)
    *
    * @return jlong
    */
   jlong sequence() {
-    jlong result = *reinterpret_cast<jlong*>(buf);
+    jlong result = *reinterpret_cast<const jlong*>(slice_.data());
     return result;
   }
 
   jlong next_long() {
-    jlong result = *reinterpret_cast<jlong*>(buf + pos);
+    jlong result = *reinterpret_cast<const jlong*>(slice_.data() + pos);
     pos += sizeof(jlong);
     return result;
   }
 
   jint next_int() {
-    jint result = *reinterpret_cast<jint*>(buf + pos);
+    jint result = *reinterpret_cast<const jint*>(slice_.data() + pos);
     pos += sizeof(jint);
+    return result;
+  }
+
+  jbyte next_byte() {
+    jbyte result = *reinterpret_cast<const jint*>(slice_.data() + pos);
+    pos += sizeof(jbyte);
+    return result;
+  }
+
+  uint32_t next_varint32() {
+    uint32_t result;
+    const char *beyond = GetVarint32Ptr(slice_.data() + pos, slice_.data() + slice_.size(), &result);
+    if (beyond == nullptr) {
+      std::string msg;
+      msg.append("next_varint32() extends beyond end of write batch buffer ");
+      msg.append(" at ");
+      msg.append(std::to_string(pos));
+      msg.append(" in buffer of size ");
+      msg.append(std::to_string(slice_.size()));
+      throw WriteBatchJavaNativeException(msg);
+    }
+    pos = static_cast<uint32_t>(beyond - slice_.data());
     return result;
   }
 
@@ -107,32 +132,26 @@ class WriteBatchJavaNativeBuffer {
    *
    * @param bytes_to_skip
    */
-  void skip(const jint bytes_to_skip) {
-    if (pos + bytes_to_skip > buf_len) {
-      ROCKSDB_NAMESPACE::WriteBatchJavaNativeException::ThrowNew(
-          env, "Skip beyond end of write batch buffer " +
-                   std::to_string(pos + bytes_to_skip) + " in " +
-                   std::to_string(buf_len));
+  void skip(const uint32_t bytes_to_skip) {
+    if (pos + bytes_to_skip > slice_.size()) {
+      throw WriteBatchJavaNativeException(
+          "Skip beyond end of write batch buffer " +
+          std::to_string(pos + bytes_to_skip) + " in " +
+          std::to_string(slice_.size()));
     }
     pos += bytes_to_skip;
   }
 
-  void skip_aligned(const jint bytes_to_skip) {
-    return skip(align(bytes_to_skip));
-  };
-
-  bool has_next() { return pos < buf_len; };
+  bool has_next() { return pos < slice_.size(); };
 
   const ROCKSDB_NAMESPACE::Slice slice() {
-    jint slice_len = next_int();
-    jbyte* slice_ptr = ptr();
-    skip_aligned(slice_len);
-    return Slice(reinterpret_cast<char*>(slice_ptr), slice_len);
+    uint32_t slice_len = next_varint32();
+    const jbyte* slice_ptr = ptr();
+    skip(slice_len);
+    return Slice(reinterpret_cast<const char*>(slice_ptr), slice_len);
   }
 
-  jbyte* ptr() { return buf + pos; };
-
-  jint align(const jint val) { return (val + ALIGN) & ~ALIGN; }
+  const jbyte* ptr() { return reinterpret_cast<const jbyte*>(slice_.data()) + pos; };
 
   void copy_write_batch_from_java(ROCKSDB_NAMESPACE::WriteBatchJavaNative* wb);
 };
