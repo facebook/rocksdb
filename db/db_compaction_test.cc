@@ -10638,16 +10638,14 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
   options.num_levels = 1;
   env_->SetMockSleep();
   options.env = env_;
-
-  // NOTE: Presumed unnecessary and removed: resetting mock time in env
-
-  // Test dynamically changing ttl.
   options.ttl = 1 * 60 * 60;  // 1 hour
   ASSERT_OK(TryReopen(options));
 
+  // Generate and flush 4 files, each about 10KB
+  // Compaction is manually disabled at this point so we can check
+  // each file's newest_key_time
   Random rnd(301);
   for (int i = 0; i < 4; i++) {
-    // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
       ASSERT_OK(Put(std::to_string(i * 20 + j), rnd.RandomString(980)));
     }
@@ -10673,7 +10671,7 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
     ASSERT_LT(newest_key_time, prev_newest_key_time);
     prev_newest_key_time = newest_key_time;
   }
-  // The delta between the first and last newest_key_times is already 180s
+  // The delta between the first and last newest_key_times is 15s
   uint64_t last_newest_key_time = prev_newest_key_time;
   ASSERT_EQ(15, first_newest_key_time - last_newest_key_time);
 
