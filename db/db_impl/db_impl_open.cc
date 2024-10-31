@@ -289,28 +289,25 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
           "start_time and end_time cannot be the same");
     }
   }
+
+  if (!db_options.write_dbid_to_manifest && !db_options.write_identity_file) {
+    return Status::InvalidArgument(
+        "write_dbid_to_manifest and write_identity_file cannot both be false");
+  }
   return Status::OK();
 }
 
 Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
-  VersionEdit new_db;
+  VersionEdit new_db_edit;
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
-  Status s = SetIdentityFile(write_options, env_, dbname_,
-                             immutable_db_options_.metadata_write_temperature);
+  Status s = SetupDBId(write_options, /*read_only=*/false, /*is_new_db=*/true,
+                       &new_db_edit);
   if (!s.ok()) {
     return s;
   }
-  if (immutable_db_options_.write_dbid_to_manifest) {
-    std::string temp_db_id;
-    s = GetDbIdentityFromIdentityFile(&temp_db_id);
-    if (!s.ok()) {
-      return s;
-    }
-    new_db.SetDBId(temp_db_id);
-  }
-  new_db.SetLogNumber(0);
-  new_db.SetNextFile(2);
-  new_db.SetLastSequence(0);
+  new_db_edit.SetLogNumber(0);
+  new_db_edit.SetNextFile(2);
+  new_db_edit.SetLastSequence(0);
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Creating manifest 1 \n");
   const std::string manifest = DescriptorFileName(dbname_, 1);
@@ -342,7 +339,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
         tmp_set.Contains(FileType::kDescriptorFile)));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
-    new_db.EncodeTo(&record);
+    new_db_edit.EncodeTo(&record);
     s = log.AddRecord(write_options, record);
     if (s.ok()) {
       s = SyncManifest(&immutable_db_options_, write_options, log.file());
@@ -528,7 +525,7 @@ Status DBImpl::Recover(
     }
     assert(s.ok());
   }
-  assert(db_id_.empty());
+  assert(is_new_db || db_id_.empty());
   Status s;
   bool missing_table_file = false;
   if (!immutable_db_options_.best_efforts_recovery) {
@@ -674,7 +671,17 @@ Status DBImpl::Recover(
       }
     }
   }
-  s = SetupDBId(write_options, read_only, recovery_ctx);
+  if (is_new_db) {
+    // Already set up DB ID in NewDB
+  } else if (immutable_db_options_.write_dbid_to_manifest && recovery_ctx) {
+    VersionEdit edit;
+    s = SetupDBId(write_options, read_only, is_new_db, &edit);
+    recovery_ctx->UpdateVersionEdits(
+        versions_->GetColumnFamilySet()->GetDefault(), edit);
+  } else {
+    s = SetupDBId(write_options, read_only, is_new_db, nullptr);
+  }
+  assert(!s.ok() || !db_id_.empty());
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "DB ID: %s\n", db_id_.c_str());
   if (s.ok() && !read_only) {
     s = MaybeUpdateNextFileNumber(recovery_ctx);
@@ -1660,9 +1667,19 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   Arena arena;
   Status s;
   TableProperties table_properties;
+  const auto* ucmp = cfd->internal_comparator().user_comparator();
+  assert(ucmp);
+  const size_t ts_sz = ucmp->timestamp_size();
+  const bool logical_strip_timestamp =
+      ts_sz > 0 && !cfd->ioptions()->persist_user_defined_timestamps;
   {
     ScopedArenaPtr<InternalIterator> iter(
-        mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena));
+        logical_strip_timestamp
+            ? mem->NewTimestampStrippingIterator(
+                  ro, /*seqno_to_time_mapping=*/nullptr, &arena,
+                  /*prefix_extractor=*/nullptr, ts_sz)
+            : mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
+                               /*prefix_extractor=*/nullptr));
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] [WriteLevel0TableForRecovery]"
                     " Level-0 table #%" PRIu64 ": started",
@@ -1681,7 +1698,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     meta.oldest_ancester_time = current_time;
     meta.epoch_number = cfd->NewEpochNumber();
     {
-      auto write_hint = cfd->CalculateSSTWriteHint(0);
+      auto write_hint =
+          cfd->current()->storage_info()->CalculateSSTWriteHint(/*level=*/0);
       mutex_.Unlock();
 
       SequenceNumber earliest_write_conflict_snapshot;
@@ -1696,11 +1714,14 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
           range_del_iters;
       auto range_del_iter =
-          // This is called during recovery, where a live memtable is flushed
-          // directly. In this case, no fragmented tombstone list is cached in
-          // this memtable yet.
-          mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber,
-                                         false /* immutable_memtable */);
+          logical_strip_timestamp
+              ? mem->NewTimestampStrippingRangeTombstoneIterator(
+                    ro, kMaxSequenceNumber, ts_sz)
+              // This is called during recovery, where a live memtable is
+              // flushed directly. In this case, no fragmented tombstone list is
+              // cached in this memtable yet.
+              : mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber,
+                                               false /* immutable_memtable */);
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
@@ -1786,9 +1807,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
     // For UDT in memtable only feature, move up the cutoff timestamp whenever
     // a flush happens.
-    const Comparator* ucmp = cfd->user_comparator();
-    size_t ts_sz = ucmp->timestamp_size();
-    if (ts_sz > 0 && !cfd->ioptions()->persist_user_defined_timestamps) {
+    if (logical_strip_timestamp) {
       Slice mem_newest_udt = mem->GetNewestUDT();
       std::string full_history_ts_low = cfd->GetFullHistoryTsLow();
       if (full_history_ts_low.empty() ||
@@ -1987,46 +2006,7 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
 
 void DBImpl::TrackExistingDataFiles(
     const std::vector<std::string>& existing_data_files) {
-  auto sfm = static_cast<SstFileManagerImpl*>(
-      immutable_db_options_.sst_file_manager.get());
-  assert(sfm);
-  std::vector<ColumnFamilyMetaData> metadata;
-  GetAllColumnFamilyMetaData(&metadata);
-
-  std::unordered_set<std::string> referenced_files;
-  for (const auto& md : metadata) {
-    for (const auto& lmd : md.levels) {
-      for (const auto& fmd : lmd.files) {
-        // We're assuming that each sst file name exists in at most one of
-        // the paths.
-        std::string file_path =
-            fmd.directory + kFilePathSeparator + fmd.relative_filename;
-        sfm->OnAddFile(file_path, fmd.size).PermitUncheckedError();
-        referenced_files.insert(file_path);
-      }
-    }
-    for (const auto& bmd : md.blob_files) {
-      std::string name = bmd.blob_file_name;
-      // The BlobMetaData.blob_file_name may start with "/".
-      if (!name.empty() && name[0] == kFilePathSeparator) {
-        name = name.substr(1);
-      }
-      // We're assuming that each blob file name exists in at most one of
-      // the paths.
-      std::string file_path = bmd.blob_file_path + kFilePathSeparator + name;
-      sfm->OnAddFile(file_path, bmd.blob_file_size).PermitUncheckedError();
-      referenced_files.insert(file_path);
-    }
-  }
-
-  for (const auto& file_path : existing_data_files) {
-    if (referenced_files.find(file_path) != referenced_files.end()) {
-      continue;
-    }
-    // There shouldn't be any duplicated files. In case there is, SstFileManager
-    // will take care of deduping it.
-    sfm->OnAddFile(file_path).PermitUncheckedError();
-  }
+  TrackOrUntrackFiles(existing_data_files, /*track=*/true);
 }
 
 Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
@@ -2168,6 +2148,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   if (s.ok()) {
     s = impl->LogAndApplyForRecovery(recovery_ctx);
+  }
+
+  if (s.ok() && !impl->immutable_db_options_.write_identity_file) {
+    // On successful recovery, delete an obsolete IDENTITY file to avoid DB ID
+    // inconsistency
+    impl->env_->DeleteFile(IdentityFileName(impl->dbname_))
+        .PermitUncheckedError();
   }
 
   if (s.ok() && impl->immutable_db_options_.persist_stats_to_disk) {

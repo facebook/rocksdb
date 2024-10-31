@@ -3012,19 +3012,25 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupForCompactionDebt) {
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   {
-    // 1MB debt is way bigger than bottommost data so definitely triggers
-    // speedup.
     VersionStorageInfo* vstorage = cfd->current()->storage_info();
-    vstorage->TEST_set_estimated_compaction_needed_bytes(1048576 /* 1MB */,
-                                                         dbmu);
-    RecalculateWriteStallConditions(cfd, mutable_cf_options);
-    ASSERT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
-
     // Eight bytes is way smaller than bottommost data so definitely does not
     // trigger speedup.
     vstorage->TEST_set_estimated_compaction_needed_bytes(8, dbmu);
     RecalculateWriteStallConditions(cfd, mutable_cf_options);
     ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+
+    // 1MB is much larger than bottommost level size. However, since it's too
+    // small in terms of absolute size, it does not trigger parallel compaction
+    // in this case (see GetPendingCompactionBytesForCompactionSpeedup()).
+    vstorage->TEST_set_estimated_compaction_needed_bytes(1048576 /* 1MB */,
+                                                         dbmu);
+    RecalculateWriteStallConditions(cfd, mutable_cf_options);
+    ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+
+    vstorage->TEST_set_estimated_compaction_needed_bytes(
+        2 * mutable_cf_options.max_bytes_for_level_base, dbmu);
+    RecalculateWriteStallConditions(cfd, mutable_cf_options);
+    ASSERT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
   }
 }
 
@@ -3866,6 +3872,91 @@ TEST_F(ManualFlushSkipRetainUDTTest, ManualFlush) {
   ASSERT_OK(Flush(0));
   CheckEffectiveCutoffTime(2);
   CheckAutomaticFlushRetainUDT(3);
+
+  Close();
+}
+
+TEST_F(ManualFlushSkipRetainUDTTest, FlushRemovesStaleEntries) {
+  column_family_options_.max_write_buffer_number = 4;
+  Open();
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(0)));
+
+  ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
+  ColumnFamilyData* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
+  for (int version = 0; version < 100; version++) {
+    if (version == 50) {
+      ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_SwitchMemtable(cfd));
+    }
+    ASSERT_OK(
+        Put(0, "foo", EncodeAsUint64(version), "v" + std::to_string(version)));
+  }
+
+  ASSERT_OK(Flush(0));
+  TablePropertiesCollection tables_properties;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&tables_properties));
+  ASSERT_EQ(1, tables_properties.size());
+  std::shared_ptr<const TableProperties> table_properties =
+      tables_properties.begin()->second;
+  ASSERT_EQ(1, table_properties->num_entries);
+  ASSERT_EQ(0, table_properties->num_deletions);
+  ASSERT_EQ(0, table_properties->num_range_deletions);
+  CheckEffectiveCutoffTime(100);
+  CheckAutomaticFlushRetainUDT(101);
+
+  Close();
+}
+
+TEST_F(ManualFlushSkipRetainUDTTest, RangeDeletionFlushRemovesStaleEntries) {
+  column_family_options_.max_write_buffer_number = 4;
+  Open();
+  // TODO(yuzhangyu): a non 0 full history ts low is needed for this garbage
+  // collection to kick in. This doesn't work well for the very first flush of
+  // the column family. Not a big issue, but would be nice to improve this.
+  ASSERT_OK(db_->IncreaseFullHistoryTsLow(handles_[0], EncodeAsUint64(9)));
+
+  for (int i = 10; i < 100; i++) {
+    ASSERT_OK(Put(0, "foo" + std::to_string(i), EncodeAsUint64(i),
+                  "val" + std::to_string(i)));
+    if (i % 2 == 1) {
+      ASSERT_OK(db_->DeleteRange(WriteOptions(), "foo" + std::to_string(i - 1),
+                                 "foo" + std::to_string(i), EncodeAsUint64(i)));
+    }
+  }
+
+  ASSERT_OK(Flush(0));
+  CheckEffectiveCutoffTime(100);
+  std::string read_ts = EncodeAsUint64(100);
+  std::string min_ts = EncodeAsUint64(0);
+  ReadOptions ropts;
+  Slice read_ts_slice = read_ts;
+  std::string value;
+  ropts.timestamp = &read_ts_slice;
+  {
+    Iterator* iter = db_->NewIterator(ropts);
+    iter->SeekToFirst();
+    int i = 11;
+    while (iter->Valid()) {
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("foo" + std::to_string(i), iter->key());
+      ASSERT_EQ("val" + std::to_string(i), iter->value());
+      ASSERT_EQ(min_ts, iter->timestamp());
+      iter->Next();
+      i += 2;
+    }
+    ASSERT_OK(iter->status());
+    delete iter;
+  }
+  TablePropertiesCollection tables_properties;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&tables_properties));
+  ASSERT_EQ(1, tables_properties.size());
+  std::shared_ptr<const TableProperties> table_properties =
+      tables_properties.begin()->second;
+  // 45 point data + 45 range deletions. 45 obsolete point data are garbage
+  // collected.
+  ASSERT_EQ(90, table_properties->num_entries);
+  ASSERT_EQ(45, table_properties->num_deletions);
+  ASSERT_EQ(45, table_properties->num_range_deletions);
 
   Close();
 }

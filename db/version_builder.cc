@@ -1636,12 +1636,12 @@ class VersionBuilder::Rep {
     return s;
   }
 
-  Status LoadTableHandlers(
-      InternalStats* internal_stats, int max_threads,
-      bool prefetch_index_and_filter_in_cache, bool is_initial_load,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
-      uint8_t block_protection_bytes_per_key) {
+  Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
+                           bool prefetch_index_and_filter_in_cache,
+                           bool is_initial_load,
+                           const MutableCFOptions& mutable_cf_options,
+                           size_t max_file_size_for_l0_meta_pin,
+                           const ReadOptions& read_options) {
     assert(table_cache_ != nullptr);
     assert(!track_found_and_missing_files_ || valid_version_available_);
 
@@ -1716,7 +1716,7 @@ class VersionBuilder::Rep {
         statuses[file_idx] = table_cache_->FindTable(
             read_options, file_options_,
             *(base_vstorage_->InternalComparator()), *file_meta, &handle,
-            block_protection_bytes_per_key, prefix_extractor, false /*no_io */,
+            mutable_cf_options, false /*no_io */,
             internal_stats->GetFileReadHist(level), false, level,
             prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin,
             file_meta->temperature);
@@ -1777,13 +1777,12 @@ Status VersionBuilder::SaveTo(VersionStorageInfo* vstorage) const {
 Status VersionBuilder::LoadTableHandlers(
     InternalStats* internal_stats, int max_threads,
     bool prefetch_index_and_filter_in_cache, bool is_initial_load,
-    const std::shared_ptr<const SliceTransform>& prefix_extractor,
-    size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
-    uint8_t block_protection_bytes_per_key) {
-  return rep_->LoadTableHandlers(
-      internal_stats, max_threads, prefetch_index_and_filter_in_cache,
-      is_initial_load, prefix_extractor, max_file_size_for_l0_meta_pin,
-      read_options, block_protection_bytes_per_key);
+    const MutableCFOptions& mutable_cf_options,
+    size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options) {
+  return rep_->LoadTableHandlers(internal_stats, max_threads,
+                                 prefetch_index_and_filter_in_cache,
+                                 is_initial_load, mutable_cf_options,
+                                 max_file_size_for_l0_meta_pin, read_options);
 }
 
 void VersionBuilder::CreateOrReplaceSavePoint() {
@@ -1814,16 +1813,15 @@ Status VersionBuilder::SaveSavePointTo(VersionStorageInfo* vstorage) const {
 Status VersionBuilder::LoadSavePointTableHandlers(
     InternalStats* internal_stats, int max_threads,
     bool prefetch_index_and_filter_in_cache, bool is_initial_load,
-    const std::shared_ptr<const SliceTransform>& prefix_extractor,
-    size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
-    uint8_t block_protection_bytes_per_key) {
+    const MutableCFOptions& mutable_cf_options,
+    size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options) {
   if (!savepoint_ || !savepoint_->ValidVersionAvailable()) {
     return Status::InvalidArgument();
   }
   return savepoint_->LoadTableHandlers(
       internal_stats, max_threads, prefetch_index_and_filter_in_cache,
-      is_initial_load, prefix_extractor, max_file_size_for_l0_meta_pin,
-      read_options, block_protection_bytes_per_key);
+      is_initial_load, mutable_cf_options, max_file_size_for_l0_meta_pin,
+      read_options);
 }
 
 void VersionBuilder::ClearSavePoint() { savepoint_.reset(nullptr); }

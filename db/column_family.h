@@ -16,6 +16,7 @@
 
 #include "cache/cache_reservation_manager.h"
 #include "db/memtable_list.h"
+#include "db/snapshot_checker.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/write_batch_internal.h"
@@ -385,9 +386,9 @@ class ColumnFamilyData {
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
   uint64_t GetLiveSstFilesSize() const;   // REQUIRE: DB mutex held
   uint64_t GetTotalBlobFileSize() const;  // REQUIRE: DB mutex held
+  // REQUIRE: DB mutex held
   void SetMemtable(MemTable* new_mem) {
-    uint64_t memtable_id = last_memtable_id_.fetch_add(1) + 1;
-    new_mem->SetID(memtable_id);
+    new_mem->SetID(++last_memtable_id_);
     mem_ = new_mem;
   }
 
@@ -407,9 +408,11 @@ class ColumnFamilyData {
   // REQUIRES: DB mutex held
   bool NeedsCompaction() const;
   // REQUIRES: DB mutex held
-  Compaction* PickCompaction(const MutableCFOptions& mutable_options,
-                             const MutableDBOptions& mutable_db_options,
-                             LogBuffer* log_buffer);
+  Compaction* PickCompaction(
+      const MutableCFOptions& mutable_options,
+      const MutableDBOptions& mutable_db_options,
+      const std::vector<SequenceNumber>& existing_snapshots,
+      const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer);
 
   // Check if the passed range overlap with any running compactions.
   // REQUIRES: DB mutex held
@@ -510,8 +513,6 @@ class ColumnFamilyData {
   const ColumnFamilyOptions& initial_cf_options() {
     return initial_cf_options_;
   }
-
-  Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
 
   // created_dirs remembers directory created, so that we don't need to call
   // the same data creation operation again.
@@ -671,7 +672,7 @@ class ColumnFamilyData {
   bool allow_2pc_;
 
   // Memtable id to track flush.
-  std::atomic<uint64_t> last_memtable_id_;
+  uint64_t last_memtable_id_;
 
   // Directories corresponding to cf_paths.
   std::vector<std::shared_ptr<FSDirectory>> data_dirs_;

@@ -732,8 +732,31 @@ Status FileExpectedStateManager::Restore(DB* db) {
     s = Env::Default()->DeleteFile(state_file_path);
   }
   if (s.ok()) {
-    saved_seqno_ = kMaxSequenceNumber;
-    s = Env::Default()->DeleteFile(trace_file_path);
+    std::vector<std::string> expected_state_dir_children;
+    s = Env::Default()->GetChildren(expected_state_dir_path_,
+                                    &expected_state_dir_children);
+    if (s.ok()) {
+      for (size_t i = 0; i < expected_state_dir_children.size(); ++i) {
+        const auto& filename = expected_state_dir_children[i];
+        if (filename.size() >= kTraceFilenameSuffix.size() &&
+            filename.rfind(kTraceFilenameSuffix) ==
+                filename.size() - kTraceFilenameSuffix.size()) {
+          SequenceNumber found_seqno = ParseUint64(filename.substr(
+              0, filename.size() - kTraceFilenameSuffix.size()));
+          // Delete older trace files, but keep the one we just replayed for
+          // debugging purposes
+          if (found_seqno < saved_seqno_) {
+            s = Env::Default()->DeleteFile(GetPathForFilename(filename));
+          }
+        }
+        if (!s.ok()) {
+          break;
+        }
+      }
+    }
+    if (s.ok()) {
+      saved_seqno_ = kMaxSequenceNumber;
+    }
   }
   return s;
 }

@@ -133,7 +133,8 @@ CompactionPicker::CompactionPicker(const ImmutableOptions& ioptions,
 CompactionPicker::~CompactionPicker() = default;
 
 // Delete this compaction from the list of running compactions.
-void CompactionPicker::ReleaseCompactionFiles(Compaction* c, Status status) {
+void CompactionPicker::ReleaseCompactionFiles(Compaction* c,
+                                              const Status& status) {
   UnregisterCompaction(c);
   if (!status.ok()) {
     c->ResetNextCompactionIndex();
@@ -379,7 +380,8 @@ Compaction* CompactionPicker::CompactFiles(
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       mutable_cf_options.default_write_temperature,
       compact_options.max_subcompactions,
-      /* grandparents */ {}, true);
+      /* grandparents */ {}, /* earliest_snapshot */ std::nullopt,
+      /* snapshot_checker */ nullptr, true);
   RegisterCompaction(c);
   return c;
 }
@@ -676,7 +678,9 @@ Compaction* CompactionPicker::CompactRange(
         GetCompressionOptions(mutable_cf_options, vstorage, output_level),
         mutable_cf_options.default_write_temperature,
         compact_range_options.max_subcompactions,
-        /* grandparents */ {}, /* is manual */ true, trim_ts, /* score */ -1,
+        /* grandparents */ {}, /* earliest_snapshot */ std::nullopt,
+        /* snapshot_checker */ nullptr,
+        /* is manual */ true, trim_ts, /* score */ -1,
         /* deletion_compaction */ false, /* l0_files_might_overlap */ true,
         CompactionReason::kUnknown,
         compact_range_options.blob_garbage_collection_policy,
@@ -865,6 +869,7 @@ Compaction* CompactionPicker::CompactRange(
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       mutable_cf_options.default_write_temperature,
       compact_range_options.max_subcompactions, std::move(grandparents),
+      /* earliest_snapshot */ std::nullopt, /* snapshot_checker */ nullptr,
       /* is manual */ true, trim_ts, /* score */ -1,
       /* deletion_compaction */ false, /* l0_files_might_overlap */ true,
       CompactionReason::kUnknown,
@@ -1170,7 +1175,8 @@ void CompactionPicker::UnregisterCompaction(Compaction* c) {
 
 void CompactionPicker::PickFilesMarkedForCompaction(
     const std::string& cf_name, VersionStorageInfo* vstorage, int* start_level,
-    int* output_level, CompactionInputFiles* start_level_inputs) {
+    int* output_level, CompactionInputFiles* start_level_inputs,
+    std::function<bool(const FileMetaData*)> skip_marked_file) {
   if (vstorage->FilesMarkedForCompaction().empty()) {
     return;
   }
@@ -1180,6 +1186,9 @@ void CompactionPicker::PickFilesMarkedForCompaction(
     // If this assert() fails that means that some function marked some
     // files as being_compacted, but didn't call ComputeCompactionScore()
     assert(!level_file.second->being_compacted);
+    if (skip_marked_file(level_file.second)) {
+      return false;
+    }
     *start_level = level_file.first;
     *output_level =
         (*start_level == 0) ? vstorage->base_level() : *start_level + 1;

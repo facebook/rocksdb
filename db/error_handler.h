@@ -56,7 +56,8 @@ class ErrorHandler {
   Status::Severity GetErrorSeverity(BackgroundErrorReason reason,
                                     Status::Code code, Status::SubCode subcode);
 
-  void SetBGError(const Status& bg_err, BackgroundErrorReason reason);
+  void SetBGError(const Status& bg_err, BackgroundErrorReason reason,
+                  bool wal_related = false);
 
   Status GetBGError() const { return bg_error_; }
 

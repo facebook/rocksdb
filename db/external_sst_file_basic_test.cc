@@ -1790,8 +1790,8 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
     SstFileWriter sst_file_writer(EnvOptions(), options);
     std::string file1 = sst_files_dir_ + "file1.sst";
     ASSERT_OK(sst_file_writer.Open(file1));
-    ASSERT_OK(sst_file_writer.Put("a", "z"));
-    ASSERT_OK(sst_file_writer.Put("i", "m"));
+    ASSERT_OK(sst_file_writer.Put("a", "a1"));
+    ASSERT_OK(sst_file_writer.Put("i", "i1"));
     ExternalSstFileInfo file1_info;
     ASSERT_OK(sst_file_writer.Finish(&file1_info));
     files.push_back(std::move(file1));
@@ -1800,16 +1800,29 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
     SstFileWriter sst_file_writer(EnvOptions(), options);
     std::string file2 = sst_files_dir_ + "file2.sst";
     ASSERT_OK(sst_file_writer.Open(file2));
-    ASSERT_OK(sst_file_writer.Put("i", "k"));
+    ASSERT_OK(sst_file_writer.Put("i", "i2"));
     ExternalSstFileInfo file2_info;
     ASSERT_OK(sst_file_writer.Finish(&file2_info));
     files.push_back(std::move(file2));
   }
 
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file3 = sst_files_dir_ + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    ASSERT_OK(sst_file_writer.Put("j", "j1"));
+    ASSERT_OK(sst_file_writer.Put("m", "m1"));
+    ExternalSstFileInfo file3_info;
+    ASSERT_OK(sst_file_writer.Finish(&file3_info));
+    files.push_back(std::move(file3));
+  }
+
   IngestExternalFileOptions ifo;
   ASSERT_OK(db_->IngestExternalFile(files, ifo));
-  ASSERT_EQ(Get("a"), "z");
-  ASSERT_EQ(Get("i"), "k");
+  ASSERT_EQ(Get("a"), "a1");
+  ASSERT_EQ(Get("i"), "i2");
+  ASSERT_EQ(Get("j"), "j1");
+  ASSERT_EQ(Get("m"), "m1");
 
   int total_keys = 0;
   Iterator* iter = db_->NewIterator(ReadOptions());
@@ -1817,10 +1830,355 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
     ASSERT_OK(iter->status());
     total_keys++;
   }
+  ASSERT_OK(iter->status());
   delete iter;
-  ASSERT_EQ(total_keys, 2);
+  ASSERT_EQ(total_keys, 4);
 
-  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(6));
+  ASSERT_EQ(2, NumTableFilesAtLevel(5));
+}
+
+TEST_F(ExternalSSTFileBasicTest, AtomicReplaceDataWithStandaloneRangeDeletion) {
+  Options options = CurrentOptions();
+  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  DestroyAndReopen(options);
+
+  std::vector<std::string> files;
+  {
+    // Writes first version of data in range partitioned files.
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file1 = sst_files_dir_ + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    ASSERT_OK(sst_file_writer.Put("a", "a1"));
+    ASSERT_OK(sst_file_writer.Put("b", "b1"));
+    ExternalSstFileInfo file1_info;
+    ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    files.push_back(std::move(file1));
+
+    std::string file2 = sst_files_dir_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.Put("x", "x1"));
+    ASSERT_OK(sst_file_writer.Put("y", "y1"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+  }
+
+  IngestExternalFileOptions ifo;
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  ASSERT_EQ(Get("a"), "a1");
+  ASSERT_EQ(Get("b"), "b1");
+  ASSERT_EQ(Get("x"), "x1");
+  ASSERT_EQ(Get("y"), "y1");
+  ASSERT_EQ(2, NumTableFilesAtLevel(6));
+
+  {
+    // Atomically delete old version of data with one range delete file.
+    // And a new batch of range partitioned files with new version of data.
+    files.clear();
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file2 = sst_files_dir_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.DeleteRange("a", "z"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+
+    std::string file3 = sst_files_dir_ + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    ASSERT_OK(sst_file_writer.Put("a", "a2"));
+    ASSERT_OK(sst_file_writer.Put("b", "b2"));
+    ExternalSstFileInfo file3_info;
+    ASSERT_OK(sst_file_writer.Finish(&file3_info));
+    files.push_back(std::move(file3));
+
+    std::string file4 = sst_files_dir_ + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    ASSERT_OK(sst_file_writer.Put("x", "x2"));
+    ASSERT_OK(sst_file_writer.Put("y", "y2"));
+    ExternalSstFileInfo file4_info;
+    ASSERT_OK(sst_file_writer.Finish(&file4_info));
+    files.push_back(std::move(file4));
+  }
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  auto seqno_before_ingestion = db_->GetLatestSequenceNumber();
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  // Overlapping files each occupy one new sequence number.
+  ASSERT_EQ(db_->GetLatestSequenceNumber(), seqno_before_ingestion + 3);
+
+  // Check old version of data, big range deletion, new version of data are
+  // on separate levels.
+  ASSERT_EQ(2, NumTableFilesAtLevel(4));
+  ASSERT_EQ(1, NumTableFilesAtLevel(5));
+  ASSERT_EQ(2, NumTableFilesAtLevel(6));
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(2, NumTableFilesAtLevel(4));
+  ASSERT_EQ(1, NumTableFilesAtLevel(5));
+  ASSERT_EQ(2, NumTableFilesAtLevel(6));
+
+  bool compaction_iter_input_checked = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::MakeInputIterator:NewCompactionMergingIterator",
+      [&](void* arg) {
+        size_t* num_input_files = static_cast<size_t*>(arg);
+        EXPECT_EQ(1, *num_input_files);
+        compaction_iter_input_checked = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  db_->ReleaseSnapshot(snapshot);
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(2, NumTableFilesAtLevel(4));
+  ASSERT_EQ(0, NumTableFilesAtLevel(5));
+  ASSERT_EQ(0, NumTableFilesAtLevel(6));
+  ASSERT_TRUE(compaction_iter_input_checked);
+
+  ASSERT_EQ(Get("a"), "a2");
+  ASSERT_EQ(Get("b"), "b2");
+  ASSERT_EQ(Get("x"), "x2");
+  ASSERT_EQ(Get("y"), "y2");
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(ExternalSSTFileBasicTest,
+       PartiallyReplaceDataWithOneStandaloneRangeDeletion) {
+  Options options = CurrentOptions();
+  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  DestroyAndReopen(options);
+
+  std::vector<std::string> files;
+  {
+    // Writes first version of data in range partitioned files.
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file1 = sst_files_dir_ + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    ASSERT_OK(sst_file_writer.Put("a", "a1"));
+    ASSERT_OK(sst_file_writer.Put("b", "b1"));
+    ExternalSstFileInfo file1_info;
+    ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    files.push_back(std::move(file1));
+
+    std::string file2 = sst_files_dir_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.Put("x", "x1"));
+    ASSERT_OK(sst_file_writer.Put("y", "y"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+  }
+
+  IngestExternalFileOptions ifo;
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  ASSERT_EQ(Get("a"), "a1");
+  ASSERT_EQ(Get("b"), "b1");
+  ASSERT_EQ(Get("x"), "x1");
+  ASSERT_EQ(Get("y"), "y");
+  ASSERT_EQ(2, NumTableFilesAtLevel(6));
+
+  {
+    // Partially delete old version of data with one range delete file. And
+    // add new version of data for deleted range.
+    files.clear();
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file2 = sst_files_dir_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.DeleteRange("a", "y"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+    std::string file3 = sst_files_dir_ + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    ASSERT_OK(sst_file_writer.Put("a", "a2"));
+    ASSERT_OK(sst_file_writer.Put("b", "b2"));
+    ExternalSstFileInfo file3_info;
+    ASSERT_OK(sst_file_writer.Finish(&file3_info));
+    files.push_back(std::move(file3));
+    std::string file4 = sst_files_dir_ + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    ASSERT_OK(sst_file_writer.Put("h", "h1"));
+    ASSERT_OK(sst_file_writer.Put("x", "x2"));
+    ExternalSstFileInfo file4_info;
+    ASSERT_OK(sst_file_writer.Finish(&file4_info));
+    files.push_back(std::move(file4));
+  }
+
+  bool compaction_iter_input_checked = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::MakeInputIterator:NewCompactionMergingIterator",
+      [&](void* arg) {
+        size_t* num_input_files = static_cast<size_t*>(arg);
+        EXPECT_EQ(2, *num_input_files);
+        compaction_iter_input_checked = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(2, NumTableFilesAtLevel(4));
+  ASSERT_EQ(0, NumTableFilesAtLevel(5));
+  ASSERT_EQ(1, NumTableFilesAtLevel(6));
+  ASSERT_TRUE(compaction_iter_input_checked);
+
+  ASSERT_EQ(Get("a"), "a2");
+  ASSERT_EQ(Get("b"), "b2");
+  ASSERT_EQ(Get("h"), "h1");
+  ASSERT_EQ(Get("x"), "x2");
+  ASSERT_EQ(Get("y"), "y");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(ExternalSSTFileBasicTest,
+       PartiallyReplaceDataWithMultipleStandaloneRangeDeletions) {
+  Options options = CurrentOptions();
+  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  DestroyAndReopen(options);
+
+  std::vector<std::string> files;
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file1 = sst_files_dir_ + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    ASSERT_OK(sst_file_writer.Put("a", "a1"));
+    ExternalSstFileInfo file1_info;
+    ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    files.push_back(std::move(file1));
+    std::string file2 = sst_files_dir_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.Put("h", "h"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+    std::string file3 = sst_files_dir_ + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    ASSERT_OK(sst_file_writer.Put("x", "x1"));
+    ExternalSstFileInfo file3_info;
+    ASSERT_OK(sst_file_writer.Finish(&file3_info));
+    files.push_back(std::move(file3));
+  }
+
+  IngestExternalFileOptions ifo;
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  ASSERT_EQ(Get("a"), "a1");
+  ASSERT_EQ(Get("h"), "h");
+  ASSERT_EQ(Get("x"), "x1");
+  ASSERT_EQ(3, NumTableFilesAtLevel(6));
+
+  {
+    files.clear();
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file4 = sst_files_dir_ + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    ASSERT_OK(sst_file_writer.DeleteRange("a", "b"));
+    ExternalSstFileInfo file4_info;
+    ASSERT_OK(sst_file_writer.Finish(&file4_info));
+    files.push_back(std::move(file4));
+    std::string file5 = sst_files_dir_ + "file5.sst";
+    ASSERT_OK(sst_file_writer.Open(file5));
+    ASSERT_OK(sst_file_writer.DeleteRange("x", "y"));
+    ExternalSstFileInfo file5_info;
+    ASSERT_OK(sst_file_writer.Finish(&file5_info));
+    files.push_back(std::move(file5));
+    std::string file6 = sst_files_dir_ + "file6.sst";
+    ASSERT_OK(sst_file_writer.Open(file6));
+    ASSERT_OK(sst_file_writer.Put("a", "a2"));
+    ExternalSstFileInfo file6_info;
+    ASSERT_OK(sst_file_writer.Finish(&file6_info));
+    files.push_back(std::move(file6));
+    std::string file7 = sst_files_dir_ + "file7.sst";
+    ASSERT_OK(sst_file_writer.Open(file7));
+    ASSERT_OK(sst_file_writer.Put("x", "x2"));
+    ExternalSstFileInfo file7_info;
+    ASSERT_OK(sst_file_writer.Finish(&file7_info));
+    files.push_back(std::move(file7));
+  }
+
+  int num_compactions = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::MakeInputIterator:NewCompactionMergingIterator",
+      [&](void* arg) {
+        size_t* num_input_files = static_cast<size_t*>(arg);
+        EXPECT_EQ(1, *num_input_files);
+        num_compactions += 1;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(2, NumTableFilesAtLevel(4));
+  ASSERT_EQ(0, NumTableFilesAtLevel(5));
+  ASSERT_EQ(1, NumTableFilesAtLevel(6));
+  ASSERT_EQ(2, num_compactions);
+
+  ASSERT_EQ(Get("a"), "a2");
+  ASSERT_EQ(Get("h"), "h");
+  ASSERT_EQ(Get("x"), "x2");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(ExternalSSTFileBasicTest, StandaloneRangeDeletionEndKeyIsExclusive) {
+  Options options = CurrentOptions();
+  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  DestroyAndReopen(options);
+
+  std::vector<std::string> files;
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file1 = sst_files_dir_ + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    ASSERT_OK(sst_file_writer.Put("a", "a"));
+    ASSERT_OK(sst_file_writer.Put("b", "b"));
+    ExternalSstFileInfo file1_info;
+    ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    files.push_back(std::move(file1));
+  }
+
+  IngestExternalFileOptions ifo;
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  ASSERT_EQ(Get("a"), "a");
+  ASSERT_EQ(Get("b"), "b");
+  ASSERT_EQ(1, NumTableFilesAtLevel(6));
+
+  {
+    // A standalone range deletion with its exclusive end matching the range end
+    // of file doesn't fully delete it.
+    files.clear();
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file2 = sst_files_dir_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.DeleteRange("a", "b"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+  }
+
+  bool compaction_iter_input_checked = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::MakeInputIterator:NewCompactionMergingIterator",
+      [&](void* arg) {
+        size_t* num_input_files = static_cast<size_t*>(arg);
+        // Standalone range deletion file for ["a", "b") + file with ["a", "b"].
+        EXPECT_EQ(2, *num_input_files);
+        compaction_iter_input_checked = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(0, NumTableFilesAtLevel(4));
+  ASSERT_EQ(0, NumTableFilesAtLevel(5));
+  ASSERT_EQ(1, NumTableFilesAtLevel(6));
+  ASSERT_TRUE(compaction_iter_input_checked);
+
+  ASSERT_EQ(Get("a"), "NOT_FOUND");
+  ASSERT_EQ(Get("b"), "b");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(ExternalSSTFileBasicTest, IngestFileAfterDBPut) {
@@ -2045,7 +2403,7 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevel) {
     ifo.fail_if_not_bottommost_level = true;
     ifo.snapshot_consistency = true;
     const Status s = db_->IngestExternalFile({file_path}, ifo);
-    ASSERT_TRUE(s.IsTryAgain());
+    ASSERT_TRUE(s.ok());
   }
 
   // Test level compaction

@@ -381,7 +381,7 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
 //    BackgroundErrorReason reason) will be called to handle other error cases
 //    such as delegating to SstFileManager to handle no space error.
 void ErrorHandler::SetBGError(const Status& bg_status,
-                              BackgroundErrorReason reason) {
+                              BackgroundErrorReason reason, bool wal_related) {
   db_mutex_->AssertHeld();
   Status tmp_status = bg_status;
   IOStatus bg_io_err = status_to_io_status(std::move(tmp_status));
@@ -389,8 +389,8 @@ void ErrorHandler::SetBGError(const Status& bg_status,
   if (bg_io_err.ok()) {
     return;
   }
-  ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s",
-                 bg_io_err.ToString().c_str());
+  ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s, reason %d",
+                 bg_io_err.ToString().c_str(), static_cast<int>(reason));
 
   RecordStats({ERROR_HANDLER_BG_ERROR_COUNT, ERROR_HANDLER_BG_IO_ERROR_COUNT},
               {} /* int_histograms */);
@@ -412,6 +412,31 @@ void ErrorHandler::SetBGError(const Status& bg_status,
     recover_context_ = context;
     return;
   }
+  if (wal_related) {
+    assert(reason == BackgroundErrorReason::kWriteCallback ||
+           reason == BackgroundErrorReason::kMemTable ||
+           reason == BackgroundErrorReason::kFlush);
+  }
+  if (db_options_.manual_wal_flush && wal_related && bg_io_err.IsIOError()) {
+    // With manual_wal_flush, a WAL write failure can drop buffered WAL writes.
+    // Memtables and WAL then become inconsistent. A successful memtable flush
+    // on one CF can cause CFs to be inconsistent upon restart. Before we fix
+    // the bug in auto recovery from WAL write failures that can flush one CF
+    // at a time, we set the error severity to fatal to disallow auto recovery.
+    // TODO: remove parameter `wal_related` once we can automatically recover
+    //  from WAL write failures.
+    bool auto_recovery = false;
+    Status bg_err(new_bg_io_err, Status::Severity::kFatalError);
+    CheckAndSetRecoveryAndBGError(bg_err);
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "ErrorHandler: A potentially WAL error happened, set "
+                   "background IO error as fatal error\n");
+    EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
+                                          &bg_err, db_mutex_, &auto_recovery);
+    recover_context_ = context;
+    return;
+  }
+
   if (bg_io_err.subcode() != IOStatus::SubCode::kNoSpace &&
       (bg_io_err.GetScope() == IOStatus::IOErrorScope::kIOErrorScopeFile ||
        bg_io_err.GetRetryable())) {

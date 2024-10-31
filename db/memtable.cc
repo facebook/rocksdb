@@ -365,9 +365,12 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 
 class MemTableIterator : public InternalIterator {
  public:
-  MemTableIterator(const MemTable& mem, const ReadOptions& read_options,
-                   UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping,
-                   Arena* arena, bool use_range_del_table = false)
+  enum Kind { kPointEntries, kRangeDelEntries };
+  MemTableIterator(
+      Kind kind, const MemTable& mem, const ReadOptions& read_options,
+      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping = nullptr,
+      Arena* arena = nullptr,
+      const SliceTransform* cf_prefix_extractor = nullptr)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
         comparator_(mem.comparator_),
@@ -382,14 +385,21 @@ class MemTableIterator : public InternalIterator {
         arena_mode_(arena != nullptr),
         paranoid_memory_checks_(mem.moptions_.paranoid_memory_checks),
         allow_data_in_error(mem.moptions_.allow_data_in_errors) {
-    if (use_range_del_table) {
+    if (kind == kRangeDelEntries) {
       iter_ = mem.range_del_table_->GetIterator(arena);
-    } else if (prefix_extractor_ != nullptr && !read_options.total_order_seek &&
-               !read_options.auto_prefix_mode) {
+    } else if (prefix_extractor_ != nullptr &&
+               // NOTE: checking extractor equivalence when not pointer
+               // equivalent is arguably too expensive for memtable
+               prefix_extractor_ == cf_prefix_extractor &&
+               (read_options.prefix_same_as_start ||
+                (!read_options.total_order_seek &&
+                 !read_options.auto_prefix_mode))) {
       // Auto prefix mode is not implemented in memtable yet.
+      assert(kind == kPointEntries);
       bloom_ = mem.bloom_filter_.get();
       iter_ = mem.table_->GetDynamicPrefixIterator(arena);
     } else {
+      assert(kind == kPointEntries);
       iter_ = mem.table_->GetIterator(arena);
     }
     status_.PermitUncheckedError();
@@ -433,8 +443,8 @@ class MemTableIterator : public InternalIterator {
       // iterator should only use prefix bloom filter
       Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz_));
       if (prefix_extractor_->InDomain(user_k_without_ts)) {
-        if (!bloom_->MayContain(
-                prefix_extractor_->Transform(user_k_without_ts))) {
+        Slice prefix = prefix_extractor_->Transform(user_k_without_ts);
+        if (!bloom_->MayContain(prefix)) {
           PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
           valid_ = false;
           return;
@@ -594,11 +604,142 @@ class MemTableIterator : public InternalIterator {
 
 InternalIterator* MemTable::NewIterator(
     const ReadOptions& read_options,
-    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena) {
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
+    const SliceTransform* prefix_extractor) {
   assert(arena != nullptr);
   auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
   return new (mem)
-      MemTableIterator(*this, read_options, seqno_to_time_mapping, arena);
+      MemTableIterator(MemTableIterator::kPointEntries, *this, read_options,
+                       seqno_to_time_mapping, arena, prefix_extractor);
+}
+
+// An iterator wrapper that wraps a MemTableIterator and logically strips each
+// key's user-defined timestamp.
+class TimestampStrippingIterator : public InternalIterator {
+ public:
+  TimestampStrippingIterator(
+      MemTableIterator::Kind kind, const MemTable& memtable,
+      const ReadOptions& read_options,
+      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
+      const SliceTransform* cf_prefix_extractor, size_t ts_sz)
+      : arena_mode_(arena != nullptr), kind_(kind), ts_sz_(ts_sz) {
+    assert(ts_sz_ != 0);
+    void* mem = arena ? arena->AllocateAligned(sizeof(MemTableIterator)) :
+                      operator new(sizeof(MemTableIterator));
+    iter_ = new (mem)
+        MemTableIterator(kind, memtable, read_options, seqno_to_time_mapping,
+                         arena, cf_prefix_extractor);
+  }
+
+  // No copying allowed
+  TimestampStrippingIterator(const TimestampStrippingIterator&) = delete;
+  void operator=(const TimestampStrippingIterator&) = delete;
+
+  ~TimestampStrippingIterator() override {
+    if (arena_mode_) {
+      iter_->~MemTableIterator();
+    } else {
+      delete iter_;
+    }
+  }
+
+  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
+    iter_->SetPinnedItersMgr(pinned_iters_mgr);
+  }
+
+  bool Valid() const override { return iter_->Valid(); }
+  void Seek(const Slice& k) override {
+    iter_->Seek(k);
+    UpdateKeyAndValueBuffer();
+  }
+  void SeekForPrev(const Slice& k) override {
+    iter_->SeekForPrev(k);
+    UpdateKeyAndValueBuffer();
+  }
+  void SeekToFirst() override {
+    iter_->SeekToFirst();
+    UpdateKeyAndValueBuffer();
+  }
+  void SeekToLast() override {
+    iter_->SeekToLast();
+    UpdateKeyAndValueBuffer();
+  }
+  void Next() override {
+    iter_->Next();
+    UpdateKeyAndValueBuffer();
+  }
+  bool NextAndGetResult(IterateResult* result) override {
+    iter_->Next();
+    UpdateKeyAndValueBuffer();
+    bool is_valid = Valid();
+    if (is_valid) {
+      result->key = key();
+      result->bound_check_result = IterBoundCheck::kUnknown;
+      result->value_prepared = true;
+    }
+    return is_valid;
+  }
+  void Prev() override {
+    iter_->Prev();
+    UpdateKeyAndValueBuffer();
+  }
+  Slice key() const override {
+    assert(Valid());
+    return key_buf_;
+  }
+
+  uint64_t write_unix_time() const override { return iter_->write_unix_time(); }
+  Slice value() const override {
+    if (kind_ == MemTableIterator::Kind::kRangeDelEntries) {
+      return value_buf_;
+    }
+    return iter_->value();
+  }
+  Status status() const override { return iter_->status(); }
+  bool IsKeyPinned() const override {
+    // Key is only in a buffer that is updated in each iteration.
+    return false;
+  }
+  bool IsValuePinned() const override {
+    if (kind_ == MemTableIterator::Kind::kRangeDelEntries) {
+      return false;
+    }
+    return iter_->IsValuePinned();
+  }
+
+ private:
+  void UpdateKeyAndValueBuffer() {
+    key_buf_.clear();
+    if (kind_ == MemTableIterator::Kind::kRangeDelEntries) {
+      value_buf_.clear();
+    }
+    if (!Valid()) {
+      return;
+    }
+    Slice original_key = iter_->key();
+    ReplaceInternalKeyWithMinTimestamp(&key_buf_, original_key, ts_sz_);
+    if (kind_ == MemTableIterator::Kind::kRangeDelEntries) {
+      Slice original_value = iter_->value();
+      AppendUserKeyWithMinTimestamp(&value_buf_, original_value, ts_sz_);
+    }
+  }
+  bool arena_mode_;
+  MemTableIterator::Kind kind_;
+  size_t ts_sz_;
+  MemTableIterator* iter_;
+  std::string key_buf_;
+  std::string value_buf_;
+};
+
+InternalIterator* MemTable::NewTimestampStrippingIterator(
+    const ReadOptions& read_options,
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
+    const SliceTransform* prefix_extractor, size_t ts_sz) {
+  assert(arena != nullptr);
+  auto mem = arena->AllocateAligned(sizeof(TimestampStrippingIterator));
+  return new (mem) TimestampStrippingIterator(
+      MemTableIterator::kPointEntries, *this, read_options,
+      seqno_to_time_mapping, arena, prefix_extractor, ts_sz);
 }
 
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
@@ -610,6 +751,30 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
   }
   return NewRangeTombstoneIteratorInternal(read_options, read_seq,
                                            immutable_memtable);
+}
+
+FragmentedRangeTombstoneIterator*
+MemTable::NewTimestampStrippingRangeTombstoneIterator(
+    const ReadOptions& read_options, SequenceNumber read_seq, size_t ts_sz) {
+  if (read_options.ignore_range_deletions ||
+      is_range_del_table_empty_.load(std::memory_order_relaxed)) {
+    return nullptr;
+  }
+  if (!timestamp_stripping_fragmented_range_tombstone_list_) {
+    // TODO: plumb Env::IOActivity, Env::IOPriority
+    auto* unfragmented_iter = new TimestampStrippingIterator(
+        MemTableIterator::kRangeDelEntries, *this, ReadOptions(),
+        /*seqno_to_time_mapping*/ nullptr, /* arena */ nullptr,
+        /* prefix_extractor */ nullptr, ts_sz);
+
+    timestamp_stripping_fragmented_range_tombstone_list_ =
+        std::make_unique<FragmentedRangeTombstoneList>(
+            std::unique_ptr<InternalIterator>(unfragmented_iter),
+            comparator_.comparator);
+  }
+  return new FragmentedRangeTombstoneIterator(
+      timestamp_stripping_fragmented_range_tombstone_list_.get(),
+      comparator_.comparator, read_seq, read_options.timestamp);
 }
 
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
@@ -633,8 +798,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
     cache->reader_mutex.lock();
     if (!cache->tombstones) {
       auto* unfragmented_iter = new MemTableIterator(
-          *this, read_options, nullptr /* seqno_to_time_mapping= */,
-          nullptr /* arena */, true /* use_range_del_table */);
+          MemTableIterator::kRangeDelEntries, *this, read_options);
       cache->tombstones.reset(new FragmentedRangeTombstoneList(
           std::unique_ptr<InternalIterator>(unfragmented_iter),
           comparator_.comparator));
@@ -655,8 +819,7 @@ void MemTable::ConstructFragmentedRangeTombstones() {
   if (!is_range_del_table_empty_.load(std::memory_order_relaxed)) {
     // TODO: plumb Env::IOActivity, Env::IOPriority
     auto* unfragmented_iter = new MemTableIterator(
-        *this, ReadOptions(), nullptr /*seqno_to_time_mapping=*/,
-        nullptr /* arena */, true /* use_range_del_table */);
+        MemTableIterator::kRangeDelEntries, *this, ReadOptions());
 
     fragmented_range_tombstone_list_ =
         std::make_unique<FragmentedRangeTombstoneList>(

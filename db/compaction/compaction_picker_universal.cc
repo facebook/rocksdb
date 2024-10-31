@@ -35,7 +35,9 @@ class UniversalCompactionBuilder {
   UniversalCompactionBuilder(
       const ImmutableOptions& ioptions, const InternalKeyComparator* icmp,
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+      const MutableDBOptions& mutable_db_options,
+      const std::vector<SequenceNumber>& existing_snapshots,
+      const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
       UniversalCompactionPicker* picker, LogBuffer* log_buffer)
       : ioptions_(ioptions),
         icmp_(icmp),
@@ -44,7 +46,19 @@ class UniversalCompactionBuilder {
         mutable_db_options_(mutable_db_options),
         vstorage_(vstorage),
         picker_(picker),
-        log_buffer_(log_buffer) {}
+        log_buffer_(log_buffer) {
+    assert(icmp_);
+    const auto* ucmp = icmp_->user_comparator();
+    assert(ucmp);
+    // These parameters are only passed when user-defined timestamp is not
+    // enabled.
+    if (ucmp->timestamp_size() == 0) {
+      earliest_snapshot_ = existing_snapshots.empty()
+                               ? kMaxSequenceNumber
+                               : existing_snapshots.at(0);
+      snapshot_checker_ = snapshot_checker;
+    }
+  }
 
   // Form and return the compaction object. The caller owns return object.
   Compaction* PickCompaction();
@@ -52,12 +66,15 @@ class UniversalCompactionBuilder {
  private:
   struct SortedRun {
     SortedRun(int _level, FileMetaData* _file, uint64_t _size,
-              uint64_t _compensated_file_size, bool _being_compacted)
+              uint64_t _compensated_file_size, bool _being_compacted,
+              bool _level_has_marked_standalone_rangedel)
         : level(_level),
           file(_file),
           size(_size),
           compensated_file_size(_compensated_file_size),
-          being_compacted(_being_compacted) {
+          being_compacted(_being_compacted),
+          level_has_marked_standalone_rangedel(
+              _level_has_marked_standalone_rangedel) {
       assert(compensated_file_size > 0);
       assert(level != 0 || file != nullptr);
     }
@@ -79,6 +96,10 @@ class UniversalCompactionBuilder {
     uint64_t size;
     uint64_t compensated_file_size;
     bool being_compacted;
+    // True if this level has any file that is a standalone range deletion file
+    // marked for compaction. Best effort is made to make only deletion
+    // triggered compaction pick this type of file.
+    bool level_has_marked_standalone_rangedel;
   };
 
   // Pick Universal compaction to limit read amplification
@@ -97,6 +118,11 @@ class UniversalCompactionBuilder {
   Compaction* PickIncrementalForReduceSizeAmp(double fanout_threshold);
 
   Compaction* PickDeleteTriggeredCompaction();
+
+  // Returns true if this given file (that is marked be compaction) should be
+  // skipped from being picked for now. We do this to best use standalone range
+  // tombstone files.
+  bool ShouldSkipMarkedFile(const FileMetaData* file) const;
 
   // Form a compaction from the sorted run indicated by start_index to the
   // oldest sorted run.
@@ -234,8 +260,18 @@ class UniversalCompactionBuilder {
   VersionStorageInfo* vstorage_;
   UniversalCompactionPicker* picker_;
   LogBuffer* log_buffer_;
+  // Optional earliest snapshot at time of compaction picking. This is only
+  // provided if the column family doesn't enable user-defined timestamps.
+  // And this information is only passed to `Compaction` picked by deletion
+  // triggered compaction for possible optimizations.
+  std::optional<SequenceNumber> earliest_snapshot_;
+  const SnapshotChecker* snapshot_checker_;
+  // Mapping from file id to its index in the sorted run for the files that are
+  // marked for compaction. This is only populated when snapshot info is
+  // populated.
+  std::map<uint64_t, size_t> file_marked_for_compaction_to_sorted_run_index_;
 
-  static std::vector<UniversalCompactionBuilder::SortedRun> CalculateSortedRuns(
+  std::vector<UniversalCompactionBuilder::SortedRun> CalculateSortedRuns(
       const VersionStorageInfo& vstorage, int last_level,
       uint64_t* max_run_size);
 
@@ -394,11 +430,13 @@ bool UniversalCompactionPicker::NeedsCompaction(
 
 Compaction* UniversalCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+    const MutableDBOptions& mutable_db_options,
+    const std::vector<SequenceNumber>& existing_snapshots,
+    const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
     LogBuffer* log_buffer) {
-  UniversalCompactionBuilder builder(ioptions_, icmp_, cf_name,
-                                     mutable_cf_options, mutable_db_options,
-                                     vstorage, this, log_buffer);
+  UniversalCompactionBuilder builder(
+      ioptions_, icmp_, cf_name, mutable_cf_options, mutable_db_options,
+      existing_snapshots, snapshot_checker, vstorage, this, log_buffer);
   return builder.PickCompaction();
 }
 
@@ -448,14 +486,20 @@ UniversalCompactionBuilder::CalculateSortedRuns(
   *max_run_size = 0;
   std::vector<UniversalCompactionBuilder::SortedRun> ret;
   for (FileMetaData* f : vstorage.LevelFiles(0)) {
-    ret.emplace_back(0, f, f->fd.GetFileSize(), f->compensated_file_size,
-                     f->being_compacted);
+    if (earliest_snapshot_.has_value() && f->marked_for_compaction) {
+      file_marked_for_compaction_to_sorted_run_index_.emplace(f->fd.GetNumber(),
+                                                              ret.size());
+    }
+    ret.emplace_back(
+        0, f, f->fd.GetFileSize(), f->compensated_file_size, f->being_compacted,
+        f->marked_for_compaction && f->FileIsStandAloneRangeTombstone());
     *max_run_size = std::max(*max_run_size, f->fd.GetFileSize());
   }
   for (int level = 1; level <= last_level; level++) {
     uint64_t total_compensated_size = 0U;
     uint64_t total_size = 0U;
     bool being_compacted = false;
+    bool level_has_marked_standalone_rangedel = false;
     for (FileMetaData* f : vstorage.LevelFiles(level)) {
       total_compensated_size += f->compensated_file_size;
       total_size += f->fd.GetFileSize();
@@ -467,14 +511,55 @@ UniversalCompactionBuilder::CalculateSortedRuns(
       if (f->being_compacted) {
         being_compacted = f->being_compacted;
       }
+      level_has_marked_standalone_rangedel =
+          level_has_marked_standalone_rangedel ||
+          (f->marked_for_compaction && f->FileIsStandAloneRangeTombstone());
+      if (earliest_snapshot_.has_value() && f->marked_for_compaction) {
+        file_marked_for_compaction_to_sorted_run_index_.emplace(
+            f->fd.GetNumber(), ret.size());
+      }
     }
     if (total_compensated_size > 0) {
       ret.emplace_back(level, nullptr, total_size, total_compensated_size,
-                       being_compacted);
+                       being_compacted, level_has_marked_standalone_rangedel);
     }
     *max_run_size = std::max(*max_run_size, total_size);
   }
   return ret;
+}
+
+bool UniversalCompactionBuilder::ShouldSkipMarkedFile(
+    const FileMetaData* file) const {
+  assert(file->marked_for_compaction);
+  if (!earliest_snapshot_.has_value()) {
+    return false;
+  }
+  if (!file->FileIsStandAloneRangeTombstone()) {
+    return false;
+  }
+  // Skip until earliest snapshot advances at or above this standalone range
+  // tombstone file. `DB::ReleaseSnapshot` will re-examine and schedule
+  // compaction for it.
+  if (!DataIsDefinitelyInSnapshot(file->fd.largest_seqno,
+                                  earliest_snapshot_.value(),
+                                  snapshot_checker_)) {
+    return true;
+  }
+
+  auto iter = file_marked_for_compaction_to_sorted_run_index_.find(
+      file->fd.GetNumber());
+  assert(iter != file_marked_for_compaction_to_sorted_run_index_.end());
+  size_t idx = iter->second;
+  const SortedRun* succeeding_sorted_run =
+      idx < sorted_runs_.size() - 1 ? &sorted_runs_[idx + 1] : nullptr;
+  // Marked standalone range tombstone file is best used if it's in the start
+  // input level. Skip to let that compaction happen first.
+  if (succeeding_sorted_run &&
+      succeeding_sorted_run->level_has_marked_standalone_rangedel) {
+    return true;
+  }
+
+  return false;
 }
 
 // Universal style of compaction. Pick files that are contiguous in
@@ -580,7 +665,8 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
         // Get the total number of sorted runs that are not being compacted
         int num_sr_not_compacted = 0;
         for (size_t i = 0; i < sorted_runs_.size(); i++) {
-          if (sorted_runs_[i].being_compacted == false) {
+          if (sorted_runs_[i].being_compacted == false &&
+              !sorted_runs_[i].level_has_marked_standalone_rangedel) {
             num_sr_not_compacted++;
           }
         }
@@ -743,16 +829,24 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
     for (sr = nullptr; loop < sorted_runs_.size(); loop++) {
       sr = &sorted_runs_[loop];
 
-      if (!sr->being_compacted) {
+      if (!sr->being_compacted && !sr->level_has_marked_standalone_rangedel) {
         candidate_count = 1;
         break;
       }
       char file_num_buf[kFormatFileNumberBufSize];
       sr->Dump(file_num_buf, sizeof(file_num_buf));
-      ROCKS_LOG_BUFFER(log_buffer_,
-                       "[%s] Universal: %s"
-                       "[%d] being compacted, skipping",
-                       cf_name_.c_str(), file_num_buf, loop);
+      if (sr->being_compacted) {
+        ROCKS_LOG_BUFFER(log_buffer_,
+                         "[%s] Universal: %s"
+                         "[%d] being compacted, skipping",
+                         cf_name_.c_str(), file_num_buf, loop);
+      } else if (sr->level_has_marked_standalone_rangedel) {
+        ROCKS_LOG_BUFFER(log_buffer_,
+                         "[%s] Universal: %s"
+                         "[%d] has standalone range tombstone files marked for "
+                         "compaction, skipping",
+                         cf_name_.c_str(), file_num_buf, loop);
+      }
 
       sr = nullptr;
     }
@@ -773,7 +867,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
          candidate_count < max_files_to_compact && i < sorted_runs_.size();
          i++) {
       const SortedRun* succeeding_sr = &sorted_runs_[i];
-      if (succeeding_sr->being_compacted) {
+      if (succeeding_sr->being_compacted ||
+          succeeding_sr->level_has_marked_standalone_rangedel) {
         break;
       }
       // Pick files if the total/last candidate file size (increased by the
@@ -923,6 +1018,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
                                               output_level, enable_compression),
                         mutable_cf_options_.default_write_temperature,
                         /* max_subcompactions */ 0, grandparents,
+                        /* earliest_snapshot */ std::nullopt,
+                        /* snapshot_checker */ nullptr,
                         /* is manual */ false, /* trim_ts */ "", score_,
                         false /* deletion_compaction */,
                         /* l0_files_might_overlap */ true, compaction_reason);
@@ -939,7 +1036,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   const size_t end_index = ShouldSkipLastSortedRunForSizeAmpCompaction()
                                ? sorted_runs_.size() - 2
                                : sorted_runs_.size() - 1;
-  if (sorted_runs_[end_index].being_compacted) {
+  if (sorted_runs_[end_index].being_compacted ||
+      sorted_runs_[end_index].level_has_marked_standalone_rangedel) {
     return nullptr;
   }
   const uint64_t base_sr_size = sorted_runs_[end_index].size;
@@ -950,14 +1048,23 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   // Get longest span (i.e, [start_index, end_index]) of available sorted runs
   while (start_index > 0) {
     const SortedRun* sr = &sorted_runs_[start_index - 1];
-    if (sr->being_compacted) {
+    if (sr->being_compacted || sr->level_has_marked_standalone_rangedel) {
       char file_num_buf[kFormatFileNumberBufSize];
       sr->Dump(file_num_buf, sizeof(file_num_buf), true);
-      ROCKS_LOG_BUFFER(
-          log_buffer_,
-          "[%s] Universal: stopping at sorted run undergoing compaction: "
-          "%s[%" ROCKSDB_PRIszt "]",
-          cf_name_.c_str(), file_num_buf, start_index - 1);
+      if (sr->being_compacted) {
+        ROCKS_LOG_BUFFER(
+            log_buffer_,
+            "[%s] Universal: stopping at sorted run undergoing compaction: "
+            "%s[%" ROCKSDB_PRIszt "]",
+            cf_name_.c_str(), file_num_buf, start_index - 1);
+      } else if (sr->level_has_marked_standalone_rangedel) {
+        ROCKS_LOG_BUFFER(
+            log_buffer_,
+            "[%s] Universal: stopping at sorted run that has standalone range "
+            "tombstone files marked for compaction: "
+            "%s[%" ROCKSDB_PRIszt "]",
+            cf_name_.c_str(), file_num_buf, start_index - 1);
+      }
       break;
     }
     candidate_size += sr->compensated_file_size;
@@ -1257,7 +1364,10 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level,
                             true /* enable_compression */),
       mutable_cf_options_.default_write_temperature,
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
+      /* max_subcompactions */ 0, /* grandparents */ {},
+      /* earliest_snapshot */ std::nullopt,
+      /* snapshot_checker */ nullptr,
+      /* is manual */ false,
       /* trim_ts */ "", score_, false /* deletion_compaction */,
       /* l0_files_might_overlap */ true,
       CompactionReason::kUniversalSizeAmplification);
@@ -1288,7 +1398,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
         continue;
       }
       FileMetaData* f = vstorage_->LevelFiles(0)[loop];
-      if (f->marked_for_compaction) {
+      if (f->marked_for_compaction && !ShouldSkipMarkedFile(f)) {
         start_level_inputs.files.push_back(f);
         start_index =
             static_cast<int>(loop);  // Consider this as the first candidate.
@@ -1302,7 +1412,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
 
     for (size_t loop = start_index + 1; loop < sorted_runs_.size(); loop++) {
       SortedRun* sr = &sorted_runs_[loop];
-      if (sr->being_compacted) {
+      if (sr->being_compacted || sr->level_has_marked_standalone_rangedel) {
         break;
       }
 
@@ -1321,7 +1431,10 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
     // leveled. We pick one of the files marked for compaction and compact with
     // overlapping files in the adjacent level.
     picker_->PickFilesMarkedForCompaction(cf_name_, vstorage_, &start_level,
-                                          &output_level, &start_level_inputs);
+                                          &output_level, &start_level_inputs,
+                                          [this](const FileMetaData* file) {
+                                            return ShouldSkipMarkedFile(file);
+                                          });
     if (start_level_inputs.empty()) {
       return nullptr;
     }
@@ -1401,7 +1514,9 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       GetCompressionType(vstorage_, mutable_cf_options_, output_level, 1),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level),
       mutable_cf_options_.default_write_temperature,
-      /* max_subcompactions */ 0, grandparents, /* is manual */ false,
+      /* max_subcompactions */ 0, grandparents, earliest_snapshot_,
+      snapshot_checker_,
+      /* is manual */ false,
       /* trim_ts */ "", score_, false /* deletion_compaction */,
       /* l0_files_might_overlap */ true,
       CompactionReason::kFilesMarkedForCompaction);
@@ -1494,7 +1609,10 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level,
                             true /* enable_compression */),
       mutable_cf_options_.default_write_temperature,
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
+      /* max_subcompactions */ 0, /* grandparents */ {},
+      /* earliest_snapshot */ std::nullopt,
+      /* snapshot_checker */ nullptr,
+      /* is manual */ false,
       /* trim_ts */ "", score_, false /* deletion_compaction */,
       /* l0_files_might_overlap */ true, compaction_reason);
 }
@@ -1515,7 +1633,8 @@ Compaction* UniversalCompactionBuilder::PickPeriodicCompaction() {
   // included in the compaction.
 
   size_t start_index = sorted_runs_.size();
-  while (start_index > 0 && !sorted_runs_[start_index - 1].being_compacted) {
+  while (start_index > 0 && !sorted_runs_[start_index - 1].being_compacted &&
+         !sorted_runs_[start_index - 1].level_has_marked_standalone_rangedel) {
     start_index--;
   }
   if (start_index == sorted_runs_.size()) {

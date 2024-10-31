@@ -630,6 +630,11 @@ VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 # Not yet supported: --show-leak-kinds=definite,possible,reachable --errors-for-leak-kinds=definite,possible,reachable
 
+# Work around valgrind hanging on systems with limited internet access
+ifneq ($(shell which git 2>/dev/null && git config --get https.proxy),)
+  export DEBUGINFOD_URLS=
+endif
+
 TEST_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES)) $(GTEST)
 BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(BENCH_LIB_SOURCES))
 CACHE_BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(CACHE_BENCH_LIB_SOURCES))
@@ -1164,16 +1169,16 @@ ubsan_crash_test_with_best_efforts_recovery: clean
 	$(MAKE) clean
 
 full_valgrind_test:
-	ROCKSDB_FULL_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
+	ROCKSDB_FULL_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 PORTABLE=1 $(MAKE) valgrind_check
 
 full_valgrind_test_some:
-	ROCKSDB_FULL_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check_some
+	ROCKSDB_FULL_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 PORTABLE=1 $(MAKE) valgrind_check_some
 
 valgrind_test:
-	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
+	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 PORTABLE=1 $(MAKE) valgrind_check
 
 valgrind_test_some:
-	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check_some
+	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 PORTABLE=1 $(MAKE) valgrind_check_some
 
 valgrind_check: $(TESTS)
 	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
@@ -2484,7 +2489,7 @@ checkout_folly:
 	fi
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically
-	cd third-party/folly && git reset --hard c48fdd205c1c291651749d532b8055fe822bba25
+	cd third-party/folly && git reset --hard 03041f014b6e6ebb6119ffae8b7a37308f52e913
 	@# NOTE: this hack is required for clang in some cases
 	perl -pi -e 's/int rv = syscall/int rv = (int)syscall/' third-party/folly/folly/detail/Futex.cpp
 	@# NOTE: this hack is required for gcc in some cases

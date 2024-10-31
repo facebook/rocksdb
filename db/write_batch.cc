@@ -502,7 +502,9 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
       break;
     }
     default:
-      return Status::Corruption("unknown WriteBatch tag");
+      return Status::Corruption(
+          "unknown WriteBatch tag",
+          std::to_string(static_cast<unsigned int>(*tag)));
   }
   return Status::OK();
 }
@@ -750,7 +752,9 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         }
         break;
       default:
-        return Status::Corruption("unknown WriteBatch tag");
+        return Status::Corruption(
+            "unknown WriteBatch tag",
+            std::to_string(static_cast<unsigned int>(tag)));
     }
   }
   if (!s.ok()) {
@@ -2620,9 +2624,8 @@ class MemTableInserter : public WriteBatch::Handler {
         // TODO(ajkr): refactor `SeekToColumnFamily()` so it returns a `Status`.
         ret_status.PermitUncheckedError();
         return Status::NotSupported(
-            std::string("DeleteRange not supported for table type ") +
-            cfd->ioptions()->table_factory->Name() + " in CF " +
-            cfd->GetName());
+            std::string("CF " + cfd->GetName() +
+                        " reports it does not support DeleteRange"));
       }
       int cmp =
           cfd->user_comparator()->CompareWithoutTimestamp(begin_key, end_key);

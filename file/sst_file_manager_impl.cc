@@ -99,6 +99,7 @@ void SstFileManagerImpl::OnCompactionCompletion(Compaction* c) {
       size_added_by_compaction += filemeta->fd.GetFileSize();
     }
   }
+  assert(cur_compactions_reserved_size_ >= size_added_by_compaction);
   cur_compactions_reserved_size_ -= size_added_by_compaction;
 }
 
@@ -114,6 +115,16 @@ Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
     OnDeleteFileImpl(old_path);
   }
   TEST_SYNC_POINT("SstFileManagerImpl::OnMoveFile");
+  return Status::OK();
+}
+
+Status SstFileManagerImpl::OnUntrackFile(const std::string& file_path) {
+  {
+    MutexLock l(&mu_);
+    OnDeleteFileImpl(file_path);
+  }
+  TEST_SYNC_POINT_CALLBACK("SstFileManagerImpl::OnUntrackFile",
+                           const_cast<std::string*>(&file_path));
   return Status::OK();
 }
 
@@ -450,7 +461,6 @@ void SstFileManagerImpl::OnAddFileImpl(const std::string& file_path,
     // File was added before, we will just update the size
     total_files_size_ -= tracked_file->second;
     total_files_size_ += file_size;
-    cur_compactions_reserved_size_ -= file_size;
   } else {
     total_files_size_ += file_size;
   }

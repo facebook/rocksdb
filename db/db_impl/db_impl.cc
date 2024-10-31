@@ -473,7 +473,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
 
   if (s.ok()) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      SchedulePendingCompaction(cfd);
+      EnqueuePendingCompaction(cfd);
     }
     MaybeScheduleFlushOrCompaction();
   }
@@ -528,6 +528,11 @@ Status DBImpl::MaybeReleaseTimestampedSnapshotsAndCheck() {
   }
 
   return Status::OK();
+}
+
+void DBImpl::UntrackDataFiles() {
+  TrackOrUntrackFiles(/*existing_data_files=*/{},
+                      /*track=*/false);
 }
 
 Status DBImpl::CloseHelper() {
@@ -667,6 +672,13 @@ Status DBImpl::CloseHelper() {
 
   for (auto& txn_entry : recovered_transactions_) {
     delete txn_entry.second;
+  }
+
+  // Return an unowned SstFileManager to a consistent state
+  if (immutable_db_options_.sst_file_manager && !own_sfm_) {
+    mutex_.Unlock();
+    UntrackDataFiles();
+    mutex_.Lock();
   }
 
   // versions need to be destroyed before table_cache since it can hold
@@ -1141,6 +1153,13 @@ void DBImpl::DumpStats() {
         continue;
       }
 
+      auto* table_factory =
+          cfd->GetCurrentMutableCFOptions()->table_factory.get();
+      assert(table_factory != nullptr);
+      // FIXME: need to a shared_ptr if/when block_cache is going to be mutable
+      Cache* cache =
+          table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
+
       // Release DB mutex for gathering cache entry stats. Pass over all
       // column families for this first so that other stats are dumped
       // near-atomically.
@@ -1149,10 +1168,6 @@ void DBImpl::DumpStats() {
 
       // Probe block cache for problems (if not already via another CF)
       if (immutable_db_options_.info_log) {
-        auto* table_factory = cfd->ioptions()->table_factory.get();
-        assert(table_factory != nullptr);
-        Cache* cache =
-            table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
         if (cache && probed_caches.insert(cache).second) {
           cache->ReportProblems(immutable_db_options_.info_log);
         }
@@ -1526,7 +1541,7 @@ Status DBImpl::FlushWAL(const WriteOptions& write_options, bool sync) {
                       io_s.ToString().c_str());
       // In case there is a fs error we should set it globally to prevent the
       // future writes
-      IOStatusCheck(io_s);
+      WALIOStatusCheck(io_s);
       // whether sync or not, we should abort the rest of function upon error
       return static_cast<Status>(io_s);
     }
@@ -1683,7 +1698,7 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
                     io_s.ToString().c_str());
     // In case there is a fs error we should set it globally to prevent the
     // future writes
-    IOStatusCheck(io_s);
+    WALIOStatusCheck(io_s);
   }
   if (io_s.ok() && need_wal_dir_sync) {
     io_s = directories_.GetWalDir()->FsyncWithDirOptions(
@@ -2054,15 +2069,19 @@ InternalIterator* DBImpl::NewInternalIterator(
     bool allow_unprepared_value, ArenaWrappedDBIter* db_iter) {
   InternalIterator* internal_iter;
   assert(arena != nullptr);
+  auto prefix_extractor =
+      super_version->mutable_cf_options.prefix_extractor.get();
   // Need to create internal iterator from the arena.
   MergeIteratorBuilder merge_iter_builder(
       &cfd->internal_comparator(), arena,
-      !read_options.total_order_seek &&
-          super_version->mutable_cf_options.prefix_extractor != nullptr,
+      // FIXME? It's not clear what interpretation of prefix seek is needed
+      // here, and no unit test cares about the value provided here.
+      !read_options.total_order_seek && prefix_extractor != nullptr,
       read_options.iterate_upper_bound);
   // Collect iterator for mutable memtable
   auto mem_iter = super_version->mem->NewIterator(
-      read_options, super_version->GetSeqnoToTimeMapping(), arena);
+      read_options, super_version->GetSeqnoToTimeMapping(), arena,
+      super_version->mutable_cf_options.prefix_extractor.get());
   Status s;
   if (!read_options.ignore_range_deletions) {
     std::unique_ptr<TruncatedRangeDelIterator> mem_tombstone_iter;
@@ -2086,6 +2105,7 @@ InternalIterator* DBImpl::NewInternalIterator(
   if (s.ok()) {
     super_version->imm->AddIterators(
         read_options, super_version->GetSeqnoToTimeMapping(),
+        super_version->mutable_cf_options.prefix_extractor.get(),
         &merge_iter_builder, !read_options.ignore_range_deletions);
   }
   TEST_SYNC_POINT_CALLBACK("DBImpl::NewInternalIterator:StatusCallback", &s);
@@ -3210,6 +3230,8 @@ Status DBImpl::MultiGetImpl(
       s = Status::Aborted();
       break;
     }
+    // This could be a long-running operation
+    ROCKSDB_THREAD_YIELD_HOOK();
   }
 
   // Post processing (decrement reference counts and record statistics)
@@ -3831,6 +3853,9 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
     }
   }
   if (read_options.tailing) {
+    read_options.total_order_seek |=
+        immutable_db_options_.prefix_seek_opt_in_only;
+
     auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                     /* allow_unprepared_value */ true);
     result = NewDBIterator(
@@ -3969,9 +3994,9 @@ std::unique_ptr<IterType> DBImpl::NewMultiCfIterator(
   if (!s.ok()) {
     return error_iterator_func(s);
   }
-  return std::make_unique<ImplType>(column_families[0]->GetComparator(),
-                                    column_families,
-                                    std::move(child_iterators));
+  return std::make_unique<ImplType>(
+      column_families[0]->GetComparator(), _read_options.allow_unprepared_value,
+      column_families, std::move(child_iterators));
 }
 
 Status DBImpl::NewIterators(
@@ -4032,6 +4057,9 @@ Status DBImpl::NewIterators(
 
   assert(cf_sv_pairs.size() == column_families.size());
   if (read_options.tailing) {
+    read_options.total_order_seek |=
+        immutable_db_options_.prefix_seek_opt_in_only;
+
     for (const auto& cf_sv_pair : cf_sv_pairs) {
       auto iter = new ForwardIterator(this, read_options, cf_sv_pair.cfd,
                                       cf_sv_pair.super_version,
@@ -4272,8 +4300,8 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     }
     // Avoid to go through every column family by checking a global threshold
     // first.
+    CfdList cf_scheduled;
     if (oldest_snapshot > bottommost_files_mark_threshold_) {
-      CfdList cf_scheduled;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         if (!cfd->ioptions()->allow_ingest_behind) {
           cfd->current()->storage_info()->UpdateOldestSnapshot(
@@ -4282,7 +4310,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
                    ->storage_info()
                    ->BottommostFilesMarkedForCompaction()
                    .empty()) {
-            SchedulePendingCompaction(cfd);
+            EnqueuePendingCompaction(cfd);
             MaybeScheduleFlushOrCompaction();
             cf_scheduled.push_back(cfd);
           }
@@ -4304,6 +4332,24 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
             cfd->current()->storage_info()->bottommost_files_mark_threshold());
       }
       bottommost_files_mark_threshold_ = new_bottommost_files_mark_threshold;
+    }
+
+    // Avoid to go through every column family by checking a global threshold
+    // first.
+    if (oldest_snapshot >= standalone_range_deletion_files_mark_threshold_) {
+      for (auto* cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->IsDropped() || CfdListContains(cf_scheduled, cfd)) {
+          continue;
+        }
+        if (oldest_snapshot >=
+            cfd->current()
+                ->storage_info()
+                ->standalone_range_tombstone_files_mark_threshold()) {
+          EnqueuePendingCompaction(cfd);
+          MaybeScheduleFlushOrCompaction();
+          cf_scheduled.push_back(cfd);
+        }
+      }
     }
   }
   delete casted_s;
@@ -4752,6 +4798,24 @@ void DBImpl::ReleaseFileNumberFromPendingOutputs(
     std::unique_ptr<std::list<uint64_t>::iterator>& v) {
   if (v.get() != nullptr) {
     pending_outputs_.erase(*v.get());
+    v.reset();
+  }
+}
+
+std::list<uint64_t>::iterator DBImpl::CaptureOptionsFileNumber() {
+  // We need to remember the iterator of our insert, because after the
+  // compaction is done, we need to remove that element from
+  // min_options_file_numbers_.
+  min_options_file_numbers_.push_back(versions_->options_file_number());
+  auto min_options_file_numbers_inserted_elem = min_options_file_numbers_.end();
+  --min_options_file_numbers_inserted_elem;
+  return min_options_file_numbers_inserted_elem;
+}
+
+void DBImpl::ReleaseOptionsFileNumber(
+    std::unique_ptr<std::list<uint64_t>::iterator>& v) {
+  if (v.get() != nullptr) {
+    min_options_file_numbers_.erase(*v.get());
     v.reset();
   }
 }
@@ -5788,7 +5852,6 @@ Status DBImpl::IngestExternalFile(
 Status DBImpl::IngestExternalFiles(
     const std::vector<IngestExternalFileArg>& args) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
-  const ReadOptions read_options;
   const WriteOptions write_options;
 
   if (args.empty()) {
@@ -5814,6 +5877,10 @@ Status DBImpl::IngestExternalFiles(
       snprintf(err_msg, 128, "external_files[%zu] is empty", i);
       return Status::InvalidArgument(err_msg);
     }
+    if (i && args[i].options.fill_cache != args[i - 1].options.fill_cache) {
+      return Status::InvalidArgument(
+          "fill_cache should be the same across ingestion options.");
+    }
   }
   for (const auto& arg : args) {
     const IngestExternalFileOptions& ingest_opts = arg.options;
@@ -5836,6 +5903,10 @@ Status DBImpl::IngestExternalFiles(
             "write_global_seqno is deprecated and does not work with "
             "allow_db_generated_files.");
       }
+    }
+    if (ingest_opts.move_files && ingest_opts.link_files) {
+      return Status::InvalidArgument(
+          "`move_files` and `link_files` can not both be true.");
     }
   }
 
@@ -5997,6 +6068,8 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     if (status.ok()) {
+      ReadOptions read_options;
+      read_options.fill_cache = args[0].options.fill_cache;
       autovector<ColumnFamilyData*> cfds_to_commit;
       autovector<const MutableCFOptions*> mutable_cf_options_list;
       autovector<autovector<VersionEdit*>> edit_lists;
@@ -6740,6 +6813,62 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
   // clean up outside db mutex
   for (SuperVersionContext& sv_context : sv_contexts) {
     sv_context.Clean();
+  }
+}
+
+void DBImpl::TrackOrUntrackFiles(
+    const std::vector<std::string>& existing_data_files, bool track) {
+  auto sfm = static_cast_with_check<SstFileManagerImpl>(
+      immutable_db_options_.sst_file_manager.get());
+  assert(sfm);
+  std::vector<ColumnFamilyMetaData> metadata;
+  GetAllColumnFamilyMetaData(&metadata);
+  auto action = [&](const std::string& file_path,
+                    std::optional<uint64_t> size) {
+    if (track) {
+      if (size) {
+        sfm->OnAddFile(file_path, *size).PermitUncheckedError();
+      } else {
+        sfm->OnAddFile(file_path).PermitUncheckedError();
+      }
+    } else {
+      sfm->OnUntrackFile(file_path).PermitUncheckedError();
+    }
+  };
+
+  std::unordered_set<std::string> referenced_files;
+  for (const auto& md : metadata) {
+    for (const auto& lmd : md.levels) {
+      for (const auto& fmd : lmd.files) {
+        // We're assuming that each sst file name exists in at most one of
+        // the paths.
+        std::string file_path =
+            fmd.directory + kFilePathSeparator + fmd.relative_filename;
+        action(file_path, fmd.size);
+        referenced_files.insert(file_path);
+      }
+    }
+    for (const auto& bmd : md.blob_files) {
+      std::string name = bmd.blob_file_name;
+      // The BlobMetaData.blob_file_name may start with "/".
+      if (!name.empty() && name[0] == kFilePathSeparator) {
+        name = name.substr(1);
+      }
+      // We're assuming that each blob file name exists in at most one of
+      // the paths.
+      std::string file_path = bmd.blob_file_path + kFilePathSeparator + name;
+      action(file_path, bmd.blob_file_size);
+      referenced_files.insert(file_path);
+    }
+  }
+
+  for (const auto& file_path : existing_data_files) {
+    if (referenced_files.find(file_path) != referenced_files.end()) {
+      continue;
+    }
+    // There shouldn't be any duplicated files. In case there is, SstFileManager
+    // will take care of deduping it.
+    action(file_path, /*size=*/std::nullopt);
   }
 }
 
