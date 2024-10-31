@@ -107,7 +107,14 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
 
   for (const auto& f : inputs[0].files) {
     assert(f);
-    uint64_t est_newest_key_time = f->TryGetNewestKeyTime();
+    uint64_t newest_key_time = f->TryGetNewestKeyTime();
+    uint64_t creation_time = 0;
+    if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
+      creation_time = f->fd.table_reader->GetTableProperties()->creation_time;
+    }
+    uint64_t est_newest_key_time = newest_key_time == kUnknownNewestKeyTime
+                                       ? creation_time
+                                       : newest_key_time;
     ROCKS_LOG_BUFFER(log_buffer,
                      "[%s] FIFO compaction: picking file %" PRIu64
                      " with estimated newest key time %" PRIu64 " for deletion",
