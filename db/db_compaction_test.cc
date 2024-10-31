@@ -10624,8 +10624,6 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
 }
 
 TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
-  // Test case for task T168616501: "Record newest key time and use it for FIFO
-  // TTL and temperature change compaction"
   Options options;
   SetTimeElapseOnlySleepOnReopen(&options);
   options.env = CurrentOptions().env;
