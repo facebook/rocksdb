@@ -79,7 +79,6 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                    SequenceNumber latest_seq, uint32_t column_family_id)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
-      refs_(0),
       kArenaBlockSize(Arena::OptimizeBlockSize(moptions_.arena_block_size)),
       mem_tracker_(write_buffer_manager),
       arena_(moptions_.arena_block_size,
@@ -101,13 +100,9 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       num_deletes_(0),
       num_range_deletes_(0),
       write_buffer_size_(mutable_cf_options.write_buffer_size),
-      flush_in_progress_(false),
-      flush_completed_(false),
-      file_number_(0),
       first_seqno_(0),
       earliest_seqno_(latest_seq),
       creation_seq_(latest_seq),
-      mem_next_logfile_number_(0),
       min_prep_log_referenced_(0),
       locks_(moptions_.inplace_update_support
                  ? moptions_.inplace_update_num_locks
@@ -118,7 +113,6 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       insert_with_hint_prefix_extractor_(
           ioptions.memtable_insert_with_hint_prefix_extractor.get()),
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
-      atomic_flush_seqno_(kMaxSequenceNumber),
       approximate_memory_usage_(0),
       memtable_max_range_deletions_(
           mutable_cf_options.memtable_max_range_deletions) {
@@ -832,8 +826,8 @@ port::RWMutex* MemTable::GetLock(const Slice& key) {
   return &locks_[GetSliceRangedNPHash(key, locks_.size())];
 }
 
-MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
-                                                   const Slice& end_ikey) {
+ReadOnlyMemTable::MemTableStats MemTable::ApproximateStats(
+    const Slice& start_ikey, const Slice& end_ikey) {
   uint64_t entry_count = table_->ApproximateNumEntries(start_ikey, end_ikey);
   entry_count += range_del_table_->ApproximateNumEntries(start_ikey, end_ikey);
   if (entry_count == 0) {

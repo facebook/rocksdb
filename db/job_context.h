@@ -191,7 +191,7 @@ struct JobContext {
   std::vector<std::string> manifest_delete_files;
 
   // a list of memtables to be free
-  autovector<MemTable*> memtables_to_free;
+  autovector<ReadOnlyMemTable*> memtables_to_free;
 
   // contexts for installing superversions for multiple column families
   std::vector<SuperVersionContext> superversion_contexts;

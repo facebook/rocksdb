@@ -1769,7 +1769,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         s = io_s;
       }
 
-      uint64_t total_num_entries = mem->num_entries();
+      uint64_t total_num_entries = mem->NumEntries();
       if (s.ok() && total_num_entries != num_input_entries) {
         std::string msg = "Expected " + std::to_string(total_num_entries) +
                           " entries in memtable, but read " +
