@@ -282,7 +282,8 @@ TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
       "636F6D70617261746F725F6E616D65;num_filter_entries=0;db_id="
       "64625F686F73745F6964;column_family_id=2147483647;fixed_key_len=0;fast_"
       "compression_estimated_data_size=0;filter_policy_name="
-      "66696C7465725F706F6C6963795F6E616D65;oldest_key_time=0;column_family_"
+      "66696C7465725F706F6C6963795F6E616D65;oldest_key_time=0;newest_key_time="
+      "0;column_family_"
       "name=64656661756C74;user_defined_timestamps_persisted=1;num_entries=100;"
       "external_sst_file_global_seqno_offset=0;num_merge_operands=0;index_key_"
       "is_user_key=0;key_largest_seqno=18446744073709551615;",
