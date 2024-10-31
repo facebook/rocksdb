@@ -752,10 +752,11 @@ class VersionBuilder::Rep {
         assert(ioptions);
         assert(!ioptions->cf_paths.empty());
         assert(shared_meta);
-        assert(bc);
 
         vs->AddObsoleteBlobFile(shared_meta->GetBlobFileNumber(),
                                 ioptions->cf_paths.front().path);
+      }
+      if (bc) {
         bc->Evict(shared_meta->GetBlobFileNumber());
       }
 
@@ -766,7 +767,7 @@ class VersionBuilder::Rep {
         blob_file_number, blob_file_addition.GetTotalBlobCount(),
         blob_file_addition.GetTotalBlobBytes(),
         blob_file_addition.GetChecksumMethod(),
-        blob_file_addition.GetChecksumValue(), deleter);
+        blob_file_addition.GetChecksumValue(), std::move(deleter));
 
     mutable_blob_file_metas_.emplace(
         blob_file_number, MutableBlobFileMetaData(std::move(shared_meta)));

@@ -326,9 +326,7 @@ size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
 void DBImpl::TEST_VerifyNoObsoleteFilesCached(
     bool db_mutex_already_held) const {
   // This check is somewhat expensive and obscure to make a part of every
-  // unit test in every build variety. Thus, we only enable it for ASAN builds,
-  // and of course only DEBUG builds.
-#ifndef NDEBUG
+  // unit test in every build variety. Thus, we only enable it for ASAN builds.
   if (!kMustFreeHeapAllocations) {
     return;
   }
@@ -340,21 +338,18 @@ void DBImpl::TEST_VerifyNoObsoleteFilesCached(
     l.emplace(&mutex_);
   }
 
-  std::vector<uint64_t> live_table_files;
-  std::vector<uint64_t> live_blob_files;
+  std::vector<uint64_t> live_files;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
     }
-    cfd->current()->AddLiveFiles(&live_table_files, &live_blob_files);
+    // Sneakily add both SST and blob files to the same list
+    cfd->current()->AddLiveFiles(&live_files, &live_files);
   }
+  std::sort(live_files.begin(), live_files.end());
 
-  std::set<uint64_t> live_files;
-  live_files.insert(live_table_files.begin(), live_table_files.end());
-  live_files.insert(live_blob_files.begin(), live_blob_files.end());
-
-  auto fn = [&](const Slice& key, Cache::ObjectPtr, size_t,
-                const Cache::CacheItemHelper* helper) {
+  auto fn = [&live_files](const Slice& key, Cache::ObjectPtr, size_t,
+                          const Cache::CacheItemHelper* helper) {
     if (helper != BlobFileCache::GetHelper()) {
       // Skip non-blob files for now
       // FIXME: diagnose and fix the leaks of obsolete SST files revealed in
@@ -365,10 +360,11 @@ void DBImpl::TEST_VerifyNoObsoleteFilesCached(
     assert(key.size() == sizeof(uint64_t));
     uint64_t file_number;
     GetUnaligned(reinterpret_cast<const uint64_t*>(key.data()), &file_number);
-    assert(live_files.find(file_number) != live_files.end());
+    // Assert file is in sorted live_files
+    assert(
+        std::binary_search(live_files.begin(), live_files.end(), file_number));
   };
   table_cache_->ApplyToAllEntries(fn, {});
-#endif  // !NDEBUG
 }
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // NDEBUG
