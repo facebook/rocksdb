@@ -19,3 +19,19 @@
 #elif defined(OS_WIN)
 #include "port/win/port_win.h"
 #endif
+
+#ifdef OS_LINUX
+// A temporary hook into long-running RocksDB threads to support modifying their
+// priority etc. This should become a public API hook once the requirements
+// are better understood.
+extern "C" void RocksDbThreadYield() __attribute__((__weak__));
+#define ROCKSDB_THREAD_YIELD_HOOK() \
+  {                                 \
+    if (RocksDbThreadYield) {       \
+      RocksDbThreadYield();         \
+    }                               \
+  }
+#else
+#define ROCKSDB_THREAD_YIELD_HOOK() \
+  {}
+#endif
