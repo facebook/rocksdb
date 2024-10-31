@@ -746,7 +746,7 @@ class StrictCapacityLimitReaderTest : public BlockBasedTableReaderTest {
 };
 
 TEST_P(StrictCapacityLimitReaderTest, StrictCapacityLimitGet) {
-  // Task T205994926: Test that we get error status when we exceed
+  // Test that we get error status when we exceed
   // the strict_capacity_limit
   Options options;
   size_t ts_sz = options.comparator->timestamp_size();
@@ -807,7 +807,7 @@ TEST_P(StrictCapacityLimitReaderTest, StrictCapacityLimitGet) {
 }
 
 TEST_P(StrictCapacityLimitReaderTest, MultiGet) {
-  // Task T205994926: Test that we get error status when we exceed
+  // Test that we get error status when we exceed
   // the strict_capacity_limit
   Options options;
   ReadOptions read_opts;
