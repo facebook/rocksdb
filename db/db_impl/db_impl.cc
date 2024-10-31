@@ -3214,6 +3214,8 @@ Status DBImpl::MultiGetImpl(
       s = Status::Aborted();
       break;
     }
+    // This could be a long-running operation
+    ROCKSDB_THREAD_YIELD_HOOK();
   }
 
   // Post processing (decrement reference counts and record statistics)
