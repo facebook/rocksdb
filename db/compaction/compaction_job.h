@@ -215,7 +215,7 @@ class CompactionJob {
   virtual void RecordCompactionIOStats();
   void CleanupCompaction();
 
-  // Call compaction filter. Then iterate through input and compact the
+  // Call compaction iterator. Then iterate through input and compact the
   // kv-pairs
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
 
