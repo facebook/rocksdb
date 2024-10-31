@@ -659,8 +659,9 @@ Status DBImpl::CloseHelper() {
   // We need to release them before the block cache is destroyed. The block
   // cache may be destroyed inside versions_.reset(), when column family data
   // list is destroyed, so leaving handles in table cache after
-  // versions_.reset() may cause issues.
-  // Here we clean all unreferenced handles in table cache.
+  // versions_.reset() may cause issues. Here we clean all unreferenced handles
+  // in table cache, and (for certain builds/conditions) assert that no obsolete
+  // files are hanging around unreferenced (leak) in the table/blob file cache.
   // Now we assume all user queries have finished, so only version set itself
   // can possibly hold the blocks from block cache. After releasing unreferenced
   // handles here, only handles held by version set left and inside
@@ -668,6 +669,9 @@ Status DBImpl::CloseHelper() {
   // time a handle is released, we erase it from the cache too. By doing that,
   // we can guarantee that after versions_.reset(), table cache is empty
   // so the cache can be safely destroyed.
+#ifndef NDEBUG
+  TEST_VerifyNoObsoleteFilesCached(/*db_mutex_already_held=*/true);
+#endif  // !NDEBUG
   table_cache_->EraseUnRefEntries();
 
   for (auto& txn_entry : recovered_transactions_) {

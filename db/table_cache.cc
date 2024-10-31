@@ -164,6 +164,7 @@ Status TableCache::GetTableReader(
 }
 
 Cache::Handle* TableCache::Lookup(Cache* cache, uint64_t file_number) {
+  // NOTE: sharing same Cache with BlobFileCache
   Slice key = GetSliceForFileNumber(&file_number);
   return cache->Lookup(key);
 }
@@ -178,6 +179,7 @@ Status TableCache::FindTable(
     size_t max_file_size_for_l0_meta_pin, Temperature file_temperature) {
   PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
   uint64_t number = file_meta.fd.GetNumber();
+  // NOTE: sharing same Cache with BlobFileCache
   Slice key = GetSliceForFileNumber(&number);
   *handle = cache_.Lookup(key);
   TEST_SYNC_POINT_CALLBACK("TableCache::FindTable:0",
