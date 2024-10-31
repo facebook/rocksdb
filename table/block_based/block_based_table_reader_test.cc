@@ -745,7 +745,7 @@ class StrictCapacityLimitReaderTest : public BlockBasedTableReaderTest {
   }
 };
 
-TEST_P(StrictCapacityLimitReaderTest, StrictCapacityLimitGet) {
+TEST_P(StrictCapacityLimitReaderTest, Get) {
   // Test that we get error status when we exceed
   // the strict_capacity_limit
   Options options;
