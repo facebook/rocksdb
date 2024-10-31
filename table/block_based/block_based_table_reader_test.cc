@@ -746,6 +746,8 @@ class StrictCapacityLimitReaderTest : public BlockBasedTableReaderTest {
 };
 
 TEST_P(StrictCapacityLimitReaderTest, StrictCapacityLimitGet) {
+  // Task T205994926: Test that we get error status when we exceed
+  // the strict_capacity_limit
   Options options;
   size_t ts_sz = options.comparator->timestamp_size();
   std::vector<std::pair<std::string, std::string>> kv =
@@ -753,7 +755,7 @@ TEST_P(StrictCapacityLimitReaderTest, StrictCapacityLimitGet) {
           2 /* num_block */, true /* mixed_with_human_readable_string_value */,
           ts_sz, false);
 
-  std::string table_name = "BlockBasedTableReaderGetTest_Get" +
+  std::string table_name = "StrictCapacityLimitReaderTest_Get" +
                            CompressionTypeToString(compression_type_);
 
   ImmutableOptions ioptions(options);
@@ -805,6 +807,8 @@ TEST_P(StrictCapacityLimitReaderTest, StrictCapacityLimitGet) {
 }
 
 TEST_P(StrictCapacityLimitReaderTest, MultiGet) {
+  // Task T205994926: Test that we get error status when we exceed
+  // the strict_capacity_limit
   Options options;
   ReadOptions read_opts;
   std::string dummy_ts(sizeof(uint64_t), '\0');
@@ -817,8 +821,8 @@ TEST_P(StrictCapacityLimitReaderTest, MultiGet) {
   size_t ts_sz = options.comparator->timestamp_size();
   std::vector<std::pair<std::string, std::string>> kv =
       BlockBasedTableReaderBaseTest::GenerateKVMap(
-          100 /* num_block */,
-          true /* mixed_with_human_readable_string_value */, ts_sz);
+          2 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz);
 
   // Prepare keys, values, and statuses for MultiGet.
   autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> keys;
@@ -847,7 +851,7 @@ TEST_P(StrictCapacityLimitReaderTest, MultiGet) {
     }
   }
 
-  std::string table_name = "BlockBasedTableReaderTest_MultiGet" +
+  std::string table_name = "StrictCapacityLimitReaderTest_MultiGet" +
                            CompressionTypeToString(compression_type_);
 
   ImmutableOptions ioptions(options);
@@ -910,11 +914,6 @@ TEST_P(StrictCapacityLimitReaderTest, MultiGet) {
     }
   }
   ASSERT_TRUE(hit_memory_limit);
-  // Check that keys are in cache after MultiGet.
-  // for (size_t i = 0; i < keys.size(); i++) {
-  //   ASSERT_TRUE(table->TEST_KeyInCache(read_opts, keys[i]));
-  //   ASSERT_EQ(values[i].ToString(), *expected_values[i]);
-  // }
 }
 
 class BlockBasedTableReaderTestVerifyChecksum
