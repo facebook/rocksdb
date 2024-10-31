@@ -262,6 +262,17 @@ void BaseDeltaIterator::SetValueAndColumnsFromBase() {
   assert(value_.empty());
   assert(columns_.empty());
 
+  if (!base_iterator_->PrepareValue()) {
+    assert(!BaseValid());
+    assert(!base_iterator_->status().ok());
+
+    Invalidate(base_iterator_->status());
+
+    assert(!Valid());
+    assert(!status().ok());
+    return;
+  }
+
   value_ = base_iterator_->value();
   columns_ = base_iterator_->columns();
 }
@@ -314,6 +325,17 @@ void BaseDeltaIterator::SetValueAndColumnsFromDelta() {
         /* result_operand */ nullptr, &result_type);
   } else if (delta_entry.type == kMergeRecord) {
     if (equal_keys_) {
+      if (!base_iterator_->PrepareValue()) {
+        assert(!BaseValid());
+        assert(!base_iterator_->status().ok());
+
+        Invalidate(base_iterator_->status());
+
+        assert(!Valid());
+        assert(!status().ok());
+        return;
+      }
+
       if (WideColumnsHelper::HasDefaultColumnOnly(base_iterator_->columns())) {
         status_ = WriteBatchWithIndexInternal::MergeKeyWithBaseValue(
             column_family_, delta_entry.key, MergeHelper::kPlainBaseValue,
