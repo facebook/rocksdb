@@ -3397,8 +3397,11 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
       FileMetaData* prev_file = index < 2 ? nullptr : files[index - 2];
       if (!cur_file->being_compacted) {
         uint64_t est_newest_key_time = cur_file->TryGetNewestKeyTime(prev_file);
-        if (est_newest_key_time == kUnknownNewestKeyTime ||
-            est_newest_key_time > create_time_threshold) {
+        // Newer file could have newest_key_time populated
+        if (est_newest_key_time == kUnknownNewestKeyTime) {
+          continue;
+        }
+        if (est_newest_key_time > create_time_threshold) {
           return false;
         }
         target_temp = ages[0].temperature;

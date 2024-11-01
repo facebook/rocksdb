@@ -370,8 +370,11 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
         return nullptr;
       }
       uint64_t est_newest_key_time = cur_file->TryGetNewestKeyTime(prev_file);
-      if (est_newest_key_time == kUnknownNewestKeyTime ||
-          est_newest_key_time > create_time_threshold) {
+      // Newer file could have newest_key_time populated
+      if (est_newest_key_time == kUnknownNewestKeyTime) {
+        continue;
+      }
+      if (est_newest_key_time > create_time_threshold) {
         break;
       }
       Temperature cur_target_temp = ages[0].temperature;
