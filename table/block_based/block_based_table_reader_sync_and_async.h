@@ -312,7 +312,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         // block cache is configured. In that case, fall
         // through and set up the block explicitly
         if (block_entry->GetValue() != nullptr) {
-          s.PermitUncheckedError();
           continue;
         }
       }
