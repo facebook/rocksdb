@@ -1742,8 +1742,6 @@ TEST_P(WriteBatchWithIndexTest, TestNewIteratorWithBaseFromWbwi) {
 TEST_P(WriteBatchWithIndexTest, NewIteratorWithBasePrepareValue) {
   // BaseDeltaIterator by default should call PrepareValue if it lands on the
   // base iterator in case it was created with allow_unprepared_value=true.
-  // (Note that BaseDeltaIterator itself does not support allow_unprepared_value
-  // yet but the base iterator might have been created with the flag set.)
   ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
   KVMap map{{"a", "aa"}, {"c", "cc"}, {"e", "ee"}};
 
@@ -1809,6 +1807,105 @@ TEST_P(WriteBatchWithIndexTest, NewIteratorWithBasePrepareValue) {
     ASSERT_TRUE(iter->status().IsCorruption());
 
     iter->SeekToLast();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+}
+
+TEST_P(WriteBatchWithIndexTest, NewIteratorWithBaseAllowUnpreparedValue) {
+  ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
+  KVMap map{{"a", "aa"}, {"c", "cc"}, {"e", "ee"}};
+
+  ASSERT_OK(batch_->Put(&cf1, "c", "cc1"));
+
+  ReadOptions read_options = read_opts_;
+  read_options.allow_unprepared_value = true;
+
+  {
+    std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
+        &cf1, new KVIter(&map, /* allow_unprepared_value */ true),
+        &read_options));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "a");
+    ASSERT_TRUE(iter->value().empty());
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "aa");
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "c");
+    ASSERT_EQ(iter->value(), "cc1");
+    // This key is served out of the delta iterator so this PrepareValue() is a
+    // no-op
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "cc1");
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "e");
+    ASSERT_TRUE(iter->value().empty());
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "ee");
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "e");
+    ASSERT_TRUE(iter->value().empty());
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "ee");
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "c");
+    ASSERT_EQ(iter->value(), "cc1");
+    // This key is served out of the delta iterator so this PrepareValue() is a
+    // no-op
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "cc1");
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "a");
+    ASSERT_TRUE(iter->value().empty());
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "aa");
+
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // PrepareValue failures from the base iterator should be propagated
+  {
+    std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
+        &cf1,
+        new KVIter(&map, /* allow_unprepared_value */ true,
+                   /* fail_prepare_value */ true),
+        &read_options));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_FALSE(iter->PrepareValue());
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_FALSE(iter->PrepareValue());
     ASSERT_FALSE(iter->Valid());
     ASSERT_TRUE(iter->status().IsCorruption());
   }

@@ -22,10 +22,13 @@ namespace ROCKSDB_NAMESPACE {
 BaseDeltaIterator::BaseDeltaIterator(ColumnFamilyHandle* column_family,
                                      Iterator* base_iterator,
                                      WBWIIteratorImpl* delta_iterator,
-                                     const Comparator* comparator)
+                                     const Comparator* comparator,
+                                     const ReadOptions* read_options)
     : forward_(true),
       current_at_base_(true),
       equal_keys_(false),
+      allow_unprepared_value_(
+          read_options ? read_options->allow_unprepared_value : false),
       status_(Status::OK()),
       column_family_(column_family),
       base_iterator_(base_iterator),
@@ -424,7 +427,9 @@ void BaseDeltaIterator::UpdateCurrent() {
     } else if (!DeltaValid()) {
       // Delta has finished.
       current_at_base_ = true;
-      SetValueAndColumnsFromBase();
+      if (!allow_unprepared_value_) {
+        SetValueAndColumnsFromBase();
+      }
       return;
     } else {
       int compare =
@@ -448,7 +453,9 @@ void BaseDeltaIterator::UpdateCurrent() {
         }
       } else {
         current_at_base_ = true;
-        SetValueAndColumnsFromBase();
+        if (!allow_unprepared_value_) {
+          SetValueAndColumnsFromBase();
+        }
         return;
       }
     }
