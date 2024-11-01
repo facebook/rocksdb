@@ -50,11 +50,11 @@ public class WriteBatchBenchmarks {
    */
   public abstract static class WriteBatchThreadBase<TBatch extends WriteBatchInterface> {
 
-    @Param ({"1000"}) int numOpsPerFlush;
+    @Param ({"1000"}) int numOpsPerBatch;
 
     @Param ({"131072"}) int writeBatchAllocation;
 
-    @Param ({"true","false"}) boolean flushToDB;
+    @Param ({"true","false"}) boolean writeToDB;
 
     final AtomicInteger opIndex = new AtomicInteger();
 
@@ -69,11 +69,11 @@ public class WriteBatchBenchmarks {
     public void put(final byte[] key, final byte[] value) throws RocksDBException {
 
       int index = opIndex.getAndIncrement();
-      if (index % numOpsPerFlush == 0) {
+      if (index % numOpsPerBatch == 0) {
         startBatch();
       }
       writeBatch.put(key, value);
-      if ((index + 1) % numOpsPerFlush == 0) {
+      if ((index + 1) % numOpsPerBatch == 0) {
         stopBatch();
       }
 
@@ -82,11 +82,11 @@ public class WriteBatchBenchmarks {
     public void put(final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
 
       int index = opIndex.getAndIncrement();
-      if (index % numOpsPerFlush == 0) {
+      if (index % numOpsPerBatch == 0) {
         startBatch();
       }
       writeBatch.put(key, value);
-      if ((index + 1) % numOpsPerFlush == 0) {
+      if ((index + 1) % numOpsPerBatch == 0) {
         stopBatch();
       }
     }
@@ -112,7 +112,7 @@ public class WriteBatchBenchmarks {
     public void stopBatch() throws RocksDBException {
       if (writeBatch != null) {
         try {
-          if (flushToDB) {
+          if (writeToDB) {
             rocksDB.write(new WriteOptions(), writeBatch);
           }
         } finally {
@@ -130,14 +130,13 @@ public class WriteBatchBenchmarks {
   /**
    * Holds a JavaNative (buffer ops on the Java side) write batch
    */
-  public abstract static class WriteBatchThreadNative<TBatch extends WriteBatchJavaNative> extends WriteBatchThreadBase<TBatch> {
+  public abstract static class WriteBatchThreadNative extends WriteBatchThreadBase<WriteBatchJavaNative> {
 
     @Override
     public void stopBatch() throws RocksDBException {
       if (writeBatch != null) {
         try {
-          writeBatch.flush();
-          if (flushToDB) {
+          if (writeToDB) {
             rocksDB.write(new WriteOptions(), writeBatch);
           }
         } finally {
@@ -153,20 +152,20 @@ public class WriteBatchBenchmarks {
   }
 
   @State(Scope.Thread)
-  public static class WriteBatchThreadNativeArray extends WriteBatchThreadNative<WriteBatchJavaNativeArray> {
+  public static class WriteBatchThreadNativeArray extends WriteBatchThreadNative {
 
     @Override
     public void startBatch() {
-      writeBatch = new WriteBatchJavaNativeArray(writeBatchAllocation);
+      writeBatch = WriteBatchJavaNative.allocate(writeBatchAllocation);
     }
   }
 
   @State(Scope.Thread)
-  public static class WriteBatchThreadNativeDirect extends WriteBatchThreadNative<WriteBatchJavaNativeDirect> {
+  public static class WriteBatchThreadNativeDirect extends WriteBatchThreadNative {
 
     @Override
     public void startBatch() {
-      writeBatch = new WriteBatchJavaNativeDirect(writeBatchAllocation);
+      writeBatch = WriteBatchJavaNative.allocateDirect(writeBatchAllocation);
     }
   }
 
