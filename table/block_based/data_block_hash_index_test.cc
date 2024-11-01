@@ -561,7 +561,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
           &internal_tbl_prop_coll_factories, options.compression,
           CompressionOptions(),
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
-          column_family_name, level_),
+          column_family_name, level_, kUnknownNewestKeyTime),
       file_writer.get()));
 
   builder->Add(ik1.Encode().ToString(), v1);

@@ -619,6 +619,7 @@ struct BlockBasedTableBuilder::Rep {
     props.column_family_id = tbo.column_family_id;
     props.column_family_name = tbo.column_family_name;
     props.oldest_key_time = tbo.oldest_key_time;
+    props.newest_key_time = tbo.newest_key_time;
     props.file_creation_time = tbo.file_creation_time;
     props.orig_file_number = tbo.cur_file_num;
     props.db_id = tbo.db_id;

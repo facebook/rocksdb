@@ -1914,6 +1914,10 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
     oldest_ancester_time = current_time;
   }
 
+  uint64_t newest_key_time = sub_compact->compaction->MaxInputFileNewestKeyTime(
+      sub_compact->start.has_value() ? &tmp_start : nullptr,
+      sub_compact->end.has_value() ? &tmp_end : nullptr);
+
   // Initialize a SubcompactionState::Output and add it to sub_compact->outputs
   uint64_t epoch_number = sub_compact->compaction->MinInputFileEpochNumber();
   {
@@ -1963,7 +1967,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       cfd->internal_tbl_prop_coll_factories(),
       sub_compact->compaction->output_compression(),
       sub_compact->compaction->output_compression_opts(), cfd->GetID(),
-      cfd->GetName(), sub_compact->compaction->output_level(),
+      cfd->GetName(), sub_compact->compaction->output_level(), newest_key_time,
       bottommost_level_, TableFileCreationReason::kCompaction,
       0 /* oldest_key_time */, current_time, db_id_, db_session_id_,
       sub_compact->compaction->max_output_file_size(), file_number,

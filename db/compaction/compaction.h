@@ -406,6 +406,12 @@ class Compaction {
   }
 
   // start and end are sub compact range. Null if no boundary.
+  // This is used to calculate the newest_key_time table property after
+  // compaction.
+  uint64_t MaxInputFileNewestKeyTime(const InternalKey* start,
+                                     const InternalKey* end) const;
+
+  // start and end are sub compact range. Null if no boundary.
   // This is used to filter out some input files' ancester's time range.
   uint64_t MinInputFileOldestAncesterTime(const InternalKey* start,
                                           const InternalKey* end) const;

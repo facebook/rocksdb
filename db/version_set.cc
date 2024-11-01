@@ -3386,28 +3386,25 @@ bool ShouldChangeFileTemperature(const ImmutableOptions& ioptions,
   int64_t _current_time;
   auto status = ioptions.clock->GetCurrentTime(&_current_time);
   const uint64_t current_time = static_cast<uint64_t>(_current_time);
-  // We use oldest_ancestor_time of a file to be the estimate age of
-  // the file just older than it. This is the same logic used in
+  // This is the same logic used in
   // FIFOCompactionPicker::PickTemperatureChangeCompaction().
   if (status.ok() && current_time >= ages[0].age) {
     uint64_t create_time_threshold = current_time - ages[0].age;
     Temperature target_temp;
     assert(files.size() >= 1);
-    for (size_t index = files.size() - 1; index >= 1; --index) {
-      FileMetaData* cur_file = files[index];
-      FileMetaData* prev_file = files[index - 1];
+    for (size_t index = files.size(); index >= 1; --index) {
+      FileMetaData* cur_file = files[index - 1];
+      FileMetaData* prev_file = index < 2 ? nullptr : files[index - 2];
       if (!cur_file->being_compacted) {
-        uint64_t oldest_ancestor_time = prev_file->TryGetOldestAncesterTime();
-        if (oldest_ancestor_time == kUnknownOldestAncesterTime) {
-          return false;
-        }
-        if (oldest_ancestor_time > create_time_threshold) {
+        uint64_t est_newest_key_time = cur_file->TryGetNewestKeyTime(prev_file);
+        if (est_newest_key_time == kUnknownNewestKeyTime ||
+            est_newest_key_time > create_time_threshold) {
           return false;
         }
         target_temp = ages[0].temperature;
         for (size_t i = 1; i < ages.size(); ++i) {
           if (current_time >= ages[i].age &&
-              oldest_ancestor_time <= current_time - ages[i].age) {
+              est_newest_key_time <= current_time - ages[i].age) {
             target_temp = ages[i].temperature;
           }
         }

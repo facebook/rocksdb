@@ -91,5 +91,55 @@ class MockTableFactory : public TableFactory {
   size_t key_value_size_ = 1;
 };
 
+class MockTableReader : public TableReader {
+ public:
+  explicit MockTableReader(const mock::KVVector& table) : table_(table) {
+    tp_.num_entries = table_.size();
+    tp_.num_range_deletions = 0;
+    tp_.raw_key_size = 1;
+    tp_.raw_value_size = 1;
+  }
+  explicit MockTableReader(const mock::KVVector& table,
+                           const TableProperties& tp)
+      : table_(table), tp_(tp) {}
+
+  virtual InternalIterator* NewIterator(
+      const ReadOptions&, const SliceTransform* prefix_extractor, Arena* arena,
+      bool skip_filters, TableReaderCaller caller,
+      size_t compaction_readahead_size = 0,
+      bool allow_unprepared_value = false) override;
+
+  virtual Status Get(const ReadOptions& readOptions, const Slice& key,
+                     GetContext* get_context,
+                     const SliceTransform* prefix_extractor,
+                     bool skip_filters = false) override;
+
+  virtual uint64_t ApproximateOffsetOf(const ReadOptions& /*read_options*/,
+                                       const Slice& /*key*/,
+                                       TableReaderCaller /*caller*/) override {
+    return 0;
+  }
+
+  virtual uint64_t ApproximateSize(const ReadOptions& /*read_options*/,
+                                   const Slice& /*start*/, const Slice& /*end*/,
+                                   TableReaderCaller /*caller*/) override {
+    return 0;
+  }
+
+  virtual size_t ApproximateMemoryUsage() const override { return 0; }
+
+  virtual void SetupForCompaction() override {}
+
+  virtual std::shared_ptr<const TableProperties> GetTableProperties()
+      const override {
+    return std::make_shared<const TableProperties>(tp_);
+  }
+
+  ~MockTableReader() = default;
+
+ private:
+  const KVVector& table_;
+  TableProperties tp_;
+};
 }  // namespace mock
 }  // namespace ROCKSDB_NAMESPACE

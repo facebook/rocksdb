@@ -141,6 +141,8 @@ std::string TableProperties::ToString(const std::string& prop_delim,
 
   AppendProperty(result, "time stamp of earliest key", oldest_key_time,
                  prop_delim, kv_delim);
+  AppendProperty(result, "time stamp of newest key", newest_key_time,
+                 prop_delim, kv_delim);
 
   AppendProperty(result, "file creation time", file_creation_time, prop_delim,
                  kv_delim);
@@ -302,6 +304,8 @@ const std::string TablePropertiesNames::kCompressionOptions =
 const std::string TablePropertiesNames::kCreationTime = "rocksdb.creation.time";
 const std::string TablePropertiesNames::kOldestKeyTime =
     "rocksdb.oldest.key.time";
+const std::string TablePropertiesNames::kNewestKeyTime =
+    "rocksdb.newest.key.time";
 const std::string TablePropertiesNames::kFileCreationTime =
     "rocksdb.file.creation.time";
 const std::string TablePropertiesNames::kSlowCompressionEstimatedDataSize =
@@ -393,6 +397,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
         {"oldest_key_time",
          {offsetof(struct TableProperties, oldest_key_time),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"newest_key_time",
+         {offsetof(struct TableProperties, newest_key_time),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"file_creation_time",

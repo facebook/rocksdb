@@ -79,10 +79,14 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       FileMetaData* f = *ritr;
       assert(f);
       if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
+        uint64_t newest_key_time = f->TryGetNewestKeyTime();
         uint64_t creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
-        if (creation_time == 0 ||
-            creation_time >= (current_time - mutable_cf_options.ttl)) {
+        uint64_t est_newest_key_time = newest_key_time == kUnknownNewestKeyTime
+                                           ? creation_time
+                                           : newest_key_time;
+        if (est_newest_key_time == kUnknownNewestKeyTime ||
+            est_newest_key_time >= (current_time - mutable_cf_options.ttl)) {
           break;
         }
       }
@@ -102,15 +106,19 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   }
 
   for (const auto& f : inputs[0].files) {
-    uint64_t creation_time = 0;
     assert(f);
+    uint64_t newest_key_time = f->TryGetNewestKeyTime();
+    uint64_t creation_time = 0;
     if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
       creation_time = f->fd.table_reader->GetTableProperties()->creation_time;
     }
+    uint64_t est_newest_key_time = newest_key_time == kUnknownNewestKeyTime
+                                       ? creation_time
+                                       : newest_key_time;
     ROCKS_LOG_BUFFER(log_buffer,
                      "[%s] FIFO compaction: picking file %" PRIu64
-                     " with creation time %" PRIu64 " for deletion",
-                     cf_name.c_str(), f->fd.GetNumber(), creation_time);
+                     " with estimated newest key time %" PRIu64 " for deletion",
+                     cf_name.c_str(), f->fd.GetNumber(), est_newest_key_time);
   }
 
   Compaction* c = new Compaction(
@@ -350,38 +358,26 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
   Temperature compaction_target_temp = Temperature::kLastTemperature;
   if (current_time > min_age) {
     uint64_t create_time_threshold = current_time - min_age;
-    // We will ideally identify a file qualifying for temperature change by
-    // knowing the timestamp for the youngest entry in the file. However, right
-    // now we don't have the information. We infer it by looking at timestamp of
-    // the previous file's (which is just younger) oldest entry's timestamp.
-    // avoid index underflow
     assert(level_files.size() >= 1);
-    for (size_t index = level_files.size() - 1; index >= 1; --index) {
+    for (size_t index = level_files.size(); index >= 1; --index) {
       // Try to add cur_file to compaction inputs.
-      FileMetaData* cur_file = level_files[index];
-      // prev_file is just younger than cur_file
-      FileMetaData* prev_file = level_files[index - 1];
+      FileMetaData* cur_file = level_files[index - 1];
+      FileMetaData* prev_file = index < 2 ? nullptr : level_files[index - 2];
       if (cur_file->being_compacted) {
         // Should not happen since we check for
         // `level0_compactions_in_progress_` above. Here we simply just don't
         // schedule anything.
         return nullptr;
       }
-      uint64_t oldest_ancestor_time = prev_file->TryGetOldestAncesterTime();
-      if (oldest_ancestor_time == kUnknownOldestAncesterTime) {
-        // Older files might not have enough information. It is possible to
-        // handle these files by looking at newer files, but maintaining the
-        // logic isn't worth it.
-        break;
-      }
-      if (oldest_ancestor_time > create_time_threshold) {
-        // cur_file is too fresh
+      uint64_t est_newest_key_time = cur_file->TryGetNewestKeyTime(prev_file);
+      if (est_newest_key_time == kUnknownNewestKeyTime ||
+          est_newest_key_time > create_time_threshold) {
         break;
       }
       Temperature cur_target_temp = ages[0].temperature;
       for (size_t i = 1; i < ages.size(); ++i) {
         if (current_time >= ages[i].age &&
-            oldest_ancestor_time <= current_time - ages[i].age) {
+            est_newest_key_time <= current_time - ages[i].age) {
           cur_target_temp = ages[i].temperature;
         }
       }
@@ -396,8 +392,8 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
       ROCKS_LOG_BUFFER(
           log_buffer,
           "[%s] FIFO compaction: picking file %" PRIu64
-          " with next file's oldest time %" PRIu64 " for temperature %s.",
-          cf_name.c_str(), cur_file->fd.GetNumber(), oldest_ancestor_time,
+          " with estimated newest key time %" PRIu64 " for temperature %s.",
+          cf_name.c_str(), cur_file->fd.GetNumber(), est_newest_key_time,
           temperature_to_string[cur_target_temp].c_str());
       break;
     }

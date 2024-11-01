@@ -1328,7 +1328,7 @@ class VersionSetTestBase {
               &internal_tbl_prop_coll_factories, kNoCompression,
               CompressionOptions(),
               TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
-              info.column_family, info.level),
+              info.column_family, info.level, kUnknownNewestKeyTime),
           fwriter.get()));
       InternalKey ikey(info.key, 0, ValueType::kTypeValue);
       builder->Add(ikey.Encode(), "value");
