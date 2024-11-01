@@ -303,12 +303,15 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
             /*lookup_context=*/nullptr, &serialized_block,
             /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
 
+        if (!s.ok()) {
+          statuses[idx_in_batch] = s;
+          continue;
+        }
         // block_entry value could be null if no block cache is present, i.e
         // BlockBasedTableOptions::no_block_cache is true and no compressed
         // block cache is configured. In that case, fall
         // through and set up the block explicitly
         if (block_entry->GetValue() != nullptr) {
-          s.PermitUncheckedError();
           continue;
         }
       }
