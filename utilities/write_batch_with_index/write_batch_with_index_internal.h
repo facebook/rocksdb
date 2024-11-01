@@ -36,7 +36,8 @@ class BaseDeltaIterator : public Iterator {
  public:
   BaseDeltaIterator(ColumnFamilyHandle* column_family, Iterator* base_iterator,
                     WBWIIteratorImpl* delta_iterator,
-                    const Comparator* comparator);
+                    const Comparator* comparator,
+                    const ReadOptions* read_options);
 
   ~BaseDeltaIterator() override;
 
@@ -47,6 +48,23 @@ class BaseDeltaIterator : public Iterator {
   void SeekForPrev(const Slice& k) override;
   void Next() override;
   void Prev() override;
+
+  bool PrepareValue() override {
+    assert(Valid());
+
+    if (!allow_unprepared_value_) {
+      return true;
+    }
+
+    if (!current_at_base_) {
+      return true;
+    }
+
+    SetValueAndColumnsFromBase();
+
+    return Valid();
+  }
+
   Slice key() const override;
   Slice value() const override { return value_; }
   const WideColumns& columns() const override { return columns_; }
@@ -69,6 +87,7 @@ class BaseDeltaIterator : public Iterator {
   bool forward_;
   bool current_at_base_;
   bool equal_keys_;
+  bool allow_unprepared_value_;
   Status status_;
   ColumnFamilyHandle* column_family_;
   std::unique_ptr<Iterator> base_iterator_;
