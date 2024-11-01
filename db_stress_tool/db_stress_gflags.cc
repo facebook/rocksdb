@@ -835,7 +835,7 @@ DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads");
 DEFINE_bool(use_multi_get_entity, false,
             "If set, use the MultiGetEntity API for reads");
 
-DEFINE_int32(test_standalone_range_deletion_one_in, 0,
+DEFINE_int32(test_ingest_standalone_range_deletion_one_in, 0,
              "If non-zero, file ingestion flow will test standalone range "
              "deletion file once every N file ingestion operations.");
 
