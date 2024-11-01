@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.6.2 (10/31/2024)
+### Bug Fixes
+* Fix a leak of obsolete blob files left open until DB::Close(). This bug was introduced in version 9.4.0.
+
 ## 9.6.1 (08/24/2024)
 ### Bug Fixes
 * Fix correctness of MultiGet across column families with user timestamp.
