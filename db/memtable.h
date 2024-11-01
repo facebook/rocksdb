@@ -77,6 +77,15 @@ struct MemTablePostProcessInfo {
 
 using MultiGetRange = MultiGetContext::Range;
 
+// For each CF, rocksdb maintains an active memtable that accept writes,
+// and zero or more sealed memtables that we call immutable memtables.
+// This interface contains all methods required for immutable memtables.
+// MemTable class inherit from `ReadOnlyMemTable` and implements additional
+// methods required for active memtables.
+// Immutable memtable list (MemTableList) maintains a list of ReadOnlyMemTable
+// objects. This interface enables feature like direct ingestion of an
+// immutable memtable with custom implementation, bypassing memtable writes.
+//
 // Note: Many of the methods in this class have comments indicating that
 // external synchronization is required as these methods are not thread-safe.
 // It is up to higher layers of code to decide how to prevent concurrent
@@ -226,7 +235,7 @@ class ReadOnlyMemTable {
     return Get(key, value, columns, timestamp, s, merge_context,
                max_covering_tombstone_seq, &seq, read_opts, immutable_memtable,
                callback, is_blob_index, do_merge);
-  };
+  }
 
   // @param immutable_memtable Whether this memtable is immutable. Used
   // internally by NewRangeTombstoneIterator(). See comment above
