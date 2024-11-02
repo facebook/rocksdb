@@ -1994,9 +1994,8 @@ class NonBatchedOpsStressTest : public StressTest {
     // a continuous range of keys, the second one with a standalone range
     // deletion for all the keys. This is to exercise the standalone range
     // deletion file's compaction input optimization.
-    // TODO(yuzhangyu): make this an option.
-    bool test_standalone_range_deletion =
-        thread->rand.OneInOpt(10) && FLAGS_delrangepercent > 0;
+    bool test_standalone_range_deletion = thread->rand.OneInOpt(
+        FLAGS_test_ingest_standalone_range_deletion_one_in);
     std::vector<std::string> external_files;
     const std::string sst_filename =
         FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";

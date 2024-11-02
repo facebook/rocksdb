@@ -104,6 +104,7 @@ default_params = {
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
+    "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
     "lock_wal_one_in": lambda: random.choice([10000, 1000000]),
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
@@ -971,6 +972,8 @@ def finalize_and_sanitize(src_params):
     # can cause checkpoint verification to fail. So make the two mutually exclusive.
     if dest_params.get("checkpoint_one_in") != 0:
         dest_params["lock_wal_one_in"] = 0
+    if dest_params.get("ingest_external_file_one_in") == 0 or dest_params.get("delrangepercent") == 0:
+        dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
     return dest_params
 
 
