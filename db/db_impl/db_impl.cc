@@ -3993,14 +3993,26 @@ std::unique_ptr<IterType> DBImpl::NewMultiCfIterator(
           "Different comparators are being used across CFs"));
     }
   }
+
   std::vector<Iterator*> child_iterators;
   Status s = NewIterators(_read_options, column_families, &child_iterators);
   if (!s.ok()) {
     return error_iterator_func(s);
   }
-  return std::make_unique<ImplType>(
-      column_families[0]->GetComparator(), _read_options.allow_unprepared_value,
-      column_families, std::move(child_iterators));
+
+  assert(column_families.size() == child_iterators.size());
+
+  std::vector<std::pair<ColumnFamilyHandle*, std::unique_ptr<Iterator>>>
+      cfh_iter_pairs;
+  cfh_iter_pairs.reserve(column_families.size());
+  for (size_t i = 0; i < column_families.size(); ++i) {
+    cfh_iter_pairs.emplace_back(column_families[i],
+                                std::unique_ptr<Iterator>(child_iterators[i]));
+  }
+
+  return std::make_unique<ImplType>(_read_options,
+                                    column_families[0]->GetComparator(),
+                                    std::move(cfh_iter_pairs));
 }
 
 Status DBImpl::NewIterators(
