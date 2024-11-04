@@ -3609,7 +3609,7 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNonLastLevel) {
   const int kLastLevel = kNumLevels - 1;
 
   ioptions_.compaction_style = kCompactionStyleUniversal;
-  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.preclude_last_level_data_seconds = 1000;
   mutable_cf_options_.compaction_options_universal
       .max_size_amplification_percent = 200;
   // To avoid any L0 file exclusion in size amp compaction intended for reducing
@@ -3649,7 +3649,7 @@ TEST_F(CompactionPickerTest, UniversalSizeRatioTierCompactionLastLevel) {
   const int kPenultimateLevel = kLastLevel - 1;
 
   ioptions_.compaction_style = kCompactionStyleUniversal;
-  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.preclude_last_level_data_seconds = 1000;
   mutable_cf_options_.compaction_options_universal
       .max_size_amplification_percent = 200;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
@@ -3687,7 +3687,7 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNotSuport) {
   const int kLastLevel = kNumLevels - 1;
 
   ioptions_.compaction_style = kCompactionStyleUniversal;
-  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.preclude_last_level_data_seconds = 1000;
   mutable_cf_options_.compaction_options_universal
       .max_size_amplification_percent = 200;
   // To avoid any L0 file exclusion in size amp compaction intended for reducing
@@ -3725,7 +3725,7 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionLastLevel) {
   const int kPenultimateLevel = kLastLevel - 1;
 
   ioptions_.compaction_style = kCompactionStyleUniversal;
-  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.preclude_last_level_data_seconds = 1000;
   mutable_cf_options_.compaction_options_universal
       .max_size_amplification_percent = 200;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
@@ -3909,8 +3909,8 @@ TEST_P(PerKeyPlacementCompactionPickerTest, OverlapWithNormalCompaction) {
   ASSERT_EQ(enable_per_key_placement_,
             level_compaction_picker.FilesRangeOverlapWithCompaction(
                 input_files, 6,
-                Compaction::EvaluatePenultimateLevel(vstorage_.get(), ioptions_,
-                                                     0, 6)));
+                Compaction::EvaluatePenultimateLevel(
+                    vstorage_.get(), mutable_cf_options_, ioptions_, 0, 6)));
 }
 
 TEST_P(PerKeyPlacementCompactionPickerTest, NormalCompactionOverlap) {
@@ -3997,8 +3997,8 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
   ASSERT_EQ(enable_per_key_placement_,
             universal_compaction_picker.FilesRangeOverlapWithCompaction(
                 input_files, 6,
-                Compaction::EvaluatePenultimateLevel(vstorage_.get(), ioptions_,
-                                                     0, 6)));
+                Compaction::EvaluatePenultimateLevel(
+                    vstorage_.get(), mutable_cf_options_, ioptions_, 0, 6)));
 }
 
 TEST_P(PerKeyPlacementCompactionPickerTest, NormalCompactionOverlapUniversal) {
@@ -4049,7 +4049,7 @@ TEST_P(PerKeyPlacementCompactionPickerTest, PenultimateOverlapUniversal) {
   // This test is make sure the Tiered compaction would lock whole range of
   // both output level and penultimate level
   if (enable_per_key_placement_) {
-    ioptions_.preclude_last_level_data_seconds = 10000;
+    mutable_cf_options_.preclude_last_level_data_seconds = 10000;
   }
 
   int num_levels = ioptions_.num_levels;
@@ -4104,7 +4104,7 @@ TEST_P(PerKeyPlacementCompactionPickerTest, PenultimateOverlapUniversal) {
 
 TEST_P(PerKeyPlacementCompactionPickerTest, LastLevelOnlyOverlapUniversal) {
   if (enable_per_key_placement_) {
-    ioptions_.preclude_last_level_data_seconds = 10000;
+    mutable_cf_options_.preclude_last_level_data_seconds = 10000;
   }
 
   int num_levels = ioptions_.num_levels;
@@ -4163,7 +4163,7 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
   // This should rarely happen in universal compaction, as the non-empty L5
   // should be included in the compaction.
   if (enable_per_key_placement_) {
-    ioptions_.preclude_last_level_data_seconds = 10000;
+    mutable_cf_options_.preclude_last_level_data_seconds = 10000;
   }
 
   int num_levels = ioptions_.num_levels;
@@ -4217,7 +4217,7 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
   // penultimate level compaction if there's already an ongoing compaction to
   // the penultimate level
   if (enable_per_key_placement_) {
-    ioptions_.preclude_last_level_data_seconds = 10000;
+    mutable_cf_options_.preclude_last_level_data_seconds = 10000;
   }
 
   int num_levels = ioptions_.num_levels;
@@ -4258,8 +4258,8 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
   ASSERT_EQ(enable_per_key_placement_,
             universal_compaction_picker.FilesRangeOverlapWithCompaction(
                 input_files, 6,
-                Compaction::EvaluatePenultimateLevel(vstorage_.get(), ioptions_,
-                                                     6, 6)));
+                Compaction::EvaluatePenultimateLevel(
+                    vstorage_.get(), mutable_cf_options_, ioptions_, 6, 6)));
 
   if (!enable_per_key_placement_) {
     std::unique_ptr<Compaction> comp2(universal_compaction_picker.CompactFiles(
@@ -4277,7 +4277,7 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
   // compaction, so it's safe to move data from the last level to the
   // penultimate level.
   if (enable_per_key_placement_) {
-    ioptions_.preclude_last_level_data_seconds = 10000;
+    mutable_cf_options_.preclude_last_level_data_seconds = 10000;
   }
 
   int num_levels = ioptions_.num_levels;
@@ -4318,7 +4318,8 @@ TEST_P(PerKeyPlacementCompactionPickerTest,
   // always safe to move data up
   ASSERT_FALSE(universal_compaction_picker.FilesRangeOverlapWithCompaction(
       input_files, 6,
-      Compaction::EvaluatePenultimateLevel(vstorage_.get(), ioptions_, 6, 6)));
+      Compaction::EvaluatePenultimateLevel(vstorage_.get(), mutable_cf_options_,
+                                           ioptions_, 6, 6)));
 
   // 2 compactions can be run in parallel
   std::unique_ptr<Compaction> comp2(universal_compaction_picker.CompactFiles(

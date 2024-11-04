@@ -97,9 +97,8 @@ class CompactionPicker {
   // non-ok status with specific reason.
   //
   Status SanitizeAndConvertCompactionInputFiles(
-      std::unordered_set<uint64_t>* input_files,
-      const ColumnFamilyMetaData& cf_meta, const int output_level,
-      const VersionStorageInfo* vstorage,
+      std::unordered_set<uint64_t>* input_files, const int output_level,
+      Version* version,
       std::vector<CompactionInputFiles>* converted_input_files) const;
 
   // Free up the files that participated in a compaction

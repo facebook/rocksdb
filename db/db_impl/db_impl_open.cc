@@ -575,6 +575,7 @@ Status DBImpl::Recover(
   }
   if (s.ok() && !read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
+      auto& moptions = *cfd->GetLatestMutableCFOptions();
       // Try to trivially move files down the LSM tree to start from bottommost
       // level when level_compaction_dynamic_level_bytes is enabled. This should
       // only be useful when user is migrating to turning on this option.
@@ -592,14 +593,14 @@ Status DBImpl::Recover(
       if (cfd->ioptions()->compaction_style ==
               CompactionStyle::kCompactionStyleLevel &&
           cfd->ioptions()->level_compaction_dynamic_level_bytes &&
-          !cfd->GetLatestMutableCFOptions()->disable_auto_compactions) {
+          !moptions.disable_auto_compactions) {
         int to_level = cfd->ioptions()->num_levels - 1;
         // last level is reserved
         // allow_ingest_behind does not support Level Compaction,
         // and per_key_placement can have infinite compaction loop for Level
         // Compaction. Adjust to_level here just to be safe.
         if (cfd->ioptions()->allow_ingest_behind ||
-            cfd->ioptions()->preclude_last_level_data_seconds > 0) {
+            moptions.preclude_last_level_data_seconds > 0) {
           to_level -= 1;
         }
         // Whether this column family has a level trivially moved

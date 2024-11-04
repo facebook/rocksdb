@@ -414,8 +414,9 @@ void LevelCompactionBuilder::SetupOtherFilesWithRoundRobinExpansion() {
                                                     &tmp_start_level_inputs) ||
         compaction_picker_->FilesRangeOverlapWithCompaction(
             {tmp_start_level_inputs}, output_level_,
-            Compaction::EvaluatePenultimateLevel(
-                vstorage_, ioptions_, start_level_, output_level_))) {
+            Compaction::EvaluatePenultimateLevel(vstorage_, mutable_cf_options_,
+                                                 ioptions_, start_level_,
+                                                 output_level_))) {
       // Constraint 1a
       tmp_start_level_inputs.clear();
       return;
@@ -489,8 +490,9 @@ bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
     // We need to disallow this from happening.
     if (compaction_picker_->FilesRangeOverlapWithCompaction(
             compaction_inputs_, output_level_,
-            Compaction::EvaluatePenultimateLevel(
-                vstorage_, ioptions_, start_level_, output_level_))) {
+            Compaction::EvaluatePenultimateLevel(vstorage_, mutable_cf_options_,
+                                                 ioptions_, start_level_,
+                                                 output_level_))) {
       // This compaction output could potentially conflict with the output
       // of a currently running compaction, we cannot run it.
       return false;
@@ -844,8 +846,9 @@ bool LevelCompactionBuilder::PickFileToCompact() {
                                                     &start_level_inputs_) ||
         compaction_picker_->FilesRangeOverlapWithCompaction(
             {start_level_inputs_}, output_level_,
-            Compaction::EvaluatePenultimateLevel(
-                vstorage_, ioptions_, start_level_, output_level_))) {
+            Compaction::EvaluatePenultimateLevel(vstorage_, mutable_cf_options_,
+                                                 ioptions_, start_level_,
+                                                 output_level_))) {
       // A locked (pending compaction) input-level file was pulled in due to
       // user-key overlap.
       start_level_inputs_.clear();

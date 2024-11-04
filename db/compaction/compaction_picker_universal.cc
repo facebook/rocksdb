@@ -142,7 +142,7 @@ class UniversalCompactionBuilder {
 
   bool ShouldSkipLastSortedRunForSizeAmpCompaction() const {
     assert(!sorted_runs_.empty());
-    return ioptions_.preclude_last_level_data_seconds > 0 &&
+    return mutable_cf_options_.preclude_last_level_data_seconds > 0 &&
            ioptions_.num_levels > 2 &&
            sorted_runs_.back().level == ioptions_.num_levels - 1 &&
            sorted_runs_.size() > 1;
@@ -994,11 +994,11 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
     grandparents = vstorage_->LevelFiles(sorted_runs_[first_index_after].level);
   }
 
-  if (output_level != 0 &&
-      picker_->FilesRangeOverlapWithCompaction(
-          inputs, output_level,
-          Compaction::EvaluatePenultimateLevel(vstorage_, ioptions_,
-                                               start_level, output_level))) {
+  if (output_level != 0 && picker_->FilesRangeOverlapWithCompaction(
+                               inputs, output_level,
+                               Compaction::EvaluatePenultimateLevel(
+                                   vstorage_, mutable_cf_options_, ioptions_,
+                                   start_level, output_level))) {
     return nullptr;
   }
   CompactionReason compaction_reason;
@@ -1343,11 +1343,11 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
   }
 
   // intra L0 compactions outputs could have overlap
-  if (output_level != 0 &&
-      picker_->FilesRangeOverlapWithCompaction(
-          inputs, output_level,
-          Compaction::EvaluatePenultimateLevel(vstorage_, ioptions_,
-                                               start_level, output_level))) {
+  if (output_level != 0 && picker_->FilesRangeOverlapWithCompaction(
+                               inputs, output_level,
+                               Compaction::EvaluatePenultimateLevel(
+                                   vstorage_, mutable_cf_options_, ioptions_,
+                                   start_level, output_level))) {
     return nullptr;
   }
 
@@ -1487,7 +1487,8 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       if (picker_->FilesRangeOverlapWithCompaction(
               inputs, output_level,
               Compaction::EvaluatePenultimateLevel(
-                  vstorage_, ioptions_, start_level, output_level))) {
+                  vstorage_, mutable_cf_options_, ioptions_, start_level,
+                  output_level))) {
         return nullptr;
       }
 
@@ -1587,11 +1588,11 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
   }
 
   // intra L0 compactions outputs could have overlap
-  if (output_level != 0 &&
-      picker_->FilesRangeOverlapWithCompaction(
-          inputs, output_level,
-          Compaction::EvaluatePenultimateLevel(vstorage_, ioptions_,
-                                               start_level, output_level))) {
+  if (output_level != 0 && picker_->FilesRangeOverlapWithCompaction(
+                               inputs, output_level,
+                               Compaction::EvaluatePenultimateLevel(
+                                   vstorage_, mutable_cf_options_, ioptions_,
+                                   start_level, output_level))) {
     return nullptr;
   }
 
