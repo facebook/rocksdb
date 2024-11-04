@@ -227,6 +227,27 @@ public class WriteBatchJavaNativeTest {
     }
   }
 
+  @Test
+  public void put256Bug() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
+      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(16384)) {
+        final int repeat = 10;
+        final int keySize = 16;
+        final int valueSize = 4096;
+        for (int i = 0; i < repeat; i++) {
+          wb.put(stringOfSize(keySize,"k" + i).getBytes(),
+              stringOfSize(valueSize,"v" + i).getBytes());
+        }
+        db.write(new WriteOptions(), wb);
+
+        byte[] v1 = db.get(stringOfSize(keySize,"k1").getBytes());
+        assertThat(v1).isEqualTo(stringOfSize(valueSize,"v1").getBytes());
+        byte[] v9 = db.get(stringOfSize(keySize,"k9").getBytes());
+        assertThat(v1).isEqualTo(stringOfSize(valueSize,"v9").getBytes());
+      }
+    }
+  }
+
   static byte[] getContents(final WriteBatchJavaNative wb) {
     return WriteBatchTest.getContents(wb.getNativeHandle());
   }

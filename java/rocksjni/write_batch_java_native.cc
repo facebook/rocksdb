@@ -86,7 +86,10 @@ void ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer::copy_write_batch_from_java(
 
       default: {
         throw WriteBatchJavaNativeException(std::string("Unexpected writebatch command ")
-                     .append(std::to_string(op)));
+                     .append(std::to_string(op))
+                     .append(" at ")
+                     .append(std::to_string(current_pos()))
+                     );
         return;
       } break;
     }

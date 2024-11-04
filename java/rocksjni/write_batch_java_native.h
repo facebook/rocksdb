@@ -106,7 +106,7 @@ class WriteBatchJavaNativeBuffer {
   }
 
   jbyte next_byte() {
-    jbyte result = *reinterpret_cast<const jint*>(slice_.data() + pos);
+    jbyte result = *reinterpret_cast<const jbyte*>(slice_.data() + pos);
     pos += sizeof(jbyte);
     return result;
   }
@@ -125,6 +125,10 @@ class WriteBatchJavaNativeBuffer {
     }
     pos = static_cast<uint32_t>(beyond - slice_.data());
     return result;
+  }
+
+  uint32_t current_pos() {
+    return pos;
   }
 
   /**
@@ -149,6 +153,12 @@ class WriteBatchJavaNativeBuffer {
     const jbyte* slice_ptr = ptr();
     skip(slice_len);
     return Slice(reinterpret_cast<const char*>(slice_ptr), slice_len);
+  }
+
+  std::string slice_to_string(const ROCKSDB_NAMESPACE::Slice s) {
+    return std::string("slice: ")
+    .append(std::to_string(reinterpret_cast<u_int64_t>(s.data())))
+    .append("[").append(std::to_string(s.size())).append("]");
   }
 
   const jbyte* ptr() { return reinterpret_cast<const jbyte*>(slice_.data()) + pos; };

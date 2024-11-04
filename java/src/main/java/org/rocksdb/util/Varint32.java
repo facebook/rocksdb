@@ -20,31 +20,43 @@ public class Varint32 {
                 buf.put((byte)value);
                 return;
             } else {
-                buf.put((byte) (((int) value & 0x7F) | 0x80));
+                buf.put((byte) ((value & 0x7F) | 0x80));
                 value >>>= 7;
             }
         }
     }
 
+    /**
+     * This is not the fastest possible varint32 encoding,
+     * but it is fast enough for our purposes.
+     * And the alleged fastest version appears to break
+     * when we translate it. That is probable me (AP)
+     * but I am not going to waste any more time.
+     * 
+     * @param buf
+     * @param value
+     */
     public static void write(ByteBuffer buf, final int value) {
         if ((value & (0xFFFFFFFF << 7)) == 0) {
             buf.put((byte) value);
-        } else if ((value & (0xFFFFFFFF << 14)) == 0) {
-            int w = (value & 0x7F | 0x80) << 8 | (value >>> 7);
-            buf.putShort((short) w);
-        } else if ((value & (0xFFFFFFFF << 21)) == 0) {
-            int w = (value & 0x7F | 0x80) << 8 | ((value >>> 7) & 0x7F | 0x80);
-            buf.putShort((short) w);
-            buf.put((byte) (value >>> 14));
-        } else if ((value & (0xFFFFFFFF << 28)) == 0) {
-            int w = (value & 0x7F | 0x80) << 24 | (((value >>> 7) & 0x7F | 0x80) << 16)
-                | ((value >>> 14) & 0x7F | 0x80) << 8 | (value >>> 21);
-            buf.putInt(w);
         } else {
-            int w = (value & 0x7F | 0x80) << 24 | ((value >>> 7) & 0x7F | 0x80) << 16
-                | ((value >>> 14) & 0x7F | 0x80) << 8 | ((value >>> 21) & 0x7F | 0x80);
-            buf.putInt(w);
-            buf.put((byte) (value >>> 28));
+            buf.put((byte) (value & 0x7F | 0x80));
+            if ((value & (0xFFFFFFFF << 14)) == 0) {
+                buf.put((byte) (value >>> 7));
+            } else {
+                buf.put((byte) ((value >>> 7) & 0x7F | 0x80));
+                if ((value & (0xFFFFFFFF << 21)) == 0) {
+                    buf.put((byte) (value >>> 14));
+                } else {
+                    buf.put((byte) ((value >>> 14) & 0x7F | 0x80));
+                    if ((value & (0xFFFFFFFF << 28)) == 0) {
+                        buf.put((byte) (value >>> 21));
+                    } else {
+                        buf.put((byte) ((value >>> 21) & 0x7F | 0x80));
+                        buf.put((byte) (value >>> 28));
+                    }
+                }
+            }
         }
     }
 
