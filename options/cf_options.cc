@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <cinttypes>
+#include <iostream>
 #include <limits>
 #include <string>
 
@@ -1257,4 +1258,20 @@ Status GetStringFromMutableCFOptions(const ConfigOptions& config_options,
   return OptionTypeInfo::SerializeType(
       config_options, cf_mutable_options_type_info, &mutable_opts, opt_string);
 }
+
+#ifndef NDEBUG
+std::vector<std::string> TEST_GetImmutableInMutableCFOptions() {
+  std::vector<std::string> result;
+  for (const auto& opt : cf_mutable_options_type_info) {
+    if (!opt.second.IsMutable()) {
+      result.emplace_back(opt.first);
+    }
+  }
+  if (result.size() > 0) {
+    std::cerr << "Warning: " << result.size() << " immutable options in "
+              << "MutableCFOptions" << std::endl;
+  }
+  return result;
+}
+#endif  // !NDEBUG
 }  // namespace ROCKSDB_NAMESPACE

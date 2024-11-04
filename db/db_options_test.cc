@@ -56,6 +56,11 @@ class DBOptionsTest : public DBTestBase {
     EXPECT_OK(GetStringFromMutableCFOptions(
         config_options, MutableCFOptions(options), &options_str));
     EXPECT_OK(StringToMap(options_str, &mutable_map));
+    for (auto& opt : TEST_GetImmutableInMutableCFOptions()) {
+      // Not yet mutable but migrated to MutableCFOptions in preparation for
+      // being mutable
+      mutable_map.erase(opt);
+    }
     return mutable_map;
   }
 
