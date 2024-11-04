@@ -42,6 +42,12 @@ ROCKSDB_NAMESPACE::WriteBatchJavaNative::Append(const Slice& slice) {
     WriteBatchInternal::SetContents(this, slice);
   } else {
     ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer javaNativeBuffer(slice);
+    if (javaNativeBuffer.sequence() > 0) {
+      ROCKSDB_NAMESPACE::WriteBatchInternal::SetSequence(
+          this, static_cast<ROCKSDB_NAMESPACE::SequenceNumber>(
+                    javaNativeBuffer.sequence()));
+    }
+
     javaNativeBuffer.copy_write_batch_from_java(this);
   }
 
@@ -194,19 +200,15 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeArray(
     // exception thrown: OutOfMemoryError
     return -1L;
   }
-  auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(
-    ROCKSDB_NAMESPACE::Slice(reinterpret_cast<const char *>(buf), jbuf_len));
-  
-  if (bp->sequence() > 0) {
-    ROCKSDB_NAMESPACE::WriteBatchInternal::SetSequence(
-        wb, static_cast<ROCKSDB_NAMESPACE::SequenceNumber>(bp->sequence()));
-  }
+
   try {
-    bp->copy_write_batch_from_java(wb);
-  } catch (ROCKSDB_NAMESPACE::WriteBatchJavaNativeException&) {
-    // Java exception is set
-    return -1L;
+    wb->Append(
+        ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(buf), jbuf_len));
+  } catch (ROCKSDB_NAMESPACE::WriteBatchJavaNativeException& e) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, e.Message());
+    return e.Code();
   }
+
   env->ReleaseByteArrayElements(jbuf, buf, JNI_ABORT);
 
   ROCKSDB_NAMESPACE::Status s = db->Write(*write_options, wb);
@@ -248,18 +250,12 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeDirect(
     // exception thrown: OutOfMemoryError
     return -1L;
   }
-  auto bp = std::make_unique<ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer>(
-    ROCKSDB_NAMESPACE::Slice(reinterpret_cast<const char *>(buf) + jbuf_pos, jbuf_limit - jbuf_pos));
-
-  if (bp->sequence() > 0) {
-    ROCKSDB_NAMESPACE::WriteBatchInternal::SetSequence(
-        wb, static_cast<ROCKSDB_NAMESPACE::SequenceNumber>(bp->sequence()));
-  }
   try {
-    bp->copy_write_batch_from_java(wb);
-  } catch (ROCKSDB_NAMESPACE::WriteBatchJavaNativeException&) {
-    // Java exception is set
-    return -1L;
+    wb->Append(ROCKSDB_NAMESPACE::Slice(
+        reinterpret_cast<const char*>(buf) + jbuf_pos, jbuf_limit - jbuf_pos));
+  } catch (ROCKSDB_NAMESPACE::WriteBatchJavaNativeException& e) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, e.Message());
+    return e.Code();
   }
   ROCKSDB_NAMESPACE::Status s = db->Write(*write_options, wb);
 

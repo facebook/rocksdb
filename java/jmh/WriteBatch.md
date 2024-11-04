@@ -122,4 +122,48 @@ WriteBatchBenchmarks.putWriteBatchNative           true      100000         16  
 WriteBatchBenchmarks.putWriteBatchNativeBB        false      100000         16              1000           32                   65536  thrpt    5  6289385.062 ±  38791.265  ops/s
 WriteBatchBenchmarks.putWriteBatchNativeBB         true      100000         16              1000           32                   65536  thrpt    5   658870.746 ±  29760.767  ops/s
 
+Having implemented the C++ native layout, and lazy Native creation (cache entirely at Java-side until buffer is full ). Note that `numOpsPerFlush` becomes
+`numOpsPerBatch` (flushes now happen when the allocation size is full).
+```
+java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatch -p keySize="16" -p valueSize="256" -p numOpsPerBatch="1000" -p writeBatchAllocation="16384" -p writeToDB="false","true"
+```
+
+Benchmark                                   (keyCount)  (keySize)  (numOpsPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt        Score        Error  Units
+WriteBatchBenchmarks.putWriteBatch              100000         16              1000          256                   16384        false  thrpt    5  1809216.300 ±  57078.510  ops/s
+WriteBatchBenchmarks.putWriteBatch              100000         16              1000          256                   16384         true  thrpt    5   620227.011 ±  16644.354  ops/s
+WriteBatchBenchmarks.putWriteBatchBB            100000         16              1000          256                   16384        false  thrpt    5  2267923.359 ±  61432.146  ops/s
+WriteBatchBenchmarks.putWriteBatchBB            100000         16              1000          256                   16384         true  thrpt    5   655527.482 ±  17516.492  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000          256                   16384        false  thrpt    5  5917708.661 ± 153556.231  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000          256                   16384         true  thrpt    5   765216.679 ±  48786.125  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000          256                   16384        false  thrpt    5  5145648.128 ± 199300.105  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000          256                   16384         true  thrpt    5   755784.632 ±  33956.045  ops/s
+
+Now try with smaller values and a bigger allocation, at this point 1000 ops per batch should fit in the buffer before flushing, so we always use the direct `std::string` copy
+rather than the slice-based append to an existing native (C++) batch:
+```
+java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatch -p keySize="16" -p valueSize="32" -p numOpsPerBatch="1000" -p writeBatchAllocation="65536" -p writeToDB="false","true"
+```
+
+Benchmark                                   (keyCount)  (keySize)  (numOpsPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt        Score        Error  Units
+WriteBatchBenchmarks.putWriteBatch              100000         16              1000           32                   65536        false  thrpt    5  2026120.677 ±  88735.879  ops/s
+WriteBatchBenchmarks.putWriteBatch              100000         16              1000           32                   65536         true  thrpt    5   548593.384 ±  27048.655  ops/s
+WriteBatchBenchmarks.putWriteBatchBB            100000         16              1000           32                   65536        false  thrpt    5  2569210.495 ±  90157.689  ops/s
+WriteBatchBenchmarks.putWriteBatchBB            100000         16              1000           32                   65536         true  thrpt    5   572886.442 ±  15231.671  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000           32                   65536        false  thrpt    5  8924580.866 ± 710874.604  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000           32                   65536         true  thrpt    5   667643.484 ±  29138.914  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000           32                   65536        false  thrpt    5  7389058.364 ±  53381.417  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000           32                   65536         true  thrpt    5   655343.059 ±  18138.854  ops/s
+
+It seems as if our improvements have made things faster.
+
+
+Benchmark                                   (keyCount)  (keySize)  (numOpsPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt        Score        Error  Units
+WriteBatchBenchmarks.putWriteBatch              100000         16              1000           32                   65536        false  thrpt    5  1999785.560 ±  37197.062  ops/s
+WriteBatchBenchmarks.putWriteBatch              100000         16              1000           32                   65536         true  thrpt    5   563111.695 ±  24366.706  ops/s
+WriteBatchBenchmarks.putWriteBatchBB            100000         16              1000           32                   65536        false  thrpt    5  2443222.443 ±  69809.922  ops/s
+WriteBatchBenchmarks.putWriteBatchBB            100000         16              1000           32                   65536         true  thrpt    5   590703.788 ±  16387.123  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000           32                   65536        false  thrpt    5  8381060.909 ± 921173.791  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000           32                   65536         true  thrpt    5   696306.630 ±  26451.370  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000           32                   65536        false  thrpt    5  7389406.149 ± 123636.016  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000           32                   65536         true  thrpt    5   679611.535 ±  25301.620  ops/s
 
