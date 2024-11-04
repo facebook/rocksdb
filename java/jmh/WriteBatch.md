@@ -155,7 +155,8 @@ WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1
 WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000           32                   65536         true  thrpt    5   655343.059 ±  18138.854  ops/s
 
 It seems as if our improvements have made things faster.
-
+Now, the direct `WriteBatchInternal::SetContents(this, slice)` optimization for `write()`, which we forgot.
+Oh, this doesn't seem to do anything. Possibly not surprising. Anyway:
 
 Benchmark                                   (keyCount)  (keySize)  (numOpsPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt        Score        Error  Units
 WriteBatchBenchmarks.putWriteBatch              100000         16              1000           32                   65536        false  thrpt    5  1999785.560 ±  37197.062  ops/s
