@@ -880,9 +880,6 @@ jobs:
 
 workflows: # Only jobs that haven't been successfully migrated to GitHub Actions
   version: 2
-  jobs-linux-arm:
-    jobs:
-      - build-linux-arm
   benchmark-linux:
     triggers:
       - schedule:
@@ -893,13 +890,3 @@ workflows: # Only jobs that haven't been successfully migrated to GitHub Actions
                 - main
     jobs:
       - benchmark-linux
-  nightly:
-    triggers:
-      - schedule:
-          cron: "0 9 * * *"
-          filters:
-            branches:
-              only:
-                - main
-    jobs:
-      - build-linux-arm-test-full
