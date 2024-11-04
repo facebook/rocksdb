@@ -243,7 +243,7 @@ public class WriteBatchJavaNativeTest {
         byte[] v1 = db.get(stringOfSize(keySize,"k1").getBytes());
         assertThat(v1).isEqualTo(stringOfSize(valueSize,"v1").getBytes());
         byte[] v9 = db.get(stringOfSize(keySize,"k9").getBytes());
-        assertThat(v1).isEqualTo(stringOfSize(valueSize,"v9").getBytes());
+        assertThat(v9).isEqualTo(stringOfSize(valueSize,"v9").getBytes());
       }
     }
   }
