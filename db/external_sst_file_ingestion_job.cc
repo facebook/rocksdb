@@ -95,6 +95,14 @@ Status ExternalSstFileIngestionJob::Prepare(
         "behind mode.");
   }
 
+  // Overlapping files need at least two different sequence numbers. If settings
+  // disables global seqno, ingestion will fail anyway, so fail fast in prepare.
+  if (!ingestion_options_.allow_global_seqno && files_overlap_) {
+    return Status::InvalidArgument(
+        "Global seqno is required, but disabled (because external files key "
+        "range overlaps).");
+  }
+
   if (ucmp_->timestamp_size() > 0 && files_overlap_) {
     return Status::NotSupported(
         "Files with overlapping ranges cannot be ingested to column "
@@ -387,8 +395,16 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
 // REQUIRES: we have become the only writer by entering both write_thread_ and
 // nonmem_write_thread_
 Status ExternalSstFileIngestionJob::Run() {
-  Status status;
   SuperVersion* super_version = cfd_->GetSuperVersion();
+  // If column family is flushed after Prepare and before Run, we should have a
+  // specific state of Memtables. The mutable Memtable should be empty, and the
+  // immutable Memtable list should be empty.
+  if (flushed_before_run_ && (super_version->imm->NumNotFlushed() != 0 ||
+                              super_version->mem->GetDataSize() != 0)) {
+    return Status::TryAgain(
+        "Inconsistent memtable state detected when flushed before run.");
+  }
+  Status status;
 #ifndef NDEBUG
   // We should never run the job with a memtable that is overlapping
   // with the files we are ingesting

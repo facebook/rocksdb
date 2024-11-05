@@ -212,6 +212,8 @@ class ExternalSstFileIngestionJob {
 
   ~ExternalSstFileIngestionJob() { UnregisterRange(); }
 
+  ColumnFamilyData* GetColumnFamilyData() const { return cfd_; }
+
   // Prepare the job by copying external files into the DB.
   Status Prepare(const std::vector<std::string>& external_files_paths,
                  const std::vector<std::string>& files_checksums,
@@ -228,6 +230,8 @@ class ExternalSstFileIngestionJob {
   //
   // Thread-safe
   Status NeedsFlush(bool* flush_needed, SuperVersion* super_version);
+
+  void SetFlushedBeforeRun() { flushed_before_run_ = true; }
 
   // Will execute the ingestion job and prepare edit() to be applied.
   // REQUIRES: Mutex held
@@ -370,6 +374,10 @@ class ExternalSstFileIngestionJob {
   // file_checksum_gen_factory is set, DB will generate checksum each file.
   bool need_generate_file_checksum_{true};
   std::shared_ptr<IOTracer> io_tracer_;
+
+  // Flag indicating whether the column family is flushed after `Prepare` and
+  // before `Run`.
+  bool flushed_before_run_{false};
 
   // Below are variables used in (un)registering range for this ingestion job
   //
