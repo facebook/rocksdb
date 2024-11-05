@@ -207,15 +207,28 @@ public class WriteBatchBenchmarks {
   public void createDb() throws IOException, RocksDBException {
     dbPath = Files.createTempDirectory("JMH").toAbsolutePath();
     System.out.println("temp dir: " + dbPath);
-    List<ColumnFamilyDescriptor> descriptors =
-        List.of(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-            new ColumnFamilyDescriptor("cf2".getBytes(StandardCharsets.UTF_8)));
-    List<ColumnFamilyHandle> cfHandles = new ArrayList<>(2);
-    dbOptions = new DBOptions();
-    dbOptions.setCreateIfMissing(true);
-    dbOptions.setCreateMissingColumnFamilies(true);
-    rocksDB = RocksDB.open(dbOptions, dbPath.toString(), descriptors, cfHandles);
-    this.cfHandles = cfHandles.toArray(new ColumnFamilyHandle[0]);
+    try (ColumnFamilyOptions columnFamilyOptions = new ColumnFamilyOptions()) {
+      columnFamilyOptions//.setCompressionType(CompressionType.LZ4_COMPRESSION)
+          .setLevelCompactionDynamicLevelBytes(true);
+      List<ColumnFamilyDescriptor> descriptors =
+          List.of(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, columnFamilyOptions),
+              new ColumnFamilyDescriptor(
+                  "cf2".getBytes(StandardCharsets.UTF_8), columnFamilyOptions));
+      List<ColumnFamilyHandle> cfHandles = new ArrayList<>(2);
+      BlockBasedTableConfig tableFormatConfig = new BlockBasedTableConfig();
+      tableFormatConfig.setBlockSize(16384L)
+          .setCacheIndexAndFilterBlocks(true)
+          .setPinL0FilterAndIndexBlocksInCache(true);
+      Options options = new Options();
+      options.setTableFormatConfig(tableFormatConfig);
+      dbOptions = new DBOptions(options)
+                      .setCreateIfMissing(true)
+                      .setCreateMissingColumnFamilies(true)
+                      .setBytesPerSync(1048576)
+                      .setMaxBackgroundJobs(6);
+      rocksDB = RocksDB.open(dbOptions, dbPath.toString(), descriptors, cfHandles);
+      this.cfHandles = cfHandles.toArray(new ColumnFamilyHandle[0]);
+    }
   }
 
   @TearDown(Level.Trial)
