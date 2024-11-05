@@ -13,11 +13,11 @@ namespace ROCKSDB_NAMESPACE {
 class AttributeGroupIteratorImpl : public AttributeGroupIterator {
  public:
   AttributeGroupIteratorImpl(
-      const Comparator* comparator, bool allow_unprepared_value,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const std::vector<Iterator*>& child_iterators)
-      : impl_(comparator, allow_unprepared_value, column_families,
-              child_iterators, ResetFunc(this), PopulateFunc(this)) {}
+      const ReadOptions& read_options, const Comparator* comparator,
+      std::vector<std::pair<ColumnFamilyHandle*, std::unique_ptr<Iterator>>>&&
+          cfh_iter_pairs)
+      : impl_(read_options, comparator, std::move(cfh_iter_pairs),
+              ResetFunc(this), PopulateFunc(this)) {}
   ~AttributeGroupIteratorImpl() override {}
 
   // No copy allowed
