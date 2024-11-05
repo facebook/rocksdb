@@ -87,9 +87,9 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.WriteBatch\
 	org.rocksdb.WriteBatch.Handler\
 	org.rocksdb.WriteBatchJavaNative\
-	org.rocksdb.WriteOptions\
 	org.rocksdb.WriteBatchWithIndex\
 	org.rocksdb.WriteBufferManager\
+	org.rocksdb.WriteOptions\
 	org.rocksdb.WBWIRocksIterator\
 	org.rocksdb.util.StdErrLogger
 
@@ -110,9 +110,6 @@ ARCH := $(shell getconf LONG_BIT)
 SHA256_CMD ?= sha256sum
 
 JAVA_TESTS = \
-	org.rocksdb.WriteBatchJavaNativeTest
-
-JAVA_TESTS0 = \
 	org.rocksdb.BackupEngineOptionsTest\
 	org.rocksdb.BackupEngineTest\
 	org.rocksdb.BlobOptionsTest\
@@ -214,7 +211,8 @@ JAVA_TESTS0 = \
 	org.rocksdb.WriteBatchThreadedTest\
 	org.rocksdb.WriteOptionsTest\
 	org.rocksdb.WriteBatchWithIndexTest\
-	org.rocksdb.util.StdErrLoggerTest
+	org.rocksdb.util.StdErrLoggerTest\
+	org.rocksdb.util.Varint32Test
 
 MAIN_SRC = src/main/java
 TEST_SRC = src/test/java

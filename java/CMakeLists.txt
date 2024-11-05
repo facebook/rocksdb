@@ -288,7 +288,9 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/WalFilter.java
   src/main/java/org/rocksdb/WalProcessingOption.java
   src/main/java/org/rocksdb/WriteBatch.java
+  src/main/java/org/rocksdb/WriteBatchInternal.java
   src/main/java/org/rocksdb/WriteBatchInterface.java
+  src/main/java/org/rocksdb/WriteBatchJavaNative.java
   src/main/java/org/rocksdb/WriteBatchWithIndex.java
   src/main/java/org/rocksdb/WriteBufferManager.java
   src/main/java/org/rocksdb/WriteOptions.java
@@ -305,9 +307,9 @@ set(JAVA_MAIN_CLASSES
   src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
   src/test/java/org/rocksdb/RocksDBExceptionTest.java
   src/test/java/org/rocksdb/RocksNativeLibraryResource.java
-  src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/test/TestableEventListener.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
+  src/test/java/org/rocksdb/util/Varint32.java
   src/test/java/org/rocksdb/util/WriteBatchGetter.java
 )
 
@@ -406,6 +408,8 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/VerifyChecksumsTest.java
   src/test/java/org/rocksdb/WALRecoveryModeTest.java
   src/test/java/org/rocksdb/WalFilterTest.java
+  src/test/java/org/rocksdb/WriteBatchTest.java
+  src/test/java/org/rocksdb/WriteBatchJavaNativeTest.java
   src/test/java/org/rocksdb/WriteBatchHandlerTest.java
   src/test/java/org/rocksdb/WriteBatchThreadedTest.java
   src/test/java/org/rocksdb/WriteBatchWithIndexTest.java
@@ -428,6 +432,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/util/SizeUnitTest.java
   src/test/java/org/rocksdb/util/StdErrLoggerTest.java
   src/test/java/org/rocksdb/util/TestUtil.java
+  src/test/java/org/rocksdb/util/Varint32Test.java
 )
 
 set(JAVA_TEST_RUNNING_CLASSES
@@ -525,6 +530,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.WalFilterTest
   org.rocksdb.WriteBatchHandlerTest
   org.rocksdb.WriteBatchTest
+  org.rocksdb.WriteBatchJavaNativeTest
   org.rocksdb.WriteBatchThreadedTest
   org.rocksdb.WriteBatchWithIndexTest
   org.rocksdb.WriteOptionsTest
@@ -536,6 +542,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.util.ReverseBytewiseComparatorIntTest
   org.rocksdb.util.SizeUnitTest
   org.rocksdb.util.StdErrLoggerTest
+  org.rocksdb.util.Varint32Test
 )
 
 include(FindJava)

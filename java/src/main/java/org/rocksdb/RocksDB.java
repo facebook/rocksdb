@@ -4951,8 +4951,6 @@ public class RocksDB extends RocksObject {
 
   private static native void write0(
       final long handle, final long writeOptHandle, final long wbHandle) throws RocksDBException;
-  private static native void writeJavaNative0(
-      final long handle, final long writeOptHandle, final long wbJavaNativeHandle) throws RocksDBException;
   private static native void write1(
       final long handle, final long writeOptHandle, final long wbwiHandle) throws RocksDBException;
   private static native int get(final long handle, final byte[] key, final int keyOffset,
