@@ -3986,7 +3986,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       // Sanity checking that compaction files are freed.
       for (size_t i = 0; i < c->num_input_levels(); i++) {
         for (size_t j = 0; j < c->inputs(i)->size(); j++) {
-          assert(!c->input(i, j)->being_compacted);
+          // When status is not OK, compaction's result installation failed and
+          // no new Version installed. The files could have been released and
+          // picked up again by other compaction attempts.
+          assert(!c->input(i, j)->being_compacted || !status.ok());
         }
       }
       std::unordered_set<Compaction*>* cip = c->column_family_data()
