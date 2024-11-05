@@ -753,7 +753,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   if (s.ok()) {
     autovector<ColumnFamilyData*> tmp_cfds;
-    autovector<const autovector<MemTable*>*> mems_list;
+    autovector<const autovector<ReadOnlyMemTable*>*> mems_list;
     autovector<const MutableCFOptions*> mutable_cf_options_list;
     autovector<FileMetaData*> tmp_file_meta;
     autovector<std::list<std::unique_ptr<FlushJobInfo>>*>

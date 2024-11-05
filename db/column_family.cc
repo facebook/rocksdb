@@ -466,7 +466,7 @@ void SuperVersion::Cleanup() {
   // decrement reference to the immutable MemtableList
   // this SV object was pointing to.
   imm->Unref(&to_delete);
-  MemTable* m = mem->Unref();
+  ReadOnlyMemTable* m = mem->Unref();
   if (m != nullptr) {
     auto* memory_usage = current->cfd()->imm()->current_memory_usage();
     assert(*memory_usage >= m->ApproximateMemoryUsage());
@@ -693,9 +693,9 @@ ColumnFamilyData::~ColumnFamilyData() {
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  autovector<MemTable*> to_delete;
+  autovector<ReadOnlyMemTable*> to_delete;
   imm_.current()->Unref(&to_delete);
-  for (MemTable* m : to_delete) {
+  for (auto* m : to_delete) {
     delete m;
   }
 

@@ -264,7 +264,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   }
   mock::SortKVVector(&inserted_keys);
 
-  autovector<MemTable*> to_delete;
+  autovector<ReadOnlyMemTable*> to_delete;
   new_mem->ConstructFragmentedRangeTombstones();
   cfd->imm()->Add(new_mem, &to_delete);
   for (auto& m : to_delete) {
@@ -325,7 +325,7 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
     }
   }
 
-  autovector<MemTable*> to_delete;
+  autovector<ReadOnlyMemTable*> to_delete;
   for (auto mem : new_mems) {
     mem->ConstructFragmentedRangeTombstones();
     cfd->imm()->Add(mem, &to_delete);
@@ -380,7 +380,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
   std::vector<uint64_t> memtable_ids;
   std::vector<SequenceNumber> smallest_seqs;
   std::vector<SequenceNumber> largest_seqs;
-  autovector<MemTable*> to_delete;
+  autovector<ReadOnlyMemTable*> to_delete;
   SequenceNumber curr_seqno = 0;
   size_t k = 0;
   for (auto cfd : all_cfds) {
@@ -439,7 +439,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
   for (auto& meta : file_metas) {
     file_meta_ptrs.push_back(&meta);
   }
-  autovector<const autovector<MemTable*>*> mems_list;
+  autovector<const autovector<ReadOnlyMemTable*>*> mems_list;
   for (size_t i = 0; i != all_cfds.size(); ++i) {
     const auto& mems = flush_jobs[i]->GetMemTables();
     mems_list.push_back(&mems);
@@ -528,7 +528,7 @@ TEST_F(FlushJobTest, Snapshots) {
   }
   mock::SortKVVector(&inserted_keys);
 
-  autovector<MemTable*> to_delete;
+  autovector<ReadOnlyMemTable*> to_delete;
   new_mem->ConstructFragmentedRangeTombstones();
   cfd->imm()->Add(new_mem, &to_delete);
   for (auto& m : to_delete) {
@@ -582,7 +582,7 @@ TEST_F(FlushJobTest, GetRateLimiterPriorityForWrite) {
     }
   }
 
-  autovector<MemTable*> to_delete;
+  autovector<ReadOnlyMemTable*> to_delete;
   for (auto mem : new_mems) {
     mem->ConstructFragmentedRangeTombstones();
     cfd->imm()->Add(mem, &to_delete);
@@ -654,7 +654,7 @@ TEST_F(FlushJobTest, ReplaceTimedPutWriteTimeWithPreferredSeqno) {
   InternalKey largest_internal_key("foo", SequenceNumber(18), kTypeValue);
   inserted_entries.push_back(
       {largest_internal_key.Encode().ToString(), "fval"});
-  autovector<MemTable*> to_delete;
+  autovector<ReadOnlyMemTable*> to_delete;
   new_mem->ConstructFragmentedRangeTombstones();
   cfd->imm()->Add(new_mem, &to_delete);
   for (auto& m : to_delete) {
@@ -744,7 +744,7 @@ class FlushJobTimestampTest
 
 TEST_P(FlushJobTimestampTest, AllKeysExpired) {
   ColumnFamilyData* cfd = versions_->GetColumnFamilySet()->GetDefault();
-  autovector<MemTable*> to_delete;
+  autovector<ReadOnlyMemTable*> to_delete;
 
   {
     MemTable* new_mem = cfd->ConstructNewMemtable(
@@ -810,7 +810,7 @@ TEST_P(FlushJobTimestampTest, AllKeysExpired) {
 
 TEST_P(FlushJobTimestampTest, NoKeyExpired) {
   ColumnFamilyData* cfd = versions_->GetColumnFamilySet()->GetDefault();
-  autovector<MemTable*> to_delete;
+  autovector<ReadOnlyMemTable*> to_delete;
 
   {
     MemTable* new_mem = cfd->ConstructNewMemtable(

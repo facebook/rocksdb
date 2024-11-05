@@ -687,7 +687,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         }
       }
       // Note: if we are to resume after non-OK statuses we need to revisit how
-      // we reacts to non-OK statuses here.
+      // we react to non-OK statuses here.
       versions_->SetLastSequence(last_sequence);
     }
     MemTableInsertStatusCheck(w.status);
@@ -1610,6 +1610,8 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
 Status DBImpl::WriteRecoverableState() {
   mutex_.AssertHeld();
   if (!cached_recoverable_state_empty_) {
+    // Only for write-prepared and write-unprepared.
+    assert(seq_per_batch_);
     bool dont_care_bool;
     SequenceNumber next_seq;
     if (two_write_queues_) {
@@ -2251,8 +2253,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   memtable_info.cf_name = cfd->GetName();
   memtable_info.first_seqno = cfd->mem()->GetFirstSequenceNumber();
   memtable_info.earliest_seqno = cfd->mem()->GetEarliestSequenceNumber();
-  memtable_info.num_entries = cfd->mem()->num_entries();
-  memtable_info.num_deletes = cfd->mem()->num_deletes();
+  memtable_info.num_entries = cfd->mem()->NumEntries();
+  memtable_info.num_deletes = cfd->mem()->NumDeletion();
   if (!cfd->ioptions()->persist_user_defined_timestamps &&
       cfd->user_comparator()->timestamp_size() > 0) {
     const Slice& newest_udt = cfd->mem()->GetNewestUDT();
