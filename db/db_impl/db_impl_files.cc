@@ -449,14 +449,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       // File is being deleted (actually obsolete)
       auto number = file.metadata->fd.GetNumber();
       candidate_files.emplace_back(MakeTableFileName(number), file.path);
-      if (handle == nullptr) {
-        // For files not "pinned" in table cache
-        handle = TableCache::Lookup(table_cache_.get(), number);
-      }
-      if (handle) {
-        TableCache::ReleaseObsolete(table_cache_.get(), handle,
-                                    file.uncache_aggressiveness);
-      }
+      TableCache::ReleaseObsolete(table_cache_.get(), number, handle,
+                                  file.uncache_aggressiveness);
     }
     file.DeleteMetadata();
   }
@@ -572,9 +566,17 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       case kTableFile:
         // If the second condition is not there, this makes
         // DontDeletePendingOutputs fail
+        // FIXME: but should remove if it came from sst_delete_files?
         keep = (sst_live_set.find(number) != sst_live_set.end()) ||
                number >= state.min_pending_output;
         if (!keep) {
+          // NOTE: sometimes redundant (if came from sst_delete_files)
+          // We don't know which column family is applicable here so we don't
+          // know what uncache_aggressiveness would be used with
+          // ReleaseObsolete(). Anyway, obsolete files ideally go into
+          // sst_delete_files for better/quicker handling, and this is just a
+          // backstop.
+          TableCache::Evict(table_cache_.get(), number);
           files_to_del.insert(number);
         }
         break;

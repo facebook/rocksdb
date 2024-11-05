@@ -5204,18 +5204,16 @@ VersionSet::~VersionSet() {
   column_family_set_.reset();
 
   for (auto& file : obsolete_files_) {
-    if (file.metadata->table_reader_handle) {
-      // NOTE: DB is shutting down, so file is probably not obsolete, just
-      // no longer referenced by Versions in memory.
-      // For more context, see comment on "table_cache_->EraseUnRefEntries()"
-      // in DBImpl::CloseHelper().
-      // Using uncache_aggressiveness=0 overrides any previous marking to
-      // attempt to uncache the file's blocks (which after cleaning up
-      // column families could cause use-after-free)
-      TableCache::ReleaseObsolete(table_cache_,
-                                  file.metadata->table_reader_handle,
-                                  /*uncache_aggressiveness=*/0);
-    }
+    // NOTE: DB is shutting down, so file is probably not obsolete, just
+    // no longer referenced by Versions in memory.
+    // For more context, see comment on "table_cache_->EraseUnRefEntries()"
+    // in DBImpl::CloseHelper().
+    // Using uncache_aggressiveness=0 overrides any previous marking to
+    // attempt to uncache the file's blocks (which after cleaning up
+    // column families could cause use-after-free)
+    TableCache::ReleaseObsolete(table_cache_, file.metadata->fd.GetNumber(),
+                                file.metadata->table_reader_handle,
+                                /*uncache_aggressiveness=*/0);
     file.DeleteMetadata();
   }
   obsolete_files_.clear();

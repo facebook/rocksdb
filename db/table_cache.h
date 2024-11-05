@@ -159,12 +159,14 @@ class TableCache {
                          bool skip_range_deletions = false, int level = -1,
                          TypedHandle* table_handle = nullptr);
 
-  // Evict any entry for the specified file number
+  // Evict any entry for the specified file number. ReleaseObsolete() is
+  // preferred for cleaning up from obsolete files.
   static void Evict(Cache* cache, uint64_t file_number);
 
   // Handles releasing, erasing, etc. of what should be the last reference
-  // to an obsolete file.
-  static void ReleaseObsolete(Cache* cache, Cache::Handle* handle,
+  // to an obsolete file. `handle` may be nullptr if no prior handle is known.
+  static void ReleaseObsolete(Cache* cache, uint64_t file_number,
+                              Cache::Handle* handle,
                               uint32_t uncache_aggressiveness);
 
   // Return handle to an existing cache entry if there is one
