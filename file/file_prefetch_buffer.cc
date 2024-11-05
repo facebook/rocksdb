@@ -84,9 +84,18 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
                                 uint64_t read_len, uint64_t aligned_useful_len,
                                 uint64_t start_offset) {
   Slice result;
-  char* to_buf = buf->buffer_.BufferStart() + aligned_useful_len;
-  Status s = reader->Read(opts, start_offset + aligned_useful_len, read_len,
-                          &result, to_buf, /*aligned_buf=*/nullptr);
+  Status s;
+  char* to_buf = nullptr;
+  bool use_fs_buffer = UseFSBuffer(reader);
+  if (use_fs_buffer) {
+    s = FSBufferRead(reader, buf->buffer_, opts,
+                     start_offset + aligned_useful_len, read_len, result);
+  } else {
+    to_buf = buf->buffer_.BufferStart() + aligned_useful_len;
+    s = reader->Read(opts, start_offset + aligned_useful_len, read_len, &result,
+                     to_buf, /*aligned_buf=*/nullptr);
+  }
+
 #ifndef NDEBUG
   if (result.size() < read_len) {
     // Fake an IO error to force db_stress fault injection to ignore
@@ -97,7 +106,7 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
   if (!s.ok()) {
     return s;
   }
-  if (result.data() != to_buf) {
+  if (!use_fs_buffer && result.data() != to_buf) {
     // If the read is coming from some other buffer already in memory (such as
     // mmap) then it would be inefficient to create another copy in this
     // FilePrefetchBuffer. The caller is expected to exclude this case.
@@ -108,8 +117,10 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
   if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {
     RecordTick(stats_, PREFETCH_BYTES, read_len);
   }
-  // Update the buffer size.
-  buf->buffer_.Size(static_cast<size_t>(aligned_useful_len) + result.size());
+  if (!use_fs_buffer) {
+    // Update the buffer size.
+    buf->buffer_.Size(static_cast<size_t>(aligned_useful_len) + result.size());
+  }
   return s;
 }
 

@@ -113,6 +113,14 @@ class AlignedBuffer {
     alignment_ = alignment;
   }
 
+  void SetBuffer(char* new_buf, size_t size) {
+    bufstart_ = new_buf;
+    buf_.reset(new_buf);
+    capacity_ = size;
+    cursize_ = size;
+    alignment_ = 1;
+  }
+
   // Allocates a new buffer and sets the start position to the first aligned
   // byte.
   //

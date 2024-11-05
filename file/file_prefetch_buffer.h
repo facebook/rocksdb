@@ -15,7 +15,9 @@
 #include <sstream>
 #include <string>
 
+#include "file/random_access_file_reader.h"
 #include "file/readahead_file_info.h"
+#include "file_util.h"
 #include "monitoring/statistics_impl.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -463,6 +465,35 @@ class FilePrefetchBuffer {
       return false;
     }
     return true;
+  }
+
+  // At least for now, need to check whether reader->file or fs_ are nullptr
+  // or the prefetch tests will fail
+  bool UseFSBuffer(RandomAccessFileReader* reader) {
+    return reader->file() != nullptr && !reader->use_direct_io() &&
+           fs_ != nullptr &&
+           CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer);
+  }
+
+  IOStatus FSBufferRead(RandomAccessFileReader* reader, AlignedBuffer& buffer,
+                        const IOOptions& opts, uint64_t offset, size_t n,
+                        Slice& result) {
+    FSReadRequest read_req;
+    read_req.offset = offset;
+    read_req.len = n;
+    read_req.scratch = nullptr;
+    IOStatus s = reader->MultiRead(opts, &read_req, 1, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+    s = read_req.status;
+    if (!s.ok()) {
+      return s;
+    }
+    buffer.SetBuffer(reinterpret_cast<char*>(read_req.fs_scratch.release()),
+                     read_req.result.size());
+    result = read_req.result;
+    return s;
   }
 
   void DestroyAndClearIOHandle(BufferInfo* buf) {
