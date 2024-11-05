@@ -777,7 +777,7 @@ void WriteBatchInternal::SetAsLatestPersistentState(WriteBatch* b) {
 }
 
 uint32_t WriteBatchInternal::Count(const WriteBatch* b) {
-  return DecodeFixed32(b->rep_.data() + 8);
+  return DecodeFixed32(b->rep_.data() + WriteBatchInternal::kCountOffset);
 }
 
 void WriteBatchInternal::SetCount(WriteBatch* b, uint32_t n) {
@@ -3432,6 +3432,25 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
   dst->rep_.append(src->rep_.data() + WriteBatchInternal::kHeader, src_len);
   dst->content_flags_.store(
       dst->content_flags_.load(std::memory_order_relaxed) | src_flags,
+      std::memory_order_relaxed);
+  return Status::OK();
+}
+
+Status WriteBatchInternal::AppendContents(WriteBatch* dst, const Slice& contents) {
+  assert(contents.size() >= WriteBatchInternal::kHeader);
+  assert(dst->prot_info_ == nullptr);
+
+  size_t src_len = contents.size() - WriteBatchInternal::kHeader;
+  u_int64_t src_seq = DecodeFixed64(contents.data() + WriteBatchInternal::kSequenceOffset);
+  u_int32_t src_count = DecodeFixed32(contents.data() + WriteBatchInternal::kCountOffset);
+
+  if (src_seq > 0) {
+    SetSequence(dst, static_cast<ROCKSDB_NAMESPACE::SequenceNumber>(src_seq));
+  }
+  SetCount(dst, Count(dst) + src_count);
+  dst->rep_.append(contents.data() + WriteBatchInternal::kHeader, src_len);
+  dst->content_flags_.store(
+      dst->content_flags_.load(std::memory_order_relaxed) | ContentFlags::DEFERRED,
       std::memory_order_relaxed);
   return Status::OK();
 }

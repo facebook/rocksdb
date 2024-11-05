@@ -41,14 +41,7 @@ ROCKSDB_NAMESPACE::WriteBatchJavaNative::Append(const Slice& slice) {
   if (Count() == 0) {
     WriteBatchInternal::SetContents(this, slice);
   } else {
-    ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer javaNativeBuffer(slice);
-    if (javaNativeBuffer.sequence() > 0) {
-      ROCKSDB_NAMESPACE::WriteBatchInternal::SetSequence(
-          this, static_cast<ROCKSDB_NAMESPACE::SequenceNumber>(
-                    javaNativeBuffer.sequence()));
-    }
-
-    javaNativeBuffer.copy_write_batch_from_java(this);
+    WriteBatchInternal::AppendContents(this, slice);
   }
 
   return *this;

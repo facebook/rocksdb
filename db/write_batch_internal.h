@@ -78,6 +78,8 @@ struct WriteBatch::ProtectionInfo {
 class WriteBatchInternal {
  public:
   // WriteBatch header has an 8-byte sequence number followed by a 4-byte count.
+  static constexpr size_t kSequenceOffset = 0;
+  static constexpr size_t kCountOffset = 8;
   static constexpr size_t kHeader = 12;
 
   // WriteBatch methods with column_family_id instead of ColumnFamilyHandle*
@@ -223,6 +225,12 @@ class WriteBatchInternal {
   // if the count is inconsistent.
   static Status Append(WriteBatch* dst, const WriteBatch* src,
                        const bool WAL_only = false);
+
+  // Appends contents of slice as write batch entries
+  // to dst write batch and updates count in dst
+  // write batch. Returns OK if the append is successful.
+  // Does not support a dst with protection info. 
+  static Status AppendContents(WriteBatch* dst, const Slice& contents);                     
 
   // Returns the byte size of appending a WriteBatch with ByteSize
   // leftByteSize and a WriteBatch with ByteSize rightByteSize
