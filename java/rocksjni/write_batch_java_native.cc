@@ -47,54 +47,6 @@ ROCKSDB_NAMESPACE::WriteBatchJavaNative::Append(const Slice& slice) {
   return *this;
 }
 
-/**
- * @brief copy operations from Java-side write batch cache to C++ side write
- * batch
- *
- * @param wb write batch
- */
-void ROCKSDB_NAMESPACE::WriteBatchJavaNativeBuffer::copy_write_batch_from_java(
-    ROCKSDB_NAMESPACE::WriteBatchJavaNative* wb) {
-  while (has_next()) {
-    jint op = next_byte();
-    switch (op) {
-      case ROCKSDB_NAMESPACE::ValueType::kTypeValue: {
-        ROCKSDB_NAMESPACE::Slice key_slice = slice();
-        ROCKSDB_NAMESPACE::Slice value_slice = slice();
-
-        ROCKSDB_NAMESPACE::Status status = wb->Put(key_slice, value_slice);
-        if (!status.ok()) {
-          throw WriteBatchJavaNativeException(status);
-          return;
-        }
-      } break;
-
-      case ROCKSDB_NAMESPACE::ValueType::kTypeColumnFamilyValue: {
-        jlong jcf_handle = next_long();
-        auto* cfh = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-
-        auto key_slice = slice();
-        auto value_slice = slice();
-
-        auto status = wb->Put(cfh, key_slice, value_slice);
-        if(!status.ok()) {
-          throw WriteBatchJavaNativeException(status.code());
-          return;
-        }
-      } break;
-
-      default: {
-        throw WriteBatchJavaNativeException(std::string("Unexpected writebatch command ")
-                     .append(std::to_string(op))
-                     .append(" at ")
-                     .append(std::to_string(current_pos()))
-                     );
-        return;
-      } break;
-    }
-  }
-}
-
 /*
  * Class:     org_rocksdb_WriteBatchJavaNative
  * Method:    flushWriteBatchJavaNativeArray
