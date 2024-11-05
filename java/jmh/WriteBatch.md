@@ -168,3 +168,21 @@ WriteBatchBenchmarks.putWriteBatchNative        100000         16              1
 WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000           32                   65536        false  thrpt    5  7389406.149 ± 123636.016  ops/s
 WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000           32                   65536         true  thrpt    5   679611.535 ±  25301.620  ops/s
 
+Let's implement `WriteBatchInternal::AppendContents` so we can bulk copy into batches which are not empty, with a single bulk copy;
+the method takes a slice as the source, and we can wrap our Java data in a slice without the extra copy.
+```
+java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatch -p keySize="16" -p valueSize="32" -p numOpsPerBatch="1000" -p writeBatchAllocation="65536" -p writeToDB="false","true"
+```
+
+Benchmark                                   (keyCount)  (keySize)  (numOpsPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt        Score        Error  Units
+WriteBatchBenchmarks.putWriteBatch              100000         16              1000           32                   65536        false  thrpt    5  2030753.269 ±  53379.170  ops/s
+WriteBatchBenchmarks.putWriteBatch              100000         16              1000           32                   65536         true  thrpt    5   562150.653 ±  21639.050  ops/s
+WriteBatchBenchmarks.putWriteBatchBB            100000         16              1000           32                   65536        false  thrpt    5  2494298.838 ±  82514.631  ops/s
+WriteBatchBenchmarks.putWriteBatchBB            100000         16              1000           32                   65536         true  thrpt    5   587032.672 ±  22981.974  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000           32                   65536        false  thrpt    5  8876414.527 ± 740311.406  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000           32                   65536         true  thrpt    5   689480.793 ±  30970.367  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000           32                   65536        false  thrpt    5  7239323.548 ±  39419.729  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000           32                   65536         true  thrpt    5   669122.684 ±  29489.719  ops/s
+
+It is not noticeable whether this has improved things at all.
+
