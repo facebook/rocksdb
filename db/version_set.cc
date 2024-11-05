@@ -4757,7 +4757,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
             cur_level_size / options.max_bytes_for_level_multiplier);
         if (lowest_unnecessary_level_ == -1 &&
             cur_level_size <= base_bytes_min &&
-            (ioptions.preclude_last_level_data_seconds == 0 ||
+            (options.preclude_last_level_data_seconds == 0 ||
              i < num_levels_ - 2)) {
           // When per_key_placement is enabled, the penultimate level is
           // necessary.
@@ -4773,7 +4773,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
         // which can less than base_bytes_min AND necessary,
         // or there is some unnecessary level.
         assert(first_non_empty_level == num_levels_ - 1 ||
-               ioptions.preclude_last_level_data_seconds > 0 ||
+               options.preclude_last_level_data_seconds > 0 ||
                lowest_unnecessary_level_ != -1);
         // Case 1. If we make target size of last level to be max_level_size,
         // target size of the first non-empty level would be smaller than

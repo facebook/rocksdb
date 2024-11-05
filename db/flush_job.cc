@@ -1191,7 +1191,7 @@ void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
 }
 
 void FlushJob::GetPrecludeLastLevelMinSeqno() {
-  if (cfd_->ioptions()->preclude_last_level_data_seconds == 0) {
+  if (mutable_cf_options_.preclude_last_level_data_seconds == 0) {
     return;
   }
   int64_t current_time = 0;
@@ -1204,8 +1204,8 @@ void FlushJob::GetPrecludeLastLevelMinSeqno() {
     SequenceNumber preserve_time_min_seqno;
     seqno_to_time_mapping_->GetCurrentTieringCutoffSeqnos(
         static_cast<uint64_t>(current_time),
-        cfd_->ioptions()->preserve_internal_time_seconds,
-        cfd_->ioptions()->preclude_last_level_data_seconds,
+        mutable_cf_options_.preserve_internal_time_seconds,
+        mutable_cf_options_.preclude_last_level_data_seconds,
         &preserve_time_min_seqno, &preclude_last_level_min_seqno_);
   }
 }

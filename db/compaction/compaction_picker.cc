@@ -351,11 +351,11 @@ Compaction* CompactionPicker::CompactFiles(
       break;
     }
   }
-  assert(output_level == 0 ||
-         !FilesRangeOverlapWithCompaction(
-             input_files, output_level,
-             Compaction::EvaluatePenultimateLevel(vstorage, ioptions_,
-                                                  start_level, output_level)));
+  assert(output_level == 0 || !FilesRangeOverlapWithCompaction(
+                                  input_files, output_level,
+                                  Compaction::EvaluatePenultimateLevel(
+                                      vstorage, mutable_cf_options, ioptions_,
+                                      start_level, output_level)));
 #endif /* !NDEBUG */
 
   CompressionType compression_type;
@@ -659,8 +659,9 @@ Compaction* CompactionPicker::CompactRange(
     // overlaping outputs in the same level.
     if (FilesRangeOverlapWithCompaction(
             inputs, output_level,
-            Compaction::EvaluatePenultimateLevel(vstorage, ioptions_,
-                                                 start_level, output_level))) {
+            Compaction::EvaluatePenultimateLevel(vstorage, mutable_cf_options,
+                                                 ioptions_, start_level,
+                                                 output_level))) {
       // This compaction output could potentially conflict with the output
       // of a currently running compaction, we cannot run it.
       *manual_conflict = true;
@@ -846,7 +847,8 @@ Compaction* CompactionPicker::CompactRange(
   // overlaping outputs in the same level.
   if (FilesRangeOverlapWithCompaction(
           compaction_inputs, output_level,
-          Compaction::EvaluatePenultimateLevel(vstorage, ioptions_, input_level,
+          Compaction::EvaluatePenultimateLevel(vstorage, mutable_cf_options,
+                                               ioptions_, input_level,
                                                output_level))) {
     // This compaction output could potentially conflict with the output
     // of a currently running compaction, we cannot run it.
@@ -1049,10 +1051,12 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
 }
 
 Status CompactionPicker::SanitizeAndConvertCompactionInputFiles(
-    std::unordered_set<uint64_t>* input_files,
-    const ColumnFamilyMetaData& cf_meta, const int output_level,
-    const VersionStorageInfo* vstorage,
+    std::unordered_set<uint64_t>* input_files, const int output_level,
+    Version* version,
     std::vector<CompactionInputFiles>* converted_input_files) const {
+  ColumnFamilyMetaData cf_meta;
+  version->GetColumnFamilyMetaData(&cf_meta);
+
   assert(static_cast<int>(cf_meta.levels.size()) - 1 ==
          cf_meta.levels[cf_meta.levels.size() - 1].level);
   assert(converted_input_files);
@@ -1123,7 +1127,8 @@ Status CompactionPicker::SanitizeAndConvertCompactionInputFiles(
   }
 
   s = GetCompactionInputsFromFileNumbers(converted_input_files, input_files,
-                                         vstorage, CompactionOptions());
+                                         version->storage_info(),
+                                         CompactionOptions());
   if (!s.ok()) {
     return s;
   }
@@ -1132,8 +1137,8 @@ Status CompactionPicker::SanitizeAndConvertCompactionInputFiles(
       FilesRangeOverlapWithCompaction(
           *converted_input_files, output_level,
           Compaction::EvaluatePenultimateLevel(
-              vstorage, ioptions_, (*converted_input_files)[0].level,
-              output_level))) {
+              version->storage_info(), version->GetMutableCFOptions(),
+              ioptions_, (*converted_input_files)[0].level, output_level))) {
     return Status::Aborted(
         "A running compaction is writing to the same output level(s) in an "
         "overlapping key range");

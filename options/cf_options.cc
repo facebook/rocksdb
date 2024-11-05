@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <cinttypes>
+#include <iostream>
 #include <limits>
 #include <string>
 
@@ -551,6 +552,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, periodic_compaction_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"preclude_last_level_data_seconds",
+         {offsetof(struct MutableCFOptions, preclude_last_level_data_seconds),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"preserve_internal_time_seconds",
+         {offsetof(struct MutableCFOptions, preserve_internal_time_seconds),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"bottommost_temperature",
          {0, OptionType::kTemperature, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
@@ -731,14 +740,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions, default_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
           OptionTypeFlags::kCompareNever}},
-        {"preclude_last_level_data_seconds",
-         {offsetof(struct ImmutableCFOptions, preclude_last_level_data_seconds),
-          OptionType::kUInt64T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
-        {"preserve_internal_time_seconds",
-         {offsetof(struct ImmutableCFOptions, preserve_internal_time_seconds),
-          OptionType::kUInt64T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
         // Need to keep this around to be able to read old OPTIONS files.
         {"max_mem_compaction_level",
          {0, OptionType::kInt, OptionVerificationType::kDeprecated,
@@ -998,9 +999,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
       default_temperature(cf_options.default_temperature),
-      preclude_last_level_data_seconds(
-          cf_options.preclude_last_level_data_seconds),
-      preserve_internal_time_seconds(cf_options.preserve_internal_time_seconds),
       memtable_insert_with_hint_prefix_extractor(
           cf_options.memtable_insert_with_hint_prefix_extractor),
       cf_paths(cf_options.cf_paths),
@@ -1142,6 +1140,11 @@ void MutableCFOptions::Dump(Logger* log) const {
                  ttl);
   ROCKS_LOG_INFO(log, "              periodic_compaction_seconds: %" PRIu64,
                  periodic_compaction_seconds);
+  ROCKS_LOG_INFO(log,
+                 "              preclude_last_level_data_seconds: %" PRIu64,
+                 preclude_last_level_data_seconds);
+  ROCKS_LOG_INFO(log, "              preserve_internal_time_seconds: %" PRIu64,
+                 preserve_internal_time_seconds);
   ROCKS_LOG_INFO(log, "                   paranoid_memory_checks: %d",
                  paranoid_memory_checks);
   std::string result;
@@ -1255,4 +1258,20 @@ Status GetStringFromMutableCFOptions(const ConfigOptions& config_options,
   return OptionTypeInfo::SerializeType(
       config_options, cf_mutable_options_type_info, &mutable_opts, opt_string);
 }
+
+#ifndef NDEBUG
+std::vector<std::string> TEST_GetImmutableInMutableCFOptions() {
+  std::vector<std::string> result;
+  for (const auto& opt : cf_mutable_options_type_info) {
+    if (!opt.second.IsMutable()) {
+      result.emplace_back(opt.first);
+    }
+  }
+  if (result.size() > 0) {
+    std::cerr << "Warning: " << result.size() << " immutable options in "
+              << "MutableCFOptions" << std::endl;
+  }
+  return result;
+}
+#endif  // !NDEBUG
 }  // namespace ROCKSDB_NAMESPACE

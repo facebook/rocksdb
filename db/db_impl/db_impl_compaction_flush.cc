@@ -1457,11 +1457,6 @@ Status DBImpl::CompactFilesImpl(
     input_set.insert(TableFileNameToNumber(file_name));
   }
 
-  ColumnFamilyMetaData cf_meta;
-  // TODO(yhchiang): can directly use version here if none of the
-  // following functions call is pluggable to external developers.
-  version->GetColumnFamilyMetaData(&cf_meta);
-
   if (output_path_id < 0) {
     if (cfd->ioptions()->cf_paths.size() == 1U) {
       output_path_id = 0;
@@ -1482,7 +1477,7 @@ Status DBImpl::CompactFilesImpl(
 
   std::vector<CompactionInputFiles> input_files;
   Status s = cfd->compaction_picker()->SanitizeAndConvertCompactionInputFiles(
-      &input_set, cf_meta, output_level, version->storage_info(), &input_files);
+      &input_set, output_level, version, &input_files);
   TEST_SYNC_POINT(
       "DBImpl::CompactFilesImpl::PostSanitizeAndConvertCompactionInputFiles");
   if (!s.ok()) {

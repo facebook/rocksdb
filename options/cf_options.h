@@ -70,10 +70,6 @@ struct ImmutableCFOptions {
 
   Temperature default_temperature;
 
-  uint64_t preclude_last_level_data_seconds;
-
-  uint64_t preserve_internal_time_seconds;
-
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor;
 
@@ -142,6 +138,9 @@ struct MutableCFOptions {
             options.max_bytes_for_level_multiplier_additional),
         compaction_options_fifo(options.compaction_options_fifo),
         compaction_options_universal(options.compaction_options_universal),
+        preclude_last_level_data_seconds(
+            options.preclude_last_level_data_seconds),
+        preserve_internal_time_seconds(options.preserve_internal_time_seconds),
         enable_blob_files(options.enable_blob_files),
         min_blob_size(options.min_blob_size),
         blob_file_size(options.blob_file_size),
@@ -204,6 +203,8 @@ struct MutableCFOptions {
         ttl(0),
         periodic_compaction_seconds(0),
         compaction_options_fifo(),
+        preclude_last_level_data_seconds(0),
+        preserve_internal_time_seconds(0),
         enable_blob_files(false),
         min_blob_size(0),
         blob_file_size(0),
@@ -223,6 +224,7 @@ struct MutableCFOptions {
         default_write_temperature(Temperature::kUnknown),
         memtable_protection_bytes_per_key(0),
         block_protection_bytes_per_key(0),
+        paranoid_memory_checks(false),
         sample_for_compression(0),
         memtable_max_range_deletions(0),
         bottommost_file_compaction_delay(0),
@@ -296,6 +298,8 @@ struct MutableCFOptions {
   std::vector<int> max_bytes_for_level_multiplier_additional;
   CompactionOptionsFIFO compaction_options_fifo;
   CompactionOptionsUniversal compaction_options_universal;
+  uint64_t preclude_last_level_data_seconds;
+  uint64_t preserve_internal_time_seconds;
 
   // Blob file related options
   bool enable_blob_files;
@@ -353,5 +357,9 @@ Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
     Logger* info_log, MutableCFOptions* new_options);
+
+#ifndef NDEBUG
+std::vector<std::string> TEST_GetImmutableInMutableCFOptions();
+#endif
 
 }  // namespace ROCKSDB_NAMESPACE

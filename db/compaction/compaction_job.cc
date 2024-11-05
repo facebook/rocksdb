@@ -288,8 +288,8 @@ void CompactionJob::Prepare() {
   // to encode seqno->time to the output files.
 
   uint64_t preserve_time_duration =
-      std::max(c->immutable_options()->preserve_internal_time_seconds,
-               c->immutable_options()->preclude_last_level_data_seconds);
+      std::max(c->mutable_cf_options()->preserve_internal_time_seconds,
+               c->mutable_cf_options()->preclude_last_level_data_seconds);
 
   if (preserve_time_duration > 0) {
     const ReadOptions read_options(Env::IOActivity::kCompaction);
@@ -326,8 +326,8 @@ void CompactionJob::Prepare() {
       seqno_to_time_mapping_.Enforce(_current_time);
       seqno_to_time_mapping_.GetCurrentTieringCutoffSeqnos(
           static_cast<uint64_t>(_current_time),
-          c->immutable_options()->preserve_internal_time_seconds,
-          c->immutable_options()->preclude_last_level_data_seconds,
+          c->mutable_cf_options()->preserve_internal_time_seconds,
+          c->mutable_cf_options()->preclude_last_level_data_seconds,
           &preserve_time_min_seqno_, &preclude_last_level_min_seqno_);
     }
     // For accuracy of the GetProximalSeqnoBeforeTime queries above, we only
