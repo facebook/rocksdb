@@ -3441,8 +3441,10 @@ Status WriteBatchInternal::AppendContents(WriteBatch* dst, const Slice& contents
   assert(dst->prot_info_ == nullptr);
 
   size_t src_len = contents.size() - WriteBatchInternal::kHeader;
-  u_int64_t src_seq = DecodeFixed64(contents.data() + WriteBatchInternal::kSequenceOffset);
-  u_int32_t src_count = DecodeFixed32(contents.data() + WriteBatchInternal::kCountOffset);
+  uint64_t src_seq =
+      DecodeFixed64(contents.data() + WriteBatchInternal::kSequenceOffset);
+  uint32_t src_count =
+      DecodeFixed32(contents.data() + WriteBatchInternal::kCountOffset);
 
   if (src_seq > 0) {
     SetSequence(dst, static_cast<ROCKSDB_NAMESPACE::SequenceNumber>(src_seq));

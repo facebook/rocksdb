@@ -157,8 +157,10 @@ class WriteBatchJavaNativeBuffer {
 
   std::string slice_to_string(const ROCKSDB_NAMESPACE::Slice s) {
     return std::string("slice: ")
-    .append(std::to_string(reinterpret_cast<u_int64_t>(s.data())))
-    .append("[").append(std::to_string(s.size())).append("]");
+        .append(std::to_string(reinterpret_cast<uint64_t>(s.data())))
+        .append("[")
+        .append(std::to_string(s.size()))
+        .append("]");
   }
 
   const jbyte* ptr() { return reinterpret_cast<const jbyte*>(slice_.data()) + pos; };
