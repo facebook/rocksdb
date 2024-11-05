@@ -12,11 +12,12 @@ namespace ROCKSDB_NAMESPACE {
 // EXPERIMENTAL
 class CoalescingIterator : public Iterator {
  public:
-  CoalescingIterator(const Comparator* comparator, bool allow_unprepared_value,
-                     const std::vector<ColumnFamilyHandle*>& column_families,
-                     const std::vector<Iterator*>& child_iterators)
-      : impl_(comparator, allow_unprepared_value, column_families,
-              child_iterators, ResetFunc(this), PopulateFunc(this)) {}
+  CoalescingIterator(
+      const ReadOptions& read_options, const Comparator* comparator,
+      std::vector<std::pair<ColumnFamilyHandle*, std::unique_ptr<Iterator>>>&&
+          cfh_iter_pairs)
+      : impl_(read_options, comparator, std::move(cfh_iter_pairs),
+              ResetFunc(this), PopulateFunc(this)) {}
   ~CoalescingIterator() override {}
 
   // No copy allowed
