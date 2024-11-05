@@ -186,3 +186,69 @@ WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1
 
 It is not noticeable whether this has improved things at all.
 
+#### Write to Disk cost
+
+Doing reciprocals, we see that a single disk flush takes on the order of 1300ns, whatever test we run, while the rest of the work, filling the buffer
+all the way from Java API to a filled C++ write batch, uses much less; 400-500ns in the unoptimized case, 100-150ns in the optimized case.
+
+Is it faster with smaller `writeBatchAllocation` ? No, with a *larger* `valueSize`. That is very strange.
+```
+java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatchNative -p keySize="16" -p valueSize="32","256" -p numOpsPerBatch="1000" -p writeBatchAllocation="16384" -p writeToDB="false","true"
+```
+
+Benchmark                                   (keyCount)  (keySize)  (numOpsPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt        Score         Error  Units
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000           32                   16384        false  thrpt    5  6835705.554 ± 1649956.225  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000           32                   16384         true  thrpt    5   652477.466 ±   25227.488  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000          256                   16384        false  thrpt    5  6914405.804 ±  247664.581  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000          256                   16384         true  thrpt    5   788421.956 ±   14139.600  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000           32                   16384        false  thrpt    5  7152538.336 ±  608612.453  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000           32                   16384         true  thrpt    5   675255.795 ±   21625.118  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000          256                   16384        false  thrpt    5  6138683.412 ±  341601.329  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000          256                   16384         true  thrpt    5   765880.991 ±  124660.492  ops/s
+
+Try with bigger values again; no, that doesn't continue.
+
+```
+java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatchNative -p keySize="16" -p valueSize="1024" -p numOpsPerBatch="1000" -p writeBatchAllocation="16384","65536" -p writeToDB="false","true"
+```
+
+Benchmark                                   (keyCount)  (keySize)  (numOpsPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt        Score        Error  Units
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000         1024                   16384        false  thrpt    5  3705640.216 ± 212868.320  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000         1024                   16384         true  thrpt    5   671026.357 ±  20855.005  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000         1024                   65536        false  thrpt    5  3296549.327 ± 107540.277  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000         1024                   65536         true  thrpt    5   630657.248 ±  13768.848  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000         1024                   16384        false  thrpt    5  3812078.996 ± 180304.337  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000         1024                   16384         true  thrpt    5   683035.620 ± 123785.908  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000         1024                   65536        false  thrpt    5  3631071.702 ± 807536.740  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000         1024                   65536         true  thrpt    5   699458.572 ±  82936.444  ops/s
+
+Is there a sweet spot ? Go fishing for a sweet spot. Not much different at `valueSize=128`
+```
+java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatchNative -p keySize="16" -p valueSize="128" -p numOpsPerBatch="1000" -p writeBatchAllocation="16384","32768" -p writeToDB="false","true"
+```
+
+Benchmark                                   (keyCount)  (keySize)  (numOpsPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt        Score        Error  Units
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000          128                   16384        false  thrpt    5  8103640.977 ± 219823.845  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000          128                   16384         true  thrpt    5   741601.971 ±  28977.595  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000          128                   32768        false  thrpt    5  8193900.249 ± 110319.561  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000          128                   32768         true  thrpt    5   724902.064 ±  38304.424  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000          128                   16384        false  thrpt    5  7010472.637 ± 125612.331  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000          128                   16384         true  thrpt    5   736644.331 ±  88418.678  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000          128                   32768        false  thrpt    5  4325684.678 ± 915025.890  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000          128                   32768         true  thrpt    5   740681.780 ±  25206.705  ops/s
+
+Is this the sweet spot ? Closer..
+```
+java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatchNative -p keySize="16" -p valueSize="512" -p numOpsPerBatch="1000" -p writeBatchAllocation="32768","65536" -p writeToDB="false","true"
+```
+
+Benchmark                                   (keyCount)  (keySize)  (numOpsPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt        Score        Error  Units
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000          512                   32768        false  thrpt    5  4756041.130 ± 383170.481  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000          512                   32768         true  thrpt    5   821957.334 ±  51372.767  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000          512                   65536        false  thrpt    5  4248174.918 ± 179376.066  ops/s
+WriteBatchBenchmarks.putWriteBatchNative        100000         16              1000          512                   65536         true  thrpt    5   798093.749 ±  60403.366  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000          512                   32768        false  thrpt    5  2952858.776 ± 755579.916  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000          512                   32768         true  thrpt    5   834461.957 ±  20883.789  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000          512                   65536        false  thrpt    5  3182838.961 ± 291931.023  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB      100000         16              1000          512                   65536         true  thrpt    5   888238.794 ±  39985.192  ops/s
+
