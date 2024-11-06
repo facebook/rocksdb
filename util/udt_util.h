@@ -105,7 +105,8 @@ class UserDefinedTimestampSizeRecord {
 class TimestampRecoveryHandler : public WriteBatch::Handler {
  public:
   TimestampRecoveryHandler(const UnorderedMap<uint32_t, size_t>& running_ts_sz,
-                           const UnorderedMap<uint32_t, size_t>& record_ts_sz);
+                           const UnorderedMap<uint32_t, size_t>& record_ts_sz,
+                           bool seq_per_batch, bool batch_per_txn);
 
   ~TimestampRecoveryHandler() override {}
 
@@ -135,24 +136,33 @@ class TimestampRecoveryHandler : public WriteBatch::Handler {
   Status PutBlobIndexCF(uint32_t cf, const Slice& key,
                         const Slice& value) override;
 
-  Status MarkBeginPrepare(bool) override { return Status::OK(); }
+  Status MarkBeginPrepare(bool unprepare) override;
 
-  Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
+  Status MarkEndPrepare(const Slice& name) override;
 
-  Status MarkCommit(const Slice&) override { return Status::OK(); }
+  Status MarkCommit(const Slice& name) override;
 
-  Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
-    return Status::OK();
-  }
+  Status MarkCommitWithTimestamp(const Slice& name,
+                                 const Slice& commit_ts) override;
 
-  Status MarkRollback(const Slice&) override { return Status::OK(); }
+  Status MarkRollback(const Slice& name) override;
 
-  Status MarkNoop(bool /*empty_batch*/) override { return Status::OK(); }
+  Status MarkNoop(bool empty_batch) override;
 
   std::unique_ptr<WriteBatch>&& TransferNewBatch() {
     assert(new_batch_diff_from_orig_batch_);
     handler_valid_ = false;
     return std::move(new_batch_);
+  }
+
+ protected:
+  Handler::OptionState WriteBeforePrepare() const override {
+    return write_before_prepare_ ? Handler::OptionState::kEnabled
+                                 : Handler::OptionState::kDisabled;
+  }
+  Handler::OptionState WriteAfterCommit() const override {
+    return write_after_commit_ ? Handler::OptionState::kEnabled
+                               : Handler::OptionState::kDisabled;
   }
 
  private:
@@ -167,6 +177,9 @@ class TimestampRecoveryHandler : public WriteBatch::Handler {
   // Mapping from column family id to user-defined timestamp size as recorded
   // in the WAL. This only contains non-zero user-defined timestamp size.
   const UnorderedMap<uint32_t, size_t>& record_ts_sz_;
+
+  bool write_after_commit_;
+  bool write_before_prepare_;
 
   std::unique_ptr<WriteBatch> new_batch_;
   // Handler is valid upon creation and becomes invalid after its `new_batch_`
@@ -220,8 +233,8 @@ Status HandleWriteBatchTimestampSizeDifference(
     const WriteBatch* batch,
     const UnorderedMap<uint32_t, size_t>& running_ts_sz,
     const UnorderedMap<uint32_t, size_t>& record_ts_sz,
-    TimestampSizeConsistencyMode check_mode,
-    std::unique_ptr<WriteBatch>* new_batch = nullptr);
+    TimestampSizeConsistencyMode check_mode, bool seq_per_batch,
+    bool batch_per_txn, std::unique_ptr<WriteBatch>* new_batch = nullptr);
 
 // This util function is used when opening an existing column family and
 // processing its VersionEdit. It does a sanity check for the column family's
