@@ -218,7 +218,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeDirect(
  */
 jlong Java_org_rocksdb_WriteBatchJavaNative_putWriteBatchJavaNativeArray(
     JNIEnv* env, jclass, jlong jwb_handle, jlong jwb_capacity, jbyteArray jkey,
-    jint jkey_len, jbyteArray jvalue, jint jvalue_len, jlong jcf_handle) {
+    jint jkey_len, jbyteArray jvalue_arr, jint jvalue_len, jlong jcf_handle) {
   ROCKSDB_NAMESPACE::WriteBatchJavaNative* wb;
   if (jwb_handle == 0) {
     wb = new ROCKSDB_NAMESPACE::WriteBatchJavaNative(
@@ -229,7 +229,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_putWriteBatchJavaNativeArray(
 
   try {
     ROCKSDB_NAMESPACE::JByteArraySlice key(env, jkey, 0, jkey_len);
-    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jvalue, 0, jvalue_len);
+    ROCKSDB_NAMESPACE::JByteArraySlice value(env, jvalue_arr, 0, jvalue_len);
     if (jcf_handle == 0) {
       ROCKSDB_NAMESPACE::KVException::ThrowOnError(
           env, wb->Put(key.slice(), value.slice()));
@@ -253,7 +253,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_putWriteBatchJavaNativeArray(
  */
 jlong Java_org_rocksdb_WriteBatchJavaNative_putWriteBatchJavaNativeDirect(
     JNIEnv* env, jclass, jlong jwb_handle, jlong jwb_capacity, jobject jkey,
-    jint jkey_pos, jint jkey_remaining, jobject jvalue, jint jvalue_pos,
+    jint jkey_pos, jint jkey_remaining, jobject jvalue_buf, jint jvalue_pos,
     jint jvalue_remaining, jlong jcf_handle) {
   ROCKSDB_NAMESPACE::WriteBatchJavaNative* wb;
   if (jwb_handle == 0) {
@@ -266,7 +266,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_putWriteBatchJavaNativeDirect(
   try {
     ROCKSDB_NAMESPACE::JDirectBufferSlice key(env, jkey, jkey_pos,
                                               jkey_remaining);
-    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jvalue, jvalue_pos,
+    ROCKSDB_NAMESPACE::JDirectBufferSlice value(env, jvalue_buf, jvalue_pos,
                                                 jvalue_remaining);
     if (jcf_handle == 0) {
       ROCKSDB_NAMESPACE::KVException::ThrowOnError(
