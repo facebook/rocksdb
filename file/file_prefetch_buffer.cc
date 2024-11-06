@@ -88,8 +88,8 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
   char* to_buf = nullptr;
   bool use_fs_buffer = UseFSBuffer(reader);
   if (use_fs_buffer) {
-    s = FSBufferRead(reader, buf->buffer_, opts,
-                     start_offset + aligned_useful_len, read_len, result);
+    s = FSBufferRead(reader, buf, opts, start_offset + aligned_useful_len,
+                     read_len, result);
   } else {
     to_buf = buf->buffer_.BufferStart() + aligned_useful_len;
     s = reader->Read(opts, start_offset + aligned_useful_len, read_len, &result,

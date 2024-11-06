@@ -3290,6 +3290,157 @@ TEST_F(FilePrefetchBufferTest, SyncReadaheadStats) {
       /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
 }
 
+class FSBufferPrefetchTest : public testing::Test {
+ public:
+  class WrapFS : public FileSystemWrapper {
+   public:
+    explicit WrapFS(const std::shared_ptr<FileSystem>& _target)
+        : FileSystemWrapper(_target) {}
+    ~WrapFS() override {}
+    const char* Name() const override { return "WrapFS"; }
+
+    IOStatus NewRandomAccessFile(const std::string& fname,
+                                 const FileOptions& opts,
+                                 std::unique_ptr<FSRandomAccessFile>* result,
+                                 IODebugContext* dbg) override {
+      class WrappedRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+       public:
+        explicit WrappedRandomAccessFile(
+            std::unique_ptr<FSRandomAccessFile>& file)
+            : FSRandomAccessFileOwnerWrapper(std::move(file)) {}
+
+        IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                           const IOOptions& options,
+                           IODebugContext* dbg) override {
+          for (size_t i = 0; i < num_reqs; ++i) {
+            FSReadRequest& req = reqs[i];
+            FSAllocationPtr buffer(new char[req.len], [](void* ptr) {
+              delete[] static_cast<char*>(ptr);
+            });
+            req.fs_scratch = std::move(buffer);
+            req.status = Read(req.offset, req.len, options, &req.result,
+                              static_cast<char*>(req.fs_scratch.get()), dbg);
+          }
+          return IOStatus::OK();
+        }
+      };
+
+      std::unique_ptr<FSRandomAccessFile> file;
+      IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+      EXPECT_OK(s);
+      result->reset(new WrappedRandomAccessFile(file));
+
+      return s;
+    }
+
+    void SupportedOps(int64_t& supported_ops) override {
+      supported_ops = 1 << FSSupportedOps::kAsyncIO;
+      supported_ops |= 1 << FSSupportedOps::kFSBuffer;
+    }
+  };
+
+  void SetUp() override {
+    SetupSyncPointsToMockDirectIO();
+    env_ = Env::Default();
+    fs_ = std::make_shared<WrapFS>(FileSystem::Default());
+    test_dir_ = test::PerThreadDBPath("fs_buffer_prefetch_test");
+    ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
+    stats_ = CreateDBStatistics();
+  }
+
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
+
+  void Write(const std::string& fname, const std::string& content) {
+    std::unique_ptr<FSWritableFile> f;
+    ASSERT_OK(fs_->NewWritableFile(Path(fname), FileOptions(), &f, nullptr));
+    ASSERT_OK(f->Append(content, IOOptions(), nullptr));
+    ASSERT_OK(f->Close(IOOptions(), nullptr));
+  }
+
+  void Read(const std::string& fname, const FileOptions& opts,
+            std::unique_ptr<RandomAccessFileReader>* reader) {
+    std::string fpath = Path(fname);
+    std::unique_ptr<FSRandomAccessFile> f;
+    ASSERT_OK(fs_->NewRandomAccessFile(fpath, opts, &f, nullptr));
+    reader->reset(new RandomAccessFileReader(
+        std::move(f), fpath, env_->GetSystemClock().get(),
+        /*io_tracer=*/nullptr, stats_.get()));
+  }
+
+  void AssertResult(const std::string& content,
+                    const std::vector<FSReadRequest>& reqs) {
+    for (const auto& r : reqs) {
+      ASSERT_OK(r.status);
+      ASSERT_EQ(r.len, r.result.size());
+      ASSERT_EQ(content.substr(r.offset, r.len), r.result.ToString());
+    }
+  }
+
+  FileSystem* fs() { return fs_.get(); }
+  Statistics* stats() { return stats_.get(); }
+
+ private:
+  Env* env_;
+  std::shared_ptr<WrapFS> fs_;
+  std::string test_dir_;
+  std::shared_ptr<Statistics> stats_;
+
+  std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
+};
+
+TEST_F(FSBufferPrefetchTest, FsBufferSyncReadaheadStats) {
+  std::string fname = "seek-with-block-cache-hit";
+  Random rand(0);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 8192;
+  readahead_params.max_readahead_size = 8192;
+  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), nullptr,
+                         stats.get());
+  Slice result;
+  // Simulate a seek of 4096 bytes at offset 0. Due to the readahead settings,
+  // it will do a read of offset 0 and length - (4096 + 8192) 12288.
+  Status s;
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 0, 4096, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(stats->getTickerCount(PREFETCH_BYTES_USEFUL), 0);
+
+  // Simulate a block cache hit
+  fpb.UpdateReadPattern(4096, 4096, false);
+  // Now read some data that'll prefetch additional data from 12288 to 24576.
+  // (8192) +  8192 (readahead_size).
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 8192, 8192, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(stats->getTickerCount(PREFETCH_BYTES_USEFUL), 4096);
+
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 12288, 4096, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 1);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL), 8192);
+
+  // Now read some data with length doesn't align with aligment and it needs
+  // prefetching. Read from 16000 with length 10000 (i.e. requested end offset -
+  // 26000).
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 16000, 10000, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(
+      stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+      /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

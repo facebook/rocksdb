@@ -475,7 +475,7 @@ class FilePrefetchBuffer {
            CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer);
   }
 
-  IOStatus FSBufferRead(RandomAccessFileReader* reader, AlignedBuffer& buffer,
+  IOStatus FSBufferRead(RandomAccessFileReader* reader, BufferInfo* buf,
                         const IOOptions& opts, uint64_t offset, size_t n,
                         Slice& result) {
     FSReadRequest read_req;
@@ -490,8 +490,11 @@ class FilePrefetchBuffer {
     if (!s.ok()) {
       return s;
     }
-    buffer.SetBuffer(reinterpret_cast<char*>(read_req.fs_scratch.release()),
-                     read_req.result.size());
+    buf->buffer_.SetBuffer(
+        reinterpret_cast<char*>(read_req.fs_scratch.release()),
+        read_req.result.size());
+    buf->offset_ = offset;
+    buf->initial_end_offset_ = offset + n;
     result = read_req.result;
     return s;
   }
