@@ -188,11 +188,14 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // Create an iterator of a column family. User can call iterator.Seek() to
   // search to the next entry of or after a key. Keys will be iterated in the
   // order given by index_comparator. For multiple updates on the same key,
-  // each update will be returned as a separate entry, in the order of update
-  // time.
+  // if overwrite_key=false, then each update will be returned as a separate
+  // entry, in the order of update time.
+  // if overwrite_key=true, then one entry per key will be returned. Merge
+  // updates on the same key will be returned as separate entries.
   //
   // The returned iterator should be deleted by the caller.
   WBWIIterator* NewIterator(ColumnFamilyHandle* column_family);
+  WBWIIterator* NewIterator(uint32_t cf_id) const;
   // Create an iterator of the default column family.
   WBWIIterator* NewIterator();
 
