@@ -58,6 +58,7 @@ enum class OptionType {
   kEncodedString,
   kTemperature,
   kArray,
+  kStringMap,  // Map of <std::string, std::string>
   kUnknown,
 };
 
@@ -437,6 +438,63 @@ class OptionTypeInfo {
       const auto& vec1 = *(static_cast<const std::vector<T>*>(addr1));
       const auto& vec2 = *(static_cast<const std::vector<T>*>(addr2));
       return VectorsAreEqual<T>(opts, elem_info, name, vec1, vec2, mismatch);
+    });
+    return info;
+  }
+
+  static OptionTypeInfo StringMap(int _offset,
+                                  OptionVerificationType _verification,
+                                  OptionTypeFlags _flags,
+                                  char kv_separator = '=',
+                                  char item_separator = ';') {
+    OptionTypeInfo info(_offset, OptionType::kStringMap, _verification, _flags);
+    info.SetParseFunc(
+        [kv_separator, item_separator](const ConfigOptions&, const std::string&,
+                                       const std::string& value, void* addr) {
+          std::map<std::string, std::string> map;
+          Status s;
+          for (size_t start = 0, end = 0;
+               s.ok() && start < value.size() && end != std::string::npos;
+               start = end + 1) {
+            std::string token;
+            s = OptionTypeInfo::NextToken(value, item_separator, start, &end,
+                                          &token);
+            if (s.ok() && !token.empty()) {
+              size_t pos = token.find(kv_separator);
+              assert(pos != std::string::npos);
+              std::string k = token.substr(0, pos);
+              std::string v = token.substr(pos + 1);
+              std::string decoded_key;
+              std::string decoded_value;
+              (Slice(k)).DecodeHex(&decoded_key);
+              (Slice(v)).DecodeHex(&decoded_value);
+              map.emplace(std::move(decoded_key), std::move(decoded_value));
+            }
+          }
+          if (s.ok()) {
+            *(static_cast<std::map<std::string, std::string>*>(addr)) = map;
+          }
+          return s;
+        });
+    info.SetSerializeFunc(
+        [kv_separator, item_separator](const ConfigOptions&, const std::string&,
+                                       const void* addr, std::string* value) {
+          const auto map =
+              static_cast<const std::map<std::string, std::string>*>(addr);
+          value->append("{");
+          for (const auto& entry : *map) {
+            value->append(Slice(entry.first).ToString(true));
+            *value += kv_separator;
+            value->append(Slice(entry.second).ToString(true));
+            *value += item_separator;
+          }
+          value->append("}");
+          return Status::OK();
+        });
+    info.SetEqualsFunc([](const ConfigOptions&, const std::string&,
+                          const void* addr1, const void* addr2, std::string*) {
+      return (*static_cast<const std::map<std::string, std::string>*>(addr1) ==
+              *static_cast<const std::map<std::string, std::string>*>(addr2));
     });
     return info;
   }

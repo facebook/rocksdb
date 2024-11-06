@@ -466,7 +466,7 @@ void SuperVersion::Cleanup() {
   // decrement reference to the immutable MemtableList
   // this SV object was pointing to.
   imm->Unref(&to_delete);
-  MemTable* m = mem->Unref();
+  ReadOnlyMemTable* m = mem->Unref();
   if (m != nullptr) {
     auto* memory_usage = current->cfd()->imm()->current_memory_usage();
     assert(*memory_usage >= m->ApproximateMemoryUsage());
@@ -693,9 +693,9 @@ ColumnFamilyData::~ColumnFamilyData() {
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  autovector<MemTable*> to_delete;
+  autovector<ReadOnlyMemTable*> to_delete;
   imm_.current()->Unref(&to_delete);
-  for (MemTable* m : to_delete) {
+  for (auto* m : to_delete) {
     delete m;
   }
 
@@ -1176,10 +1176,12 @@ bool ColumnFamilyData::NeedsCompaction() const {
 
 Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options,
-    const MutableDBOptions& mutable_db_options, LogBuffer* log_buffer) {
+    const MutableDBOptions& mutable_db_options,
+    const std::vector<SequenceNumber>& existing_snapshots,
+    const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer) {
   auto* result = compaction_picker_->PickCompaction(
-      GetName(), mutable_options, mutable_db_options, current_->storage_info(),
-      log_buffer);
+      GetName(), mutable_options, mutable_db_options, existing_snapshots,
+      snapshot_checker, current_->storage_info(), log_buffer);
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }

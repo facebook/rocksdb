@@ -141,7 +141,8 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
             TableBuilderOptions(ioptions, moptions, read_options, write_options,
                                 comparator, &factories, compression_type,
                                 compression_opts, 0 /* column_family_id */,
-                                kDefaultColumnFamilyName, -1 /* level */),
+                                kDefaultColumnFamilyName, -1 /* level */,
+                                kUnknownNewestKeyTime),
             writer.get()));
 
     // Build table.
@@ -722,6 +723,199 @@ TEST_P(ChargeTableReaderTest, Basic) {
   }
 }
 
+class StrictCapacityLimitReaderTest : public BlockBasedTableReaderTest {
+ public:
+  StrictCapacityLimitReaderTest() : BlockBasedTableReaderTest() {}
+
+ protected:
+  void ConfigureTableFactory() override {
+    BlockBasedTableOptions table_options;
+
+    table_options.block_cache = std::make_shared<
+        TargetCacheChargeTrackingCache<CacheEntryRole::kBlockBasedTableReader>>(
+        (NewLRUCache(4 * 1024, 0 /* num_shard_bits */,
+                     true /* strict_capacity_limit */)));
+
+    table_options.cache_index_and_filter_blocks = false;
+    table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    table_options.partition_filters = true;
+    table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  }
+};
+
+TEST_P(StrictCapacityLimitReaderTest, Get) {
+  // Test that we get error status when we exceed
+  // the strict_capacity_limit
+  Options options;
+  size_t ts_sz = options.comparator->timestamp_size();
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          2 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz, false);
+
+  std::string table_name = "StrictCapacityLimitReaderTest_Get" +
+                           CompressionTypeToString(compression_type_);
+
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, compression_type_, kv);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = true;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* prefetch_index_and_filter_in_cache */,
+                           nullptr /* status */);
+
+  ReadOptions read_opts;
+  ASSERT_OK(
+      table->VerifyChecksum(read_opts, TableReaderCaller::kUserVerifyChecksum));
+
+  bool hit_memory_limit = false;
+  for (size_t i = 0; i < kv.size(); i += 1) {
+    Slice key = kv[i].first;
+    Slice lkey = key;
+    std::string lookup_ikey;
+    // Reading the first entry in a block caches the whole block.
+    if (i % kEntriesPerBlock == 0) {
+      ASSERT_FALSE(table->TEST_KeyInCache(read_opts, lkey.ToString()));
+    } else if (!hit_memory_limit) {
+      ASSERT_TRUE(table->TEST_KeyInCache(read_opts, lkey.ToString()));
+    }
+    PinnableSlice value;
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, ExtractUserKey(key), &value,
+                           nullptr, nullptr, nullptr, nullptr,
+                           true /* do_merge */, nullptr, nullptr, nullptr,
+                           nullptr, nullptr, nullptr);
+    Status s = table->Get(read_opts, lkey, &get_context, nullptr);
+    if (!s.ok()) {
+      EXPECT_TRUE(s.IsMemoryLimit());
+      EXPECT_TRUE(s.ToString().find("Memory limit reached: Insert failed due "
+                                    "to LRU cache being full") !=
+                  std::string::npos);
+      hit_memory_limit = true;
+    } else {
+      ASSERT_EQ(value.ToString(), kv[i].second);
+      ASSERT_TRUE(table->TEST_KeyInCache(read_opts, lkey.ToString()));
+    }
+  }
+
+  ASSERT_TRUE(hit_memory_limit);
+}
+
+TEST_P(StrictCapacityLimitReaderTest, MultiGet) {
+  // Test that we get error status when we exceed
+  // the strict_capacity_limit
+  Options options;
+  ReadOptions read_opts;
+  std::string dummy_ts(sizeof(uint64_t), '\0');
+  Slice read_timestamp = dummy_ts;
+  if (udt_enabled_) {
+    options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+    read_opts.timestamp = &read_timestamp;
+  }
+  options.persist_user_defined_timestamps = persist_udt_;
+  size_t ts_sz = options.comparator->timestamp_size();
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          2 /* num_block */, true /* mixed_with_human_readable_string_value */,
+          ts_sz);
+
+  // Prepare keys, values, and statuses for MultiGet.
+  autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> keys;
+  autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> keys_without_timestamps;
+  autovector<PinnableSlice, MultiGetContext::MAX_BATCH_SIZE> values;
+  autovector<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
+  autovector<const std::string*, MultiGetContext::MAX_BATCH_SIZE>
+      expected_values;
+  {
+    const int step =
+        static_cast<int>(kv.size()) / MultiGetContext::MAX_BATCH_SIZE;
+    auto it = kv.begin();
+    for (int i = 0; i < MultiGetContext::MAX_BATCH_SIZE; i++) {
+      keys.emplace_back(it->first);
+      if (ts_sz > 0) {
+        Slice ukey_without_ts =
+            ExtractUserKeyAndStripTimestamp(it->first, ts_sz);
+        keys_without_timestamps.push_back(ukey_without_ts);
+      } else {
+        keys_without_timestamps.emplace_back(ExtractUserKey(it->first));
+      }
+      values.emplace_back();
+      statuses.emplace_back();
+      expected_values.push_back(&(it->second));
+      std::advance(it, step);
+    }
+  }
+
+  std::string table_name = "StrictCapacityLimitReaderTest_MultiGet" +
+                           CompressionTypeToString(compression_type_);
+
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, compression_type_, kv,
+              compression_parallel_threads_, compression_dict_bytes_);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = use_direct_reads_;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* bool prefetch_index_and_filter_in_cache */,
+                           nullptr /* status */, persist_udt_);
+
+  ASSERT_OK(
+      table->VerifyChecksum(read_opts, TableReaderCaller::kUserVerifyChecksum));
+
+  // Ensure that keys are not in cache before MultiGet.
+  for (auto& key : keys) {
+    ASSERT_FALSE(table->TEST_KeyInCache(read_opts, key.ToString()));
+  }
+
+  // Prepare MultiGetContext.
+  autovector<GetContext, MultiGetContext::MAX_BATCH_SIZE> get_context;
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+  for (size_t i = 0; i < keys.size(); ++i) {
+    get_context.emplace_back(options.comparator, nullptr, nullptr, nullptr,
+                             GetContext::kNotFound, ExtractUserKey(keys[i]),
+                             &values[i], nullptr, nullptr, nullptr, nullptr,
+                             true /* do_merge */, nullptr, nullptr, nullptr,
+                             nullptr, nullptr, nullptr);
+    key_context.emplace_back(nullptr, keys_without_timestamps[i], &values[i],
+                             nullptr, nullptr, &statuses.back());
+    key_context.back().get_context = &get_context.back();
+  }
+  for (auto& key_ctx : key_context) {
+    sorted_keys.emplace_back(&key_ctx);
+  }
+  MultiGetContext ctx(&sorted_keys, 0, sorted_keys.size(), 0, read_opts,
+                      fs_.get(), nullptr);
+
+  // Execute MultiGet.
+  MultiGetContext::Range range = ctx.GetMultiGetRange();
+  PerfContext* perf_ctx = get_perf_context();
+  perf_ctx->Reset();
+  table->MultiGet(read_opts, &range, nullptr);
+
+  ASSERT_GE(perf_ctx->block_read_count - perf_ctx->index_block_read_count -
+                perf_ctx->filter_block_read_count -
+                perf_ctx->compression_dict_block_read_count,
+            1);
+  ASSERT_GE(perf_ctx->block_read_byte, 1);
+
+  bool hit_memory_limit = false;
+  for (const Status& status : statuses) {
+    if (!status.ok()) {
+      EXPECT_TRUE(status.IsMemoryLimit());
+      hit_memory_limit = true;
+    }
+  }
+  ASSERT_TRUE(hit_memory_limit);
+}
+
 class BlockBasedTableReaderTestVerifyChecksum
     : public BlockBasedTableReaderTest {
  public:
@@ -827,6 +1021,15 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey),
         ::testing::Values(false), ::testing::ValuesIn(test::GetUDTTestModes()),
         ::testing::Values(1, 2), ::testing::Values(0, 4096),
+        ::testing::Values(false, true)));
+INSTANTIATE_TEST_CASE_P(
+    StrictCapacityLimitReaderTest, StrictCapacityLimitReaderTest,
+    ::testing::Combine(
+        ::testing::ValuesIn(GetSupportedCompressions()), ::testing::Bool(),
+        ::testing::Values(
+            BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch),
+        ::testing::Values(false), ::testing::ValuesIn(test::GetUDTTestModes()),
+        ::testing::Values(1, 2), ::testing::Values(0),
         ::testing::Values(false, true)));
 INSTANTIATE_TEST_CASE_P(
     VerifyChecksum, BlockBasedTableReaderTestVerifyChecksum,

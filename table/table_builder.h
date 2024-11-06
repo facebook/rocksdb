@@ -108,7 +108,7 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
       CompressionType _compression_type,
       const CompressionOptions& _compression_opts, uint32_t _column_family_id,
       const std::string& _column_family_name, int _level,
-      bool _is_bottommost = false,
+      const int64_t _newest_key_time, bool _is_bottommost = false,
       TableFileCreationReason _reason = TableFileCreationReason::kMisc,
       const int64_t _oldest_key_time = 0,
       const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
@@ -129,6 +129,7 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
         compression_opts(_compression_opts),
         column_family_name(_column_family_name),
         oldest_key_time(_oldest_key_time),
+        newest_key_time(_newest_key_time),
         target_file_size(_target_file_size),
         file_creation_time(_file_creation_time),
         db_id(_db_id),
@@ -147,6 +148,7 @@ struct TableBuilderOptions : public TablePropertiesCollectorFactory::Context {
   const CompressionOptions& compression_opts;
   const std::string& column_family_name;
   const int64_t oldest_key_time;
+  const int64_t newest_key_time;
   const uint64_t target_file_size;
   const uint64_t file_creation_time;
   const std::string db_id;

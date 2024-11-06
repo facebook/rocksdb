@@ -247,9 +247,7 @@ Status DBImplSecondary::RecoverLogFiles(
           if (cfd == nullptr) {
             continue;
           }
-          if (cfds_changed->count(cfd) == 0) {
-            cfds_changed->insert(cfd);
-          }
+          cfds_changed->insert(cfd);
           const std::vector<FileMetaData*>& l0_files =
               cfd->current()->storage_info()->LevelFiles(0);
           SequenceNumber seq =

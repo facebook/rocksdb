@@ -18,11 +18,12 @@ class FIFOCompactionPicker : public CompactionPicker {
                        const InternalKeyComparator* icmp)
       : CompactionPicker(ioptions, icmp) {}
 
-  Compaction* PickCompaction(const std::string& cf_name,
-                             const MutableCFOptions& mutable_cf_options,
-                             const MutableDBOptions& mutable_db_options,
-                             VersionStorageInfo* version,
-                             LogBuffer* log_buffer) override;
+  Compaction* PickCompaction(
+      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+      const MutableDBOptions& mutable_db_options,
+      const std::vector<SequenceNumber>& /* existing_snapshots */,
+      const SnapshotChecker* /* snapshot_checker */,
+      VersionStorageInfo* version, LogBuffer* log_buffer) override;
 
   Compaction* CompactRange(const std::string& cf_name,
                            const MutableCFOptions& mutable_cf_options,

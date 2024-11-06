@@ -619,11 +619,13 @@ struct BlockBasedTableBuilder::Rep {
     props.column_family_id = tbo.column_family_id;
     props.column_family_name = tbo.column_family_name;
     props.oldest_key_time = tbo.oldest_key_time;
+    props.newest_key_time = tbo.newest_key_time;
     props.file_creation_time = tbo.file_creation_time;
     props.orig_file_number = tbo.cur_file_num;
     props.db_id = tbo.db_id;
     props.db_session_id = tbo.db_session_id;
     props.db_host_id = ioptions.db_host_id;
+    props.format_version = table_options.format_version;
     if (!ReifyDbHostIdProperty(ioptions.env, &props.db_host_id).ok()) {
       ROCKS_LOG_INFO(ioptions.logger, "db_host_id property will not be set");
     }

@@ -417,6 +417,7 @@ DECLARE_bool(check_multiget_consistency);
 DECLARE_bool(check_multiget_entity_consistency);
 DECLARE_bool(inplace_update_support);
 DECLARE_uint32(uncache_aggressiveness);
+DECLARE_int32(test_ingest_standalone_range_deletion_one_in);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

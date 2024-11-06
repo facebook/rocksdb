@@ -95,6 +95,14 @@ Status ExternalSstFileIngestionJob::Prepare(
         "behind mode.");
   }
 
+  // Overlapping files need at least two different sequence numbers. If settings
+  // disables global seqno, ingestion will fail anyway, so fail fast in prepare.
+  if (!ingestion_options_.allow_global_seqno && files_overlap_) {
+    return Status::InvalidArgument(
+        "Global seqno is required, but disabled (because external files key "
+        "range overlaps).");
+  }
+
   if (ucmp_->timestamp_size() > 0 && files_overlap_) {
     return Status::NotSupported(
         "Files with overlapping ranges cannot be ingested to column "
@@ -387,8 +395,16 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
 // REQUIRES: we have become the only writer by entering both write_thread_ and
 // nonmem_write_thread_
 Status ExternalSstFileIngestionJob::Run() {
-  Status status;
   SuperVersion* super_version = cfd_->GetSuperVersion();
+  // If column family is flushed after Prepare and before Run, we should have a
+  // specific state of Memtables. The mutable Memtable should be empty, and the
+  // immutable Memtable list should be empty.
+  if (flushed_before_run_ && (super_version->imm->NumNotFlushed() != 0 ||
+                              super_version->mem->GetDataSize() != 0)) {
+    return Status::TryAgain(
+        "Inconsistent memtable state detected when flushed before run.");
+  }
+  Status status;
 #ifndef NDEBUG
   // We should never run the job with a memtable that is overlapping
   // with the files we are ingesting
@@ -513,6 +529,10 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
       tail_size = file_size - file->table_properties.tail_start_offset;
     }
 
+    bool marked_for_compaction =
+        file->table_properties.num_range_deletions == 1 &&
+        (file->table_properties.num_entries ==
+         file->table_properties.num_range_deletions);
     FileMetaData f_metadata(
         file->fd.GetNumber(), file->fd.GetPathId(), file->fd.GetFileSize(),
         file->smallest_internal_key, file->largest_internal_key,
@@ -525,6 +545,7 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
         file->file_checksum, file->file_checksum_func_name, file->unique_id, 0,
         tail_size, file->user_defined_timestamps_persisted);
     f_metadata.temperature = file->file_temperature;
+    f_metadata.marked_for_compaction = marked_for_compaction;
     edit_.AddFile(file->picked_level, f_metadata);
 
     *batch_uppermost_level =
@@ -575,8 +596,9 @@ void ExternalSstFileIngestionJob::CreateEquivalentFileIngestingCompactions() {
         mutable_cf_options.compression_opts,
         mutable_cf_options.default_write_temperature,
         0 /* max_subcompaction, not applicable */,
-        {} /* grandparents, not applicable */, false /* is manual */,
-        "" /* trim_ts */, -1 /* score, not applicable */,
+        {} /* grandparents, not applicable */,
+        std::nullopt /* earliest_snapshot */, nullptr /* snapshot_checker */,
+        false /* is manual */, "" /* trim_ts */, -1 /* score, not applicable */,
         false /* is deletion compaction, not applicable */,
         files_overlap_ /* l0_files_might_overlap, not applicable */,
         CompactionReason::kExternalSstIngestion));

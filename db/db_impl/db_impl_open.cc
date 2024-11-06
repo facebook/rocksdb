@@ -575,6 +575,7 @@ Status DBImpl::Recover(
   }
   if (s.ok() && !read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
+      auto& moptions = *cfd->GetLatestMutableCFOptions();
       // Try to trivially move files down the LSM tree to start from bottommost
       // level when level_compaction_dynamic_level_bytes is enabled. This should
       // only be useful when user is migrating to turning on this option.
@@ -592,14 +593,14 @@ Status DBImpl::Recover(
       if (cfd->ioptions()->compaction_style ==
               CompactionStyle::kCompactionStyleLevel &&
           cfd->ioptions()->level_compaction_dynamic_level_bytes &&
-          !cfd->GetLatestMutableCFOptions()->disable_auto_compactions) {
+          !moptions.disable_auto_compactions) {
         int to_level = cfd->ioptions()->num_levels - 1;
         // last level is reserved
         // allow_ingest_behind does not support Level Compaction,
         // and per_key_placement can have infinite compaction loop for Level
         // Compaction. Adjust to_level here just to be safe.
         if (cfd->ioptions()->allow_ingest_behind ||
-            cfd->ioptions()->preclude_last_level_data_seconds > 0) {
+            moptions.preclude_last_level_data_seconds > 0) {
           to_level -= 1;
         }
         // Whether this column family has a level trivially moved
@@ -1735,10 +1736,11 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           cfd->internal_comparator(), cfd->internal_tbl_prop_coll_factories(),
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
           mutable_cf_options.compression_opts, cfd->GetID(), cfd->GetName(),
-          0 /* level */, false /* is_bottommost */,
-          TableFileCreationReason::kRecovery, 0 /* oldest_key_time */,
-          0 /* file_creation_time */, db_id_, db_session_id_,
-          0 /* target_file_size */, meta.fd.GetNumber(), kMaxSequenceNumber);
+          0 /* level */, current_time /* newest_key_time */,
+          false /* is_bottommost */, TableFileCreationReason::kRecovery,
+          0 /* oldest_key_time */, 0 /* file_creation_time */, db_id_,
+          db_session_id_, 0 /* target_file_size */, meta.fd.GetNumber(),
+          kMaxSequenceNumber);
       Version* version = cfd->current();
       version->Ref();
       uint64_t num_input_entries = 0;
@@ -1768,7 +1770,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         s = io_s;
       }
 
-      uint64_t total_num_entries = mem->num_entries();
+      uint64_t total_num_entries = mem->NumEntries();
       if (s.ok() && total_num_entries != num_input_entries) {
         std::string msg = "Expected " + std::to_string(total_num_entries) +
                           " entries in memtable, but read " +

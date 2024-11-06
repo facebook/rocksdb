@@ -104,6 +104,7 @@ default_params = {
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
     "ingest_external_file_one_in": lambda: random.choice([1000, 1000000]),
+    "test_ingest_standalone_range_deletion_one_in": lambda: random.choice([0, 5, 10]),
     "iterpercent": 10,
     "lock_wal_one_in": lambda: random.choice([10000, 1000000]),
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
@@ -448,7 +449,7 @@ blackbox_default_params = {
     # since we will be killing anyway, use large value for ops_per_thread
     "ops_per_thread": 100000000,
     "reopen": 0,
-    "set_options_one_in": 10000,
+    "set_options_one_in": 2000,
 }
 
 whitebox_default_params = {
@@ -971,6 +972,8 @@ def finalize_and_sanitize(src_params):
     # can cause checkpoint verification to fail. So make the two mutually exclusive.
     if dest_params.get("checkpoint_one_in") != 0:
         dest_params["lock_wal_one_in"] = 0
+    if dest_params.get("ingest_external_file_one_in") == 0 or dest_params.get("delrangepercent") == 0:
+        dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
     return dest_params
 
 

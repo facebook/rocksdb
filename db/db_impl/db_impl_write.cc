@@ -687,7 +687,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         }
       }
       // Note: if we are to resume after non-OK statuses we need to revisit how
-      // we reacts to non-OK statuses here.
+      // we react to non-OK statuses here.
       versions_->SetLastSequence(last_sequence);
     }
     MemTableInsertStatusCheck(w.status);
@@ -735,17 +735,6 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     size_t total_byte_size = 0;
 
     if (w.status.ok()) {
-      // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
-      // grabs but does not seem thread-safe.
-      if (tracer_) {
-        InstrumentedMutexLock lock(&trace_mutex_);
-        if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
-          for (auto* writer : wal_write_group) {
-            // TODO: maybe handle the tracing status?
-            tracer_->Write(writer->batch).PermitUncheckedError();
-          }
-        }
-      }
       SequenceNumber next_sequence = current_sequence;
       for (auto* writer : wal_write_group) {
         assert(writer);
@@ -757,6 +746,22 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                 total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
             next_sequence += count;
             total_count += count;
+          }
+        }
+      }
+      // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+      // grabs but does not seem thread-safe.
+      if (tracer_) {
+        InstrumentedMutexLock lock(&trace_mutex_);
+        if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+          for (auto* writer : wal_write_group) {
+            if (writer->CallbackFailed()) {
+              // When optimisitc txn conflict checking fails, we should
+              // not record to trace.
+              continue;
+            }
+            // TODO: maybe handle the tracing status?
+            tracer_->Write(writer->batch).PermitUncheckedError();
           }
         }
       }
@@ -1005,19 +1010,6 @@ Status DBImpl::WriteImplWALOnly(
   WriteThread::WriteGroup write_group;
   uint64_t last_sequence;
   write_thread->EnterAsBatchGroupLeader(&w, &write_group);
-  // Note: no need to update last_batch_group_size_ here since the batch writes
-  // to WAL only
-  // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
-  // grabs but does not seem thread-safe.
-  if (tracer_) {
-    InstrumentedMutexLock lock(&trace_mutex_);
-    if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
-      for (auto* writer : write_group) {
-        // TODO: maybe handle the tracing status?
-        tracer_->Write(writer->batch).PermitUncheckedError();
-      }
-    }
-  }
 
   size_t pre_release_callback_cnt = 0;
   size_t total_byte_size = 0;
@@ -1028,6 +1020,23 @@ Status DBImpl::WriteImplWALOnly(
           total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
       if (writer->pre_release_callback) {
         pre_release_callback_cnt++;
+      }
+    }
+  }
+
+  // Note: no need to update last_batch_group_size_ here since the batch writes
+  // to WAL only
+  // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
+  // grabs but does not seem thread-safe.
+  if (tracer_) {
+    InstrumentedMutexLock lock(&trace_mutex_);
+    if (tracer_ != nullptr && tracer_->IsWriteOrderPreserved()) {
+      for (auto* writer : write_group) {
+        if (writer->CallbackFailed()) {
+          continue;
+        }
+        // TODO: maybe handle the tracing status?
+        tracer_->Write(writer->batch).PermitUncheckedError();
       }
     }
   }
@@ -1601,6 +1610,8 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
 Status DBImpl::WriteRecoverableState() {
   mutex_.AssertHeld();
   if (!cached_recoverable_state_empty_) {
+    // Only for write-prepared and write-unprepared.
+    assert(seq_per_batch_);
     bool dont_care_bool;
     SequenceNumber next_seq;
     if (two_write_queues_) {
@@ -2242,8 +2253,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   memtable_info.cf_name = cfd->GetName();
   memtable_info.first_seqno = cfd->mem()->GetFirstSequenceNumber();
   memtable_info.earliest_seqno = cfd->mem()->GetEarliestSequenceNumber();
-  memtable_info.num_entries = cfd->mem()->num_entries();
-  memtable_info.num_deletes = cfd->mem()->num_deletes();
+  memtable_info.num_entries = cfd->mem()->NumEntries();
+  memtable_info.num_deletes = cfd->mem()->NumDeletion();
   if (!cfd->ioptions()->persist_user_defined_timestamps &&
       cfd->user_comparator()->timestamp_size() > 0) {
     const Slice& newest_udt = cfd->mem()->GetNewestUDT();

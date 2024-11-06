@@ -675,6 +675,8 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
         default:
           assert(false);
       }
+      ASSERT_OK(iter->status());
+      ASSERT_OK(iter->Refresh());  // Update to latest mutable options
 
       for (int i = 0; i < num_keys_per_level; ++i) {
         iter->Seek(Key(key_count++));
@@ -802,6 +804,8 @@ TEST_P(PrefetchTest, ConfigureInternalAutoReadaheadSize) {
         default:
           assert(false);
       }
+      ASSERT_OK(iter->status());
+      ASSERT_OK(iter->Refresh());  // Update to latest mutable options
 
       for (int i = 0; i < num_keys_per_level; ++i) {
         iter->Seek(Key(key_count++));

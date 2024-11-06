@@ -1239,8 +1239,13 @@ class DBImpl : public DB {
   static Status TEST_ValidateOptions(const DBOptions& db_options) {
     return ValidateOptions(db_options);
   }
-
 #endif  // NDEBUG
+
+  // In certain configurations, verify that the table/blob file cache only
+  // contains entries for live files, to check for effective leaks of open
+  // files. This can only be called when purging of obsolete files has
+  // "settled," such as during parts of DB Close().
+  void TEST_VerifyNoObsoleteFilesCached(bool db_mutex_already_held) const;
 
   // persist stats to column family "_persistent_stats"
   void PersistStats();
@@ -1704,7 +1709,7 @@ class DBImpl : public DB {
 
   struct WriteContext {
     SuperVersionContext superversion_context;
-    autovector<MemTable*> memtables_to_free_;
+    autovector<ReadOnlyMemTable*> memtables_to_free_;
 
     explicit WriteContext(bool create_superversion = false)
         : superversion_context(create_superversion) {}
@@ -2046,6 +2051,8 @@ class DBImpl : public DB {
 
   Status TrimMemtableHistory(WriteContext* context);
 
+  // Switches the current live memtable to immutable/read-only memtable.
+  // A new WAL is created if the current WAL is not empty.
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
   // Select and output column families qualified for atomic flush in
@@ -2891,6 +2898,11 @@ class DBImpl : public DB {
   // garbages, among all column families.
   SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
 
+  // The min threshold to trigger compactions for standalone range deletion
+  // files that are marked for compaction.
+  SequenceNumber standalone_range_deletion_files_mark_threshold_ =
+      kMaxSequenceNumber;
+
   LogsWithPrepTracker logs_with_prep_tracker_;
 
   // Callback for compaction to check if a key is visible to a snapshot.
@@ -2997,7 +3009,8 @@ CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions,
 VersionEdit GetDBRecoveryEditForObsoletingMemTables(
     VersionSet* vset, const ColumnFamilyData& cfd,
     const autovector<VersionEdit*>& edit_list,
-    const autovector<MemTable*>& memtables, LogsWithPrepTracker* prep_tracker);
+    const autovector<ReadOnlyMemTable*>& memtables,
+    LogsWithPrepTracker* prep_tracker);
 
 // Return the earliest log file to keep after the memtable flush is
 // finalized.
@@ -3008,13 +3021,13 @@ VersionEdit GetDBRecoveryEditForObsoletingMemTables(
 uint64_t PrecomputeMinLogNumberToKeep2PC(
     VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
     const autovector<VersionEdit*>& edit_list,
-    const autovector<MemTable*>& memtables_to_flush,
+    const autovector<ReadOnlyMemTable*>& memtables_to_flush,
     LogsWithPrepTracker* prep_tracker);
 // For atomic flush.
 uint64_t PrecomputeMinLogNumberToKeep2PC(
     VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
     const autovector<autovector<VersionEdit*>>& edit_lists,
-    const autovector<const autovector<MemTable*>*>& memtables_to_flush,
+    const autovector<const autovector<ReadOnlyMemTable*>*>& memtables_to_flush,
     LogsWithPrepTracker* prep_tracker);
 
 // In non-2PC mode, WALs with log number < the returned number can be
@@ -3031,11 +3044,11 @@ uint64_t PrecomputeMinLogNumberToKeepNon2PC(
 // will not depend on any WAL file. nullptr means no memtable is being flushed.
 // The function is only applicable to 2pc mode.
 uint64_t FindMinPrepLogReferencedByMemTable(
-    VersionSet* vset, const autovector<MemTable*>& memtables_to_flush);
+    VersionSet* vset, const autovector<ReadOnlyMemTable*>& memtables_to_flush);
 // For atomic flush.
 uint64_t FindMinPrepLogReferencedByMemTable(
     VersionSet* vset,
-    const autovector<const autovector<MemTable*>*>& memtables_to_flush);
+    const autovector<const autovector<ReadOnlyMemTable*>*>& memtables_to_flush);
 
 // Fix user-supplied options to be reasonable
 template <class T, class V>

@@ -1273,6 +1273,8 @@ class DBTestBase : public testing::Test {
 
   Status CountFiles(size_t* count);
 
+  std::vector<FileMetaData*> GetLevelFileMetadatas(int level, int cf = 0);
+
   Status Size(const Slice& start, const Slice& limit, uint64_t* size) {
     return Size(start, limit, 0, size);
   }

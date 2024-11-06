@@ -212,6 +212,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     sub_compact->Current().AddOutput(std::move(meta),
                                      cfd->internal_comparator(), false, true,
                                      file.paranoid_hash);
+    sub_compact->Current().UpdateTableProperties(file.table_properties);
   }
   sub_compact->compaction_job_stats = compaction_result.stats;
   sub_compact->Current().SetNumOutputRecords(
@@ -383,7 +384,8 @@ Status CompactionServiceCompactionJob::Run() {
         meta.largest.Encode().ToString(), meta.oldest_ancester_time,
         meta.file_creation_time, meta.epoch_number, meta.file_checksum,
         meta.file_checksum_func_name, output_file.validator.GetHash(),
-        meta.marked_for_compaction, meta.unique_id);
+        meta.marked_for_compaction, meta.unique_id,
+        *output_file.table_properties);
   }
 
   TEST_SYNC_POINT_CALLBACK("CompactionServiceCompactionJob::Run:0",
@@ -531,7 +533,30 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offsetof(struct CompactionServiceOutputFile, unique_id),
              OptionVerificationType::kNormal, OptionTypeFlags::kNone,
              {0, OptionType::kUInt64T})},
-};
+        {"table_properties",
+         {offsetof(struct CompactionServiceOutputFile, table_properties),
+          OptionType::kStruct, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone,
+          [](const ConfigOptions& opts, const std::string& /*name*/,
+             const std::string& value, void* addr) {
+            auto table_properties = static_cast<TableProperties*>(addr);
+            return TableProperties::Parse(opts, value, table_properties);
+          },
+          [](const ConfigOptions& opts, const std::string& /*name*/,
+             const void* addr, std::string* value) {
+            const auto table_properties =
+                static_cast<const TableProperties*>(addr);
+            std::string result;
+            auto status = table_properties->Serialize(opts, &result);
+            *value = "{" + result + "}";
+            return status;
+          },
+          [](const ConfigOptions& opts, const std::string& /*name*/,
+             const void* addr1, const void* addr2, std::string* mismatch) {
+            const auto this_one = static_cast<const TableProperties*>(addr1);
+            const auto that_one = static_cast<const TableProperties*>(addr2);
+            return this_one->AreEqual(opts, that_one, mismatch);
+          }}}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     compaction_job_stats_type_info = {
