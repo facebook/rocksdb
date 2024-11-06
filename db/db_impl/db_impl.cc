@@ -4011,8 +4011,7 @@ std::unique_ptr<IterType> DBImpl::NewMultiCfIterator(
       cfh_iter_pairs;
   cfh_iter_pairs.reserve(column_families.size());
   for (size_t i = 0; i < column_families.size(); ++i) {
-    cfh_iter_pairs.emplace_back(column_families[i],
-                                std::unique_ptr<Iterator>(child_iterators[i]));
+    cfh_iter_pairs.emplace_back(column_families[i], child_iterators[i]);
   }
 
   return std::make_unique<ImplType>(_read_options,
