@@ -6011,15 +6011,19 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
 }
 
 Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
-                                          FileSystem* fs,
+                                          FileSystem* fs, bool is_retry,
                                           std::string* manifest_path,
                                           uint64_t* manifest_file_number) {
   assert(fs != nullptr);
   assert(manifest_path != nullptr);
   assert(manifest_file_number != nullptr);
 
+  IOOptions opts;
   std::string fname;
-  Status s = ReadFileToString(fs, CurrentFileName(dbname), &fname);
+  if (is_retry) {
+    opts.verify_and_reconstruct_read = true;
+  }
+  Status s = ReadFileToString(fs, CurrentFileName(dbname), opts, &fname);
   if (!s.ok()) {
     return s;
   }
@@ -6049,8 +6053,8 @@ Status VersionSet::Recover(
   // Read "CURRENT" file, which contains a pointer to the current manifest
   // file
   std::string manifest_path;
-  Status s = GetCurrentManifestPath(dbname_, fs_.get(), &manifest_path,
-                                    &manifest_file_number_);
+  Status s = GetCurrentManifestPath(dbname_, fs_.get(), is_retry,
+                                    &manifest_path, &manifest_file_number_);
   if (!s.ok()) {
     return s;
   }
@@ -6295,8 +6299,8 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string manifest_path;
   uint64_t manifest_file_number;
-  Status s =
-      GetCurrentManifestPath(dbname, fs, &manifest_path, &manifest_file_number);
+  Status s = GetCurrentManifestPath(dbname, fs, /*is_retry=*/false,
+                                    &manifest_path, &manifest_file_number);
   if (!s.ok()) {
     return s;
   }
@@ -7494,8 +7498,8 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
   assert(manifest_reader != nullptr);
   Status s;
   std::string manifest_path;
-  s = GetCurrentManifestPath(dbname_, fs_.get(), &manifest_path,
-                             &manifest_file_number_);
+  s = GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
+                             &manifest_path, &manifest_file_number_);
   if (!s.ok()) {
     return s;
   }

@@ -1961,4 +1961,8 @@ IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
 IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
                           std::string* data);
 
+// A utility routine: read contents of named file into *data
+IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
+                          const IOOptions& opts, std::string* data);
+
 }  // namespace ROCKSDB_NAMESPACE
