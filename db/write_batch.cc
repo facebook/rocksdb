@@ -1173,6 +1173,9 @@ Status WriteBatchInternal::InsertBeginPrepare(WriteBatch* b,
                                               bool unprepared_batch) {
   b->rep_.push_back(static_cast<char>(
       GetBeginPrepareType(write_after_commit, unprepared_batch)));
+  b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                              ContentFlags::HAS_BEGIN_PREPARE,
+                          std::memory_order_relaxed);
   return Status::OK();
 }
 
@@ -1180,8 +1183,7 @@ Status WriteBatchInternal::InsertEndPrepare(WriteBatch* b, const Slice& xid) {
   b->rep_.push_back(static_cast<char>(kTypeEndPrepareXID));
   PutLengthPrefixedSlice(&b->rep_, xid);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
-                              ContentFlags::HAS_END_PREPARE |
-                              ContentFlags::HAS_BEGIN_PREPARE,
+                              ContentFlags::HAS_END_PREPARE,
                           std::memory_order_relaxed);
   return Status::OK();
 }
@@ -1202,6 +1204,9 @@ Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
   // rewrite noop as begin marker
   b->rep_[12] = static_cast<char>(
       GetBeginPrepareType(write_after_commit, unprepared_batch));
+  b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                              ContentFlags::HAS_BEGIN_PREPARE,
+                          std::memory_order_relaxed);
   if (unprepared_batch) {
     b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                                 ContentFlags::HAS_BEGIN_UNPREPARE,

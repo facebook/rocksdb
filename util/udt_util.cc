@@ -147,7 +147,7 @@ TimestampRecoveryHandler::TimestampRecoveryHandler(
       // batch). So seq_per_batch being false indicates write_after_commit
       // approach.
       write_after_commit_(!seq_per_batch),
-      // WriteUnprepared can write WriteBatches per transaction, so
+      // WriteUnprepared can write multiple WriteBatches per transaction, so
       // batch_per_txn being false indicates write_before_prepare.
       write_before_prepare_(!batch_per_txn),
       new_batch_(new WriteBatch()),
