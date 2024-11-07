@@ -1,6 +1,17 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.8.2 (11/06/2024)
+### Public API Changes
+* Added a new API `Transaction::GetAttributeGroupIterator` that can be used to create a multi-column-family attribute group iterator over the specified column families, including the data from both the transaction and the underlying database. This API is currently supported for optimistic and write-committed pessimistic transactions.
+
+### Behavior Changes
+* `BaseDeltaIterator` now honors the read option `allow_unprepared_value`.
+
+### Bug Fixes
+* `BaseDeltaIterator` now calls `PrepareValue` on the base iterator in case it has been created with the `allow_unprepared_value` read option set. Earlier, such base iterators could lead to incorrect values being exposed from `BaseDeltaIterator`.
+* Fix a bug for replaying WALs for WriteCommitted transaction DB when its user-defined timestamps setting is toggled on/off between DB sessions.
+
 ## 9.8.1 (10/31/2024)
 ### Bug Fixes
 * Fix a leak of obsolete blob files left open until DB::Close(). This bug was introduced in version 9.4.0.
