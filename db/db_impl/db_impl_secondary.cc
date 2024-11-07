@@ -233,7 +233,8 @@ Status DBImplSecondary::RecoverLogFiles(
           reader->GetRecordedTimestampSize();
       status = HandleWriteBatchTimestampSizeDifference(
           &batch, running_ts_sz, record_ts_sz,
-          TimestampSizeConsistencyMode::kVerifyConsistency);
+          TimestampSizeConsistencyMode::kVerifyConsistency, seq_per_batch_,
+          batch_per_txn_);
       if (!status.ok()) {
         break;
       }
