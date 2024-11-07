@@ -3478,12 +3478,12 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   for (const auto& [key, val] : expected) {
     if (val == "NOT_FOUND") {
       if (rnd.OneIn(2)) {
-        wbwi->SingleDelete(key);
+        ASSERT_OK(wbwi->SingleDelete(key));
       } else {
-        wbwi->Delete(key);
+        ASSERT_OK(wbwi->Delete(key));
       }
     } else {
-      wbwi->Put(key, val);
+      ASSERT_OK(wbwi->Put(key, val));
     }
     found_final_value = false;
     // We are writing to wbwi after WBWIMemtable is created. This won't
@@ -3493,7 +3493,7 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   }
   // Some data with same key in another CF
   ColumnFamilyHandleImplDummy meta_cf(/*id=*/1, BytewiseComparator());
-  wbwi->Put(&meta_cf, DBTestBase::Key(0), "foo");
+  ASSERT_OK(wbwi->Put(&meta_cf, DBTestBase::Key(0), "foo"));
 
   RandomShuffle(expected.begin(), expected.end());
   // overwrites
@@ -3504,13 +3504,13 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
     if (rnd.OneIn(2)) {
       std::string val = rnd.RandomString(100);
       expected[i].second = val;
-      wbwi->Put(expected[i].first, val);
+      ASSERT_OK(wbwi->Put(expected[i].first, val));
     } else {
       expected[i].second = "NOT_FOUND";
       if (rnd.OneIn(2)) {
-        wbwi->SingleDelete(expected[i].first);
+        ASSERT_OK(wbwi->SingleDelete(expected[i].first));
       } else {
-        wbwi->Delete(expected[i].first);
+        ASSERT_OK(wbwi->Delete(expected[i].first));
       }
     }
     found_final_value = false;
@@ -3598,9 +3598,9 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
               return a.first < b.first;
             });
   Arena arena;
-  std::unique_ptr<InternalIterator> iter{
+  InternalIterator* iter =
       wbwi_mem->NewIterator(ReadOptions(), /*seqno_to_time_mapping=*/nullptr,
-                            &arena, /*prefix_extractor=*/nullptr)};
+                            &arena, /*prefix_extractor=*/nullptr);
   ASSERT_OK(iter->status());
 
   auto verify_iter_at = [&](size_t idx) {
@@ -3656,7 +3656,7 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   ASSERT_OK(iter->status());
   ASSERT_FALSE(iter->Valid());
   iter->SeekToLast();
-  for (int i = expected.size() - 1; i >= 0; --i) {
+  for (int i = static_cast<int>(expected.size() - 1); i >= 0; --i) {
     verify_iter_at(i);
     iter->Prev();
   }
@@ -3677,9 +3677,9 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   ASSERT_FALSE(found_final_value);
   // Deleting one memtable should not affect another memtable with the same wbwi
   wbwi_mem.reset();
-
-  iter.reset(
-      meta_wbwi_mem->NewIterator(ReadOptions(), nullptr, &arena, nullptr));
+  // allocated by arena
+  iter->~InternalIterator();
+  iter = meta_wbwi_mem->NewIterator(ReadOptions(), nullptr, &arena, nullptr);
   iter->SeekToFirst();
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
@@ -3688,6 +3688,7 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   iter->Next();
   ASSERT_OK(iter->status());
   ASSERT_FALSE(iter->Valid());
+  iter->~InternalIterator();
 }
 }  // namespace ROCKSDB_NAMESPACE
 

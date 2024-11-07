@@ -27,6 +27,7 @@ class WBWIMemTableIterator final : public InternalIterator {
                        SequenceNumber seqno, const Comparator* comparator)
       : it_(it), global_seqno_(seqno), comparator_(comparator) {
     assert(seqno != kMaxSequenceNumber);
+    s_.PermitUncheckedError();
   }
 
   bool Valid() const override { return valid_; }
@@ -204,12 +205,14 @@ class WBWIMemTable final : public ReadOnlyMemTable {
   // user-defined timestamp of each key. This API is only used by flush when
   // user-defined timestamps in MemTable only feature is enabled.
   InternalIterator* NewTimestampStrippingIterator(
-      const ReadOptions&, UnownedPtr<const SeqnoToTimeMapping>, Arena*,
+      const ReadOptions&, UnownedPtr<const SeqnoToTimeMapping>, Arena* arena,
       const SliceTransform*, size_t) override {
     // TODO: support UDT
     assert(false);
-    return NewErrorInternalIterator(Status::NotSupported(
-        "WBWIMemTable does not support NewTimestampStrippingIterator."));
+    return NewErrorInternalIterator(
+        Status::NotSupported(
+            "WBWIMemTable does not support NewTimestampStrippingIterator."),
+        arena);
   }
 
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
@@ -314,7 +317,6 @@ class WBWIMemTable final : public ReadOnlyMemTable {
   SequenceNumber global_seqno_ = kMaxSequenceNumber;
   const ImmutableMemTableOptions moptions_;
   SystemClock* clock_;
-  uint64_t id_{0};
   uint64_t min_prep_log_referenced_{0};
   // WBWI can contains updates to multiple CFs. `cf_id_` determines which CF
   // this memtable is for.
