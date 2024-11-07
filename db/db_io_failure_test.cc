@@ -157,7 +157,6 @@ class CorruptionFS : public FileSystemWrapper {
           return s;
         }
 
-        // This means the next read after injecting corruption was not
         MutexLock l(&fs_.mutex_);
         if (s.ok() && ++fs_.read_count_ >= fs_.corruption_trigger_) {
           fs_.corruption_trigger_ = INT_MAX;
@@ -1085,7 +1084,7 @@ TEST_P(DBIOCorruptionTest, DBOpenReadCorruptionRetry) {
       ss << std::setw(3) << 100 * sst + key;
       ASSERT_OK(Put("key" + ss.str(), "val" + ss.str()));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
   Close();
 

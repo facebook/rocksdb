@@ -347,7 +347,7 @@ Status RocksDBOptionsParser::Parse(const ConfigOptions& config_options_in,
         return s;
       }
     } else {
-      retry = false;
+      return s;
     }
   } while (retry);
 
