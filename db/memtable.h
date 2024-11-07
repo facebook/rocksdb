@@ -18,6 +18,7 @@
 
 #include "db/dbformat.h"
 #include "db/kv_checksum.h"
+#include "db/merge_helper.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/read_callback.h"
 #include "db/seqno_to_time_mapping.h"
@@ -370,6 +371,70 @@ class ReadOnlyMemTable {
 
   std::unique_ptr<FlushJobInfo> ReleaseFlushJobInfo() {
     return std::move(flush_job_info_);
+  }
+
+  static void HandleTypeValue(
+      const Slice& lookup_user_key, const Slice& value, bool val_pinned,
+      bool do_merge, bool merge_in_progress, MergeContext* merge_context,
+      const MergeOperator* merge_operator, SystemClock* clock,
+      Statistics* statistics, Logger* info_log, Status* s,
+      std::string* out_value, PinnableWideColumns* out_columns,
+      bool* is_blob_index) {
+    *s = Status::OK();
+
+    if (!do_merge) {
+      // Preserve the value with the goal of returning it as part of
+      // raw merge operands to the user
+      // TODO(yanqin) update MergeContext so that timestamps information
+      // can also be retained.
+      merge_context->PushOperand(value, val_pinned);
+    } else if (merge_in_progress) {
+      assert(do_merge);
+      // `op_failure_scope` (an output parameter) is not provided (set to
+      // nullptr) since a failure must be propagated regardless of its
+      // value.
+      if (out_value || out_columns) {
+        *s = MergeHelper::TimedFullMerge(
+            merge_operator, lookup_user_key, MergeHelper::kPlainBaseValue,
+            value, merge_context->GetOperands(), info_log, statistics, clock,
+            /* update_num_ops_stats */ true,
+            /* op_failure_scope */ nullptr, out_value, out_columns);
+      }
+    } else if (out_value) {
+      out_value->assign(value.data(), value.size());
+    } else if (out_columns) {
+      out_columns->SetPlainValue(value);
+    }
+
+    if (is_blob_index) {
+      *is_blob_index = false;
+    }
+  }
+
+  static void HandleTypeDeletion(
+      const Slice& lookup_user_key, bool merge_in_progress,
+      MergeContext* merge_context, const MergeOperator* merge_operator,
+      SystemClock* clock, Statistics* statistics, Logger* logger, Status* s,
+      std::string* out_value, PinnableWideColumns* out_columns) {
+    if (merge_in_progress) {
+      if (out_value || out_columns) {
+        // `op_failure_scope` (an output parameter) is not provided (set to
+        // nullptr) since a failure must be propagated regardless of its
+        // value.
+        *s = MergeHelper::TimedFullMerge(
+            merge_operator, lookup_user_key, MergeHelper::kNoBaseValue,
+            merge_context->GetOperands(), logger, statistics, clock,
+            /* update_num_ops_stats */ true,
+            /* op_failure_scope */ nullptr, out_value, out_columns);
+      } else {
+        // We have found a final value (a base deletion) and have newer
+        // merge operands that we do not intend to merge. Nothing remains
+        // to be done so assign status to OK.
+        *s = Status::OK();
+      }
+    } else {
+      *s = Status::NotFound();
+    }
   }
 
  protected:

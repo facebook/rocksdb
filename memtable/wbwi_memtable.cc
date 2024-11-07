@@ -5,6 +5,7 @@
 
 #include "wbwi_memtable.h"
 
+#include "db/memtable.h"
 #include "db/merge_helper.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -16,6 +17,9 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
                        SequenceNumber* out_seq, const ReadOptions&,
                        bool immutable_memtable, ReadCallback* callback,
                        bool* is_blob_index, bool do_merge) {
+  (void)immutable_memtable;
+  (void)timestamp;
+  (void)columns;
   assert(immutable_memtable);
   assert(!timestamp);  // TODO: support UDT
   assert(!columns);    // TODO: support WideColumn
@@ -23,15 +27,13 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
   // WBWI does not support DeleteRange yet.
   assert(!wbwi_->GetWriteBatch()->HasDeleteRange());
 
-  SequenceNumber read_seq = GetInternalKeySeqno(key.internal_key());
-  bool found_final_result = false;
+  [[maybe_unused]] SequenceNumber read_seq =
+      GetInternalKeySeqno(key.internal_key());
   std::unique_ptr<InternalIterator> iter{NewIterator()};
   iter->Seek(key.internal_key());
   std::vector<WriteEntry> entries;
   const Slice lookup_user_key = key.user_key();
 
-  // Note: the read logic here should be the same or very similar to read path
-  // in memtable.
   while (iter->Valid() && comparator_->EqualWithoutTimestamp(
                               ExtractUserKey(iter->key()), lookup_user_key)) {
     uint64_t tag = ExtractInternalKeyFooter(iter->key());
@@ -53,63 +55,23 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
       }
       switch (type) {
         case kTypeValue: {
-          found_final_result = true;
-          *s = Status::OK();
-
-          if (!do_merge) {
-            merge_context->PushOperand(
-                iter->value(), /*operand_pinned=*/iter->IsValuePinned());
-          } else if (s->IsMergeInProgress()) {
-            assert(do_merge);
-            if (value || columns) {
-              *s = MergeHelper::TimedFullMerge(
-                  moptions_.merge_operator, lookup_user_key,
-                  MergeHelper::kPlainBaseValue, iter->value(),
-                  merge_context->GetOperands(), moptions_.info_log,
-                  moptions_.statistics, clock_,
-                  /* update_num_ops_stats */ true,
-                  /* op_failure_scope */ nullptr, value, columns);
-            }
-          } else if (value) {
-            value->assign(iter->value().data(), iter->value().size());
-          } else if (columns) {
-            columns->SetPlainValue(iter->value());
-          }
-
-          if (is_blob_index) {
-            *is_blob_index = false;
-          }
-
+          HandleTypeValue(lookup_user_key, iter->value(), iter->IsValuePinned(),
+                          do_merge, s->IsMergeInProgress(), merge_context,
+                          moptions_.merge_operator, clock_,
+                          moptions_.statistics, moptions_.info_log, s, value,
+                          columns, is_blob_index);
           assert(seq <= read_seq);
-          return found_final_result;
+          return /*found_final_value=*/true;
         }
         case kTypeDeletion:
         case kTypeSingleDeletion:
         case kTypeRangeDeletion: {
-          found_final_result = true;
-          if (s->IsMergeInProgress()) {
-            if (value || columns) {
-              // `op_failure_scope` (an output parameter) is not provided (set
-              // to nullptr) since a failure must be propagated regardless of
-              // its value.
-              *s = MergeHelper::TimedFullMerge(
-                  moptions_.merge_operator, lookup_user_key,
-                  MergeHelper::kPlainBaseValue, iter->value(),
-                  merge_context->GetOperands(), moptions_.info_log,
-                  moptions_.statistics, clock_,
-                  /* update_num_ops_stats */ true,
-                  /* op_failure_scope */ nullptr, value, columns);
-            } else {
-              // We have found a final value (a base deletion) and have newer
-              // merge operands that we do not intend to merge. Nothing remains
-              // to be done so assign status to OK.
-              *s = Status::OK();
-            }
-          } else {
-            *s = Status::NotFound();
-          }
+          HandleTypeDeletion(lookup_user_key, s->IsMergeInProgress(),
+                             merge_context, moptions_.merge_operator, clock_,
+                             moptions_.statistics, moptions_.info_log, s, value,
+                             columns);
           assert(seq <= read_seq);
-          return found_final_result;
+          return /*found_final_value=*/true;
         }
         default: {
           std::string msg("Unrecognized or unsupported value type: " +
@@ -117,9 +79,8 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
           msg.append("User key: " +
                      ExtractUserKey(iter->key()).ToString(/*hex=*/true) + ". ");
           msg.append("seq: " + std::to_string(seq) + ".");
-          found_final_result = true;
           *s = Status::Corruption(msg.c_str());
-          return found_final_result;
+          return /*found_final_value=*/true;
         }
       }
     }
@@ -133,12 +94,13 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
     // stop further look up
     return true;
   }
-  return found_final_result;
+  return /*found_final_value=*/false;
 }
 
 void WBWIMemTable::MultiGet(const ReadOptions& read_options,
                             MultiGetRange* range, ReadCallback* callback,
                             bool immutable_memtable) {
+  (void)immutable_memtable;
   // Should only be used as immutable memtable.
   assert(immutable_memtable);
   for (auto iter = range->begin(); iter != range->end(); ++iter) {

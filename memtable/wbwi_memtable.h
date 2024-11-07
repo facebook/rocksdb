@@ -274,7 +274,7 @@ class WBWIMemTable final : public ReadOnlyMemTable {
 
   void MarkImmutable() override {}
 
-  void MarkFlushed() override {};
+  void MarkFlushed() override {}
 
   MemTableStats ApproximateStats(const Slice&, const Slice&) override {
     // FIXME: used for query planning
