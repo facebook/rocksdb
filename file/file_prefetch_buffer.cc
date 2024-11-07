@@ -665,7 +665,12 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   }
 
   if (read_len1 > 0) {
-    s = Read(buf, opts, reader, read_len1, aligned_useful_len1, start_offset1);
+    if (UseFSBuffer(reader)) {
+      s = Read(buf, opts, reader, read_len1 + aligned_useful_len1, 0, offset);
+    } else {
+      s = Read(buf, opts, reader, read_len1, aligned_useful_len1,
+               start_offset1);
+    }
     if (!s.ok()) {
       AbortAllIOs();
       FreeAllBuffers();
