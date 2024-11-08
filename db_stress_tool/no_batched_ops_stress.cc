@@ -1515,6 +1515,13 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       }
 
+      if (ro_copy.allow_unprepared_value) {
+        if (!iter->PrepareValue()) {
+          s = iter->status();
+          break;
+        }
+      }
+
       if (!VerifyWideColumns(iter->value(), iter->columns())) {
         s = Status::Corruption("Value and columns inconsistent",
                                DebugString(iter->value(), iter->columns()));
@@ -2292,6 +2299,22 @@ class NonBatchedOpsStressTest : public StressTest {
     auto check_columns = [&]() {
       assert(iter);
       assert(iter->Valid());
+
+      if (ro.allow_unprepared_value) {
+        if (!iter->PrepareValue()) {
+          shared->SetVerificationFailure();
+
+          fprintf(stderr,
+                  "Verification failed for key %s: failed to prepare value\n",
+                  Slice(iter->key()).ToString(/* hex */ true).c_str());
+          fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                  cfh->GetName().c_str(), op_logs.c_str());
+
+          thread->stats.AddErrors(1);
+
+          return false;
+        }
+      }
 
       if (!VerifyWideColumns(iter->value(), iter->columns())) {
         shared->SetVerificationFailure();

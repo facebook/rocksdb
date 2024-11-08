@@ -918,6 +918,8 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.auto_readahead_size = FLAGS_auto_readahead_size;
   read_opts.fill_cache = FLAGS_fill_cache;
   read_opts.optimize_multiget_for_io = FLAGS_optimize_multiget_for_io;
+  read_opts.allow_unprepared_value = FLAGS_allow_unprepared_value;
+
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
     write_opts.rate_limiter_priority = Env::IO_USER;
@@ -1906,7 +1908,9 @@ void StressTest::VerifyIterator(
                << ", iterate_lower_bound: "
                << (ro.iterate_lower_bound
                        ? ro.iterate_lower_bound->ToString(true).c_str()
-                       : "");
+                       : "")
+               << ", allow_unprepared_value: " << ro.allow_unprepared_value;
+
   if (iter->Valid() && !cmp_iter->Valid()) {
     if (pe != nullptr) {
       if (!pe->InDomain(seek_key)) {
@@ -1996,10 +2000,26 @@ void StressTest::VerifyIterator(
   }
 
   if (!*diverged && iter->Valid()) {
-    if (!verify_func(iter)) {
-      *diverged = true;
+    if (ro.allow_unprepared_value) {
+      if (!iter->PrepareValue()) {
+        fprintf(
+            stderr,
+            "Iterator failed to prepare value for key %s %s under specified "
+            "iterator ReadOptions: %s (Empty string or missing field indicates "
+            "default option or value is used)\n",
+            iter->key().ToString(true).c_str(), op_logs.c_str(),
+            read_opt_oss.str().c_str());
+        *diverged = true;
+      }
+    }
+
+    if (!*diverged && iter->Valid()) {
+      if (!verify_func(iter)) {
+        *diverged = true;
+      }
     }
   }
+
   if (*diverged) {
     fprintf(stderr, "VerifyIterator failed. Control CF %s\n",
             cmp_cfh->GetName().c_str());
