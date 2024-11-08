@@ -4,22 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <db/memtable.h>
-
+#include "db/memtable.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-const std::map<WriteType, ValueType> WriteTypeToValueTypeMap = {
-    {kPutRecord, kTypeValue},
-    {kMergeRecord, kTypeMerge},
-    {kDeleteRecord, kTypeDeletion},
-    {kSingleDeleteRecord, kTypeSingleDeletion},
-    {kDeleteRangeRecord, kTypeRangeDeletion},
-    {kPutEntityRecord, kTypeWideColumnEntity},
-    // Only the above record types are added to WBWI.
-    // kLogDataRecord, kXIDRecord, kUnknownRecord
-};
 
 class WBWIMemTableIterator final : public InternalIterator {
  public:
@@ -117,6 +105,8 @@ class WBWIMemTableIterator final : public InternalIterator {
   }
 
  private:
+  static const std::unordered_map<WriteType, ValueType> WriteTypeToValueTypeMap;
+
   void UpdateKey() {
     valid_ = it_->Valid();
     if (!Valid()) {

@@ -3,12 +3,23 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "wbwi_memtable.h"
+#include "memtable/wbwi_memtable.h"
 
 #include "db/memtable.h"
-#include "db/merge_helper.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+const std::unordered_map<WriteType, ValueType>
+    WBWIMemTableIterator::WriteTypeToValueTypeMap = {
+        {kPutRecord, kTypeValue},
+        {kMergeRecord, kTypeMerge},
+        {kDeleteRecord, kTypeDeletion},
+        {kSingleDeleteRecord, kTypeSingleDeletion},
+        {kDeleteRangeRecord, kTypeRangeDeletion},
+        {kPutEntityRecord, kTypeWideColumnEntity},
+        // Only the above record types are added to WBWI.
+        // kLogDataRecord, kXIDRecord, kUnknownRecord
+};
 
 bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
                        PinnableWideColumns* columns, std::string* timestamp,
