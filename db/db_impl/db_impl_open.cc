@@ -1275,7 +1275,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
           reader.GetRecordedTimestampSize();
       status = HandleWriteBatchTimestampSizeDifference(
           &batch, running_ts_sz, record_ts_sz,
-          TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch);
+          TimestampSizeConsistencyMode::kReconcileInconsistency, seq_per_batch_,
+          batch_per_txn_, &new_batch);
       if (!status.ok()) {
         return status;
       }

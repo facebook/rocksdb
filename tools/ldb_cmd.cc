@@ -3053,6 +3053,7 @@ void DumpWalFile(Options options, const std::string& wal_file,
           status = HandleWriteBatchTimestampSizeDifference(
               &batch, running_ts_sz, recorded_ts_sz,
               TimestampSizeConsistencyMode::kVerifyConsistency,
+              /* seq_per_batch */ false, /* batch_per_txn */ true,
               /*new_batch=*/nullptr);
           if (!status.ok()) {
             std::stringstream oss;

@@ -1818,6 +1818,9 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
   }
 
   IngestExternalFileOptions ifo;
+  ifo.allow_global_seqno = false;
+  ASSERT_NOK(db_->IngestExternalFile(files, ifo));
+  ifo.allow_global_seqno = true;
   ASSERT_OK(db_->IngestExternalFile(files, ifo));
   ASSERT_EQ(Get("a"), "a1");
   ASSERT_EQ(Get("i"), "i2");
@@ -2573,6 +2576,57 @@ TEST_F(ExternalSSTFileBasicTest, StableSnapshotWhileLoggingToManifest) {
   // New write should get higher seqno compared to ingested file
   ASSERT_OK(Put("k", kPutVal, WriteOptions()));
   ASSERT_EQ(db_->GetLatestSequenceNumber(), ingested_file_seqno + 1);
+}
+
+TEST_F(ExternalSSTFileBasicTest, ConcurrentIngestionAndDropColumnFamily) {
+  int kNumCFs = 10;
+  Options options = CurrentOptions();
+  CreateColumnFamilies({"cf_0", "cf_1", "cf_2", "cf_3", "cf_4", "cf_5", "cf_6",
+                        "cf_7", "cf_8", "cf_9"},
+                       options);
+
+  IngestExternalFileArg ingest_arg;
+  IngestExternalFileOptions ifo;
+  std::string external_file = sst_files_dir_ + "/file_to_ingest.sst";
+  SstFileWriter sst_file_writer{EnvOptions(), CurrentOptions()};
+  ASSERT_OK(sst_file_writer.Open(external_file));
+  ASSERT_OK(sst_file_writer.Put("key", "value"));
+  ASSERT_OK(sst_file_writer.Finish());
+  ifo.move_files = false;
+  ingest_arg.external_files = {external_file};
+  ingest_arg.options = ifo;
+
+  std::vector<std::thread> threads;
+  threads.reserve(2 * kNumCFs);
+  std::atomic<int> success_ingestion_count = 0;
+  std::atomic<int> failed_ingestion_count = 0;
+  for (int i = 0; i < kNumCFs; i++) {
+    threads.emplace_back(
+        [this, i]() { ASSERT_OK(db_->DropColumnFamily(handles_[i])); });
+    threads.emplace_back([this, i, ingest_arg, &success_ingestion_count,
+                          &failed_ingestion_count]() {
+      IngestExternalFileArg arg_copy = ingest_arg;
+      arg_copy.column_family = handles_[i];
+      Status s = db_->IngestExternalFiles({arg_copy});
+      ReadOptions ropts;
+      std::string value;
+      if (s.ok()) {
+        ASSERT_OK(db_->Get(ropts, handles_[i], "key", &value));
+        ASSERT_EQ("value", value);
+        success_ingestion_count.fetch_add(1);
+      } else {
+        ASSERT_TRUE(db_->Get(ropts, handles_[i], "key", &value).IsNotFound());
+        failed_ingestion_count.fetch_add(1);
+      }
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  ASSERT_EQ(kNumCFs, success_ingestion_count + failed_ingestion_count);
+  Close();
 }
 
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,

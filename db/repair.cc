@@ -413,9 +413,12 @@ class Repairer {
       if (record_status.ok()) {
         const UnorderedMap<uint32_t, size_t>& record_ts_sz =
             reader.GetRecordedTimestampSize();
+        // Use same value for `seq_per_batch` and `batch_per_txn` as
+        // WriteBatchInternal::InsertInto does below.
         record_status = HandleWriteBatchTimestampSizeDifference(
             &batch, running_ts_sz, record_ts_sz,
-            TimestampSizeConsistencyMode::kVerifyConsistency);
+            TimestampSizeConsistencyMode::kVerifyConsistency,
+            /* seq_per_batch */ false, /* batch_per_txn */ true);
         if (record_status.ok()) {
           record_status =
               WriteBatchInternal::InsertInto(&batch, cf_mems, nullptr, nullptr);

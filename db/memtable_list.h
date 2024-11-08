@@ -146,6 +146,10 @@ class MemTableListVersion {
 
   uint64_t GetID() const { return id_; }
 
+  int NumNotFlushed() const { return static_cast<int>(memlist_.size()); }
+
+  int NumFlushed() const { return static_cast<int>(memlist_history_.size()); }
+
  private:
   friend class MemTableList;
 
