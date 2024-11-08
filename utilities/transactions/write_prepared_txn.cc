@@ -135,6 +135,14 @@ Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
   return write_batch_.NewIteratorWithBase(column_family, db_iter, &options);
 }
 
+std::unique_ptr<Iterator> WritePreparedTxn::GetCoalescingIterator(
+    const ReadOptions& /* read_options */,
+    const std::vector<ColumnFamilyHandle*>& /* column_families */) {
+  return std::unique_ptr<Iterator>(NewErrorIterator(
+      Status::NotSupported("GetCoalescingIterator not supported for "
+                           "write-prepared/write-unprepared transactions")));
+}
+
 std::unique_ptr<AttributeGroupIterator>
 WritePreparedTxn::GetAttributeGroupIterator(
     const ReadOptions& /* read_options */,
