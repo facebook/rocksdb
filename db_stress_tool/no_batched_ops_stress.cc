@@ -2301,12 +2301,16 @@ class NonBatchedOpsStressTest : public StressTest {
       assert(iter->Valid());
 
       if (ro.allow_unprepared_value) {
+        // Save key in case PrepareValue fails and invalidates the iterator
+        const std::string prepare_value_key =
+            iter->key().ToString(/* hex */ true);
+
         if (!iter->PrepareValue()) {
           shared->SetVerificationFailure();
 
           fprintf(stderr,
                   "Verification failed for key %s: failed to prepare value\n",
-                  Slice(iter->key()).ToString(/* hex */ true).c_str());
+                  prepare_value_key.c_str());
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
                   cfh->GetName().c_str(), op_logs.c_str());
 
