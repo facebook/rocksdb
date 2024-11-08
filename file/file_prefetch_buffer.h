@@ -494,7 +494,7 @@ class FilePrefetchBuffer {
         reinterpret_cast<char*>(read_req.fs_scratch.release()),
         read_req.result.size());
     buf->offset_ = offset;
-    buf->initial_end_offset_ = offset + n;
+    buf->initial_end_offset_ = offset + read_req.result.size();
     result = read_req.result;
     return s;
   }
