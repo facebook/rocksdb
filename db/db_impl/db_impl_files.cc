@@ -983,7 +983,8 @@ void DBImpl::SetDBId(std::string&& id, bool read_only,
 }
 
 Status DBImpl::SetupDBId(const WriteOptions& write_options, bool read_only,
-                         bool is_new_db, VersionEdit* version_edit) {
+                         bool is_new_db, bool is_retry,
+                         VersionEdit* version_edit) {
   Status s;
   if (!is_new_db) {
     // Check for the IDENTITY file and create it if not there or
@@ -991,7 +992,11 @@ Status DBImpl::SetupDBId(const WriteOptions& write_options, bool read_only,
     std::string db_id_in_file;
     s = fs_->FileExists(IdentityFileName(dbname_), IOOptions(), nullptr);
     if (s.ok()) {
-      s = GetDbIdentityFromIdentityFile(&db_id_in_file);
+      IOOptions opts;
+      if (is_retry) {
+        opts.verify_and_reconstruct_read = true;
+      }
+      s = GetDbIdentityFromIdentityFile(opts, &db_id_in_file);
       if (s.ok() && !db_id_in_file.empty()) {
         if (db_id_.empty()) {
           // Loaded from file and wasn't already known from manifest
