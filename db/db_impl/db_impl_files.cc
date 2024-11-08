@@ -566,7 +566,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       case kTableFile:
         // If the second condition is not there, this makes
         // DontDeletePendingOutputs fail
-        // FIXME: but should remove if it came from sst_delete_files?
+        // FIXME: but should NOT keep if it came from sst_delete_files?
         keep = (sst_live_set.find(number) != sst_live_set.end()) ||
                number >= state.min_pending_output;
         if (!keep) {
