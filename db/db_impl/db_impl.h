@@ -2218,8 +2218,6 @@ class DBImpl : public DB {
   void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,
                            bool track);
 
-  ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
-
   void MaybeScheduleFlushOrCompaction();
 
   struct FlushRequest {
