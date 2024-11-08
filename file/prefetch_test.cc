@@ -3430,8 +3430,10 @@ TEST_F(FSBufferPrefetchTest, FsBufferSyncReadaheadStats) {
   ASSERT_EQ(strncmp(result.data(), content.substr(8192, 8192).c_str(), 8192),
             0);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
-  ASSERT_EQ(buffer_info[0].second, 8192 * 2);
-  ASSERT_EQ(buffer_info[0].first, 8192);
+  // We spill to the staging buffer so the remaining buffer only has the
+  // prefetched part
+  ASSERT_EQ(buffer_info[0].second, 12288);
+  ASSERT_EQ(buffer_info[0].first, 12288);
 
   ASSERT_TRUE(
       fpb.TryReadFromCache(IOOptions(), r.get(), 12288, 4096, &result, &s));
@@ -3441,8 +3443,10 @@ TEST_F(FSBufferPrefetchTest, FsBufferSyncReadaheadStats) {
   ASSERT_EQ(strncmp(result.data(), content.substr(12288, 4096).c_str(), 4096),
             0);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
-  ASSERT_EQ(buffer_info[0].second, 8192 * 2);
-  ASSERT_EQ(buffer_info[0].first, 8192);
+  // We spill to the staging buffer so the remaining buffer only has the
+  // prefetched part
+  ASSERT_EQ(buffer_info[0].second, 12288);
+  ASSERT_EQ(buffer_info[0].first, 12288);
 
   // Now read some data with length doesn't align with aligment and it needs
   // prefetching. Read from 16000 with length 10000 (i.e. requested end offset -
@@ -3459,8 +3463,8 @@ TEST_F(FSBufferPrefetchTest, FsBufferSyncReadaheadStats) {
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   // Even if you try to readahead to offset 16000 + 10000 + 8192, there are only
   // 32768 bytes in the original file
-  ASSERT_EQ(buffer_info[0].second, 32768 - 16000);
-  ASSERT_EQ(buffer_info[0].first, 16000);
+  ASSERT_EQ(buffer_info[0].second, 8192);
+  ASSERT_EQ(buffer_info[0].first, 12288 + 12288);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

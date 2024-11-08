@@ -215,6 +215,11 @@ class FilePrefetchBuffer {
       overlap_buf_ = new BufferInfo();
     }
 
+    if (fs_ != nullptr &&
+        CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer)) {
+      staging_buf_ = new BufferInfo();
+    }
+
     free_bufs_.resize(num_buffers_);
     for (uint32_t i = 0; i < num_buffers_; i++) {
       free_bufs_[i] = new BufferInfo();
@@ -279,6 +284,11 @@ class FilePrefetchBuffer {
     if (overlap_buf_ != nullptr) {
       delete overlap_buf_;
       overlap_buf_ = nullptr;
+    }
+
+    if (staging_buf_ != nullptr) {
+      delete staging_buf_;
+      staging_buf_ = nullptr;
     }
   }
 
@@ -395,8 +405,9 @@ class FilePrefetchBuffer {
   // and data present in buffer_. It also allocates new buffer or refit tail if
   // required.
   void PrepareBufferForRead(BufferInfo* buf, size_t alignment, uint64_t offset,
-                            size_t roundup_len, bool refit_tail,
-                            uint64_t& aligned_useful_len);
+                            size_t req_len, size_t roundup_len, bool refit_tail,
+                            uint64_t& aligned_useful_len, bool use_fs_buffer,
+                            bool& use_staging_buffer);
 
   void AbortOutdatedIO(uint64_t offset);
 
@@ -409,7 +420,7 @@ class FilePrefetchBuffer {
 
   Status PrefetchInternal(const IOOptions& opts, RandomAccessFileReader* reader,
                           uint64_t offset, size_t length, size_t readahead_size,
-                          bool& copy_to_third_buffer);
+                          bool& copy_to_third_buffer, bool& use_staging_buffer);
 
   Status Read(BufferInfo* buf, const IOOptions& opts,
               RandomAccessFileReader* reader, uint64_t read_len,
@@ -420,7 +431,11 @@ class FilePrefetchBuffer {
                    uint64_t start_offset);
 
   // Copy the data from src to overlap_buf_.
-  void CopyDataToBuffer(BufferInfo* src, uint64_t& offset, size_t& length);
+  void CopyDataToOverlapBuffer(BufferInfo* src, uint64_t& offset,
+                               size_t& length);
+
+  // Copy the data from src to staging_buf_.
+  void CopyDataToStagingBuffer(BufferInfo* src, uint64_t offset, size_t length);
 
   bool IsBlockSequential(const size_t& offset) {
     return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
@@ -525,7 +540,8 @@ class FilePrefetchBuffer {
                            size_t alignment, size_t length,
                            size_t readahead_size, uint64_t& offset,
                            uint64_t& end_offset, size_t& read_len,
-                           uint64_t& aligned_useful_len);
+                           uint64_t& aligned_useful_len, bool use_fs_buffer,
+                           bool& use_staging_buffer);
 
   void UpdateStats(bool found_in_buffer, size_t length_found) {
     if (found_in_buffer) {
@@ -616,6 +632,7 @@ class FilePrefetchBuffer {
   std::deque<BufferInfo*> bufs_;
   std::deque<BufferInfo*> free_bufs_;
   BufferInfo* overlap_buf_ = nullptr;
+  BufferInfo* staging_buf_ = nullptr;
 
   size_t readahead_size_;
   size_t initial_auto_readahead_size_;
