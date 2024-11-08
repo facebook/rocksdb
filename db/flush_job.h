@@ -206,6 +206,7 @@ class FlushJob {
   // Variables below are set by PickMemTable():
   FileMetaData meta_;
   // Memtables to be flushed by this job.
+  // Ordered by increasing memtable id, i.e., oldest memtable first.
   autovector<ReadOnlyMemTable*> mems_;
   VersionEdit* edit_;
   Version* base_;
