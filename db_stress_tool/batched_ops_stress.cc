@@ -613,6 +613,15 @@ class BatchedOpsStressTest : public StressTest {
         // no iterator should finish before the first one
         assert(iters[i]->Valid() &&
                iters[i]->key().starts_with(prefix_slices[i]));
+
+        if (ro_copies[i].allow_unprepared_value) {
+          if (!iters[i]->PrepareValue()) {
+            fprintf(stderr,
+                    "prefix scan error: PrepareValue failed for key %s\n",
+                    iters[i]->key().ToString(/* hex */ true).c_str());
+          }
+        }
+
         values[i] = iters[i]->value().ToString();
 
         // make sure the last character of the value is the expected digit
