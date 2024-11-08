@@ -2295,7 +2295,7 @@ TEST_P(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
   // L6: [0,                299]
   ASSERT_EQ("0,0,0,0,0,3,1", FilesPerLevel());
 
-  options.statistics->Reset();
+  ASSERT_OK(options.statistics->Reset());
   // enable tiered storage feature
   ApplyConfigChange(&options, {{"preclude_last_level_data_seconds", "10000"},
                                {"last_level_temperature", "kCold"}});

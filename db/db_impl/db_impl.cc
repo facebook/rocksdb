@@ -1315,10 +1315,10 @@ Status DBImpl::SetOptions(
   }
   sv_context.Clean();
 
-  if (options_map.count("preserve_internal_time_seconds") > 0 ||
-      options_map.count("preclude_last_level_data_seconds") > 0) {
-    RegisterRecordSeqnoTimeWorker(read_options, write_options,
-                                  false /* is_new_db*/);
+  if (s.ok() && (options_map.count("preserve_internal_time_seconds") > 0 ||
+                 options_map.count("preclude_last_level_data_seconds") > 0)) {
+    s = RegisterRecordSeqnoTimeWorker(read_options, write_options,
+                                      false /* is_new_db*/);
   }
 
   ROCKS_LOG_INFO(
