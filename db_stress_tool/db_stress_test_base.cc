@@ -2001,13 +2001,17 @@ void StressTest::VerifyIterator(
 
   if (!*diverged && iter->Valid()) {
     if (ro.allow_unprepared_value) {
+      // Save key in case PrepareValue fails and invalidates the iterator
+      const std::string prepare_value_key =
+          iter->key().ToString(/* hex */ true);
+
       if (!iter->PrepareValue()) {
         fprintf(
             stderr,
             "Iterator failed to prepare value for key %s %s under specified "
             "iterator ReadOptions: %s (Empty string or missing field indicates "
             "default option or value is used)\n",
-            iter->key().ToString(true).c_str(), op_logs.c_str(),
+            prepare_value_key.c_str(), op_logs.c_str(),
             read_opt_oss.str().c_str());
         *diverged = true;
       }
