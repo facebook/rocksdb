@@ -482,7 +482,8 @@ class DBImpl : public DB {
 
   Status GetDbIdentity(std::string& identity) const override;
 
-  virtual Status GetDbIdentityFromIdentityFile(std::string* identity) const;
+  virtual Status GetDbIdentityFromIdentityFile(const IOOptions& opts,
+                                               std::string* identity) const;
 
   Status GetDbSessionId(std::string& session_id) const override;
 
@@ -1592,7 +1593,7 @@ class DBImpl : public DB {
   // Read/create DB identity file (as appropriate), and write DB ID to
   // version_edit if provided.
   Status SetupDBId(const WriteOptions& write_options, bool read_only,
-                   bool is_new_db, VersionEdit* version_edit);
+                   bool is_new_db, bool is_retry, VersionEdit* version_edit);
   // Assign db_id_ and write DB ID to version_edit if provided.
   void SetDBId(std::string&& id, bool read_only, VersionEdit* version_edit);
 

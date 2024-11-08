@@ -560,9 +560,9 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
     IOOptions new_opts = opts;
     new_opts.verify_and_reconstruct_read = true;
     footer->Reset();
-    s = ReadFooterFromFileInternal(new_opts, file, fs, prefetch_buffer,
-                                   file_size, footer,
-                                   enforce_table_magic_number);
+    s = ReadFooterFromFileInternal(new_opts, file, fs,
+                                   /*prefetch_buffer=*/nullptr, file_size,
+                                   footer, enforce_table_magic_number);
     RecordTick(stats, FILE_READ_CORRUPTION_RETRY_COUNT);
     if (s.ok()) {
       RecordTick(stats, FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT);
