@@ -2308,9 +2308,10 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!iter->PrepareValue()) {
           shared->SetVerificationFailure();
 
-          fprintf(stderr,
-                  "Verification failed for key %s: failed to prepare value\n",
-                  prepare_value_key.c_str());
+          fprintf(
+              stderr,
+              "Verification failed for key %s: failed to prepare value: %s\n",
+              prepare_value_key.c_str(), iter->status().ToString().c_str());
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
                   cfh->GetName().c_str(), op_logs.c_str());
 

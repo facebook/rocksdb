@@ -2010,9 +2010,9 @@ void StressTest::VerifyIterator(
             stderr,
             "Iterator failed to prepare value for key %s %s under specified "
             "iterator ReadOptions: %s (Empty string or missing field indicates "
-            "default option or value is used)\n",
+            "default option or value is used): %s\n",
             prepare_value_key.c_str(), op_logs.c_str(),
-            read_opt_oss.str().c_str());
+            read_opt_oss.str().c_str(), iter->status().ToString().c_str());
         *diverged = true;
       }
     }
