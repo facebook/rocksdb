@@ -621,8 +621,9 @@ class BatchedOpsStressTest : public StressTest {
 
           if (!iters[i]->PrepareValue()) {
             fprintf(stderr,
-                    "prefix scan error: PrepareValue failed for key %s\n",
-                    prepare_value_key.c_str());
+                    "prefix scan error: PrepareValue failed for key %s: %s\n",
+                    prepare_value_key.c_str(),
+                    iters[i]->status().ToString().c_str());
             continue;
           }
         }
