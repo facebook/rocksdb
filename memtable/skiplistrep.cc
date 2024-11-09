@@ -92,13 +92,23 @@ class SkipListRep : public MemTableRep {
     }
   }
 
+  Status GetAndValidate(const LookupKey& k, void* callback_args,
+                        bool (*callback_func)(void* arg, const char* entry),
+                        bool allow_data_in_errors) override {
+    SkipListRep::Iterator iter(&skip_list_);
+    Slice dummy_slice;
+    Status status = iter.SeekAndValidate(dummy_slice, k.memtable_key().data(),
+                                         allow_data_in_errors);
+    for (; iter.Valid() && status.ok() &&
+           callback_func(callback_args, iter.key());
+         status = iter.NextAndValidate(allow_data_in_errors)) {
+    }
+    return status;
+  }
+
   uint64_t ApproximateNumEntries(const Slice& start_ikey,
                                  const Slice& end_ikey) override {
-    std::string tmp;
-    uint64_t start_count =
-        skip_list_.EstimateCount(EncodeKey(&tmp, start_ikey));
-    uint64_t end_count = skip_list_.EstimateCount(EncodeKey(&tmp, end_ikey));
-    return (end_count >= start_count) ? (end_count - start_count) : 0;
+    return skip_list_.ApproximateNumEntries(start_ikey, end_ikey);
   }
 
   void UniqueRandomSample(const uint64_t num_entries,
@@ -181,15 +191,24 @@ class SkipListRep : public MemTableRep {
 
     // Returns the key at the current position.
     // REQUIRES: Valid()
-    const char* key() const override { return iter_.key(); }
+    const char* key() const override {
+      assert(Valid());
+      return iter_.key();
+    }
 
     // Advances to the next position.
     // REQUIRES: Valid()
-    void Next() override { iter_.Next(); }
+    void Next() override {
+      assert(Valid());
+      iter_.Next();
+    }
 
     // Advances to the previous position.
     // REQUIRES: Valid()
-    void Prev() override { iter_.Prev(); }
+    void Prev() override {
+      assert(Valid());
+      iter_.Prev();
+    }
 
     // Advance to the first entry with a key >= target
     void Seek(const Slice& user_key, const char* memtable_key) override {
@@ -218,6 +237,26 @@ class SkipListRep : public MemTableRep {
     // Position at the last entry in list.
     // Final state of iterator is Valid() iff list is not empty.
     void SeekToLast() override { iter_.SeekToLast(); }
+
+    Status NextAndValidate(bool allow_data_in_errors) override {
+      assert(Valid());
+      return iter_.NextAndValidate(allow_data_in_errors);
+    }
+
+    Status SeekAndValidate(const Slice& user_key, const char* memtable_key,
+                           bool allow_data_in_errors) override {
+      if (memtable_key != nullptr) {
+        return iter_.SeekAndValidate(memtable_key, allow_data_in_errors);
+      } else {
+        return iter_.SeekAndValidate(EncodeKey(&tmp_, user_key),
+                                     allow_data_in_errors);
+      }
+    }
+
+    Status PrevAndValidate(bool allow_data_in_error) override {
+      assert(Valid());
+      return iter_.PrevAndValidate(allow_data_in_error);
+    }
 
    protected:
     std::string tmp_;  // For passing to EncodeKey

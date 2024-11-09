@@ -395,7 +395,9 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
   // unprep_seqs_ will also contain prepared seqnos since they are treated in
   // the same way in the prepare/commit callbacks. See the comment on the
   // definition of unprep_seqs_.
-  unprep_seqs_[prepare_seq] = prepare_batch_cnt_;
+  if (s.ok()) {
+    unprep_seqs_[prepare_seq] = prepare_batch_cnt_;
+  }
 
   // Reset transaction state.
   if (!prepared) {

@@ -133,19 +133,25 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
                                std::shared_ptr<Cache>* result) {
   Status status;
   std::shared_ptr<Cache> cache;
-  if (value.find('=') == std::string::npos) {
-    cache = NewLRUCache(ParseSizeT(value));
-  } else {
-    LRUCacheOptions cache_opts;
-    status = OptionTypeInfo::ParseStruct(config_options, "",
-                                         &lru_cache_options_type_info, "",
-                                         value, &cache_opts);
-    if (status.ok()) {
-      cache = NewLRUCache(cache_opts);
+  if (StartsWith(value, "null")) {
+    cache = nullptr;
+  } else if (value.find("://") == std::string::npos) {
+    if (value.find('=') == std::string::npos) {
+      cache = NewLRUCache(ParseSizeT(value));
+    } else {
+      LRUCacheOptions cache_opts;
+      status = OptionTypeInfo::ParseStruct(config_options, "",
+                                           &lru_cache_options_type_info, "",
+                                           value, &cache_opts);
+      if (status.ok()) {
+        cache = NewLRUCache(cache_opts);
+      }
     }
-  }
-  if (status.ok()) {
-    result->swap(cache);
+    if (status.ok()) {
+      result->swap(cache);
+    }
+  } else {
+    status = LoadSharedObject<Cache>(config_options, value, result);
   }
   return status;
 }

@@ -125,10 +125,25 @@ IOStatus CreateFile(FileSystem* fs, const std::string& destination,
 Status DeleteDBFile(const ImmutableDBOptions* db_options,
                     const std::string& fname, const std::string& dir_to_sync,
                     const bool force_bg, const bool force_fg) {
-  SstFileManagerImpl* sfm =
-      static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
+  SstFileManagerImpl* sfm = static_cast_with_check<SstFileManagerImpl>(
+      db_options->sst_file_manager.get());
   if (sfm && !force_fg) {
     return sfm->ScheduleFileDeletion(fname, dir_to_sync, force_bg);
+  } else {
+    return db_options->env->DeleteFile(fname);
+  }
+}
+
+Status DeleteUnaccountedDBFile(const ImmutableDBOptions* db_options,
+                               const std::string& fname,
+                               const std::string& dir_to_sync,
+                               const bool force_bg, const bool force_fg,
+                               std::optional<int32_t> bucket) {
+  SstFileManagerImpl* sfm = static_cast_with_check<SstFileManagerImpl>(
+      db_options->sst_file_manager.get());
+  if (sfm && !force_fg) {
+    return sfm->ScheduleUnaccountedFileDeletion(fname, dir_to_sync, force_bg,
+                                                bucket);
   } else {
     return db_options->env->DeleteFile(fname);
   }

@@ -1,6 +1,70 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.8.0 (10/25/2024)
+### New Features
+* All non-`block_cache` options in `BlockBasedTableOptions` are now mutable with `DB::SetOptions()`. See also Bug Fixes below.
+* When using iterators with BlobDB, it is now possible to load large values on an on-demand basis, i.e. only if they are actually needed by the application. This can save I/O in use cases where the values associated with certain keys are not needed. For more details, see the new read option `allow_unprepared_value` and the iterator API `PrepareValue`.
+* Add a new file ingestion option `IngestExternalFileOptions::fill_cache` to support not adding blocks from ingested files into block cache during file ingestion.
+* The option `allow_unprepared_value` is now also supported for multi-column-family iterators (i.e. `CoalescingIterator` and `AttributeGroupIterator`).
+* When a file with just one range deletion (standalone range deletion file) is ingested via bulk loading, it will be marked for compaction. During compaction, this type of files can be used to directly filter out some input files that are not protected by any snapshots and completely deleted by the standalone range deletion file.
+
+### Behavior Changes
+* During file ingestion, overlapping files level assignment are done in multiple batches, so that they can potentially be assigned to lower levels other than always land on L0.
+* OPTIONS file to be loaded by remote worker is now preserved so that it does not get purged by the primary host. A similar technique as how we are preserving new SST files from getting purged is used for this. min_options_file_numbers_ is tracked like pending_outputs_ is tracked.
+* Trim readahead_size during scans so data blocks containing keys that are not in the same prefix as the seek key in `Seek()` are not prefetched when `ReadOptions::auto_readahead_size=true` (default value) and `ReadOptions::prefix_same_as_start = true`
+* Assigning levels for external files are done in the same way for universal compaction and leveled compaction. The old behavior tends to assign files to L0 while the new behavior will assign the files to the lowest level possible.
+
+### Bug Fixes
+* Fix a longstanding race condition in SetOptions for `block_based_table_factory` options. The fix has some subtle behavior changes because of copying and replacing the TableFactory on a change with SetOptions, including requiring an Iterator::Refresh() for an existing Iterator to use the latest options.
+* Fix under counting of allocated memory in the compressed secondary cache due to looking at the compressed block size rather than the actual memory allocated, which could be larger due to internal fragmentation.
+* `GetApproximateMemTableStats()` could return disastrously bad estimates 5-25% of the time. The function has been re-engineered to return much better estimates with similar CPU cost.
+* Skip insertion of compressed blocks in the secondary cache if the lowest_used_cache_tier DB option is kVolatileTier.
+* Fix an issue in level compaction where a small CF with small compaction debt can cause the DB to allow parallel compactions. (#13054)
+* Several DB option settings could be lost through `GetOptionsFromString()`, possibly elsewhere as well. Affected options, now fixed:`background_close_inactive_wals`, `write_dbid_to_manifest`, `write_identity_file`, `prefix_seek_opt_in_only`
+
+## 9.7.0 (09/20/2024)
+### New Features
+* Make Cache a customizable class that can be instantiated by the object registry.
+* Add new option `prefix_seek_opt_in_only` that makes iterators generally safer when you might set a `prefix_extractor`. When `prefix_seek_opt_in_only=true`, which is expected to be the future default, prefix seek is only used when `prefix_same_as_start` or `auto_prefix_mode` are set. Also, `prefix_same_as_start` and `auto_prefix_mode` now allow prefix filtering even with `total_order_seek=true`.
+* Add a new table property "rocksdb.key.largest.seqno" which records the largest sequence number of all keys in file. It is verified to be zero during SST file ingestion.
+
+### Behavior Changes
+* Changed the semantics of the BlobDB configuration option `blob_garbage_collection_force_threshold` to define a threshold for the overall garbage ratio of all blob files currently eligible for garbage collection (according to `blob_garbage_collection_age_cutoff`). This can provide better control over space amplification at the cost of slightly higher write amplification.
+* Set `write_dbid_to_manifest=true` by default. This means DB ID will now be preserved through backups, checkpoints, etc. by default. Also add `write_identity_file` option which can be set to false for anticipated future behavior.
+* In FIFO compaction, compactions for changing file temperature (configured by option `file_temperature_age_thresholds`) will compact one file at a time, instead of merging multiple eligible file together (#13018).
+* Support ingesting db generated files using hard link, i.e. IngestExternalFileOptions::move_files/link_files and IngestExternalFileOptions::allow_db_generated_files.
+* Add a new file ingestion option `IngestExternalFileOptions::link_files` to hard link input files and preserve original files links after ingestion.
+* DB::Close now untracks files in SstFileManager, making avaialble any space used
+by them. Prior to this change they would be orphaned until the DB is re-opened.
+
+### Bug Fixes
+* Fix a bug in CompactRange() where result files may not be compacted in any future compaction. This can only happen when users configure CompactRangeOptions::change_level to true and the change level step of manual compaction fails (#13009).
+* Fix handling of dynamic change of `prefix_extractor` with memtable prefix filter. Previously, prefix seek could mix different prefix interpretations between memtable and SST files. Now the latest `prefix_extractor` at the time of iterator creation or refresh is respected.
+* Fix a bug with manual_wal_flush and auto error recovery from WAL failure that may cause CFs to be inconsistent (#12995). The fix will set potential WAL write failure as fatal error when manual_wal_flush is true, and disables auto error recovery from these errors.
+
+## 9.6.0 (08/19/2024)
+### New Features
+* *Best efforts recovery supports recovering to incomplete Version with a clean seqno cut that presents a valid point in time view from the user's perspective, if versioning history doesn't include atomic flush.
+* New option `BlockBasedTableOptions::decouple_partitioned_filters` should improve efficiency in serving read queries because filter and index partitions can consistently target the configured `metadata_block_size`. This option is currently opt-in.
+* Introduce a new mutable CF option `paranoid_memory_checks`. It enables additional validation on data integrity during reads/scanning. Currently, skip list based memtable will validate key ordering during look up and scans.
+
+### Public API Changes
+* Add ticker stats to count file read retries due to checksum mismatch
+* Adds optional installation callback function for remote compaction
+
+### Behavior Changes
+* There may be less intra-L0 compaction triggered by total L0 size being too small. We now use compensated file size (tombstones are assigned some value size) when calculating L0 size and reduce the threshold for L0 size limit. This is to avoid accumulating too much data/tombstones in L0.
+
+### Bug Fixes
+* *Make DestroyDB supports slow deletion when it's configured in `SstFileManager`. The slow deletion is subject to the configured `rate_bytes_per_sec`, but not subject to the `max_trash_db_ratio`.
+* Fixed a bug where we set unprep_seqs_ even when WriteImpl() fails. This was caught by stress test write fault injection in WriteImpl(). This may have incorrectly caused iteration creation failure for unvalidated writes or returned wrong result for WriteUnpreparedTxn::GetUnpreparedSequenceNumbers().
+* Fixed a bug where successful write right after error recovery for last failed write finishes causes duplicate WAL entries
+* Fixed a data race involving the background error status in `unordered_write` mode.
+* *Fix a bug where file snapshot functions like backup, checkpoint may attempt to copy a non-existing manifest file. #12882
+* Fix a bug where per kv checksum corruption may be ignored in MultiGet().
+* Fix a race condition in pessimistic transactions that could allow multiple transactions with the same name to be registered simultaneously, resulting in a crash or other unpredictable behavior.
+
 ## 9.5.0 (07/19/2024)
 ### Public API Changes
 * Introduced new C API function rocksdb_writebatch_iterate_cf for column family-aware iteration over the contents of a WriteBatch

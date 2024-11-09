@@ -366,6 +366,11 @@ Options DBTestBase::GetOptions(
     table_options.block_cache = NewLRUCache(/* too small */ 1);
   }
 
+  // Test anticipated new default as much as reasonably possible (and remove
+  // this code when obsolete)
+  assert(!table_options.decouple_partitioned_filters);
+  table_options.decouple_partitioned_filters = true;
+
   bool can_allow_mmap = IsMemoryMappedAccessSupported();
   switch (option_config) {
     case kHashSkipList:
@@ -1256,6 +1261,20 @@ Status DBTestBase::CountFiles(size_t* count) {
   }
 
   return Status::OK();
+}
+
+std::vector<FileMetaData*> DBTestBase::GetLevelFileMetadatas(int level,
+                                                             int cf) {
+  VersionSet* const versions = dbfull()->GetVersionSet();
+  assert(versions);
+  ColumnFamilyData* const cfd =
+      versions->GetColumnFamilySet()->GetColumnFamily(cf);
+  assert(cfd);
+  Version* const current = cfd->current();
+  assert(current);
+  VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+  return storage_info->LevelFiles(level);
 }
 
 Status DBTestBase::Size(const Slice& start, const Slice& limit, int cf,

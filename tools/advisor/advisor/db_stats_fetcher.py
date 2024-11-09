@@ -99,7 +99,7 @@ class LogStatsParser(TimeSeriesData):
             # directory
             if re.search("old", file_name, re.IGNORECASE):
                 continue
-            with open(file_name, "r") as db_logs:
+            with open(file_name) as db_logs:
                 new_log = None
                 for line in db_logs:
                     if Log.is_new_log(line):
@@ -215,7 +215,7 @@ class OdsStatsFetcher(TimeSeriesData):
         # <entity_name>\t<key_name>\t[[ts, value], [ts, value], ...]
         # ts = timestamp; value = value of key_name in entity_name at time ts
         self.keys_ts = {}
-        with open(self.OUTPUT_FILE, "r") as fp:
+        with open(self.OUTPUT_FILE) as fp:
             for line in fp:
                 token_list = line.strip().split("\t")
                 entity = token_list[0]
@@ -236,7 +236,7 @@ class OdsStatsFetcher(TimeSeriesData):
         # <entity_name>\t<key_name>\t<timestamp>\t<value>
         # there is one line per (entity_name, key_name, timestamp)
         self.keys_ts = {}
-        with open(self.OUTPUT_FILE, "r") as fp:
+        with open(self.OUTPUT_FILE) as fp:
             for line in fp:
                 token_list = line.split()
                 entity = token_list[0]
@@ -301,8 +301,8 @@ class OdsStatsFetcher(TimeSeriesData):
 
     def fetch_rate_url(
         self,
-        entities: List[str],
-        keys: List[str],
+        entities: list[str],
+        keys: list[str],
         window_len: str,
         percent: str,
         display: bool,
@@ -341,6 +341,6 @@ class OdsStatsFetcher(TimeSeriesData):
             )
         self.execute_script(command)
         url = ""
-        with open(self.OUTPUT_FILE, "r") as fp:
+        with open(self.OUTPUT_FILE) as fp:
             url = fp.readline()
         return url

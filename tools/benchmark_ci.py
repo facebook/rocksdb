@@ -56,7 +56,7 @@ def read_version(config):
     majorRegex = re.compile(r"#define ROCKSDB_MAJOR\s([0-9]+)")
     minorRegex = re.compile(r"#define ROCKSDB_MINOR\s([0-9]+)")
     patchRegex = re.compile(r"#define ROCKSDB_PATCH\s([0-9]+)")
-    with open(config.version_file, "r") as reader:
+    with open(config.version_file) as reader:
         major = None
         minor = None
         patch = None

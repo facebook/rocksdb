@@ -274,6 +274,8 @@ bool StressTest::BuildOptionsTable() {
     return true;
   }
 
+  bool keepRibbonFilterPolicyOnly = FLAGS_bloom_before_level != INT_MAX;
+
   std::unordered_map<std::string, std::vector<std::string>> options_tbl = {
       {"write_buffer_size",
        {std::to_string(options_.write_buffer_size),
@@ -339,6 +341,17 @@ bool StressTest::BuildOptionsTable() {
            "2",
        }},
       {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
+      {"block_based_table_factory",
+       {
+           keepRibbonFilterPolicyOnly ? "{filter_policy=ribbonfilter:2.35}"
+                                      : "{filter_policy=bloomfilter:2.34}",
+           "{filter_policy=ribbonfilter:5.67:-1}",
+           keepRibbonFilterPolicyOnly ? "{filter_policy=ribbonfilter:8.9:3}"
+                                      : "{filter_policy=nullptr}",
+           "{block_size=" + std::to_string(FLAGS_block_size) + "}",
+           "{block_size=" +
+               std::to_string(FLAGS_block_size + (FLAGS_seed & 0xFFFU)) + "}",
+       }},
   };
   if (FLAGS_compaction_style == kCompactionStyleUniversal &&
       FLAGS_universal_max_read_amp > 0) {
@@ -393,7 +406,7 @@ bool StressTest::BuildOptionsTable() {
                         std::vector<std::string>{"kDisable", "kFlushOnly"});
   }
 
-  if (FLAGS_bloom_before_level != INT_MAX) {
+  if (keepRibbonFilterPolicyOnly) {
     // Can modify RibbonFilterPolicy field
     options_tbl.emplace("table_factory.filter_policy.bloom_before_level",
                         std::vector<std::string>{"-1", "0", "1", "2",
@@ -632,10 +645,8 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
   for (auto cfh : column_families_) {
     for (int64_t k = 0; k != number_of_keys; ++k) {
       const std::string key = Key(k);
-      bool prepare = false;
       PendingExpectedValue pending_expected_value =
-          shared->PreparePut(cf_idx, k, &prepare);
-      assert(prepare);
+          shared->PreparePut(cf_idx, k);
       const uint32_t value_base = pending_expected_value.GetFinalValueBase();
       const size_t sz = GenerateValue(value_base, value, sizeof(value));
 
@@ -907,6 +918,8 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.auto_readahead_size = FLAGS_auto_readahead_size;
   read_opts.fill_cache = FLAGS_fill_cache;
   read_opts.optimize_multiget_for_io = FLAGS_optimize_multiget_for_io;
+  read_opts.allow_unprepared_value = FLAGS_allow_unprepared_value;
+
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
     write_opts.rate_limiter_priority = Env::IO_USER;
@@ -1594,7 +1607,7 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     ro.total_order_seek = true;
     expect_total_order = true;
   } else if (thread->rand.OneIn(4)) {
-    ro.total_order_seek = false;
+    ro.total_order_seek = thread->rand.OneIn(2);
     ro.auto_prefix_mode = true;
     expect_total_order = true;
   } else if (options_.prefix_extractor.get() == nullptr) {
@@ -1895,7 +1908,9 @@ void StressTest::VerifyIterator(
                << ", iterate_lower_bound: "
                << (ro.iterate_lower_bound
                        ? ro.iterate_lower_bound->ToString(true).c_str()
-                       : "");
+                       : "")
+               << ", allow_unprepared_value: " << ro.allow_unprepared_value;
+
   if (iter->Valid() && !cmp_iter->Valid()) {
     if (pe != nullptr) {
       if (!pe->InDomain(seek_key)) {
@@ -1985,10 +2000,30 @@ void StressTest::VerifyIterator(
   }
 
   if (!*diverged && iter->Valid()) {
-    if (!verify_func(iter)) {
-      *diverged = true;
+    if (ro.allow_unprepared_value) {
+      // Save key in case PrepareValue fails and invalidates the iterator
+      const std::string prepare_value_key =
+          iter->key().ToString(/* hex */ true);
+
+      if (!iter->PrepareValue()) {
+        fprintf(
+            stderr,
+            "Iterator failed to prepare value for key %s %s under specified "
+            "iterator ReadOptions: %s (Empty string or missing field indicates "
+            "default option or value is used)\n",
+            prepare_value_key.c_str(), op_logs.c_str(),
+            read_opt_oss.str().c_str());
+        *diverged = true;
+      }
+    }
+
+    if (!*diverged && iter->Valid()) {
+      if (!verify_func(iter)) {
+        *diverged = true;
+      }
     }
   }
+
   if (*diverged) {
     fprintf(stderr, "VerifyIterator failed. Control CF %s\n",
             cmp_cfh->GetName().c_str());
@@ -2429,22 +2464,31 @@ Status StressTest::TestApproximateSize(
   std::string key1_str = Key(key1);
   std::string key2_str = Key(key2);
   Range range{Slice(key1_str), Slice(key2_str)};
-  SizeApproximationOptions sao;
-  sao.include_memtables = thread->rand.OneIn(2);
-  if (sao.include_memtables) {
-    sao.include_files = thread->rand.OneIn(2);
-  }
-  if (thread->rand.OneIn(2)) {
-    if (thread->rand.OneIn(2)) {
-      sao.files_size_error_margin = 0.0;
-    } else {
-      sao.files_size_error_margin =
-          static_cast<double>(thread->rand.Uniform(3));
+  if (thread->rand.OneIn(3)) {
+    // Call GetApproximateMemTableStats instead
+    uint64_t count, size;
+    db_->GetApproximateMemTableStats(column_families_[rand_column_families[0]],
+                                     range, &count, &size);
+    return Status::OK();
+  } else {
+    // Call GetApproximateSizes
+    SizeApproximationOptions sao;
+    sao.include_memtables = thread->rand.OneIn(2);
+    if (sao.include_memtables) {
+      sao.include_files = thread->rand.OneIn(2);
     }
+    if (thread->rand.OneIn(2)) {
+      if (thread->rand.OneIn(2)) {
+        sao.files_size_error_margin = 0.0;
+      } else {
+        sao.files_size_error_margin =
+            static_cast<double>(thread->rand.Uniform(3));
+      }
+    }
+    uint64_t result;
+    return db_->GetApproximateSizes(
+        sao, column_families_[rand_column_families[0]], &range, 1, &result);
   }
-  uint64_t result;
-  return db_->GetApproximateSizes(
-      sao, column_families_[rand_column_families[0]], &range, 1, &result);
 }
 
 Status StressTest::TestCheckpoint(ThreadState* thread,
@@ -3676,7 +3720,7 @@ void StressTest::Reopen(ThreadState* thread) {
   // crash-recovery verification does. Therefore it always expects no data loss
   // and we should ensure no data loss in testing.
   // TODO(hx235): eliminate the FlushWAL(true /* sync */)/SyncWAL() below
-  if (!FLAGS_disable_wal && !FLAGS_avoid_flush_during_shutdown) {
+  if (!FLAGS_disable_wal) {
     Status s;
     if (FLAGS_manual_wal_flush_one_in > 0) {
       s = db_->FlushWAL(/*sync=*/true);
@@ -3834,6 +3878,10 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
       FLAGS_persist_user_defined_timestamps;
 }
 
+bool ShouldDisableAutoCompactionsBeforeVerifyDb() {
+  return !FLAGS_disable_auto_compactions && FLAGS_enable_compaction_filter;
+}
+
 bool InitializeOptionsFromFile(Options& options) {
   DBOptions db_options;
   ConfigOptions config_options;
@@ -3861,6 +3909,8 @@ void InitializeOptionsFromFlags(
     const std::shared_ptr<const FilterPolicy>& filter_policy,
     Options& options) {
   BlockBasedTableOptions block_based_options;
+  block_based_options.decouple_partitioned_filters =
+      FLAGS_decouple_partitioned_filters;
   block_based_options.block_cache = cache;
   block_based_options.cache_index_and_filter_blocks =
       FLAGS_cache_index_and_filter_blocks;
@@ -3947,7 +3997,11 @@ void InitializeOptionsFromFlags(
         new WriteBufferManager(FLAGS_db_write_buffer_size, block_cache));
   }
   options.memtable_whole_key_filtering = FLAGS_memtable_whole_key_filtering;
-  options.disable_auto_compactions = FLAGS_disable_auto_compactions;
+  if (ShouldDisableAutoCompactionsBeforeVerifyDb()) {
+    options.disable_auto_compactions = true;
+  } else {
+    options.disable_auto_compactions = FLAGS_disable_auto_compactions;
+  }
   options.max_background_compactions = FLAGS_max_background_compactions;
   options.max_background_flushes = FLAGS_max_background_flushes;
   options.compaction_style =
@@ -4036,6 +4090,7 @@ void InitializeOptionsFromFlags(
   options.manual_wal_flush = FLAGS_manual_wal_flush_one_in > 0 ? true : false;
   options.avoid_unnecessary_blocking_io = FLAGS_avoid_unnecessary_blocking_io;
   options.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
+  options.write_identity_file = FLAGS_write_identity_file;
   options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
   options.max_write_batch_group_size_bytes =
       FLAGS_max_write_batch_group_size_bytes;
@@ -4047,6 +4102,7 @@ void InitializeOptionsFromFlags(
   options.memtable_protection_bytes_per_key =
       FLAGS_memtable_protection_bytes_per_key;
   options.block_protection_bytes_per_key = FLAGS_block_protection_bytes_per_key;
+  options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
 
   // Integrated BlobDB
   options.enable_blob_files = FLAGS_enable_blob_files;
@@ -4262,6 +4318,7 @@ void InitializeOptionsGeneral(
     options.disable_auto_compactions = true;
   }
 
+  options.table_properties_collector_factories.clear();
   options.table_properties_collector_factories.emplace_back(
       std::make_shared<DbStressTablePropertiesCollectorFactory>());
 

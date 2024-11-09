@@ -188,6 +188,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "block_size_deviation=8;block_restart_interval=4; "
       "metadata_block_size=1024;"
       "partition_filters=false;"
+      "decouple_partitioned_filters=true;"
       "optimize_filters_for_memory=true;"
       "use_delta_encoding=true;"
       "index_block_restart_interval=4;"
@@ -215,6 +216,95 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
 
   delete[] bbto_ptr;
   delete[] new_bbto_ptr;
+}
+
+TEST_F(OptionsSettableTest, TablePropertiesAllFieldsSettable) {
+  const OffsetGap kTablePropertiesExcluded = {
+      {offsetof(struct TableProperties, db_id), sizeof(std::string)},
+      {offsetof(struct TableProperties, db_session_id), sizeof(std::string)},
+      {offsetof(struct TableProperties, db_host_id), sizeof(std::string)},
+      {offsetof(struct TableProperties, column_family_name),
+       sizeof(std::string)},
+      {offsetof(struct TableProperties, filter_policy_name),
+       sizeof(std::string)},
+      {offsetof(struct TableProperties, comparator_name), sizeof(std::string)},
+      {offsetof(struct TableProperties, merge_operator_name),
+       sizeof(std::string)},
+      {offsetof(struct TableProperties, prefix_extractor_name),
+       sizeof(std::string)},
+      {offsetof(struct TableProperties, property_collectors_names),
+       sizeof(std::string)},
+      {offsetof(struct TableProperties, compression_name), sizeof(std::string)},
+      {offsetof(struct TableProperties, compression_options),
+       sizeof(std::string)},
+      {offsetof(struct TableProperties, seqno_to_time_mapping),
+       sizeof(std::string)},
+      {offsetof(struct TableProperties, user_collected_properties),
+       sizeof(UserCollectedProperties)},
+      {offsetof(struct TableProperties, readable_properties),
+       sizeof(UserCollectedProperties)},
+  };
+
+  char* tp_ptr = new char[sizeof(TableProperties)];
+
+  TableProperties* tp = new (tp_ptr) TableProperties();
+  FillWithSpecialChar(tp_ptr, sizeof(TableProperties),
+                      kTablePropertiesExcluded);
+  ASSERT_GT(
+      NumUnsetBytes(tp_ptr, sizeof(TableProperties), kTablePropertiesExcluded),
+      0);
+
+  char* new_tp_ptr = new char[sizeof(TableProperties)];
+  TableProperties* new_tp = new (new_tp_ptr) TableProperties();
+  FillWithSpecialChar(new_tp_ptr, sizeof(TableProperties),
+                      kTablePropertiesExcluded);
+
+  // Need to update the option string if a new option is added.
+  ConfigOptions config_options;
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
+  config_options.invoke_prepare_options = false;
+  config_options.ignore_unsupported_options = false;
+  ASSERT_OK(TableProperties::Parse(
+      config_options,
+      "readable_properties={7265616461626C655F6B6579="
+      "7265616461626C655F76616C7565;};compression_options=;compression_name=;"
+      "property_collectors_names=;prefix_extractor_name=;db_host_id="
+      "64625F686F73745F6964;db_session_id=64625F73657373696F6E5F6964;creation_"
+      "time=0;num_data_blocks=123;index_value_is_delta_encoded=0;top_level_"
+      "index_"
+      "size=0;data_size=100;merge_operator_name=;index_partitions=0;file_"
+      "creation_time=0;raw_value_size=0;index_size=200;user_collected_"
+      "properties={757365725F6B6579=757365725F76616C7565;};tail_start_offset=0;"
+      "seqno_to_time_mapping=;raw_key_size=0;slow_compression_estimated_data_"
+      "size=0;filter_size=0;orig_file_number=3;num_deletions=0;num_range_"
+      "deletions=0;format_version=0;comparator_name="
+      "636F6D70617261746F725F6E616D65;num_filter_entries=0;db_id="
+      "64625F686F73745F6964;column_family_id=2147483647;fixed_key_len=0;fast_"
+      "compression_estimated_data_size=0;filter_policy_name="
+      "66696C7465725F706F6C6963795F6E616D65;oldest_key_time=0;newest_key_time="
+      "0;column_family_"
+      "name=64656661756C74;user_defined_timestamps_persisted=1;num_entries=100;"
+      "external_sst_file_global_seqno_offset=0;num_merge_operands=0;index_key_"
+      "is_user_key=0;key_largest_seqno=18446744073709551615;",
+      new_tp));
+
+  // All bytes are set from the parse
+  ASSERT_EQ(NumUnsetBytes(new_tp_ptr, sizeof(TableProperties),
+                          kTablePropertiesExcluded),
+            0);
+
+  ASSERT_EQ(new_tp->db_host_id, "db_host_id");
+  ASSERT_EQ(new_tp->num_entries, 100);
+  ASSERT_EQ(new_tp->num_data_blocks, 123);
+  ASSERT_EQ(new_tp->user_collected_properties.size(), 1);
+  ASSERT_EQ(new_tp->readable_properties.size(), 1);
+
+  tp->~TableProperties();
+  new_tp->~TableProperties();
+
+  delete[] tp_ptr;
+  delete[] new_tp_ptr;
 }
 
 // If the test fails, likely a new option is added to DBOptions
@@ -269,6 +359,12 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       NumUnsetBytes(options_ptr, sizeof(DBOptions), kDBOptionsExcluded);
   ASSERT_GT(unset_bytes_base, 0);
   options->~DBOptions();
+
+  // Now also check that BuildDBOptions populates everything
+  FillWithSpecialChar(options_ptr, sizeof(DBOptions), kDBOptionsExcluded);
+  BuildDBOptions({}, {}, *options);
+  ASSERT_EQ(unset_bytes_base,
+            NumUnsetBytes(options_ptr, sizeof(DBOptions), kDBOptionsExcluded));
 
   options = new (options_ptr) DBOptions();
   FillWithSpecialChar(options_ptr, sizeof(DBOptions), kDBOptionsExcluded);
@@ -366,7 +462,16 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "lowest_used_cache_tier=kNonVolatileBlockTier;"
                              "allow_data_in_errors=false;"
                              "enforce_single_del_contracts=false;"
-                             "daily_offpeak_time_utc=08:30-19:00;",
+                             "daily_offpeak_time_utc=08:30-19:00;"
+                             "follower_refresh_catchup_period_ms=123;"
+                             "follower_catchup_retry_count=456;"
+                             "follower_catchup_retry_wait_ms=789;"
+                             "metadata_write_temperature=kCold;"
+                             "wal_write_temperature=kHot;"
+                             "background_close_inactive_wals=true;"
+                             "write_dbid_to_manifest=true;"
+                             "write_identity_file=true;"
+                             "prefix_seek_opt_in_only=true;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
@@ -567,7 +672,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "block_protection_bytes_per_key=1;"
       "memtable_max_range_deletions=999999;"
       "bottommost_file_compaction_delay=7200;"
-      "uncache_aggressiveness=1234;",
+      "uncache_aggressiveness=1234;"
+      "paranoid_memory_checks=1;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);

@@ -209,6 +209,8 @@ class CompactionJob {
   // Returns true iff compaction_stats_.stats.num_input_records and
   // num_input_range_del are calculated successfully.
   bool UpdateCompactionStats(uint64_t* num_input_range_del = nullptr);
+  virtual void UpdateCompactionJobStats(
+      const InternalStats::CompactionStats& stats) const;
   void LogCompaction();
   virtual void RecordCompactionIOStats();
   void CleanupCompaction();
@@ -279,8 +281,7 @@ class CompactionJob {
                                   bool* compaction_released);
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact,
                                   CompactionOutputs& outputs);
-  void UpdateCompactionJobStats(
-      const InternalStats::CompactionStats& stats) const;
+
   void RecordDroppedKeys(const CompactionIterationStats& c_iter_stats,
                          CompactionJobStats* compaction_job_stats = nullptr);
 
@@ -377,9 +378,7 @@ class CompactionJob {
 // doesn't contain the LSM tree information, which is passed though MANIFEST
 // file.
 struct CompactionServiceInput {
-  ColumnFamilyDescriptor column_family;
-
-  DBOptions db_options;
+  std::string cf_name;
 
   std::vector<SequenceNumber> snapshots;
 
@@ -387,7 +386,7 @@ struct CompactionServiceInput {
   // files needed for this compaction, for both input level files and output
   // level files.
   std::vector<std::string> input_files;
-  int output_level;
+  int output_level = 0;
 
   // db_id is used to generate unique id of sst on the remote compactor
   std::string db_id;
@@ -398,12 +397,11 @@ struct CompactionServiceInput {
   bool has_end = false;
   std::string end;
 
+  uint64_t options_file_number = 0;
+
   // serialization interface to read and write the object
   static Status Read(const std::string& data_str, CompactionServiceInput* obj);
   Status Write(std::string* output);
-
-  // Initialize a dummy ColumnFamilyDescriptor
-  CompactionServiceInput() : column_family("", ColumnFamilyOptions()) {}
 
 #ifndef NDEBUG
   bool TEST_Equals(CompactionServiceInput* other);
@@ -418,20 +416,25 @@ struct CompactionServiceOutputFile {
   SequenceNumber largest_seqno;
   std::string smallest_internal_key;
   std::string largest_internal_key;
-  uint64_t oldest_ancester_time;
-  uint64_t file_creation_time;
-  uint64_t epoch_number;
+  uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
+  uint64_t file_creation_time = kUnknownFileCreationTime;
+  uint64_t epoch_number = kUnknownEpochNumber;
+  std::string file_checksum = kUnknownFileChecksum;
+  std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
   uint64_t paranoid_hash;
   bool marked_for_compaction;
-  UniqueId64x2 unique_id;
+  UniqueId64x2 unique_id{};
+  TableProperties table_properties;
 
   CompactionServiceOutputFile() = default;
   CompactionServiceOutputFile(
       const std::string& name, SequenceNumber smallest, SequenceNumber largest,
       std::string _smallest_internal_key, std::string _largest_internal_key,
       uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
-      uint64_t _epoch_number, uint64_t _paranoid_hash,
-      bool _marked_for_compaction, UniqueId64x2 _unique_id)
+      uint64_t _epoch_number, const std::string& _file_checksum,
+      const std::string& _file_checksum_func_name, uint64_t _paranoid_hash,
+      bool _marked_for_compaction, UniqueId64x2 _unique_id,
+      const TableProperties& _table_properties)
       : file_name(name),
         smallest_seqno(smallest),
         largest_seqno(largest),
@@ -440,9 +443,12 @@ struct CompactionServiceOutputFile {
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time),
         epoch_number(_epoch_number),
+        file_checksum(_file_checksum),
+        file_checksum_func_name(_file_checksum_func_name),
         paranoid_hash(_paranoid_hash),
         marked_for_compaction(_marked_for_compaction),
-        unique_id(std::move(_unique_id)) {}
+        unique_id(std::move(_unique_id)),
+        table_properties(_table_properties) {}
 };
 
 // CompactionServiceResult contains the compaction result from a different db
@@ -451,14 +457,11 @@ struct CompactionServiceOutputFile {
 struct CompactionServiceResult {
   Status status;
   std::vector<CompactionServiceOutputFile> output_files;
-  int output_level;
+  int output_level = 0;
 
   // location of the output files
   std::string output_path;
 
-  // some statistics about the compaction
-  uint64_t num_output_records = 0;
-  uint64_t total_bytes = 0;
   uint64_t bytes_read = 0;
   uint64_t bytes_written = 0;
   CompactionJobStats stats;
@@ -503,6 +506,9 @@ class CompactionServiceCompactionJob : private CompactionJob {
 
  protected:
   void RecordCompactionIOStats() override;
+
+  void UpdateCompactionJobStats(
+      const InternalStats::CompactionStats& stats) const override;
 
  private:
   // Get table file name in output_path

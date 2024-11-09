@@ -13,14 +13,11 @@ namespace ROCKSDB_NAMESPACE {
 class AttributeGroupIteratorImpl : public AttributeGroupIterator {
  public:
   AttributeGroupIteratorImpl(
-      const Comparator* comparator,
-      const std::vector<ColumnFamilyHandle*>& column_families,
-      const std::vector<Iterator*>& child_iterators)
-      : impl_(
-            comparator, column_families, child_iterators, [this]() { Reset(); },
-            [this](const autovector<MultiCfIteratorInfo>& items) {
-              AddToAttributeGroups(items);
-            }) {}
+      const ReadOptions& read_options, const Comparator* comparator,
+      std::vector<std::pair<ColumnFamilyHandle*, std::unique_ptr<Iterator>>>&&
+          cfh_iter_pairs)
+      : impl_(read_options, comparator, std::move(cfh_iter_pairs),
+              ResetFunc(this), PopulateFunc(this)) {}
   ~AttributeGroupIteratorImpl() override {}
 
   // No copy allowed
@@ -45,8 +42,36 @@ class AttributeGroupIteratorImpl : public AttributeGroupIterator {
 
   void Reset() { attribute_groups_.clear(); }
 
+  bool PrepareValue() override { return impl_.PrepareValue(); }
+
  private:
-  MultiCfIteratorImpl impl_;
+  class ResetFunc {
+   public:
+    explicit ResetFunc(AttributeGroupIteratorImpl* iter) : iter_(iter) {}
+
+    void operator()() const {
+      assert(iter_);
+      iter_->Reset();
+    }
+
+   private:
+    AttributeGroupIteratorImpl* iter_;
+  };
+
+  class PopulateFunc {
+   public:
+    explicit PopulateFunc(AttributeGroupIteratorImpl* iter) : iter_(iter) {}
+
+    void operator()(const autovector<MultiCfIteratorInfo>& items) const {
+      assert(iter_);
+      iter_->AddToAttributeGroups(items);
+    }
+
+   private:
+    AttributeGroupIteratorImpl* iter_;
+  };
+
+  MultiCfIteratorImpl<ResetFunc, PopulateFunc> impl_;
   IteratorAttributeGroups attribute_groups_;
   void AddToAttributeGroups(const autovector<MultiCfIteratorInfo>& items);
 };

@@ -146,6 +146,14 @@ class TransactionBaseImpl : public Transaction {
   Iterator* GetIterator(const ReadOptions& read_options,
                         ColumnFamilyHandle* column_family) override;
 
+  std::unique_ptr<Iterator> GetCoalescingIterator(
+      const ReadOptions& read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
+
+  std::unique_ptr<AttributeGroupIterator> GetAttributeGroupIterator(
+      const ReadOptions& read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
+
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value, const bool assume_tracked = false) override;
   Status Put(const Slice& key, const Slice& value) override {
@@ -304,6 +312,13 @@ class TransactionBaseImpl : public Transaction {
   LockTracker& GetTrackedLocks() { return *tracked_locks_; }
 
  protected:
+  template <typename IterType, typename ImplType,
+            typename ErrorIteratorFuncType>
+  std::unique_ptr<IterType> NewMultiCfIterator(
+      const ReadOptions& read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      ErrorIteratorFuncType error_iterator_func);
+
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, std::string* value) override;
 

@@ -44,7 +44,7 @@ class CheckpointImpl : public Checkpoint {
       bool get_live_table_checksum = false);
 
  private:
-  void CleanStagingDirectory(const std::string& path, Logger* info_log);
+  Status CleanStagingDirectory(const std::string& path, Logger* info_log);
 
   // Export logic customization by providing callbacks for link or copy.
   Status ExportFilesInMetaData(
@@ -61,4 +61,3 @@ class CheckpointImpl : public Checkpoint {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

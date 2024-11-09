@@ -167,7 +167,10 @@ bool RunStressTestImpl(SharedState* shared) {
               {FileType::kWalFile});
         }
       }
-      now = clock->NowMicros();
+      if (ShouldDisableAutoCompactionsBeforeVerifyDb()) {
+        Status s = stress->EnableAutoCompaction();
+        assert(s.ok());
+      }
       fprintf(stdout, "%s Starting database operations\n",
               clock->TimeToString(now / 1000000).c_str());
 

@@ -477,6 +477,36 @@ class Transaction {
   virtual Iterator* GetIterator(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family) = 0;
 
+  // Returns a multi-column-family coalescing iterator for the given column
+  // families that includes both keys in the DB and uncommitted keys in this
+  // transaction.
+  //
+  // Setting read_options.snapshot will affect what is read from the
+  // DB but will NOT change which keys are read from this transaction (the keys
+  // in this transaction do not yet belong to any snapshot and will be fetched
+  // regardless).
+  //
+  // The returned iterator is only valid until Commit(), Rollback(), or
+  // RollbackToSavePoint() is called.
+  virtual std::unique_ptr<Iterator> GetCoalescingIterator(
+      const ReadOptions& read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
+
+  // Returns a multi-column-family attribute group iterator for the given column
+  // families that includes both keys in the DB and uncommitted keys in this
+  // transaction.
+  //
+  // Setting read_options.snapshot will affect what is read from the
+  // DB but will NOT change which keys are read from this transaction (the keys
+  // in this transaction do not yet belong to any snapshot and will be fetched
+  // regardless).
+  //
+  // The returned iterator is only valid until Commit(), Rollback(), or
+  // RollbackToSavePoint() is called.
+  virtual std::unique_ptr<AttributeGroupIterator> GetAttributeGroupIterator(
+      const ReadOptions& read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
+
   // Put, PutEntity, Merge, Delete, and SingleDelete behave similarly to the
   // corresponding functions in WriteBatch, but will also do conflict checking
   // on the keys being written.

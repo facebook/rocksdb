@@ -24,6 +24,7 @@ void CompactionJobStats::Reset() {
 
   is_full_compaction = false;
   is_manual_compaction = false;
+  is_remote_compaction = false;
 
   total_input_bytes = 0;
   total_blob_bytes_read = 0;
@@ -88,6 +89,8 @@ void CompactionJobStats::Add(const CompactionJobStats& stats) {
 
   num_single_del_fallthru += stats.num_single_del_fallthru;
   num_single_del_mismatch += stats.num_single_del_mismatch;
+
+  is_remote_compaction |= stats.is_remote_compaction;
 }
 
 

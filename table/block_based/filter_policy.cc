@@ -82,21 +82,47 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     // requirements.
     if (hash_entries_info_.entries.empty() ||
         hash != hash_entries_info_.entries.back()) {
-      if (detect_filter_construct_corruption_) {
-        hash_entries_info_.xor_checksum ^= hash;
-      }
-      hash_entries_info_.entries.push_back(hash);
-      if (cache_res_mgr_ &&
-          // Traditional rounding to whole bucket size
-          ((hash_entries_info_.entries.size() %
-            kUint64tHashEntryCacheResBucketSize) ==
-           kUint64tHashEntryCacheResBucketSize / 2)) {
-        hash_entries_info_.cache_res_bucket_handles.emplace_back(nullptr);
-        Status s = cache_res_mgr_->MakeCacheReservation(
-            kUint64tHashEntryCacheResBucketSize * sizeof(hash),
-            &hash_entries_info_.cache_res_bucket_handles.back());
-        s.PermitUncheckedError();
-      }
+      AddHash(hash);
+    }
+  }
+
+  void AddKeyAndAlt(const Slice& key, const Slice& alt) override {
+    uint64_t key_hash = GetSliceHash64(key);
+    uint64_t alt_hash = GetSliceHash64(alt);
+    std::optional<uint64_t> prev_key_hash;
+    std::optional<uint64_t> prev_alt_hash = hash_entries_info_.prev_alt_hash;
+
+    if (!hash_entries_info_.entries.empty()) {
+      prev_key_hash = hash_entries_info_.entries.back();
+    }
+
+#ifdef ROCKSDB_VALGRIND_RUN
+    // Valgrind can report uninitialized FPs on std::optional usage. See e.g.
+    // https://stackoverflow.com/q/51616179
+    if (!prev_key_hash.has_value()) {
+      std::memset((void*)&prev_key_hash, 0, sizeof(prev_key_hash));
+      prev_key_hash.reset();
+    }
+    if (!prev_alt_hash.has_value()) {
+      std::memset((void*)&prev_alt_hash, 0, sizeof(prev_key_hash));
+      prev_alt_hash.reset();
+    }
+#endif
+
+    // Add alt first, so that entries.back() always contains previous key
+    // ASSUMING a change from one alt to the next implies a change to
+    // corresponding key
+    if (alt_hash != prev_alt_hash && alt_hash != key_hash &&
+        alt_hash != prev_key_hash) {
+      AddHash(alt_hash);
+    }
+    // Overwrite prev_alt_hash for cases like alt_hash == key_hash
+    hash_entries_info_.prev_alt_hash = alt_hash;
+    // NOTE: checking key_hash != prev_alt_hash for cases like
+    // key == prefix(key) at the end of a prefix grouping as in reverse
+    // byte-wise comparator
+    if (key_hash != prev_key_hash && key_hash != prev_alt_hash) {
+      AddHash(key_hash);
     }
   }
 
@@ -115,6 +141,24 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
       CacheReservationManagerImpl<
           CacheEntryRole::kFilterConstruction>::GetDummyEntrySize() /
       sizeof(uint64_t);
+
+  void AddHash(uint64_t hash) {
+    if (detect_filter_construct_corruption_) {
+      hash_entries_info_.xor_checksum ^= hash;
+    }
+    hash_entries_info_.entries.push_back(hash);
+    if (cache_res_mgr_ &&
+        // Traditional rounding to whole bucket size
+        ((hash_entries_info_.entries.size() %
+          kUint64tHashEntryCacheResBucketSize) ==
+         kUint64tHashEntryCacheResBucketSize / 2)) {
+      hash_entries_info_.cache_res_bucket_handles.emplace_back(nullptr);
+      Status s = cache_res_mgr_->MakeCacheReservation(
+          kUint64tHashEntryCacheResBucketSize * sizeof(hash),
+          &hash_entries_info_.cache_res_bucket_handles.back());
+      s.PermitUncheckedError();
+    }
+  }
 
   // For delegating between XXPH3FilterBitsBuilders
   void SwapEntriesWith(XXPH3FilterBitsBuilder* other) {
@@ -282,17 +326,22 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     // Otherwise, it is 0.
     uint64_t xor_checksum = 0;
 
+    // A single-element cache to help AddKeyAndAlt
+    std::optional<uint64_t> prev_alt_hash;
+
     void Swap(HashEntriesInfo* other) {
       assert(other != nullptr);
       std::swap(entries, other->entries);
       std::swap(cache_res_bucket_handles, other->cache_res_bucket_handles);
       std::swap(xor_checksum, other->xor_checksum);
+      std::swap(prev_alt_hash, other->prev_alt_hash);
     }
 
     void Reset() {
       entries.clear();
       cache_res_bucket_handles.clear();
       xor_checksum = 0;
+      prev_alt_hash = {};
     }
   };
 
@@ -331,6 +380,14 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
 
   Slice Finish(std::unique_ptr<const char[]>* buf, Status* status) override {
     size_t num_entries = hash_entries_info_.entries.size();
+    if (num_entries == 0) {
+      // This case migrated from FullFilterBlockBuilder::Finish
+      if (status) {
+        *status = Status::OK();
+      }
+      return FinishAlwaysFalse(buf);
+    }
+
     size_t len_with_metadata = CalculateSpace(num_entries);
 
     std::unique_ptr<char[]> mutable_buf;
@@ -1023,6 +1080,7 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   ~LegacyBloomBitsBuilder() override;
 
   void AddKey(const Slice& key) override;
+  void AddKeyAndAlt(const Slice& key, const Slice& alt) override;
 
   size_t EstimateEntriesAdded() override { return hash_entries_.size(); }
 
@@ -1050,6 +1108,9 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   int bits_per_key_;
   int num_probes_;
   std::vector<uint32_t> hash_entries_;
+  // A single-element cache to help AddKeyAndAlt. (-1 == empty)
+  int64_t prev_alt_hash_ = -1;
+
   Logger* info_log_;
 
   // Get totalbits that optimized for cpu cache line
@@ -1079,14 +1140,39 @@ LegacyBloomBitsBuilder::~LegacyBloomBitsBuilder() = default;
 
 void LegacyBloomBitsBuilder::AddKey(const Slice& key) {
   uint32_t hash = BloomHash(key);
-  if (hash_entries_.size() == 0 || hash != hash_entries_.back()) {
+  if (hash_entries_.empty() || hash_entries_.back() != hash) {
     hash_entries_.push_back(hash);
   }
 }
 
+void LegacyBloomBitsBuilder::AddKeyAndAlt(const Slice& key, const Slice& alt) {
+  // Modified from XXPH3FilterBitsBuilder::AddKeyAndAlt
+  uint32_t key_hash = BloomHash(key);
+  uint32_t alt_hash = BloomHash(alt);
+
+  int64_t prev_key_hash = -1;
+  int64_t prev_alt_hash = prev_alt_hash_;
+  if (!hash_entries_.empty()) {
+    prev_key_hash = hash_entries_.back();
+  }
+  if (alt_hash != prev_alt_hash && alt_hash != key_hash &&
+      alt_hash != prev_key_hash) {
+    hash_entries_.push_back(alt_hash);
+  }
+  prev_alt_hash_ = alt_hash;
+  if (key_hash != prev_key_hash && key_hash != prev_alt_hash) {
+    hash_entries_.push_back(key_hash);
+  }
+}
+
 Slice LegacyBloomBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
-  uint32_t total_bits, num_lines;
   size_t num_entries = hash_entries_.size();
+  if (num_entries == 0) {
+    // This case migrated from FullFilterBlockBuilder::Finish
+    return FinishAlwaysFalse(buf);
+  }
+
+  uint32_t total_bits, num_lines;
   char* data =
       ReserveSpace(static_cast<int>(num_entries), &total_bits, &num_lines);
   assert(data);
@@ -1127,6 +1213,7 @@ Slice LegacyBloomBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
   const char* const_data = data;
   buf->reset(const_data);
   hash_entries_.clear();
+  prev_alt_hash_ = -1;
 
   return Slice(data, total_bits / 8 + kMetadataLen);
 }

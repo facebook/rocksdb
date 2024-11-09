@@ -568,9 +568,11 @@ class NonBatchedOpsStressTest : public StressTest {
                                                     post_read_expected_value)) {
           thread->shared->SetVerificationFailure();
           fprintf(stderr,
-                  "error : inconsistent values for key %s: Get returns %s, "
+                  "error : inconsistent values for key %s (%" PRIi64
+                  "): Get returns %s, "
                   "but expected state is \"deleted\".\n",
-                  key.ToString(true).c_str(), StringToHex(from_db).c_str());
+                  key.ToString(true).c_str(), rand_keys[0],
+                  StringToHex(from_db).c_str());
         }
         Slice from_db_slice(from_db);
         uint32_t value_base_from_db = GetValueBase(from_db_slice);
@@ -579,11 +581,12 @@ class NonBatchedOpsStressTest : public StressTest {
                 post_read_expected_value)) {
           thread->shared->SetVerificationFailure();
           fprintf(stderr,
-                  "error : inconsistent values for key %s: Get returns %s with "
+                  "error : inconsistent values for key %s (%" PRIi64
+                  "): Get returns %s with "
                   "value base %d that falls out of expected state's value base "
                   "range.\n",
-                  key.ToString(true).c_str(), StringToHex(from_db).c_str(),
-                  value_base_from_db);
+                  key.ToString(true).c_str(), rand_keys[0],
+                  StringToHex(from_db).c_str(), value_base_from_db);
         }
       }
     } else if (s.IsNotFound()) {
@@ -594,15 +597,16 @@ class NonBatchedOpsStressTest : public StressTest {
                                                  post_read_expected_value)) {
           thread->shared->SetVerificationFailure();
           fprintf(stderr,
-                  "error : inconsistent values for key %s: expected state has "
+                  "error : inconsistent values for key %s (%" PRIi64
+                  "): expected state has "
                   "the key, Get() returns NotFound.\n",
-                  key.ToString(true).c_str());
+                  key.ToString(true).c_str(), rand_keys[0]);
         }
       }
     } else if (injected_error_count == 0 || !IsErrorInjectedAndRetryable(s)) {
       thread->shared->SetVerificationFailure();
-      fprintf(stderr, "error : Get() returns %s for key: %s.\n",
-              s.ToString().c_str(), key.ToString(true).c_str());
+      fprintf(stderr, "error : Get() returns %s for key: %s (%" PRIi64 ").\n",
+              s.ToString().c_str(), key.ToString(true).c_str(), rand_keys[0]);
     }
     return s;
   }
@@ -1031,17 +1035,18 @@ class NonBatchedOpsStressTest : public StressTest {
           shared->SetVerificationFailure();
           fprintf(stderr,
                   "error : inconsistent columns returned by GetEntity for key "
-                  "%s: %s\n",
-                  StringToHex(key_str).c_str(),
+                  "%s (%" PRIi64 "): %s\n",
+                  StringToHex(key_str).c_str(), rand_keys[0],
                   WideColumnsToHex(columns).c_str());
         } else if (ExpectedValueHelper::MustHaveNotExisted(
                        pre_read_expected_value, post_read_expected_value)) {
           shared->SetVerificationFailure();
-          fprintf(
-              stderr,
-              "error : inconsistent values for key %s: GetEntity returns %s, "
-              "expected state does not have the key.\n",
-              StringToHex(key_str).c_str(), WideColumnsToHex(columns).c_str());
+          fprintf(stderr,
+                  "error : inconsistent values for key %s (%" PRIi64
+                  "): GetEntity returns %s, "
+                  "expected state does not have the key.\n",
+                  StringToHex(key_str).c_str(), rand_keys[0],
+                  WideColumnsToHex(columns).c_str());
         } else {
           const uint32_t value_base_from_db =
               GetValueBase(WideColumnsHelper::GetDefaultColumn(columns));
@@ -1051,11 +1056,12 @@ class NonBatchedOpsStressTest : public StressTest {
             shared->SetVerificationFailure();
             fprintf(
                 stderr,
-                "error : inconsistent values for key %s: GetEntity returns %s "
+                "error : inconsistent values for key %s (%" PRIi64
+                "): GetEntity returns %s "
                 "with value base %d that falls out of expected state's value "
                 "base range.\n",
-                StringToHex(key_str).c_str(), WideColumnsToHex(columns).c_str(),
-                value_base_from_db);
+                StringToHex(key_str).c_str(), rand_keys[0],
+                WideColumnsToHex(columns).c_str(), value_base_from_db);
           }
         }
       }
@@ -1067,14 +1073,16 @@ class NonBatchedOpsStressTest : public StressTest {
                                                  post_read_expected_value)) {
           shared->SetVerificationFailure();
           fprintf(stderr,
-                  "error : inconsistent values for key %s: expected state has "
+                  "error : inconsistent values for key %s (%" PRIi64
+                  "): expected state has "
                   "the key, GetEntity returns NotFound.\n",
-                  StringToHex(key_str).c_str());
+                  StringToHex(key_str).c_str(), rand_keys[0]);
         }
       }
     } else if (injected_error_count == 0 || !IsErrorInjectedAndRetryable(s)) {
-      fprintf(stderr, "error : GetEntity() returns %s for key: %s.\n",
-              s.ToString().c_str(), StringToHex(key_str).c_str());
+      fprintf(stderr,
+              "error : GetEntity() returns %s for key: %s (%" PRIi64 ").\n",
+              s.ToString().c_str(), StringToHex(key_str).c_str(), rand_keys[0]);
       thread->shared->SetVerificationFailure();
     }
   }
@@ -1450,8 +1458,10 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
 
-    // Get the next prefix first and then see if we want to set upper bound.
-    // We'll use the next prefix in an assertion later on
+    // Randomly test with `iterate_upper_bound` and `prefix_same_as_start`
+    //
+    // Get the next prefix first and then see if we want to set it to be the
+    // upper bound. We'll use the next prefix in an assertion later on
     if (GetNextPrefix(prefix, &upper_bound) && thread->rand.OneIn(2)) {
       // For half of the time, set the upper bound to the next prefix
       ub_slice = Slice(upper_bound);
@@ -1460,6 +1470,8 @@ class NonBatchedOpsStressTest : public StressTest {
         ro_copy.table_filter =
             sqfc_factory_->GetTableFilterForRangeQuery(prefix, ub_slice);
       }
+    } else if (options_.prefix_extractor && thread->rand.OneIn(2)) {
+      ro_copy.prefix_same_as_start = true;
     }
 
     std::string read_ts_str;
@@ -1480,8 +1492,16 @@ class NonBatchedOpsStressTest : public StressTest {
     uint64_t count = 0;
     Status s;
 
-    for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
-         iter->Next()) {
+    for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
+      // If upper or prefix bounds is specified, only keys of the target
+      // prefix should show up. Otherwise, we need to manual exit the loop when
+      // we see the first key that is not in the target prefix show up.
+      if (ro_copy.iterate_upper_bound != nullptr ||
+          ro_copy.prefix_same_as_start) {
+        assert(iter->key().starts_with(prefix));
+      } else if (!iter->key().starts_with(prefix)) {
+        break;
+      }
       ++count;
 
       // When iter_start_ts is set, iterator exposes internal keys, including
@@ -1492,6 +1512,13 @@ class NonBatchedOpsStressTest : public StressTest {
         if (value_type != kTypeValue && value_type != kTypeBlobIndex &&
             value_type != kTypeWideColumnEntity) {
           continue;
+        }
+      }
+
+      if (ro_copy.allow_unprepared_value) {
+        if (!iter->PrepareValue()) {
+          s = iter->status();
+          break;
         }
       }
 
@@ -1535,7 +1562,14 @@ class NonBatchedOpsStressTest : public StressTest {
     if (s.ok()) {
       thread->stats.AddPrefixes(1, count);
     } else if (injected_error_count == 0 || !IsErrorInjectedAndRetryable(s)) {
-      fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
+      fprintf(stderr,
+              "TestPrefixScan error: %s with ReadOptions::iterate_upper_bound: "
+              "%s, prefix_same_as_start: %s \n",
+              s.ToString().c_str(),
+              ro_copy.iterate_upper_bound
+                  ? ro_copy.iterate_upper_bound->ToString(true).c_str()
+                  : "nullptr",
+              ro_copy.prefix_same_as_start ? "true" : "false");
       thread->shared->SetVerificationFailure();
     }
 
@@ -1619,28 +1653,21 @@ class NonBatchedOpsStressTest : public StressTest {
     // write
     bool initial_wal_write_may_succeed = true;
 
-    bool prepared = false;
     PendingExpectedValue pending_expected_value =
-        shared->PreparePut(rand_column_family, rand_key, &prepared);
-    if (!prepared) {
-      pending_expected_value.PermitUnclosedPendingState();
-      return s;
-    }
+        shared->PreparePut(rand_column_family, rand_key);
 
     const uint32_t value_base = pending_expected_value.GetFinalValueBase();
     const size_t sz = GenerateValue(value_base, value, sizeof(value));
     const Slice v(value, sz);
 
+    uint64_t wait_for_recover_start_time = 0;
     do {
       // In order to commit the expected state for the initial write failed with
       // injected retryable error and successful WAL write, retry the write
       // until it succeeds after the recovery finishes
       if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
           initial_wal_write_may_succeed) {
-        lock.reset();
         std::this_thread::sleep_for(std::chrono::microseconds(1 * 1000 * 1000));
-        lock.reset(new MutexLock(
-            shared->GetMutexForKey(rand_column_family, rand_key)));
       }
       if (FLAGS_use_put_entity_one_in > 0 &&
           (value_base % FLAGS_use_put_entity_one_in) == 0) {
@@ -1691,13 +1718,10 @@ class NonBatchedOpsStressTest : public StressTest {
           });
         }
       }
-      // Only update `initial_write_s`, `initial_wal_write_may_succeed` when the
-      // first write fails
-      if (!s.ok() && initial_write_s.ok()) {
-        initial_write_s = s;
-        initial_wal_write_may_succeed =
-            !FaultInjectionTestFS::IsFailedToWriteToWALError(initial_write_s);
-      }
+      UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
+                                &initial_wal_write_may_succeed,
+                                &wait_for_recover_start_time);
+
     } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
              initial_wal_write_may_succeed);
 
@@ -1719,6 +1743,9 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->shared->SafeTerminate();
       }
     } else {
+      PrintWriteRecoveryWaitTimeIfNeeded(
+          db_stress_env, initial_write_s, initial_wal_write_may_succeed,
+          wait_for_recover_start_time, "TestPut");
       pending_expected_value.Commit();
       thread->stats.AddBytesForWrites(1, sz);
       PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key), value,
@@ -1756,25 +1783,18 @@ class NonBatchedOpsStressTest : public StressTest {
     // Use delete if the key may be overwritten and a single deletion
     // otherwise.
     if (shared->AllowsOverwrite(rand_key)) {
-      bool prepared = false;
       PendingExpectedValue pending_expected_value =
-          shared->PrepareDelete(rand_column_family, rand_key, &prepared);
-      if (!prepared) {
-        pending_expected_value.PermitUnclosedPendingState();
-        return s;
-      }
+          shared->PrepareDelete(rand_column_family, rand_key);
 
+      uint64_t wait_for_recover_start_time = 0;
       do {
         // In order to commit the expected state for the initial write failed
         // with injected retryable error and successful WAL write, retry the
         // write until it succeeds after the recovery finishes
         if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
             initial_wal_write_may_succeed) {
-          lock.reset();
           std::this_thread::sleep_for(
               std::chrono::microseconds(1 * 1000 * 1000));
-          lock.reset(new MutexLock(
-              shared->GetMutexForKey(rand_column_family, rand_key)));
         }
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
@@ -1787,13 +1807,9 @@ class NonBatchedOpsStressTest : public StressTest {
             return txn.Delete(cfh, key);
           });
         }
-        // Only update `initial_write_s`, `initial_wal_write_may_succeed` when
-        // the first write fails
-        if (!s.ok() && initial_write_s.ok()) {
-          initial_write_s = s;
-          initial_wal_write_may_succeed =
-              !FaultInjectionTestFS::IsFailedToWriteToWALError(initial_write_s);
-        }
+        UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
+                                  &initial_wal_write_may_succeed,
+                                  &wait_for_recover_start_time);
       } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
                initial_wal_write_may_succeed);
 
@@ -1816,29 +1832,25 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->shared->SafeTerminate();
         }
       } else {
+        PrintWriteRecoveryWaitTimeIfNeeded(
+            db_stress_env, initial_write_s, initial_wal_write_may_succeed,
+            wait_for_recover_start_time, "TestDelete");
         pending_expected_value.Commit();
         thread->stats.AddDeletes(1);
       }
     } else {
-      bool prepared = false;
       PendingExpectedValue pending_expected_value =
-          shared->PrepareSingleDelete(rand_column_family, rand_key, &prepared);
-      if (!prepared) {
-        pending_expected_value.PermitUnclosedPendingState();
-        return s;
-      }
+          shared->PrepareSingleDelete(rand_column_family, rand_key);
 
+      uint64_t wait_for_recover_start_time = 0;
       do {
         // In order to commit the expected state for the initial write failed
         // with injected retryable error and successful WAL write, retry the
         // write until it succeeds after the recovery finishes
         if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
             initial_wal_write_may_succeed) {
-          lock.reset();
           std::this_thread::sleep_for(
               std::chrono::microseconds(1 * 1000 * 1000));
-          lock.reset(new MutexLock(
-              shared->GetMutexForKey(rand_column_family, rand_key)));
         }
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
@@ -1851,13 +1863,9 @@ class NonBatchedOpsStressTest : public StressTest {
             return txn.SingleDelete(cfh, key);
           });
         }
-        // Only update `initial_write_s`, `initial_wal_write_may_succeed` when
-        // the first write fails
-        if (!s.ok() && initial_write_s.ok()) {
-          initial_write_s = s;
-          initial_wal_write_may_succeed =
-              !FaultInjectionTestFS::IsFailedToWriteToWALError(initial_write_s);
-        }
+        UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
+                                  &initial_wal_write_may_succeed,
+                                  &wait_for_recover_start_time);
       } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
                initial_wal_write_may_succeed);
 
@@ -1880,6 +1888,9 @@ class NonBatchedOpsStressTest : public StressTest {
           thread->shared->SafeTerminate();
         }
       } else {
+        PrintWriteRecoveryWaitTimeIfNeeded(
+            db_stress_env, initial_write_s, initial_wal_write_may_succeed,
+            wait_for_recover_start_time, "TestDelete");
         pending_expected_value.Commit();
         thread->stats.AddSingleDeletes(1);
       }
@@ -1914,18 +1925,9 @@ class NonBatchedOpsStressTest : public StressTest {
     // write
     bool initial_wal_write_may_succeed = true;
 
-    bool prepared = false;
     std::vector<PendingExpectedValue> pending_expected_values =
         shared->PrepareDeleteRange(rand_column_family, rand_key,
-                                   rand_key + FLAGS_range_deletion_width,
-                                   &prepared);
-    if (!prepared) {
-      for (PendingExpectedValue& pending_expected_value :
-           pending_expected_values) {
-        pending_expected_value.PermitUnclosedPendingState();
-      }
-      return s;
-    }
+                                   rand_key + FLAGS_range_deletion_width);
 
     const int covered = static_cast<int>(pending_expected_values.size());
     std::string keystr = Key(rand_key);
@@ -1935,6 +1937,7 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice end_key = end_keystr;
     std::string write_ts_str;
     Slice write_ts;
+    uint64_t wait_for_recover_start_time = 0;
 
     do {
       // In order to commit the expected state for the initial write failed with
@@ -1942,10 +1945,7 @@ class NonBatchedOpsStressTest : public StressTest {
       // until it succeeds after the recovery finishes
       if (!s.ok() && IsErrorInjectedAndRetryable(s) &&
           initial_wal_write_may_succeed) {
-        range_locks.clear();
         std::this_thread::sleep_for(std::chrono::microseconds(1 * 1000 * 1000));
-        GetDeleteRangeKeyLocks(thread, rand_column_family, rand_key,
-                               &range_locks);
       }
       if (FLAGS_user_timestamp_size) {
         write_ts_str = GetNowNanos();
@@ -1954,13 +1954,9 @@ class NonBatchedOpsStressTest : public StressTest {
       } else {
         s = db_->DeleteRange(write_opts, cfh, key, end_key);
       }
-      // Only update `initial_write_s`, `initial_wal_write_may_succeed` when the
-      // first write fails
-      if (!s.ok() && initial_write_s.ok()) {
-        initial_write_s = s;
-        initial_wal_write_may_succeed =
-            !FaultInjectionTestFS::IsFailedToWriteToWALError(initial_write_s);
-      }
+      UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
+                                &initial_wal_write_may_succeed,
+                                &wait_for_recover_start_time);
     } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
              initial_wal_write_may_succeed);
 
@@ -1985,6 +1981,9 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->shared->SafeTerminate();
       }
     } else {
+      PrintWriteRecoveryWaitTimeIfNeeded(
+          db_stress_env, initial_write_s, initial_wal_write_may_succeed,
+          wait_for_recover_start_time, "TestDeleteRange");
       for (PendingExpectedValue& pending_expected_value :
            pending_expected_values) {
         pending_expected_value.Commit();
@@ -1998,8 +1997,23 @@ class NonBatchedOpsStressTest : public StressTest {
   void TestIngestExternalFile(ThreadState* thread,
                               const std::vector<int>& rand_column_families,
                               const std::vector<int64_t>& rand_keys) override {
+    // When true, we create two sst files, the first one with regular puts for
+    // a continuous range of keys, the second one with a standalone range
+    // deletion for all the keys. This is to exercise the standalone range
+    // deletion file's compaction input optimization.
+    bool test_standalone_range_deletion = thread->rand.OneInOpt(
+        FLAGS_test_ingest_standalone_range_deletion_one_in);
+    std::vector<std::string> external_files;
     const std::string sst_filename =
         FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
+    external_files.push_back(sst_filename);
+    std::string standalone_rangedel_filename;
+    if (test_standalone_range_deletion) {
+      standalone_rangedel_filename = FLAGS_db + "/." +
+                                     std::to_string(thread->tid) +
+                                     "_standalone_rangedel.sst";
+      external_files.push_back(standalone_rangedel_filename);
+    }
     Status s;
     std::ostringstream ingest_options_oss;
 
@@ -2011,10 +2025,15 @@ class NonBatchedOpsStressTest : public StressTest {
           FaultInjectionIOType::kMetadataWrite);
     }
 
-    if (db_stress_env->FileExists(sst_filename).ok()) {
-      // Maybe we terminated abnormally before, so cleanup to give this file
-      // ingestion a clean slate
-      s = db_stress_env->DeleteFile(sst_filename);
+    for (const auto& filename : external_files) {
+      if (db_stress_env->FileExists(filename).ok()) {
+        // Maybe we terminated abnormally before, so cleanup to give this file
+        // ingestion a clean slate
+        s = db_stress_env->DeleteFile(filename);
+      }
+      if (!s.ok()) {
+        return;
+      }
     }
 
     if (fault_fs_guard) {
@@ -2025,9 +2044,19 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     SstFileWriter sst_file_writer(EnvOptions(options_), options_);
+    SstFileWriter standalone_rangedel_sst_file_writer(EnvOptions(options_),
+                                                      options_);
     if (s.ok()) {
       s = sst_file_writer.Open(sst_filename);
     }
+    if (s.ok() && test_standalone_range_deletion) {
+      s = standalone_rangedel_sst_file_writer.Open(
+          standalone_rangedel_filename);
+    }
+    if (!s.ok()) {
+      return;
+    }
+
     int64_t key_base = rand_keys[0];
     int column_family = rand_column_families[0];
     std::vector<std::unique_ptr<MutexLock>> range_locks;
@@ -2040,50 +2069,39 @@ class NonBatchedOpsStressTest : public StressTest {
     pending_expected_values.reserve(FLAGS_ingest_external_file_width);
     SharedState* shared = thread->shared;
 
+    // Grab locks, add keys
     assert(FLAGS_nooverwritepercent < 100);
-    // Grab locks, set pending state on expected values, and add keys
     for (int64_t key = key_base;
-         s.ok() && key < shared->GetMaxKey() &&
-         static_cast<int32_t>(keys.size()) < FLAGS_ingest_external_file_width;
+         key < shared->GetMaxKey() &&
+         key < key_base + FLAGS_ingest_external_file_width;
          ++key) {
       if (key == key_base ||
           (key & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
         range_locks.emplace_back(
             new MutexLock(shared->GetMutexForKey(column_family, key)));
       }
-      if (!shared->AllowsOverwrite(key)) {
-        // We could alternatively include `key` that is deleted.
-        continue;
-      }
-      keys.push_back(key);
-
-      bool prepared = false;
-      PendingExpectedValue pending_expected_value =
-          shared->PreparePut(column_family, key, &prepared);
-      if (!prepared) {
-        pending_expected_value.PermitUnclosedPendingState();
-        for (PendingExpectedValue& pev : pending_expected_values) {
-          pev.PermitUnclosedPendingState();
+      if (test_standalone_range_deletion) {
+        // Testing standalone range deletion needs a continuous range of keys.
+        if (shared->AllowsOverwrite(key)) {
+          if (keys.empty() || (!keys.empty() && keys.back() == key - 1)) {
+            keys.push_back(key);
+          } else {
+            keys.clear();
+            keys.push_back(key);
+          }
+        } else {
+          if (keys.size() > 0) {
+            break;
+          } else {
+            continue;
+          }
         }
-        return;
-      }
-
-      const uint32_t value_base = pending_expected_value.GetFinalValueBase();
-      values.push_back(value_base);
-      pending_expected_values.push_back(pending_expected_value);
-
-      char value[100];
-      auto key_str = Key(key);
-      const size_t value_len = GenerateValue(value_base, value, sizeof(value));
-      const Slice k(key_str);
-      const Slice v(value, value_len);
-
-      if (FLAGS_use_put_entity_one_in > 0 &&
-          (value_base % FLAGS_use_put_entity_one_in) == 0) {
-        WideColumns columns = GenerateWideColumns(value_base, v);
-        s = sst_file_writer.PutEntity(k, columns);
       } else {
-        s = sst_file_writer.Put(k, v);
+        if (!shared->AllowsOverwrite(key)) {
+          // We could alternatively include `key` that is deleted.
+          continue;
+        }
+        keys.push_back(key);
       }
     }
 
@@ -2091,8 +2109,53 @@ class NonBatchedOpsStressTest : public StressTest {
       return;
     }
 
-    if (s.ok()) {
+    // set pending state on expected values, create and ingest files.
+    size_t total_keys = keys.size();
+    for (size_t i = 0; s.ok() && i < total_keys; i++) {
+      int64_t key = keys.at(i);
+      char value[100];
+      auto key_str = Key(key);
+      const Slice k(key_str);
+      Slice v;
+      if (test_standalone_range_deletion) {
+        assert(i == 0 || keys.at(i - 1) == key - 1);
+        s = sst_file_writer.Put(k, v);
+      } else {
+        PendingExpectedValue pending_expected_value =
+            shared->PreparePut(column_family, key);
+        const uint32_t value_base = pending_expected_value.GetFinalValueBase();
+        const size_t value_len =
+            GenerateValue(value_base, value, sizeof(value));
+        v = Slice(value, value_len);
+        values.push_back(value_base);
+        pending_expected_values.push_back(pending_expected_value);
+        if (FLAGS_use_put_entity_one_in > 0 &&
+            (value_base % FLAGS_use_put_entity_one_in) == 0) {
+          WideColumns columns = GenerateWideColumns(values.back(), v);
+          s = sst_file_writer.PutEntity(k, columns);
+        } else {
+          s = sst_file_writer.Put(k, v);
+        }
+      }
+    }
+    if (s.ok() && !keys.empty()) {
       s = sst_file_writer.Finish();
+    }
+
+    if (s.ok() && total_keys != 0 && test_standalone_range_deletion) {
+      int64_t start_key = keys.at(0);
+      int64_t end_key = keys.back() + 1;
+      pending_expected_values =
+          shared->PrepareDeleteRange(column_family, start_key, end_key);
+      auto start_key_str = Key(start_key);
+      const Slice start_key_slice(start_key_str);
+      auto end_key_str = Key(end_key);
+      const Slice end_key_slice(end_key_str);
+      s = standalone_rangedel_sst_file_writer.DeleteRange(start_key_slice,
+                                                          end_key_slice);
+      if (s.ok()) {
+        s = standalone_rangedel_sst_file_writer.Finish();
+      }
     }
     if (s.ok()) {
       IngestExternalFileOptions ingest_options;
@@ -2100,13 +2163,17 @@ class NonBatchedOpsStressTest : public StressTest {
       ingest_options.verify_checksums_before_ingest = thread->rand.OneInOpt(2);
       ingest_options.verify_checksums_readahead_size =
           thread->rand.OneInOpt(2) ? 1024 * 1024 : 0;
+      ingest_options.fill_cache = thread->rand.OneInOpt(4);
       ingest_options_oss << "move_files: " << ingest_options.move_files
                          << ", verify_checksums_before_ingest: "
                          << ingest_options.verify_checksums_before_ingest
                          << ", verify_checksums_readahead_size: "
-                         << ingest_options.verify_checksums_readahead_size;
+                         << ingest_options.verify_checksums_readahead_size
+                         << ", fill_cache: " << ingest_options.fill_cache
+                         << ", test_standalone_range_deletion: "
+                         << test_standalone_range_deletion;
       s = db_->IngestExternalFile(column_families_[column_family],
-                                  {sst_filename}, ingest_options);
+                                  external_files, ingest_options);
     }
     if (!s.ok()) {
       for (PendingExpectedValue& pending_expected_value :
@@ -2232,6 +2299,26 @@ class NonBatchedOpsStressTest : public StressTest {
     auto check_columns = [&]() {
       assert(iter);
       assert(iter->Valid());
+
+      if (ro.allow_unprepared_value) {
+        // Save key in case PrepareValue fails and invalidates the iterator
+        const std::string prepare_value_key =
+            iter->key().ToString(/* hex */ true);
+
+        if (!iter->PrepareValue()) {
+          shared->SetVerificationFailure();
+
+          fprintf(stderr,
+                  "Verification failed for key %s: failed to prepare value\n",
+                  prepare_value_key.c_str());
+          fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                  cfh->GetName().c_str(), op_logs.c_str());
+
+          thread->stats.AddErrors(1);
+
+          return false;
+        }
+      }
 
       if (!VerifyWideColumns(iter->value(), iter->columns())) {
         shared->SetVerificationFailure();
@@ -2630,6 +2717,8 @@ class NonBatchedOpsStressTest : public StressTest {
         // Value doesn't exist in db, update state to reflect that
         shared->SyncDelete(cf, key);
         return true;
+      } else {
+        assert(false);
       }
     }
     char expected_value_data[kValueMaxLen];
@@ -2728,7 +2817,11 @@ class NonBatchedOpsStressTest : public StressTest {
     SharedState* const shared = thread->shared;
     assert(shared);
 
-    if (!shared->AllowsOverwrite(key) && shared->Exists(column_family, key)) {
+    const ExpectedValue expected_value =
+        thread->shared->Get(column_family, key);
+    bool may_exist = !ExpectedValueHelper::MustHaveNotExisted(expected_value,
+                                                              expected_value);
+    if (!shared->AllowsOverwrite(key) && may_exist) {
       // Just do read your write checks for keys that allow overwrites.
       return;
     }

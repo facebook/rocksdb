@@ -67,10 +67,10 @@ class Rule(Section):
                     + ": rule must be associated with 2 conditions\
                     in order to check for a time dependency between them"
                 )
-            time_format = "^\d+[s|m|h|d]$"  # noqa
+            time_format = r"^\d+[s|m|h|d]$"  # noqa
             if not re.match(time_format, self.overlap_time_seconds, re.IGNORECASE):
                 raise ValueError(
-                    self.name + ": overlap_time_seconds format: \d+[s|m|h|d]"
+                    self.name + r": overlap_time_seconds format: \d+[s|m|h|d]"
                 )
             else:  # convert to seconds
                 in_seconds = int(self.overlap_time_seconds[:-1])
@@ -428,7 +428,7 @@ class RulesSpec:
 
     def load_rules_from_spec(self):
         self.initialise_fields()
-        with open(self.file_path, "r") as db_rules:
+        with open(self.file_path) as db_rules:
             curr_section = None
             for line in db_rules:
                 line = IniParser.remove_trailing_comment(line)

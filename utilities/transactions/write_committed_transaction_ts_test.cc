@@ -130,6 +130,128 @@ void CheckKeyValueTsWithIterator(
   }
 }
 
+// This is an incorrect usage of this API, supporting this should be removed
+// after MyRocks remove this pattern in a refactor.
+TEST_P(WriteCommittedTxnWithTsTest, WritesBypassTransactionAPIs) {
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  ASSERT_OK(ReOpen());
+
+  const std::string test_cf_name = "test_cf";
+  ColumnFamilyOptions cf_options;
+  ColumnFamilyHandle* cfh = nullptr;
+  assert(db);
+  ASSERT_OK(db->CreateColumnFamily(cf_options, test_cf_name, &cfh));
+  delete cfh;
+  cfh = nullptr;
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back(test_cf_name, Options(DBOptions(), cf_options));
+  options.avoid_flush_during_shutdown = true;
+  ASSERT_OK(ReOpenNoDelete(cf_descs, &handles_));
+
+  // Write in each transaction a mixture of column families that enable
+  // timestamp and disable timestamps.
+
+  TransactionOptions txn_opts;
+  txn_opts.write_batch_track_timestamp_size = true;
+  std::unique_ptr<Transaction> txn0(NewTxn(WriteOptions(), txn_opts));
+  assert(txn0);
+  ASSERT_OK(txn0->Put(handles_[0], "key1", "key1_val"));
+  // Timestamp size info for writes like this can only be correctly tracked if
+  // TransactionOptions.write_batch_track_timestamp_size is true.
+  ASSERT_OK(txn0->GetWriteBatch()->GetWriteBatch()->Put(handles_[1], "foo",
+                                                        "foo_val"));
+  ASSERT_OK(txn0->SetName("txn0"));
+  ASSERT_OK(txn0->SetCommitTimestamp(2));
+  ASSERT_OK(txn0->Prepare());
+  ASSERT_OK(txn0->Commit());
+  txn0.reset();
+
+  // For keys written from transactions that disable
+  // `write_batch_track_timestamp_size`
+  // The keys has incorrect behavior like:
+  // *Cannot be found after commit: because transaction's UpdateTimestamp do not
+  // have correct timestamp size when this write bypass transaction write APIs.
+  // *Can be found again after DB restart recovers the write from WAL log:
+  // because recovered transaction's UpdateTimestamp get correct timestamp size
+  // info directly from VersionSet.
+  // If there is a flush that persisted this transaction into sst files after
+  // it's committed, the key will be forever corrupted.
+  std::unique_ptr<Transaction> txn1(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(txn1);
+  ASSERT_OK(txn1->Put(handles_[0], "key2", "key2_val"));
+  // Writing a key with more than 8 bytes so that we can manifest the error as
+  // a NotFound error instead of an issue during `WriteBatch::UpdateTimestamp`.
+  ASSERT_OK(txn1->GetWriteBatch()->GetWriteBatch()->Put(
+      handles_[1], "foobarbaz", "baz_val"));
+  ASSERT_OK(txn1->SetName("txn1"));
+  ASSERT_OK(txn1->SetCommitTimestamp(2));
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_OK(txn1->Commit());
+  txn1.reset();
+
+  ASSERT_OK(db->Flush(FlushOptions(), handles_[1]));
+
+  std::unique_ptr<Transaction> txn2(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(txn2);
+  ASSERT_OK(txn2->Put(handles_[0], "key3", "key3_val"));
+  ASSERT_OK(txn2->GetWriteBatch()->GetWriteBatch()->Put(
+      handles_[1], "bazbazbaz", "bazbazbaz_val"));
+  ASSERT_OK(txn2->SetCommitTimestamp(2));
+  ASSERT_OK(txn2->SetName("txn2"));
+  ASSERT_OK(txn2->Prepare());
+  ASSERT_OK(txn2->Commit());
+  txn2.reset();
+
+  std::unique_ptr<Transaction> txn3(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(txn3);
+  std::string value;
+  ReadOptions ropts;
+  std::string read_ts;
+  Slice timestamp = EncodeU64Ts(2, &read_ts);
+  ropts.timestamp = &timestamp;
+  ASSERT_OK(txn3->Get(ropts, handles_[0], "key1", &value));
+  ASSERT_EQ("key1_val", value);
+  ASSERT_OK(txn3->Get(ropts, handles_[0], "key2", &value));
+  ASSERT_EQ("key2_val", value);
+  ASSERT_OK(txn3->Get(ropts, handles_[0], "key3", &value));
+  ASSERT_EQ("key3_val", value);
+  txn3.reset();
+
+  std::unique_ptr<Transaction> txn4(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(txn4);
+  ASSERT_OK(txn4->Get(ReadOptions(), handles_[1], "foo", &value));
+  ASSERT_EQ("foo_val", value);
+  // Incorrect behavior: committed keys cannot be found
+  ASSERT_TRUE(
+      txn4->Get(ReadOptions(), handles_[1], "foobarbaz", &value).IsNotFound());
+  ASSERT_TRUE(
+      txn4->Get(ReadOptions(), handles_[1], "bazbazbaz", &value).IsNotFound());
+  txn4.reset();
+
+  ASSERT_OK(ReOpenNoDelete(cf_descs, &handles_));
+  std::unique_ptr<Transaction> txn5(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(txn5);
+  ASSERT_OK(txn5->Get(ReadOptions(), handles_[1], "foo", &value));
+  ASSERT_EQ("foo_val", value);
+  // Incorrect behavior:
+  // *unflushed key can be found after reopen replays the entries from WAL
+  // (this is not suggesting using flushing as a workaround but to show a
+  // possible misleading behavior)
+  // *flushed key is forever corrupted.
+  ASSERT_TRUE(
+      txn5->Get(ReadOptions(), handles_[1], "foobarbaz", &value).IsNotFound());
+  ASSERT_OK(txn5->Get(ReadOptions(), handles_[1], "bazbazbaz", &value));
+  ASSERT_EQ("bazbazbaz_val", value);
+  txn5.reset();
+}
+
 TEST_P(WriteCommittedTxnWithTsTest, ReOpenWithTimestamp) {
   options.merge_operator = MergeOperators::CreateUInt64AddOperator();
   ASSERT_OK(ReOpenNoDelete());
@@ -296,6 +418,21 @@ TEST_P(WriteCommittedTxnWithTsTest, RecoverFromWal) {
   ASSERT_OK(txn3->Prepare());
   txn3.reset();
 
+  std::unique_ptr<Transaction> txn4(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(txn4);
+  ASSERT_OK(txn4->SetName("no_op_txn"));
+  txn4.reset();
+
+  std::unique_ptr<Transaction> rolled_back_txn(
+      NewTxn(write_opts, TransactionOptions()));
+  ASSERT_NE(nullptr, rolled_back_txn);
+  ASSERT_OK(rolled_back_txn->Put("non_exist0", "donotcare"));
+  ASSERT_OK(rolled_back_txn->Put(handles_[1], "non_exist1", "donotcare"));
+  ASSERT_OK(rolled_back_txn->SetName("rolled_back_txn"));
+  ASSERT_OK(rolled_back_txn->Rollback());
+  rolled_back_txn.reset();
+
   ASSERT_OK(ReOpenNoDelete(cf_descs, &handles_));
 
   {
@@ -330,7 +467,316 @@ TEST_P(WriteCommittedTxnWithTsTest, RecoverFromWal) {
 
     s = GetFromDb(ReadOptions(), handles_[1], "baz", /*ts=*/24, &value);
     ASSERT_TRUE(s.IsNotFound());
+
+    Transaction* no_op_txn = db->GetTransactionByName("no_op_txn");
+    ASSERT_EQ(nullptr, no_op_txn);
+
+    s = db->Get(ReadOptions(), handles_[0], "non_exist0", &value);
+    ASSERT_TRUE(s.IsNotFound());
+
+    s = GetFromDb(ReadOptions(), handles_[1], "non_exist1", /*ts=*/24, &value);
+    ASSERT_TRUE(s.IsNotFound());
   }
+}
+
+TEST_P(WriteCommittedTxnWithTsTest, EnabledUDTDisabledRecoverFromWal) {
+  // This feature is not compatible with UDT in memtable only.
+  options.allow_concurrent_memtable_write = false;
+  ASSERT_OK(ReOpenNoDelete());
+
+  ColumnFamilyOptions cf_opts;
+  cf_opts.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  cf_opts.persist_user_defined_timestamps = false;
+  const std::string test_cf_name = "test_cf";
+  ColumnFamilyHandle* cfh = nullptr;
+  assert(db);
+  ASSERT_OK(db->CreateColumnFamily(cf_opts, test_cf_name, &cfh));
+  delete cfh;
+  cfh = nullptr;
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back(test_cf_name, cf_opts);
+  options.avoid_flush_during_shutdown = true;
+  ASSERT_OK(ReOpenNoDelete(cf_descs, &handles_));
+
+  std::unique_ptr<Transaction> no_op_txn(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  ASSERT_NE(nullptr, no_op_txn);
+  ASSERT_OK(no_op_txn->SetName("no_op_txn"));
+  no_op_txn.reset();
+
+  std::unique_ptr<Transaction> prepared_but_uncommitted_txn(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  ASSERT_NE(nullptr, prepared_but_uncommitted_txn);
+  ASSERT_OK(prepared_but_uncommitted_txn->Put("foo0", "foo_value_0"));
+  ASSERT_OK(
+      prepared_but_uncommitted_txn->Put(handles_[1], "foo1", "foo_value_1"));
+  ASSERT_OK(
+      prepared_but_uncommitted_txn->SetName("prepared_but_uncommitted_txn"));
+  ASSERT_OK(prepared_but_uncommitted_txn->Prepare());
+
+  prepared_but_uncommitted_txn.reset();
+
+  WriteOptions write_opts;
+  write_opts.sync = true;
+  std::unique_ptr<Transaction> committed_txn(
+      NewTxn(write_opts, TransactionOptions()));
+  ASSERT_NE(nullptr, committed_txn);
+  ASSERT_OK(committed_txn->Put("bar0", "bar_value_0"));
+  ASSERT_OK(committed_txn->Put(handles_[1], "bar1", "bar_value_1"));
+  ASSERT_OK(committed_txn->SetName("committed_txn"));
+  ASSERT_OK(committed_txn->Prepare());
+  ASSERT_OK(committed_txn->SetCommitTimestamp(/*ts=*/23));
+  ASSERT_OK(committed_txn->Commit());
+  committed_txn.reset();
+
+  std::unique_ptr<Transaction> committed_without_prepare_txn(
+      NewTxn(write_opts, TransactionOptions()));
+  ASSERT_NE(nullptr, committed_without_prepare_txn);
+  ASSERT_OK(committed_without_prepare_txn->Put("baz0", "baz_value_0"));
+  ASSERT_OK(
+      committed_without_prepare_txn->Put(handles_[1], "baz1", "baz_value_1"));
+  ASSERT_OK(
+      committed_without_prepare_txn->SetName("committed_without_prepare_txn"));
+  ASSERT_OK(committed_without_prepare_txn->SetCommitTimestamp(/*ts=*/24));
+  ASSERT_OK(committed_without_prepare_txn->Commit());
+  committed_without_prepare_txn.reset();
+
+  std::unique_ptr<Transaction> rolled_back_txn(
+      NewTxn(write_opts, TransactionOptions()));
+  assert(rolled_back_txn);
+  ASSERT_OK(rolled_back_txn->Put("non_exist0", "donotcare"));
+  ASSERT_OK(rolled_back_txn->Put(handles_[1], "non_exist1", "donotcare"));
+  ASSERT_OK(rolled_back_txn->SetName("rolled_back_txn"));
+  ASSERT_OK(rolled_back_txn->Rollback());
+  rolled_back_txn.reset();
+
+  // Reopen and disable UDT to replay WAL entries.
+  cf_descs[1].options.comparator = BytewiseComparator();
+  ASSERT_OK(ReOpenNoDelete(cf_descs, &handles_));
+
+  {
+    Transaction* recovered_txn0 = db->GetTransactionByName("no_op_txn");
+    ASSERT_EQ(nullptr, recovered_txn0);
+
+    Transaction* recovered_txn1 =
+        db->GetTransactionByName("prepared_but_uncommitted_txn");
+    ASSERT_NE(nullptr, recovered_txn1);
+    std::string value;
+    ASSERT_OK(recovered_txn1->Commit());
+    Status s = db->Get(ReadOptions(), handles_[0], "foo0", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("foo_value_0", value);
+    s = db->Get(ReadOptions(), handles_[1], "foo1", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("foo_value_1", value);
+    delete recovered_txn1;
+
+    ASSERT_EQ(nullptr, db->GetTransactionByName("committed_txn"));
+    s = db->Get(ReadOptions(), handles_[0], "bar0", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("bar_value_0", value);
+    s = db->Get(ReadOptions(), handles_[1], "bar1", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("bar_value_1", value);
+
+    ASSERT_EQ(nullptr,
+              db->GetTransactionByName("committed_without_prepare_txn"));
+    s = db->Get(ReadOptions(), handles_[0], "baz0", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("baz_value_0", value);
+    s = db->Get(ReadOptions(), handles_[1], "baz1", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("baz_value_1", value);
+
+    ASSERT_EQ(nullptr, db->GetTransactionByName("rolled_back_txn"));
+    s = db->Get(ReadOptions(), handles_[0], "non_exist0", &value);
+    ASSERT_TRUE(s.IsNotFound());
+    s = db->Get(ReadOptions(), handles_[1], "non_exist1", &value);
+    ASSERT_TRUE(s.IsNotFound());
+  }
+}
+
+TEST_P(WriteCommittedTxnWithTsTest, UDTNewlyEnabledRecoverFromWal) {
+  ASSERT_OK(ReOpenNoDelete());
+
+  ColumnFamilyOptions cf_opts;
+  const std::string test_cf_name = "test_cf";
+  ColumnFamilyHandle* cfh = nullptr;
+  assert(db);
+  ASSERT_OK(db->CreateColumnFamily(cf_opts, test_cf_name, &cfh));
+  delete cfh;
+  cfh = nullptr;
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back(test_cf_name, cf_opts);
+  options.avoid_flush_during_shutdown = true;
+  ASSERT_OK(ReOpenNoDelete(cf_descs, &handles_));
+
+  std::unique_ptr<Transaction> no_op_txn(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  ASSERT_NE(nullptr, no_op_txn);
+  ASSERT_OK(no_op_txn->SetName("no_op_txn"));
+  no_op_txn.reset();
+
+  std::unique_ptr<Transaction> prepared_but_uncommitted_txn(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  ASSERT_NE(nullptr, prepared_but_uncommitted_txn);
+  ASSERT_OK(
+      prepared_but_uncommitted_txn->Put(handles_[0], "foo0", "foo_value_0"));
+  ASSERT_OK(
+      prepared_but_uncommitted_txn->Put(handles_[1], "foo1", "foo_value_1"));
+  ASSERT_OK(
+      prepared_but_uncommitted_txn->SetName("prepared_but_uncommitted_txn"));
+  ASSERT_OK(prepared_but_uncommitted_txn->Prepare());
+
+  prepared_but_uncommitted_txn.reset();
+
+  WriteOptions write_opts;
+  write_opts.sync = true;
+  std::unique_ptr<Transaction> committed_txn(
+      NewTxn(write_opts, TransactionOptions()));
+  ASSERT_NE(nullptr, committed_txn);
+  ASSERT_OK(committed_txn->Put("bar0", "bar_value_0"));
+  ASSERT_OK(committed_txn->Put(handles_[1], "bar1", "bar_value_1"));
+  ASSERT_OK(committed_txn->SetName("committed_txn"));
+  ASSERT_OK(committed_txn->Prepare());
+  ASSERT_OK(committed_txn->Commit());
+  committed_txn.reset();
+
+  std::unique_ptr<Transaction> committed_without_prepare_txn(
+      NewTxn(write_opts, TransactionOptions()));
+  assert(committed_without_prepare_txn);
+  ASSERT_OK(committed_without_prepare_txn->Put("baz0", "baz_value_0"));
+  ASSERT_OK(
+      committed_without_prepare_txn->Put(handles_[1], "baz1", "baz_value_1"));
+  ASSERT_OK(
+      committed_without_prepare_txn->SetName("committed_without_prepare_txn"));
+  ASSERT_OK(committed_without_prepare_txn->Commit());
+  committed_without_prepare_txn.reset();
+
+  std::unique_ptr<Transaction> rolled_back_txn(
+      NewTxn(write_opts, TransactionOptions()));
+  ASSERT_NE(nullptr, rolled_back_txn);
+  ASSERT_OK(rolled_back_txn->Put("non_exist0", "donotcare"));
+  ASSERT_OK(rolled_back_txn->Put(handles_[1], "non_exist1", "donotcare"));
+  ASSERT_OK(rolled_back_txn->SetName("rolled_back_txn"));
+  ASSERT_OK(rolled_back_txn->Rollback());
+  rolled_back_txn.reset();
+
+  // Reopen and enable UDT to replay WAL entries.
+  options.allow_concurrent_memtable_write = false;
+  cf_descs[1].options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  cf_descs[1].options.persist_user_defined_timestamps = false;
+  ASSERT_OK(ReOpenNoDelete(cf_descs, &handles_));
+
+  {
+    Transaction* recovered_txn1 =
+        db->GetTransactionByName("prepared_but_uncommitted_txn");
+    ASSERT_NE(nullptr, recovered_txn1);
+    std::string value;
+    ASSERT_OK(recovered_txn1->SetCommitTimestamp(23));
+    ASSERT_OK(recovered_txn1->Commit());
+    Status s = db->Get(ReadOptions(), handles_[0], "foo0", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("foo_value_0", value);
+    s = GetFromDb(ReadOptions(), handles_[1], "foo1", /*ts=*/23, &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("foo_value_1", value);
+    delete recovered_txn1;
+
+    ASSERT_EQ(nullptr, db->GetTransactionByName("committed_txn"));
+    s = db->Get(ReadOptions(), handles_[0], "bar0", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("bar_value_0", value);
+    s = GetFromDb(ReadOptions(), handles_[1], "bar1", /*ts=*/23, &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("bar_value_1", value);
+
+    ASSERT_EQ(nullptr,
+              db->GetTransactionByName("committed_without_prepare_txn"));
+    s = db->Get(ReadOptions(), handles_[0], "baz0", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("baz_value_0", value);
+    s = GetFromDb(ReadOptions(), handles_[1], "baz1", /*ts=*/23, &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("baz_value_1", value);
+
+    ASSERT_EQ(nullptr, db->GetTransactionByName("rolled_back_txn"));
+    s = db->Get(ReadOptions(), handles_[0], "non_exist0", &value);
+    ASSERT_TRUE(s.IsNotFound());
+    s = GetFromDb(ReadOptions(), handles_[1], "non_exist1", /*ts=*/23, &value);
+    ASSERT_TRUE(s.IsNotFound());
+  }
+}
+
+TEST_P(WriteCommittedTxnWithTsTest, ChangeFromWriteCommittedAndDisableUDT) {
+  // This feature is not compatible with UDT in memtable only.
+  options.allow_concurrent_memtable_write = false;
+  ASSERT_OK(ReOpenNoDelete());
+
+  ColumnFamilyOptions cf_opts;
+  cf_opts.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  cf_opts.persist_user_defined_timestamps = false;
+  const std::string test_cf_name = "test_cf";
+  ColumnFamilyHandle* cfh = nullptr;
+  assert(db);
+  ASSERT_OK(db->CreateColumnFamily(cf_opts, test_cf_name, &cfh));
+  delete cfh;
+  cfh = nullptr;
+
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  cf_descs.emplace_back(kDefaultColumnFamilyName, options);
+  cf_descs.emplace_back(test_cf_name, cf_opts);
+  options.avoid_flush_during_shutdown = true;
+  ASSERT_OK(ReOpenNoDelete(cf_descs, &handles_));
+
+  std::unique_ptr<Transaction> prepared_but_uncommitted_txn(
+      NewTxn(WriteOptions(), TransactionOptions()));
+  assert(prepared_but_uncommitted_txn);
+  ASSERT_OK(prepared_but_uncommitted_txn->Put("foo0", "foo_value_0"));
+  ASSERT_OK(
+      prepared_but_uncommitted_txn->Put(handles_[1], "foo1", "foo_value_1"));
+  ASSERT_OK(
+      prepared_but_uncommitted_txn->SetName("prepared_but_uncommitted_txn"));
+  ASSERT_OK(prepared_but_uncommitted_txn->Prepare());
+
+  prepared_but_uncommitted_txn.reset();
+
+  WriteOptions write_opts;
+  write_opts.sync = true;
+  std::unique_ptr<Transaction> committed_txn(
+      NewTxn(write_opts, TransactionOptions()));
+  assert(committed_txn);
+  ASSERT_OK(committed_txn->Put("bar0", "bar_value_0"));
+  ASSERT_OK(committed_txn->Put(handles_[1], "bar1", "bar_value_1"));
+  ASSERT_OK(committed_txn->SetName("committed_txn"));
+  ASSERT_OK(committed_txn->Prepare());
+  ASSERT_OK(committed_txn->SetCommitTimestamp(/*ts=*/23));
+  ASSERT_OK(committed_txn->Commit());
+  committed_txn.reset();
+
+  std::unique_ptr<Transaction> committed_without_prepare_txn(
+      NewTxn(write_opts, TransactionOptions()));
+  assert(committed_without_prepare_txn);
+  ASSERT_OK(committed_without_prepare_txn->Put("baz0", "baz_value_0"));
+  ASSERT_OK(
+      committed_without_prepare_txn->Put(handles_[1], "baz1", "baz_value_1"));
+  ASSERT_OK(
+      committed_without_prepare_txn->SetName("committed_without_prepare_txn"));
+  ASSERT_OK(committed_without_prepare_txn->SetCommitTimestamp(/*ts=*/24));
+  ASSERT_OK(committed_without_prepare_txn->Commit());
+  committed_without_prepare_txn.reset();
+
+  // Disable UDT and change write policy.
+  cf_descs[1].options.comparator = BytewiseComparator();
+  txn_db_options.write_policy = TxnDBWritePolicy::WRITE_PREPARED;
+  ASSERT_NOK(ReOpenNoDelete(cf_descs, &handles_));
+
+  txn_db_options.write_policy = TxnDBWritePolicy::WRITE_UNPREPARED;
+  ASSERT_NOK(ReOpenNoDelete(cf_descs, &handles_));
 }
 
 TEST_P(WriteCommittedTxnWithTsTest, TransactionDbLevelApi) {

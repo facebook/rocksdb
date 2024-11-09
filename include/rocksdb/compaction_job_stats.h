@@ -19,80 +19,82 @@ struct CompactionJobStats {
   void Add(const CompactionJobStats& stats);
 
   // the elapsed time of this compaction in microseconds.
-  uint64_t elapsed_micros;
+  uint64_t elapsed_micros = 0;
 
   // the elapsed CPU time of this compaction in microseconds.
-  uint64_t cpu_micros;
+  uint64_t cpu_micros = 0;
 
   // Used internally indicating whether a subcompaction's
   // `num_input_records` is accurate.
-  bool has_num_input_records;
+  bool has_num_input_records = false;
   // the number of compaction input records.
-  uint64_t num_input_records;
+  uint64_t num_input_records = 0;
   // the number of blobs read from blob files
-  uint64_t num_blobs_read;
+  uint64_t num_blobs_read = 0;
   // the number of compaction input files (table files)
-  size_t num_input_files;
+  size_t num_input_files = 0;
   // the number of compaction input files at the output level (table files)
-  size_t num_input_files_at_output_level;
+  size_t num_input_files_at_output_level = 0;
 
   // the number of compaction output records.
-  uint64_t num_output_records;
+  uint64_t num_output_records = 0;
   // the number of compaction output files (table files)
-  size_t num_output_files;
+  size_t num_output_files = 0;
   // the number of compaction output files (blob files)
-  size_t num_output_files_blob;
+  size_t num_output_files_blob = 0;
 
   // true if the compaction is a full compaction (all live SST files input)
-  bool is_full_compaction;
+  bool is_full_compaction = false;
   // true if the compaction is a manual compaction
-  bool is_manual_compaction;
+  bool is_manual_compaction = false;
+  // true if the compaction ran in a remote worker
+  bool is_remote_compaction = false;
 
   // the total size of table files in the compaction input
-  uint64_t total_input_bytes;
+  uint64_t total_input_bytes = 0;
   // the total size of blobs read from blob files
-  uint64_t total_blob_bytes_read;
+  uint64_t total_blob_bytes_read = 0;
   // the total size of table files in the compaction output
-  uint64_t total_output_bytes;
+  uint64_t total_output_bytes = 0;
   // the total size of blob files in the compaction output
-  uint64_t total_output_bytes_blob;
+  uint64_t total_output_bytes_blob = 0;
 
   // number of records being replaced by newer record associated with same key.
   // this could be a new value or a deletion entry for that key so this field
   // sums up all updated and deleted keys
-  uint64_t num_records_replaced;
+  uint64_t num_records_replaced = 0;
 
   // the sum of the uncompressed input keys in bytes.
-  uint64_t total_input_raw_key_bytes;
+  uint64_t total_input_raw_key_bytes = 0;
   // the sum of the uncompressed input values in bytes.
-  uint64_t total_input_raw_value_bytes;
+  uint64_t total_input_raw_value_bytes = 0;
 
   // the number of deletion entries before compaction. Deletion entries
   // can disappear after compaction because they expired
-  uint64_t num_input_deletion_records;
+  uint64_t num_input_deletion_records = 0;
   // number of deletion records that were found obsolete and discarded
   // because it is not possible to delete any more keys with this entry
   // (i.e. all possible deletions resulting from it have been completed)
-  uint64_t num_expired_deletion_records;
+  uint64_t num_expired_deletion_records = 0;
 
   // number of corrupt keys (ParseInternalKey returned false when applied to
   // the key) encountered and written out.
-  uint64_t num_corrupt_keys;
+  uint64_t num_corrupt_keys = 0;
 
   // Following counters are only populated if
   // options.report_bg_io_stats = true;
 
   // Time spent on file's Append() call.
-  uint64_t file_write_nanos;
+  uint64_t file_write_nanos = 0;
 
   // Time spent on sync file range.
-  uint64_t file_range_sync_nanos;
+  uint64_t file_range_sync_nanos = 0;
 
   // Time spent on file fsync.
-  uint64_t file_fsync_nanos;
+  uint64_t file_fsync_nanos = 0;
 
   // Time spent on preparing file write (fallocate, etc)
-  uint64_t file_prepare_write_nanos;
+  uint64_t file_prepare_write_nanos = 0;
 
   // 0-terminated strings storing the first 8 bytes of the smallest and
   // largest key in the output.
@@ -102,10 +104,10 @@ struct CompactionJobStats {
   std::string largest_output_key_prefix;
 
   // number of single-deletes which do not meet a put
-  uint64_t num_single_del_fallthru;
+  uint64_t num_single_del_fallthru = 0;
 
   // number of single-deletes which meet something other than a put
-  uint64_t num_single_del_mismatch;
+  uint64_t num_single_del_mismatch = 0;
 
   // TODO: Add output_to_penultimate_level output information
 };

@@ -27,12 +27,14 @@ class CorruptionFS : public FileSystemWrapper {
         num_writable_file_errors_(0),
         corruption_trigger_(INT_MAX),
         read_count_(0),
+        corrupt_offset_(0),
+        corrupt_len_(0),
         rnd_(300),
         fs_buffer_(fs_buffer),
         verify_read_(verify_read) {}
   ~CorruptionFS() override {
     // Assert that the corruption was reset, which means it got triggered
-    assert(corruption_trigger_ == INT_MAX);
+    assert(corruption_trigger_ == INT_MAX || corrupt_len_ > 0);
   }
   const char* Name() const override { return "ErrorEnv"; }
 
@@ -48,8 +50,10 @@ class CorruptionFS : public FileSystemWrapper {
   }
 
   void SetCorruptionTrigger(const int trigger) {
+    MutexLock l(&mutex_);
     corruption_trigger_ = trigger;
     read_count_ = 0;
+    corrupt_fname_.clear();
   }
 
   IOStatus NewRandomAccessFile(const std::string& fname,
@@ -58,25 +62,31 @@ class CorruptionFS : public FileSystemWrapper {
                                IODebugContext* dbg) override {
     class CorruptionRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
      public:
-      CorruptionRandomAccessFile(CorruptionFS& fs,
+      CorruptionRandomAccessFile(CorruptionFS& fs, const std::string& fname,
                                  std::unique_ptr<FSRandomAccessFile>& file)
-          : FSRandomAccessFileOwnerWrapper(std::move(file)), fs_(fs) {}
+          : FSRandomAccessFileOwnerWrapper(std::move(file)),
+            fs_(fs),
+            fname_(fname) {}
 
       IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
                     Slice* result, char* scratch,
                     IODebugContext* dbg) const override {
         IOStatus s = target()->Read(offset, len, opts, result, scratch, dbg);
         if (opts.verify_and_reconstruct_read) {
+          fs_.MaybeResetOverlapWithCorruptedChunk(fname_, offset,
+                                                  result->size());
           return s;
         }
+
+        MutexLock l(&fs_.mutex_);
         if (s.ok() && ++fs_.read_count_ >= fs_.corruption_trigger_) {
-          fs_.read_count_ = 0;
           fs_.corruption_trigger_ = INT_MAX;
           char* data = const_cast<char*>(result->data());
           std::memcpy(
               data,
               fs_.rnd_.RandomString(static_cast<int>(result->size())).c_str(),
               result->size());
+          fs_.SetCorruptedChunk(fname_, offset, result->size());
         }
         return s;
       }
@@ -101,14 +111,76 @@ class CorruptionFS : public FileSystemWrapper {
         return IOStatus::OK();
       }
 
+      IOStatus Prefetch(uint64_t /*offset*/, size_t /*n*/,
+                        const IOOptions& /*options*/,
+                        IODebugContext* /*dbg*/) override {
+        return IOStatus::NotSupported("Prefetch");
+      }
+
      private:
       CorruptionFS& fs_;
+      std::string fname_;
     };
 
     std::unique_ptr<FSRandomAccessFile> file;
     IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
     EXPECT_OK(s);
-    result->reset(new CorruptionRandomAccessFile(*this, file));
+    result->reset(new CorruptionRandomAccessFile(*this, fname, file));
+
+    return s;
+  }
+
+  IOStatus NewSequentialFile(const std::string& fname,
+                             const FileOptions& file_opts,
+                             std::unique_ptr<FSSequentialFile>* result,
+                             IODebugContext* dbg) override {
+    class CorruptionSequentialFile : public FSSequentialFileOwnerWrapper {
+     public:
+      CorruptionSequentialFile(CorruptionFS& fs, const std::string& fname,
+                               std::unique_ptr<FSSequentialFile>& file)
+          : FSSequentialFileOwnerWrapper(std::move(file)),
+            fs_(fs),
+            fname_(fname),
+            offset_(0) {}
+
+      IOStatus Read(size_t len, const IOOptions& opts, Slice* result,
+                    char* scratch, IODebugContext* dbg) override {
+        IOStatus s = target()->Read(len, opts, result, scratch, dbg);
+        if (result->size() == 0 ||
+            fname_.find("IDENTITY") != std::string::npos) {
+          return s;
+        }
+
+        if (opts.verify_and_reconstruct_read) {
+          fs_.MaybeResetOverlapWithCorruptedChunk(fname_, offset_,
+                                                  result->size());
+          return s;
+        }
+
+        MutexLock l(&fs_.mutex_);
+        if (s.ok() && ++fs_.read_count_ >= fs_.corruption_trigger_) {
+          fs_.corruption_trigger_ = INT_MAX;
+          char* data = const_cast<char*>(result->data());
+          std::memcpy(
+              data,
+              fs_.rnd_.RandomString(static_cast<int>(result->size())).c_str(),
+              result->size());
+          fs_.SetCorruptedChunk(fname_, offset_, result->size());
+        }
+        offset_ += result->size();
+        return s;
+      }
+
+     private:
+      CorruptionFS& fs_;
+      std::string fname_;
+      size_t offset_;
+    };
+
+    std::unique_ptr<FSSequentialFile> file;
+    IOStatus s = target()->NewSequentialFile(fname, file_opts, &file, dbg);
+    EXPECT_OK(s);
+    result->reset(new CorruptionSequentialFile(*this, fname, file));
 
     return s;
   }
@@ -123,12 +195,40 @@ class CorruptionFS : public FileSystemWrapper {
     }
   }
 
+  void SetCorruptedChunk(const std::string& fname, size_t offset, size_t len) {
+    assert(corrupt_fname_.empty());
+
+    corrupt_fname_ = fname;
+    corrupt_offset_ = offset;
+    corrupt_len_ = len;
+  }
+
+  void MaybeResetOverlapWithCorruptedChunk(const std::string& fname,
+                                           size_t offset, size_t len) {
+    if (fname == corrupt_fname_ &&
+        ((offset <= corrupt_offset_ && (offset + len) > corrupt_offset_) ||
+         (offset >= corrupt_offset_ &&
+          offset < (corrupt_offset_ + corrupt_len_)))) {
+      corrupt_fname_.clear();
+    }
+  }
+
+  bool VerifyRetry() { return corrupt_len_ > 0 && corrupt_fname_.empty(); }
+
+  int read_count() { return read_count_; }
+
+  int corruption_trigger() { return corruption_trigger_; }
+
  private:
   int corruption_trigger_;
   int read_count_;
+  std::string corrupt_fname_;
+  size_t corrupt_offset_;
+  size_t corrupt_len_;
   Random rnd_;
   bool fs_buffer_;
   bool verify_read_;
+  port::Mutex mutex_;
 };
 }  // anonymous namespace
 
@@ -705,6 +805,7 @@ class DBIOCorruptionTest
   DBIOCorruptionTest() : DBIOFailureTest() {
     BlockBasedTableOptions bbto;
     options_ = CurrentOptions();
+    options_.statistics = CreateDBStatistics();
 
     base_env_ = env_;
     EXPECT_NE(base_env_, nullptr);
@@ -716,6 +817,7 @@ class DBIOCorruptionTest
     bbto.num_file_reads_for_auto_readahead = 0;
     options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
     options_.disable_auto_compactions = true;
+    options_.max_file_opening_threads = 0;
 
     Reopen(options_);
   }
@@ -726,6 +828,8 @@ class DBIOCorruptionTest
   }
 
   Status ReopenDB() { return TryReopen(options_); }
+
+  Statistics* stats() { return options_.statistics.get(); }
 
  protected:
   std::unique_ptr<Env> env_guard_;
@@ -749,8 +853,12 @@ TEST_P(DBIOCorruptionTest, GetReadCorruptionRetry) {
   if (std::get<2>(GetParam())) {
     ASSERT_OK(s);
     ASSERT_EQ(val, "val1");
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
   } else {
     ASSERT_TRUE(s.IsCorruption());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
   }
 }
 
@@ -773,8 +881,12 @@ TEST_P(DBIOCorruptionTest, IterReadCorruptionRetry) {
   }
   if (std::get<2>(GetParam())) {
     ASSERT_OK(iter->status());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
   } else {
     ASSERT_TRUE(iter->status().IsCorruption());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
   }
   delete iter;
 }
@@ -799,9 +911,13 @@ TEST_P(DBIOCorruptionTest, MultiGetReadCorruptionRetry) {
   if (std::get<2>(GetParam())) {
     ASSERT_EQ(values[0].ToString(), "val1");
     ASSERT_EQ(values[1].ToString(), "val2");
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
   } else {
     ASSERT_TRUE(statuses[0].IsCorruption());
     ASSERT_TRUE(statuses[1].IsCorruption());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
   }
 }
 
@@ -818,6 +934,9 @@ TEST_P(DBIOCorruptionTest, CompactionReadCorruptionRetry) {
   Status s = dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   if (std::get<2>(GetParam())) {
     ASSERT_OK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
 
     std::string val;
     ReadOptions ro;
@@ -826,6 +945,7 @@ TEST_P(DBIOCorruptionTest, CompactionReadCorruptionRetry) {
     ASSERT_EQ(val, "val1");
   } else {
     ASSERT_TRUE(s.IsCorruption());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
   }
 }
 
@@ -838,6 +958,9 @@ TEST_P(DBIOCorruptionTest, FlushReadCorruptionRetry) {
   Status s = Flush();
   if (std::get<2>(GetParam())) {
     ASSERT_OK(s);
+    ASSERT_GT(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_GT(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
 
     std::string val;
     ReadOptions ro;
@@ -846,6 +969,7 @@ TEST_P(DBIOCorruptionTest, FlushReadCorruptionRetry) {
     ASSERT_EQ(val, "val1");
   } else {
     ASSERT_NOK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
   }
 }
 
@@ -862,10 +986,140 @@ TEST_P(DBIOCorruptionTest, ManifestCorruptionRetry) {
 
   if (std::get<2>(GetParam())) {
     ASSERT_OK(ReopenDB());
+    ASSERT_GT(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_GT(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
   } else {
     ASSERT_EQ(ReopenDB(), Status::Corruption());
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
   }
   SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_P(DBIOCorruptionTest, FooterReadCorruptionRetry) {
+  Random rnd(300);
+  bool retry = false;
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "ReadFooterFromFileInternal:0", [&](void* arg) {
+        Slice* data = static_cast<Slice*>(arg);
+        if (!retry) {
+          std::memcpy(const_cast<char*>(data->data()),
+                      rnd.RandomString(static_cast<int>(data->size())).c_str(),
+                      data->size());
+          retry = true;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("key1", "val1"));
+  Status s = Flush();
+  if (std::get<2>(GetParam())) {
+    ASSERT_OK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
+
+    std::string val;
+    ReadOptions ro;
+    ro.async_io = std::get<1>(GetParam());
+    ASSERT_OK(dbfull()->Get(ro, "key1", &val));
+    ASSERT_EQ(val, "val1");
+  } else {
+    ASSERT_NOK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
+    ASSERT_GT(stats()->getTickerCount(SST_FOOTER_CORRUPTION_COUNT), 0);
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(DBIOCorruptionTest, TablePropertiesCorruptionRetry) {
+  Random rnd(300);
+  bool retry = false;
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "ReadTablePropertiesHelper:0", [&](void* arg) {
+        Slice* data = static_cast<Slice*>(arg);
+        if (!retry) {
+          std::memcpy(const_cast<char*>(data->data()),
+                      rnd.RandomString(static_cast<int>(data->size())).c_str(),
+                      data->size());
+          retry = true;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("key1", "val1"));
+  Status s = Flush();
+  if (std::get<2>(GetParam())) {
+    ASSERT_OK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 1);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT),
+              1);
+
+    std::string val;
+    ReadOptions ro;
+    ro.async_io = std::get<1>(GetParam());
+    ASSERT_OK(dbfull()->Get(ro, "key1", &val));
+    ASSERT_EQ(val, "val1");
+  } else {
+    ASSERT_NOK(s);
+    ASSERT_EQ(stats()->getTickerCount(FILE_READ_CORRUPTION_RETRY_COUNT), 0);
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(DBIOCorruptionTest, DBOpenReadCorruptionRetry) {
+  if (!std::get<2>(GetParam())) {
+    return;
+  }
+  CorruptionFS* fs =
+      static_cast<CorruptionFS*>(env_guard_->GetFileSystem().get());
+
+  for (int sst = 0; sst < 3; ++sst) {
+    for (int key = 0; key < 100; ++key) {
+      std::stringstream ss;
+      ss << std::setw(3) << 100 * sst + key;
+      ASSERT_OK(Put("key" + ss.str(), "val" + ss.str()));
+    }
+    ASSERT_OK(Flush());
+  }
+  Close();
+
+  // DB open will create table readers unless we reduce the table cache
+  // capacity.
+  // SanitizeOptions will set max_open_files to minimum of 20. Table cache
+  // is allocated with max_open_files - 10 as capacity. So override
+  // max_open_files to 11 so table cache capacity will become 1. This will
+  // prevent file open during DB open and force the file to be opened
+  // during MultiGet
+  SyncPoint::GetInstance()->SetCallBack(
+      "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+        int* max_open_files = (int*)arg;
+        *max_open_files = 11;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Progressively increase the IO count trigger for corruption, and verify
+  // that it was retried
+  int corruption_trigger = 1;
+  fs->SetCorruptionTrigger(corruption_trigger);
+  do {
+    fs->SetCorruptionTrigger(corruption_trigger);
+    ASSERT_OK(ReopenDB());
+    for (int sst = 0; sst < 3; ++sst) {
+      for (int key = 0; key < 100; ++key) {
+        std::stringstream ss;
+        ss << std::setw(3) << 100 * sst + key;
+        ASSERT_EQ(Get("key" + ss.str()), "val" + ss.str());
+      }
+    }
+    // Verify that the injected corruption was repaired
+    ASSERT_TRUE(fs->VerifyRetry());
+    corruption_trigger++;
+  } while (fs->corruption_trigger() == INT_MAX);
 }
 
 // The parameters are - 1. Use FS provided buffer, 2. Use async IO ReadOption,

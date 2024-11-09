@@ -21,6 +21,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 struct ImmutableOptions;
+struct MutableCFOptions;
 class Status;
 class FilePrefetchBuffer;
 class Slice;
@@ -31,7 +32,10 @@ class Slice;
 // storage with minimal cost.
 class BlobSource {
  public:
-  BlobSource(const ImmutableOptions* immutable_options,
+  // NOTE: db_id, db_session_id, and blob_file_cache are saved by reference or
+  // pointer.
+  BlobSource(const ImmutableOptions& immutable_options,
+             const MutableCFOptions& mutable_cf_options,
              const std::string& db_id, const std::string& db_session_id,
              BlobFileCache* blob_file_cache);
 

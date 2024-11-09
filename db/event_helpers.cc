@@ -124,6 +124,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << "comparator" << table_properties.comparator_name
               << "user_defined_timestamps_persisted"
               << table_properties.user_defined_timestamps_persisted
+              << "key_largest_seqno" << table_properties.key_largest_seqno
               << "merge_operator" << table_properties.merge_operator_name
               << "prefix_extractor_name"
               << table_properties.prefix_extractor_name << "property_collectors"
@@ -131,6 +132,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << table_properties.compression_name << "compression_options"
               << table_properties.compression_options << "creation_time"
               << table_properties.creation_time << "oldest_key_time"
+              << table_properties.newest_key_time << "newest_key_time"
               << table_properties.oldest_key_time << "file_creation_time"
               << table_properties.file_creation_time
               << "slow_compression_estimated_data_size"

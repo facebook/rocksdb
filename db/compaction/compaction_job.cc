@@ -251,12 +251,13 @@ void CompactionJob::Prepare() {
 
   // Generate file_levels_ for compaction before making Iterator
   auto* c = compact_->compaction;
-  ColumnFamilyData* cfd = c->column_family_data();
+  [[maybe_unused]] ColumnFamilyData* cfd = c->column_family_data();
   assert(cfd != nullptr);
-  assert(cfd->current()->storage_info()->NumLevelFiles(
-             compact_->compaction->level()) > 0);
+  const VersionStorageInfo* storage_info = c->input_version()->storage_info();
+  assert(storage_info);
+  assert(storage_info->NumLevelFiles(compact_->compaction->level()) > 0);
 
-  write_hint_ = cfd->CalculateSSTWriteHint(c->output_level());
+  write_hint_ = storage_info->CalculateSSTWriteHint(c->output_level());
   bottommost_level_ = c->bottommost_level();
 
   if (c->ShouldFormSubcompactions()) {
@@ -287,8 +288,8 @@ void CompactionJob::Prepare() {
   // to encode seqno->time to the output files.
 
   uint64_t preserve_time_duration =
-      std::max(c->immutable_options()->preserve_internal_time_seconds,
-               c->immutable_options()->preclude_last_level_data_seconds);
+      std::max(c->mutable_cf_options()->preserve_internal_time_seconds,
+               c->mutable_cf_options()->preclude_last_level_data_seconds);
 
   if (preserve_time_duration > 0) {
     const ReadOptions read_options(Env::IOActivity::kCompaction);
@@ -297,8 +298,8 @@ void CompactionJob::Prepare() {
     for (const auto& each_level : *c->inputs()) {
       for (const auto& fmd : each_level.files) {
         std::shared_ptr<const TableProperties> tp;
-        Status s =
-            cfd->current()->GetTableProperties(read_options, &tp, fmd, nullptr);
+        Status s = c->input_version()->GetTableProperties(read_options, &tp,
+                                                          fmd, nullptr);
         if (s.ok()) {
           s = seqno_to_time_mapping_.DecodeFrom(tp->seqno_to_time_mapping);
         }
@@ -325,8 +326,8 @@ void CompactionJob::Prepare() {
       seqno_to_time_mapping_.Enforce(_current_time);
       seqno_to_time_mapping_.GetCurrentTieringCutoffSeqnos(
           static_cast<uint64_t>(_current_time),
-          c->immutable_options()->preserve_internal_time_seconds,
-          c->immutable_options()->preclude_last_level_data_seconds,
+          c->mutable_cf_options()->preserve_internal_time_seconds,
+          c->mutable_cf_options()->preclude_last_level_data_seconds,
           &preserve_time_min_seqno_, &preclude_last_level_min_seqno_);
     }
     // For accuracy of the GetProximalSeqnoBeforeTime queries above, we only
@@ -468,7 +469,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
   ReadOptions read_options(Env::IOActivity::kCompaction);
   read_options.rate_limiter_priority = GetRateLimiterPriority();
   auto* c = compact_->compaction;
-  if (c->immutable_options()->table_factory->Name() ==
+  if (c->mutable_cf_options()->table_factory->Name() ==
       TableFactory::kPlainTableName()) {
     return;
   }
@@ -505,9 +506,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
         FileMetaData* f = flevel->files[i].file_metadata;
         std::vector<TableReader::Anchor> my_anchors;
         Status s = cfd->table_cache()->ApproximateKeyAnchors(
-            read_options, icomp, *f,
-            c->mutable_cf_options()->block_protection_bytes_per_key,
-            my_anchors);
+            read_options, icomp, *f, *c->mutable_cf_options(), my_anchors);
         if (!s.ok() || my_anchors.empty()) {
           my_anchors.emplace_back(f->largest.user_key(), f->fd.GetFileSize());
         }
@@ -710,8 +709,6 @@ Status CompactionJob::Run() {
       }
     }
     ColumnFamilyData* cfd = compact_->compaction->column_family_data();
-    auto& prefix_extractor =
-        compact_->compaction->mutable_cf_options()->prefix_extractor;
     std::atomic<size_t> next_file_idx(0);
     auto verify_table = [&](Status& output_status) {
       while (true) {
@@ -732,7 +729,8 @@ Status CompactionJob::Run() {
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             verify_table_read_options, file_options_,
             cfd->internal_comparator(), files_output[file_idx]->meta,
-            /*range_del_agg=*/nullptr, prefix_extractor,
+            /*range_del_agg=*/nullptr,
+            *compact_->compaction->mutable_cf_options(),
             /*table_reader_ptr=*/nullptr,
             cfd->internal_stats()->GetFileReadHist(
                 compact_->compaction->output_level()),
@@ -742,9 +740,7 @@ Status CompactionJob::Run() {
                 *compact_->compaction->mutable_cf_options()),
             /*smallest_compaction_key=*/nullptr,
             /*largest_compaction_key=*/nullptr,
-            /*allow_unprepared_value=*/false,
-            compact_->compaction->mutable_cf_options()
-                ->block_protection_bytes_per_key);
+            /*allow_unprepared_value=*/false);
         auto s = iter->status();
 
         if (s.ok() && paranoid_file_checks_) {
@@ -804,6 +800,12 @@ Status CompactionJob::Run() {
                                                      output.table_properties);
     }
   }
+
+  // Before the compaction starts, is_remote_compaction was set to true if
+  // compaction_service is set. We now know whether each sub_compaction was
+  // done remotely or not. Reset is_remote_compaction back to false and allow
+  // AggregateCompactionStats() to set the right value.
+  compaction_job_stats_->is_remote_compaction = false;
 
   // Finish up all bookkeeping to unify the subcompaction results.
   compact_->AggregateCompactionStats(compaction_stats_, *compaction_job_stats_);
@@ -1083,6 +1085,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
     // fallback to local compaction
     assert(comp_status == CompactionServiceJobStatus::kUseLocal);
+    sub_compact->compaction_job_stats.is_remote_compaction = false;
   }
 
   uint64_t prev_cpu_micros = db_options_.clock->CPUMicros();
@@ -1911,6 +1914,10 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
     oldest_ancester_time = current_time;
   }
 
+  uint64_t newest_key_time = sub_compact->compaction->MaxInputFileNewestKeyTime(
+      sub_compact->start.has_value() ? &tmp_start : nullptr,
+      sub_compact->end.has_value() ? &tmp_end : nullptr);
+
   // Initialize a SubcompactionState::Output and add it to sub_compact->outputs
   uint64_t epoch_number = sub_compact->compaction->MinInputFileEpochNumber();
   {
@@ -1960,7 +1967,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       cfd->internal_tbl_prop_coll_factories(),
       sub_compact->compaction->output_compression(),
       sub_compact->compaction->output_compression_opts(), cfd->GetID(),
-      cfd->GetName(), sub_compact->compaction->output_level(),
+      cfd->GetName(), sub_compact->compaction->output_level(), newest_key_time,
       bottommost_level_, TableFileCreationReason::kCompaction,
       0 /* oldest_key_time */, current_time, db_id_, db_session_id_,
       sub_compact->compaction->max_output_file_size(), file_number,
@@ -2000,10 +2007,12 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
   bool has_error = false;
   const ReadOptions read_options(Env::IOActivity::kCompaction);
   const auto& input_table_properties = compaction->GetInputTableProperties();
+  // TODO(yuzhangyu): add dedicated stats for filtered files.
   for (int input_level = 0;
        input_level < static_cast<int>(compaction->num_input_levels());
        ++input_level) {
-    size_t num_input_files = compaction->num_input_files(input_level);
+    const LevelFilesBrief* flevel = compaction->input_levels(input_level);
+    size_t num_input_files = flevel->num_files;
     uint64_t* bytes_read;
     if (compaction->level(input_level) != compaction->output_level()) {
       compaction_stats_.stats.num_input_files_in_non_output_levels +=
@@ -2015,7 +2024,7 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
       bytes_read = &compaction_stats_.stats.bytes_read_output_level;
     }
     for (size_t i = 0; i < num_input_files; ++i) {
-      const FileMetaData* file_meta = compaction->input(input_level, i);
+      const FileMetaData* file_meta = flevel->files[i].file_metadata;
       *bytes_read += file_meta->fd.GetFileSize();
       uint64_t file_input_entries = file_meta->num_entries;
       uint64_t file_num_range_del = file_meta->num_range_deletions;

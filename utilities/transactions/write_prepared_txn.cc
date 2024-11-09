@@ -3,13 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "utilities/transactions/write_prepared_txn.h"
 
 #include <cinttypes>
 #include <map>
 #include <set>
 
+#include "db/attribute_group_iterator_impl.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
@@ -133,6 +133,23 @@ Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
   assert(db_iter);
 
   return write_batch_.NewIteratorWithBase(column_family, db_iter, &options);
+}
+
+std::unique_ptr<Iterator> WritePreparedTxn::GetCoalescingIterator(
+    const ReadOptions& /* read_options */,
+    const std::vector<ColumnFamilyHandle*>& /* column_families */) {
+  return std::unique_ptr<Iterator>(NewErrorIterator(
+      Status::NotSupported("GetCoalescingIterator not supported for "
+                           "write-prepared/write-unprepared transactions")));
+}
+
+std::unique_ptr<AttributeGroupIterator>
+WritePreparedTxn::GetAttributeGroupIterator(
+    const ReadOptions& /* read_options */,
+    const std::vector<ColumnFamilyHandle*>& /* column_families */) {
+  return NewAttributeGroupErrorIterator(
+      Status::NotSupported("GetAttributeGroupIterator not supported for "
+                           "write-prepared/write-unprepared transactions"));
 }
 
 Status WritePreparedTxn::PrepareInternal() {

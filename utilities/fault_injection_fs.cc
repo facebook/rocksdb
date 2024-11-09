@@ -506,10 +506,10 @@ IOStatus TestFSRandomAccessFile::ReadAsync(
     s = target_->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, nullptr);
     // TODO (low priority): fs_->ReadUnsyncedData()
   } else {
-    // If there’s no injected error, then cb will be called asynchronously when
-    // target_ actually finishes the read. But if there’s an injected error, it
+    // If there's no injected error, then cb will be called asynchronously when
+    // target_ actually finishes the read. But if there's an injected error, it
     // needs to immediately call cb(res, cb_arg) s since target_->ReadAsync()
-    // isn’t invoked at all.
+    // isn't invoked at all.
     res.status = res_status;
     cb(res, cb_arg);
   }

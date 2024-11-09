@@ -5,8 +5,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #if defined(USE_COROUTINES)
-#include "folly/experimental/coro/Coroutine.h"
-#include "folly/experimental/coro/Task.h"
+#include "folly/coro/Coroutine.h"
+#include "folly/coro/Task.h"
 #endif
 #include "rocksdb/rocksdb_namespace.h"
 

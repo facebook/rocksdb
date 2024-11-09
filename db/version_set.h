@@ -49,8 +49,8 @@
 #include "db/write_controller.h"
 #include "env/file_system_tracer.h"
 #if USE_COROUTINES
-#include "folly/experimental/coro/BlockingWait.h"
-#include "folly/experimental/coro/Collect.h"
+#include "folly/coro/BlockingWait.h"
+#include "folly/coro/Collect.h"
 #endif
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
@@ -616,6 +616,10 @@ class VersionStorageInfo {
     return bottommost_files_mark_threshold_;
   }
 
+  SequenceNumber standalone_range_tombstone_files_mark_threshold() const {
+    return standalone_range_tombstone_files_mark_threshold_;
+  }
+
   // Returns whether any key in [`smallest_key`, `largest_key`] could appear in
   // an older L0 file than `last_l0_idx` or in a greater level than `last_level`
   //
@@ -625,6 +629,10 @@ class VersionStorageInfo {
   bool RangeMightExistAfterSortedRun(const Slice& smallest_user_key,
                                      const Slice& largest_user_key,
                                      int last_level, int last_l0_idx);
+
+  Env::WriteLifeTimeHint CalculateSSTWriteHint(int level) const;
+
+  const Comparator* user_comparator() const { return user_comparator_; }
 
  private:
   void ComputeCompensatedSizes();
@@ -729,6 +737,12 @@ class VersionStorageInfo {
   // became eligible for compaction. It's defined as the min of the max nonzero
   // seqnums of unmarked bottommost files.
   SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+
+  // The minimum sequence number among all the standalone range tombstone files
+  // that are marked for compaction. A standalone range tombstone file is one
+  // with just one range tombstone.
+  SequenceNumber standalone_range_tombstone_files_mark_threshold_ =
+      kMaxSequenceNumber;
 
   // Monotonically increases as we release old snapshots. Zero indicates no
   // snapshots have been released yet. When no snapshots remain we set it to the
@@ -1264,7 +1278,7 @@ class VersionSet {
           {});
 
   static Status GetCurrentManifestPath(const std::string& dbname,
-                                       FileSystem* fs,
+                                       FileSystem* fs, bool is_retry,
                                        std::string* manifest_filename,
                                        uint64_t* manifest_file_number);
   void WakeUpWaitingManifestWriters();
@@ -1277,6 +1291,15 @@ class VersionSet {
                  bool no_error_if_files_missing = false, bool is_retry = false,
                  Status* log_status = nullptr);
 
+  // Do a best-efforts recovery (Options.best_efforts_recovery=true) from all
+  // available MANIFEST files. Similar to `Recover` with these differences:
+  // 1) not only the latest MANIFEST can be used, if it's not available or
+  //    no successful recovery can be achieved with it, this function also tries
+  //    to recover from previous MANIFEST files, in reverse chronological order
+  //    until a successful recovery can be achieved.
+  // 2) this function doesn't just aim to recover to the latest version, if that
+  //    is not available, the most recent point in time version will be saved in
+  //    memory. Check doc for `VersionEditHandlerPointInTime` for more details.
   Status TryRecover(const std::vector<ColumnFamilyDescriptor>& column_families,
                     bool read_only,
                     const std::vector<std::string>& files_in_dbname,
@@ -1503,7 +1526,6 @@ class VersionSet {
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
 
   void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
-    // TODO: Erase file from BlobFileCache?
     obsolete_blob_files_.emplace_back(blob_file_number, std::move(path));
   }
 

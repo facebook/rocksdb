@@ -100,7 +100,9 @@ using VersionBuilderUPtr = std::unique_ptr<BaseReferencedVersionBuilder>;
 // A class used for scanning MANIFEST file.
 // VersionEditHandler reads a MANIFEST file, parses the version edits, and
 // builds the version set's in-memory state, e.g. the version storage info for
-// the versions of column families.
+// the versions of column families. It replays all the version edits in one
+// MANIFEST file to build the end version.
+//
 // To use this class and its subclasses,
 // 1. Create an object of VersionEditHandler or its subclasses.
 //    VersionEditHandler handler(read_only, column_families, version_set,
@@ -119,13 +121,14 @@ class VersionEditHandler : public VersionEditHandlerBase {
       VersionSet* version_set, bool track_found_and_missing_files,
       bool no_error_if_files_missing,
       const std::shared_ptr<IOTracer>& io_tracer,
-      const ReadOptions& read_options,
+      const ReadOptions& read_options, bool allow_incomplete_valid_version,
       EpochNumberRequirement epoch_number_requirement =
           EpochNumberRequirement::kMustPresent)
       : VersionEditHandler(read_only, column_families, version_set,
                            track_found_and_missing_files,
                            no_error_if_files_missing, io_tracer, read_options,
                            /*skip_load_table_files=*/false,
+                           allow_incomplete_valid_version,
                            epoch_number_requirement) {}
 
   ~VersionEditHandler() override {}
@@ -134,12 +137,22 @@ class VersionEditHandler : public VersionEditHandlerBase {
     return version_edit_params_;
   }
 
-  bool HasMissingFiles() const;
-
   void GetDbId(std::string* db_id) const {
     if (db_id && version_edit_params_.HasDbId()) {
       *db_id = version_edit_params_.GetDbId();
     }
+  }
+
+  virtual Status VerifyFile(ColumnFamilyData* /*cfd*/,
+                            const std::string& /*fpath*/, int /*level*/,
+                            const FileMetaData& /*fmeta*/) {
+    return Status::OK();
+  }
+
+  virtual Status VerifyBlobFile(ColumnFamilyData* /*cfd*/,
+                                uint64_t /*blob_file_num*/,
+                                const BlobFileAddition& /*blob_addition*/) {
+    return Status::OK();
   }
 
  protected:
@@ -149,6 +162,7 @@ class VersionEditHandler : public VersionEditHandlerBase {
       bool no_error_if_files_missing,
       const std::shared_ptr<IOTracer>& io_tracer,
       const ReadOptions& read_options, bool skip_load_table_files,
+      bool allow_incomplete_valid_version,
       EpochNumberRequirement epoch_number_requirement =
           EpochNumberRequirement::kMustPresent);
 
@@ -166,7 +180,7 @@ class VersionEditHandler : public VersionEditHandlerBase {
 
   Status Initialize() override;
 
-  void CheckColumnFamilyId(const VersionEdit& edit, bool* cf_in_not_found,
+  void CheckColumnFamilyId(const VersionEdit& edit, bool* do_not_open_cf,
                            bool* cf_in_builders) const;
 
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
@@ -176,9 +190,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
 
   virtual ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit);
 
-  virtual Status MaybeCreateVersion(const VersionEdit& edit,
-                                    ColumnFamilyData* cfd,
-                                    bool force_create_version);
+  virtual Status MaybeCreateVersionBeforeApplyEdit(const VersionEdit& edit,
+                                                   ColumnFamilyData* cfd,
+                                                   bool force_create_version);
 
   virtual Status LoadTables(ColumnFamilyData* cfd,
                             bool prefetch_index_and_filter_in_cache,
@@ -191,21 +205,23 @@ class VersionEditHandler : public VersionEditHandlerBase {
   VersionSet* version_set_;
   std::unordered_map<uint32_t, VersionBuilderUPtr> builders_;
   std::unordered_map<std::string, ColumnFamilyOptions> name_to_options_;
-  // Keeps track of column families in manifest that were not found in
-  // column families parameters. if those column families are not dropped
-  // by subsequent manifest records, Recover() will return failure status.
-  std::unordered_map<uint32_t, std::string> column_families_not_found_;
-  VersionEditParams version_edit_params_;
   const bool track_found_and_missing_files_;
-  std::unordered_map<uint32_t, std::unordered_set<uint64_t>> cf_to_found_files_;
-  std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
-      cf_to_missing_files_;
-  std::unordered_map<uint32_t, uint64_t> cf_to_missing_blob_files_high_;
+  // Keeps track of column families in manifest that were not found in
+  // column families parameters. Namely, the user asks to not open these column
+  // families. In non read only mode, if those column families are not dropped
+  // by subsequent manifest records, Recover() will return failure status.
+  std::unordered_map<uint32_t, std::string> do_not_open_column_families_;
+  VersionEditParams version_edit_params_;
   bool no_error_if_files_missing_;
   std::shared_ptr<IOTracer> io_tracer_;
   bool skip_load_table_files_;
   bool initialized_;
   std::unique_ptr<std::unordered_map<uint32_t, std::string>> cf_to_cmp_names_;
+  // If false, only a complete Version for which all files consisting it can be
+  // found is considered a valid Version. If true, besides complete Version, an
+  // incomplete Version with only a suffix of L0 files missing is also
+  // considered valid if the Version is never edited in an atomic group.
+  const bool allow_incomplete_valid_version_;
   EpochNumberRequirement epoch_number_requirement_;
   std::unordered_set<uint32_t> cfds_to_mark_no_udt_;
 
@@ -226,8 +242,18 @@ class VersionEditHandler : public VersionEditHandlerBase {
 };
 
 // A class similar to its base class, i.e. VersionEditHandler.
-// VersionEditHandlerPointInTime restores the versions to the most recent point
-// in time such that at this point, the version does not have missing files.
+// Unlike VersionEditHandler that only aims to build the end version, this class
+// supports building the most recent point in time version. A point in time
+// version is a version for which no files are missing, or if
+// `allow_incomplete_valid_version` is true, only a suffix of L0 files (and
+// their associated blob files) are missing.
+//
+// Building a point in time version when end version is not available can
+// be useful for best efforts recovery (options.best_efforts_recovery), which
+// uses this class and sets `allow_incomplete_valid_version` to true.
+// It's also useful for secondary instances/follower instances for which end
+// version could be transiently unavailable. These two cases use subclass
+// `ManifestTailer` and sets `allow_incomplete_valid_version` to false.
 //
 // Not thread-safe, external synchronization is necessary if an object of
 // VersionEditHandlerPointInTime is shared by multiple threads.
@@ -236,10 +262,17 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   VersionEditHandlerPointInTime(
       bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
       VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
-      const ReadOptions& read_options,
+      const ReadOptions& read_options, bool allow_incomplete_valid_version,
       EpochNumberRequirement epoch_number_requirement =
           EpochNumberRequirement::kMustPresent);
   ~VersionEditHandlerPointInTime() override;
+
+  bool HasMissingFiles() const;
+
+  virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
+                            int level, const FileMetaData& fmeta) override;
+  virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
+                                const BlobFileAddition& blob_addition) override;
 
  protected:
   Status OnAtomicGroupReplayBegin() override;
@@ -247,17 +280,14 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
 
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
-  // `MaybeCreateVersion(..., false)` creates a version upon a negative edge
-  // trigger (transition from valid to invalid).
+  // `MaybeCreateVersionBeforeApplyEdit(..., false)` creates a version upon a
+  // negative edge trigger (transition from valid to invalid).
   //
-  // `MaybeCreateVersion(..., true)` creates a version on a positive level
-  // trigger (state is valid).
-  Status MaybeCreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
-                            bool force_create_version) override;
-  virtual Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath,
-                            int level, const FileMetaData& fmeta);
-  virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
-                                const BlobFileAddition& blob_addition);
+  // `MaybeCreateVersionBeforeApplyEdit(..., true)` creates a version on a
+  // positive level trigger (state is valid).
+  Status MaybeCreateVersionBeforeApplyEdit(const VersionEdit& edit,
+                                           ColumnFamilyData* cfd,
+                                           bool force_create_version) override;
 
   Status LoadTables(ColumnFamilyData* cfd,
                     bool prefetch_index_and_filter_in_cache,
@@ -275,8 +305,6 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
 
   bool in_atomic_group_ = false;
 
-  std::vector<std::string> intermediate_files_;
-
  private:
   bool AtomicUpdateVersionsCompleted();
   bool AtomicUpdateVersionsContains(uint32_t cfid);
@@ -292,6 +320,12 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   void AtomicUpdateVersionsApply();
 };
 
+// A class similar to `VersionEditHandlerPointInTime` that parse MANIFEST and
+// builds point in time version.
+// `ManifestTailer` supports reading one MANIFEST file in multiple tailing
+// attempts and supports switching to a different MANIFEST after
+// `PrepareToReadNewManifest` is called. This class is used by secondary and
+// follower instance.
 class ManifestTailer : public VersionEditHandlerPointInTime {
  public:
   explicit ManifestTailer(std::vector<ColumnFamilyDescriptor> column_families,
@@ -302,8 +336,12 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
                               EpochNumberRequirement::kMustPresent)
       : VersionEditHandlerPointInTime(/*read_only=*/false, column_families,
                                       version_set, io_tracer, read_options,
+                                      /*allow_incomplete_valid_version=*/false,
                                       epoch_number_requirement),
         mode_(Mode::kRecovery) {}
+
+  Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,
+                    const FileMetaData& fmeta) override;
 
   void PrepareToReadNewManifest() {
     initialized_ = false;
@@ -314,9 +352,7 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
     return cfds_changed_;
   }
 
-  std::vector<std::string>& GetIntermediateFiles() {
-    return intermediate_files_;
-  }
+  std::vector<std::string> GetAndClearIntermediateFiles();
 
  protected:
   Status Initialize() override;
@@ -328,9 +364,6 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
   Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd) override;
 
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
-
-  Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,
-                    const FileMetaData& fmeta) override;
 
   enum Mode : uint8_t {
     kRecovery = 0,
@@ -352,7 +385,9 @@ class DumpManifestHandler : public VersionEditHandler {
             /*read_only=*/true, column_families, version_set,
             /*track_found_and_missing_files=*/false,
             /*no_error_if_files_missing=*/false, io_tracer, read_options,
-            /*skip_load_table_files=*/true),
+            /*skip_load_table_files=*/true,
+            /*allow_incomplete_valid_version=*/false,
+            /*epoch_number_requirement=*/EpochNumberRequirement::kMustPresent),
         verbose_(verbose),
         hex_(hex),
         json_(json),

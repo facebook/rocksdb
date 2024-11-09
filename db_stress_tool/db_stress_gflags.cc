@@ -380,6 +380,11 @@ DEFINE_bool(charge_blob_cache, false,
             "CacheEntryRoleOptions::charged of "
             "kBlobCache");
 
+DEFINE_bool(
+    decouple_partitioned_filters,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().decouple_partitioned_filters,
+    "Decouple filter partitioning from index partitioning.");
+
 DEFINE_int32(
     top_level_index_pinning,
     static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
@@ -492,7 +497,7 @@ DEFINE_double(blob_garbage_collection_force_threshold,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
-              "the oldest blob files for forcing garbage collection.");
+              "the eligible blob files for forcing garbage collection.");
 
 DEFINE_uint64(blob_compaction_readahead_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
@@ -830,6 +835,14 @@ DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads");
 DEFINE_bool(use_multi_get_entity, false,
             "If set, use the MultiGetEntity API for reads");
 
+DEFINE_int32(test_ingest_standalone_range_deletion_one_in, 0,
+             "If non-zero, file ingestion flow will test standalone range "
+             "deletion file once every N file ingestion operations.");
+
+DEFINE_bool(allow_unprepared_value,
+            ROCKSDB_NAMESPACE::ReadOptions().allow_unprepared_value,
+            "Allow lazy loading of values for range scans");
+
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value < 0 || value > 100) {
     fprintf(stderr, "Invalid value for --%s: %d, 0<= pct <=100 \n", flagname,
@@ -988,6 +1001,10 @@ DEFINE_bool(write_dbid_to_manifest,
             ROCKSDB_NAMESPACE::Options().write_dbid_to_manifest,
             "Write DB_ID to manifest");
 
+DEFINE_bool(write_identity_file,
+            ROCKSDB_NAMESPACE::Options().write_identity_file,
+            "Write DB_ID to IDENTITY file");
+
 DEFINE_bool(avoid_flush_during_recovery,
             ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
             "Avoid flush during recovery");
@@ -1022,8 +1039,9 @@ DEFINE_int32(continuous_verification_interval, 1000,
              "disables continuous verification.");
 
 DEFINE_int32(approximate_size_one_in, 64,
-             "If non-zero, DB::GetApproximateSizes() will be called against"
-             " random key ranges.");
+             "If non-zero, DB::GetApproximateSizes() and "
+             "DB::GetApproximateMemTableStats() will be called against "
+             "random key ranges.");
 
 DEFINE_int32(read_fault_one_in, 1000,
              "On non-zero, enables fault injection on read");
@@ -1442,5 +1460,9 @@ DEFINE_uint32(uncache_aggressiveness,
               "Aggressiveness of erasing cache entries that are likely "
               "obsolete. 0 = disabled, 1 = minimum, 100 = moderate, 10000 = "
               "normal max");
+
+DEFINE_bool(paranoid_memory_checks,
+            ROCKSDB_NAMESPACE::Options().paranoid_memory_checks,
+            "Sets CF option paranoid_memory_checks.");
 
 #endif  // GFLAGS

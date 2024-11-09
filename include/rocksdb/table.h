@@ -125,7 +125,25 @@ struct CacheUsageOptions {
   std::map<CacheEntryRole, CacheEntryRoleOptions> options_overrides;
 };
 
-// For advanced user only
+// Configures how SST files using the block-based table format (standard)
+// are written and read.
+//
+// Except as specifically noted, all options here are "mutable" using
+// SetOptions(), with the caveat that only new table builders and new table
+// readers will pick up new options. This is nearly immediate effect for
+// SST building, but in the worst case, options affecting reads only take
+// effect for new files. (Unless the DB is closed and re-opened, table readers
+// can live as long as the SST file itself.)
+//
+// Examples (DB* db):
+// db->SetOptions({{"block_based_table_factory",
+//                  "{detect_filter_construct_corruption=true;}"}});
+// db->SetOptions({{"block_based_table_factory",
+//                  "{max_auto_readahead_size=0;block_size=8192;}"}}));
+// db->SetOptions({{"block_based_table_factory",
+//                  "{prepopulate_block_cache=kFlushOnly;}"}}));
+// db->SetOptions({{"block_based_table_factory",
+//                  "{filter_policy=ribbonfilter:10;}"}});
 struct BlockBasedTableOptions {
   static const char* kName() { return "BlockTableOptions"; }
   // @flush_block_policy_factory creates the instances of flush block policy.
@@ -256,13 +274,20 @@ struct BlockBasedTableOptions {
   // even though they have different checksum type.
   ChecksumType checksum = kXXH3;
 
-  // Disable block cache. If this is set to true,
-  // then no block cache should be used, and the block_cache should
-  // point to a nullptr object.
+  // Disable block cache. If this is set to true, then no block cache
+  // will be configured (block_cache reset to nullptr).
+  //
+  // This option should not be used with SetOptions.
   bool no_block_cache = false;
 
-  // If non-NULL use the specified cache for blocks.
-  // If NULL, rocksdb will automatically create and use a 32MB internal cache.
+  // If non-nullptr and no_block_cache == false, use the specified cache for
+  // blocks. If nullptr and no_block_cache == false, a 32MB internal cache
+  // will be created and used.
+  //
+  // This option should not be used with SetOptions, because (a) the code
+  // to make it safe is incomplete, and (b) it is not clear when/if the
+  // old block cache would go away. For now, dynamic changes to block cache
+  // should be through the Cache object, e.g. Cache::SetCapacity().
   std::shared_ptr<Cache> block_cache = nullptr;
 
   // If non-NULL use the specified cache for pages read from device
@@ -291,15 +316,11 @@ struct BlockBasedTableOptions {
   // Same as block_restart_interval but used for the index block.
   int index_block_restart_interval = 1;
 
-  // Block size for partitioned metadata. Currently applied to indexes when
-  // kTwoLevelIndexSearch is used and to filters when partition_filters is used.
-  // Note: Since in the current implementation the filters and index partitions
-  // are aligned, an index/filter block is created when either index or filter
-  // block size reaches the specified limit.
-  // Note: this limit is currently applied to only index blocks; a filter
-  // partition is cut right after an index block is cut
-  // TODO(myabandeh): remove the note above when filter partitions are cut
-  // separately
+  // Target block size for partitioned metadata. Currently applied to indexes
+  // when kTwoLevelIndexSearch is used and to filters when partition_filters is
+  // used. When decouple_partitioned_filters=false (original behavior), there is
+  // much more deviation from this target size. See the comment on
+  // decouple_partitioned_filters.
   uint64_t metadata_block_size = 4096;
 
   // `cache_usage_options` allows users to specify the default
@@ -398,6 +419,23 @@ struct BlockBasedTableOptions {
   // block cache even when cache_index_and_filter_blocks=false.
   bool partition_filters = false;
 
+  // When both partitioned indexes and partitioned filters are enabled,
+  // this enables independent partitioning boundaries between the two. Most
+  // notably, this enables these metadata blocks to hit their target size much
+  // more accurately, as there is often a disparity between index sizes and
+  // filter sizes. This should reduce fragmentation and metadata overheads in
+  // the block cache, as well as treat blocks more fairly for cache eviction
+  // purposes.
+  //
+  // There are no SST format compatibility issues with this option. (All
+  // versions of RocksDB able to read partitioned filters are able to read
+  // decoupled partitioned filters.)
+  //
+  // decouple_partitioned_filters = false is the original behavior, because of
+  // limitations in the initial implementation, and the new behavior
+  // decouple_partitioned_filters = true is expected to become the new default.
+  bool decouple_partitioned_filters = false;
+
   // Option to generate Bloom/Ribbon filters that minimize memory
   // internal fragmentation.
   //
@@ -454,10 +492,6 @@ struct BlockBasedTableOptions {
   // This is an extra check that is only
   // useful in detecting software bugs or CPU+memory malfunction.
   // Turning on this feature increases filter construction time by 30%.
-  //
-  // This parameter can be changed dynamically by
-  // DB::SetOptions({{"block_based_table_factory",
-  //                  "{detect_filter_construct_corruption=true;}"}});
   //
   // TODO: optimize this performance
   bool detect_filter_construct_corruption = false;
@@ -589,13 +623,6 @@ struct BlockBasedTableOptions {
   // Found that 256 KB readahead size provides the best performance, based on
   // experiments, for auto readahead. Experiment data is in PR #3282.
   //
-  // This parameter can be changed dynamically by
-  // DB::SetOptions({{"block_based_table_factory",
-  //                  "{max_auto_readahead_size=0;}"}}));
-  //
-  // Changing the value dynamically will only affect files opened after the
-  // change.
-  //
   // Default: 256 KB (256 * 1024).
   size_t max_auto_readahead_size = 256 * 1024;
 
@@ -607,10 +634,6 @@ struct BlockBasedTableOptions {
   // further helps if the workload exhibits high temporal locality, where most
   // of the reads go to recently written data. This also helps in case of
   // Distributed FileSystem.
-  //
-  // This parameter can be changed dynamically by
-  // DB::SetOptions({{"block_based_table_factory",
-  //                  "{prepopulate_block_cache=kFlushOnly;}"}}));
   enum class PrepopulateBlockCache : char {
     // Disable prepopulate block cache.
     kDisable,
@@ -639,13 +662,6 @@ struct BlockBasedTableOptions {
   //
   // Value should be provided along with KB i.e. 8 * 1024 as it will prefetch
   // the blocks.
-  //
-  // This parameter can be changed dynamically by
-  // DB::SetOptions({{"block_based_table_factory",
-  //                  "{initial_auto_readahead_size=0;}"}}));
-  //
-  // Changing the value dynamically will only affect files opened after the
-  // change.
   //
   // Default: 8 KB (8 * 1024).
   size_t initial_auto_readahead_size = 8 * 1024;
@@ -679,6 +695,11 @@ struct BlockBasedTablePropertyNames {
   static const std::string kWholeKeyFiltering;
   // value is "1" for true and "0" for false.
   static const std::string kPrefixFiltering;
+  // Set to "1" when partitioned filters are decoupled from partitioned indexes.
+  // This metadata is recorded in case a read-time optimization for coupled
+  // filter+index partitioning is ever developed; that optimization/assumption
+  // would be disabled when this is set.
+  static const std::string kDecoupledPartitionedFilters;
 };
 
 // Create default block based table factory.
@@ -915,6 +936,11 @@ class TableFactory : public Customizable {
   virtual TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       WritableFileWriter* file) const = 0;
+
+  // Clone this TableFactory with the same options, ideally a "shallow" clone
+  // in which shared_ptr members and hidden state are (safely) shared between
+  // this original and the returned clone.
+  virtual std::unique_ptr<TableFactory> Clone() const = 0;
 
   // Return is delete range supported
   virtual bool IsDeleteRangeSupported() const { return false; }

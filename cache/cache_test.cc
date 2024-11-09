@@ -886,6 +886,32 @@ TEST_P(CacheTest, ApplyToAllEntriesDuringResize) {
   ASSERT_EQ(special_count, kSpecialCount);
 }
 
+TEST_P(CacheTest, ApplyToHandleTest) {
+  std::string callback_state;
+  const auto callback = [&](const Slice& key, Cache::ObjectPtr value,
+                            size_t charge,
+                            const Cache::CacheItemHelper* helper) {
+    callback_state = std::to_string(DecodeKey(key)) + "," +
+                     std::to_string(DecodeValue(value)) + "," +
+                     std::to_string(charge);
+    assert(helper == &CacheTest::kHelper);
+  };
+
+  std::vector<std::string> inserted;
+
+  for (int i = 0; i < 10; ++i) {
+    Insert(i, i * 2, i + 1);
+    inserted.push_back(std::to_string(i) + "," + std::to_string(i * 2) + "," +
+                       std::to_string(i + 1));
+  }
+  for (int i = 0; i < 10; ++i) {
+    Cache::Handle* handle = cache_->Lookup(EncodeKey(i));
+    cache_->ApplyToHandle(cache_.get(), handle, callback);
+    EXPECT_EQ(inserted[i], callback_state);
+    cache_->Release(handle);
+  }
+}
+
 TEST_P(CacheTest, DefaultShardBits) {
   // Prevent excessive allocation (to save time & space)
   estimated_value_size_ = 100000;

@@ -354,13 +354,13 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
 }
 
 TEST_F(EventListenerTest, MultiCF) {
-  Options options;
-  options.env = CurrentOptions().env;
-  options.write_buffer_size = k110KB;
-#ifdef ROCKSDB_USING_THREAD_STATUS
-  options.enable_thread_tracking = true;
-#endif  // ROCKSDB_USING_THREAD_STATUS
   for (auto atomic_flush : {false, true}) {
+    Options options;
+    options.env = CurrentOptions().env;
+    options.write_buffer_size = k110KB;
+#ifdef ROCKSDB_USING_THREAD_STATUS
+    options.enable_thread_tracking = true;
+#endif  // ROCKSDB_USING_THREAD_STATUS
     options.atomic_flush = atomic_flush;
     options.create_if_missing = true;
     DestroyAndReopen(options);
