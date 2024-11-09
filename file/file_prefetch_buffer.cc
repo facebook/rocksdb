@@ -56,9 +56,13 @@ void FilePrefetchBuffer::PrepareBufferForRead(
     use_staging_buffer = true;
     staging_buf_->ClearBuffer();
     staging_buf_->buffer_.Alignment(alignment);
-    // TODO: should allocate only what we need
-    assert(req_len > 0);
-    staging_buf_->buffer_.AllocateNewBuffer(roundup_len);
+    // TODO: this is sort of hacky
+    // Basically the start of the staging buffer can be off by one alignment
+    // size AllocateNewBuffer already accounts for alignment on the end offset
+    // side but I think this is still better than using the pure roundup_len
+    // which can include a lot of readahead and would mean allocating too much
+    // memory
+    staging_buf_->buffer_.AllocateNewBuffer(req_len + alignment);
     staging_buf_->offset_ = offset;
     CopyDataToStagingBuffer(buf, offset, aligned_useful_len);
   }
@@ -257,9 +261,10 @@ void FilePrefetchBuffer::CopyDataToStagingBuffer(BufferInfo* src,
   // When we call SetBuffer, we always set the cursize_ equal to capacity_
   // but by design, the dst buffer will always start from where we want to
   // start reading when we fill in the staging buffer
-  memcpy(dst->buffer_.BufferStart() + dst->CurrentSize(),
-         src->buffer_.BufferStart() + copy_offset, copy_len);
-  dst->buffer_.Size(dst->CurrentSize() + copy_len);
+  dst->buffer_.Append(src->buffer_.BufferStart() + copy_offset, copy_len);
+  // memcpy(dst->buffer_.BufferStart() + dst->CurrentSize(),
+  //        src->buffer_.BufferStart() + copy_offset, copy_len);
+  // dst->buffer_.Size(dst->CurrentSize() + copy_len);
 }
 
 // Clear the buffers if it contains outdated data. Outdated data can be because
