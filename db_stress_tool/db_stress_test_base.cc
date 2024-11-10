@@ -1748,6 +1748,15 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
       op_logs += "S " + key.ToString(true) + " ";
     }
 
+    if (iter->Valid() && ro.allow_unprepared_value) {
+      op_logs += "*";
+
+      if (!iter->PrepareValue()) {
+        assert(!iter->Valid());
+        assert(!iter->status().ok());
+      }
+    }
+
     if (!iter->status().ok() && IsErrorInjectedAndRetryable(iter->status())) {
       return iter->status();
     } else if (!cmp_iter->status().ok() &&
@@ -1778,6 +1787,15 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
       }
 
       last_op = kLastOpNextOrPrev;
+
+      if (iter->Valid() && ro.allow_unprepared_value) {
+        op_logs += "*";
+
+        if (!iter->PrepareValue()) {
+          assert(!iter->Valid());
+          assert(!iter->status().ok());
+        }
+      }
 
       if (!iter->status().ok() && IsErrorInjectedAndRetryable(iter->status())) {
         return iter->status();
@@ -2000,27 +2018,8 @@ void StressTest::VerifyIterator(
   }
 
   if (!*diverged && iter->Valid()) {
-    if (ro.allow_unprepared_value) {
-      // Save key in case PrepareValue fails and invalidates the iterator
-      const std::string prepare_value_key =
-          iter->key().ToString(/* hex */ true);
-
-      if (!iter->PrepareValue()) {
-        fprintf(
-            stderr,
-            "Iterator failed to prepare value for key %s %s under specified "
-            "iterator ReadOptions: %s (Empty string or missing field indicates "
-            "default option or value is used): %s\n",
-            prepare_value_key.c_str(), op_logs.c_str(),
-            read_opt_oss.str().c_str(), iter->status().ToString().c_str());
-        *diverged = true;
-      }
-    }
-
-    if (!*diverged && iter->Valid()) {
-      if (!verify_func(iter)) {
-        *diverged = true;
-      }
+    if (!verify_func(iter)) {
+      *diverged = true;
     }
   }
 
