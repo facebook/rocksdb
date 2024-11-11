@@ -168,8 +168,8 @@ public class WriteBatchJavaNativeTest {
     }
   }
 
-  @Test public void putAndFlushAndReadFromDB() throws RocksDBException {
-
+  @Test
+  public void putAndFlushAndReadFromDB() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
         wb.put("k1".getBytes(), "v1".getBytes());
@@ -195,11 +195,11 @@ public class WriteBatchJavaNativeTest {
   public void putTooBigForBuffer() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
-        wb.put("k1".getBytes(), stringOfSize(512,"v1").getBytes());
+        wb.put("k1".getBytes(), stringOfSize(512, "v1").getBytes());
         db.write(new WriteOptions(), wb);
 
         byte[] v1 = db.get("k1".getBytes());
-        assertThat(v1).isEqualTo(stringOfSize(512,"v1").getBytes());
+        assertThat(v1).isEqualTo(stringOfSize(512, "v1").getBytes());
       }
     }
   }
@@ -208,18 +208,18 @@ public class WriteBatchJavaNativeTest {
   public void putSmallBigSmall() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
       try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
-        //small writes go into the buffer
+        // small writes go into the buffer
         wb.put("k0".getBytes(), "v0".getBytes());
         wb.put("k3".getBytes(), "v3".getBytes());
         // large write overflows the buffer, and forces flush of the buffer
         // before the large write happens "direct"
-        wb.put("k1".getBytes(), stringOfSize(512,"v1").getBytes());
+        wb.put("k1".getBytes(), stringOfSize(512, "v1").getBytes());
         // further small write goes to the buffer
         wb.put("k2".getBytes(), "v2".getBytes());
         db.write(new WriteOptions(), wb);
 
         byte[] v1 = db.get("k1".getBytes());
-        assertThat(v1).isEqualTo(stringOfSize(512,"v1").getBytes());
+        assertThat(v1).isEqualTo(stringOfSize(512, "v1").getBytes());
         assertThat("v0".getBytes()).isEqualTo(db.get("k0".getBytes()));
         assertThat("v3".getBytes()).isEqualTo(db.get("k3".getBytes()));
         assertThat("v2".getBytes()).isEqualTo(db.get("k2".getBytes()));
@@ -235,15 +235,15 @@ public class WriteBatchJavaNativeTest {
         final int keySize = 16;
         final int valueSize = 4096;
         for (int i = 0; i < repeat; i++) {
-          wb.put(stringOfSize(keySize,"k" + i).getBytes(),
-              stringOfSize(valueSize,"v" + i).getBytes());
+          wb.put(stringOfSize(keySize, "k" + i).getBytes(),
+              stringOfSize(valueSize, "v" + i).getBytes());
         }
         db.write(new WriteOptions(), wb);
 
-        byte[] v1 = db.get(stringOfSize(keySize,"k1").getBytes());
-        assertThat(v1).isEqualTo(stringOfSize(valueSize,"v1").getBytes());
-        byte[] v9 = db.get(stringOfSize(keySize,"k9").getBytes());
-        assertThat(v9).isEqualTo(stringOfSize(valueSize,"v9").getBytes());
+        byte[] v1 = db.get(stringOfSize(keySize, "k1").getBytes());
+        assertThat(v1).isEqualTo(stringOfSize(valueSize, "v1").getBytes());
+        byte[] v9 = db.get(stringOfSize(keySize, "k9").getBytes());
+        assertThat(v9).isEqualTo(stringOfSize(valueSize, "v9").getBytes());
       }
     }
   }

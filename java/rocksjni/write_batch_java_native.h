@@ -50,7 +50,8 @@ class WriteBatchJavaNativeException : public std::exception {
   }
 
   WriteBatchJavaNativeException(jint code) : kCode_(code) {};
-  WriteBatchJavaNativeException(const Status& status) : kCode_(status.code()) {};
+  WriteBatchJavaNativeException(const Status& status)
+      : kCode_(status.code()) {};
   WriteBatchJavaNativeException(jint code, const std::string& message)
       : kCode_(code), message_(message) {};
   WriteBatchJavaNativeException(const std::string& message)
@@ -84,7 +85,8 @@ class WriteBatchJavaNativeBuffer {
         pos(sizeof(int64_t) + sizeof(int32_t)) {};
 
   /**
-   * @brief the sequence value is a fixed field at the start of the buffer (header)
+   * @brief the sequence value is a fixed field at the start of the buffer
+   * (header)
    *
    * @return jlong
    */
@@ -113,7 +115,8 @@ class WriteBatchJavaNativeBuffer {
 
   uint32_t next_varint32() {
     uint32_t result;
-    const char *beyond = GetVarint32Ptr(slice_.data() + pos, slice_.data() + slice_.size(), &result);
+    const char* beyond = GetVarint32Ptr(slice_.data() + pos,
+                                        slice_.data() + slice_.size(), &result);
     if (beyond == nullptr) {
       std::string msg;
       msg.append("next_varint32() extends beyond end of write batch buffer ");
@@ -127,9 +130,7 @@ class WriteBatchJavaNativeBuffer {
     return result;
   }
 
-  uint32_t current_pos() {
-    return pos;
-  }
+  uint32_t current_pos() { return pos; }
 
   /**
    * @brief
@@ -163,7 +164,9 @@ class WriteBatchJavaNativeBuffer {
         .append("]");
   }
 
-  const jbyte* ptr() { return reinterpret_cast<const jbyte*>(slice_.data()) + pos; };
+  const jbyte* ptr() {
+    return reinterpret_cast<const jbyte*>(slice_.data()) + pos;
+  };
 
   void copy_write_batch_from_java(ROCKSDB_NAMESPACE::WriteBatchJavaNative* wb);
 };

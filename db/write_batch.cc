@@ -3436,7 +3436,8 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
   return Status::OK();
 }
 
-Status WriteBatchInternal::AppendContents(WriteBatch* dst, const Slice& contents) {
+Status WriteBatchInternal::AppendContents(WriteBatch* dst,
+                                          const Slice& contents) {
   assert(contents.size() >= WriteBatchInternal::kHeader);
   assert(dst->prot_info_ == nullptr);
 
@@ -3452,7 +3453,8 @@ Status WriteBatchInternal::AppendContents(WriteBatch* dst, const Slice& contents
   SetCount(dst, Count(dst) + src_count);
   dst->rep_.append(contents.data() + WriteBatchInternal::kHeader, src_len);
   dst->content_flags_.store(
-      dst->content_flags_.load(std::memory_order_relaxed) | ContentFlags::DEFERRED,
+      dst->content_flags_.load(std::memory_order_relaxed) |
+          ContentFlags::DEFERRED,
       std::memory_order_relaxed);
   return Status::OK();
 }

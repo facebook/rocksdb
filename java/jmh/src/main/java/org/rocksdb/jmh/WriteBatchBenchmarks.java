@@ -1,10 +1,6 @@
 package org.rocksdb.jmh;
 
-import org.openjdk.jmh.annotations.*;
-import org.openjdk.jmh.runner.Runner;
-import org.openjdk.jmh.runner.RunnerException;
-import org.openjdk.jmh.runner.options.OptionsBuilder;
-import org.rocksdb.*;
+import static org.rocksdb.util.KVUtils.*;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -17,8 +13,11 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-
-import static org.rocksdb.util.KVUtils.*;
+import org.openjdk.jmh.annotations.*;
+import org.openjdk.jmh.runner.Runner;
+import org.openjdk.jmh.runner.RunnerException;
+import org.openjdk.jmh.runner.options.OptionsBuilder;
+import org.rocksdb.*;
 
 @State(Scope.Benchmark)
 @Fork(1)
@@ -30,9 +29,10 @@ public class WriteBatchBenchmarks {
     RocksDB.loadLibrary();
   }
 
-  @Param ({"100000"}) int keyCount;
+  @Param({"100000"}) int keyCount;
 
-  //maximum number of bytes needed to encode numbers (key or value) so we can pad to size and layout easily
+  // maximum number of bytes needed to encode numbers (key or value) so we can pad to size and
+  // layout easily
   static final int KEY_VALUE_MAX_WIDTH = 10;
 
   private Path dbPath;
@@ -49,12 +49,11 @@ public class WriteBatchBenchmarks {
    * by counting the number of operations performed on it.
    */
   public abstract static class WriteBatchThreadBase<TBatch extends WriteBatchInterface> {
+    @Param({"1000"}) int numOpsPerBatch;
 
-    @Param ({"1000"}) int numOpsPerBatch;
+    @Param({"131072"}) int writeBatchAllocation;
 
-    @Param ({"131072"}) int writeBatchAllocation;
-
-    @Param ({"true","false"}) boolean writeToDB;
+    @Param({"true", "false"}) boolean writeToDB;
 
     final AtomicInteger opIndex = new AtomicInteger();
 
@@ -67,7 +66,6 @@ public class WriteBatchBenchmarks {
     public abstract void stopBatch() throws RocksDBException;
 
     public void put(final byte[] key, final byte[] value) throws RocksDBException {
-
       int index = opIndex.getAndIncrement();
       if (index % numOpsPerBatch == 0) {
         startBatch();
@@ -76,11 +74,9 @@ public class WriteBatchBenchmarks {
       if ((index + 1) % numOpsPerBatch == 0) {
         stopBatch();
       }
-
     }
 
     public void put(final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
-
       int index = opIndex.getAndIncrement();
       if (index % numOpsPerBatch == 0) {
         startBatch();
@@ -91,10 +87,10 @@ public class WriteBatchBenchmarks {
       }
     }
 
-    @Setup public void setup(WriteBatchBenchmarks bm) {
+    @Setup
+    public void setup(WriteBatchBenchmarks bm) {
       this.rocksDB = bm.rocksDB;
     }
-
   }
 
   /**
@@ -102,7 +98,6 @@ public class WriteBatchBenchmarks {
    */
   @State(Scope.Thread)
   public static class WriteBatchThreadDefault extends WriteBatchThreadBase<WriteBatch> {
-
     @Override
     public void startBatch() {
       writeBatch = new WriteBatch(writeBatchAllocation);
@@ -122,7 +117,8 @@ public class WriteBatchBenchmarks {
       }
     }
 
-    @TearDown public void teardown() throws RocksDBException {
+    @TearDown
+    public void teardown() throws RocksDBException {
       stopBatch();
     }
   }
@@ -130,8 +126,8 @@ public class WriteBatchBenchmarks {
   /**
    * Holds a JavaNative (buffer ops on the Java side) write batch
    */
-  public abstract static class WriteBatchThreadNative extends WriteBatchThreadBase<WriteBatchJavaNative> {
-
+  public abstract static class WriteBatchThreadNative
+      extends WriteBatchThreadBase<WriteBatchJavaNative> {
     @Override
     public void stopBatch() throws RocksDBException {
       if (writeBatch != null) {
@@ -146,14 +142,14 @@ public class WriteBatchBenchmarks {
       }
     }
 
-    @TearDown public void teardown() throws RocksDBException {
+    @TearDown
+    public void teardown() throws RocksDBException {
       stopBatch();
     }
   }
 
   @State(Scope.Thread)
   public static class WriteBatchThreadNativeArray extends WriteBatchThreadNative {
-
     @Override
     public void startBatch() {
       writeBatch = WriteBatchJavaNative.allocate(writeBatchAllocation);
@@ -162,7 +158,6 @@ public class WriteBatchBenchmarks {
 
   @State(Scope.Thread)
   public static class WriteBatchThreadNativeDirect extends WriteBatchThreadNative {
-
     @Override
     public void startBatch() {
       writeBatch = WriteBatchJavaNative.allocateDirect(writeBatchAllocation);
@@ -170,18 +165,17 @@ public class WriteBatchBenchmarks {
   }
 
   public static class BaseData {
-
     @Param({"16", "64", "256"}) int keySize;
     @Param({"16", "1024", "65536"}) int valueSize;
   }
 
   @State(Scope.Thread)
   public static class ByteArrayData extends BaseData {
-
     private byte[] key;
     private byte[] value;
 
-    @Setup public void setup() {
+    @Setup
+    public void setup() {
       key = new byte[keySize];
       value = new byte[valueSize];
     }
@@ -189,17 +183,17 @@ public class WriteBatchBenchmarks {
 
   @State(Scope.Thread)
   public static class ByteBufferData extends BaseData {
-
     private ByteBuffer key;
     private ByteBuffer value;
 
     private final byte[] fill = new byte[KEY_VALUE_MAX_WIDTH];
 
-    @Setup public void setup() {
+    @Setup
+    public void setup() {
       key = ByteBuffer.allocateDirect(keySize);
       value = ByteBuffer.allocateDirect(valueSize);
 
-      Arrays.fill(fill, (byte)'0');
+      Arrays.fill(fill, (byte) '0');
     }
   }
 
@@ -208,7 +202,7 @@ public class WriteBatchBenchmarks {
     dbPath = Files.createTempDirectory("JMH").toAbsolutePath();
     System.out.println("temp dir: " + dbPath);
     try (ColumnFamilyOptions columnFamilyOptions = new ColumnFamilyOptions()) {
-      columnFamilyOptions//.setCompressionType(CompressionType.LZ4_COMPRESSION)
+      columnFamilyOptions //.setCompressionType(CompressionType.LZ4_COMPRESSION)
           .setLevelCompactionDynamicLevelBytes(true);
       List<ColumnFamilyDescriptor> descriptors =
           List.of(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, columnFamilyOptions),
@@ -251,30 +245,30 @@ public class WriteBatchBenchmarks {
   }
 
   @Benchmark
-  public void putWriteBatch(WriteBatchThreadDefault batch, ByteArrayData data) throws RocksDBException {
-
+  public void putWriteBatch(WriteBatchThreadDefault batch, ByteArrayData data)
+      throws RocksDBException {
     long i = index.getAndIncrement() % keyCount;
 
-    baFillValue(data.key, "key", i, KEY_VALUE_MAX_WIDTH, (byte)'0');
-    baFillValue(data.value, "value", i, KEY_VALUE_MAX_WIDTH, (byte)'0');
+    baFillValue(data.key, "key", i, KEY_VALUE_MAX_WIDTH, (byte) '0');
+    baFillValue(data.value, "value", i, KEY_VALUE_MAX_WIDTH, (byte) '0');
 
     batch.put(data.key, data.value);
   }
 
   @Benchmark
-  public void putWriteBatchNative(WriteBatchThreadNativeArray batch, ByteArrayData data) throws RocksDBException {
-
+  public void putWriteBatchNative(WriteBatchThreadNativeArray batch, ByteArrayData data)
+      throws RocksDBException {
     long i = index.getAndIncrement() % keyCount;
 
-    baFillValue(data.key, "key", i, KEY_VALUE_MAX_WIDTH, (byte)'0');
-    baFillValue(data.value, "value", i, KEY_VALUE_MAX_WIDTH, (byte)'0');
+    baFillValue(data.key, "key", i, KEY_VALUE_MAX_WIDTH, (byte) '0');
+    baFillValue(data.value, "value", i, KEY_VALUE_MAX_WIDTH, (byte) '0');
 
     batch.put(data.key, data.value);
   }
 
   @Benchmark
-  public void putWriteBatchBB(WriteBatchThreadDefault batch, ByteBufferData data) throws RocksDBException {
-
+  public void putWriteBatchBB(WriteBatchThreadDefault batch, ByteBufferData data)
+      throws RocksDBException {
     long i = index.getAndIncrement() % keyCount;
 
     bbFillValue(data.key, "key", i, KEY_VALUE_MAX_WIDTH, data.fill);
@@ -284,8 +278,8 @@ public class WriteBatchBenchmarks {
   }
 
   @Benchmark
-  public void putWriteBatchNativeBB(WriteBatchThreadNativeDirect batch, ByteBufferData data) throws RocksDBException {
-
+  public void putWriteBatchNativeBB(WriteBatchThreadNativeDirect batch, ByteBufferData data)
+      throws RocksDBException {
     long i = index.getAndIncrement() % keyCount;
 
     bbFillValue(data.key, "key", i, KEY_VALUE_MAX_WIDTH, data.fill);
@@ -295,10 +289,8 @@ public class WriteBatchBenchmarks {
   }
 
   public static void main(String[] args) throws RunnerException {
-    org.openjdk.jmh.runner.options.Options opt = new OptionsBuilder()
-        .include("WriteBatchBenchmarks.putWriteBatchNativeBB")
-        .forks(0)
-        .build();
+    org.openjdk.jmh.runner.options.Options opt =
+        new OptionsBuilder().include("WriteBatchBenchmarks.putWriteBatchNativeBB").forks(0).build();
 
     new Runner(opt).run();
   }

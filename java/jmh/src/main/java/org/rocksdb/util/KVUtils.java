@@ -38,7 +38,8 @@ public final class KVUtils {
     System.arraycopy(valueBytes, 0, dst, prefixBytes.length + padWidth, valueBytes.length);
   }
 
-  public static void bbFillValue(ByteBuffer dst, String prefix, long value, int valueWidth, byte[] pad) {
+  public static void bbFillValue(
+      ByteBuffer dst, String prefix, long value, int valueWidth, byte[] pad) {
     byte[] prefixBytes = prefix.getBytes(UTF_8);
     dst.put(0, prefixBytes, 0, prefixBytes.length);
     byte[] valueBytes = Long.toString(value).getBytes(UTF_8);

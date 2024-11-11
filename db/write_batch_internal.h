@@ -229,8 +229,8 @@ class WriteBatchInternal {
   // Appends contents of slice as write batch entries
   // to dst write batch and updates count in dst
   // write batch. Returns OK if the append is successful.
-  // Does not support a dst with protection info. 
-  static Status AppendContents(WriteBatch* dst, const Slice& contents);                     
+  // Does not support a dst with protection info.
+  static Status AppendContents(WriteBatch* dst, const Slice& contents);
 
   // Returns the byte size of appending a WriteBatch with ByteSize
   // leftByteSize and a WriteBatch with ByteSize rightByteSize
