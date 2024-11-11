@@ -417,9 +417,8 @@ class FilePrefetchBuffer {
   // and data present in buffer_. It also allocates new buffer or refit tail if
   // required.
   void PrepareBufferForRead(BufferInfo* buf, size_t alignment, uint64_t offset,
-                            size_t req_len, size_t roundup_len, bool refit_tail,
-                            uint64_t& aligned_useful_len, bool use_fs_buffer,
-                            bool& use_staging_buffer);
+                            size_t roundup_len, bool refit_tail,
+                            uint64_t& aligned_useful_len, bool use_fs_buffer);
 
   void AbortOutdatedIO(uint64_t offset);
 
@@ -447,7 +446,8 @@ class FilePrefetchBuffer {
                                size_t& length);
 
   // Copy the data from src to staging_buf_.
-  void CopyDataToStagingBuffer(BufferInfo* src, uint64_t offset, size_t length);
+  void CopyDataToStagingBuffer(BufferInfo* src, uint64_t& offset,
+                               size_t& length);
 
   bool IsBlockSequential(const size_t& offset) {
     return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
@@ -543,6 +543,10 @@ class FilePrefetchBuffer {
     buf->async_read_in_progress_ = false;
   }
 
+  void HandlePartialFSBufferData(uint64_t offset, size_t length,
+                                 bool& use_staging_buffer, uint64_t& tmp_offset,
+                                 size_t& tmp_length);
+
   Status HandleOverlappingData(const IOOptions& opts,
                                RandomAccessFileReader* reader, uint64_t offset,
                                size_t length, size_t readahead_size,
@@ -560,8 +564,7 @@ class FilePrefetchBuffer {
                            size_t alignment, size_t length,
                            size_t readahead_size, uint64_t& offset,
                            uint64_t& end_offset, size_t& read_len,
-                           uint64_t& aligned_useful_len, bool use_fs_buffer,
-                           bool& use_staging_buffer);
+                           uint64_t& aligned_useful_len, bool use_fs_buffer);
 
   void UpdateStats(bool found_in_buffer, size_t length_found) {
     if (found_in_buffer) {
