@@ -103,6 +103,8 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
 
   read_timestamp_ = kMaxTxnTimestamp;
   commit_timestamp_ = kMaxTxnTimestamp;
+
+  commit_bypass_memtable_ = txn_options.commit_bypass_memtable;
 }
 
 PessimisticTransaction::~PessimisticTransaction() {

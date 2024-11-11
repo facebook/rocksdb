@@ -339,6 +339,16 @@ struct TransactionOptions {
   // size in APIs that MyRocks currently are using, including Put, Merge, Delete
   // DeleteRange, SingleDelete.
   bool write_batch_track_timestamp_size = false;
+
+  // EXPERIMENTAL
+  // Only supports write-committed policy. If set to true, the transaction will
+  // skip memtable write and ingest into the DB directly during Commit(). This
+  // makes Commit() much faster for transactions with many operations.
+  //
+  // Note that the transaction will be ingested as an immutable memtable for
+  // each CF it updates. So ingesting many transactions in a short period of
+  // time may cause stall due to too many memtables.
+  bool commit_bypass_memtable = false;
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB
