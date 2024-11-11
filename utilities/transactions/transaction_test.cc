@@ -2202,6 +2202,46 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   delete cfa;
   delete cfb;
 }
+
+TEST_P(TransactionTest, TwoPhaseLogMultiMemtableFlush) {
+  // Test that min log number to keep is tracked correctly when
+  // multiple memtables are flushed together.
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
+  // So that two immutable memtable won't stall writes.
+  ASSERT_OK(db->SetOptions({{"max_write_buffer_number", "4"}}));
+  // Pause flush.
+  ASSERT_OK(db->PauseBackgroundWork());
+
+  WriteOptions wopts;
+  wopts.disableWAL = false;
+  wopts.sync = true;
+  TransactionOptions topts;
+  Transaction* txn1 = db->BeginTransaction(wopts, topts);
+  ASSERT_OK(txn1->Put("key1", "val1"));
+  ASSERT_OK(txn1->SetName("xid1"));
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_OK(txn1->Commit());
+  delete txn1;
+
+  ASSERT_OK(db_impl->TEST_SwitchMemtable());
+
+  Transaction* txn2 = db->BeginTransaction(wopts, topts);
+  ASSERT_OK(txn2->Put("key2", "val2"));
+  ASSERT_OK(txn2->SetName("xid2"));
+  ASSERT_OK(txn2->Prepare());
+  ASSERT_OK(txn2->Commit());
+  delete txn2;
+
+  ASSERT_OK(db_impl->TEST_SwitchMemtable());
+
+  ASSERT_OK(db->ContinueBackgroundWork());
+  ASSERT_OK(db->Flush({}));
+
+  uint64_t cur_wal_num = db_impl->TEST_GetCurrentLogNumber();
+  // All non-active WALs should be obsolete.
+  ASSERT_EQ(cur_wal_num, db_impl->MinLogNumberToKeep());
+}
+
 /*
  * 1) use prepare to keep first log around to determine starting sequence
  * during recovery.
