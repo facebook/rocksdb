@@ -23,9 +23,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 void FilePrefetchBuffer::PrepareBufferForRead(
-    BufferInfo* buf, size_t alignment, uint64_t offset, size_t req_offset,
-    size_t req_len, size_t roundup_len, bool refit_tail,
-    uint64_t& aligned_useful_len, bool use_fs_buffer,
+    BufferInfo* buf, size_t alignment, uint64_t offset,
+    size_t unaligned_req_offset, size_t req_len, size_t roundup_len,
+    bool refit_tail, uint64_t& aligned_useful_len, bool use_fs_buffer,
     bool& use_staging_buffer) {
   uint64_t aligned_useful_offset_in_buf = 0;
   bool copy_data_to_new_buffer = false;
@@ -53,25 +53,26 @@ void FilePrefetchBuffer::PrepareBufferForRead(
     }
   }
 
-  if (use_fs_buffer && buf->DoesBufferContainData() &&
-      buf->IsOffsetInBuffer(req_offset)) {
-    use_staging_buffer = true;
-    // staging_buf_ is only used to return the next result to the caller.
-    // Copy the useful data we already have inside buf
-    // We want the "unaligned" useful length to avoid wasting space
-    staging_buf_->ClearBuffer();
-    staging_buf_->buffer_.Alignment(1);
-    staging_buf_->buffer_.AllocateNewBuffer(req_len);
-    // We also want the offset from the original request, without any rounding
-    // down to meet alignment requirements
-    staging_buf_->offset_ = req_offset;
-    uint64_t offset_in_buf = req_offset - buf->offset_;
-    uint64_t useful_len = buf->CurrentSize() - offset_in_buf;
-    CopyDataToStagingBuffer(buf, req_offset, useful_len);
-  }
-  // Our buffer will point directly to the FS-provided buffer, so we don't need
-  // to pre-allocate
   if (use_fs_buffer) {
+    if (buf->DoesBufferContainData() &&
+        buf->IsOffsetInBuffer(unaligned_req_offset)) {
+      use_staging_buffer = true;
+      // staging_buf_ is only used to return the next result to the caller.
+      // Copy the useful data we already have inside buf
+      // We want the "unaligned" useful length to avoid wasting space
+      staging_buf_->ClearBuffer();
+      staging_buf_->buffer_.Alignment(1);
+      staging_buf_->buffer_.AllocateNewBuffer(req_len);
+      // We also want the unaligned offset from the original request (before any
+      // rounding down)
+      staging_buf_->offset_ = unaligned_req_offset;
+      uint64_t offset_in_buf = unaligned_req_offset - buf->offset_;
+      uint64_t useful_len = buf->CurrentSize() - offset_in_buf;
+      CopyDataToStagingBuffer(buf, unaligned_req_offset, useful_len);
+    }
+    // The later buffer allocation / tail refitting does not apply when
+    // use_fs_buffer is true We are going to re-use the file system allocated
+    // buffer, so any allocations here would be thrown away
     return;
   }
 
@@ -191,7 +192,7 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
     return Status::OK();
   }
 
-  size_t alignment = reader->file()->GetRequiredBufferAlignment();
+  size_t alignment = GetRequiredBufferAlignment(reader);
   uint64_t rounddown_offset = offset, roundup_end = 0, aligned_useful_len = 0;
   size_t read_len = 0;
   bool use_fs_buffer = UseFSBuffer(reader);
@@ -419,7 +420,7 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
     size_t readahead_size, uint64_t& start_offset, uint64_t& end_offset,
     size_t& read_len, uint64_t& aligned_useful_len, bool use_fs_buffer,
     bool& use_staging_buffer) {
-  uint64_t req_offset = start_offset;
+  uint64_t unaligned_req_offset = start_offset;
   uint64_t updated_start_offset = Rounddown(start_offset, alignment);
   uint64_t updated_end_offset =
       Roundup(start_offset + length + readahead_size, alignment);
@@ -468,8 +469,8 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
 
   uint64_t roundup_len = end_offset - start_offset;
 
-  PrepareBufferForRead(buf, alignment, start_offset, req_offset, length,
-                       roundup_len, refit_tail, aligned_useful_len,
+  PrepareBufferForRead(buf, alignment, start_offset, unaligned_req_offset,
+                       length, roundup_len, refit_tail, aligned_useful_len,
                        use_fs_buffer, use_staging_buffer);
   assert(roundup_len >= aligned_useful_len);
 
@@ -601,7 +602,7 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
 
   TEST_SYNC_POINT("FilePrefetchBuffer::Prefetch:Start");
 
-  size_t alignment = reader->file()->GetRequiredBufferAlignment();
+  size_t alignment = GetRequiredBufferAlignment(reader);
   Status s;
   uint64_t tmp_offset = offset;
   size_t tmp_length = length;
@@ -966,7 +967,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   std::string msg;
 
   Status s;
-  size_t alignment = reader->file()->GetRequiredBufferAlignment();
+  size_t alignment = GetRequiredBufferAlignment(reader);
   size_t readahead_size = is_eligible_for_prefetching ? readahead_size_ / 2 : 0;
   size_t offset_to_read = static_cast<size_t>(offset);
   uint64_t start_offset1 = offset, end_offset1 = 0, aligned_useful_len1 = 0;

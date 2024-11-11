@@ -503,6 +503,13 @@ class FilePrefetchBuffer {
            CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer);
   }
 
+  size_t GetRequiredBufferAlignment(RandomAccessFileReader* reader) {
+    if (UseFSBuffer(reader)) {
+      return 1;
+    }
+    return reader->file()->GetRequiredBufferAlignment();
+  }
+
   // Re-uses the file system allocated buffer to avoid an extra copy
   IOStatus FSBufferRead(RandomAccessFileReader* reader, BufferInfo* buf,
                         const IOOptions& opts, uint64_t offset, size_t n,
