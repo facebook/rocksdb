@@ -304,6 +304,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
   src/main/java/org/rocksdb/util/SizeUnit.java
   src/main/java/org/rocksdb/util/StdErrLogger.java
+  src/test/java/org/rocksdb/WriteBatchTest.java
   src/main/java/org/rocksdb/util/Varint32.java
   src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
   src/test/java/org/rocksdb/RocksDBExceptionTest.java
@@ -408,7 +409,6 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/VerifyChecksumsTest.java
   src/test/java/org/rocksdb/WALRecoveryModeTest.java
   src/test/java/org/rocksdb/WalFilterTest.java
-  src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/WriteBatchJavaNativeTest.java
   src/test/java/org/rocksdb/WriteBatchHandlerTest.java
   src/test/java/org/rocksdb/WriteBatchThreadedTest.java
