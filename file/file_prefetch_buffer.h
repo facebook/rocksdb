@@ -441,13 +441,9 @@ class FilePrefetchBuffer {
                    RandomAccessFileReader* reader, uint64_t read_len,
                    uint64_t start_offset);
 
-  // Copy the data from src to overlap_buf_.
-  void CopyDataToOverlapBuffer(BufferInfo* src, uint64_t& offset,
-                               size_t& length);
-
-  // Copy the data from src to staging_buf_.
-  void CopyDataToStagingBuffer(BufferInfo* src, uint64_t& offset,
-                               size_t& length);
+  // Copy the data from src to overlap_buf_ or staging_buf_.
+  void CopyDataToBuffer(BufferInfo* src, BufferInfo* dst, uint64_t& offset,
+                        size_t& length);
 
   bool IsBlockSequential(const size_t& offset) {
     return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
