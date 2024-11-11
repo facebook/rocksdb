@@ -3469,6 +3469,7 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   std::unique_ptr<WBWIMemTable> wbwi_mem{
       new WBWIMemTable(wbwi, cmp,
                        /*cf_id=*/0, &immutable_opts, &mutable_cf_options)};
+  ASSERT_TRUE(wbwi_mem->IsEmpty());
   constexpr SequenceNumber visible_seq = 3;
   constexpr SequenceNumber non_visible_seq = 1;
   constexpr SequenceNumber assigned_seq = 2;
@@ -3491,6 +3492,8 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
     ASSERT_TRUE(val == Get(key, wbwi_mem, visible_seq, &found_final_value));
     ASSERT_TRUE(found_final_value);
   }
+  ASSERT_FALSE(wbwi_mem->IsEmpty());
+
   // Some data with same key in another CF
   ColumnFamilyHandleImplDummy meta_cf(/*id=*/1, BytewiseComparator());
   ASSERT_OK(wbwi->Put(&meta_cf, DBTestBase::Key(0), "foo"));

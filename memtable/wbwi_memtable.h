@@ -11,12 +11,16 @@ namespace ROCKSDB_NAMESPACE {
 
 class WBWIMemTableIterator final : public InternalIterator {
  public:
-  WBWIMemTableIterator(const std::shared_ptr<WBWIIterator>& it,
-                       SequenceNumber seqno, const Comparator* comparator)
-      : it_(it), global_seqno_(seqno), comparator_(comparator) {
+  WBWIMemTableIterator(std::unique_ptr<WBWIIterator>&& it, SequenceNumber seqno,
+                       const Comparator* comparator)
+      : it_(std::move(it)), global_seqno_(seqno), comparator_(comparator) {
     assert(seqno != kMaxSequenceNumber);
     s_.PermitUncheckedError();
   }
+
+  // No copying allowed
+  WBWIMemTableIterator(const WBWIMemTableIterator&) = delete;
+  WBWIMemTableIterator& operator=(const WBWIMemTableIterator&) = delete;
 
   bool Valid() const override { return valid_; }
 
@@ -126,7 +130,7 @@ class WBWIMemTableIterator final : public InternalIterator {
     key_ = key_buf_.GetInternalKey();
   }
 
-  std::shared_ptr<WBWIIterator> it_;
+  std::unique_ptr<WBWIIterator> it_;
   // The sequence number of entries in this write batch.
   SequenceNumber global_seqno_;
   const Comparator* comparator_;
@@ -183,16 +187,11 @@ class WBWIMemTable final : public ReadOnlyMemTable {
       const SliceTransform* /* prefix_extractor */) override {
     // Ingested WBWIMemTable should have an assigned seqno
     assert(global_seqno_ != kMaxSequenceNumber);
-    std::shared_ptr<WBWIIterator> it{wbwi_->NewIterator(cf_id_)};
     assert(arena);
     auto mem = arena->AllocateAligned(sizeof(WBWIMemTableIterator));
-    return new (mem) WBWIMemTableIterator(it, global_seqno_, comparator_);
-  }
-
-  InternalIterator* NewIterator() const {
-    assert(global_seqno_ != kMaxSequenceNumber);
-    std::shared_ptr<WBWIIterator> it{wbwi_->NewIterator(cf_id_)};
-    return new WBWIMemTableIterator(it, global_seqno_, comparator_);
+    return new (mem) WBWIMemTableIterator(
+        std::unique_ptr<WBWIIterator>(wbwi_->NewIterator(cf_id_)),
+        global_seqno_, comparator_);
   }
 
   // Returns an iterator that wraps a MemTableIterator and logically strips the
@@ -265,7 +264,7 @@ class WBWIMemTable final : public ReadOnlyMemTable {
   bool IsEmpty() const override {
     // Ideally also check that wbwi contains updates from this CF. For now, we
     // only create WBWIMemTable for CFs with updates in wbwi.
-    return wbwi_->GetWriteBatch()->Count() > 0;
+    return wbwi_->GetWriteBatch()->Count() == 0;
   }
 
   SequenceNumber GetFirstSequenceNumber() override { return global_seqno_; }
@@ -306,10 +305,19 @@ class WBWIMemTable final : public ReadOnlyMemTable {
 
   // Assign a sequence number to the entries in this memtable.
   void SetGlobalSequenceNumber(SequenceNumber global_seqno) {
+    // Not expecting to assign seqno multiple times.
+    assert(global_seqno_ == kMaxSequenceNumber);
     global_seqno_ = global_seqno;
   }
 
  private:
+  InternalIterator* NewIterator() const {
+    assert(global_seqno_ != kMaxSequenceNumber);
+    return new WBWIMemTableIterator(
+        std::unique_ptr<WBWIIterator>(wbwi_->NewIterator(cf_id_)),
+        global_seqno_, comparator_);
+  }
+
   Slice newest_udt_;
   std::shared_ptr<WriteBatchWithIndex> wbwi_;
   const Comparator* comparator_;
