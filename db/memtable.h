@@ -267,6 +267,11 @@ class ReadOnlyMemTable {
   // operations on the same MemTable (unless this Memtable is immutable).
   virtual SequenceNumber GetFirstSequenceNumber() = 0;
 
+  // Returns if there is no entry inserted to the mem table.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
+  virtual bool IsEmpty() const = 0;
+
   // Returns the sequence number that is guaranteed to be smaller than or equal
   // to the sequence number of any key that could be inserted into this
   // memtable. It can then be assumed that any write with a larger(or equal)
@@ -668,10 +673,7 @@ class MemTable final : public ReadOnlyMemTable {
     }
   }
 
-  // Returns if there is no entry inserted to the mem table.
-  // REQUIRES: external synchronization to prevent simultaneous
-  // operations on the same MemTable (unless this Memtable is immutable).
-  bool IsEmpty() const { return first_seqno_ == 0; }
+  bool IsEmpty() const override { return first_seqno_ == 0; }
 
   SequenceNumber GetFirstSequenceNumber() override {
     return first_seqno_.load(std::memory_order_relaxed);

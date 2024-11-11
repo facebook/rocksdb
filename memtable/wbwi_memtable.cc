@@ -114,6 +114,7 @@ void WBWIMemTable::MultiGet(const ReadOptions& read_options,
   (void)immutable_memtable;
   // Should only be used as immutable memtable.
   assert(immutable_memtable);
+  // TODO: reuse the InternalIterator created in Get().
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     SequenceNumber dummy_seq;
     bool found_final_value =

@@ -195,7 +195,6 @@ class WriteBatchWithIndex : public WriteBatchBase {
   //
   // The returned iterator should be deleted by the caller.
   WBWIIterator* NewIterator(ColumnFamilyHandle* column_family);
-  WBWIIterator* NewIterator(uint32_t cf_id) const;
   // Create an iterator of the default column family.
   WBWIIterator* NewIterator();
 
@@ -357,6 +356,10 @@ class WriteBatchWithIndex : public WriteBatchBase {
   friend class WriteUnpreparedTxn;
   friend class WriteBatchWithIndex_SubBatchCnt_Test;
   friend class WriteBatchWithIndexInternal;
+  friend class WBWIMemTable;
+
+  WBWIIterator* NewIterator(uint32_t cf_id) const;
+
   // Returns the number of sub-batches inside the write batch. A sub-batch
   // starts right before inserting a key that is a duplicate of a key in the
   // last sub-batch.

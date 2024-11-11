@@ -110,9 +110,9 @@ class WBWIMemTableIterator final : public InternalIterator {
   void UpdateKey() {
     valid_ = it_->Valid();
     if (!Valid()) {
+      key_.clear();
       return;
     }
-    key_buf_.Clear();
     auto t = WriteTypeToValueTypeMap.find(it_->Entry().type);
     assert(t != WriteTypeToValueTypeMap.end());
     if (t == WriteTypeToValueTypeMap.end()) {
@@ -145,10 +145,14 @@ class WBWIMemTable final : public ReadOnlyMemTable {
                const MutableCFOptions* cf_options)
       : wbwi_(wbwi),
         comparator_(cmp),
-        key_comparator_(comparator_),
+        ikey_comparator_(comparator_),
         moptions_(*immutable_options, *cf_options),
         clock_(immutable_options->clock),
         cf_id_(cf_id) {}
+
+  // No copying allowed
+  WBWIMemTable(const WBWIMemTable&) = delete;
+  WBWIMemTable& operator=(const WBWIMemTable&) = delete;
 
   ~WBWIMemTable() override = default;
 
@@ -258,6 +262,12 @@ class WBWIMemTable final : public ReadOnlyMemTable {
 
   SequenceNumber GetEarliestSequenceNumber() override { return global_seqno_; }
 
+  bool IsEmpty() const override {
+    // Ideally also check that wbwi contains updates from this CF. For now, we
+    // only create WBWIMemTable for CFs with updates in wbwi.
+    return wbwi_->GetWriteBatch()->Count() > 0;
+  }
+
   SequenceNumber GetFirstSequenceNumber() override { return global_seqno_; }
 
   uint64_t GetMinLogContainingPrepSection() override {
@@ -275,7 +285,7 @@ class WBWIMemTable final : public ReadOnlyMemTable {
   }
 
   const InternalKeyComparator& GetInternalKeyComparator() const override {
-    return key_comparator_;
+    return ikey_comparator_;
   }
 
   uint64_t ApproximateOldestKeyTime() const override {
@@ -303,7 +313,7 @@ class WBWIMemTable final : public ReadOnlyMemTable {
   Slice newest_udt_;
   std::shared_ptr<WriteBatchWithIndex> wbwi_;
   const Comparator* comparator_;
-  InternalKeyComparator key_comparator_;
+  InternalKeyComparator ikey_comparator_;
   SequenceNumber global_seqno_ = kMaxSequenceNumber;
   const ImmutableMemTableOptions moptions_;
   SystemClock* clock_;
