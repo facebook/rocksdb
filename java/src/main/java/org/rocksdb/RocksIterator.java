@@ -28,7 +28,8 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
     super(rocksDB, nativeHandle);
   }
 
-  protected RocksIterator(final RocksDB rocksDB, final long nativeHandle, final Function<AbstractRocksIterator<RocksDB>, Boolean> removeOnClosure) {
+  protected RocksIterator(final RocksDB rocksDB, final long nativeHandle,
+      final Function<AbstractRocksIterator<RocksDB>, Boolean> removeOnClosure) {
     super(rocksDB, nativeHandle, removeOnClosure);
   }
 
