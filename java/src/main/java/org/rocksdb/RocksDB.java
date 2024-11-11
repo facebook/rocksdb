@@ -683,7 +683,7 @@ public class RocksDB extends RocksObject {
    * <p>
    * See also {@link #close()}.
    */
-  @SuppressWarnings("PMD.EmptyCatchBlock")
+  @SuppressWarnings("PMD.EmptyCatchBlock","PMD.CloseResource")
   @Override
   public void close() {
     final List<RocksIterator> removeIterators = new ArrayList<>(ownedIterators);
