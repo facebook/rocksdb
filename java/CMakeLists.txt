@@ -304,12 +304,12 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
   src/main/java/org/rocksdb/util/SizeUnit.java
   src/main/java/org/rocksdb/util/StdErrLogger.java
+  src/main/java/org/rocksdb/util/Varint32.java
   src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
   src/test/java/org/rocksdb/RocksDBExceptionTest.java
   src/test/java/org/rocksdb/RocksNativeLibraryResource.java
   src/test/java/org/rocksdb/test/TestableEventListener.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
-  src/test/java/org/rocksdb/util/Varint32.java
   src/test/java/org/rocksdb/util/WriteBatchGetter.java
 )
 
