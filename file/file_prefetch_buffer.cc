@@ -56,16 +56,14 @@ void FilePrefetchBuffer::PrepareBufferForRead(
     use_staging_buffer = true;
     staging_buf_->ClearBuffer();
     staging_buf_->buffer_.Alignment(alignment);
-    // TODO: this is sort of hacky
-    // Basically the start of the staging buffer can be off by one alignment
-    // size AllocateNewBuffer already accounts for alignment on the end offset
-    // side but I think this is still better than using the pure roundup_len
-    // which can include a lot of readahead and would mean allocating too much
-    // memory
+    // AllocateNewBuffer accounts for alignment on the end offset side, but
+    // the start of the staging buffer can be off by one alignment size.
     staging_buf_->buffer_.AllocateNewBuffer(req_len + alignment);
     staging_buf_->offset_ = offset;
     CopyDataToStagingBuffer(buf, offset, aligned_useful_len);
   }
+  // Our buffer will point directly to the FS-provided buffer, so we don't need
+  // to pre-allocate
   if (use_fs_buffer) {
     return;
   }
@@ -136,6 +134,7 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
   }
   if (!use_fs_buffer) {
     // Update the buffer size.
+    // We already explicitly set the buffer size if we use the FS buffer
     buf->buffer_.Size(static_cast<size_t>(aligned_useful_len) + result.size());
   }
   return s;
@@ -207,7 +206,7 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
   return s;
 }
 
-// Copy data from src to dst buffer.
+// Copy data from src to overlap_buf_ buffer.
 void FilePrefetchBuffer::CopyDataToOverlapBuffer(BufferInfo* src,
                                                  uint64_t& offset,
                                                  size_t& length) {
@@ -262,9 +261,6 @@ void FilePrefetchBuffer::CopyDataToStagingBuffer(BufferInfo* src,
   // but by design, the dst buffer will always start from where we want to
   // start reading when we fill in the staging buffer
   dst->buffer_.Append(src->buffer_.BufferStart() + copy_offset, copy_len);
-  // memcpy(dst->buffer_.BufferStart() + dst->CurrentSize(),
-  //        src->buffer_.BufferStart() + copy_offset, copy_len);
-  // dst->buffer_.Size(dst->CurrentSize() + copy_len);
 }
 
 // Clear the buffers if it contains outdated data. Outdated data can be because
@@ -716,13 +712,7 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   }
 
   if (read_len1 > 0) {
-    if (use_fs_buffer) {
-      s = Read(buf, opts, reader, read_len1, aligned_useful_len1,
-               start_offset1);
-    } else {
-      s = Read(buf, opts, reader, read_len1, aligned_useful_len1,
-               start_offset1);
-    }
+    s = Read(buf, opts, reader, read_len1, aligned_useful_len1, start_offset1);
     if (!s.ok()) {
       AbortAllIOs();
       FreeAllBuffers();

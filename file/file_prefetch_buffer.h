@@ -214,7 +214,11 @@ class FilePrefetchBuffer {
     if (num_buffers_ > 1) {
       overlap_buf_ = new BufferInfo();
     }
-
+    // When num_buffers_ = 1 and we want to re-use the file system provided
+    // buffer, we need to handle the case where part of the user's read request
+    // overlaps with the buffer. We can copy the existing relevant data to
+    // staging_buf_, fetch the remaining data, and then copy the rest of the
+    // needed data into staging_buf_ to satisfy the user's request
     if (fs_ != nullptr &&
         CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer)) {
       staging_buf_ = new BufferInfo();

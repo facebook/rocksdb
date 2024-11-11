@@ -117,7 +117,7 @@ class AlignedBuffer {
     bufstart_ = new_buf;
     buf_.reset(new_buf);
     capacity_ = size;
-    cursize_ = size;  // requires special care
+    cursize_ = size;
     alignment_ = 1;
   }
 
