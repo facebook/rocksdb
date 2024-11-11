@@ -510,9 +510,9 @@ class FilePrefetchBuffer {
   }
 
   // Re-uses the file system allocated buffer to avoid an extra copy
-  IOStatus FSBufferRead(RandomAccessFileReader* reader, BufferInfo* buf,
-                        const IOOptions& opts, uint64_t offset, size_t n,
-                        Slice& result) {
+  IOStatus FSBufferDirectRead(RandomAccessFileReader* reader, BufferInfo* buf,
+                              const IOOptions& opts, uint64_t offset, size_t n,
+                              Slice& result) {
     FSReadRequest read_req;
     read_req.offset = offset;
     read_req.len = n;

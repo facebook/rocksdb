@@ -38,6 +38,9 @@ void FilePrefetchBuffer::PrepareBufferForRead(
     // new buffer is created.
     aligned_useful_offset_in_buf =
         Rounddown(static_cast<size_t>(offset - buf->offset_), alignment);
+    // aligned_useful_len is passed by reference and used to calculate how much
+    // data needs to be read, so it is needed regardless of whether
+    // use_fs_buffer is true
     aligned_useful_len = static_cast<uint64_t>(buf->CurrentSize()) -
                          aligned_useful_offset_in_buf;
     assert(aligned_useful_offset_in_buf % alignment == 0);
@@ -50,28 +53,30 @@ void FilePrefetchBuffer::PrepareBufferForRead(
       // this reset is not necessary, but just to be safe.
       aligned_useful_offset_in_buf = 0;
     }
-  }
 
-  if (use_fs_buffer) {
-    if (buf->DoesBufferContainData() && buf->IsOffsetInBuffer(offset)) {
-      use_staging_buffer = true;
+    if (use_fs_buffer) {
       // staging_buf_ is only used to return the next result to the caller.
       // Copy the useful data we already have inside buf
       // We want the "unaligned" useful length to avoid wasting space
+      use_staging_buffer = true;
       staging_buf_->ClearBuffer();
       staging_buf_->buffer_.Alignment(1);
       staging_buf_->buffer_.AllocateNewBuffer(req_len);
       // We already override the alignment to 1, so we are effectively still
       // getting the unaligned offset from the original request (before any
-      // rounding down)
+      // rounding down) even though we are using aligned_useful_len
       staging_buf_->offset_ = offset;
-      uint64_t offset_in_buf = offset - buf->offset_;
-      uint64_t useful_len = buf->CurrentSize() - offset_in_buf;
-      CopyDataToStagingBuffer(buf, offset, useful_len);
+      CopyDataToStagingBuffer(buf, offset, aligned_useful_len);
+      assert(staging_buf_->CurrentSize() == aligned_useful_len);
     }
-    // The later buffer allocation / tail refitting does not apply when
-    // use_fs_buffer is true We are going to re-use the file system allocated
-    // buffer, so any allocations here would be thrown away
+  }
+
+  // The later buffer allocation / tail refitting does not apply when
+  // use_fs_buffer is true. If we allocate a new buffer, we end up throwing it
+  // away later when we reuse file system allocated buffer. If we try to refit
+  // the tail in the main buffer, we don't have a place to put the next chunk of
+  // data provided by the file system
+  if (use_fs_buffer) {
     return;
   }
 
@@ -110,8 +115,8 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
   char* to_buf = nullptr;
   bool use_fs_buffer = UseFSBuffer(reader);
   if (use_fs_buffer) {
-    s = FSBufferRead(reader, buf, opts, start_offset + aligned_useful_len,
-                     read_len, result);
+    s = FSBufferDirectRead(reader, buf, opts, start_offset + aligned_useful_len,
+                           read_len, result);
   } else {
     to_buf = buf->buffer_.BufferStart() + aligned_useful_len;
     s = reader->Read(opts, start_offset + aligned_useful_len, read_len, &result,
@@ -247,12 +252,16 @@ void FilePrefetchBuffer::CopyDataToOverlapBuffer(BufferInfo* src,
   }
 }
 
+// Unlike CopyDataToOverlapBuffer:
+// - offset and length are passed by value and not modified
+// - direct call to memcpy is replaced by safer Append method
 void FilePrefetchBuffer::CopyDataToStagingBuffer(BufferInfo* src,
                                                  uint64_t offset,
                                                  size_t length) {
   if (length == 0) {
     return;
   }
+  assert(src->IsOffsetInBuffer(offset));
 
   uint64_t copy_offset = (offset - src->offset_);
   size_t copy_len = 0;
@@ -262,9 +271,6 @@ void FilePrefetchBuffer::CopyDataToStagingBuffer(BufferInfo* src,
   } else {
     copy_len = src->CurrentSize() - copy_offset;
   }
-  // When we call SetBuffer, we always set the cursize_ equal to capacity_
-  // but by design, the dst buffer will always start from where we want to
-  // start reading when we fill in the staging buffer
   staging_buf_->buffer_.Append(src->buffer_.BufferStart() + copy_offset,
                                copy_len);
 }

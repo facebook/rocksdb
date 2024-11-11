@@ -3389,6 +3389,8 @@ class FSBufferPrefetchTest : public testing::Test {
 };
 
 TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
+  // Check that the main buffer and the staging_buf_ are populated correctly
+  // while reading a 32 KiB file
   std::string fname = "fs-buffer-prefetch-stats-internals";
   Random rand(0);
   std::string content = rand.RandomString(32768);
