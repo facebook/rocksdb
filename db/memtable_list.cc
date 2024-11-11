@@ -766,6 +766,9 @@ void MemTableList::RemoveMemTablesOrRestoreFlags(
   if (s.ok() && !cfd->IsDropped()) {  // commit new state
     while (num_mem_to_flush-- > 0) {
       ReadOnlyMemTable* m = current_->memlist_.back();
+      // TODO: The logging can be redundant when we flush multiple memtables
+      // into one SST file. We should only check the edit_ of the oldest
+      // memtable in the group in that case.
       if (m->edit_.GetBlobFileAdditions().empty()) {
         ROCKS_LOG_BUFFER(log_buffer,
                          "[%s] Level-0 commit flush result of table #%" PRIu64
