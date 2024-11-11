@@ -23,6 +23,7 @@ package org.rocksdb.util;
 import java.nio.ByteBuffer;
 
 public class Varint32 {
+  @SuppressWarnings("PMD.AvoidLiteralsInIfCondition")
   public static void writeNaive(ByteBuffer buf, int value) {
     while (true) {
       if ((value & ~0x7FL) == 0) {
@@ -45,6 +46,7 @@ public class Varint32 {
    * @param buf
    * @param value
    */
+  @SuppressWarnings("PMD.AvoidLiteralsInIfCondition")
   public static void write(ByteBuffer buf, final int value) {
     if ((value & (0xFFFFFFFF << 7)) == 0) {
       buf.put((byte) value);

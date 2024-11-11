@@ -8,12 +8,13 @@ import java.util.Map;
 import org.rocksdb.util.Varint32;
 
 public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
+  @SuppressWarnings("PMD.NullAssignment")
   @Override
   public void close() {
     try {
       flush();
     } catch (RocksDBException e) {
-      throw new RuntimeException("Could not flush/close WriteBatch");
+      throw new RuntimeException("Could not flush/close WriteBatch", e);
     }
     if (nativeWrapper != null) {
       nativeWrapper.close();
