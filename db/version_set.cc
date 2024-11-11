@@ -2429,16 +2429,12 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   FdWithKeyRange* f = fp.GetNextFile();
 
   // Label the client ID for the read.
-  // TODO(tgriggs): allow arbitrary CFs.
+  // TODO(tgriggs): Don't do string parsing on the fast path. Just make a lookup.
   auto& thread_metadata = TG_GetThreadMetadata();
   if (cfd_->GetName() == "default") {
     thread_metadata.client_id = 1;
-  } else if (cfd_->GetName() == "cf2") {
-    thread_metadata.client_id = 2;
-  }  else if (cfd_->GetName() == "cf3") {
-    thread_metadata.client_id = 3;
-  }  else if (cfd_->GetName() == "cf4") {
-    thread_metadata.client_id = 4;
+  } else {
+    thread_metadata.client_id = std::stoi(cfd_->GetName().substr(2));       
   }
 
   while (f != nullptr) {

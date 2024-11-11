@@ -21,12 +21,8 @@ void BlockBasedTableIterator::Seek(const Slice& target) {
     thread_metadata.client_id = -2;
   } else if (cf_name.ToString() == "default") {
     thread_metadata.client_id = 1;
-  } else if (cf_name.ToString() == "cf2") {
-    thread_metadata.client_id = 2;
-  } else if (cf_name.ToString() == "cf3") {
-    thread_metadata.client_id = 3;
-  } else if (cf_name.ToString() == "cf4") {
-    thread_metadata.client_id = 4;
+  } else {
+    thread_metadata.client_id = std::stoi(cf_name.ToString().substr(2));       
   }
   SeekImpl(&target, true);
   thread_metadata.client_id = 0;
@@ -177,13 +173,10 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
       thread_metadata.client_id = -2;
     } else if (cf_name.ToString() == "default") {
       thread_metadata.client_id = 1;
-    } else if (cf_name.ToString() == "cf2") {
-      thread_metadata.client_id = 2;
-    } else if (cf_name.ToString() == "cf3") {
-      thread_metadata.client_id = 3;
-    } else if (cf_name.ToString() == "cf4") {
-      thread_metadata.client_id = 4;
+    } else {
+      thread_metadata.client_id = std::stoi(cf_name.ToString().substr(2));       
     }
+
     if (target) {
       block_iter_.Seek(*target);
     } else {
@@ -304,17 +297,12 @@ void BlockBasedTableIterator::Next() {
   assert(block_iter_points_to_real_block_);
   Slice cf_name = table_->get_rep()->cf_name_for_tracing();
   auto& thread_metadata = TG_GetThreadMetadata();
-
   if (cf_name.empty()) {
     thread_metadata.client_id = -2;
   } else if (cf_name.ToString() == "default") {
     thread_metadata.client_id = 1;
-  } else if (cf_name.ToString() == "cf2") {
-    thread_metadata.client_id = 2;
-  } else if (cf_name.ToString() == "cf3") {
-    thread_metadata.client_id = 3;
-  } else if (cf_name.ToString() == "cf4") {
-    thread_metadata.client_id = 4;
+  } else {
+    thread_metadata.client_id = std::stoi(cf_name.ToString().substr(2));       
   }
   block_iter_.Next();
   FindKeyForward();

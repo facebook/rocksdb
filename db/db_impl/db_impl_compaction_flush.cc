@@ -347,15 +347,10 @@ Status DBImpl::FlushMemTableToOutputFile(
   auto& thread_metadata = TG_GetThreadMetadata();
   if (cfd->GetName() == "default") {
     thread_metadata.client_id = 1;
-  } else if (cfd->GetName() == "cf2") {
-    thread_metadata.client_id = 2;
-  } else if (cfd->GetName() == "cf3") {
-    thread_metadata.client_id = 3;
-  } else if (cfd->GetName() == "cf4") {
-    thread_metadata.client_id = 4;
   } else {
-    thread_metadata.client_id = -3;
+    thread_metadata.client_id = std::stoi(cfd->GetName().substr(2));       
   }
+
   if (s.ok()) {
     s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
                       &switched_to_mempurge, &skip_set_bg_error,
