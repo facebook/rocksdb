@@ -3388,8 +3388,8 @@ class FSBufferPrefetchTest : public testing::Test {
   std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 };
 
-TEST_F(FSBufferPrefetchTest, FsBufferSyncReadaheadStats) {
-  std::string fname = "seek-with-block-cache-hit";
+TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
+  std::string fname = "fs-buffer-prefetch-stats-internals";
   Random rand(0);
   std::string content = rand.RandomString(32768);
   Write(fname, content);
@@ -3405,23 +3405,29 @@ TEST_F(FSBufferPrefetchTest, FsBufferSyncReadaheadStats) {
   FilePrefetchBuffer fpb(readahead_params, true, false, fs(), nullptr,
                          stats.get());
   Slice result;
-  // Simulate a seek of 4096 bytes at offset 0. Due to the readahead settings,
-  // it will do a read of offset 0 and length - (4096 + 8192) 12288.
+  // Read 4096 bytes at offset 0. Due to the readahead settings,
+  // it will do a read of offset 0 with length 4096 + 8192 = 12288.
   Status s;
   std::vector<std::pair<uint64_t, size_t>> buffer_info(1);
+  std::pair<uint64_t, size_t> staging_buffer_info;
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 0, 4096, &result, &s));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(stats->getTickerCount(PREFETCH_HITS), 0);
   ASSERT_EQ(stats->getTickerCount(PREFETCH_BYTES_USEFUL), 0);
   ASSERT_EQ(strncmp(result.data(), content.substr(0, 4096).c_str(), 4096), 0);
+  // Staging buffer is not used
+  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  ASSERT_EQ(staging_buffer_info.first, 0);
+  ASSERT_EQ(staging_buffer_info.second, 0);
+  // Main buffer contains the requested data + the 8192 of prefetched data
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   ASSERT_EQ(buffer_info[0].second, 4096 + 8192);
   ASSERT_EQ(buffer_info[0].first, 0);
 
   // Simulate a block cache hit
   fpb.UpdateReadPattern(4096, 4096, false);
-  // Now read some data that'll prefetch additional data from 12288 to 24576.
-  // (8192) +  8192 (readahead_size).
+  // We only have 0-12288 cached, so reading from 8192-16384 will trigger a
+  // prefetch up through 16384 + 8192 = 24576.
   ASSERT_TRUE(
       fpb.TryReadFromCache(IOOptions(), r.get(), 8192, 8192, &result, &s));
   ASSERT_EQ(s, Status::OK());
@@ -3429,12 +3435,17 @@ TEST_F(FSBufferPrefetchTest, FsBufferSyncReadaheadStats) {
   ASSERT_EQ(stats->getTickerCount(PREFETCH_BYTES_USEFUL), 4096);
   ASSERT_EQ(strncmp(result.data(), content.substr(8192, 8192).c_str(), 8192),
             0);
-  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  // Staging buffer reuses bytes 8192 to 12288
+  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  ASSERT_EQ(staging_buffer_info.first, 8192);
+  ASSERT_EQ(staging_buffer_info.second, 8192);
   // We spill to the staging buffer so the remaining buffer only has the
-  // prefetched part
+  // missing and prefetched part
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
   ASSERT_EQ(buffer_info[0].second, 12288);
   ASSERT_EQ(buffer_info[0].first, 12288);
 
+  // The main buffer has 12288-24576, so 12288-16384 is a cache hit.
   ASSERT_TRUE(
       fpb.TryReadFromCache(IOOptions(), r.get(), 12288, 4096, &result, &s));
   ASSERT_EQ(s, Status::OK());
@@ -3443,14 +3454,15 @@ TEST_F(FSBufferPrefetchTest, FsBufferSyncReadaheadStats) {
   ASSERT_EQ(strncmp(result.data(), content.substr(12288, 4096).c_str(), 4096),
             0);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
-  // We spill to the staging buffer so the remaining buffer only has the
-  // prefetched part
+  // Staging buffer does not get used
+  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  ASSERT_EQ(staging_buffer_info.first, 8192);
+  ASSERT_EQ(staging_buffer_info.second, 8192);
+  // Main buffer stays the same
   ASSERT_EQ(buffer_info[0].second, 12288);
   ASSERT_EQ(buffer_info[0].first, 12288);
 
-  // Now read some data with length doesn't align with aligment and it needs
-  // prefetching. Read from 16000 with length 10000 (i.e. requested end offset -
-  // 26000).
+  // Read from 16000-26000 (start and end do not meet normal alignment)
   ASSERT_TRUE(
       fpb.TryReadFromCache(IOOptions(), r.get(), 16000, 10000, &result, &s));
   ASSERT_EQ(s, Status::OK());
@@ -3458,6 +3470,10 @@ TEST_F(FSBufferPrefetchTest, FsBufferSyncReadaheadStats) {
   ASSERT_EQ(
       stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
       /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
+  // Staging buffer reuses bytes 16000 to 24576
+  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  ASSERT_EQ(staging_buffer_info.first, 16000);
+  ASSERT_EQ(staging_buffer_info.second, 10000);
   ASSERT_EQ(strncmp(result.data(), content.substr(16000, 10000).c_str(), 10000),
             0);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);

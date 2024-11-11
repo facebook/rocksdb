@@ -404,12 +404,21 @@ class FilePrefetchBuffer {
     }
   }
 
+  void TEST_GetStagingBufferOffsetandSize(
+      std::pair<uint64_t, size_t>& buffer_info) {
+    if (staging_buf_ != nullptr) {
+      buffer_info.first = staging_buf_->offset_;
+      buffer_info.second = staging_buf_->CurrentSize();
+    }
+  }
+
  private:
   // Calculates roundoff offset and length to be prefetched based on alignment
   // and data present in buffer_. It also allocates new buffer or refit tail if
   // required.
   void PrepareBufferForRead(BufferInfo* buf, size_t alignment, uint64_t offset,
-                            size_t req_len, size_t roundup_len, bool refit_tail,
+                            size_t req_offset, size_t req_len,
+                            size_t roundup_len, bool refit_tail,
                             uint64_t& aligned_useful_len, bool use_fs_buffer,
                             bool& use_staging_buffer);
 
@@ -494,6 +503,7 @@ class FilePrefetchBuffer {
            CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer);
   }
 
+  // Re-uses the file system allocated buffer to avoid an extra copy
   IOStatus FSBufferRead(RandomAccessFileReader* reader, BufferInfo* buf,
                         const IOOptions& opts, uint64_t offset, size_t n,
                         Slice& result) {
