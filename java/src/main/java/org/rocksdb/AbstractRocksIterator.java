@@ -26,10 +26,11 @@ import java.util.function.Function;
 public abstract class AbstractRocksIterator<P extends RocksObject>
     extends RocksObject implements RocksIteratorInterface {
   final P parent_;
-  final AtomicReference<Function<AbstractRocksIterator<P>, Boolean>> removeOnClosure_ = new AtomicReference<>();
+  final AtomicReference<Function<AbstractRocksIterator<P>, Boolean>> removeOnClosure_ =
+      new AtomicReference<>();
 
-  protected AbstractRocksIterator(final P parent,
-      final long nativeHandle, final Function<AbstractRocksIterator<P>, Boolean> removeOnClosure) {
+  protected AbstractRocksIterator(final P parent, final long nativeHandle,
+      final Function<AbstractRocksIterator<P>, Boolean> removeOnClosure) {
     super(nativeHandle);
     // parent must point to a valid RocksDB instance.
     assert (parent != null);
@@ -40,8 +41,7 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
     removeOnClosure_.set(removeOnClosure);
   }
 
-  protected AbstractRocksIterator(final P parent,
-                                  final long nativeHandle) {
+  protected AbstractRocksIterator(final P parent, final long nativeHandle) {
     this(parent, nativeHandle, null);
   }
 
