@@ -6,6 +6,7 @@
 package org.rocksdb;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 /**
@@ -20,12 +21,12 @@ import java.util.function.Function;
  * @param <P> The type of the Parent Object from which the Rocks Iterator was
  *          created. This is used by disposeInternal to avoid double-free
  *          issues with the underlying C++ object.
- * @see org.rocksdb.RocksObject
+ * @see RocksObject
  */
 public abstract class AbstractRocksIterator<P extends RocksObject>
     extends RocksObject implements RocksIteratorInterface {
   final P parent_;
-  final Function<AbstractRocksIterator<P>, Boolean> removeOnClosure_;
+  final AtomicReference<Function<AbstractRocksIterator<P>, Boolean>> removeOnClosure_ = new AtomicReference<>();
 
   protected AbstractRocksIterator(final P parent,
       final long nativeHandle, final Function<AbstractRocksIterator<P>, Boolean> removeOnClosure) {
@@ -36,7 +37,7 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
     // to guarantee that while a GC cycle starts RocksIterator instances
     // are freed prior to parent instances.
     parent_ = parent;
-    removeOnClosure_ = removeOnClosure;
+    removeOnClosure_.set(removeOnClosure);
   }
 
   protected AbstractRocksIterator(final P parent,
@@ -131,8 +132,9 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
   @Override
   public void close() {
     super.close();
-    if (removeOnClosure_ != null) {
-      removeOnClosure_.apply(this);
+    Function<AbstractRocksIterator<P>, Boolean> removeOnClosure = removeOnClosure_.getAndSet(null);
+    if (removeOnClosure != null) {
+      removeOnClosure.apply(this);
     }
   }
 
