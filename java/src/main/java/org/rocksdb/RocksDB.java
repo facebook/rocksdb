@@ -688,7 +688,7 @@ public class RocksDB extends RocksObject {
   public void close() {
     final List<RocksIterator> removeIterators = new ArrayList<>(ownedIterators);
     for (final RocksIterator rocksIterator : removeIterators) {
-      //The lambda supplied to rocksIterator on construction will remove it from ownedIterators
+      // The lambda supplied to rocksIterator on construction will remove it from ownedIterators
       rocksIterator.close();
     }
 
@@ -3360,7 +3360,7 @@ public class RocksDB extends RocksObject {
    */
   public RocksIterator newIterator() {
     return makeIterator(iterator(nativeHandle_, defaultColumnFamilyHandle_.nativeHandle_,
-            defaultReadOptions_.nativeHandle_));
+        defaultReadOptions_.nativeHandle_));
   }
 
   /**
@@ -3397,9 +3397,8 @@ public class RocksDB extends RocksObject {
    */
   public RocksIterator newIterator(
       final ColumnFamilyHandle columnFamilyHandle) {
-    return makeIterator(
-        iterator(
-            nativeHandle_, columnFamilyHandle.nativeHandle_, defaultReadOptions_.nativeHandle_));
+    return makeIterator(iterator(
+        nativeHandle_, columnFamilyHandle.nativeHandle_, defaultReadOptions_.nativeHandle_));
   }
 
   /**
@@ -3419,7 +3418,8 @@ public class RocksDB extends RocksObject {
    */
   public RocksIterator newIterator(final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions readOptions) {
-    return makeIterator(iterator(nativeHandle_, columnFamilyHandle.nativeHandle_, readOptions.nativeHandle_));
+    return makeIterator(
+        iterator(nativeHandle_, columnFamilyHandle.nativeHandle_, readOptions.nativeHandle_));
   }
 
   /**
@@ -4870,7 +4870,8 @@ public class RocksDB extends RocksObject {
    * @return the wrapped iterator
    */
   private RocksIterator makeIterator(final long nativeIterator) {
-    final RocksIterator rocksIterator = new RocksIterator(this, nativeIterator, ownedIterators::remove);
+    final RocksIterator rocksIterator =
+        new RocksIterator(this, nativeIterator, ownedIterators::remove);
     ownedIterators.add(rocksIterator);
 
     return rocksIterator;
