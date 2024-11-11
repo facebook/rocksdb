@@ -23,10 +23,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 void FilePrefetchBuffer::PrepareBufferForRead(
-    BufferInfo* buf, size_t alignment, uint64_t offset,
-    size_t unaligned_req_offset, size_t req_len, size_t roundup_len,
-    bool refit_tail, uint64_t& aligned_useful_len, bool use_fs_buffer,
-    bool& use_staging_buffer) {
+    BufferInfo* buf, size_t alignment, uint64_t offset, size_t req_len,
+    size_t roundup_len, bool refit_tail, uint64_t& aligned_useful_len,
+    bool use_fs_buffer, bool& use_staging_buffer) {
   uint64_t aligned_useful_offset_in_buf = 0;
   bool copy_data_to_new_buffer = false;
   // Check if requested bytes are in the existing buffer_.
@@ -54,8 +53,7 @@ void FilePrefetchBuffer::PrepareBufferForRead(
   }
 
   if (use_fs_buffer) {
-    if (buf->DoesBufferContainData() &&
-        buf->IsOffsetInBuffer(unaligned_req_offset)) {
+    if (buf->DoesBufferContainData() && buf->IsOffsetInBuffer(offset)) {
       use_staging_buffer = true;
       // staging_buf_ is only used to return the next result to the caller.
       // Copy the useful data we already have inside buf
@@ -63,12 +61,13 @@ void FilePrefetchBuffer::PrepareBufferForRead(
       staging_buf_->ClearBuffer();
       staging_buf_->buffer_.Alignment(1);
       staging_buf_->buffer_.AllocateNewBuffer(req_len);
-      // We also want the unaligned offset from the original request (before any
+      // We already override the alignment to 1, so we are effectively still
+      // getting the unaligned offset from the original request (before any
       // rounding down)
-      staging_buf_->offset_ = unaligned_req_offset;
-      uint64_t offset_in_buf = unaligned_req_offset - buf->offset_;
+      staging_buf_->offset_ = offset;
+      uint64_t offset_in_buf = offset - buf->offset_;
       uint64_t useful_len = buf->CurrentSize() - offset_in_buf;
-      CopyDataToStagingBuffer(buf, unaligned_req_offset, useful_len);
+      CopyDataToStagingBuffer(buf, offset, useful_len);
     }
     // The later buffer allocation / tail refitting does not apply when
     // use_fs_buffer is true We are going to re-use the file system allocated
@@ -420,7 +419,6 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
     size_t readahead_size, uint64_t& start_offset, uint64_t& end_offset,
     size_t& read_len, uint64_t& aligned_useful_len, bool use_fs_buffer,
     bool& use_staging_buffer) {
-  uint64_t unaligned_req_offset = start_offset;
   uint64_t updated_start_offset = Rounddown(start_offset, alignment);
   uint64_t updated_end_offset =
       Roundup(start_offset + length + readahead_size, alignment);
@@ -469,9 +467,9 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
 
   uint64_t roundup_len = end_offset - start_offset;
 
-  PrepareBufferForRead(buf, alignment, start_offset, unaligned_req_offset,
-                       length, roundup_len, refit_tail, aligned_useful_len,
-                       use_fs_buffer, use_staging_buffer);
+  PrepareBufferForRead(buf, alignment, start_offset, length, roundup_len,
+                       refit_tail, aligned_useful_len, use_fs_buffer,
+                       use_staging_buffer);
   assert(roundup_len >= aligned_useful_len);
 
   // Update the buffer offset.
@@ -1000,8 +998,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
       end_offset1 = offset_to_read + n;
       roundup_len1 = end_offset1 - start_offset1;
       bool use_staging_buffer = false;
-      PrepareBufferForRead(buf, alignment, start_offset1, offset, 0,
-                           roundup_len1, false, aligned_useful_len1, false,
+      PrepareBufferForRead(buf, alignment, start_offset1, 0, roundup_len1,
+                           false, aligned_useful_len1, false,
                            use_staging_buffer);
       assert(aligned_useful_len1 == 0);
       assert(roundup_len1 >= aligned_useful_len1);

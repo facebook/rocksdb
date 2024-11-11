@@ -417,8 +417,7 @@ class FilePrefetchBuffer {
   // and data present in buffer_. It also allocates new buffer or refit tail if
   // required.
   void PrepareBufferForRead(BufferInfo* buf, size_t alignment, uint64_t offset,
-                            size_t req_offset, size_t req_len,
-                            size_t roundup_len, bool refit_tail,
+                            size_t req_len, size_t roundup_len, bool refit_tail,
                             uint64_t& aligned_useful_len, bool use_fs_buffer,
                             bool& use_staging_buffer);
 
