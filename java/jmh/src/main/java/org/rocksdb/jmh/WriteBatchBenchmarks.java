@@ -204,10 +204,9 @@ public class WriteBatchBenchmarks {
     try (ColumnFamilyOptions columnFamilyOptions = new ColumnFamilyOptions()) {
       columnFamilyOptions //.setCompressionType(CompressionType.LZ4_COMPRESSION)
           .setLevelCompactionDynamicLevelBytes(true);
-      List<ColumnFamilyDescriptor> descriptors =
-          List.of(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, columnFamilyOptions),
-              new ColumnFamilyDescriptor(
-                  "cf2".getBytes(StandardCharsets.UTF_8), columnFamilyOptions));
+      List<ColumnFamilyDescriptor> descriptors = List.of(
+          new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, columnFamilyOptions),
+          new ColumnFamilyDescriptor("cf2".getBytes(StandardCharsets.UTF_8), columnFamilyOptions));
       List<ColumnFamilyHandle> cfHandles = new ArrayList<>(2);
       BlockBasedTableConfig tableFormatConfig = new BlockBasedTableConfig();
       tableFormatConfig.setBlockSize(16384L)

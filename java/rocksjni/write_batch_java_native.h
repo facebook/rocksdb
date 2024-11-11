@@ -49,13 +49,12 @@ class WriteBatchJavaNativeException : public std::exception {
     throw WriteBatchJavaNativeException(kStatusError);
   }
 
-  WriteBatchJavaNativeException(jint code) : kCode_(code) {};
-  WriteBatchJavaNativeException(const Status& status)
-      : kCode_(status.code()) {};
+  WriteBatchJavaNativeException(jint code) : kCode_(code){};
+  WriteBatchJavaNativeException(const Status& status) : kCode_(status.code()){};
   WriteBatchJavaNativeException(jint code, const std::string& message)
-      : kCode_(code), message_(message) {};
+      : kCode_(code), message_(message){};
   WriteBatchJavaNativeException(const std::string& message)
-      : kCode_(kStatusError), message_(message) {};
+      : kCode_(kStatusError), message_(message){};
 
   jint Code() const { return kCode_; }
 
@@ -82,7 +81,7 @@ class WriteBatchJavaNativeBuffer {
  public:
   WriteBatchJavaNativeBuffer(const Slice& slice)
       : slice_(slice.data(), slice.size()),
-        pos(sizeof(int64_t) + sizeof(int32_t)) {};
+        pos(sizeof(int64_t) + sizeof(int32_t)){};
 
   /**
    * @brief the sequence value is a fixed field at the start of the buffer
