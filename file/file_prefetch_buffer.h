@@ -490,14 +490,16 @@ class FilePrefetchBuffer {
     return true;
   }
 
-  // At least for now, need to check whether reader->file or fs_ are nullptr
-  // or the prefetch tests will fail
+  // Whether we reuse the file system provided buffer
   bool UseFSBuffer(RandomAccessFileReader* reader) {
     return reader->file() != nullptr && !reader->use_direct_io() &&
            fs_ != nullptr &&
            CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer);
   }
 
+  // When we are reusing the file system provided buffer, we are not concerned
+  // with alignment. However, quite a bit of prefetch code incorporates
+  // alignment, so we can put in 1 to keep the code simpler.
   size_t GetRequiredBufferAlignment(RandomAccessFileReader* reader) {
     if (UseFSBuffer(reader)) {
       return 1;

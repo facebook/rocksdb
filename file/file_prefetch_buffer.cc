@@ -200,7 +200,7 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
   return s;
 }
 
-// Copy data from src to overlap_buf_ buffer.
+// Copy data from src to overlap_buf_ or staging_buf_.
 void FilePrefetchBuffer::CopyDataToBuffer(BufferInfo* src, BufferInfo* dst,
                                           uint64_t& offset, size_t& length) {
   if (length == 0) {
@@ -443,6 +443,8 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
                              (end_offset - start_offset));
 }
 
+// If we are reusing the file system allocated buffer, and only some of the
+// requested data is in the buffer, we copy the relevant data to staging_buf_
 void FilePrefetchBuffer::HandlePartialFSBufferData(uint64_t offset,
                                                    size_t length,
                                                    bool& use_staging_buffer,
@@ -467,17 +469,13 @@ void FilePrefetchBuffer::HandlePartialFSBufferData(uint64_t offset,
 
   if (!buf->async_read_in_progress_ && buf->DoesBufferContainData() &&
       buf->IsOffsetInBuffer(offset) &&
-      offset + length > buf->offset_ + buf->CurrentSize()) {
-    // staging_buf_ is only used to return the next result to the caller.
-    // Copy the useful data we already have inside buf
-    // We want the "unaligned" useful length to avoid wasting space
+      buf->offset_ + buf->CurrentSize() < offset + length) {
+    // Allocated buffer is just enough to hold the result for the user
+    // Alignment does not matter here
     use_staging_buffer = true;
     staging_buf_->ClearBuffer();
     staging_buf_->buffer_.Alignment(1);
     staging_buf_->buffer_.AllocateNewBuffer(length);
-    // We already override the alignment to 1, so we are effectively still
-    // getting the unaligned offset from the original request (before any
-    // rounding down) even though we are using aligned_useful_len
     staging_buf_->offset_ = offset;
     CopyDataToBuffer(buf, staging_buf_, tmp_offset, tmp_length);
     UpdateStats(/*found_in_buffer=*/false, staging_buf_->CurrentSize());
@@ -730,15 +728,12 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
     }
   }
 
-  // Copy remaining requested bytes to overlap_buffer. No need to update stats
-  // as data is prefetched during this call.
+  // Copy remaining requested bytes to overlap_buf_ or staging_buf_. No need to
+  // update stats as data is prefetched during this call.
   if (copy_to_overlap_buffer && length > 0) {
     CopyDataToBuffer(buf, overlap_buf_, offset, length);
   } else if (use_staging_buffer && length > 0) {
-    uint64_t remaining_offset =
-        staging_buf_->offset_ + staging_buf_->CurrentSize();
-    size_t remaining_length = offset + length - buf->offset_;
-    CopyDataToBuffer(buf, staging_buf_, remaining_offset, remaining_length);
+    CopyDataToBuffer(buf, staging_buf_, offset, length);
   }
   return s;
 }
