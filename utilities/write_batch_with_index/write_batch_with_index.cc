@@ -35,7 +35,8 @@ struct WriteBatchWithIndex::Rep {
         overwrite_key(_overwrite_key),
         last_entry_offset(0),
         last_sub_batch_offset(0),
-        sub_batch_cnt(1) {}
+        sub_batch_cnt(1),
+        track_cf(false) {}
   ReadableWriteBatch write_batch;
   WriteBatchEntryComparator comparator;
   Arena arena;
@@ -48,6 +49,10 @@ struct WriteBatchWithIndex::Rep {
   size_t last_sub_batch_offset;
   // Total number of sub-batches in the write batch. Default is 1.
   size_t sub_batch_cnt;
+
+  bool track_cf;
+  // Tracks cf ids that have updates in this WBWI, and the count of updates.
+  std::unordered_map<uint32_t, uint32_t> cf_id_to_entry_count;
 
   // Remember current offset of internal write batch, which is used as
   // the starting offset of the next record.
@@ -166,10 +171,15 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
       new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id,
                                      key.data() - wb_data.data(), key.size());
   skip_list.Insert(index_entry);
+
+  if (track_cf) {
+    cf_id_to_entry_count[column_family_id]++;
+  }
 }
 
 void WriteBatchWithIndex::Rep::Clear() {
   write_batch.Clear();
+  cf_id_to_entry_count.clear();
   ClearIndex();
 }
 
@@ -1138,4 +1148,15 @@ const Comparator* WriteBatchWithIndexInternal::GetUserComparator(
   return ucmps.GetComparator(cf_id);
 }
 
+void WriteBatchWithIndex::SetTrackCFAndEntryCount(bool track) {
+  // Should be set when the wbwi contains no update.
+  assert(GetWriteBatch()->Count() == 0);
+  rep->track_cf = track;
+}
+
+const std::unordered_map<uint32_t, uint32_t>&
+WriteBatchWithIndex::GetColumnFamilyToEntryCount() const {
+  assert(rep->track_cf);
+  return rep->cf_id_to_entry_count;
+}
 }  // namespace ROCKSDB_NAMESPACE

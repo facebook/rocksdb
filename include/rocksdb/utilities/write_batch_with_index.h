@@ -350,6 +350,12 @@ class WriteBatchWithIndex : public WriteBatchBase {
   void SetMaxBytes(size_t max_bytes) override;
   size_t GetDataSize() const;
 
+  // Will track CF ID and entry count for subsequent writes.
+  // Should be enabled when WBWI is empty for accurate tracking.
+  void SetTrackCFAndEntryCount(bool track);
+  const std::unordered_map<uint32_t, uint32_t>& GetColumnFamilyToEntryCount()
+      const;
+
  private:
   friend class PessimisticTransactionDB;
   friend class WritePreparedTxn;
