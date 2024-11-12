@@ -3367,15 +3367,6 @@ class FSBufferPrefetchTest : public testing::Test {
         /*io_tracer=*/nullptr, stats_.get()));
   }
 
-  void AssertResult(const std::string& content,
-                    const std::vector<FSReadRequest>& reqs) {
-    for (const auto& r : reqs) {
-      ASSERT_OK(r.status);
-      ASSERT_EQ(r.len, r.result.size());
-      ASSERT_EQ(content.substr(r.offset, r.len), r.result.ToString());
-    }
-  }
-
   FileSystem* fs() { return fs_.get(); }
   Statistics* stats() { return stats_.get(); }
 
