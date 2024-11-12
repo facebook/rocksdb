@@ -1251,47 +1251,16 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeValue:
       case kTypeValuePreferredSeqno: {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
-
         if (type == kTypeValuePreferredSeqno) {
           v = ParsePackedValueForValue(v);
         }
 
-        *(s->status) = Status::OK();
-
-        if (!s->do_merge) {
-          // Preserve the value with the goal of returning it as part of
-          // raw merge operands to the user
-          // TODO(yanqin) update MergeContext so that timestamps information
-          // can also be retained.
-
-          merge_context->PushOperand(
-              v, s->inplace_update_support == false /* operand_pinned */);
-        } else if (*(s->merge_in_progress)) {
-          assert(s->do_merge);
-
-          if (s->value || s->columns) {
-            // `op_failure_scope` (an output parameter) is not provided (set to
-            // nullptr) since a failure must be propagated regardless of its
-            // value.
-            *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(),
-                MergeHelper::kPlainBaseValue, v, merge_context->GetOperands(),
-                s->logger, s->statistics, s->clock,
-                /* update_num_ops_stats */ true, /* op_failure_scope */ nullptr,
-                s->value, s->columns);
-          }
-        } else if (s->value) {
-          s->value->assign(v.data(), v.size());
-        } else if (s->columns) {
-          s->columns->SetPlainValue(v);
-        }
-
+        ReadOnlyMemTable::HandleTypeValue(
+            s->key->user_key(), v, s->inplace_update_support == false,
+            s->do_merge, *(s->merge_in_progress), merge_context,
+            s->merge_operator, s->clock, s->statistics, s->logger, s->status,
+            s->value, s->columns, s->is_blob_index);
         *(s->found_final_value) = true;
-
-        if (s->is_blob_index != nullptr) {
-          *(s->is_blob_index) = false;
-        }
-
         return false;
       }
       case kTypeWideColumnEntity: {
@@ -1348,25 +1317,10 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeDeletionWithTimestamp:
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
-        if (*(s->merge_in_progress)) {
-          if (s->value || s->columns) {
-            // `op_failure_scope` (an output parameter) is not provided (set to
-            // nullptr) since a failure must be propagated regardless of its
-            // value.
-            *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), MergeHelper::kNoBaseValue,
-                merge_context->GetOperands(), s->logger, s->statistics,
-                s->clock, /* update_num_ops_stats */ true,
-                /* op_failure_scope */ nullptr, s->value, s->columns);
-          } else {
-            // We have found a final value (a base deletion) and have newer
-            // merge operands that we do not intend to merge. Nothing remains
-            // to be done so assign status to OK.
-            *(s->status) = Status::OK();
-          }
-        } else {
-          *(s->status) = Status::NotFound();
-        }
+        ReadOnlyMemTable::HandleTypeDeletion(
+            s->key->user_key(), *(s->merge_in_progress), s->merge_context,
+            s->merge_operator, s->clock, s->statistics, s->logger, s->status,
+            s->value, s->columns);
         *(s->found_final_value) = true;
         return false;
       }

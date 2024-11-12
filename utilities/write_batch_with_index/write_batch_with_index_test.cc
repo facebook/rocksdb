@@ -9,11 +9,14 @@
 
 #include "rocksdb/utilities/write_batch_with_index.h"
 
+#include <db/db_test_util.h>
+
 #include <map>
 #include <memory>
 
 #include "db/column_family.h"
 #include "db/wide/wide_columns_helper.h"
+#include "memtable/wbwi_memtable.h"
 #include "port/stack_trace.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -3415,6 +3418,281 @@ TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
 }
 
 INSTANTIATE_TEST_CASE_P(WBWI, WriteBatchWithIndexTest, testing::Bool());
+
+std::string Get(const std::string& k, std::unique_ptr<WBWIMemTable>& wbwi_mem,
+                SequenceNumber snapshot_seq, bool* found_final_value) {
+  LookupKey lkey(k, snapshot_seq);
+  std::string val;
+  SequenceNumber max_range_del_seqno = 0;
+  SequenceNumber out_seqno = 0;
+  bool is_blob_index = false;
+  Status s;
+  *found_final_value = wbwi_mem->Get(
+      lkey, &val, nullptr, nullptr, &s, nullptr, &max_range_del_seqno,
+      &out_seqno, ReadOptions(), true, nullptr, &is_blob_index, true);
+  if (s.ok()) {
+    if (*found_final_value) {
+      EXPECT_FALSE(val.empty());
+      return val;
+    }
+    return "NOT_FOUND";
+  }
+  EXPECT_TRUE(s.IsNotFound());
+  EXPECT_TRUE(*found_final_value);
+  return "NOT_FOUND";
+}
+
+class WBWIMemTableTest : public testing::Test {};
+
+TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
+  // Mini stress test for read.
+  // Do random 10000 put and delete operations then do some overwrite.
+  // Keep track of expected state, then verify with Get, MultiGet, and Iterator.
+  const Comparator* cmp = BytewiseComparator();
+  Options opts;
+  ImmutableOptions immutable_opts(opts);
+  MutableCFOptions mutable_cf_options(opts);
+
+  Random rnd(301);
+  auto wbwi = std::make_shared<WriteBatchWithIndex>(cmp, 0, true, 0, 0);
+  std::vector<std::pair<std::string, std::string>> expected;
+  expected.resize(10000);
+  for (int i = 0; i < 10000; ++i) {
+    // Leave a non-existing key 9999 in between existing keys to test read.
+    std::string key = i < 9999 ? DBTestBase::Key(i) : DBTestBase::Key(i + 1);
+    bool del = rnd.OneIn(2);
+    std::string val = del ? "NOT_FOUND" : rnd.RandomString(50);
+    expected[i] = std::make_pair(key, val);
+  }
+  // Random insertion order
+  RandomShuffle(expected.begin(), expected.end());
+  std::unique_ptr<WBWIMemTable> wbwi_mem{
+      new WBWIMemTable(wbwi, cmp,
+                       /*cf_id=*/0, &immutable_opts, &mutable_cf_options)};
+  ASSERT_TRUE(wbwi_mem->IsEmpty());
+  constexpr SequenceNumber visible_seq = 3;
+  constexpr SequenceNumber non_visible_seq = 1;
+  constexpr SequenceNumber assigned_seq = 2;
+  wbwi_mem->SetGlobalSequenceNumber(assigned_seq);
+
+  bool found_final_value = false;
+  for (const auto& [key, val] : expected) {
+    if (val == "NOT_FOUND") {
+      if (rnd.OneIn(2)) {
+        ASSERT_OK(wbwi->SingleDelete(key));
+      } else {
+        ASSERT_OK(wbwi->Delete(key));
+      }
+    } else {
+      ASSERT_OK(wbwi->Put(key, val));
+    }
+    found_final_value = false;
+    // We are writing to wbwi after WBWIMemtable is created. This won't
+    // happen with normal usage, but we just use the hack for testing here.
+    ASSERT_TRUE(val == Get(key, wbwi_mem, visible_seq, &found_final_value));
+    ASSERT_TRUE(found_final_value);
+  }
+  ASSERT_FALSE(wbwi_mem->IsEmpty());
+
+  // Some data with same key in another CF
+  ColumnFamilyHandleImplDummy meta_cf(/*id=*/1, BytewiseComparator());
+  ASSERT_OK(wbwi->Put(&meta_cf, DBTestBase::Key(0), "foo"));
+
+  RandomShuffle(expected.begin(), expected.end());
+  // overwrites
+  for (size_t i = 0; i < 2000; ++i) {
+    // We don't expect mixing SD and DEL, or issue multiple SD consecutively in
+    // a DB. Read from WBWI should still work so we do it here to keep the test
+    // simple.
+    if (rnd.OneIn(2)) {
+      std::string val = rnd.RandomString(100);
+      expected[i].second = val;
+      ASSERT_OK(wbwi->Put(expected[i].first, val));
+    } else {
+      expected[i].second = "NOT_FOUND";
+      if (rnd.OneIn(2)) {
+        ASSERT_OK(wbwi->SingleDelete(expected[i].first));
+      } else {
+        ASSERT_OK(wbwi->Delete(expected[i].first));
+      }
+    }
+    found_final_value = false;
+    ASSERT_TRUE(expected[i].second == Get(expected[i].first, wbwi_mem,
+                                          visible_seq, &found_final_value));
+    ASSERT_TRUE(found_final_value);
+  }
+  // Get a non-existing key
+  found_final_value = false;
+  ASSERT_EQ("NOT_FOUND", Get("foo", wbwi_mem, visible_seq, &found_final_value));
+  ASSERT_FALSE(found_final_value);
+  ASSERT_EQ("NOT_FOUND", Get(DBTestBase::Key(9999), wbwi_mem, visible_seq,
+                             &found_final_value));
+  ASSERT_FALSE(found_final_value);
+  // Get with a non-visible snapshot
+  found_final_value = false;
+  ASSERT_EQ("NOT_FOUND", Get(DBTestBase::Key(0), wbwi_mem, non_visible_seq,
+                             &found_final_value));
+  ASSERT_FALSE(found_final_value);
+  // Get existing keys
+  RandomShuffle(expected.begin(), expected.end());
+  for (const auto& [key, val] : expected) {
+    found_final_value = false;
+    ASSERT_TRUE(val == Get(key, wbwi_mem, visible_seq, &found_final_value));
+    ASSERT_TRUE(found_final_value);
+  }
+
+  // MultiGet
+  int batch_size = 30;
+  for (int i = 0; i < 10000; i += batch_size) {
+    for (uint64_t read_seq : {non_visible_seq, visible_seq}) {
+      autovector<KeyContext> key_context;
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+      sorted_keys.resize(batch_size);
+      std::vector<PinnableSlice> values(batch_size);
+      std::vector<Status> statuses(batch_size);
+      std::vector<Slice> key_slice(batch_size);
+      std::vector<std::string> key_str(batch_size);
+      for (int j = 0; j < batch_size; ++j) {
+        if (i + j >= 10000) {
+          // read non-existing keys
+          // the last key in expected is 10000
+          key_str[i + j - 10000] = DBTestBase::Key(i + j + 1);
+          key_slice[j] = key_str[i + j - 10000];
+        } else {
+          key_slice[j] = expected[i + j].first;
+        }
+        key_context.emplace_back(/*col_family=*/nullptr, key_slice[j],
+                                 &values[j], /*cols=*/nullptr, /*ts=*/nullptr,
+                                 &statuses[j]);
+      }
+      for (int j = 0; j < batch_size; ++j) {
+        sorted_keys[j] = &key_context[j];
+      }
+      std::sort(sorted_keys.begin(), sorted_keys.begin() + batch_size,
+                [](const KeyContext* a, const KeyContext* b) {
+                  return a->key->compare(*b->key) < 0;
+                });
+
+      MultiGetContext ctx(&sorted_keys, 0, batch_size, read_seq, ReadOptions(),
+                          immutable_opts.fs.get(),
+                          immutable_opts.statistics.get());
+      MultiGetRange range = ctx.GetMultiGetRange();
+      wbwi_mem->MultiGet(ReadOptions(), &range, /*callback=*/nullptr,
+                         /*immutable_memtable=*/true);
+      for (int j = 0; j < batch_size; ++j) {
+        if (read_seq != visible_seq || i + j >= 10000) {
+          // Nothing is found in WBWIMemtable, status and value are not set.
+          ASSERT_OK(statuses[j]);
+          ASSERT_TRUE(values[j].empty());
+        } else if (expected[i + j].second == "NOT_FOUND") {
+          ASSERT_TRUE(statuses[j].IsNotFound());
+        } else {
+          ASSERT_OK(statuses[j]);
+          ASSERT_EQ(values[j], expected[i + j].second);
+        }
+      }
+    }
+  }
+
+  // Sort keys to compare with iterator
+  std::sort(expected.begin(), expected.end(),
+            [](const std::pair<std::string, std::string>& a,
+               const std::pair<std::string, std::string>& b) {
+              return a.first < b.first;
+            });
+  Arena arena;
+  InternalIterator* iter =
+      wbwi_mem->NewIterator(ReadOptions(), /*seqno_to_time_mapping=*/nullptr,
+                            &arena, /*prefix_extractor=*/nullptr);
+  ASSERT_OK(iter->status());
+
+  auto verify_iter_at = [&](size_t idx) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(ExtractUserKey(iter->key()), expected[idx].first);
+
+    SequenceNumber seq;
+    ValueType val_type;
+    UnPackSequenceAndType(ExtractInternalKeyFooter(iter->key()), &seq,
+                          &val_type);
+    ASSERT_EQ(seq, assigned_seq);
+    if (expected[idx].second == "NOT_FOUND") {
+      ASSERT_TRUE(val_type == kTypeDeletion || val_type == kTypeSingleDeletion);
+    } else {
+      ASSERT_EQ(val_type, kTypeValue);
+      ASSERT_EQ(iter->value(), expected[idx].second);
+    }
+  };
+
+  // Seek then next, prev
+  IterKey seek_key;
+  for (int i = 0; i < 1000; i++) {
+    uint32_t key_idx = rnd.Uniform(10000);
+    for (bool seek_for_prev : {false, true}) {
+      if (seek_for_prev) {
+        seek_key.SetInternalKey(expected[key_idx].first, 0,
+                                kValueTypeForSeekForPrev);
+        iter->SeekForPrev(seek_key.GetInternalKey());
+      } else {
+        seek_key.SetInternalKey(expected[key_idx].first, visible_seq,
+                                kValueTypeForSeek);
+        iter->Seek(seek_key.GetInternalKey());
+      }
+      verify_iter_at(key_idx);
+      uint32_t j = key_idx + 1;
+      for (; j < std::min(10000u, key_idx + 5); ++j) {
+        iter->Next();
+        verify_iter_at(j);
+      }
+      for (j -= 2; j >= key_idx; --j) {
+        iter->Prev();
+        verify_iter_at(j);
+      }
+    }
+  }
+
+  iter->SeekToFirst();
+  for (size_t i = 0; i < expected.size(); ++i) {
+    verify_iter_at(i);
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+  iter->SeekToLast();
+  for (int i = static_cast<int>(expected.size() - 1); i >= 0; --i) {
+    verify_iter_at(i);
+    iter->Prev();
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+
+  // Read from another CF
+  std::unique_ptr<WBWIMemTable> meta_wbwi_mem{new WBWIMemTable(
+      wbwi, cmp, /*cf_id=*/1, &immutable_opts, &mutable_cf_options)};
+  meta_wbwi_mem->SetGlobalSequenceNumber(assigned_seq);
+  found_final_value = false;
+  ASSERT_TRUE("foo" == Get(DBTestBase::Key(0), meta_wbwi_mem, visible_seq,
+                           &found_final_value));
+  ASSERT_TRUE(found_final_value);
+  found_final_value = false;
+  ASSERT_TRUE("NOT_FOUND" == Get(DBTestBase::Key(1), meta_wbwi_mem, visible_seq,
+                                 &found_final_value));
+  ASSERT_FALSE(found_final_value);
+  // Deleting one memtable should not affect another memtable with the same wbwi
+  wbwi_mem.reset();
+  // allocated by arena
+  iter->~InternalIterator();
+  iter = meta_wbwi_mem->NewIterator(ReadOptions(), nullptr, &arena, nullptr);
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(ExtractUserKey(iter->key()), DBTestBase::Key(0));
+  ASSERT_EQ(iter->value(), "foo");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+  iter->~InternalIterator();
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
