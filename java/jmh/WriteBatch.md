@@ -497,8 +497,7 @@ WriteBatchBenchmarks.putWriteBatchNativeI    10000000         16                
 WriteBatchBenchmarks.putWriteBatchNativeI    10000000         16                20         4096                 1048576        false  thrpt    5   608036.465 ± 148801.987  ops/s
 
 It turns out that the *indirect* version (`putWriteBatchNativeI`) uses `JNI.GetByteArrayElements()` and that does a copy in the tests I am running; I have previously seen it not do
-a copy. If we use a critical section instead (and there are difficulties in general with this, see the JNI documentation etc) we get back the performance that has gone
-missing.
+a copy. Might be a size thing ? If we use a critical section instead (and there are difficulties in general with this, see the JNI documentation etc) we get back the performance that has gone missing. This matters particularly because we are passing a large array, which we don't need the entirety of, so there is lots of unncessary copying.
 
 ```
 java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatch -p keySize="16" -p valueSize="4096" -p keyCount="10000000" -p numOpsPerBatch="20" -p writeBatchAllocation="131072","1048576" -p writeToDB="false"
