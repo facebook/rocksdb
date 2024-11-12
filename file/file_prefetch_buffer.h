@@ -491,10 +491,13 @@ class FilePrefetchBuffer {
   }
 
   // Whether we reuse the file system provided buffer
+  // Until we also handle the async read case, only enable this optimization
+  // for the synchronous case when num_buffers_ = 1.
   bool UseFSBuffer(RandomAccessFileReader* reader) {
     return reader->file() != nullptr && !reader->use_direct_io() &&
            fs_ != nullptr &&
-           CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer);
+           CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer) &&
+           num_buffers_ == 1;
   }
 
   // When we are reusing the file system provided buffer, we are not concerned

@@ -3292,12 +3292,13 @@ TEST_F(FilePrefetchBufferTest, SyncReadaheadStats) {
 
 class FSBufferPrefetchTest : public testing::Test {
  public:
-  class WrapFS : public FileSystemWrapper {
+  // Mock file system supporting the kFSBuffer buffer reuse operation
+  class BufferReuseFS : public FileSystemWrapper {
    public:
-    explicit WrapFS(const std::shared_ptr<FileSystem>& _target)
+    explicit BufferReuseFS(const std::shared_ptr<FileSystem>& _target)
         : FileSystemWrapper(_target) {}
-    ~WrapFS() override {}
-    const char* Name() const override { return "WrapFS"; }
+    ~BufferReuseFS() override {}
+    const char* Name() const override { return "BufferReuseFS"; }
 
     IOStatus NewRandomAccessFile(const std::string& fname,
                                  const FileOptions& opts,
@@ -3342,7 +3343,7 @@ class FSBufferPrefetchTest : public testing::Test {
   void SetUp() override {
     SetupSyncPointsToMockDirectIO();
     env_ = Env::Default();
-    fs_ = std::make_shared<WrapFS>(FileSystem::Default());
+    fs_ = std::make_shared<BufferReuseFS>(FileSystem::Default());
     test_dir_ = test::PerThreadDBPath("fs_buffer_prefetch_test");
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
     stats_ = CreateDBStatistics();
@@ -3372,7 +3373,7 @@ class FSBufferPrefetchTest : public testing::Test {
 
  private:
   Env* env_;
-  std::shared_ptr<WrapFS> fs_;
+  std::shared_ptr<BufferReuseFS> fs_;
   std::string test_dir_;
   std::shared_ptr<Statistics> stats_;
 

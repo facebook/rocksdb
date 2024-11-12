@@ -58,7 +58,8 @@ void FilePrefetchBuffer::PrepareBufferForRead(
   // use_fs_buffer is true. If we allocate a new buffer, we end up throwing it
   // away later when we reuse file system allocated buffer. If we try to refit
   // the tail in the main buffer, we don't have a place to put the next chunk of
-  // data provided by the file system
+  // data provided by the file system (without performing another copy, which we
+  // are trying to avoid in the first place)
   if (use_fs_buffer) {
     return;
   }
@@ -455,9 +456,6 @@ void FilePrefetchBuffer::HandlePartialFSBufferData(uint64_t offset,
   }
   BufferInfo* buf = GetFirstBuffer();
 
-  // Check if the first buffer has the required offset and the async read is
-  // still in progress. This should only happen if a prefetch was initiated
-  // by Seek, but the next access is at another offset.
   if (buf->async_read_in_progress_ &&
       buf->IsOffsetInBufferWithAsyncProgress(offset)) {
     PollIfNeeded(offset, length);

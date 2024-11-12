@@ -113,7 +113,7 @@ class AlignedBuffer {
     alignment_ = alignment;
   }
 
-  // Points the buffer to new_buf without allocating a new buffer or performing
+  // Points the buffer to new_buf without allocating extra memory or performing
   // any data copies. This method is called when we want to reuse the buffer
   // provided by the file system
   void SetBuffer(char* new_buf, size_t size) {
