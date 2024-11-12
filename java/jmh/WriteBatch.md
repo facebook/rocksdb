@@ -481,7 +481,7 @@ WriteBatchBenchmarks.putWriteBatchNative      10000000         16               
 WriteBatchBenchmarks.putWriteBatchNativeBB    10000000         16                20         4096                  131072        false  thrpt    5   775264.705 ±  21106.839  ops/s
 WriteBatchBenchmarks.putWriteBatchNativeBB    10000000         16                20         4096                 1048576        false  thrpt    5   128399.860 ±   9716.046  ops/s
 
-Performance bugfix for native direct buffers:
+Performance bugfix for native direct buffers, and re-run the test above (names have changed):
 ```
 java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatch -p keySize="16" -p valueSize="4096" -p keyCount="10000000" -p numOpsPerBatch="20" -p writeBatchAllocation="131072","1048576" -p writeToDB="false"
 ```
@@ -495,6 +495,24 @@ WriteBatchBenchmarks.putWriteBatchNativeD    10000000         16                
 WriteBatchBenchmarks.putWriteBatchNativeD    10000000         16                20         4096                 1048576        false  thrpt    5  3866666.948 ± 527815.669  ops/s
 WriteBatchBenchmarks.putWriteBatchNativeI    10000000         16                20         4096                  131072        false  thrpt    5  1656172.994 ±  65982.655  ops/s
 WriteBatchBenchmarks.putWriteBatchNativeI    10000000         16                20         4096                 1048576        false  thrpt    5   608036.465 ± 148801.987  ops/s
+
+It turns out that the *indirect* version (`putWriteBatchNativeI`) uses `JNI.GetByteArrayElements()` and that does a copy in the tests I am running; I have previously seen it not do
+a copy. If we use a critical section instead (and there are difficulties in general with this, see the JNI documentation etc) we get back the performance that has gone
+missing.
+
+```
+java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatch -p keySize="16" -p valueSize="4096" -p keyCount="10000000" -p numOpsPerBatch="20" -p writeBatchAllocation="131072","1048576" -p writeToDB="false"
+```
+
+Benchmark                                  (keyCount)  (keySize)  (numOpsPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt        Score         Error  Units
+WriteBatchBenchmarks.putWriteBatchD          10000000         16                20         4096                  131072        false  thrpt    5  1749305.054 ±   31228.287  ops/s
+WriteBatchBenchmarks.putWriteBatchD          10000000         16                20         4096                 1048576        false  thrpt    5  1739204.577 ±   34841.845  ops/s
+WriteBatchBenchmarks.putWriteBatchI          10000000         16                20         4096                  131072        false  thrpt    5  1330461.139 ±   30573.622  ops/s
+WriteBatchBenchmarks.putWriteBatchI          10000000         16                20         4096                 1048576        false  thrpt    5  1344626.672 ±   66659.690  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD    10000000         16                20         4096                  131072        false  thrpt    5  3654634.857 ±  792083.344  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD    10000000         16                20         4096                 1048576        false  thrpt    5  2978031.325 ±  562536.419  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI    10000000         16                20         4096                  131072        false  thrpt    5  3053646.626 ±  521910.691  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI    10000000         16                20         4096                 1048576        false  thrpt    5  3930996.978 ± 2093063.739  ops/s
 
 
 

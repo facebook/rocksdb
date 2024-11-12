@@ -63,12 +63,13 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNativeArray(
     wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchJavaNative*>(jwb_handle);
   }
 
-  jbyte* buf = env->GetByteArrayElements(jbuf, nullptr);
+  jboolean is_copy;
+  jbyte* buf = reinterpret_cast<jbyte *>(env->GetPrimitiveArrayCritical(jbuf, &is_copy));
   if (env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError
     return -1L;
   }
-
+  
   try {
     wb->Append(
         ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(buf), jbuf_len));
@@ -77,7 +78,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_flushWriteBatchJavaNativeArray(
     return e.Code();
   }
 
-  env->ReleaseByteArrayElements(jbuf, buf, JNI_ABORT);
+  env->ReleasePrimitiveArrayCritical(jbuf, buf, JNI_ABORT);
 
   return GET_CPLUSPLUS_POINTER(wb);
 }
@@ -140,12 +141,13 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeArray(
     wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatchJavaNative*>(jwb_handle);
   }
 
-  jbyte* buf = env->GetByteArrayElements(jbuf, nullptr);
+  jboolean is_copy;
+  jbyte* buf = reinterpret_cast<jbyte *>(env->GetPrimitiveArrayCritical(jbuf, &is_copy));
   if (env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError
     return -1L;
   }
-
+  
   try {
     wb->Append(
         ROCKSDB_NAMESPACE::Slice(reinterpret_cast<char*>(buf), jbuf_len));
@@ -154,7 +156,7 @@ jlong Java_org_rocksdb_WriteBatchJavaNative_writeWriteBatchJavaNativeArray(
     return e.Code();
   }
 
-  env->ReleaseByteArrayElements(jbuf, buf, JNI_ABORT);
+  env->ReleasePrimitiveArrayCritical(jbuf, buf, JNI_ABORT);
 
   ROCKSDB_NAMESPACE::Status s = db->Write(*write_options, wb);
 

@@ -221,10 +221,11 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
 
     buffer.flip();
     if (buffer.isDirect()) {
+      ByteBuffer slice = buffer.slice();
       setNativeHandle(
           writeWriteBatchJavaNativeDirect(db.getNativeHandle(), writeOptions.getNativeHandle(),
               // assert position == 0 (we just flipped)
-              getNativeHandle(), buffer.capacity(), buffer, buffer.position(), buffer.limit()));
+              getNativeHandle(), buffer.capacity(), slice, 0, slice.limit()));
     } else {
       setNativeHandle(
           writeWriteBatchJavaNativeArray(db.getNativeHandle(), writeOptions.getNativeHandle(),
