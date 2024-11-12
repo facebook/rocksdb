@@ -3415,8 +3415,8 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   ASSERT_EQ(staging_buffer_info.second, 0);
   // Main buffer contains the requested data + the 8192 of prefetched data
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
-  ASSERT_EQ(buffer_info[0].second, 4096 + 8192);
   ASSERT_EQ(buffer_info[0].first, 0);
+  ASSERT_EQ(buffer_info[0].second, 4096 + 8192);
 
   // Simulate a block cache hit
   fpb.UpdateReadPattern(4096, 4096, false);
@@ -3436,8 +3436,8 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   // We spill to the staging buffer so the remaining buffer only has the
   // missing and prefetched part
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
-  ASSERT_EQ(buffer_info[0].second, 12288);
   ASSERT_EQ(buffer_info[0].first, 12288);
+  ASSERT_EQ(buffer_info[0].second, 12288);
 
   // The main buffer has 12288-24576, so 12288-16384 is a cache hit.
   ASSERT_TRUE(
@@ -3453,8 +3453,8 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   ASSERT_EQ(staging_buffer_info.first, 8192);
   ASSERT_EQ(staging_buffer_info.second, 8192);
   // Main buffer stays the same
-  ASSERT_EQ(buffer_info[0].second, 12288);
   ASSERT_EQ(buffer_info[0].first, 12288);
+  ASSERT_EQ(buffer_info[0].second, 12288);
 
   // Read from 16000-26000 (start and end do not meet normal alignment)
   ASSERT_TRUE(
@@ -3473,8 +3473,88 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   // Even if you try to readahead to offset 16000 + 10000 + 8192, there are only
   // 32768 bytes in the original file
-  ASSERT_EQ(buffer_info[0].second, 8192);
   ASSERT_EQ(buffer_info[0].first, 12288 + 12288);
+  ASSERT_EQ(buffer_info[0].second, 8192);
+}
+
+TEST_F(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
+  // Check that the main buffer and the staging_buf_ are populated correctly
+  // while reading with no regard to alignment
+  std::string fname = "fs-buffer-prefetch-unaligned-reads";
+  Random rand(0);
+  std::string content = rand.RandomString(1000);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 5;
+  readahead_params.max_readahead_size = 100;
+  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), nullptr,
+                         stats.get());
+  Slice result;
+  // Read 3 bytes at offset 5
+  Status s;
+  std::vector<std::pair<uint64_t, size_t>> buffer_info(1);
+  std::pair<uint64_t, size_t> staging_buffer_info;
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 5, 3, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(5, 3).c_str(), 3), 0);
+  // Staging buffer is not used (cold start miss)
+  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  ASSERT_EQ(staging_buffer_info.first, 0);
+  ASSERT_EQ(staging_buffer_info.second, 0);
+  // Main buffer contains the requested data + 5 of prefetched data (5 - 13)
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  ASSERT_EQ(buffer_info[0].first, 5);
+  ASSERT_EQ(buffer_info[0].second, 3 + 5);
+
+  // Complete miss: read 7 bytes at offset 16
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 16, 7, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(16, 7).c_str(), 7), 0);
+  // Staging buffer is not used (no partial hit)
+  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  ASSERT_EQ(staging_buffer_info.first, 0);
+  ASSERT_EQ(staging_buffer_info.second, 0);
+  // Main buffer contains the requested data + 10 of prefetched data (16 - 33)
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  ASSERT_EQ(buffer_info[0].first, 16);
+  ASSERT_EQ(buffer_info[0].second, 7 + 10);
+
+  // Go backwards: TryReadFromCacheUntracked returns false since the offset
+  // requested is less than the start of our buffer
+  ASSERT_FALSE(fpb.TryReadFromCache(IOOptions(), r.get(), 10, 8, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+
+  // Complete hit
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 27, 6, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(27, 6).c_str(), 6), 0);
+  // Staging buffer still not used
+  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  ASSERT_EQ(staging_buffer_info.first, 0);
+  ASSERT_EQ(staging_buffer_info.second, 0);
+  // Main buffer unchanged
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  ASSERT_EQ(buffer_info[0].first, 16);
+  ASSERT_EQ(buffer_info[0].second, 7 + 10);
+
+  // Partial hit (overlapping with end of main buffer)
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 30, 20, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(30, 20).c_str(), 20), 0);
+  // Staging buffer is used because we already had 30-33
+  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  ASSERT_EQ(staging_buffer_info.first, 30);
+  ASSERT_EQ(staging_buffer_info.second, 20);
+  // Main buffer has up to offset 50 + 20 of prefetched data
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  ASSERT_EQ(buffer_info[0].first, 33);
+  ASSERT_EQ(buffer_info[0].second, (50 - 33) + 20);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
