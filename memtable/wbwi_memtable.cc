@@ -42,7 +42,6 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
       GetInternalKeySeqno(key.internal_key());
   std::unique_ptr<InternalIterator> iter{NewIterator()};
   iter->Seek(key.internal_key());
-  std::vector<WriteEntry> entries;
   const Slice lookup_user_key = key.user_key();
 
   while (iter->Valid() && comparator_->EqualWithoutTimestamp(

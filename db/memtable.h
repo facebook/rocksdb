@@ -379,7 +379,7 @@ class ReadOnlyMemTable {
   }
 
   static void HandleTypeValue(
-      const Slice& lookup_user_key, const Slice& value, bool val_pinned,
+      const Slice& lookup_user_key, const Slice& value, bool value_pinned,
       bool do_merge, bool merge_in_progress, MergeContext* merge_context,
       const MergeOperator* merge_operator, SystemClock* clock,
       Statistics* statistics, Logger* info_log, Status* s,
@@ -392,7 +392,7 @@ class ReadOnlyMemTable {
       // raw merge operands to the user
       // TODO(yanqin) update MergeContext so that timestamps information
       // can also be retained.
-      merge_context->PushOperand(value, val_pinned);
+      merge_context->PushOperand(value, value_pinned);
     } else if (merge_in_progress) {
       assert(do_merge);
       // `op_failure_scope` (an output parameter) is not provided (set to
