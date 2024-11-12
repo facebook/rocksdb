@@ -467,5 +467,36 @@ WriteBatchBenchmarks.putWriteBatchNative      10000000         16               
 WriteBatchBenchmarks.putWriteBatchNativeBB    10000000         16                20         4096                  131072        false  thrpt    5   754858.475 ±  33532.008  ops/s
 WriteBatchBenchmarks.putWriteBatchNativeBB    10000000         16                20         4096                  131072         true  thrpt    5   155553.572 ± 161342.629  ops/s
 
+Post discussion w/Adam re what approach 2 really means. There are allocation problems with the bug buffers:
+```
+java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatch -p keySize="16" -p valueSize="4096" -p keyCount="10000000" -p numOpsPerBatch="20" -p writeBatchAllocation="131072","1048576" -p writeToDB="false"
+```
+Benchmark                                   (keyCount)  (keySize)  (numOpsPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt        Score        Error  Units
+WriteBatchBenchmarks.putWriteBatch            10000000         16                20         4096                  131072        false  thrpt    5  1428966.369 ± 239204.719  ops/s
+WriteBatchBenchmarks.putWriteBatch            10000000         16                20         4096                 1048576        false  thrpt    5  1443725.288 ± 100061.577  ops/s
+WriteBatchBenchmarks.putWriteBatchBB          10000000         16                20         4096                  131072        false  thrpt    5  1832802.918 ± 271788.384  ops/s
+WriteBatchBenchmarks.putWriteBatchBB          10000000         16                20         4096                 1048576        false  thrpt    5  1785256.140 ± 147587.132  ops/s
+WriteBatchBenchmarks.putWriteBatchNative      10000000         16                20         4096                  131072        false  thrpt    5  1297397.023 ± 141812.134  ops/s
+WriteBatchBenchmarks.putWriteBatchNative      10000000         16                20         4096                 1048576        false  thrpt    5   269969.262 ±  25532.216  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB    10000000         16                20         4096                  131072        false  thrpt    5   775264.705 ±  21106.839  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeBB    10000000         16                20         4096                 1048576        false  thrpt    5   128399.860 ±   9716.046  ops/s
+
+Performance bugfix for native direct buffers:
+```
+java -jar target/rocksdbjni-jmh-1.0-SNAPSHOT-benchmarks.jar WriteBatchBenchmarks.putWriteBatch -p keySize="16" -p valueSize="4096" -p keyCount="10000000" -p numOpsPerBatch="20" -p writeBatchAllocation="131072","1048576" -p writeToDB="false"
+```
+
+Benchmark                                  (keyCount)  (keySize)  (numOpsPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt        Score        Error  Units
+WriteBatchBenchmarks.putWriteBatchD          10000000         16                20         4096                  131072        false  thrpt    5  1745523.157 ±  59357.699  ops/s
+WriteBatchBenchmarks.putWriteBatchD          10000000         16                20         4096                 1048576        false  thrpt    5  1728123.495 ±  22161.392  ops/s
+WriteBatchBenchmarks.putWriteBatchI          10000000         16                20         4096                  131072        false  thrpt    5  1355974.869 ± 178671.448  ops/s
+WriteBatchBenchmarks.putWriteBatchI          10000000         16                20         4096                 1048576        false  thrpt    5  1302243.857 ±  36220.245  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD    10000000         16                20         4096                  131072        false  thrpt    5  3209782.626 ± 983925.494  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD    10000000         16                20         4096                 1048576        false  thrpt    5  3866666.948 ± 527815.669  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI    10000000         16                20         4096                  131072        false  thrpt    5  1656172.994 ±  65982.655  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI    10000000         16                20         4096                 1048576        false  thrpt    5   608036.465 ± 148801.987  ops/s
+
+
+
 
 

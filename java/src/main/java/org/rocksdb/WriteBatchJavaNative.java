@@ -3,8 +3,9 @@ package org.rocksdb;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.function.Function;
+
 import org.rocksdb.util.Varint32;
 
 public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
@@ -20,6 +21,11 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
       nativeWrapper.close();
       nativeWrapper = null;
     }
+
+    if (buffer != null) {
+      bufferCache.free(buffer);
+      buffer = null;
+    }
   }
 
   static class CFIDCache {
@@ -33,6 +39,81 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
       return idMap.get(handle);
     }
   }
+
+  static class BufferCache {
+    private final SortedMap<Long, ArrayList<ByteBuffer>> direct = new TreeMap<>();
+    private final SortedMap<Long, ArrayList<ByteBuffer>> indirect = new TreeMap<>();
+
+    private static ByteBuffer allocate(
+        final long size,
+        final SortedMap<Long, ArrayList<ByteBuffer>> freeMap,
+        Function<Long, ByteBuffer> allocator) {
+
+      synchronized (freeMap) {
+        SortedMap<Long, ArrayList<ByteBuffer>> tail = freeMap.tailMap(size);
+        if (tail.isEmpty()) {
+          return allocator.apply(size);
+        }
+        long k = tail.firstKey();
+        ArrayList<ByteBuffer> buffers = tail.get(k);
+        ByteBuffer result = buffers.remove(0);
+        if (buffers.isEmpty()) {
+          tail.remove(k);
+        } else {
+          tail.put(k, buffers);
+        }
+
+        return result;
+      }
+    }
+
+    private static void free(ByteBuffer buffer, final SortedMap<Long, ArrayList<ByteBuffer>> freeMap) {
+      long size = buffer.capacity();
+      synchronized (freeMap) {
+        if (freeMap.containsKey(size)) {
+          freeMap.get(size).add(buffer);
+        } else {
+          ArrayList<ByteBuffer> bufferList = new ArrayList<>();
+          bufferList.add(buffer);
+          freeMap.put(size, bufferList);
+        }
+      }
+    }
+
+    ByteBuffer allocateDirect(final long size) {
+      return allocate(size, direct, capacity -> ByteBuffer.allocateDirect(capacity.intValue()));
+    }
+
+    ByteBuffer allocate(final long size) {
+      return allocate(size, indirect, capacity -> ByteBuffer.allocate(capacity.intValue()));
+    }
+
+    void free(ByteBuffer buffer) {
+      if (buffer.isDirect()) {
+        free(buffer, direct);
+      } else {
+        free(buffer, indirect);
+      }
+    }
+
+    long cacheSize() {
+      long count = 0;
+      for (ArrayList<ByteBuffer> entryValue : direct.values()) {
+        count += entryValue.size();
+      }
+      for (ArrayList<ByteBuffer> entryValue : indirect.values()) {
+        count += entryValue.size();
+      }
+      return count;
+    }
+
+    private void clear() {
+      direct.clear();
+      indirect.clear();
+    }
+  }
+
+  static BufferCache bufferCache = new BufferCache();
 
   ThreadLocal<CFIDCache> cfidCacheThreadLocal = ThreadLocal.withInitial(CFIDCache::new);
 
@@ -49,20 +130,21 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
 
   private NativeWrapper nativeWrapper;
 
-  private final ByteBuffer buffer;
+  private ByteBuffer buffer;
   final int entrySizeLimit;
   private int entryCount;
 
   public static WriteBatchJavaNative allocate(int reserved_bytes) {
-    ByteBuffer byteBuffer = ByteBuffer.allocate(reserved_bytes + WriteBatchInternal.kHeaderEnd)
-                                .order(ByteOrder.LITTLE_ENDIAN);
+    ByteBuffer byteBuffer = bufferCache.allocate(reserved_bytes + WriteBatchInternal.kHeaderEnd)
+        .order(ByteOrder.LITTLE_ENDIAN);
+    byteBuffer.clear();
     return new WriteBatchJavaNative(byteBuffer);
   }
 
   public static WriteBatchJavaNative allocateDirect(int reserved_bytes) {
-    ByteBuffer byteBuffer =
-        ByteBuffer.allocateDirect(reserved_bytes + WriteBatchInternal.kHeaderEnd)
-            .order(ByteOrder.LITTLE_ENDIAN);
+    ByteBuffer byteBuffer = bufferCache.allocateDirect(reserved_bytes + WriteBatchInternal.kHeaderEnd)
+        .order(ByteOrder.LITTLE_ENDIAN);
+    byteBuffer.clear();
     return new WriteBatchJavaNative(byteBuffer);
   }
 
@@ -108,9 +190,10 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
 
       buffer.flip();
       if (buffer.isDirect()) {
+        ByteBuffer slice = buffer.slice();
         setNativeHandle(flushWriteBatchJavaNativeDirect(
             // assert position == 0
-            getNativeHandle(), buffer.capacity(), buffer, buffer.position(), buffer.limit()));
+            getNativeHandle(), buffer.capacity(), slice, 0, slice.limit()));
       } else {
         setNativeHandle(flushWriteBatchJavaNativeArray(
             getNativeHandle(), buffer.capacity(), buffer.array(), buffer.limit()));
@@ -346,6 +429,14 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
     } else {
       assert nativeWrapper.nativeHandle_ == newHandle;
     }
+  }
+
+  static long cacheSize() {
+    return bufferCache.cacheSize();
+  }
+
+  static void clearCaches() {
+    bufferCache.clear();
   }
 
   private static native void disposeInternalWriteBatchJavaNative(final long handle);

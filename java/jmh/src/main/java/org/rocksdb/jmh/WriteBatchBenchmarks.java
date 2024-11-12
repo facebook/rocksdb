@@ -244,7 +244,7 @@ public class WriteBatchBenchmarks {
   }
 
   @Benchmark
-  public void putWriteBatch(WriteBatchThreadDefault batch, ByteArrayData data)
+  public void putWriteBatchI(WriteBatchThreadDefault batch, ByteArrayData data)
       throws RocksDBException {
     long i = index.getAndIncrement() % keyCount;
 
@@ -255,7 +255,7 @@ public class WriteBatchBenchmarks {
   }
 
   @Benchmark
-  public void putWriteBatchNative(WriteBatchThreadNativeArray batch, ByteArrayData data)
+  public void putWriteBatchNativeI(WriteBatchThreadNativeArray batch, ByteArrayData data)
       throws RocksDBException {
     long i = index.getAndIncrement() % keyCount;
 
@@ -266,7 +266,7 @@ public class WriteBatchBenchmarks {
   }
 
   @Benchmark
-  public void putWriteBatchBB(WriteBatchThreadDefault batch, ByteBufferData data)
+  public void putWriteBatchD(WriteBatchThreadDefault batch, ByteBufferData data)
       throws RocksDBException {
     long i = index.getAndIncrement() % keyCount;
 
@@ -277,7 +277,7 @@ public class WriteBatchBenchmarks {
   }
 
   @Benchmark
-  public void putWriteBatchNativeBB(WriteBatchThreadNativeDirect batch, ByteBufferData data)
+  public void putWriteBatchNativeD(WriteBatchThreadNativeDirect batch, ByteBufferData data)
       throws RocksDBException {
     long i = index.getAndIncrement() % keyCount;
 
