@@ -568,3 +568,38 @@ WriteBatchBenchmarks.putWriteBatchNativeI   100000000         16                
 WriteBatchBenchmarks.putWriteBatchNativeI   100000000         16                786432        32768                 1048576        false  thrpt    5  24116.338 ±  1273.320  ops/s
 WriteBatchBenchmarks.putWriteBatchNativeI   100000000         16                786432        65536                 1048576        false  thrpt    5  28444.625 ±  1482.244  ops/s
 
+Introduced the `bufferedPutLimit` and used a smaller buffer (writeBatchAllocation).
+
+Benchmark                                  (bufferedPutLimit)  (keyCount)  (keySize)  (totalBytesPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt      Score      Error  Units
+WriteBatchBenchmarks.putWriteBatchNativeD               10000   100000000         16                786432         2048                  131072        false  thrpt    5   6657.695 ±  300.826  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD               10000   100000000         16                786432         4096                  131072        false  thrpt    5   7561.586 ±  364.515  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD               10000   100000000         16                786432         8192                  131072        false  thrpt    5   6438.033 ±  855.132  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD               10000   100000000         16                786432        16384                  131072        false  thrpt    5   9692.296 ± 1553.764  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD               10000   100000000         16                786432        32768                  131072        false  thrpt    5   9044.205 ±  351.348  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD               10000   100000000         16                786432        65536                  131072        false  thrpt    5  11186.193 ± 4560.332  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               10000   100000000         16                786432         2048                  131072        false  thrpt    5   7140.453 ±  359.013  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               10000   100000000         16                786432         4096                  131072        false  thrpt    5   9214.364 ± 1207.202  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               10000   100000000         16                786432         8192                  131072        false  thrpt    5   6888.218 ± 1280.102  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               10000   100000000         16                786432        16384                  131072        false  thrpt    5   8607.068 ± 3580.910  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               10000   100000000         16                786432        32768                  131072        false  thrpt    5  10063.676 ± 1465.070  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               10000   100000000         16                786432        65536                  131072        false  thrpt    5   6163.539 ± 1434.717  ops/s
+
+`bufferedPutLimit` at 50k and back to the old buffer size
+
+Benchmark                                  (bufferedPutLimit)  (keyCount)  (keySize)  (totalBytesPerBatch)  (valueSize)  (writeBatchAllocation)  (writeToDB)   Mode  Cnt      Score       Error  Units
+WriteBatchBenchmarks.putWriteBatchNativeD               50000   100000000         16                786432         2048                 1048576        false  thrpt    5  13130.694 ±  1626.371  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD               50000   100000000         16                786432         4096                 1048576        false  thrpt    5  17607.422 ±   663.450  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD               50000   100000000         16                786432         8192                 1048576        false  thrpt    5  20140.084 ±   376.867  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD               50000   100000000         16                786432        16384                 1048576        false  thrpt    5  20323.719 ±   250.749  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD               50000   100000000         16                786432        32768                 1048576        false  thrpt    5  23026.416 ±   698.111  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD               50000   100000000         16                786432        65536                 1048576        false  thrpt    5  34625.586 ± 13086.310  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeD               50000   100000000         16                786432       131072                 1048576        false  thrpt    5  60109.995 ±  3029.163  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               50000   100000000         16                786432         2048                 1048576        false  thrpt    5  14011.421 ±  1791.356  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               50000   100000000         16                786432         4096                 1048576        false  thrpt    5  16773.866 ±   255.872  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               50000   100000000         16                786432         8192                 1048576        false  thrpt    5  19158.875 ±   227.771  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               50000   100000000         16                786432        16384                 1048576        false  thrpt    5  22891.878 ±  1589.399  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               50000   100000000         16                786432        32768                 1048576        false  thrpt    5  25546.216 ±  1639.121  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               50000   100000000         16                786432        65536                 1048576        false  thrpt    5  18146.561 ±  1292.802  ops/s
+WriteBatchBenchmarks.putWriteBatchNativeI               50000   100000000         16                786432       131072                 1048576        false  thrpt    5  18278.972 ±  6928.136  ops/s
+
+

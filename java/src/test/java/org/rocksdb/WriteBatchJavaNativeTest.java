@@ -6,6 +6,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import org.junit.After;
@@ -18,7 +19,7 @@ import org.junit.runners.Parameterized;
 
 @RunWith(Parameterized.class)
 public class WriteBatchJavaNativeTest {
-  @Parameterized.Parameter(0) public Function<Integer, WriteBatchJavaNative> writeBatchAllocator;
+  @Parameterized.Parameter(0) public BiFunction<Integer, Integer, WriteBatchJavaNative> writeBatchAllocator;
 
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
@@ -27,8 +28,8 @@ public class WriteBatchJavaNativeTest {
   @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Parameterized.Parameters(name = "{0}")
-  public static Iterable<Function<Integer, WriteBatchJavaNative>> data() {
-    List<Function<Integer, WriteBatchJavaNative>> allocators = new ArrayList<>();
+  public static Iterable<BiFunction<Integer, Integer, WriteBatchJavaNative>> data() {
+    List<BiFunction<Integer, Integer, WriteBatchJavaNative>> allocators = new ArrayList<>();
     allocators.add(WriteBatchJavaNative::allocate);
     allocators.add(WriteBatchJavaNative::allocateDirect);
     return allocators;
@@ -36,7 +37,7 @@ public class WriteBatchJavaNativeTest {
 
   @Test
   public void put1() throws RocksDBException {
-    try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
+    try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256, 256)) {
       wb.setSequence(100);
       wb.put("k1".getBytes(), "v1".getBytes());
       wb.flush();
@@ -47,7 +48,7 @@ public class WriteBatchJavaNativeTest {
 
   @Test
   public void put1BB() throws RocksDBException {
-    try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
+    try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256, 256)) {
       wb.setSequence(100);
       wb.put(ByteBuffer.wrap("k1".getBytes()), ByteBuffer.wrap("v1".getBytes()));
       wb.flush();
@@ -58,7 +59,7 @@ public class WriteBatchJavaNativeTest {
 
   @Test
   public void putN() throws RocksDBException {
-    try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
+    try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256, 256)) {
       wb.setSequence(100);
       wb.put("k1".getBytes(), "v1".getBytes());
       wb.put("k02".getBytes(), "v02".getBytes());
@@ -82,7 +83,7 @@ public class WriteBatchJavaNativeTest {
 
   @Test
   public void putNBB() throws RocksDBException {
-    try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
+    try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256, 256)) {
       wb.setSequence(100);
       wb.put(ByteBuffer.wrap("k1".getBytes()), ByteBuffer.wrap("v1".getBytes()));
       wb.put(ByteBuffer.wrap("k02".getBytes()), ByteBuffer.wrap("v02".getBytes()));
@@ -106,7 +107,7 @@ public class WriteBatchJavaNativeTest {
 
   @Test
   public void putNExpanding() throws RocksDBException {
-    try (WriteBatchJavaNative wb = writeBatchAllocator.apply(64)) {
+    try (WriteBatchJavaNative wb = writeBatchAllocator.apply(64, 64)) {
       wb.setSequence(100);
       wb.put("k1".getBytes(), "v1".getBytes());
       wb.put("k02".getBytes(), "v02".getBytes());
@@ -130,7 +131,7 @@ public class WriteBatchJavaNativeTest {
 
   @Test
   public void putNExpandingBB() throws RocksDBException {
-    try (WriteBatchJavaNative wb = writeBatchAllocator.apply(64)) {
+    try (WriteBatchJavaNative wb = writeBatchAllocator.apply(64, 64)) {
       wb.setSequence(100);
       wb.put(ByteBuffer.wrap("k1".getBytes()), ByteBuffer.wrap("v1".getBytes()));
       wb.put(ByteBuffer.wrap("k02".getBytes()), ByteBuffer.wrap("v02".getBytes()));
@@ -158,7 +159,7 @@ public class WriteBatchJavaNativeTest {
         new ColumnFamilyDescriptor("WriteBatchJavaNativeTest".getBytes(StandardCharsets.UTF_8));
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
          final ColumnFamilyHandle cf = db.createColumnFamily(newColumnFamily)) {
-      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
+      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256, 256)) {
         wb.setSequence(100);
         wb.put("k1".getBytes(), "v1".getBytes());
         wb.put(db.getDefaultColumnFamily(), "k1".getBytes(), "cf_v1".getBytes());
@@ -173,7 +174,7 @@ public class WriteBatchJavaNativeTest {
   @Test
   public void putAndFlushAndReadFromDB() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
+      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256, 256)) {
         wb.put("k1".getBytes(), "v1".getBytes());
         wb.put("k2".getBytes(), "v2".getBytes());
         db.write(new WriteOptions(), wb);
@@ -196,7 +197,7 @@ public class WriteBatchJavaNativeTest {
   @Test
   public void putTooBigForBuffer() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
+      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256, 256)) {
         wb.put("k1".getBytes(), stringOfSize(512, "v1").getBytes());
         db.write(new WriteOptions(), wb);
 
@@ -209,7 +210,7 @@ public class WriteBatchJavaNativeTest {
   @Test
   public void putSmallBigSmall() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256)) {
+      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(256, 256)) {
         // small writes go into the buffer
         wb.put("k0".getBytes(), "v0".getBytes());
         wb.put("k3".getBytes(), "v3".getBytes());
@@ -232,7 +233,7 @@ public class WriteBatchJavaNativeTest {
   @Test
   public void put256Bug() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath())) {
-      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(16384)) {
+      try (WriteBatchJavaNative wb = writeBatchAllocator.apply(16384, 16384)) {
         final int repeat = 10;
         final int keySize = 16;
         final int valueSize = 4096;
@@ -252,73 +253,73 @@ public class WriteBatchJavaNativeTest {
 
   @Test
   public void allocation() throws RocksDBException {
-    WriteBatchJavaNative wb1 = WriteBatchJavaNative.allocate(1000);
+    WriteBatchJavaNative wb1 = WriteBatchJavaNative.allocate(1000, 1000);
     wb1.setSequence(42);
     wb1.put("k1".getBytes(),"v1".getBytes());
     wb1.put("k2".getBytes(),"v2".getBytes());
     wb1.flush();
     assertThat(new String(getContents(wb1))).isEqualTo("Put(k1, v1)@42Put(k2, v2)@43");
 
-    WriteBatchJavaNative wb2 = WriteBatchJavaNative.allocate(1000);
+    WriteBatchJavaNative wb2 = WriteBatchJavaNative.allocate(1000, 1000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(0);
     wb1.close();
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(1);
     wb2.close();
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(2);
 
-    WriteBatchJavaNative wb3 = WriteBatchJavaNative.allocate(1000);
+    WriteBatchJavaNative wb3 = WriteBatchJavaNative.allocate(1000, 1000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(1);
 
-    WriteBatchJavaNative wb4 = WriteBatchJavaNative.allocate(2000);
+    WriteBatchJavaNative wb4 = WriteBatchJavaNative.allocate(2000, 2000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(1);
     wb4.close();
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(2);
-    WriteBatchJavaNative wb5 = WriteBatchJavaNative.allocate(1000);
+    WriteBatchJavaNative wb5 = WriteBatchJavaNative.allocate(1000, 1000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(1);
-    WriteBatchJavaNative wb6 = WriteBatchJavaNative.allocate(1000);
+    WriteBatchJavaNative wb6 = WriteBatchJavaNative.allocate(1000, 1000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(0);
     wb5.close();
     wb6.close();
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(2);
-    WriteBatchJavaNative wb7 = WriteBatchJavaNative.allocate(2000);
+    WriteBatchJavaNative wb7 = WriteBatchJavaNative.allocate(2000, 2000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(1);
-    WriteBatchJavaNative wb8 = WriteBatchJavaNative.allocate(1000);
+    WriteBatchJavaNative wb8 = WriteBatchJavaNative.allocate(1000, 1000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(0);
   }
 
   @Test
   public void allocationDirect() throws RocksDBException {
-    WriteBatchJavaNative wb1 = WriteBatchJavaNative.allocateDirect(1000);
+    WriteBatchJavaNative wb1 = WriteBatchJavaNative.allocateDirect(1000, 1000);
     wb1.setSequence(42);
     wb1.put("k1".getBytes(),"v1".getBytes());
     wb1.put("k2".getBytes(),"v2".getBytes());
     wb1.flush();
     assertThat(new String(getContents(wb1))).isEqualTo("Put(k1, v1)@42Put(k2, v2)@43");
 
-    WriteBatchJavaNative wb2 = WriteBatchJavaNative.allocateDirect(1000);
+    WriteBatchJavaNative wb2 = WriteBatchJavaNative.allocateDirect(1000, 1000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(0);
     wb1.close();
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(1);
     wb2.close();
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(2);
 
-    WriteBatchJavaNative wb3 = WriteBatchJavaNative.allocateDirect(1000);
+    WriteBatchJavaNative wb3 = WriteBatchJavaNative.allocateDirect(1000, 1000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(1);
 
-    WriteBatchJavaNative wb4 = WriteBatchJavaNative.allocateDirect(2000);
+    WriteBatchJavaNative wb4 = WriteBatchJavaNative.allocateDirect(2000, 2000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(1);
     wb4.close();
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(2);
-    WriteBatchJavaNative wb5 = WriteBatchJavaNative.allocateDirect(1000);
+    WriteBatchJavaNative wb5 = WriteBatchJavaNative.allocateDirect(1000, 1000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(1);
-    WriteBatchJavaNative wb6 = WriteBatchJavaNative.allocateDirect(1000);
+    WriteBatchJavaNative wb6 = WriteBatchJavaNative.allocateDirect(1000, 1000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(0);
     wb5.close();
     wb6.close();
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(2);
-    WriteBatchJavaNative wb7 = WriteBatchJavaNative.allocateDirect(2000);
+    WriteBatchJavaNative wb7 = WriteBatchJavaNative.allocateDirect(2000, 2000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(1);
-    WriteBatchJavaNative wb8 = WriteBatchJavaNative.allocateDirect(1000);
+    WriteBatchJavaNative wb8 = WriteBatchJavaNative.allocateDirect(1000, 1000);
     assertThat(WriteBatchJavaNative.cacheSize()).isEqualTo(0);
   }
 

@@ -56,6 +56,7 @@ public class WriteBatchBenchmarks {
     @Param({"786432"}) int totalBytesPerBatch;
 
     @Param({"1048576"}) int writeBatchAllocation;
+    @Param({"50000"}) int bufferedPutLimit;
 
     @Param({"false"}) boolean writeToDB;
 
@@ -127,7 +128,7 @@ public class WriteBatchBenchmarks {
   public static class WriteBatchThreadNativeArray extends WriteBatchThreadNative {
 
     public void startBatch() {
-      writeBatch = WriteBatchJavaNative.allocate(writeBatchAllocation);
+      writeBatch = WriteBatchJavaNative.allocate(writeBatchAllocation, bufferedPutLimit);
     }
   }
 
@@ -135,7 +136,7 @@ public class WriteBatchBenchmarks {
   public static class WriteBatchThreadNativeDirect extends WriteBatchThreadNative {
 
     public void startBatch() {
-      writeBatch = WriteBatchJavaNative.allocateDirect(writeBatchAllocation);
+      writeBatch = WriteBatchJavaNative.allocateDirect(writeBatchAllocation, bufferedPutLimit);
     }
   }
 

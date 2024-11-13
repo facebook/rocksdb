@@ -134,25 +134,25 @@ public class WriteBatchJavaNative implements WriteBatchInterface, Closeable {
   final int entrySizeLimit;
   private int entryCount;
 
-  public static WriteBatchJavaNative allocate(int reserved_bytes) {
+  public static WriteBatchJavaNative allocate(final int reserved_bytes, final int bufferedPutLimit) {
     ByteBuffer byteBuffer = bufferCache.allocate(reserved_bytes + WriteBatchInternal.kHeaderEnd)
         .order(ByteOrder.LITTLE_ENDIAN);
     byteBuffer.clear();
-    return new WriteBatchJavaNative(byteBuffer);
+    return new WriteBatchJavaNative(byteBuffer, bufferedPutLimit);
   }
 
-  public static WriteBatchJavaNative allocateDirect(int reserved_bytes) {
+  public static WriteBatchJavaNative allocateDirect(final int reserved_bytes, final int bufferedPutLimit) {
     ByteBuffer byteBuffer = bufferCache.allocateDirect(reserved_bytes + WriteBatchInternal.kHeaderEnd)
         .order(ByteOrder.LITTLE_ENDIAN);
     byteBuffer.clear();
-    return new WriteBatchJavaNative(byteBuffer);
+    return new WriteBatchJavaNative(byteBuffer, bufferedPutLimit);
   }
 
-  private WriteBatchJavaNative(final ByteBuffer buffer) {
+  private WriteBatchJavaNative(final ByteBuffer buffer, final int bufferedPutLimit) {
     super();
     this.buffer = buffer;
-    entrySizeLimit = buffer.capacity() / 2;
-    resetBuffer();
+    int calculateEntrySizeLimit = Math.min(bufferedPutLimit, buffer.capacity() / 2);
+    entrySizeLimit = Math.max(calculateEntrySizeLimit, 0);    resetBuffer();
   }
 
   @Override
