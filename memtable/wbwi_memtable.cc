@@ -115,7 +115,7 @@ void WBWIMemTable::MultiGet(const ReadOptions& read_options,
   assert(immutable_memtable);
   // TODO: reuse the InternalIterator created in Get().
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
-    SequenceNumber dummy_seq;
+    SequenceNumber dummy_seq = 0;
     bool found_final_value =
         Get(*iter->lkey, iter->value ? iter->value->GetSelf() : nullptr,
             iter->columns, iter->timestamp, iter->s, &(iter->merge_context),
