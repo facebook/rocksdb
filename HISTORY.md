@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.8.3 (11/12/2024)
+### Bug Fixes
+* Fix missing cases of corruption retry during DB open and read API processing.
+
 ## 9.8.2 (11/06/2024)
 ### Public API Changes
 * Added a new API `Transaction::GetAttributeGroupIterator` that can be used to create a multi-column-family attribute group iterator over the specified column families, including the data from both the transaction and the underlying database. This API is currently supported for optimistic and write-committed pessimistic transactions.
