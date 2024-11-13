@@ -220,7 +220,8 @@ class FilePrefetchBuffer {
     // staging_buf_, fetch the remaining data, and then copy the rest of the
     // needed data into staging_buf_ to satisfy the user's request
     if (fs_ != nullptr &&
-        CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer)) {
+        CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer) &&
+        num_buffers_ == 1) {
       staging_buf_ = new BufferInfo();
     }
 
@@ -510,7 +511,7 @@ class FilePrefetchBuffer {
     return reader->file()->GetRequiredBufferAlignment();
   }
 
-  // Re-uses the file system allocated buffer to avoid an extra copy
+  // Reuses the file system allocated buffer to avoid an extra copy
   IOStatus FSBufferDirectRead(RandomAccessFileReader* reader, BufferInfo* buf,
                               const IOOptions& opts, uint64_t offset, size_t n,
                               Slice& result) {

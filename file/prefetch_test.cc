@@ -3406,8 +3406,8 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   std::pair<uint64_t, size_t> staging_buffer_info;
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 0, 4096, &result, &s));
   ASSERT_EQ(s, Status::OK());
-  ASSERT_EQ(stats->getTickerCount(PREFETCH_HITS), 0);
-  ASSERT_EQ(stats->getTickerCount(PREFETCH_BYTES_USEFUL), 0);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL), 0);
   ASSERT_EQ(strncmp(result.data(), content.substr(0, 4096).c_str(), 4096), 0);
   // Staging buffer is not used
   fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
@@ -3425,8 +3425,9 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   ASSERT_TRUE(
       fpb.TryReadFromCache(IOOptions(), r.get(), 8192, 8192, &result, &s));
   ASSERT_EQ(s, Status::OK());
-  ASSERT_EQ(stats->getTickerCount(PREFETCH_HITS), 0);
-  ASSERT_EQ(stats->getTickerCount(PREFETCH_BYTES_USEFUL), 4096);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+            4096);  // 8192-12288
   ASSERT_EQ(strncmp(result.data(), content.substr(8192, 8192).c_str(), 8192),
             0);
   // Staging buffer reuses bytes 8192 to 12288
@@ -3444,7 +3445,8 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
       fpb.TryReadFromCache(IOOptions(), r.get(), 12288, 4096, &result, &s));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 1);
-  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL), 8192);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+            4096);  // 12288-16384
   ASSERT_EQ(strncmp(result.data(), content.substr(12288, 4096).c_str(), 4096),
             0);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
@@ -3491,6 +3493,7 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
 
   std::shared_ptr<Statistics> stats = CreateDBStatistics();
   ReadaheadParams readahead_params;
+  // Readahead size will double each time
   readahead_params.initial_readahead_size = 5;
   readahead_params.max_readahead_size = 100;
   FilePrefetchBuffer fpb(readahead_params, true, false, fs(), nullptr,

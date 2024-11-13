@@ -56,7 +56,7 @@ void FilePrefetchBuffer::PrepareBufferForRead(
 
   // The later buffer allocation / tail refitting does not apply when
   // use_fs_buffer is true. If we allocate a new buffer, we end up throwing it
-  // away later when we reuse file system allocated buffer. If we try to refit
+  // away later when we reuse the file system allocated buffer. If we refit
   // the tail in the main buffer, we don't have a place to put the next chunk of
   // data provided by the file system (without performing another copy, which we
   // are trying to avoid in the first place)
@@ -130,7 +130,7 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
   }
   if (!use_fs_buffer) {
     // Update the buffer size.
-    // We already explicitly set the buffer size if we use the FS buffer
+    // We already explicitly set the buffer size when we reuse the FS buffer
     buf->buffer_.Size(static_cast<size_t>(aligned_useful_len) + result.size());
   }
   return s;
@@ -207,7 +207,6 @@ void FilePrefetchBuffer::CopyDataToBuffer(BufferInfo* src, BufferInfo* dst,
   if (length == 0) {
     return;
   }
-  assert(src != nullptr && dst != nullptr);
   assert(src->IsOffsetInBuffer(offset));
   uint64_t copy_offset = (offset - src->offset_);
   size_t copy_len = 0;
@@ -455,7 +454,7 @@ void FilePrefetchBuffer::HandlePartialFSBufferData(uint64_t offset,
     return;
   }
   BufferInfo* buf = GetFirstBuffer();
-
+  // Finish any pending async reads
   if (buf->async_read_in_progress_ &&
       buf->IsOffsetInBufferWithAsyncProgress(offset)) {
     PollIfNeeded(offset, length);
@@ -468,7 +467,7 @@ void FilePrefetchBuffer::HandlePartialFSBufferData(uint64_t offset,
   if (!buf->async_read_in_progress_ && buf->DoesBufferContainData() &&
       buf->IsOffsetInBuffer(offset) &&
       buf->offset_ + buf->CurrentSize() < offset + length) {
-    // Allocated buffer is just enough to hold the result for the user
+    // Allocated staging_buf_ is just enough to hold the result for the user
     // Alignment does not matter here
     use_staging_buffer = true;
     staging_buf_->ClearBuffer();
@@ -615,7 +614,8 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   if (!s.ok()) {
     return s;
   }
-  if (!copy_to_overlap_buffer && UseFSBuffer(reader)) {
+  bool use_fs_buffer = UseFSBuffer(reader);
+  if (!copy_to_overlap_buffer && use_fs_buffer) {
     HandlePartialFSBufferData(offset, length, use_staging_buffer, tmp_offset,
                               tmp_length);
   }
@@ -692,7 +692,6 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   // offset and size alignment for first buffer with synchronous prefetching
   uint64_t start_offset1 = offset, end_offset1 = 0, aligned_useful_len1 = 0;
   size_t read_len1 = 0;
-  bool use_fs_buffer = UseFSBuffer(reader);
 
   // For length == 0, skip the synchronous prefetching. read_len1 will be 0.
   if (length > 0) {
