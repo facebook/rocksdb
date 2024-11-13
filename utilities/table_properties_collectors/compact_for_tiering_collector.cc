@@ -21,14 +21,29 @@ namespace ROCKSDB_NAMESPACE {
 const std::string
     CompactForTieringCollector::kNumEligibleLastLevelEntriesPropertyName =
         "rocksdb.eligible.last.level.entries";
+const std::string CompactForTieringCollector::
+    kAverageDataAgeAtFileCreationInSecondsPropertyName =
+        "rocksdb.at_file_creation.in_seconds.average_data_age";
+const std::string
+    CompactForTieringCollector::kMaxDataAgeAtFileCreationInSecondsPropertyName =
+        "rocksdb.at_file_creation.in_seconds.max_data_age";
+const std::string
+    CompactForTieringCollector::kMinDataAgeAtFileCreationInSecondsPropertyName =
+        "rocksdb.at_file_creation.in_seconds.min_data_age";
+const std::string
+    CompactForTieringCollector::kNumInfinitelyOldEntriesPropertyName =
+        "rocksdb.at_file_creation.num.infinitely.old.entries";
 
 CompactForTieringCollector::CompactForTieringCollector(
     SequenceNumber last_level_inclusive_max_seqno_threshold,
-    double compaction_trigger_ratio)
+    double compaction_trigger_ratio, bool collect_data_age_stats)
     : last_level_inclusive_max_seqno_threshold_(
           last_level_inclusive_max_seqno_threshold),
-      compaction_trigger_ratio_(compaction_trigger_ratio) {
+      compaction_trigger_ratio_(compaction_trigger_ratio),
+      collect_data_age_stats_(collect_data_age_stats) {
   assert(last_level_inclusive_max_seqno_threshold_ != kMaxSequenceNumber);
+  // TODO(yuzhangyu): implement collect the data age stats.
+  (void)collect_data_age_stats_;
 }
 
 Status CompactForTieringCollector::AddUserKey(const Slice& /*key*/,
@@ -93,9 +108,11 @@ CompactForTieringCollectorFactory::CreateTablePropertiesCollector(
       context.last_level_inclusive_max_seqno_threshold == kMaxSequenceNumber) {
     return nullptr;
   }
+  // TODO(yuzhangyu): pass actual value.
   return new CompactForTieringCollector(
       context.last_level_inclusive_max_seqno_threshold,
-      compaction_trigger_ratio);
+      compaction_trigger_ratio,
+      /*collect_data_age_stats*/ false);
 }
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -139,6 +156,13 @@ std::shared_ptr<CompactForTieringCollectorFactory>
 NewCompactForTieringCollectorFactory(double compaction_trigger_ratio) {
   return std::make_shared<CompactForTieringCollectorFactory>(
       compaction_trigger_ratio);
+}
+
+Status GetDataCollectionAgeInfoForFile(
+    const SystemClock& /* clock */,
+    const std::shared_ptr<TableProperties>& /* table_properties */,
+    std::unique_ptr<DataCollectionAgeInfo>* /* file_age_info */) {
+  return Status::NotSupported();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

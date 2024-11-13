@@ -29,6 +29,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/user_write_callback.h"
+#include "rocksdb/utilities/table_properties_collectors.h"
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
@@ -2011,6 +2012,19 @@ class DB {
   virtual Status GetPropertiesOfTablesInRange(
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) = 0;
+
+  // Get the aggregated data age info per level. Data age info is only available
+  // when DB's time tracking is enabled and data's age info tracking is enabled.
+  // The former is enabled with `preserve_internal_time_seconds` and/or
+  // `preclude_last_level_data_seconds`. The latter is enabled via
+  // `CompactForTieringCollectorFactory`.
+  virtual Status GetDataCollectionAgeInfoForLevels(
+      ColumnFamilyHandle* /* column_family */,
+      std::vector<
+          std::unique_ptr<DataCollectionAgeInfo>>* /*levels_age_info*/) {
+    return Status::NotSupported(
+        "GetDataCollectionAgeInfoForLevels() is not implemented.");
+  }
 
   virtual Status SuggestCompactRange(ColumnFamilyHandle* /*column_family*/,
                                      const Slice* /*begin*/,

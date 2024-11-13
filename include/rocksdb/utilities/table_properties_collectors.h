@@ -7,6 +7,8 @@
 #include <atomic>
 #include <memory>
 
+#include "rocksdb/status.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/table_properties.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -130,4 +132,81 @@ class CompactForTieringCollectorFactory
 
 std::shared_ptr<CompactForTieringCollectorFactory>
 NewCompactForTieringCollectorFactory(double compaction_trigger_ratio);
+
+// Information for the age of a collection of data. The unit for all the age
+// stats are in seconds. Data's age is defined as the time passed since the data
+// was initially written into the DB. Check `DataCollectionIsEmpty` and
+// `TrackedDataRatio` before interpreting the stats.
+struct DataCollectionAgeInfo {
+  // The minimum data age, a.k.a. the youngest key's age.
+  uint64_t min_data_age = 0;
+  // The maximum data age, a.k.a. the oldest key's age.
+  uint64_t max_data_age = 0;
+  // The average data age.
+  uint64_t average_data_age = 0;
+
+  // The number of entries that can be considered infinitely old because their
+  // sequence number are zeroed out. We know they are old entries but do not
+  // know how old exactly. These entries are separately counted and not
+  // aggregated in above stats.
+  uint64_t num_entries_age_infinitely_old = 0;
+
+  // The number of entries used to create above min, max, average stats.
+  uint64_t num_entries_age_aggregated = 0;
+
+  // The number of entries for which age is untracked.
+  uint64_t num_entries_age_untracked = 0;
+
+  DataCollectionAgeInfo() {}
+
+  DataCollectionAgeInfo(uint64_t _min_data_age, uint64_t _max_data_age,
+                        uint64_t _average_data_age,
+                        uint64_t _num_entries_age_infinitely_old,
+                        uint64_t _num_entries_age_aggregated,
+                        uint64_t _num_entries_age_untracked)
+      : min_data_age(_min_data_age),
+        max_data_age(_max_data_age),
+        average_data_age(_average_data_age),
+        num_entries_age_infinitely_old(_num_entries_age_infinitely_old),
+        num_entries_age_aggregated(_num_entries_age_aggregated),
+        num_entries_age_untracked(_num_entries_age_untracked) {}
+
+  // Returns true if the data collection for which this `DataCollectionAgeInfo`
+  // is for is empty.
+  bool DataCollectionIsEmpty() const {
+    return num_entries_age_infinitely_old == 0 &&
+           num_entries_age_aggregated == 0 && num_entries_age_untracked == 0;
+  }
+
+  // The closer the ratio is to 1, the more accurate the stats reflect the
+  // actual age of the data. If this ratio is 0, there is no data age
+  // information available. It could be either the data collection is empty, or
+  // none of its data has age info tracked.
+  //
+  // For a single file, its data either has age info tracked or not tracked,
+  // this ratio would be either 0 or 1.
+  // For a level, this ratio reflects what portion of the data has its age info
+  // tracked in this struct. 0 is returned if the level is empty.
+  double TrackedDataRatio() const {
+    if (DataCollectionIsEmpty()) {
+      return 0;
+    }
+    uint64_t num_entries_age_tracked =
+        num_entries_age_infinitely_old + num_entries_age_aggregated;
+    return num_entries_age_tracked /
+           static_cast<double>(num_entries_age_tracked +
+                               num_entries_age_untracked);
+  }
+
+  // Whether the file or the level has infinitely old data.
+  bool HasInfinitelyOldData() const {
+    return num_entries_age_infinitely_old > 0;
+  }
+};
+
+// Given the table properties of a file, return data age stats if available.
+Status GetDataCollectionAgeInfoForFile(
+    const SystemClock& clock,
+    const std::shared_ptr<const TableProperties>& table_properties,
+    std::unique_ptr<DataCollectionAgeInfo>* file_age_info);
 }  // namespace ROCKSDB_NAMESPACE
