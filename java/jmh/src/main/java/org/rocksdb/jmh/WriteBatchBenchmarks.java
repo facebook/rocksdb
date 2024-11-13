@@ -235,7 +235,7 @@ public class WriteBatchBenchmarks {
 
       opBytes += data.keySize + data.valueSize;
     }
-    batch.startBatch();
+    batch.stopBatch();
   }
 
   @Benchmark
@@ -299,7 +299,9 @@ public class WriteBatchBenchmarks {
 
   public static void main(String[] args) throws RunnerException {
     org.openjdk.jmh.runner.options.Options opt =
-        new OptionsBuilder().include("WriteBatchBenchmarks.putWriteBatchNativeI").forks(0).build();
+        new OptionsBuilder()
+            .param("valueSize", "16384")
+    .include("WriteBatchBenchmarks.putWriteBatchI").forks(0).build();
 
     new Runner(opt).run();
   }
