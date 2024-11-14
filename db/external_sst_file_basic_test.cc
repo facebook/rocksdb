@@ -182,6 +182,36 @@ class ExternalSSTFileBasicTest
         write_global_seqno, verify_checksums_before_ingest, true_data);
   }
 
+  void VerifyInputFilesInternalStatsForOutputLevel(
+      int output_level, int num_input_files_in_non_output_levels,
+      int num_input_files_in_output_level,
+      int num_filtered_input_files_in_non_output_levels,
+      int num_filtered_input_files_in_output_level,
+      uint64_t bytes_skipped_non_output_levels,
+      uint64_t bytes_skipped_output_level) {
+    ColumnFamilyHandleImpl* cfh =
+        static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily());
+    ColumnFamilyData* cfd = cfh->cfd();
+    const InternalStats* internal_stats_ptr = cfd->internal_stats();
+    const std::vector<InternalStats::CompactionStats>& comp_stats =
+        internal_stats_ptr->TEST_GetCompactionStats();
+
+    EXPECT_EQ(num_input_files_in_non_output_levels,
+              comp_stats[output_level].num_input_files_in_non_output_levels);
+    EXPECT_EQ(num_input_files_in_output_level,
+              comp_stats[output_level].num_input_files_in_output_level);
+    EXPECT_EQ(
+        num_filtered_input_files_in_non_output_levels,
+        comp_stats[output_level].num_filtered_input_files_in_non_output_levels);
+    EXPECT_EQ(
+        num_filtered_input_files_in_output_level,
+        comp_stats[output_level].num_filtered_input_files_in_output_level);
+    EXPECT_EQ(bytes_skipped_non_output_levels,
+              comp_stats[output_level].bytes_skipped_non_output_levels);
+    EXPECT_EQ(bytes_skipped_output_level,
+              comp_stats[output_level].bytes_skipped_output_level);
+  }
+
   ~ExternalSSTFileBasicTest() override {
     DestroyDir(env_, sst_files_dir_).PermitUncheckedError();
   }
@@ -1841,11 +1871,60 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
   ASSERT_EQ(2, NumTableFilesAtLevel(5));
 }
 
+class CompactionJobStatsCheckerForFilteredFiles : public EventListener {
+ public:
+  CompactionJobStatsCheckerForFilteredFiles(
+      int num_input_files, int num_input_files_at_output_level,
+      int num_filtered_input_files,
+      int num_filtered_input_files_at_output_level)
+      : num_input_files_(num_input_files),
+        num_input_files_at_output_level_(num_input_files_at_output_level),
+        num_filtered_input_files_(num_filtered_input_files),
+        num_filtered_input_files_at_output_level_(
+            num_filtered_input_files_at_output_level) {}
+
+  void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ASSERT_EQ(num_input_files_, ci.stats.num_input_files);
+    ASSERT_EQ(num_input_files_at_output_level_,
+              ci.stats.num_input_files_at_output_level);
+    ASSERT_EQ(num_filtered_input_files_, ci.stats.num_filtered_input_files);
+    ASSERT_EQ(num_filtered_input_files_at_output_level_,
+              ci.stats.num_filtered_input_files_at_output_level);
+    ASSERT_EQ(ci.stats.total_skipped_input_bytes,
+              expected_compaction_skipped_file_size_);
+  }
+
+  void SetExpectedCompactionSkippedFileSize(uint64_t expected_size) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    expected_compaction_skipped_file_size_ = expected_size;
+  }
+
+ private:
+  int num_input_files_ = 0;
+  int num_input_files_at_output_level_ = 0;
+  int num_filtered_input_files_ = 0;
+  int num_filtered_input_files_at_output_level_ = 0;
+  std::mutex mutex_;
+  uint64_t expected_compaction_skipped_file_size_ = 0;
+};
+
 TEST_F(ExternalSSTFileBasicTest, AtomicReplaceDataWithStandaloneRangeDeletion) {
   Options options = CurrentOptions();
   options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  int kCompactionNumInputFiles = 1;
+  int kCompactionNumInputFilesAtOutputLevel = 0;
+  int kCompactionNumFilteredInputFiles = 2;
+  int kCompactionNumFilteredInputFilesAtOutputLevel = 2;
+  auto compaction_listener =
+      std::make_shared<CompactionJobStatsCheckerForFilteredFiles>(
+          kCompactionNumInputFiles, kCompactionNumInputFilesAtOutputLevel,
+          kCompactionNumFilteredInputFiles,
+          kCompactionNumFilteredInputFilesAtOutputLevel);
+  options.listeners.push_back(compaction_listener);
   DestroyAndReopen(options);
 
+  size_t compaction_skipped_file_size = 0;
   std::vector<std::string> files;
   {
     // Writes first version of data in range partitioned files.
@@ -1856,6 +1935,7 @@ TEST_F(ExternalSSTFileBasicTest, AtomicReplaceDataWithStandaloneRangeDeletion) {
     ASSERT_OK(sst_file_writer.Put("b", "b1"));
     ExternalSstFileInfo file1_info;
     ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    compaction_skipped_file_size += file1_info.file_size;
     files.push_back(std::move(file1));
 
     std::string file2 = sst_files_dir_ + "file2.sst";
@@ -1864,7 +1944,10 @@ TEST_F(ExternalSSTFileBasicTest, AtomicReplaceDataWithStandaloneRangeDeletion) {
     ASSERT_OK(sst_file_writer.Put("y", "y1"));
     ExternalSstFileInfo file2_info;
     ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    compaction_skipped_file_size += file2_info.file_size;
     files.push_back(std::move(file2));
+    compaction_listener->SetExpectedCompactionSkippedFileSize(
+        compaction_skipped_file_size);
   }
 
   IngestExternalFileOptions ifo;
@@ -1944,6 +2027,16 @@ TEST_F(ExternalSSTFileBasicTest, AtomicReplaceDataWithStandaloneRangeDeletion) {
   ASSERT_EQ(Get("x"), "x2");
   ASSERT_EQ(Get("y"), "y2");
 
+  VerifyInputFilesInternalStatsForOutputLevel(
+      /*output_level*/ 6,
+      kCompactionNumInputFiles - kCompactionNumInputFilesAtOutputLevel,
+      kCompactionNumInputFilesAtOutputLevel,
+      kCompactionNumFilteredInputFiles -
+          kCompactionNumFilteredInputFilesAtOutputLevel,
+      kCompactionNumFilteredInputFilesAtOutputLevel,
+      /*bytes_skipped_non_output_levels*/ 0,
+      /*bytes_skipped_output_level*/ compaction_skipped_file_size);
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -1951,9 +2044,20 @@ TEST_F(ExternalSSTFileBasicTest,
        PartiallyReplaceDataWithOneStandaloneRangeDeletion) {
   Options options = CurrentOptions();
   options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  int kCompactionNumInputFiles = 2;
+  int kCompactionNumInputFilesAtOutputLevel = 1;
+  int kCompactionNumFilteredInputFiles = 1;
+  int kCompactionNumFilteredInputFilesAtOutputLevel = 1;
+  auto compaction_listener =
+      std::make_shared<CompactionJobStatsCheckerForFilteredFiles>(
+          kCompactionNumInputFiles, kCompactionNumInputFilesAtOutputLevel,
+          kCompactionNumFilteredInputFiles,
+          kCompactionNumFilteredInputFilesAtOutputLevel);
+  options.listeners.push_back(compaction_listener);
   DestroyAndReopen(options);
 
   std::vector<std::string> files;
+  size_t compaction_skipped_file_size = 0;
   {
     // Writes first version of data in range partitioned files.
     SstFileWriter sst_file_writer(EnvOptions(), options);
@@ -1963,7 +2067,10 @@ TEST_F(ExternalSSTFileBasicTest,
     ASSERT_OK(sst_file_writer.Put("b", "b1"));
     ExternalSstFileInfo file1_info;
     ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    compaction_skipped_file_size += file1_info.file_size;
     files.push_back(std::move(file1));
+    compaction_listener->SetExpectedCompactionSkippedFileSize(
+        compaction_skipped_file_size);
 
     std::string file2 = sst_files_dir_ + "file2.sst";
     ASSERT_OK(sst_file_writer.Open(file2));
@@ -2032,6 +2139,17 @@ TEST_F(ExternalSSTFileBasicTest,
   ASSERT_EQ(Get("h"), "h1");
   ASSERT_EQ(Get("x"), "x2");
   ASSERT_EQ(Get("y"), "y");
+
+  VerifyInputFilesInternalStatsForOutputLevel(
+      /*output_level*/ 6,
+      kCompactionNumInputFiles - kCompactionNumInputFilesAtOutputLevel,
+      kCompactionNumInputFilesAtOutputLevel,
+      kCompactionNumFilteredInputFiles -
+          kCompactionNumFilteredInputFilesAtOutputLevel,
+      kCompactionNumFilteredInputFilesAtOutputLevel,
+      /*bytes_skipped_non_output_levels*/ 0,
+      /*bytes_skipped_output_level*/ compaction_skipped_file_size);
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -2039,15 +2157,29 @@ TEST_F(ExternalSSTFileBasicTest,
        PartiallyReplaceDataWithMultipleStandaloneRangeDeletions) {
   Options options = CurrentOptions();
   options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  int kCompactionNumInputFiles = 2;
+  int kCompactionNumInputFilesAtOutputLevel = 0;
+  int kCompactionNumFilteredInputFiles = 2;
+  int kCompactionNumFilteredInputFilesAtOutputLevel = 2;
+  // Two compactions each included on standalone range deletion file that
+  // filters input file on the non start level.
+  auto compaction_listener =
+      std::make_shared<CompactionJobStatsCheckerForFilteredFiles>(
+          kCompactionNumInputFiles / 2,
+          kCompactionNumInputFilesAtOutputLevel / 2,
+          kCompactionNumFilteredInputFiles / 2,
+          kCompactionNumFilteredInputFilesAtOutputLevel / 2);
+  options.listeners.push_back(compaction_listener);
   DestroyAndReopen(options);
 
   std::vector<std::string> files;
+  ExternalSstFileInfo file1_info;
+  ExternalSstFileInfo file3_info;
   {
     SstFileWriter sst_file_writer(EnvOptions(), options);
     std::string file1 = sst_files_dir_ + "file1.sst";
     ASSERT_OK(sst_file_writer.Open(file1));
     ASSERT_OK(sst_file_writer.Put("a", "a1"));
-    ExternalSstFileInfo file1_info;
     ASSERT_OK(sst_file_writer.Finish(&file1_info));
     files.push_back(std::move(file1));
     std::string file2 = sst_files_dir_ + "file2.sst";
@@ -2059,7 +2191,6 @@ TEST_F(ExternalSSTFileBasicTest,
     std::string file3 = sst_files_dir_ + "file3.sst";
     ASSERT_OK(sst_file_writer.Open(file3));
     ASSERT_OK(sst_file_writer.Put("x", "x1"));
-    ExternalSstFileInfo file3_info;
     ASSERT_OK(sst_file_writer.Finish(&file3_info));
     files.push_back(std::move(file3));
   }
@@ -2107,9 +2238,15 @@ TEST_F(ExternalSSTFileBasicTest,
         size_t* num_input_files = static_cast<size_t*>(arg);
         EXPECT_EQ(1, *num_input_files);
         num_compactions += 1;
+        if (num_compactions == 2) {
+          compaction_listener->SetExpectedCompactionSkippedFileSize(
+              file3_info.file_size);
+        }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  compaction_listener->SetExpectedCompactionSkippedFileSize(
+      file1_info.file_size);
   ASSERT_OK(db_->IngestExternalFile(files, ifo));
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -2121,12 +2258,35 @@ TEST_F(ExternalSSTFileBasicTest,
   ASSERT_EQ(Get("a"), "a2");
   ASSERT_EQ(Get("h"), "h");
   ASSERT_EQ(Get("x"), "x2");
+  VerifyInputFilesInternalStatsForOutputLevel(
+      /*output_level*/ 6,
+      kCompactionNumInputFiles - kCompactionNumInputFilesAtOutputLevel,
+      kCompactionNumInputFilesAtOutputLevel,
+      kCompactionNumFilteredInputFiles -
+          kCompactionNumFilteredInputFilesAtOutputLevel,
+      kCompactionNumFilteredInputFilesAtOutputLevel,
+      /*bytes_skipped_non_output_levels*/ 0,
+      /*bytes_skipped_output_level*/ file1_info.file_size +
+          file3_info.file_size);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(ExternalSSTFileBasicTest, StandaloneRangeDeletionEndKeyIsExclusive) {
   Options options = CurrentOptions();
   options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  int kCompactionNumInputFiles = 2;
+  int kCompactionNumInputFilesAtOutputLevel = 1;
+  int kCompactionNumFilteredInputFiles = 0;
+  int kCompactionNumFilteredInputFilesAtOutputLevel = 0;
+  auto compaction_listener =
+      std::make_shared<CompactionJobStatsCheckerForFilteredFiles>(
+          kCompactionNumInputFiles, kCompactionNumInputFilesAtOutputLevel,
+          kCompactionNumFilteredInputFiles,
+          kCompactionNumFilteredInputFilesAtOutputLevel);
+  options.listeners.push_back(compaction_listener);
+  // No compaction input files are filtered because the range deletion file's
+  // end is exclusive, so it cannot cover the whole file.
+  compaction_listener->SetExpectedCompactionSkippedFileSize(0);
   DestroyAndReopen(options);
 
   std::vector<std::string> files;
@@ -2181,6 +2341,16 @@ TEST_F(ExternalSSTFileBasicTest, StandaloneRangeDeletionEndKeyIsExclusive) {
 
   ASSERT_EQ(Get("a"), "NOT_FOUND");
   ASSERT_EQ(Get("b"), "b");
+
+  VerifyInputFilesInternalStatsForOutputLevel(
+      /*output_level*/ 6,
+      kCompactionNumInputFiles - kCompactionNumInputFilesAtOutputLevel,
+      kCompactionNumInputFilesAtOutputLevel,
+      kCompactionNumFilteredInputFiles -
+          kCompactionNumFilteredInputFilesAtOutputLevel,
+      kCompactionNumFilteredInputFilesAtOutputLevel,
+      /*bytes_skipped_non_output_levels*/ 0,
+      /*bytes_skipped_output_level*/ 0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
