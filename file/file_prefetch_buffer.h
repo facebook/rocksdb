@@ -419,7 +419,7 @@ class FilePrefetchBuffer {
   // required.
   void PrepareBufferForRead(BufferInfo* buf, size_t alignment, uint64_t offset,
                             size_t roundup_len, bool refit_tail,
-                            uint64_t& aligned_useful_len, bool use_fs_buffer);
+                            bool use_fs_buffer, uint64_t& aligned_useful_len);
 
   void AbortOutdatedIO(uint64_t offset);
 
@@ -562,11 +562,11 @@ class FilePrefetchBuffer {
                                  bool for_compaction = false);
 
   void ReadAheadSizeTuning(BufferInfo* buf, bool read_curr_block,
-                           bool refit_tail, uint64_t prev_buf_end_offset,
-                           size_t alignment, size_t length,
-                           size_t readahead_size, uint64_t& offset,
-                           uint64_t& end_offset, size_t& read_len,
-                           uint64_t& aligned_useful_len, bool use_fs_buffer);
+                           bool refit_tail, bool use_fs_buffer,
+                           uint64_t prev_buf_end_offset, size_t alignment,
+                           size_t length, size_t readahead_size,
+                           uint64_t& offset, uint64_t& end_offset,
+                           size_t& read_len, uint64_t& aligned_useful_len);
 
   void UpdateStats(bool found_in_buffer, size_t length_found) {
     if (found_in_buffer) {

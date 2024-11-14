@@ -24,7 +24,7 @@ namespace ROCKSDB_NAMESPACE {
 
 void FilePrefetchBuffer::PrepareBufferForRead(
     BufferInfo* buf, size_t alignment, uint64_t offset, size_t roundup_len,
-    bool refit_tail, uint64_t& aligned_useful_len, bool use_fs_buffer) {
+    bool refit_tail, bool use_fs_buffer, uint64_t& aligned_useful_len) {
   uint64_t aligned_useful_offset_in_buf = 0;
   bool copy_data_to_new_buffer = false;
   // Check if requested bytes are in the existing buffer_.
@@ -186,9 +186,9 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
   bool use_fs_buffer = UseFSBuffer(reader);
 
   ReadAheadSizeTuning(buf, /*read_curr_block=*/true,
-                      /*refit_tail=*/true, rounddown_offset, alignment, 0, n,
-                      rounddown_offset, roundup_end, read_len,
-                      aligned_useful_len, use_fs_buffer);
+                      /*refit_tail=*/true, use_fs_buffer, rounddown_offset,
+                      alignment, 0, n, rounddown_offset, roundup_end, read_len,
+                      aligned_useful_len);
 
   Status s;
   if (read_len > 0) {
@@ -376,10 +376,10 @@ void FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
 //                       of ReadAsync to make sure it doesn't read anything from
 //                       previous buffer which is already prefetched.
 void FilePrefetchBuffer::ReadAheadSizeTuning(
-    BufferInfo* buf, bool read_curr_block, bool refit_tail,
+    BufferInfo* buf, bool read_curr_block, bool refit_tail, bool use_fs_buffer,
     uint64_t prev_buf_end_offset, size_t alignment, size_t length,
     size_t readahead_size, uint64_t& start_offset, uint64_t& end_offset,
-    size_t& read_len, uint64_t& aligned_useful_len, bool use_fs_buffer) {
+    size_t& read_len, uint64_t& aligned_useful_len) {
   uint64_t updated_start_offset = Rounddown(start_offset, alignment);
   uint64_t updated_end_offset =
       Roundup(start_offset + length + readahead_size, alignment);
@@ -429,7 +429,7 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
   uint64_t roundup_len = end_offset - start_offset;
 
   PrepareBufferForRead(buf, alignment, start_offset, roundup_len, refit_tail,
-                       aligned_useful_len, use_fs_buffer);
+                       use_fs_buffer, aligned_useful_len);
   assert(roundup_len >= aligned_useful_len);
 
   // Update the buffer offset.
@@ -552,10 +552,10 @@ Status FilePrefetchBuffer::HandleOverlappingData(
       uint64_t end_offset = start_offset, aligned_useful_len = 0;
 
       ReadAheadSizeTuning(new_buf, /*read_curr_block=*/false,
-                          /*refit_tail=*/false, next_buf->offset_ + second_size,
-                          alignment,
+                          /*refit_tail=*/false, /*use_fs_buffer=*/false,
+                          next_buf->offset_ + second_size, alignment,
                           /*length=*/0, readahead_size, start_offset,
-                          end_offset, read_len, aligned_useful_len, false);
+                          end_offset, read_len, aligned_useful_len);
       if (read_len > 0) {
         s = ReadAsync(new_buf, opts, reader, read_len, start_offset);
         if (!s.ok()) {
@@ -700,9 +700,9 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
                   (buf->offset_ + buf->CurrentSize() - offset));
     }
     ReadAheadSizeTuning(buf, /*read_curr_block=*/true, /*refit_tail*/
-                        true, start_offset1, alignment, length, readahead_size,
-                        start_offset1, end_offset1, read_len1,
-                        aligned_useful_len1, use_fs_buffer);
+                        true, /*use_fs_buffer=*/use_fs_buffer, start_offset1,
+                        alignment, length, readahead_size, start_offset1,
+                        end_offset1, read_len1, aligned_useful_len1);
   } else {
     UpdateStats(/*found_in_buffer=*/true, original_length);
   }
@@ -983,16 +983,18 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     // Prefetch full data + readahead_size in the first buffer.
     if (is_eligible_for_prefetching || reader->use_direct_io()) {
       ReadAheadSizeTuning(buf, /*read_curr_block=*/true, /*refit_tail=*/false,
+                          /*use_fs_buffer=*/false,
                           /*prev_buf_end_offset=*/start_offset1, alignment, n,
                           readahead_size, start_offset1, end_offset1, read_len1,
-                          aligned_useful_len1, false);
+                          aligned_useful_len1);
     } else {
       // No alignment or extra prefetching.
       start_offset1 = offset_to_read;
       end_offset1 = offset_to_read + n;
       roundup_len1 = end_offset1 - start_offset1;
-      PrepareBufferForRead(buf, alignment, start_offset1, roundup_len1, false,
-                           aligned_useful_len1, false);
+      PrepareBufferForRead(buf, alignment, start_offset1, roundup_len1,
+                           /*refit_tail=*/false, /*use_fs_buffer=*/false,
+                           aligned_useful_len1);
       assert(aligned_useful_len1 == 0);
       assert(roundup_len1 >= aligned_useful_len1);
       read_len1 = static_cast<size_t>(roundup_len1);
@@ -1038,10 +1040,10 @@ Status FilePrefetchBuffer::PrefetchRemBuffers(const IOOptions& opts,
     uint64_t end_offset2 = start_offset2, aligned_useful_len2 = 0;
     size_t read_len2 = 0;
     ReadAheadSizeTuning(new_buf, /*read_curr_block=*/false,
-                        /*refit_tail=*/false,
+                        /*refit_tail=*/false, /*use_fs_buffer=*/false,
                         /*prev_buf_end_offset=*/end_offset1, alignment,
                         /*length=*/0, readahead_size, start_offset2,
-                        end_offset2, read_len2, aligned_useful_len2, false);
+                        end_offset2, read_len2, aligned_useful_len2);
 
     if (read_len2 > 0) {
       TEST_SYNC_POINT("FilePrefetchBuffer::PrefetchAsync:ExtraPrefetching");
