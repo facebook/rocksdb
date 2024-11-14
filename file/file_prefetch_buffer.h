@@ -527,9 +527,7 @@ class FilePrefetchBuffer {
     if (!s.ok()) {
       return s;
     }
-    buf->buffer_.SetBuffer(
-        reinterpret_cast<char*>(read_req.fs_scratch.release()),
-        read_req.result.size());
+    buf->buffer_.SetBuffer(read_req.fs_scratch, read_req.result.size());
     buf->offset_ = offset;
     buf->initial_end_offset_ = offset + read_req.result.size();
     result = read_req.result;

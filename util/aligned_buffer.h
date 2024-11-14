@@ -12,7 +12,7 @@
 #include <cassert>
 
 #include "port/port.h"
-
+#include "rocksdb/file_system.h"
 namespace ROCKSDB_NAMESPACE {
 
 // This file contains utilities to handle the alignment of pages and buffers.
@@ -56,7 +56,7 @@ inline size_t Rounddown(size_t x, size_t y) { return (x / y) * y; }
 //                         copy_offset, copy_len);
 class AlignedBuffer {
   size_t alignment_;
-  std::unique_ptr<char[]> buf_;
+  FSAllocationPtr buf_;
   size_t capacity_;
   size_t cursize_;
   char* bufstart_;
@@ -100,11 +100,11 @@ class AlignedBuffer {
 
   void Clear() { cursize_ = 0; }
 
-  char* Release() {
+  FSAllocationPtr Release() {
     cursize_ = 0;
     capacity_ = 0;
     bufstart_ = nullptr;
-    return buf_.release();
+    return std::move(buf_);
   }
 
   void Alignment(size_t alignment) {
@@ -116,9 +116,10 @@ class AlignedBuffer {
   // Points the buffer to new_buf without allocating extra memory or performing
   // any data copies. This method is called when we want to reuse the buffer
   // provided by the file system
-  void SetBuffer(char* new_buf, size_t size) {
-    bufstart_ = new_buf;
-    buf_.reset(new_buf);
+  void SetBuffer(FSAllocationPtr& new_buf, size_t size) {
+    bufstart_ = reinterpret_cast<char*>(new_buf.get());
+    buf_.reset(nullptr);
+    buf_ = std::move(new_buf);
     capacity_ = size;
     cursize_ = size;
     alignment_ = 1;
@@ -167,7 +168,10 @@ class AlignedBuffer {
 
     bufstart_ = new_bufstart;
     capacity_ = new_capacity;
-    buf_.reset(new_buf);
+    buf_.reset(nullptr);
+    buf_ = std::unique_ptr<void, std::function<void(void*)>>(
+        static_cast<void*>(new_buf),
+        [](void* p) { delete[] static_cast<char*>(p); });
   }
 
   // Append to the buffer.
