@@ -211,11 +211,12 @@ class FilePrefetchBuffer {
     assert((num_file_reads_ >= num_file_reads_for_auto_readahead_ + 1) ||
            (num_file_reads_ == 0));
 
-    // overlap_buf_ is used whenever a buffer only has part of the requested
-    // data. The relevant data is copied into overlap_buf_ and the remaining
-    // data is copied in later to satisfy the user's request. This is used in
-    // both the synchronous (num_buffers_ = 1) and asynchronous (num_buffers_ >
-    // 1) cases.
+    // overlap_buf_ is used whenever the main buffer only has part of the
+    // requested data. The relevant data is copied into overlap_buf_ and the
+    // remaining data is copied in later to satisfy the user's request. This is
+    // used in both the synchronous (num_buffers_ = 1) and asynchronous
+    // (num_buffers_ > 1) cases. In the asynchronous case, the requested data
+    // may be spread out over 2 buffers.
     if (num_buffers_ > 1 ||
         (fs_ != nullptr &&
          CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer))) {
@@ -435,7 +436,8 @@ class FilePrefetchBuffer {
                    uint64_t start_offset);
 
   // Copy the data from src to overlap_buf_.
-  void CopyDataToBuffer(BufferInfo* src, uint64_t& offset, size_t& length);
+  void CopyDataToOverlapBuffer(BufferInfo* src, uint64_t& offset,
+                               size_t& length);
 
   bool IsBlockSequential(const size_t& offset) {
     return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
@@ -518,8 +520,8 @@ class FilePrefetchBuffer {
     if (!s.ok()) {
       return s;
     }
-    buf->buffer_.SetBuffer(std::move(read_req.fs_scratch),
-                           read_req.result.size());
+    buf->buffer_.SetBuffer(read_req.result.size(),
+                           std::move(read_req.fs_scratch));
     buf->offset_ = offset;
     buf->initial_end_offset_ = offset + read_req.result.size();
     result = read_req.result;

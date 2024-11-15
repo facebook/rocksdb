@@ -202,8 +202,9 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
 }
 
 // Copy data from src to overlap_buf_.
-void FilePrefetchBuffer::CopyDataToBuffer(BufferInfo* src, uint64_t& offset,
-                                          size_t& length) {
+void FilePrefetchBuffer::CopyDataToOverlapBuffer(BufferInfo* src,
+                                                 uint64_t& offset,
+                                                 size_t& length) {
   if (length == 0) {
     return;
   }
@@ -475,7 +476,7 @@ void FilePrefetchBuffer::HandleOverlappingSyncData(uint64_t offset,
     overlap_buf_->buffer_.Alignment(1);
     overlap_buf_->buffer_.AllocateNewBuffer(length);
     overlap_buf_->offset_ = offset;
-    CopyDataToBuffer(buf, tmp_offset, tmp_length);
+    CopyDataToOverlapBuffer(buf, tmp_offset, tmp_length);
     UpdateStats(/*found_in_buffer=*/false, overlap_buf_->CurrentSize());
   }
 }
@@ -494,7 +495,7 @@ Status FilePrefetchBuffer::HandleOverlappingAsyncData(
   }
 
   Status s;
-  size_t alignment = reader->file()->GetRequiredBufferAlignment();
+  size_t alignment = GetRequiredBufferAlignment(reader);
 
   BufferInfo* buf = GetFirstBuffer();
 
@@ -528,7 +529,7 @@ Status FilePrefetchBuffer::HandleOverlappingAsyncData(
     overlap_buf_->offset_ = offset;
     copy_to_overlap_buffer = true;
 
-    CopyDataToBuffer(buf, tmp_offset, tmp_length);
+    CopyDataToOverlapBuffer(buf, tmp_offset, tmp_length);
     UpdateStats(/*found_in_buffer=*/false, overlap_buf_->CurrentSize());
 
     // Call async prefetching on freed buffer since data has been consumed
@@ -608,7 +609,7 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   }
   ClearOutdatedData(offset, length);
 
-  // Handle overlapping data over two buffers.
+  // Handle overlapping data over two buffers (async prefetching case).
   s = HandleOverlappingAsyncData(opts, reader, offset, length, readahead_size,
                                  copy_to_overlap_buffer, tmp_offset,
                                  tmp_length);
@@ -652,7 +653,7 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
       // Data is overlapping i.e. some of the data has been copied to overlap
       // buffer and remaining will be updated below.
       size_t initial_buf_size = overlap_buf_->CurrentSize();
-      CopyDataToBuffer(buf, offset, length);
+      CopyDataToOverlapBuffer(buf, offset, length);
       UpdateStats(
           /*found_in_buffer=*/false,
           overlap_buf_->CurrentSize() - initial_buf_size);
@@ -701,7 +702,7 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
       UpdateStats(/*found_in_buffer=*/false,
                   (buf->offset_ + buf->CurrentSize() - offset));
     }
-    ReadAheadSizeTuning(buf, /*read_curr_block=*/true, /*refit_tail*/
+    ReadAheadSizeTuning(buf, /*read_curr_block=*/true, /*refit_tail=*/
                         true, /*use_fs_buffer=*/use_fs_buffer, start_offset1,
                         alignment, length, readahead_size, start_offset1,
                         end_offset1, read_len1, aligned_useful_len1);
@@ -730,7 +731,7 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   // Copy remaining requested bytes to overlap_buf_. No need to
   // update stats as data is prefetched during this call.
   if (copy_to_overlap_buffer && length > 0) {
-    CopyDataToBuffer(buf, offset, length);
+    CopyDataToOverlapBuffer(buf, offset, length);
   }
   return s;
 }

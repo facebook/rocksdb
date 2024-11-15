@@ -113,10 +113,10 @@ class AlignedBuffer {
     alignment_ = alignment;
   }
 
-  // Points the buffer to new_buf without allocating extra memory or performing
-  // any data copies. This method is called when we want to reuse the buffer
-  // provided by the file system
-  void SetBuffer(FSAllocationPtr&& new_buf, size_t size) {
+  // Points the buffer to new_buf (taking ownership) without allocating extra
+  // memory or performing any data copies. This method is called when we want to
+  // reuse the buffer provided by the file system
+  void SetBuffer(size_t size, FSAllocationPtr&& new_buf) {
     alignment_ = 1;
     capacity_ = size;
     cursize_ = size;
@@ -167,6 +167,8 @@ class AlignedBuffer {
 
     bufstart_ = new_bufstart;
     capacity_ = new_capacity;
+    // buf_ is a FSAllocationPtr which takes in a deleter
+    // we can just wrap the regular default delete that would have been called
     buf_ = std::unique_ptr<void, std::function<void(void*)>>(
         static_cast<void*>(new_buf),
         [](void* p) { delete[] static_cast<char*>(p); });
