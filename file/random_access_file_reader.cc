@@ -199,7 +199,6 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           buf.Read(scratch, offset_advance, res_len);
         } else {
           scratch = buf.BufferStart() + offset_advance;
-          aligned_buf->reset(nullptr);
           *aligned_buf = buf.Release();
         }
       }
@@ -385,7 +384,6 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
         scratch += r.len;
       }
 
-      aligned_buf->reset(nullptr);
       *aligned_buf = buf.Release();
       fs_reqs = aligned_reqs.data();
       num_fs_reqs = aligned_reqs.size();
@@ -600,7 +598,6 @@ void RandomAccessFileReader::ReadAsyncCallback(FSReadRequest& req,
         // Set aligned_buf provided by user without additional copy.
         user_req.scratch =
             read_async_info->buf_.BufferStart() + offset_advance_len;
-        read_async_info->user_aligned_buf_->reset(nullptr);
         *read_async_info->user_aligned_buf_ = read_async_info->buf_.Release();
       }
       user_req.result = Slice(user_req.scratch, res_len);

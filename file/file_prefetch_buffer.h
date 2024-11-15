@@ -527,7 +527,8 @@ class FilePrefetchBuffer {
     if (!s.ok()) {
       return s;
     }
-    buf->buffer_.SetBuffer(read_req.fs_scratch, read_req.result.size());
+    buf->buffer_.SetBuffer(std::move(read_req.fs_scratch),
+                           read_req.result.size());
     buf->offset_ = offset;
     buf->initial_end_offset_ = offset + read_req.result.size();
     result = read_req.result;

@@ -116,13 +116,12 @@ class AlignedBuffer {
   // Points the buffer to new_buf without allocating extra memory or performing
   // any data copies. This method is called when we want to reuse the buffer
   // provided by the file system
-  void SetBuffer(FSAllocationPtr& new_buf, size_t size) {
-    bufstart_ = reinterpret_cast<char*>(new_buf.get());
-    buf_.reset(nullptr);
-    buf_ = std::move(new_buf);
+  void SetBuffer(FSAllocationPtr&& new_buf, size_t size) {
+    alignment_ = 1;
     capacity_ = size;
     cursize_ = size;
-    alignment_ = 1;
+    bufstart_ = reinterpret_cast<char*>(new_buf.get());
+    buf_ = std::move(new_buf);
   }
 
   // Allocates a new buffer and sets the start position to the first aligned
@@ -168,7 +167,6 @@ class AlignedBuffer {
 
     bufstart_ = new_bufstart;
     capacity_ = new_capacity;
-    buf_.reset(nullptr);
     buf_ = std::unique_ptr<void, std::function<void(void*)>>(
         static_cast<void*>(new_buf),
         [](void* p) { delete[] static_cast<char*>(p); });
