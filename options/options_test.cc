@@ -2353,7 +2353,7 @@ class CFOptionsTest : public DBTestBase {
   CFOptionsTest() : DBTestBase("cf_options_test", /*env_do_fsync=*/true) {}
 };
 
-TEST_F(CFOptionsTest, AvoidUpdatingOptions) {
+TEST_F(CFOptionsTest, SkipUpdatingOptionsWhenNoValuesToUpdate) {
   Options options;
 
   // CFOptions
