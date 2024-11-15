@@ -9,12 +9,14 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "options/cf_options.h"
 #include "port/stack_trace.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/utilities/debug.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "test_util/mock_time_env.h"
+#include "util/defer.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1234,79 +1236,6 @@ TEST_F(TieredCompactionTest, RangeBasedTieredStorageLevel) {
   db_->ReleaseSnapshot(temp_snap);
 }
 
-TEST_F(TieredCompactionTest, CheckInternalKeyRange) {
-  // When compacting keys from the last level to penultimate level,
-  // output to penultimate level should be within internal key range
-  // of input files from penultimate level.
-  // Set up:
-  // L5:
-  //  File 1: DeleteRange[1, 3)@4, File 2: [3@5, 100@6]
-  // L6:
-  // File 3: [2@1, 3@2], File 4: [50@3]
-  //
-  // When File 1 and File 3 are being compacted,
-  // Key(3) cannot be compacted up, otherwise it causes
-  // inconsistency where File 3's Key(3) has a lower sequence number
-  // than File 2's Key(3).
-  const int kNumLevels = 7;
-  auto options = CurrentOptions();
-  SetColdTemperature(options);
-  options.level_compaction_dynamic_level_bytes = true;
-  options.num_levels = kNumLevels;
-  options.statistics = CreateDBStatistics();
-  options.max_subcompactions = 10;
-  options.preclude_last_level_data_seconds = 10000;
-  DestroyAndReopen(options);
-  auto cmp = options.comparator;
-
-  std::string hot_start = Key(0);
-  std::string hot_end = Key(0);
-  SyncPoint::GetInstance()->SetCallBack(
-      "CompactionIterator::PrepareOutput.context", [&](void* arg) {
-        auto context = static_cast<PerKeyPlacementContext*>(arg);
-        context->output_to_penultimate_level =
-            cmp->Compare(context->key, hot_start) >= 0 &&
-            cmp->Compare(context->key, hot_end) < 0;
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
-  // File 1
-  ASSERT_OK(Put(Key(2), "val2"));
-  ASSERT_OK(Put(Key(3), "val3"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(6);
-  // File 2
-  ASSERT_OK(Put(Key(50), "val50"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(6);
-
-  const Snapshot* snapshot = db_->GetSnapshot();
-  hot_end = Key(100);
-  std::string start = Key(1);
-  std::string end = Key(3);
-  ASSERT_OK(
-      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(5);
-  // File 3
-  ASSERT_OK(Put(Key(3), "vall"));
-  ASSERT_OK(Put(Key(100), "val100"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(5);
-  // Try to compact keys up
-  CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-  start = Key(1);
-  end = Key(2);
-  Slice begin_slice(start);
-  Slice end_slice(end);
-  ASSERT_OK(db_->CompactRange(cro, &begin_slice, &end_slice));
-  // Without internal key range checking, we get the following error:
-  // Corruption: force_consistency_checks(DEBUG): VersionBuilder: L5 has
-  // overlapping ranges: file #18 largest key: '6B6579303030303033' seq:102,
-  // type:1 vs. file #15 smallest key: '6B6579303030303033' seq:104, type:1
-  db_->ReleaseSnapshot(snapshot);
-}
-
 class PrecludeLastLevelTestBase : public DBTestBase {
  public:
   PrecludeLastLevelTestBase(std::string test_name = "preclude_last_level_test")
@@ -1341,6 +1270,8 @@ class PrecludeLastLevelTestBase : public DBTestBase {
       const std::unordered_map<std::string, std::string>& db_config_change) {
     if (dynamic) {
       if (config_change.size() > 0) {
+        // FIXME: temporary while preserve/preclude options are not user mutable
+        SaveAndRestore<bool> m(&TEST_allowSetOptionsImmutableInMutable, true);
         ASSERT_OK(db_->SetOptions(config_change));
       }
       if (db_config_change.size() > 0) {
@@ -1621,6 +1552,187 @@ TEST_P(PrecludeLastLevelTest, SmallPrecludeTime) {
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
   ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
+  Close();
+}
+
+TEST_P(PrecludeLastLevelTest, CheckInternalKeyRange) {
+  // When compacting keys from the last level to penultimate level,
+  // output to penultimate level should be within internal key range
+  // of input files from penultimate level.
+  // Set up:
+  // L5:
+  //  File 1: DeleteRange[1, 3)@4, File 2: [3@5, 100@6]
+  // L6:
+  // File 3: [2@1, 3@2], File 4: [50@3]
+  //
+  // When File 1 and File 3 are being compacted,
+  // Key(3) cannot be compacted up, otherwise it causes
+  // inconsistency where File 3's Key(3) has a lower sequence number
+  // than File 2's Key(3).
+  const int kNumLevels = 7;
+  auto options = CurrentOptions();
+  options.env = mock_env_.get();
+  options.last_level_temperature = Temperature::kCold;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.num_levels = kNumLevels;
+  options.statistics = CreateDBStatistics();
+  options.max_subcompactions = 10;
+  options.preserve_internal_time_seconds = 10000;
+  DestroyAndReopen(options);
+  // File 3
+  ASSERT_OK(Put(Key(2), "val2"));
+  ASSERT_OK(Put(Key(3), "val3"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+  // File 4
+  ASSERT_OK(Put(Key(50), "val50"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+
+  ApplyConfigChange(&options, {{"preclude_last_level_data_seconds", "10000"}});
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  // File 1
+  std::string start = Key(1);
+  std::string end = Key(3);
+  ASSERT_OK(db_->DeleteRange({}, db_->DefaultColumnFamily(), start, end));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+  // File 2
+  ASSERT_OK(Put(Key(3), "vall"));
+  ASSERT_OK(Put(Key(100), "val100"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+
+  ASSERT_EQ("0,0,0,0,0,2,2", FilesPerLevel());
+
+  auto VerifyLogicalState = [&]() {
+    // First with snapshot
+    ASSERT_EQ("val2", Get(Key(2), snapshot));
+    ASSERT_EQ("val3", Get(Key(3), snapshot));
+    ASSERT_EQ("val50", Get(Key(50), snapshot));
+    ASSERT_EQ("NOT_FOUND", Get(Key(100), snapshot));
+
+    // Then without snapshot
+    ASSERT_EQ("NOT_FOUND", Get(Key(2)));
+    ASSERT_EQ("vall", Get(Key(3)));
+    ASSERT_EQ("val50", Get(Key(50)));
+    ASSERT_EQ("val100", Get(Key(100)));
+  };
+
+  VerifyLogicalState();
+
+  // Try to compact keys up
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  // Without internal key range checking, we get the following error:
+  // Corruption: force_consistency_checks(DEBUG): VersionBuilder: L5 has
+  // overlapping ranges: file #18 largest key: '6B6579303030303033' seq:102,
+  // type:1 vs. file #15 smallest key: '6B6579303030303033' seq:104, type:1
+  ASSERT_OK(CompactRange(cro, Key(1), Key(2)));
+
+  VerifyLogicalState();
+
+  db_->ReleaseSnapshot(snapshot);
+  Close();
+}
+
+TEST_P(PrecludeLastLevelTest, RangeTombstoneSnapshotMigrateFromLast) {
+  // Reproducer for issue originally described in
+  // https://github.com/facebook/rocksdb/pull/9964/files#r1024449523
+  if (!UseDynamicConfig()) {
+    // Depends on config change while holding a snapshot
+    return;
+  }
+  const int kNumLevels = 7;
+  auto options = CurrentOptions();
+  options.env = mock_env_.get();
+  options.last_level_temperature = Temperature::kCold;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.num_levels = kNumLevels;
+  options.statistics = CreateDBStatistics();
+  options.max_subcompactions = 10;
+  options.preserve_internal_time_seconds = 30000;
+  DestroyAndReopen(options);
+
+  // Entries with much older write time
+  ASSERT_OK(Put(Key(2), "val2"));
+  ASSERT_OK(Put(Key(6), "val6"));
+
+  for (int i = 0; i < 10; i++) {
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(1000)); });
+  }
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  ASSERT_OK(db_->DeleteRange({}, db_->DefaultColumnFamily(), Key(1), Key(5)));
+  ASSERT_OK(Put(Key(1), "val1"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(6);
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+
+  ApplyConfigChange(&options, {{"preclude_last_level_data_seconds", "10000"}});
+
+  // To exercise the WithinPenultimateLevelOutputRange feature, we want files
+  // around the middle file to be compacted on the penultimate level
+  ASSERT_OK(Put(Key(0), "val0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(3), "val3"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(7), "val7"));
+
+  // FIXME: ideally this wouldn't be necessary to get a seqno to time entry
+  // into a later compaction to get data into the last level
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(1000)); });
+
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(5);
+  ASSERT_EQ("0,0,0,0,0,3,1", FilesPerLevel());
+
+  auto VerifyLogicalState = [&]() {
+    // First with snapshot
+    if (snapshot) {
+      ASSERT_EQ("NOT_FOUND", Get(Key(0), snapshot));
+      ASSERT_EQ("NOT_FOUND", Get(Key(1), snapshot));
+      ASSERT_EQ("val2", Get(Key(2), snapshot));
+      ASSERT_EQ("NOT_FOUND", Get(Key(3), snapshot));
+      ASSERT_EQ("val6", Get(Key(6), snapshot));
+      ASSERT_EQ("NOT_FOUND", Get(Key(7), snapshot));
+    }
+
+    // Then without snapshot
+    ASSERT_EQ("val0", Get(Key(0)));
+    ASSERT_EQ("val1", Get(Key(1)));
+    ASSERT_EQ("NOT_FOUND", Get(Key(2)));
+    ASSERT_EQ("val3", Get(Key(3)));
+    ASSERT_EQ("val6", Get(Key(6)));
+    ASSERT_EQ("val7", Get(Key(7)));
+  };
+
+  VerifyLogicalState();
+
+  // Try a limited range compaction
+  // FIXME: this currently hits the "Unsafe to store Seq later than snapshot"
+  // error. Needs to work safely for preclude option to be user mutable.
+  // ASSERT_OK(CompactRange({}, Key(3), Key(4)));
+  EXPECT_EQ("0,0,0,0,0,3,1", FilesPerLevel());
+  VerifyLogicalState();
+
+  // ...
+  ASSERT_OK(CompactRange({}, {}, {}));
+  EXPECT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  VerifyLogicalState();
+
+  // Make data eligible for last level
+  db_->ReleaseSnapshot(snapshot);
+  snapshot = nullptr;
+  mock_clock_->MockSleepForSeconds(static_cast<int>(10000));
+
+  ASSERT_OK(CompactRange({}, {}, {}));
+  EXPECT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+  VerifyLogicalState();
 
   Close();
 }

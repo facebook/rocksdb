@@ -952,9 +952,10 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
 
       // Pre-populate mappings for reserved sequence numbers.
       RecordSeqnoToTimeMapping(max_preserve_seconds);
-    } else if (mapping_was_empty) {
+    } else {
       if (!last_seqno_zero) {
-        // Ensure at least one mapping (or log a warning)
+        // Ensure at least one mapping (or log a warning), and
+        // an updated entry whenever relevant SetOptions is called
         RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
       } else {
         // FIXME (see limitation described above)

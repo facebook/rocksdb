@@ -1561,6 +1561,11 @@ Status ColumnFamilyData::SetOptions(
       BuildColumnFamilyOptions(initial_cf_options_, mutable_cf_options_);
   ConfigOptions config_opts;
   config_opts.mutable_options_only = true;
+#ifndef NDEBUG
+  if (TEST_allowSetOptionsImmutableInMutable) {
+    config_opts.mutable_options_only = false;
+  }
+#endif
   Status s = GetColumnFamilyOptionsFromMap(config_opts, cf_opts, options_map,
                                            &cf_opts);
   if (s.ok()) {

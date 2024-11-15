@@ -555,11 +555,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"preclude_last_level_data_seconds",
          {offsetof(struct MutableCFOptions, preclude_last_level_data_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+          OptionTypeFlags::kNone}},
         {"preserve_internal_time_seconds",
          {offsetof(struct MutableCFOptions, preserve_internal_time_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+          OptionTypeFlags::kNone}},
         {"bottommost_temperature",
          {0, OptionType::kTemperature, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
@@ -1273,5 +1273,7 @@ std::vector<std::string> TEST_GetImmutableInMutableCFOptions() {
   }
   return result;
 }
+
+bool TEST_allowSetOptionsImmutableInMutable = false;
 #endif  // !NDEBUG
 }  // namespace ROCKSDB_NAMESPACE

@@ -1225,6 +1225,9 @@ class DBTestBase : public testing::Test {
                                     const Snapshot* snapshot = nullptr,
                                     const bool async = false);
 
+  Status CompactRange(const CompactRangeOptions& options,
+                      std::optional<Slice> begin, std::optional<Slice> end);
+
   uint64_t GetNumSnapshots();
 
   uint64_t GetTimeOldestSnapshots();
