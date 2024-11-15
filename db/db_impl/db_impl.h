@@ -1469,7 +1469,8 @@ class DBImpl : public DB {
   // The following two functions can only be called when:
   // 1. WriteThread::Writer::EnterUnbatched() is used.
   // 2. db_mutex is NOT held
-  Status RenameTempFileToOptionsFile(const std::string& file_name);
+  Status RenameTempFileToOptionsFile(const std::string& file_name,
+                                     bool is_remote_compaction_enabled);
   Status DeleteObsoleteOptionsFiles();
 
   void NotifyOnManualFlushScheduled(autovector<ColumnFamilyData*> cfds,

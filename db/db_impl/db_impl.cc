@@ -5514,7 +5514,8 @@ Status DBImpl::WriteOptionsFile(const WriteOptions& write_options,
                                    file_name, fs_.get());
 
   if (s.ok()) {
-    s = RenameTempFileToOptionsFile(file_name);
+    s = RenameTempFileToOptionsFile(file_name,
+                                    db_options.compaction_service != nullptr);
   }
 
   if (!s.ok() && GetEnv()->FileExists(file_name).ok()) {
@@ -5591,7 +5592,8 @@ Status DBImpl::DeleteObsoleteOptionsFiles() {
   return Status::OK();
 }
 
-Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
+Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
+                                           bool is_remote_compaction_enabled) {
   Status s;
 
   uint64_t options_file_number = versions_->NewFileNumber();
@@ -5635,7 +5637,7 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
       my_disable_delete_obsolete_files = disable_delete_obsolete_files_;
     }
 
-    if (!my_disable_delete_obsolete_files) {
+    if (!my_disable_delete_obsolete_files && !is_remote_compaction_enabled) {
       // TODO: Should we check for errors here?
       DeleteObsoleteOptionsFiles().PermitUncheckedError();
     }

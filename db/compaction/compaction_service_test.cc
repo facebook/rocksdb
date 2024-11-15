@@ -483,21 +483,29 @@ TEST_F(CompactionServiceTest, PreservedOptionsRemoteCompaction) {
     ASSERT_OK(Flush());
   }
 
-  bool is_primary_called = false;
-  // This will be called twice. One from primary and one from remote.
-  // Try changing the option when called from remote. Otherwise, the new option
-  // will be used
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"CompactionServiceTest::OptionsFileChanged",
+        "DBImplSecondary::OpenAndCompact::BeforeLoadingOptions:1"}});
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", [&](void* /*arg*/) {
-        if (!is_primary_called) {
-          is_primary_called = true;
-          return;
-        }
-        // Change the option right before the compaction run
+      "DBImplSecondary::OpenAndCompact::BeforeLoadingOptions:0",
+      [&](void* arg) {
+        auto options_file_number = static_cast<uint64_t*>(arg);
+        // Change the option twice before the compaction run
         ASSERT_OK(dbfull()->SetOptions(
             {{"level0_file_num_compaction_trigger", "4"}}));
         ASSERT_EQ(4, dbfull()->GetOptions().level0_file_num_compaction_trigger);
-        dbfull()->TEST_DeleteObsoleteFiles();
+        ASSERT_TRUE(dbfull()->versions_->options_file_number() >
+                    *options_file_number);
+
+        // Change the option twice before the compaction run
+        ASSERT_OK(dbfull()->SetOptions(
+            {{"level0_file_num_compaction_trigger", "5"}}));
+        ASSERT_EQ(5, dbfull()->GetOptions().level0_file_num_compaction_trigger);
+        ASSERT_TRUE(dbfull()->versions_->options_file_number() >
+                    *options_file_number);
+
+        TEST_SYNC_POINT("CompactionServiceTest::OptionsFileChanged");
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
