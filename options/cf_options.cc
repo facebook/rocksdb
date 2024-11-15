@@ -219,6 +219,17 @@ static Status TableFactoryParseFn(const ConfigOptions& opts,
   return s;
 }
 
+static bool TableFactoryEqualsFn(const ConfigOptions& opts,
+                                 const std::string& /*name*/, const void* addr1,
+                                 const void* addr2, std::string* mismatch) {
+  auto table_factory1 =
+      static_cast<const std::shared_ptr<TableFactory>*>(addr1);
+  auto table_factory2 =
+      static_cast<const std::shared_ptr<TableFactory>*>(addr2);
+  return table_factory1->get()->AreEquivalent(opts, table_factory2->get(),
+                                              mismatch);
+}
+
 const std::string kOptNameBMCompOpts = "bottommost_compression_opts";
 const std::string kOptNameCompOpts = "compression_opts";
 
@@ -355,23 +366,32 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"table_factory",
          {offsetof(struct MutableCFOptions, table_factory),
-          OptionType::kCustomizable, OptionVerificationType::kByName,
-          OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
+          OptionType::kCustomizable,
+          OptionVerificationType::kByName,
+          OptionTypeFlags::kShared | OptionTypeFlags::kCompareDefault |
               OptionTypeFlags::kStringNameOnly | OptionTypeFlags::kDontPrepare |
               OptionTypeFlags::kMutable,
-          TableFactoryParseFn}},
+          TableFactoryParseFn,
+          {} /* SerializeFn */,
+          TableFactoryEqualsFn}},
         {"block_based_table_factory",
          {offsetof(struct MutableCFOptions, table_factory),
-          OptionType::kCustomizable, OptionVerificationType::kAlias,
-          OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
+          OptionType::kCustomizable,
+          OptionVerificationType::kAlias,
+          OptionTypeFlags::kShared | OptionTypeFlags::kCompareDefault |
               OptionTypeFlags::kMutable,
-          TableFactoryParseFn}},
+          TableFactoryParseFn,
+          {} /* SerializeFn */,
+          TableFactoryEqualsFn}},
         {"plain_table_factory",
          {offsetof(struct MutableCFOptions, table_factory),
-          OptionType::kCustomizable, OptionVerificationType::kAlias,
-          OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
+          OptionType::kCustomizable,
+          OptionVerificationType::kAlias,
+          OptionTypeFlags::kShared | OptionTypeFlags::kCompareDefault |
               OptionTypeFlags::kMutable,
-          TableFactoryParseFn}},
+          TableFactoryParseFn,
+          {} /* SerializeFn */,
+          TableFactoryEqualsFn}},
         {"filter_deletes",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},

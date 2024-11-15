@@ -312,7 +312,7 @@ static struct BlockBasedTableTypeInfo {
         {"filter_policy",
          OptionTypeInfo::AsCustomSharedPtr<const FilterPolicy>(
              offsetof(struct BlockBasedTableOptions, filter_policy),
-             OptionVerificationType::kByNameAllowFromNull)},
+             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
         {"whole_key_filtering",
          {offsetof(struct BlockBasedTableOptions, whole_key_filtering),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
