@@ -448,9 +448,9 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
 // requested data is in the buffer, we copy the relevant data to overlap_buf_
 void FilePrefetchBuffer::HandleOverlappingSyncData(uint64_t offset,
                                                    size_t length,
-                                                   bool& use_overlap_buffer,
                                                    uint64_t& tmp_offset,
-                                                   size_t& tmp_length) {
+                                                   size_t& tmp_length,
+                                                   bool& use_overlap_buffer) {
   if (IsBufferQueueEmpty()) {
     return;
   }
@@ -618,8 +618,8 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   // Handle partially available data when reusing the file system buffer
   bool use_fs_buffer = UseFSBuffer(reader);
   if (!copy_to_overlap_buffer && use_fs_buffer) {
-    HandleOverlappingSyncData(offset, length, copy_to_overlap_buffer,
-                              tmp_offset, tmp_length);
+    HandleOverlappingSyncData(offset, length, tmp_offset, tmp_length,
+                              copy_to_overlap_buffer);
   }
 
   AllocateBufferIfEmpty();

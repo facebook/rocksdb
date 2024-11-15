@@ -3381,7 +3381,7 @@ class FSBufferPrefetchTest : public testing::Test {
 };
 
 TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
-  // Check that the main buffer and the staging_buf_ are populated correctly
+  // Check that the main buffer and the overlap_buf_ are populated correctly
   // while reading a 32 KiB file
   std::string fname = "fs-buffer-prefetch-stats-internals";
   Random rand(0);
@@ -3403,16 +3403,16 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   // it will do a read of offset 0 with length 4096 + 8192 = 12288.
   Status s;
   std::vector<std::pair<uint64_t, size_t>> buffer_info(1);
-  std::pair<uint64_t, size_t> staging_buffer_info;
+  std::pair<uint64_t, size_t> overlap_buffer_info;
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 0, 4096, &result, &s));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
   ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL), 0);
   ASSERT_EQ(strncmp(result.data(), content.substr(0, 4096).c_str(), 4096), 0);
-  // Staging buffer is not used
-  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
-  ASSERT_EQ(staging_buffer_info.first, 0);
-  ASSERT_EQ(staging_buffer_info.second, 0);
+  // Overlap buffer is not used
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  ASSERT_EQ(overlap_buffer_info.first, 0);
+  ASSERT_EQ(overlap_buffer_info.second, 0);
   // Main buffer contains the requested data + the 8192 of prefetched data
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   ASSERT_EQ(buffer_info[0].first, 0);
@@ -3430,11 +3430,11 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
             4096);  // 8192-12288
   ASSERT_EQ(strncmp(result.data(), content.substr(8192, 8192).c_str(), 8192),
             0);
-  // Staging buffer reuses bytes 8192 to 12288
-  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
-  ASSERT_EQ(staging_buffer_info.first, 8192);
-  ASSERT_EQ(staging_buffer_info.second, 8192);
-  // We spill to the staging buffer so the remaining buffer only has the
+  // Overlap buffer reuses bytes 8192 to 12288
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  ASSERT_EQ(overlap_buffer_info.first, 8192);
+  ASSERT_EQ(overlap_buffer_info.second, 8192);
+  // We spill to the overlap buffer so the remaining buffer only has the
   // missing and prefetched part
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   ASSERT_EQ(buffer_info[0].first, 12288);
@@ -3450,10 +3450,10 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   ASSERT_EQ(strncmp(result.data(), content.substr(12288, 4096).c_str(), 4096),
             0);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
-  // Staging buffer does not get used
-  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
-  ASSERT_EQ(staging_buffer_info.first, 8192);
-  ASSERT_EQ(staging_buffer_info.second, 8192);
+  // Overlap buffer does not get used
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  ASSERT_EQ(overlap_buffer_info.first, 8192);
+  ASSERT_EQ(overlap_buffer_info.second, 8192);
   // Main buffer stays the same
   ASSERT_EQ(buffer_info[0].first, 12288);
   ASSERT_EQ(buffer_info[0].second, 12288);
@@ -3466,10 +3466,10 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   ASSERT_EQ(
       stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
       /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
-  // Staging buffer reuses bytes 16000 to 24576
-  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
-  ASSERT_EQ(staging_buffer_info.first, 16000);
-  ASSERT_EQ(staging_buffer_info.second, 10000);
+  // Overlap buffer reuses bytes 16000 to 24576
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  ASSERT_EQ(overlap_buffer_info.first, 16000);
+  ASSERT_EQ(overlap_buffer_info.second, 10000);
   ASSERT_EQ(strncmp(result.data(), content.substr(16000, 10000).c_str(), 10000),
             0);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
@@ -3480,7 +3480,7 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
 }
 
 TEST_F(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
-  // Check that the main buffer and the staging_buf_ are populated correctly
+  // Check that the main buffer and the overlap_buf_ are populated correctly
   // while reading with no regard to alignment
   std::string fname = "fs-buffer-prefetch-unaligned-reads";
   Random rand(0);
@@ -3502,14 +3502,14 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   // Read 3 bytes at offset 5
   Status s;
   std::vector<std::pair<uint64_t, size_t>> buffer_info(1);
-  std::pair<uint64_t, size_t> staging_buffer_info;
+  std::pair<uint64_t, size_t> overlap_buffer_info;
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 5, 3, &result, &s));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(5, 3).c_str(), 3), 0);
-  // Staging buffer is not used (cold start miss)
-  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
-  ASSERT_EQ(staging_buffer_info.first, 0);
-  ASSERT_EQ(staging_buffer_info.second, 0);
+  // Overlap buffer is not used (cold start miss)
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  ASSERT_EQ(overlap_buffer_info.first, 0);
+  ASSERT_EQ(overlap_buffer_info.second, 0);
   // Main buffer contains the requested data + 5 of prefetched data (5 - 13)
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   ASSERT_EQ(buffer_info[0].first, 5);
@@ -3519,10 +3519,10 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 16, 7, &result, &s));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(16, 7).c_str(), 7), 0);
-  // Staging buffer is not used (no partial hit)
-  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
-  ASSERT_EQ(staging_buffer_info.first, 0);
-  ASSERT_EQ(staging_buffer_info.second, 0);
+  // Overlap buffer is not used (no partial hit)
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  ASSERT_EQ(overlap_buffer_info.first, 0);
+  ASSERT_EQ(overlap_buffer_info.second, 0);
   // Main buffer contains the requested data + 10 of prefetched data (16 - 33)
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   ASSERT_EQ(buffer_info[0].first, 16);
@@ -3537,10 +3537,10 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 27, 6, &result, &s));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(27, 6).c_str(), 6), 0);
-  // Staging buffer still not used
-  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
-  ASSERT_EQ(staging_buffer_info.first, 0);
-  ASSERT_EQ(staging_buffer_info.second, 0);
+  // Overlap buffer still not used
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  ASSERT_EQ(overlap_buffer_info.first, 0);
+  ASSERT_EQ(overlap_buffer_info.second, 0);
   // Main buffer unchanged
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   ASSERT_EQ(buffer_info[0].first, 16);
@@ -3550,10 +3550,10 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 30, 20, &result, &s));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(30, 20).c_str(), 20), 0);
-  // Staging buffer is used because we already had 30-33
-  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
-  ASSERT_EQ(staging_buffer_info.first, 30);
-  ASSERT_EQ(staging_buffer_info.second, 20);
+  // Overlap buffer is used because we already had 30-33
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  ASSERT_EQ(overlap_buffer_info.first, 30);
+  ASSERT_EQ(overlap_buffer_info.second, 20);
   // Main buffer has up to offset 50 + 20 of prefetched data
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   ASSERT_EQ(buffer_info[0].first, 33);

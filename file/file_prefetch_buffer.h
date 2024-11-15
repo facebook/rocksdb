@@ -212,10 +212,10 @@ class FilePrefetchBuffer {
            (num_file_reads_ == 0));
 
     // overlap_buf_ is used whenever a buffer only has part of the requested
-    // data The relevant data is copied into overlap_buf_ and the remaining data
-    // is copied in later to satisfy the user's request. This is used in both
-    // the synchronous (num_buffers_ = 1) and asynchronous (num_buffers_ > 1)
-    // cases.
+    // data. The relevant data is copied into overlap_buf_ and the remaining
+    // data is copied in later to satisfy the user's request. This is used in
+    // both the synchronous (num_buffers_ = 1) and asynchronous (num_buffers_ >
+    // 1) cases.
     if (num_buffers_ > 1 ||
         (fs_ != nullptr &&
          CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer))) {
@@ -536,8 +536,8 @@ class FilePrefetchBuffer {
   }
 
   void HandleOverlappingSyncData(uint64_t offset, size_t length,
-                                 bool& use_overlap_buffer, uint64_t& tmp_offset,
-                                 size_t& tmp_length);
+                                 uint64_t& tmp_offset, size_t& tmp_length,
+                                 bool& use_overlap_buffer);
 
   Status HandleOverlappingAsyncData(const IOOptions& opts,
                                     RandomAccessFileReader* reader,
