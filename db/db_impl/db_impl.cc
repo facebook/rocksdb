@@ -847,7 +847,6 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
 
   uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
   uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
-  bool mapping_was_empty = false;
   std::vector<SuperVersionContext> sv_contexts;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -878,7 +877,6 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
     if (old_mapping_size != seqno_to_time_mapping_.Size()) {
       InstallSeqnoToTimeMappingInSV(&sv_contexts);
     }
-    mapping_was_empty = seqno_to_time_mapping_.Empty();
   }
 
   // clean up outside db mutex
@@ -926,8 +924,6 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
     assert(!is_new_db || last_seqno_zero);
     if (is_new_db && last_seqno_zero) {
       // Pre-allocate seqnos and pre-populate historical mapping
-      assert(mapping_was_empty);
-
       // We can simply modify these, before writes are allowed
       constexpr uint64_t kMax = kMaxSeqnoTimePairsPerSST;
       versions_->SetLastAllocatedSequence(kMax);
