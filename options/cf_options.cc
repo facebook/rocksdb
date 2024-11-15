@@ -1274,4 +1274,14 @@ std::vector<std::string> TEST_GetImmutableInMutableCFOptions() {
   return result;
 }
 #endif  // !NDEBUG
+
+bool MutableCFOptionsAreEqual(const MutableCFOptions& this_options,
+                              const MutableCFOptions& that_options) {
+  ConfigOptions config_options;
+  std::string mismatch;
+  return OptionTypeInfo::StructsAreEqual(
+      config_options, "MutableCFOptions", &cf_mutable_options_type_info,
+      "MutableCFOptions", &this_options, &that_options, &mismatch);
+}
+
 }  // namespace ROCKSDB_NAMESPACE

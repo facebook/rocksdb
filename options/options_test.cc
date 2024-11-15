@@ -14,6 +14,7 @@
 
 #include "cache/lru_cache.h"
 #include "cache/sharded_cache.h"
+#include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/port.h"
@@ -2345,6 +2346,58 @@ static int RegisterCustomEnv(ObjectLibrary& library, const std::string& arg) {
         return &env;
       });
   return 1;
+}
+
+class CFOptionsTest : public DBTestBase {
+ public:
+  CFOptionsTest() : DBTestBase("cf_options_test", /*env_do_fsync=*/true) {}
+};
+
+TEST_F(CFOptionsTest, AvoidUpdatingOptions) {
+  Options options;
+
+  // CFOptions
+  options.uncache_aggressiveness = 0;
+  options.disable_auto_compactions = false;
+
+  Reopen(options);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  bool is_changed_stats = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteOptionsFile:PersistOptions", [&](void* /*arg*/) {
+        ASSERT_FALSE(is_changed_stats);  // should only save options file once
+        is_changed_stats = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // helper function to check the status and reset after each check
+  auto is_changed = [&] {
+    bool ret = is_changed_stats;
+    is_changed_stats = false;
+    return ret;
+  };
+
+  // Try updating CFOptions to the same value
+  ASSERT_OK(dbfull()->SetOptions({{"uncache_aggressiveness", "0"}}));
+  ASSERT_FALSE(is_changed());
+
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
+  ASSERT_FALSE(is_changed());
+
+  // now change
+  ASSERT_OK(dbfull()->SetOptions({{"uncache_aggressiveness", "1"}}));
+  ASSERT_TRUE(is_changed());
+
+  // update again
+  ASSERT_OK(dbfull()->SetOptions({{"uncache_aggressiveness", "0"}}));
+  ASSERT_TRUE(is_changed());
+
+  // multiple values with change
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"uncache_aggressiveness", "0"}, {"disable_auto_compactions", "true"}}));
+  ASSERT_TRUE(is_changed());
 }
 
 // This test suite tests the old APIs into the Configure options methods.
