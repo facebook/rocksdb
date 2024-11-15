@@ -3410,7 +3410,7 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL), 0);
   ASSERT_EQ(strncmp(result.data(), content.substr(0, 4096).c_str(), 4096), 0);
   // Staging buffer is not used
-  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
   ASSERT_EQ(staging_buffer_info.first, 0);
   ASSERT_EQ(staging_buffer_info.second, 0);
   // Main buffer contains the requested data + the 8192 of prefetched data
@@ -3431,7 +3431,7 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   ASSERT_EQ(strncmp(result.data(), content.substr(8192, 8192).c_str(), 8192),
             0);
   // Staging buffer reuses bytes 8192 to 12288
-  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
   ASSERT_EQ(staging_buffer_info.first, 8192);
   ASSERT_EQ(staging_buffer_info.second, 8192);
   // We spill to the staging buffer so the remaining buffer only has the
@@ -3451,7 +3451,7 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
             0);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
   // Staging buffer does not get used
-  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
   ASSERT_EQ(staging_buffer_info.first, 8192);
   ASSERT_EQ(staging_buffer_info.second, 8192);
   // Main buffer stays the same
@@ -3467,7 +3467,7 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
       stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
       /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
   // Staging buffer reuses bytes 16000 to 24576
-  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
   ASSERT_EQ(staging_buffer_info.first, 16000);
   ASSERT_EQ(staging_buffer_info.second, 10000);
   ASSERT_EQ(strncmp(result.data(), content.substr(16000, 10000).c_str(), 10000),
@@ -3507,7 +3507,7 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(5, 3).c_str(), 3), 0);
   // Staging buffer is not used (cold start miss)
-  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
   ASSERT_EQ(staging_buffer_info.first, 0);
   ASSERT_EQ(staging_buffer_info.second, 0);
   // Main buffer contains the requested data + 5 of prefetched data (5 - 13)
@@ -3520,7 +3520,7 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(16, 7).c_str(), 7), 0);
   // Staging buffer is not used (no partial hit)
-  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
   ASSERT_EQ(staging_buffer_info.first, 0);
   ASSERT_EQ(staging_buffer_info.second, 0);
   // Main buffer contains the requested data + 10 of prefetched data (16 - 33)
@@ -3538,7 +3538,7 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(27, 6).c_str(), 6), 0);
   // Staging buffer still not used
-  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
   ASSERT_EQ(staging_buffer_info.first, 0);
   ASSERT_EQ(staging_buffer_info.second, 0);
   // Main buffer unchanged
@@ -3551,7 +3551,7 @@ TEST_F(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(30, 20).c_str(), 20), 0);
   // Staging buffer is used because we already had 30-33
-  fpb.TEST_GetStagingBufferOffsetandSize(staging_buffer_info);
+  fpb.TEST_GetOverlapBufferOffsetandSize(staging_buffer_info);
   ASSERT_EQ(staging_buffer_info.first, 30);
   ASSERT_EQ(staging_buffer_info.second, 20);
   // Main buffer has up to offset 50 + 20 of prefetched data
