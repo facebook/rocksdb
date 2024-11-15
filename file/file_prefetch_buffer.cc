@@ -445,6 +445,7 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
                              (end_offset - start_offset));
 }
 
+// This is for when num_buffers_ = 1.
 // If we are reusing the file system allocated buffer, and only some of the
 // requested data is in the buffer, we copy the relevant data to overlap_buf_
 void FilePrefetchBuffer::HandleOverlappingSyncData(uint64_t offset,
@@ -456,15 +457,9 @@ void FilePrefetchBuffer::HandleOverlappingSyncData(uint64_t offset,
     return;
   }
   BufferInfo* buf = GetFirstBuffer();
-  // Finish any pending async reads
-  if (buf->async_read_in_progress_ &&
-      buf->IsOffsetInBufferWithAsyncProgress(offset)) {
-    PollIfNeeded(offset, length);
-  }
-
-  if (IsBufferQueueEmpty()) {
-    return;
-  }
+  // We should only be calling this when num_buffers_ = 1, so there should
+  // not be any async reads.
+  assert(!buf->async_read_in_progress_);
 
   if (!buf->async_read_in_progress_ && buf->DoesBufferContainData() &&
       buf->IsOffsetInBuffer(offset) &&
@@ -481,6 +476,7 @@ void FilePrefetchBuffer::HandleOverlappingSyncData(uint64_t offset,
   }
 }
 
+// This is for when num_buffers_ > 1.
 // If data is overlapping between two buffers then during this call:
 //   - data from first buffer is copied into overlapping buffer,
 //   - first is removed from bufs_ and freed so that it can be used for async
@@ -617,6 +613,7 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
     return s;
   }
   // Handle partially available data when reusing the file system buffer
+  // and num_buffers_ = 1 (sync prefetching case)
   bool use_fs_buffer = UseFSBuffer(reader);
   if (!copy_to_overlap_buffer && use_fs_buffer) {
     HandleOverlappingSyncData(offset, length, tmp_offset, tmp_length,
