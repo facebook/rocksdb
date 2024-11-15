@@ -553,7 +553,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
     // (in that order) that have finished flushing. Memtables
     // are always committed in the order that they were created.
     uint64_t batch_file_number = 0;
-    size_t batch_count = 0;
     autovector<VersionEdit*> edit_list;
     autovector<ReadOnlyMemTable*> memtables_to_flush;
     // enumerate from the last (earliest) element to see how many batch finished
@@ -563,6 +562,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
         break;
       }
       if (it == memlist.rbegin() || batch_file_number != m->file_number_) {
+        // Oldest memtable in a new batch.
         batch_file_number = m->file_number_;
         if (m->edit_.GetBlobFileAdditions().empty()) {
           ROCKS_LOG_BUFFER(log_buffer,
@@ -578,17 +578,17 @@ Status MemTableList::TryInstallMemtableFlushResults(
         }
 
         edit_list.push_back(&m->edit_);
-        memtables_to_flush.push_back(m);
         std::unique_ptr<FlushJobInfo> info = m->ReleaseFlushJobInfo();
         if (info != nullptr) {
           committed_flush_jobs_info->push_back(std::move(info));
         }
       }
-      batch_count++;
+      memtables_to_flush.push_back(m);
     }
 
+    size_t num_mem_to_flush = memtables_to_flush.size();
     // TODO(myabandeh): Not sure how batch_count could be 0 here.
-    if (batch_count > 0) {
+    if (num_mem_to_flush > 0) {
       VersionEdit edit;
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
       if (memtables_to_flush.size() == memlist.size()) {
@@ -612,9 +612,9 @@ Status MemTableList::TryInstallMemtableFlushResults(
           nullptr);
       edit_list.push_back(&edit);
 
-      const auto manifest_write_cb = [this, cfd, batch_count, log_buffer,
+      const auto manifest_write_cb = [this, cfd, num_mem_to_flush, log_buffer,
                                       to_delete, mu](const Status& status) {
-        RemoveMemTablesOrRestoreFlags(status, cfd, batch_count, log_buffer,
+        RemoveMemTablesOrRestoreFlags(status, cfd, num_mem_to_flush, log_buffer,
                                       to_delete, mu);
       };
       if (write_edits) {
@@ -627,7 +627,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
         // If write_edit is false (e.g: successful mempurge),
         // then remove old memtables, wake up manifest write queue threads,
         // and don't commit anything to the manifest file.
-        RemoveMemTablesOrRestoreFlags(s, cfd, batch_count, log_buffer,
+        RemoveMemTablesOrRestoreFlags(s, cfd, num_mem_to_flush, log_buffer,
                                       to_delete, mu);
         // Note: cfd->SetLogNumber is only called when a VersionEdit
         // is written to MANIFEST. When mempurge is succesful, we skip
@@ -735,7 +735,7 @@ void MemTableList::InstallNewVersion() {
 }
 
 void MemTableList::RemoveMemTablesOrRestoreFlags(
-    const Status& s, ColumnFamilyData* cfd, size_t batch_count,
+    const Status& s, ColumnFamilyData* cfd, size_t num_mem_to_flush,
     LogBuffer* log_buffer, autovector<ReadOnlyMemTable*>* to_delete,
     InstrumentedMutex* mu) {
   assert(mu);
@@ -764,8 +764,11 @@ void MemTableList::RemoveMemTablesOrRestoreFlags(
   // read full data as long as column family handle is not deleted, even if
   // the column family is dropped.
   if (s.ok() && !cfd->IsDropped()) {  // commit new state
-    while (batch_count-- > 0) {
+    while (num_mem_to_flush-- > 0) {
       ReadOnlyMemTable* m = current_->memlist_.back();
+      // TODO: The logging can be redundant when we flush multiple memtables
+      // into one SST file. We should only check the edit_ of the oldest
+      // memtable in the group in that case.
       if (m->edit_.GetBlobFileAdditions().empty()) {
         ROCKS_LOG_BUFFER(log_buffer,
                          "[%s] Level-0 commit flush result of table #%" PRIu64
@@ -787,7 +790,7 @@ void MemTableList::RemoveMemTablesOrRestoreFlags(
       ++mem_id;
     }
   } else {
-    for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; ++it) {
+    for (auto it = current_->memlist_.rbegin(); num_mem_to_flush-- > 0; ++it) {
       ReadOnlyMemTable* m = *it;
       // commit failed. setup state so that we can flush again.
       if (m->edit_.GetBlobFileAdditions().empty()) {
@@ -816,7 +819,7 @@ void MemTableList::RemoveMemTablesOrRestoreFlags(
 }
 
 uint64_t MemTableList::PrecomputeMinLogContainingPrepSection(
-    const std::unordered_set<ReadOnlyMemTable*>* memtables_to_flush) {
+    const std::unordered_set<ReadOnlyMemTable*>* memtables_to_flush) const {
   uint64_t min_log = 0;
 
   for (auto& m : current_->memlist_) {

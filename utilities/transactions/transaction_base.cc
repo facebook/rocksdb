@@ -8,6 +8,7 @@
 #include <cinttypes>
 
 #include "db/attribute_group_iterator_impl.h"
+#include "db/coalescing_iterator.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "logging/logging.h"
@@ -534,6 +535,15 @@ std::unique_ptr<IterType> TransactionBaseImpl::NewMultiCfIterator(
   return std::make_unique<ImplType>(read_options,
                                     column_families[0]->GetComparator(),
                                     std::move(cfh_iter_pairs));
+}
+
+std::unique_ptr<Iterator> TransactionBaseImpl::GetCoalescingIterator(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families) {
+  return NewMultiCfIterator<Iterator, CoalescingIterator>(
+      read_options, column_families, [](const Status& s) {
+        return std::unique_ptr<Iterator>(NewErrorIterator(s));
+      });
 }
 
 std::unique_ptr<AttributeGroupIterator>

@@ -395,11 +395,13 @@ class MemTableList {
 
   size_t* current_memory_usage() { return &current_memory_usage_; }
 
-  // Returns the min log containing the prep section after memtables listsed in
-  // `memtables_to_flush` are flushed and their status is persisted in manifest.
+  // Returns the WAL number of the oldest WAL that contains a prepared
+  // transaction that corresponds to the content in this MemTableList,
+  // after memtables listed in `memtables_to_flush` are flushed and their
+  // status is persisted in manifest.
   uint64_t PrecomputeMinLogContainingPrepSection(
       const std::unordered_set<ReadOnlyMemTable*>* memtables_to_flush =
-          nullptr);
+          nullptr) const;
 
   uint64_t GetEarliestMemTableID() const {
     auto& memlist = current_->memlist_;

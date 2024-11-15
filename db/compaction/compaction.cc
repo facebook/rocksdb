@@ -368,9 +368,10 @@ Compaction::Compaction(
   }
 #endif
 
-  // setup input_levels_
+  // setup input_levels_ and filtered_input_levels_
   {
     input_levels_.resize(num_input_levels());
+    filtered_input_levels_.resize(num_input_levels());
     if (earliest_snapshot_.has_value()) {
       FilterInputsForCompactionIterator();
     } else {
@@ -1085,6 +1086,7 @@ void Compaction::FilterInputsForCompactionIterator() {
           ucmp->CompareWithoutTimestamp(rangedel_end_ukey,
                                         file->largest.user_key()) > 0) {
         non_start_level_input_files_filtered_.back().back() = true;
+        filtered_input_levels_[level].push_back(file);
       } else {
         non_start_level_input_files.back().push_back(file);
       }

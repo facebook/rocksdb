@@ -573,7 +573,7 @@ Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
     return s;
   }
   s = ReadFooterFromFile(opts, file, *ioptions.fs, prefetch_buffer, file_size,
-                         &footer, table_magic_number);
+                         &footer, table_magic_number, ioptions.stats);
   if (!s.ok()) {
     return s;
   }

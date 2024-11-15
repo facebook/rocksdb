@@ -70,6 +70,10 @@ class WritePreparedTxn : public PessimisticTransaction {
   Iterator* GetIterator(const ReadOptions& options,
                         ColumnFamilyHandle* column_family) override;
 
+  std::unique_ptr<Iterator> GetCoalescingIterator(
+      const ReadOptions& read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
+
   std::unique_ptr<AttributeGroupIterator> GetAttributeGroupIterator(
       const ReadOptions& read_options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;

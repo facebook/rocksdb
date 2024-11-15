@@ -313,6 +313,11 @@ WBWIIterator* WriteBatchWithIndex::NewIterator(
                               &(rep->comparator));
 }
 
+WBWIIterator* WriteBatchWithIndex::NewIterator(uint32_t cf_id) const {
+  return new WBWIIteratorImpl(cf_id, &(rep->skip_list), &rep->write_batch,
+                              &(rep->comparator));
+}
+
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(
     ColumnFamilyHandle* column_family, Iterator* base_iterator,
     const ReadOptions* read_options) {

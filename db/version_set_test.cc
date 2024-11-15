@@ -1223,7 +1223,7 @@ class VersionSetTestBase {
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(&db_id));
+      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(IOOptions(), &db_id));
       new_db.SetDBId(db_id);
     }
     new_db.SetLogNumber(0);
@@ -1391,7 +1391,8 @@ class VersionSetTestBase {
     assert(manifest_path != nullptr);
     uint64_t manifest_file_number = 0;
     Status s = versions_->GetCurrentManifestPath(
-        dbname_, fs_.get(), manifest_path, &manifest_file_number);
+        dbname_, fs_.get(), /*is_retry=*/false, manifest_path,
+        &manifest_file_number);
     ASSERT_OK(s);
   }
 
@@ -1399,7 +1400,8 @@ class VersionSetTestBase {
     assert(manifest_path != nullptr);
     uint64_t manifest_file_number = 0;
     Status s = versions_->GetCurrentManifestPath(
-        dbname_, fs_.get(), manifest_path, &manifest_file_number);
+        dbname_, fs_.get(), /*is_retry=*/false, manifest_path,
+        &manifest_file_number);
     ASSERT_OK(s);
     ASSERT_EQ(1, manifest_file_number);
   }
@@ -3515,7 +3517,7 @@ class VersionSetTestEmptyDb
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(&db_id));
+      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(IOOptions(), &db_id));
       new_db.SetDBId(db_id);
     }
     const std::string manifest_path = DescriptorFileName(dbname_, 1);
@@ -3839,7 +3841,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(&db_id));
+      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(IOOptions(), &db_id));
       new_db.SetDBId(db_id);
     }
     {

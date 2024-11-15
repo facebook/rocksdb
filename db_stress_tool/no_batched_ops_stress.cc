@@ -2300,22 +2300,6 @@ class NonBatchedOpsStressTest : public StressTest {
       assert(iter);
       assert(iter->Valid());
 
-      if (ro.allow_unprepared_value) {
-        if (!iter->PrepareValue()) {
-          shared->SetVerificationFailure();
-
-          fprintf(stderr,
-                  "Verification failed for key %s: failed to prepare value\n",
-                  Slice(iter->key()).ToString(/* hex */ true).c_str());
-          fprintf(stderr, "Column family: %s, op_logs: %s\n",
-                  cfh->GetName().c_str(), op_logs.c_str());
-
-          thread->stats.AddErrors(1);
-
-          return false;
-        }
-      }
-
       if (!VerifyWideColumns(iter->value(), iter->columns())) {
         shared->SetVerificationFailure();
 
@@ -2384,6 +2368,16 @@ class NonBatchedOpsStressTest : public StressTest {
     uint64_t curr = 0;
     while (true) {
       assert(last_key < ub);
+
+      if (iter->Valid() && ro.allow_unprepared_value) {
+        op_logs += "*";
+
+        if (!iter->PrepareValue()) {
+          assert(!iter->Valid());
+          assert(!iter->status().ok());
+        }
+      }
+
       if (!iter->Valid()) {
         if (!iter->status().ok()) {
           if (IsErrorInjectedAndRetryable(iter->status())) {
@@ -2446,6 +2440,16 @@ class NonBatchedOpsStressTest : public StressTest {
     last_key = ub;
     while (true) {
       assert(lb < last_key);
+
+      if (iter->Valid() && ro.allow_unprepared_value) {
+        op_logs += "*";
+
+        if (!iter->PrepareValue()) {
+          assert(!iter->Valid());
+          assert(!iter->status().ok());
+        }
+      }
+
       if (!iter->Valid()) {
         if (!iter->status().ok()) {
           if (IsErrorInjectedAndRetryable(iter->status())) {
@@ -2584,6 +2588,16 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     for (int64_t i = 0; i < num_iter && iter->Valid(); ++i) {
+      if (ro.allow_unprepared_value) {
+        op_logs += "*";
+
+        if (!iter->PrepareValue()) {
+          assert(!iter->Valid());
+          assert(!iter->status().ok());
+          break;
+        }
+      }
+
       if (!check_columns()) {
         return Status::OK();
       }

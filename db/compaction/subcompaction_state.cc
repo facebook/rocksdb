@@ -34,9 +34,16 @@ void SubcompactionState::Cleanup(Cache* cache) {
 
   if (!status.ok()) {
     for (const auto& out : GetOutputs()) {
-      // If this file was inserted into the table cache then remove
-      // them here because this compaction was not committed.
-      TableCache::Evict(cache, out.meta.fd.GetNumber());
+      // If this file was inserted into the table cache then remove it here
+      // because this compaction was not committed. This is not strictly
+      // required because of a backstop TableCache::Evict() in
+      // PurgeObsoleteFiles() but is our opportunity to apply
+      // uncache_aggressiveness. TODO: instead, put these files into the
+      // VersionSet::obsolete_files_ pipeline so that they don't have to
+      // be picked up by scanning the DB directory.
+      TableCache::ReleaseObsolete(
+          cache, out.meta.fd.GetNumber(), nullptr /*handle*/,
+          compaction->mutable_cf_options()->uncache_aggressiveness);
     }
   }
   // TODO: sub_compact.io_status is not checked like status. Not sure if thats
