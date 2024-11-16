@@ -400,7 +400,7 @@ Status ExternalSstFileIngestionJob::Run() {
   // specific state of Memtables. The mutable Memtable should be empty, and the
   // immutable Memtable list should be empty.
   if (flushed_before_run_ && (super_version->imm->NumNotFlushed() != 0 ||
-                              super_version->mem->GetDataSize() != 0)) {
+                              !super_version->mem->IsEmpty())) {
     return Status::TryAgain(
         "Inconsistent memtable state detected when flushed before run.");
   }

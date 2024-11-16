@@ -449,14 +449,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       // File is being deleted (actually obsolete)
       auto number = file.metadata->fd.GetNumber();
       candidate_files.emplace_back(MakeTableFileName(number), file.path);
-      if (handle == nullptr) {
-        // For files not "pinned" in table cache
-        handle = TableCache::Lookup(table_cache_.get(), number);
-      }
-      if (handle) {
-        TableCache::ReleaseObsolete(table_cache_.get(), handle,
-                                    file.uncache_aggressiveness);
-      }
+      TableCache::ReleaseObsolete(table_cache_.get(), number, handle,
+                                  file.uncache_aggressiveness);
     }
     file.DeleteMetadata();
   }
@@ -572,9 +566,17 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       case kTableFile:
         // If the second condition is not there, this makes
         // DontDeletePendingOutputs fail
+        // FIXME: but should NOT keep if it came from sst_delete_files?
         keep = (sst_live_set.find(number) != sst_live_set.end()) ||
                number >= state.min_pending_output;
         if (!keep) {
+          // NOTE: sometimes redundant (if came from sst_delete_files)
+          // We don't know which column family is applicable here so we don't
+          // know what uncache_aggressiveness would be used with
+          // ReleaseObsolete(). Anyway, obsolete files ideally go into
+          // sst_delete_files for better/quicker handling, and this is just a
+          // backstop.
+          TableCache::Evict(table_cache_.get(), number);
           files_to_del.insert(number);
         }
         break;
@@ -981,7 +983,8 @@ void DBImpl::SetDBId(std::string&& id, bool read_only,
 }
 
 Status DBImpl::SetupDBId(const WriteOptions& write_options, bool read_only,
-                         bool is_new_db, VersionEdit* version_edit) {
+                         bool is_new_db, bool is_retry,
+                         VersionEdit* version_edit) {
   Status s;
   if (!is_new_db) {
     // Check for the IDENTITY file and create it if not there or
@@ -989,7 +992,11 @@ Status DBImpl::SetupDBId(const WriteOptions& write_options, bool read_only,
     std::string db_id_in_file;
     s = fs_->FileExists(IdentityFileName(dbname_), IOOptions(), nullptr);
     if (s.ok()) {
-      s = GetDbIdentityFromIdentityFile(&db_id_in_file);
+      IOOptions opts;
+      if (is_retry) {
+        opts.verify_and_reconstruct_read = true;
+      }
+      s = GetDbIdentityFromIdentityFile(opts, &db_id_in_file);
       if (s.ok() && !db_id_in_file.empty()) {
         if (db_id_.empty()) {
           // Loaded from file and wasn't already known from manifest

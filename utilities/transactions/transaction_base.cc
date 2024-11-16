@@ -7,6 +7,8 @@
 
 #include <cinttypes>
 
+#include "db/attribute_group_iterator_impl.h"
+#include "db/coalescing_iterator.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "logging/logging.h"
@@ -484,6 +486,73 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
 
   return write_batch_.NewIteratorWithBase(column_family, db_iter,
                                           &read_options);
+}
+
+template <typename IterType, typename ImplType, typename ErrorIteratorFuncType>
+std::unique_ptr<IterType> TransactionBaseImpl::NewMultiCfIterator(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    ErrorIteratorFuncType error_iterator_func) {
+  if (column_families.empty()) {
+    return error_iterator_func(
+        Status::InvalidArgument("No Column Family was provided"));
+  }
+
+  const Comparator* const first_comparator =
+      column_families[0]->GetComparator();
+  assert(first_comparator);
+
+  for (size_t i = 1; i < column_families.size(); ++i) {
+    const Comparator* cf_comparator = column_families[i]->GetComparator();
+    assert(cf_comparator);
+
+    if (first_comparator != cf_comparator &&
+        first_comparator->GetId() != cf_comparator->GetId()) {
+      return error_iterator_func(Status::InvalidArgument(
+          "Different comparators are being used across CFs"));
+    }
+  }
+
+  std::vector<Iterator*> child_iterators;
+  const Status s =
+      db_->NewIterators(read_options, column_families, &child_iterators);
+  if (!s.ok()) {
+    return error_iterator_func(s);
+  }
+
+  assert(column_families.size() == child_iterators.size());
+
+  std::vector<std::pair<ColumnFamilyHandle*, std::unique_ptr<Iterator>>>
+      cfh_iter_pairs;
+  cfh_iter_pairs.reserve(column_families.size());
+  for (size_t i = 0; i < column_families.size(); ++i) {
+    cfh_iter_pairs.emplace_back(
+        column_families[i],
+        write_batch_.NewIteratorWithBase(column_families[i], child_iterators[i],
+                                         &read_options));
+  }
+
+  return std::make_unique<ImplType>(read_options,
+                                    column_families[0]->GetComparator(),
+                                    std::move(cfh_iter_pairs));
+}
+
+std::unique_ptr<Iterator> TransactionBaseImpl::GetCoalescingIterator(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families) {
+  return NewMultiCfIterator<Iterator, CoalescingIterator>(
+      read_options, column_families, [](const Status& s) {
+        return std::unique_ptr<Iterator>(NewErrorIterator(s));
+      });
+}
+
+std::unique_ptr<AttributeGroupIterator>
+TransactionBaseImpl::GetAttributeGroupIterator(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_families) {
+  return NewMultiCfIterator<AttributeGroupIterator, AttributeGroupIteratorImpl>(
+      read_options, column_families,
+      [](const Status& s) { return NewAttributeGroupErrorIterator(s); });
 }
 
 Status TransactionBaseImpl::PutEntityImpl(ColumnFamilyHandle* column_family,

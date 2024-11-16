@@ -1515,6 +1515,13 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       }
 
+      if (ro_copy.allow_unprepared_value) {
+        if (!iter->PrepareValue()) {
+          s = iter->status();
+          break;
+        }
+      }
+
       if (!VerifyWideColumns(iter->value(), iter->columns())) {
         s = Status::Corruption("Value and columns inconsistent",
                                DebugString(iter->value(), iter->columns()));
@@ -2361,6 +2368,16 @@ class NonBatchedOpsStressTest : public StressTest {
     uint64_t curr = 0;
     while (true) {
       assert(last_key < ub);
+
+      if (iter->Valid() && ro.allow_unprepared_value) {
+        op_logs += "*";
+
+        if (!iter->PrepareValue()) {
+          assert(!iter->Valid());
+          assert(!iter->status().ok());
+        }
+      }
+
       if (!iter->Valid()) {
         if (!iter->status().ok()) {
           if (IsErrorInjectedAndRetryable(iter->status())) {
@@ -2423,6 +2440,16 @@ class NonBatchedOpsStressTest : public StressTest {
     last_key = ub;
     while (true) {
       assert(lb < last_key);
+
+      if (iter->Valid() && ro.allow_unprepared_value) {
+        op_logs += "*";
+
+        if (!iter->PrepareValue()) {
+          assert(!iter->Valid());
+          assert(!iter->status().ok());
+        }
+      }
+
       if (!iter->Valid()) {
         if (!iter->status().ok()) {
           if (IsErrorInjectedAndRetryable(iter->status())) {
@@ -2561,6 +2588,16 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     for (int64_t i = 0; i < num_iter && iter->Valid(); ++i) {
+      if (ro.allow_unprepared_value) {
+        op_logs += "*";
+
+        if (!iter->PrepareValue()) {
+          assert(!iter->Valid());
+          assert(!iter->status().ok());
+          break;
+        }
+      }
+
       if (!check_columns()) {
         return Status::OK();
       }

@@ -1278,7 +1278,7 @@ class VersionSet {
           {});
 
   static Status GetCurrentManifestPath(const std::string& dbname,
-                                       FileSystem* fs,
+                                       FileSystem* fs, bool is_retry,
                                        std::string* manifest_filename,
                                        uint64_t* manifest_file_number);
   void WakeUpWaitingManifestWriters();

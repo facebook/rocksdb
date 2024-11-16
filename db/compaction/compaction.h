@@ -184,6 +184,16 @@ class Compaction {
     return &input_levels_[compaction_input_level];
   }
 
+  // Returns the filtered input files of the specified compaction input level.
+  // For now, only non start level is filtered.
+  const std::vector<FileMetaData*>& filtered_input_levels(
+      size_t compaction_input_level) const {
+    const std::vector<FileMetaData*>& filtered_input_level =
+        filtered_input_levels_[compaction_input_level];
+    assert(compaction_input_level != 0 || filtered_input_level.size() == 0);
+    return filtered_input_level;
+  }
+
   // Maximum size of files to build during this compaction.
   uint64_t max_output_file_size() const { return max_output_file_size_; }
 
@@ -545,10 +555,13 @@ class Compaction {
 
   // Markers for which non start level input files are filtered out if
   // applicable. Only applicable if earliest_snapshot_ is provided and input
-  // start level has a standalone range deletion file.
+  // start level has a standalone range deletion file. Filtered files are
+  // tracked in `filtered_input_levels_`.
   std::vector<std::vector<bool>> non_start_level_input_files_filtered_;
 
-  //  bool standalone_range_tombstones_used_for_filtering_inputs_;
+  // All files from inputs_ that are filtered.
+  std::vector<std::vector<FileMetaData*>> filtered_input_levels_;
+
   const double score_;  // score that was used to pick this compaction.
 
   // Is this compaction creating a file in the bottom most level?

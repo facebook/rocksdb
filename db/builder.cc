@@ -460,9 +460,18 @@ Status BuildTable(
       Status prepare =
           WritableFileWriter::PrepareIOOptions(tboptions.write_options, opts);
       if (prepare.ok()) {
+        // FIXME: track file for "slow" deletion, e.g. into the
+        // VersionSet::obsolete_files_ pipeline
         Status ignored = fs->DeleteFile(fname, opts, dbg);
         ignored.PermitUncheckedError();
       }
+      // Ensure we don't leak table cache entries when throwing away output
+      // files. (The usual logic in PurgeObsoleteFiles is not applicable because
+      // this function deletes the obsolete file itself, while they should
+      // probably go into the VersionSet::obsolete_files_ pipeline.)
+      TableCache::ReleaseObsolete(table_cache->get_cache().get(),
+                                  meta->fd.GetNumber(), nullptr /*handle*/,
+                                  mutable_cf_options.uncache_aggressiveness);
     }
 
     assert(blob_file_additions || blob_file_paths.empty());

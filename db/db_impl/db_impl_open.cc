@@ -301,7 +301,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   VersionEdit new_db_edit;
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
   Status s = SetupDBId(write_options, /*read_only=*/false, /*is_new_db=*/true,
-                       &new_db_edit);
+                       /*is_retry=*/false, &new_db_edit);
   if (!s.ok()) {
     return s;
   }
@@ -676,11 +676,11 @@ Status DBImpl::Recover(
     // Already set up DB ID in NewDB
   } else if (immutable_db_options_.write_dbid_to_manifest && recovery_ctx) {
     VersionEdit edit;
-    s = SetupDBId(write_options, read_only, is_new_db, &edit);
+    s = SetupDBId(write_options, read_only, is_new_db, is_retry, &edit);
     recovery_ctx->UpdateVersionEdits(
         versions_->GetColumnFamilySet()->GetDefault(), edit);
   } else {
-    s = SetupDBId(write_options, read_only, is_new_db, nullptr);
+    s = SetupDBId(write_options, read_only, is_new_db, is_retry, nullptr);
   }
   assert(!s.ok() || !db_id_.empty());
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "DB ID: %s\n", db_id_.c_str());
@@ -1275,7 +1275,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
           reader.GetRecordedTimestampSize();
       status = HandleWriteBatchTimestampSizeDifference(
           &batch, running_ts_sz, record_ts_sz,
-          TimestampSizeConsistencyMode::kReconcileInconsistency, &new_batch);
+          TimestampSizeConsistencyMode::kReconcileInconsistency, seq_per_batch_,
+          batch_per_txn_, &new_batch);
       if (!status.ok()) {
         return status;
       }

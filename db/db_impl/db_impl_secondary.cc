@@ -233,7 +233,8 @@ Status DBImplSecondary::RecoverLogFiles(
           reader->GetRecordedTimestampSize();
       status = HandleWriteBatchTimestampSizeDifference(
           &batch, running_ts_sz, record_ts_sz,
-          TimestampSizeConsistencyMode::kVerifyConsistency);
+          TimestampSizeConsistencyMode::kVerifyConsistency, seq_per_batch_,
+          batch_per_txn_);
       if (!status.ok()) {
         break;
       }
@@ -955,6 +956,10 @@ Status DB::OpenAndCompact(
   config_options.env = override_options.env;
   std::vector<ColumnFamilyDescriptor> all_column_families;
 
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImplSecondary::OpenAndCompact::BeforeLoadingOptions:0",
+      &compaction_input.options_file_number);
+  TEST_SYNC_POINT("DBImplSecondary::OpenAndCompact::BeforeLoadingOptions:1");
   std::string options_file_name =
       OptionsFileName(name, compaction_input.options_file_number);
 

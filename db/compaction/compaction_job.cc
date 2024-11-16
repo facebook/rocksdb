@@ -911,19 +911,23 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
   ROCKS_LOG_BUFFER(
       log_buffer_,
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
-      "files in(%d, %d) out(%d +%d blob) "
-      "MB in(%.1f, %.1f +%.1f blob) out(%.1f +%.1f blob), "
+      "files in(%d, %d) filtered(%d, %d) out(%d +%d blob) "
+      "MB in(%.1f, %.1f +%.1f blob) filtered(%.1f, %.1f) out(%.1f +%.1f blob), "
       "read-write-amplify(%.1f) write-amplify(%.1f) %s, records in: %" PRIu64
       ", records dropped: %" PRIu64 " output_compression: %s\n",
       column_family_name.c_str(), vstorage->LevelSummary(&tmp),
       bytes_read_per_sec, bytes_written_per_sec,
       compact_->compaction->output_level(),
       stats.num_input_files_in_non_output_levels,
-      stats.num_input_files_in_output_level, stats.num_output_files,
+      stats.num_input_files_in_output_level,
+      stats.num_filtered_input_files_in_non_output_levels,
+      stats.num_filtered_input_files_in_output_level, stats.num_output_files,
       stats.num_output_files_blob, stats.bytes_read_non_output_levels / kMB,
       stats.bytes_read_output_level / kMB, stats.bytes_read_blob / kMB,
-      stats.bytes_written / kMB, stats.bytes_written_blob / kMB, read_write_amp,
-      write_amp, status.ToString().c_str(), stats.num_input_records,
+      stats.bytes_skipped_non_output_levels / kMB,
+      stats.bytes_skipped_output_level / kMB, stats.bytes_written / kMB,
+      stats.bytes_written_blob / kMB, read_write_amp, write_amp,
+      status.ToString().c_str(), stats.num_input_records,
       stats.num_dropped_records,
       CompressionTypeToString(compact_->compaction->output_compression())
           .c_str());
@@ -2007,7 +2011,6 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
   bool has_error = false;
   const ReadOptions read_options(Env::IOActivity::kCompaction);
   const auto& input_table_properties = compaction->GetInputTableProperties();
-  // TODO(yuzhangyu): add dedicated stats for filtered files.
   for (int input_level = 0;
        input_level < static_cast<int>(compaction->num_input_levels());
        ++input_level) {
@@ -2047,6 +2050,23 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
         *num_input_range_del += file_num_range_del;
       }
     }
+
+    const std::vector<FileMetaData*>& filtered_flevel =
+        compaction->filtered_input_levels(input_level);
+    size_t num_filtered_input_files = filtered_flevel.size();
+    uint64_t* bytes_skipped;
+    if (compaction->level(input_level) != compaction->output_level()) {
+      compaction_stats_.stats.num_filtered_input_files_in_non_output_levels +=
+          static_cast<int>(num_filtered_input_files);
+      bytes_skipped = &compaction_stats_.stats.bytes_skipped_non_output_levels;
+    } else {
+      compaction_stats_.stats.num_filtered_input_files_in_output_level +=
+          static_cast<int>(num_filtered_input_files);
+      bytes_skipped = &compaction_stats_.stats.bytes_skipped_output_level;
+    }
+    for (const FileMetaData* filtered_file_meta : filtered_flevel) {
+      *bytes_skipped += filtered_file_meta->fd.GetFileSize();
+    }
   }
 
   assert(compaction_job_stats_);
@@ -2071,6 +2091,13 @@ void CompactionJob::UpdateCompactionJobStats(
       stats.num_input_files_in_output_level;
   compaction_job_stats_->num_input_files_at_output_level =
       stats.num_input_files_in_output_level;
+  compaction_job_stats_->num_filtered_input_files =
+      stats.num_filtered_input_files_in_non_output_levels +
+      stats.num_filtered_input_files_in_output_level;
+  compaction_job_stats_->num_filtered_input_files_at_output_level =
+      stats.num_filtered_input_files_in_output_level;
+  compaction_job_stats_->total_skipped_input_bytes =
+      stats.bytes_skipped_non_output_levels + stats.bytes_skipped_output_level;
 
   // output information
   compaction_job_stats_->total_output_bytes = stats.bytes_written;

@@ -4011,8 +4011,7 @@ std::unique_ptr<IterType> DBImpl::NewMultiCfIterator(
       cfh_iter_pairs;
   cfh_iter_pairs.reserve(column_families.size());
   for (size_t i = 0; i < column_families.size(); ++i) {
-    cfh_iter_pairs.emplace_back(column_families[i],
-                                std::unique_ptr<Iterator>(child_iterators[i]));
+    cfh_iter_pairs.emplace_back(column_families[i], child_iterators[i]);
   }
 
   return std::make_unique<ImplType>(_read_options,
@@ -5204,11 +5203,12 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
   return Status::OK();
 }
 
-Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
+Status DBImpl::GetDbIdentityFromIdentityFile(const IOOptions& opts,
+                                             std::string* identity) const {
   std::string idfilename = IdentityFileName(dbname_);
   const FileOptions soptions;
 
-  Status s = ReadFileToString(fs_.get(), idfilename, identity);
+  Status s = ReadFileToString(fs_.get(), idfilename, opts, identity);
   if (!s.ok()) {
     return s;
   }
@@ -5519,7 +5519,8 @@ Status DBImpl::WriteOptionsFile(const WriteOptions& write_options,
                                    file_name, fs_.get());
 
   if (s.ok()) {
-    s = RenameTempFileToOptionsFile(file_name);
+    s = RenameTempFileToOptionsFile(file_name,
+                                    db_options.compaction_service != nullptr);
   }
 
   if (!s.ok() && GetEnv()->FileExists(file_name).ok()) {
@@ -5596,7 +5597,8 @@ Status DBImpl::DeleteObsoleteOptionsFiles() {
   return Status::OK();
 }
 
-Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
+Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
+                                           bool is_remote_compaction_enabled) {
   Status s;
 
   uint64_t options_file_number = versions_->NewFileNumber();
@@ -5640,7 +5642,7 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
       my_disable_delete_obsolete_files = disable_delete_obsolete_files_;
     }
 
-    if (!my_disable_delete_obsolete_files) {
+    if (!my_disable_delete_obsolete_files && !is_remote_compaction_enabled) {
       // TODO: Should we check for errors here?
       DeleteObsoleteOptionsFiles().PermitUncheckedError();
     }
