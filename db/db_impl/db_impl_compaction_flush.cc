@@ -28,7 +28,7 @@
 #include "util/coding.h"
 #include "util/concurrent_task_limiter_impl.h"
 #include "util/udt_util.h"
-#include "util/tg_thread_local.h"
+#include "rocksdb/tg_thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 

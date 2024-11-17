@@ -21,7 +21,7 @@
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
 #include "util/rate_limiter_impl.h"
-#include "util/tg_thread_local.h"
+#include "rocksdb/tg_thread_local.h"
 #include "util/rate_limiter_multi_tenant_impl.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -60,7 +60,7 @@
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
-#include "util/tg_thread_local.h"
+#include "rocksdb/tg_thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 

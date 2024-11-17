@@ -16,6 +16,8 @@
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
+#include <iostream>
+#include "rocksdb/tg_thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 WriteBufferManager::WriteBufferManager(size_t _buffer_size,
@@ -24,10 +26,15 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
     : buffer_size_(_buffer_size),
       mutable_limit_(buffer_size_ * 7 / 8),
       memory_used_(0),
+      per_client_memory_used_(16),
       memory_active_(0),
       cache_res_mgr_(nullptr),
       allow_stall_(allow_stall),
       stall_active_(false) {
+  std::cout << "[FAIRDB_LOG] WriteBufferMgr created. Buffer size: " << buffer_size_ << ", mutable limit: " << mutable_limit_ << ", allow_stall: " << allow_stall << std::endl;
+  for (size_t i = 0; i < per_client_memory_used_.size(); ++i) {
+    per_client_memory_used_[i] = 0;
+  }
   if (cache) {
     // Memtable's memory usage tends to fluctuate frequently
     // therefore we set delayed_decrease = true to save some dummy entry
@@ -53,11 +60,15 @@ std::size_t WriteBufferManager::dummy_entries_in_cache_usage() const {
   }
 }
 
+// TODO(tgriggs): extract client ID from thread metadata here.
 void WriteBufferManager::ReserveMem(size_t mem) {
+  int client_id = TG_GetThreadMetadata().client_id;
+  std::cout << "WBM ReserveMem for client: " << client_id << std::endl;
   if (cache_res_mgr_ != nullptr) {
     ReserveMemWithCache(mem);
   } else if (enabled()) {
     memory_used_.fetch_add(mem, std::memory_order_relaxed);
+    per_client_memory_used_[client_id].fetch_add(mem, std::memory_order_relaxed);
   }
   if (enabled()) {
     memory_active_.fetch_add(mem, std::memory_order_relaxed);
@@ -66,6 +77,7 @@ void WriteBufferManager::ReserveMem(size_t mem) {
 
 // Should only be called from write thread
 void WriteBufferManager::ReserveMemWithCache(size_t mem) {
+  std::cout << "[FAIRDB_LOG] Surprise!! ReserveMemWithCache() called.\n";
   assert(cache_res_mgr_ != nullptr);
   // Use a mutex to protect various data structures. Can be optimized to a
   // lock-free solution if it ends up with a performance bottleneck.
@@ -90,10 +102,13 @@ void WriteBufferManager::ScheduleFreeMem(size_t mem) {
 }
 
 void WriteBufferManager::FreeMem(size_t mem) {
+  int client_id = TG_GetThreadMetadata().client_id;
+  std::cout << "WBM FreeMem for client: " << client_id << std::endl;
   if (cache_res_mgr_ != nullptr) {
     FreeMemWithCache(mem);
   } else if (enabled()) {
     memory_used_.fetch_sub(mem, std::memory_order_relaxed);
+    per_client_memory_used_[client_id].fetch_add(mem, std::memory_order_relaxed);
   }
   // Check if stall is active and can be ended.
   MaybeEndWriteStall();

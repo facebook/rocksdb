@@ -17,8 +17,9 @@
 #include <cstddef>
 #include <list>
 #include <mutex>
-
+#include <iostream>
 #include "rocksdb/cache.h"
+#include "rocksdb/tg_thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CacheReservationManager;
@@ -67,6 +68,10 @@ class WriteBufferManager final {
   // Only valid if enabled()
   size_t memory_usage() const {
     return memory_used_.load(std::memory_order_relaxed);
+  }
+
+  size_t per_client_memory_usage(int client_id) const {
+    return per_client_memory_used_[client_id].load(std::memory_order_relaxed);
   }
 
   // Returns the total memory used by active memtables.
@@ -124,6 +129,8 @@ class WriteBufferManager final {
   //
   // Should only be called by RocksDB internally .
   bool ShouldStall() const {
+    int client_id = TG_GetThreadMetadata().client_id;
+    std::cout << "[FAIRDB_LOG] Should stall? Total usage is: " << memory_usage() << ", client " << client_id << " is: " << per_client_memory_usage(client_id) << std::endl;
     if (!allow_stall_.load(std::memory_order_relaxed) || !enabled()) {
       return false;
     }
@@ -163,6 +170,7 @@ class WriteBufferManager final {
   std::atomic<size_t> buffer_size_;
   std::atomic<size_t> mutable_limit_;
   std::atomic<size_t> memory_used_;
+  std::vector<std::atomic<size_t>> per_client_memory_used_;
   // Memory that hasn't been scheduled to free.
   std::atomic<size_t> memory_active_;
   std::shared_ptr<CacheReservationManager> cache_res_mgr_;

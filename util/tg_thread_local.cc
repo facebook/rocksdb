@@ -1,4 +1,4 @@
-#include "tg_thread_local.h"
+#include "rocksdb/tg_thread_local.h"
 
 thread_local TGThreadMetadata tg_thread_metadata;
 

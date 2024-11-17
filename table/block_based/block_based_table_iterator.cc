@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_iterator.h"
-#include "util/tg_thread_local.h"
+#include "rocksdb/tg_thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 

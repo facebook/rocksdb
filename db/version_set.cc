@@ -76,7 +76,7 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
-#include "util/tg_thread_local.h"
+#include "rocksdb/tg_thread_local.h"
 
 // Generate the regular and coroutine versions of some methods by
 // including version_set_sync_and_async.h twice

@@ -17,6 +17,7 @@
 #include "options/options_helper.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
+#include "rocksdb/tg_thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Convenience methods
@@ -1269,6 +1270,10 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   PERF_TIMER_STOP(write_scheduling_flushes_compactions_time);
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
 
+  // TOD(tgriggs): DelayWrite --> what delay cases is this for? 
+    // Memtable count limit, L0 file limit, pending compactions will all trigger this
+  // Functionality: column family observes these triggers, calls SetupDelay
+  //                and GetDelayToken, which delays *all* column families
   if (UNLIKELY(status.ok() && (write_controller_.IsStopped() ||
                                write_controller_.NeedsDelay()))) {
     PERF_TIMER_STOP(write_pre_and_post_process_time);
@@ -1278,10 +1283,13 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     // might happen for smaller writes but larger writes can go through.
     // Can optimize it if it is an issue.
     InstrumentedMutexLock l(&mutex_);
-    // TODO(tgriggs): here is the delay 
     status = DelayWrite(last_batch_group_size_, write_thread_, write_options);
     PERF_TIMER_START(write_pre_and_post_process_time);
   }
+
+  // TODo(tgriggs): WriteBufferManagerStallWrites --> what delay cases is this for? 
+    // This tracks *actual* memory usage.
+    // This could be the useful entrypoint to controlling memory usage for ALL clients.
 
   // If memory usage exceeded beyond a certain threshold,
   // write_buffer_manager_->ShouldStall() returns true to all threads writing to
