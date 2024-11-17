@@ -337,6 +337,16 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                         post_memtable_callback);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
+  // if (TG_GetThreadMetadata().client_id == 1) {
+  //   std::this_thread::sleep_for(std::chrono::seconds(1));
+  // }
+
+  if (write_buffer_manager_->ShouldStall(TG_GetThreadMetadata().client_id)) {
+    std::cout << "[FAIRDB_LOG] We should indeed stall\n";
+  }
+
+  // TODO(tgriggs): This is the write queue. Any stalling after thispoint
+  //                will affect all clients.
   write_thread_.JoinBatchGroup(&w);
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
     // we are a non-leader in a parallel group
@@ -1297,17 +1307,21 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   // It does soft checking because WriteBufferManager::buffer_limit_ has already
   // exceeded at this point so no new write (including current one) will go
   // through until memory usage is decreased.
-  if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldStall())) {
-    default_cf_internal_stats_->AddDBStats(
-        InternalStats::kIntStatsWriteBufferManagerLimitStopsCounts, 1,
-        true /* concurrent */);
-    if (write_options.no_slowdown) {
-      status = Status::Incomplete("Write stall");
-    } else {
-      InstrumentedMutexLock l(&mutex_);
-      WriteBufferManagerStallWrites();
-    }
-  }
+
+  // if (TG_GetThreadMetadata().client_id == 1) {
+  //   std::this_thread::sleep_for(std::chrono::seconds(1));
+  // }
+  // if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldStall())) {
+  //   default_cf_internal_stats_->AddDBStats(
+  //       InternalStats::kIntStatsWriteBufferManagerLimitStopsCounts, 1,
+  //       true /* concurrent */);
+  //   if (write_options.no_slowdown) {
+  //     status = Status::Incomplete("Write stall");
+  //   } else {
+  //     InstrumentedMutexLock l(&mutex_);
+  //     WriteBufferManagerStallWrites();
+  //   }
+  // }
   InstrumentedMutexLock l(&log_write_mutex_);
   if (status.ok() && log_context->need_log_sync) {
     // Wait until the parallel syncs are finished. Any sync process has to sync
@@ -2009,27 +2023,43 @@ Status DBImpl::DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
   return s;
 }
 
+// Begins a stall on the current thread. Does not block other writer threads.
+void DBImpl::MultiTenantStallWrites() {
+  int client_id = TG_GetThreadMetadata().client_id;
+  std::unique_ptr<StallInterface>& wbm_stall = per_client_wbm_stall_[client_id];
+
+  // Change the state to State::Blocked.
+  static_cast<WBMStallInterface*>(wbm_stall.get())
+      ->SetState(WBMStallInterface::State::BLOCKED);
+
+  // Then WriteBufferManager will add this client's stall to its queue
+  // and wake it up once sufficient memory is available.
+  write_buffer_manager_->BeginWriteStall(wbm_stall.get(), client_id);
+  wbm_stall->Block();
+}
+
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
 void DBImpl::WriteBufferManagerStallWrites() {
-  mutex_.AssertHeld();
-  // First block future writer threads who want to add themselves to the queue
-  // of WriteThread.
-  write_thread_.BeginWriteStall();
-  mutex_.Unlock();
+  return;
+  // mutex_.AssertHeld();
+  // // First block future writer threads who want to add themselves to the queue
+  // // of WriteThread.
+  // write_thread_.BeginWriteStall();
+  // mutex_.Unlock();
 
-  // Change the state to State::Blocked.
-  static_cast<WBMStallInterface*>(wbm_stall_.get())
-      ->SetState(WBMStallInterface::State::BLOCKED);
-  // Then WriteBufferManager will add DB instance to its queue
-  // and block this thread by calling WBMStallInterface::Block().
-  write_buffer_manager_->BeginWriteStall(wbm_stall_.get());
-  wbm_stall_->Block();
+  // // Change the state to State::Blocked.
+  // static_cast<WBMStallInterface*>(wbm_stall_.get())
+  //     ->SetState(WBMStallInterface::State::BLOCKED);
+  // // Then WriteBufferManager will add DB instance to its queue
+  // // and block this thread by calling WBMStallInterface::Block().
+  // write_buffer_manager_->BeginWriteStall(wbm_stall_.get());
+  // wbm_stall_->Block();
 
-  mutex_.Lock();
-  // Stall has ended. Signal writer threads so that they can add
-  // themselves to the WriteThread queue for writes.
-  write_thread_.EndWriteStall();
+  // mutex_.Lock();
+  // // Stall has ended. Signal writer threads so that they can add
+  // // themselves to the WriteThread queue for writes.
+  // write_thread_.EndWriteStall();
 }
 
 Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,

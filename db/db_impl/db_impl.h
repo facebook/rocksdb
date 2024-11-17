@@ -1955,6 +1955,9 @@ class DBImpl : public DB {
   Status DelayWrite(uint64_t num_bytes, WriteThread& write_thread,
                     const WriteOptions& write_options);
 
+
+  void MultiTenantStallWrites();
+
   // Begin stalling of writes when memory usage increases beyond a certain
   // threshold.
   void WriteBufferManagerStallWrites();
@@ -2817,7 +2820,8 @@ class DBImpl : public DB {
   BlobFileCompletionCallback blob_callback_;
 
   // Pointer to WriteBufferManager stalling interface.
-  std::unique_ptr<StallInterface> wbm_stall_;
+  // std::unique_ptr<StallInterface> wbm_stall_;
+  std::vector<std::unique_ptr<StallInterface>> per_client_wbm_stall_;
 
   // seqno_to_time_mapping_ stores the sequence number to time mapping, it's not
   // thread safe, both read and write need db mutex hold.

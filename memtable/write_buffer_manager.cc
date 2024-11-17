@@ -10,31 +10,35 @@
 #include "rocksdb/write_buffer_manager.h"
 
 #include <memory>
-
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/status.h"
 #include "util/coding.h"
-#include <iostream>
 #include "rocksdb/tg_thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
-WriteBufferManager::WriteBufferManager(size_t _buffer_size,
+
+WriteBufferManager::WriteBufferManager(size_t buffer_size,
                                        std::shared_ptr<Cache> cache,
-                                       bool allow_stall)
-    : buffer_size_(_buffer_size),
-      mutable_limit_(buffer_size_ * 7 / 8),
+                                       bool allow_stall,
+                                       size_t num_clients)
+    : buffer_size_(buffer_size),
+      mutable_limit_(buffer_size * 7 / 8),
       memory_used_(0),
-      per_client_memory_used_(16),
+      per_client_memory_used_(num_clients),
+      per_client_buffer_size_(num_clients, buffer_size),
       memory_active_(0),
       cache_res_mgr_(nullptr),
+      per_client_queue_(num_clients),
       allow_stall_(allow_stall),
-      stall_active_(false) {
-  std::cout << "[FAIRDB_LOG] WriteBufferMgr created. Buffer size: " << buffer_size_ << ", mutable limit: " << mutable_limit_ << ", allow_stall: " << allow_stall << std::endl;
-  for (size_t i = 0; i < per_client_memory_used_.size(); ++i) {
+      per_client_stall_active_(num_clients) {
+  // Initialize per-client memory usage and stall flags
+  for (size_t i = 0; i < num_clients; ++i) {
     per_client_memory_used_[i] = 0;
+    per_client_stall_active_[i] = false;
   }
+
   if (cache) {
     // Memtable's memory usage tends to fluctuate frequently
     // therefore we set delayed_decrease = true to save some dummy entry
@@ -48,7 +52,9 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
 WriteBufferManager::~WriteBufferManager() {
 #ifndef NDEBUG
   std::unique_lock<std::mutex> lock(mu_);
-  assert(queue_.empty());
+  for (const auto& queue : per_client_queue_) {
+    assert(queue.empty());
+  }
 #endif
 }
 
@@ -60,10 +66,13 @@ std::size_t WriteBufferManager::dummy_entries_in_cache_usage() const {
   }
 }
 
-// TODO(tgriggs): extract client ID from thread metadata here.
+void WriteBufferManager::SetPerClientBufferSize(int client_id, size_t buffer_size) {
+  per_client_buffer_size_[client_id] = buffer_size;
+}
+
 void WriteBufferManager::ReserveMem(size_t mem) {
   int client_id = TG_GetThreadMetadata().client_id;
-  std::cout << "WBM ReserveMem for client: " << client_id << std::endl;
+  // std::cout << "[FAIRDB_LOG] WBM ReserveMem for client: " << client_id << std::endl;
   if (cache_res_mgr_ != nullptr) {
     ReserveMemWithCache(mem);
   } else if (enabled()) {
@@ -73,6 +82,7 @@ void WriteBufferManager::ReserveMem(size_t mem) {
   if (enabled()) {
     memory_active_.fetch_add(mem, std::memory_order_relaxed);
   }
+  std::cout << "wbm," << client_id << ",res," << mem << "," << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << std::endl;
 }
 
 // Should only be called from write thread
@@ -96,6 +106,8 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 }
 
 void WriteBufferManager::ScheduleFreeMem(size_t mem) {
+  int client_id = TG_GetThreadMetadata().client_id;
+  std::cout << "[FAIRDB_LOG] WBM ScheduleFreeMem for client: " << client_id << " of size " << mem << std::endl;
   if (enabled()) {
     memory_active_.fetch_sub(mem, std::memory_order_relaxed);
   }
@@ -103,18 +115,22 @@ void WriteBufferManager::ScheduleFreeMem(size_t mem) {
 
 void WriteBufferManager::FreeMem(size_t mem) {
   int client_id = TG_GetThreadMetadata().client_id;
-  std::cout << "WBM FreeMem for client: " << client_id << std::endl;
+  std::cout << "[FAIRDB_LOG] WBM FreeMem for client: " << client_id << " of size " << mem << std::endl;
   if (cache_res_mgr_ != nullptr) {
     FreeMemWithCache(mem);
   } else if (enabled()) {
     memory_used_.fetch_sub(mem, std::memory_order_relaxed);
-    per_client_memory_used_[client_id].fetch_add(mem, std::memory_order_relaxed);
+    per_client_memory_used_[client_id].fetch_sub(mem, std::memory_order_relaxed);
   }
+  std::cout << "wbm," << client_id << ",free," << mem << "," << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << std::endl;
+
   // Check if stall is active and can be ended.
   MaybeEndWriteStall();
 }
 
 void WriteBufferManager::FreeMemWithCache(size_t mem) {
+  int client_id = TG_GetThreadMetadata().client_id;
+  std::cout << "[FAIRDB_LOG] WBM FreeMemWithCache for client: " << client_id << " of size " << mem << std::endl;
   assert(cache_res_mgr_ != nullptr);
   // Use a mutex to protect various data structures. Can be optimized to a
   // lock-free solution if it ends up with a performance bottleneck.
@@ -130,7 +146,7 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
   s.PermitUncheckedError();
 }
 
-void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall) {
+void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall, int client_id) {
   assert(wbm_stall != nullptr);
 
   // Allocate outside of the lock.
@@ -138,10 +154,10 @@ void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall) {
 
   {
     std::unique_lock<std::mutex> lock(mu_);
-    // Verify if the stall conditions are stil active.
-    if (ShouldStall()) {
-      stall_active_.store(true, std::memory_order_relaxed);
-      queue_.splice(queue_.end(), std::move(new_node));
+    // Verify if the stall conditions are still active.
+    if (ShouldStall(client_id)) {
+      per_client_stall_active_[client_id].store(true, std::memory_order_relaxed);
+      per_client_queue_[client_id].splice(per_client_queue_[client_id].end(), std::move(new_node));
     }
   }
 
@@ -154,31 +170,33 @@ void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall) {
 
 // Called when memory is freed in FreeMem or the buffer size has changed.
 void WriteBufferManager::MaybeEndWriteStall() {
-  // Stall conditions have not been resolved.
-  if (allow_stall_.load(std::memory_order_relaxed) &&
-      IsStallThresholdExceeded()) {
-    return;
-  }
-
   // Perform all deallocations outside of the lock.
-  std::list<StallInterface*> cleanup;
+  std::vector<std::list<StallInterface*>> cleanup(per_client_queue_.size());
 
   std::unique_lock<std::mutex> lock(mu_);
-  if (!stall_active_.load(std::memory_order_relaxed)) {
-    return;  // Nothing to do.
-  }
+  for (size_t client_id = 0; client_id < per_client_queue_.size(); ++client_id) {
+    if (!per_client_stall_active_[client_id].load(std::memory_order_relaxed)) {
+      continue;  // Nothing to do for this client.
+    }
 
-  // Unblock new writers.
-  stall_active_.store(false, std::memory_order_relaxed);
+    // Stall conditions have not been resolved for this client.
+    if (allow_stall_.load(std::memory_order_relaxed) &&
+        IsStallThresholdExceeded(client_id)) {
+      continue;
+    }
 
-  // Unblock the writers in the queue.
-  for (StallInterface* wbm_stall : queue_) {
-    wbm_stall->Signal();
+    // Unblock new writers for this client.
+    per_client_stall_active_[client_id].store(false, std::memory_order_relaxed);
+
+    // Unblock the writers in the queue.
+    for (StallInterface* wbm_stall : per_client_queue_[client_id]) {
+      wbm_stall->Signal();
+    }
+    cleanup[client_id] = std::move(per_client_queue_[client_id]);
   }
-  cleanup = std::move(queue_);
 }
 
-void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
+void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall, int client_id) {
   assert(wbm_stall != nullptr);
 
   // Deallocate the removed nodes outside of the lock.
@@ -186,10 +204,10 @@ void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
 
   if (enabled() && allow_stall_.load(std::memory_order_relaxed)) {
     std::unique_lock<std::mutex> lock(mu_);
-    for (auto it = queue_.begin(); it != queue_.end();) {
+    for (auto it = per_client_queue_[client_id].begin(); it != per_client_queue_[client_id].end();) {
       auto next = std::next(it);
       if (*it == wbm_stall) {
-        cleanup.splice(cleanup.end(), queue_, std::move(it));
+        cleanup.splice(cleanup.end(), per_client_queue_[client_id], std::move(it));
       }
       it = next;
     }

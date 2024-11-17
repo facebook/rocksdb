@@ -310,7 +310,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   max_total_wal_size_.store(mutable_db_options_.max_total_wal_size,
                             std::memory_order_relaxed);
   if (write_buffer_manager_) {
-    wbm_stall_.reset(new WBMStallInterface());
+    for (size_t i = 0; i < write_buffer_manager_->num_clients(); ++i){
+      per_client_wbm_stall_.emplace_back(new WBMStallInterface());
+    }
   }
 }
 
@@ -714,8 +716,10 @@ Status DBImpl::CloseHelper() {
     }
   }
 
-  if (write_buffer_manager_ && wbm_stall_) {
-    write_buffer_manager_->RemoveDBFromQueue(wbm_stall_.get());
+  if (write_buffer_manager_) {
+    for (size_t i = 0; i < write_buffer_manager_->num_clients(); ++i) {
+      write_buffer_manager_->RemoveDBFromQueue(per_client_wbm_stall_[i].get(), i);
+    }
   }
 
   IOStatus io_s = directories_.Close(IOOptions(), nullptr /* dbg */);
