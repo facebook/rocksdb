@@ -2143,6 +2143,17 @@ class MemTableInserter : public WriteBatch::Handler {
 
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetImmutableMemTableOptions();
+    std::string cf_name = cf_mems_->GetColumnFamilyHandle()->GetName();
+
+    auto& thread_metadata = TG_GetThreadMetadata();
+    if (cf_name.empty()) {
+      thread_metadata.client_id = -2;
+    } else if (cf_name == "default") {
+      thread_metadata.client_id = 1;
+    } else {
+      thread_metadata.client_id = std::stoi(cf_name.substr(2));       
+    }
+
     // inplace_update_support is inconsistent with snapshots, and therefore with
     // any kind of transactions including the ones that use seq_per_batch
     assert(!seq_per_batch_ || !moptions->inplace_update_support);
@@ -2257,6 +2268,7 @@ class MemTableInserter : public WriteBatch::Handler {
       ret_status = WriteBatchInternal::Put(rebuilding_trx_, column_family_id,
                                            key, value);
     }
+    thread_metadata.client_id = 0;
     return ret_status;
   }
 

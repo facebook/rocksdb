@@ -52,7 +52,7 @@ class WriteBufferManager final {
   // memory usage to drop down.
   explicit WriteBufferManager(size_t buffer_size,
                               std::shared_ptr<Cache> cache = {},
-                              bool allow_stall = false,
+                              bool allow_stall = true,
                               size_t num_clients = 16);
 
   // No copying allowed
@@ -60,6 +60,21 @@ class WriteBufferManager final {
   WriteBufferManager& operator=(const WriteBufferManager&) = delete;
 
   ~WriteBufferManager();
+
+  // TODO(tgriggs): update this based on column family IDs
+  int ClientId2ClientIdx(int client_id) const {
+    if (client_id > 0) {
+      return client_id - 1;
+    }
+    return client_id;
+  }
+
+  int ClientIdx2ClientId(int client_idx) const {
+    if (client_idx >= 0) {
+      return client_idx + 1;
+    }
+    return client_idx;
+  }
 
   // Returns true if buffer_limit is passed to limit the total memory usage and
   // is greater than 0.
@@ -76,7 +91,8 @@ class WriteBufferManager final {
 
   // Returns the per-client memory usage.
   size_t per_client_memory_usage(int client_id) const {
-    return per_client_memory_used_[client_id].load(std::memory_order_relaxed);
+    int client_idx = ClientId2ClientIdx(client_id);
+    return per_client_memory_used_[client_idx].load(std::memory_order_relaxed);
   }
 
   // Returns the total memory used by active memtables.
@@ -142,22 +158,24 @@ bool ShouldFlush() const {
   //
   // Should only be called by RocksDB internally.
   bool ShouldStall(int client_id) const {
-  if (!allow_stall_.load(std::memory_order_relaxed) || !enabled()) {
-    return false;
-  }
+    if (!allow_stall_.load(std::memory_order_relaxed) || !enabled()) {
+      return false;
+    }
 
   return IsStallActive(client_id) || IsStallThresholdExceeded(client_id);
 }
 
   // Returns true if stall is active for the given client.
   bool IsStallActive(int client_id) const {
-    return per_client_stall_active_[client_id].load(std::memory_order_relaxed);
+    int client_idx = ClientId2ClientIdx(client_id);
+    return per_client_stall_active_[client_idx].load(std::memory_order_relaxed);
   }
 
   // Returns true if stalling condition is met for the given client.
   bool IsStallThresholdExceeded(int client_id) const {
-    return per_client_memory_used_[client_id].load(std::memory_order_relaxed) >=
-           per_client_buffer_size_[client_id];
+    int client_idx = ClientId2ClientIdx(client_id);
+    return per_client_memory_used_[client_idx].load(std::memory_order_relaxed) >=
+           per_client_buffer_size_[client_idx];
   }
 
   void ReserveMem(size_t mem);

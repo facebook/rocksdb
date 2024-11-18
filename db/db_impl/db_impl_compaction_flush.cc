@@ -3379,7 +3379,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
       job_context.Clean();
 
       // Reset the thread metadata.
-      TG_GetThreadMetadata().client_id = 0;
+      TG_GetThreadMetadata().client_id = -2;
 
       mutex_.Lock();
     }
