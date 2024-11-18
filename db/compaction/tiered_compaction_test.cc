@@ -22,13 +22,14 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-const ConfigOptions kStrictConfig = []() {
+ConfigOptions GetStrictConfigOptions() {
   ConfigOptions config_options;
   config_options.ignore_unknown_options = false;
   config_options.ignore_unsupported_options = false;
   config_options.input_strings_escaped = false;
   return config_options;
-}();
+}
+const ConfigOptions kStrictConfig = GetStrictConfigOptions();
 }  // namespace
 
 class TieredCompactionTest : public DBTestBase {
