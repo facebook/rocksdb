@@ -9,7 +9,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// EXPERIMENTAL
 class CoalescingIterator : public Iterator {
  public:
   CoalescingIterator(
