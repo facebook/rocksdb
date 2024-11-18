@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.8.4 (11/18/2024)
+### Behavior Changes
+* When Remote Compaction is enabled, do not purge OPTIONS file immediately by DeleteObsoleteOptionsFiles() after SetOptions(). Rely on PurgeObsoleteFiles() to clean up obsolete OPTIONS file after each compaction.
+
 ## 9.8.3 (11/12/2024)
 ### Bug Fixes
 * Fix missing cases of corruption retry during DB open and read API processing.
