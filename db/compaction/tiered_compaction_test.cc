@@ -21,6 +21,16 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+const ConfigOptions kStrictConfig = []() {
+  ConfigOptions config_options;
+  config_options.ignore_unknown_options = false;
+  config_options.ignore_unsupported_options = false;
+  config_options.input_strings_escaped = false;
+  return config_options;
+}();
+}  // namespace
+
 class TieredCompactionTest : public DBTestBase {
  public:
   TieredCompactionTest()
