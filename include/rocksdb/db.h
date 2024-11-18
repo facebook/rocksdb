@@ -1007,7 +1007,6 @@ class DB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) = 0;
 
-  // EXPERIMENTAL
   // Return a cross-column-family iterator from a consistent database state.
   //
   // If a key exists in more than one column family, value() will be determined
@@ -1025,7 +1024,6 @@ class DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
-  // EXPERIMENTAL
   // A cross-column-family iterator that collects and returns attribute groups
   // for each key in order provided by comparator
   virtual std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
