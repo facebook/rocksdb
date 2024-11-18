@@ -624,7 +624,9 @@ Status FlushJob::MemPurge() {
         // Construct fragmented memtable range tombstones without mutex
         new_mem->ConstructFragmentedRangeTombstones();
         db_mutex_->Lock();
-        uint64_t new_mem_id = mems_[0]->GetID();
+        // Take the newest id, so that memtables in MemtableList don't have
+        // out-of-order memtable ids.
+        uint64_t new_mem_id = mems_.back()->GetID();
 
         new_mem->SetID(new_mem_id);
         new_mem->SetNextLogNumber(mems_[0]->GetNextLogNumber());

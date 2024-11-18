@@ -330,6 +330,7 @@ TEST_F(MemTableListTest, GetTest) {
   // This is to make assert(memtable->IsFragmentedRangeTombstonesConstructed())
   // in MemTableListVersion::GetFromList work.
   mem->ConstructFragmentedRangeTombstones();
+  mem->SetID(1);
   list.Add(mem, &to_delete);
 
   SequenceNumber saved_seq = seq;
@@ -338,6 +339,7 @@ TEST_F(MemTableListTest, GetTest) {
   WriteBufferManager wb2(options.db_write_buffer_size);
   MemTable* mem2 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb2,
                                 kMaxSequenceNumber, 0 /* column_family_id */);
+  mem2->SetID(2);
   mem2->Ref();
 
   ASSERT_OK(

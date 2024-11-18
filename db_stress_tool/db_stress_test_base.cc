@@ -805,7 +805,7 @@ void StressTest::ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
   }
 }
 
-Status StressTest::NewTxn(WriteOptions& write_opts,
+Status StressTest::NewTxn(WriteOptions& write_opts, ThreadState* thread,
                           std::unique_ptr<Transaction>* out_txn) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("NewTxn when FLAGS_use_txn is not set");
@@ -821,6 +821,12 @@ Status StressTest::NewTxn(WriteOptions& write_opts,
         FLAGS_use_only_the_last_commit_time_batch_for_recovery;
     txn_options.lock_timeout = 600000;  // 10 min
     txn_options.deadlock_detect = true;
+    if (FLAGS_commit_bypass_memtable_one_in > 0) {
+      assert(FLAGS_txn_write_policy == 0);
+      assert(FLAGS_user_timestamp_size == 0);
+      txn_options.commit_bypass_memtable =
+          thread->rand.OneIn(FLAGS_commit_bypass_memtable_one_in);
+    }
     out_txn->reset(txn_db_->BeginTransaction(write_opts, txn_options));
     auto istr = std::to_string(txn_id.fetch_add(1));
     Status s = (*out_txn)->SetName("xid" + istr);
@@ -880,7 +886,7 @@ Status StressTest::ExecuteTransaction(
     WriteOptions& write_opts, ThreadState* thread,
     std::function<Status(Transaction&)>&& ops) {
   std::unique_ptr<Transaction> txn;
-  Status s = NewTxn(write_opts, &txn);
+  Status s = NewTxn(write_opts, thread, &txn);
   std::string try_again_messages;
   if (s.ok()) {
     for (int tries = 1;; ++tries) {

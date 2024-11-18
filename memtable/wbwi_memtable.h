@@ -108,6 +108,8 @@ class WBWIMemTableIterator final : public InternalIterator {
     return s_;
   }
 
+  bool IsValuePinned() const override { return true; }
+
  private:
   static const std::unordered_map<WriteType, ValueType> WriteTypeToValueTypeMap;
 
@@ -146,12 +148,13 @@ class WBWIMemTable final : public ReadOnlyMemTable {
   WBWIMemTable(const std::shared_ptr<WriteBatchWithIndex>& wbwi,
                const Comparator* cmp, uint32_t cf_id,
                const ImmutableOptions* immutable_options,
-               const MutableCFOptions* cf_options)
+               const MutableCFOptions* cf_options, uint64_t num_entries)
       : wbwi_(wbwi),
         comparator_(cmp),
         ikey_comparator_(comparator_),
         moptions_(*immutable_options, *cf_options),
         clock_(immutable_options->clock),
+        num_entries_(num_entries),
         cf_id_(cf_id) {}
 
   // No copying allowed
@@ -240,7 +243,7 @@ class WBWIMemTable final : public ReadOnlyMemTable {
     // - verify number of entries processed during flush
     // - stats for estimate num entries and num entries in immutable memtables
     // - MemPurgeDecider
-    return 0;
+    return num_entries_;
   }
 
   uint64_t NumDeletion() const override {
@@ -310,6 +313,10 @@ class WBWIMemTable final : public ReadOnlyMemTable {
     global_seqno_ = global_seqno;
   }
 
+  void SetMinPrepLog(uint64_t min_prep_log) {
+    min_prep_log_referenced_ = min_prep_log;
+  }
+
  private:
   InternalIterator* NewIterator() const {
     assert(global_seqno_ != kMaxSequenceNumber);
@@ -326,6 +333,7 @@ class WBWIMemTable final : public ReadOnlyMemTable {
   const ImmutableMemTableOptions moptions_;
   SystemClock* clock_;
   uint64_t min_prep_log_referenced_{0};
+  uint64_t num_entries_;
   // WBWI can contains updates to multiple CFs. `cf_id_` determines which CF
   // this memtable is for.
   uint32_t cf_id_;

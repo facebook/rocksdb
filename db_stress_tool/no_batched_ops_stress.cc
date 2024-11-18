@@ -666,7 +666,7 @@ class NonBatchedOpsStressTest : public StressTest {
       if (FLAGS_rate_limit_auto_wal_flush) {
         wo.rate_limiter_priority = Env::IO_USER;
       }
-      Status s = NewTxn(wo, &txn);
+      Status s = NewTxn(wo, thread, &txn);
       if (!s.ok()) {
         fprintf(stderr, "NewTxn error: %s\n", s.ToString().c_str());
         shared->SafeTerminate();
@@ -1127,7 +1127,7 @@ class NonBatchedOpsStressTest : public StressTest {
         write_options.rate_limiter_priority = Env::IO_USER;
       }
 
-      const Status s = NewTxn(write_options, &txn);
+      const Status s = NewTxn(write_options, thread, &txn);
       if (!s.ok()) {
         fprintf(stderr, "NewTxn error: %s\n", s.ToString().c_str());
         thread->shared->SafeTerminate();

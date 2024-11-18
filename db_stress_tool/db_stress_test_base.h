@@ -138,7 +138,7 @@ class StressTest {
                                                   SharedState* shared);
 
   // ExecuteTransaction is recommended instead
-  Status NewTxn(WriteOptions& write_opts,
+  Status NewTxn(WriteOptions& write_opts, ThreadState* thread,
                 std::unique_ptr<Transaction>* out_txn);
   Status CommitTxn(Transaction& txn, ThreadState* thread = nullptr);
 

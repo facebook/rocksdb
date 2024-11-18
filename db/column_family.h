@@ -392,6 +392,10 @@ class ColumnFamilyData {
     mem_ = new_mem;
   }
 
+  void AssignMemtableID(ReadOnlyMemTable* new_imm) {
+    new_imm->SetID(++last_memtable_id_);
+  }
+
   // calculate the oldest log needed for the durability of this column family
   uint64_t OldestLogToKeep();
 

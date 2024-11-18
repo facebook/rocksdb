@@ -3417,6 +3417,31 @@ TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
   }
 }
 
+TEST_P(WriteBatchWithIndexTest, TrackCFAndEntryCountClear) {
+  Status s;
+  std::string value;
+  batch_->SetTrackCFAndEntryCount(true);
+  ASSERT_OK(batch_->Put("A", "val"));
+  ASSERT_OK(batch_->Delete("B"));
+
+  ColumnFamilyHandleImplDummy cf1(/*id=*/1, BytewiseComparator());
+  ASSERT_OK(batch_->Put(&cf1, "bar", "foo"));
+
+  auto cf_id_to_count = batch_->GetColumnFamilyToEntryCount();
+  ASSERT_EQ(2, cf_id_to_count.size());
+  for (const auto [cf_id, count] : cf_id_to_count) {
+    if (cf_id == 0) {
+      ASSERT_EQ(2, count);
+    } else {
+      ASSERT_EQ(cf_id, 1);
+      ASSERT_EQ(1, count);
+    }
+  }
+
+  batch_->Clear();
+  ASSERT_TRUE(batch_->GetColumnFamilyToEntryCount().empty());
+}
+
 INSTANTIATE_TEST_CASE_P(WBWI, WriteBatchWithIndexTest, testing::Bool());
 
 std::string Get(const std::string& k, std::unique_ptr<WBWIMemTable>& wbwi_mem,
@@ -3455,6 +3480,7 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
 
   Random rnd(301);
   auto wbwi = std::make_shared<WriteBatchWithIndex>(cmp, 0, true, 0, 0);
+  wbwi->SetTrackCFAndEntryCount(true);
   std::vector<std::pair<std::string, std::string>> expected;
   expected.resize(10000);
   for (int i = 0; i < 10000; ++i) {
@@ -3468,7 +3494,8 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   RandomShuffle(expected.begin(), expected.end());
   std::unique_ptr<WBWIMemTable> wbwi_mem{
       new WBWIMemTable(wbwi, cmp,
-                       /*cf_id=*/0, &immutable_opts, &mutable_cf_options)};
+                       /*cf_id=*/0, &immutable_opts, &mutable_cf_options,
+                       /*num_entries=*/10000)};
   ASSERT_TRUE(wbwi_mem->IsEmpty());
   constexpr SequenceNumber visible_seq = 3;
   constexpr SequenceNumber non_visible_seq = 1;
@@ -3540,7 +3567,6 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
     ASSERT_TRUE(val == Get(key, wbwi_mem, visible_seq, &found_final_value));
     ASSERT_TRUE(found_final_value);
   }
-
   // MultiGet
   int batch_size = 30;
   for (int i = 0; i < 10000; i += batch_size) {
@@ -3668,7 +3694,8 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
 
   // Read from another CF
   std::unique_ptr<WBWIMemTable> meta_wbwi_mem{new WBWIMemTable(
-      wbwi, cmp, /*cf_id=*/1, &immutable_opts, &mutable_cf_options)};
+      wbwi, cmp, /*cf_id=*/1, &immutable_opts, &mutable_cf_options,
+      /*num_entries=*/1)};
   meta_wbwi_mem->SetGlobalSequenceNumber(assigned_seq);
   found_final_value = false;
   ASSERT_TRUE("foo" == Get(DBTestBase::Key(0), meta_wbwi_mem, visible_seq,
