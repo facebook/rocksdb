@@ -231,6 +231,7 @@ void FilePrefetchBuffer::CopyDataToOverlapBuffer(BufferInfo* src,
   if (length > 0) {
     FreeFrontBuffer();
   }
+  TEST_SYNC_POINT("FilePrefetchBuffer::CopyDataToOverlapBuffer:Complete");
 }
 
 // Clear the buffers if it contains outdated data. Outdated data can be because

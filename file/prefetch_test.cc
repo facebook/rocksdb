@@ -3413,6 +3413,12 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
 
   FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
                          stats.get());
+
+  int overlap_buffer_write_ct = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::CopyDataToOverlapBuffer:Complete",
+      [&](void* /*arg*/) { overlap_buffer_write_ct++; });
+
   Slice result;
   // Read 4096 bytes at offset 0.
   Status s;
@@ -3483,6 +3489,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
     // Overlap buffer reuses bytes 8192 to 12288
     ASSERT_EQ(overlap_buffer_info.first, 8192);
     ASSERT_EQ(overlap_buffer_info.second, 8192);
+    ASSERT_EQ(overlap_buffer_write_ct, 2);
     // We spill to the overlap buffer so the remaining buffer only has the
     // missing and prefetched part
     ASSERT_EQ(std::get<0>(buffer_info[0]), 12288);
@@ -3514,6 +3521,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
     fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
     ASSERT_EQ(overlap_buffer_info.first, 8192);
     ASSERT_EQ(overlap_buffer_info.second, 8192);
+    ASSERT_EQ(overlap_buffer_write_ct, 2);
     // Main buffer stays the same
     ASSERT_EQ(std::get<0>(buffer_info[0]), 12288);
     ASSERT_EQ(std::get<1>(buffer_info[0]), 12288);
@@ -3535,6 +3543,9 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
     // Overlap buffer reuses bytes 16000 to 20480
     ASSERT_EQ(overlap_buffer_info.first, 16000);
     ASSERT_EQ(overlap_buffer_info.second, 10000);
+    // First 2 writes are reusing existing 2 buffers. Last write fills in
+    // what could not be found in either.
+    ASSERT_EQ(overlap_buffer_write_ct, 3);
     ASSERT_EQ(std::get<0>(buffer_info[0]), 24576);
     ASSERT_EQ(std::get<1>(buffer_info[0]), 32768 - 24576);
     ASSERT_EQ(std::get<0>(buffer_info[1]), 32768);
@@ -3546,6 +3557,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
     // Overlap buffer reuses bytes 16000 to 24576
     ASSERT_EQ(overlap_buffer_info.first, 16000);
     ASSERT_EQ(overlap_buffer_info.second, 10000);
+    ASSERT_EQ(overlap_buffer_write_ct, 4);
     // Even if you try to readahead to offset 16000 + 10000 + 8192, there are
     // only 32768 bytes in the original file
     ASSERT_EQ(std::get<0>(buffer_info[0]), 12288 + 12288);
@@ -3576,6 +3588,12 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   readahead_params.num_buffers = num_buffers;
   FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
                          stats.get());
+
+  int overlap_buffer_write_ct = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::CopyDataToOverlapBuffer:Complete",
+      [&](void* /*arg*/) { overlap_buffer_write_ct++; });
+
   Slice result;
   // Read 3 bytes at offset 5
   Status s;
@@ -3684,6 +3702,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
     // Overlap buffer is used because we already had 30-33
     ASSERT_EQ(overlap_buffer_info.first, 30);
     ASSERT_EQ(overlap_buffer_info.second, 20);
+    ASSERT_EQ(overlap_buffer_write_ct, 2);
     // Main buffer has up to offset 50 + 20 of prefetched data
     ASSERT_EQ(std::get<0>(buffer_info[0]), 33);
     ASSERT_EQ(std::get<1>(buffer_info[0]), (50 - 33) + 20);
