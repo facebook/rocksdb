@@ -847,7 +847,7 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
 
   uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
   uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
-  bool mapping_was_empty = false;
+  std::vector<SuperVersionContext> sv_contexts;
   {
     InstrumentedMutexLock l(&mutex_);
 
@@ -862,6 +862,7 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
         max_preserve_seconds = std::max(preserve_seconds, max_preserve_seconds);
       }
     }
+    size_t old_mapping_size = seqno_to_time_mapping_.Size();
     if (min_preserve_seconds == std::numeric_limits<uint64_t>::max()) {
       // Don't track
       seqno_to_time_mapping_.SetCapacity(0);
@@ -873,8 +874,16 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
       seqno_to_time_mapping_.SetCapacity(cap);
       seqno_to_time_mapping_.SetMaxTimeSpan(max_preserve_seconds);
     }
-    mapping_was_empty = seqno_to_time_mapping_.Empty();
+    if (old_mapping_size != seqno_to_time_mapping_.Size()) {
+      InstallSeqnoToTimeMappingInSV(&sv_contexts);
+    }
   }
+
+  // clean up outside db mutex
+  for (SuperVersionContext& sv_context : sv_contexts) {
+    sv_context.Clean();
+  }
+  sv_contexts.clear();
 
   uint64_t seqno_time_cadence = 0;
   if (min_preserve_seconds != std::numeric_limits<uint64_t>::max()) {
@@ -915,8 +924,6 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
     assert(!is_new_db || last_seqno_zero);
     if (is_new_db && last_seqno_zero) {
       // Pre-allocate seqnos and pre-populate historical mapping
-      assert(mapping_was_empty);
-
       // We can simply modify these, before writes are allowed
       constexpr uint64_t kMax = kMaxSeqnoTimePairsPerSST;
       versions_->SetLastAllocatedSequence(kMax);
@@ -941,9 +948,10 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
 
       // Pre-populate mappings for reserved sequence numbers.
       RecordSeqnoToTimeMapping(max_preserve_seconds);
-    } else if (mapping_was_empty) {
+    } else {
       if (!last_seqno_zero) {
-        // Ensure at least one mapping (or log a warning)
+        // Ensure at least one mapping (or log a warning), and
+        // an updated entry whenever relevant SetOptions is called
         RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
       } else {
         // FIXME (see limitation described above)
@@ -1303,6 +1311,12 @@ Status DBImpl::SetOptions(
     }
   }
   sv_context.Clean();
+
+  if (s.ok() && (options_map.count("preserve_internal_time_seconds") > 0 ||
+                 options_map.count("preclude_last_level_data_seconds") > 0)) {
+    s = RegisterRecordSeqnoTimeWorker(read_options, write_options,
+                                      false /* is_new_db*/);
+  }
 
   ROCKS_LOG_INFO(
       immutable_db_options_.info_log,
@@ -3479,6 +3493,8 @@ void DBImpl::MultiGetEntityWithCallback(
 Status DBImpl::WrapUpCreateColumnFamilies(
     const ReadOptions& read_options, const WriteOptions& write_options,
     const std::vector<const ColumnFamilyOptions*>& cf_options) {
+  options_mutex_.AssertHeld();
+
   // NOTE: this function is skipped for create_missing_column_families and
   // DB::Open, so new functionality here might need to go into Open also.
   bool register_worker = false;
@@ -3701,6 +3717,8 @@ Status DBImpl::DropColumnFamilies(
 }
 
 Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
+  options_mutex_.AssertHeld();
+
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
   const WriteOptions write_options;

@@ -934,6 +934,13 @@ Status DBTestBase::Get(const std::string& k, PinnableSlice* v) {
   return s;
 }
 
+Status DBTestBase::CompactRange(const CompactRangeOptions& options,
+                                std::optional<Slice> begin,
+                                std::optional<Slice> end) {
+  return db_->CompactRange(options, begin ? &begin.value() : nullptr,
+                           end ? &end.value() : nullptr);
+}
+
 uint64_t DBTestBase::GetNumSnapshots() {
   uint64_t int_num;
   EXPECT_TRUE(dbfull()->GetIntProperty("rocksdb.num-snapshots", &int_num));

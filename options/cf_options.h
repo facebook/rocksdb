@@ -360,6 +360,7 @@ Status GetMutableOptionsFromStrings(
 
 #ifndef NDEBUG
 std::vector<std::string> TEST_GetImmutableInMutableCFOptions();
+extern bool TEST_allowSetOptionsImmutableInMutable;
 #endif
 
 }  // namespace ROCKSDB_NAMESPACE
