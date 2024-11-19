@@ -1757,7 +1757,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * Time of the day in UTC, start_time-end_time inclusive.
    * Format - HH:mm-HH:mm (00:00-23:59)
-   * If the start time > end time, it will be considered that the time period
+   * If the start time exceeds the end time, it will be considered that the time period
    * spans to the next day (e.g., 23:30-04:00). To make an entire day off-peak,
    * use "0:00-23:59". To make an entire day have no offpeak period, leave
    * this field blank. Default: Empty string (no offpeak).
@@ -1779,7 +1779,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * Time of the day in UTC, start_time-end_time inclusive.
    * Format - HH:mm-HH:mm (00:00-23:59)
-   * If the start time > end time, it will be considered that the time period
+   * If the start time exceeds the end time, it will be considered that the time period
    * spans to the next day (e.g., 23:30-04:00). To make an entire day off-peak,
    * use "0:00-23:59". To make an entire day have no offpeak period, leave
    * this field blank. Default: Empty string (no offpeak).
