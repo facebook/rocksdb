@@ -48,6 +48,7 @@
 #include "db/write_controller.h"
 #include "db/write_thread.h"
 #include "logging/event_logger.h"
+#include "memtable/wbwi_memtable.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -1518,8 +1519,8 @@ class DBImpl : public DB {
   // @param the value of versions_->LastSequence() after the write ingests
   // `wbwi` is done.
   Status IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
-                    SequenceNumber assigned_seqno, uint64_t min_prep_log,
-                    SequenceNumber last_seqno);
+                    const WBWIMemTable::SeqnoRange& assigned_seqno,
+                    uint64_t min_prep_log, SequenceNumber last_seqno);
 
   // If disable_memtable is set the application logic must guarantee that the
   // batch will still be skipped from memtable during the recovery. An excption

@@ -21,6 +21,27 @@ const std::unordered_map<WriteType, ValueType>
         // kLogDataRecord, kXIDRecord, kUnknownRecord
 };
 
+InternalIterator* WBWIMemTable::NewIterator(
+    const ReadOptions&, UnownedPtr<const SeqnoToTimeMapping>, Arena* arena,
+    const SliceTransform* /* prefix_extractor */, bool for_flush) {
+  // Ingested WBWIMemTable should have an assigned seqno
+  assert(assigned_seqno_.upper_bound != kMaxSequenceNumber);
+  assert(assigned_seqno_.lower_bound != kMaxSequenceNumber);
+  assert(arena);
+  auto mem = arena->AllocateAligned(sizeof(WBWIMemTableIterator));
+  return new (mem) WBWIMemTableIterator(
+      std::unique_ptr<WBWIIterator>(wbwi_->NewIterator(cf_id_)),
+      assigned_seqno_, comparator_, for_flush);
+}
+
+inline InternalIterator* WBWIMemTable::NewIterator() const {
+  assert(assigned_seqno_.upper_bound != kMaxSequenceNumber);
+  assert(assigned_seqno_.lower_bound != kMaxSequenceNumber);
+  return new WBWIMemTableIterator(
+      std::unique_ptr<WBWIIterator>(wbwi_->NewIterator(cf_id_)),
+      assigned_seqno_, comparator_, /*for_flush=*/false);
+}
+
 bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
                        PinnableWideColumns* columns, std::string* timestamp,
                        Status* s, MergeContext* merge_context,
@@ -34,7 +55,8 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
   assert(immutable_memtable);
   assert(!timestamp);  // TODO: support UDT
   assert(!columns);    // TODO: support WideColumn
-  assert(global_seqno_ != kMaxSequenceNumber);
+  assert(assigned_seqno_.upper_bound != kMaxSequenceNumber);
+  assert(assigned_seqno_.lower_bound != kMaxSequenceNumber);
   // WBWI does not support DeleteRange yet.
   assert(!wbwi_->GetWriteBatch()->HasDeleteRange());
 

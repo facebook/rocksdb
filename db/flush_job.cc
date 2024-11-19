@@ -422,7 +422,8 @@ Status FlushJob::MemPurge() {
       range_del_iters;
   for (ReadOnlyMemTable* m : mems_) {
     memtables.push_back(m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr,
-                                       &arena, /*prefix_extractor=*/nullptr));
+                                       &arena, /*prefix_extractor=*/nullptr,
+                                       /*for_flush=*/true));
     auto* range_del_iter = m->NewRangeTombstoneIterator(
         ro, kMaxSequenceNumber, true /* immutable_memtable */);
     if (range_del_iter != nullptr) {
@@ -909,7 +910,7 @@ Status FlushJob::WriteLevel0Table() {
       } else {
         memtables.push_back(
             m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
-                           /*prefix_extractor=*/nullptr));
+                           /*prefix_extractor=*/nullptr, /*for_flush=*/true));
       }
       auto* range_del_iter =
           logical_strip_timestamp

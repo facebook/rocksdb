@@ -191,23 +191,20 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 }
 
 Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
-                          SequenceNumber assigned_seqno, uint64_t prep_log,
+                          const WBWIMemTable::SeqnoRange& assigned_seqno,
+                          uint64_t prep_log,
                           SequenceNumber last_seqno_after_ingest) {
-  // Keys in new memtable have seqno > last_seqno_after_ingest.
-  assert(assigned_seqno <= last_seqno_after_ingest);
-  // Keys in the current memtable have seqno <= LastSequence().
-  assert(assigned_seqno > versions_->LastSequence());
-  // wbwi is not available for reads yet
+  // Keys in new memtable have seqno > last_seqno_after_ingest >= keys in wbwi.
+  assert(assigned_seqno.upper_bound <= last_seqno_after_ingest);
+  // Keys in the current memtable have seqno <= LastSequence() < keys in wbwi.
+  assert(assigned_seqno.lower_bound > versions_->LastSequence());
   autovector<ReadOnlyMemTable*> memtables;
   autovector<ColumnFamilyData*> cfds;
-  const std::unordered_map<uint32_t, uint32_t>& cf_to_entry_count =
-      wbwi->GetColumnFamilyToEntryCount();
-
   InstrumentedMutexLock lock(&mutex_);
   ColumnFamilySet* cf_set = versions_->GetColumnFamilySet();
 
   // Create WBWIMemTables
-  for (const auto [cf_id, count] : cf_to_entry_count) {
+  for (const auto [cf_id, stat] : wbwi->GetCFStats()) {
     ColumnFamilyData* cfd = cf_set->GetColumnFamily(cf_id);
     if (!cfd) {
       for (auto mem : memtables) {
@@ -219,9 +216,9 @@ Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
     }
     WBWIMemTable* wbwi_memtable =
         new WBWIMemTable(wbwi, cfd->user_comparator(), cf_id, cfd->ioptions(),
-                         cfd->GetLatestMutableCFOptions(), count);
+                         cfd->GetLatestMutableCFOptions(), stat);
     wbwi_memtable->Ref();
-    wbwi_memtable->SetGlobalSequenceNumber(assigned_seqno);
+    wbwi_memtable->AssignSequenceNumbers(assigned_seqno);
     // This is needed to keep the WAL that contains Prepare alive until
     // committed data in this memtable is persisted.
     wbwi_memtable->SetMinPrepLog(prep_log);
@@ -794,16 +791,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
   if (wbwi) {
     if (status.ok()) {
-      assert(versions_->LastSequence() + w.batch->Count() +
-                 wbwi->GetWriteBatch()->Count() ==
-             last_sequence);
       // w.batch contains commit time batch updates
-      SequenceNumber assigned_seqno =
-          versions_->LastSequence() + w.batch->Count() + 1;
+      assert(wbwi->GetWriteBatch()->Count() > 0);
+      SequenceNumber lb = versions_->LastSequence() + w.batch->Count() + 1;
+      SequenceNumber ub = versions_->LastSequence() + w.batch->Count() +
+                          wbwi->GetWriteBatch()->Count();
+      assert(ub == last_sequence);
       if (two_write_queues_) {
-        assert(assigned_seqno <= versions_->LastAllocatedSequence());
+        assert(ub <= versions_->LastAllocatedSequence());
       }
-      status = IngestWBWI(wbwi, assigned_seqno, prep_log, last_sequence);
+      status = IngestWBWI(wbwi, {/*lower_bound=*/lb, /*upper_bound=*/ub},
+                          prep_log, last_sequence);
       MemTableInsertStatusCheck(status);
     }
   }

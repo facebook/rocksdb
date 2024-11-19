@@ -104,6 +104,8 @@ struct WriteBatchIndexEntry {
   WriteBatchIndexEntry(size_t o, uint32_t c, size_t ko, size_t ksz)
       : offset(o),
         column_family(c),
+        has_single_del(false),
+        has_overwritten_single_del(false),
         key_offset(ko),
         key_size(ksz),
         search_key(nullptr) {}
@@ -121,6 +123,8 @@ struct WriteBatchIndexEntry {
       // entry who has the same search key. Otherwise, we'll miss those entries.
       : offset(is_forward_direction ? 0 : std::numeric_limits<size_t>::max()),
         column_family(_column_family),
+        has_single_del(false),
+        has_overwritten_single_del(false),
         key_offset(0),
         key_size(is_seek_to_first ? kFlagMinInCf : 0),
         search_key(_search_key) {
@@ -147,6 +151,9 @@ struct WriteBatchIndexEntry {
   // SeekForPrev() will see all the keys with the same key.
   size_t offset;
   uint32_t column_family;  // column family of the entry.
+  bool has_single_del;     // whether single del was issued for this key
+  bool has_overwritten_single_del;  // whether a single del for this key was
+                                    // overwritten by another key
   size_t key_offset;       // offset of the key in write batch's string buffer.
   size_t key_size;         // size of the key. kFlagMinInCf indicates
                            // that this is a dummy look up entry for
@@ -209,7 +216,7 @@ class WriteBatchEntryComparator {
 using WriteBatchEntrySkipList =
     SkipList<WriteBatchIndexEntry*, const WriteBatchEntryComparator&>;
 
-class WBWIIteratorImpl : public WBWIIterator {
+class WBWIIteratorImpl final : public WBWIIterator {
  public:
   enum Result : uint8_t {
     kFound,
@@ -324,6 +331,11 @@ class WBWIIteratorImpl : public WBWIIterator {
   }
 
   WriteEntry Entry() const override;
+
+  bool HasOverWrittenSingleDel() const override {
+    assert(Valid());
+    return skip_list_iter_.key()->has_overwritten_single_del;
+  }
 
   Status status() const override {
     // this is in-memory data structure, so the only way status can be non-ok is

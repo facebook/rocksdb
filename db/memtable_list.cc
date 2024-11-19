@@ -220,7 +220,8 @@ void MemTableListVersion::AddIterators(
     std::vector<InternalIterator*>* iterator_list, Arena* arena) {
   for (auto& m : memlist_) {
     iterator_list->push_back(m->NewIterator(options, seqno_to_time_mapping,
-                                            arena, prefix_extractor));
+                                            arena, prefix_extractor,
+                                            /*for_flush=*/false));
   }
 }
 
@@ -232,7 +233,8 @@ void MemTableListVersion::AddIterators(
   for (auto& m : memlist_) {
     auto mem_iter =
         m->NewIterator(options, seqno_to_time_mapping,
-                       merge_iter_builder->GetArena(), prefix_extractor);
+                       merge_iter_builder->GetArena(), prefix_extractor,
+                       /*for_flush=*/false);
     if (!add_range_tombstone_iter || options.ignore_range_deletions) {
       merge_iter_builder->AddIterator(mem_iter);
     } else {

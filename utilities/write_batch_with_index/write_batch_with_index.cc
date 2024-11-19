@@ -36,7 +36,7 @@ struct WriteBatchWithIndex::Rep {
         last_entry_offset(0),
         last_sub_batch_offset(0),
         sub_batch_cnt(1),
-        track_cf(false) {}
+        track_cf_stat(false) {}
   ReadableWriteBatch write_batch;
   WriteBatchEntryComparator comparator;
   Arena arena;
@@ -50,9 +50,10 @@ struct WriteBatchWithIndex::Rep {
   // Total number of sub-batches in the write batch. Default is 1.
   size_t sub_batch_cnt;
 
-  bool track_cf;
-  // Tracks cf ids that have updates in this WBWI, and the count of updates.
-  std::unordered_map<uint32_t, uint32_t> cf_id_to_entry_count;
+  bool track_cf_stat;
+  // Tracks ids of CFs that have updates in this WBWI, number of updates and
+  // number of overwritten single deletions per cf.
+  std::unordered_map<uint32_t, CFStat> cf_id_to_stat;
 
   // Remember current offset of internal write batch, which is used as
   // the starting offset of the next record.
@@ -74,7 +75,7 @@ struct WriteBatchWithIndex::Rep {
 
   // Allocate an index entry pointing to the last entry in the write batch and
   // put it to skip list.
-  void AddNewEntry(uint32_t column_family_id);
+  void AddNewEntry(uint32_t column_family_id, WriteType type);
 
   // Clear all updates buffered in this batch.
   void Clear();
@@ -119,6 +120,17 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
     last_sub_batch_offset = last_entry_offset;
     sub_batch_cnt++;
   }
+  if (track_cf_stat) {
+    if (non_const_entry->has_single_del &&
+        !non_const_entry->has_overwritten_single_del) {
+      // increment count here
+      cf_id_to_stat[column_family_id].overwritten_sd_count++;
+      non_const_entry->has_overwritten_single_del = true;
+    }
+    if (type == kSingleDeleteRecord) {
+      non_const_entry->has_single_del = true;
+    }
+  }
   if (type == kMergeRecord) {
     return false;
   } else {
@@ -135,18 +147,19 @@ void WriteBatchWithIndex::Rep::AddOrUpdateIndex(
     if (cf_cmp != nullptr) {
       comparator.SetComparatorForCF(cf_id, cf_cmp);
     }
-    AddNewEntry(cf_id);
+    AddNewEntry(cf_id, type);
   }
 }
 
 void WriteBatchWithIndex::Rep::AddOrUpdateIndex(const Slice& key,
                                                 WriteType type) {
   if (!UpdateExistingEntryWithCfId(0, key, type)) {
-    AddNewEntry(0);
+    AddNewEntry(0, type);
   }
 }
 
-void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
+void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id,
+                                           WriteType type) {
   const std::string& wb_data = write_batch.Data();
   Slice entry_ptr = Slice(wb_data.data() + last_entry_offset,
                           wb_data.size() - last_entry_offset);
@@ -172,14 +185,17 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
                                      key.data() - wb_data.data(), key.size());
   skip_list.Insert(index_entry);
 
-  if (track_cf) {
-    cf_id_to_entry_count[column_family_id]++;
+  if (track_cf_stat) {
+    if (type == kSingleDeleteRecord) {
+      index_entry->has_single_del = true;
+    }
+    cf_id_to_stat[column_family_id].entry_count++;
   }
 }
 
 void WriteBatchWithIndex::Rep::Clear() {
   write_batch.Clear();
-  cf_id_to_entry_count.clear();
+  cf_id_to_stat.clear();
   ClearIndex();
 }
 
@@ -230,7 +246,7 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
       case kTypeValue:
         found++;
         if (!UpdateExistingEntryWithCfId(column_family_id, key, kPutRecord)) {
-          AddNewEntry(column_family_id);
+          AddNewEntry(column_family_id, kPutRecord);
         }
         break;
       case kTypeColumnFamilyDeletion:
@@ -238,7 +254,7 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
         found++;
         if (!UpdateExistingEntryWithCfId(column_family_id, key,
                                          kDeleteRecord)) {
-          AddNewEntry(column_family_id);
+          AddNewEntry(column_family_id, kDeleteRecord);
         }
         break;
       case kTypeColumnFamilySingleDeletion:
@@ -246,14 +262,14 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
         found++;
         if (!UpdateExistingEntryWithCfId(column_family_id, key,
                                          kSingleDeleteRecord)) {
-          AddNewEntry(column_family_id);
+          AddNewEntry(column_family_id, kSingleDeleteRecord);
         }
         break;
       case kTypeColumnFamilyMerge:
       case kTypeMerge:
         found++;
         if (!UpdateExistingEntryWithCfId(column_family_id, key, kMergeRecord)) {
-          AddNewEntry(column_family_id);
+          AddNewEntry(column_family_id, kMergeRecord);
         }
         break;
       case kTypeLogData:
@@ -271,7 +287,7 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
         found++;
         if (!UpdateExistingEntryWithCfId(column_family_id, key,
                                          kPutEntityRecord)) {
-          AddNewEntry(column_family_id);
+          AddNewEntry(column_family_id, kPutEntityRecord);
         }
         break;
       case kTypeColumnFamilyValuePreferredSeqno:
@@ -1148,15 +1164,17 @@ const Comparator* WriteBatchWithIndexInternal::GetUserComparator(
   return ucmps.GetComparator(cf_id);
 }
 
-void WriteBatchWithIndex::SetTrackCFAndEntryCount(bool track) {
+void WriteBatchWithIndex::SetTrackPerCFStat(bool track) {
   // Should be set when the wbwi contains no update.
   assert(GetWriteBatch()->Count() == 0);
-  rep->track_cf = track;
+  rep->track_cf_stat = track;
 }
 
-const std::unordered_map<uint32_t, uint32_t>&
-WriteBatchWithIndex::GetColumnFamilyToEntryCount() const {
-  assert(rep->track_cf);
-  return rep->cf_id_to_entry_count;
+const std::unordered_map<uint32_t, WriteBatchWithIndex::CFStat>&
+WriteBatchWithIndex::GetCFStats() const {
+  assert(rep->track_cf_stat);
+  return rep->cf_id_to_stat;
 }
+
+bool WriteBatchWithIndex::GetOverwriteKey() const { return rep->overwrite_key; }
 }  // namespace ROCKSDB_NAMESPACE

@@ -534,7 +534,8 @@ class MemTableConstructor : public Constructor {
       const SliceTransform* /*prefix_extractor*/) const override {
     return new KeyConvertingIterator(
         memtable_->NewIterator(ReadOptions(), /*seqno_to_time_mapping=*/nullptr,
-                               &arena_, /*prefix_extractor=*/nullptr),
+                               &arena_, /*prefix_extractor=*/nullptr,
+                               /*for_flush=*/false),
         true);
   }
 
@@ -4911,7 +4912,8 @@ TEST_F(MemTableTest, Simple) {
     if (i == 0) {
       iter = GetMemTable()->NewIterator(ReadOptions(),
                                         /*seqno_to_time_mapping=*/nullptr,
-                                        &arena, /*prefix_extractor=*/nullptr);
+                                        &arena, /*prefix_extractor=*/nullptr,
+                                        /*for_flush=*/false);
       arena_iter_guard.reset(iter);
     } else {
       iter = GetMemTable()->NewRangeTombstoneIterator(

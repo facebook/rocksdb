@@ -105,7 +105,7 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   commit_timestamp_ = kMaxTxnTimestamp;
 
   commit_bypass_memtable_ = txn_options.commit_bypass_memtable;
-  write_batch_.SetTrackCFAndEntryCount(txn_options.commit_bypass_memtable);
+  write_batch_.SetTrackPerCFStat(txn_options.commit_bypass_memtable);
 }
 
 PessimisticTransaction::~PessimisticTransaction() {

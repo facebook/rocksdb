@@ -1680,7 +1680,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   ro, /*seqno_to_time_mapping=*/nullptr, &arena,
                   /*prefix_extractor=*/nullptr, ts_sz)
             : mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
-                               /*prefix_extractor=*/nullptr));
+                               /*prefix_extractor=*/nullptr,
+                               /*for_flush=*/true));
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] [WriteLevel0TableForRecovery]"
                     " Level-0 table #%" PRIu64 ": started",

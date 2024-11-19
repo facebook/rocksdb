@@ -714,7 +714,8 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
       sv_->GetSeqnoToTimeMapping();
   mutable_iter_ =
       sv_->mem->NewIterator(read_options_, seqno_to_time_mapping, &arena_,
-                            sv_->mutable_cf_options.prefix_extractor.get());
+                            sv_->mutable_cf_options.prefix_extractor.get(),
+                            /*for_flush=*/false);
   sv_->imm->AddIterators(read_options_, seqno_to_time_mapping,
                          sv_->mutable_cf_options.prefix_extractor.get(),
                          &imm_iters_, &arena_);
@@ -784,7 +785,8 @@ void ForwardIterator::RenewIterators() {
       svnew->GetSeqnoToTimeMapping();
   mutable_iter_ =
       svnew->mem->NewIterator(read_options_, seqno_to_time_mapping, &arena_,
-                              svnew->mutable_cf_options.prefix_extractor.get());
+                              svnew->mutable_cf_options.prefix_extractor.get(),
+                              /*for_flush=*/false);
   svnew->imm->AddIterators(read_options_, seqno_to_time_mapping,
                            svnew->mutable_cf_options.prefix_extractor.get(),
                            &imm_iters_, &arena_);

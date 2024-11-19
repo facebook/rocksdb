@@ -599,7 +599,7 @@ class MemTableIterator : public InternalIterator {
 InternalIterator* MemTable::NewIterator(
     const ReadOptions& read_options,
     UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
-    const SliceTransform* prefix_extractor) {
+    const SliceTransform* prefix_extractor, bool /*for_flush*/) {
   assert(arena != nullptr);
   auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
   return new (mem)

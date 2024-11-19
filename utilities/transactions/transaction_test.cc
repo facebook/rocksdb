@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <functional>
+#include <numeric>
 #include <string>
 #include <thread>
 
@@ -8239,9 +8240,11 @@ TEST_P(CommitBypassMemtableTest, SingleCFUpdateWithOverWrite) {
       VerifyDBFromMap(expected, nullptr, false, nullptr, nullptr, &not_found);
 
       uint64_t num_imm_mems;
-      ASSERT_TRUE(txn_db->GetIntProperty(DB::Properties::kNumImmutableMemTable,
-                                         &num_imm_mems));
-      ASSERT_EQ(num_imm_mems, 1);
+      if (disable_flush) {
+        ASSERT_TRUE(txn_db->GetIntProperty(
+            DB::Properties::kNumImmutableMemTable, &num_imm_mems));
+        ASSERT_EQ(num_imm_mems, 1);
+      }
 
       // ingest wbwi
       const Snapshot* snapshot = txn_db->GetSnapshot();
@@ -8263,10 +8266,11 @@ TEST_P(CommitBypassMemtableTest, SingleCFUpdateWithOverWrite) {
       VerifyDBFromMap(expected, nullptr, false, nullptr, nullptr, &not_found);
 
       ASSERT_OK(txn->Commit());
-      // TODO: need to check disable flush, flakuy?
-      ASSERT_TRUE(txn_db->GetIntProperty(DB::Properties::kNumImmutableMemTable,
-                                         &num_imm_mems));
-      ASSERT_EQ(num_imm_mems, 3);
+      if (disable_flush) {
+        ASSERT_TRUE(txn_db->GetIntProperty(
+            DB::Properties::kNumImmutableMemTable, &num_imm_mems));
+        ASSERT_EQ(num_imm_mems, 3);
+      }
 
       ReadOptions ro_snapshot;
       ro_snapshot.snapshot = snapshot;
@@ -8287,6 +8291,7 @@ TEST_P(CommitBypassMemtableTest, SingleCFUpdateWithOverWrite) {
       ASSERT_OK(txn->SetName("xid3"));
       ASSERT_OK(txn->Prepare());
       ASSERT_OK(txn->Commit());
+      delete txn;
       expected["k2"] = "live_mem";
       VerifyDBFromMap(expected, nullptr, false, nullptr, nullptr, &not_found);
 
@@ -8378,14 +8383,14 @@ TEST_P(CommitBypassMemtableTest, MultiCFOverwrite) {
     TransactionOptions topts;
     topts.commit_bypass_memtable = true;
     Transaction* txn1 = txn_db->BeginTransaction(wopts, topts);
-    auto fill_txn = [&](Transaction* txn) {
+    auto fill_txn = [&](Transaction* txn, const std::string& v) {
       std::vector<int> indices(kNumKeys);
       std::iota(indices.begin(), indices.end(), 0);
       RandomShuffle(indices.begin(), indices.end());
       for (int i : indices) {
         // CF0 update
         if (rnd->OneIn(4)) {
-          std::string val_cf0 = "cf0_wbwi" + std::to_string(i);
+          std::string val_cf0 = "cf0_" + v + std::to_string(i);
           ASSERT_OK(txn->Put(handles_[0], Key(i), val_cf0));
           expected_cf0[Key(i)] = val_cf0;
           not_found_cf0.erase(Key(i));
@@ -8404,14 +8409,14 @@ TEST_P(CommitBypassMemtableTest, MultiCFOverwrite) {
         if (rnd->OneIn(4) &&
             not_found_cf1.find(Key(i)) != not_found_cf1.end()) {
           // Can not overwrite when using SD.
-          std::string val_cf1 = "cf1_wbwi" + std::to_string(i);
+          std::string val_cf1 = "cf1_" + v + std::to_string(i);
           ASSERT_OK(txn->Put(handles_[1], Key(i), val_cf1));
           expected_cf1[Key(i)] = val_cf1;
           not_found_cf1.erase(Key(i));
         }
       }
     };
-    fill_txn(txn1);
+    fill_txn(txn1, "txn1");
     ASSERT_OK(txn1->SetName("xid1"));
     ASSERT_OK(txn1->Prepare());
     if (rnd->OneIn(2)) {
@@ -8438,6 +8443,7 @@ TEST_P(CommitBypassMemtableTest, MultiCFOverwrite) {
     VerifyDBFromMap(expected_cf0, nullptr, false, nullptr, handles_[0],
                     &not_found_cf0);
     SCOPED_TRACE("Verify cf1 after txn1");
+    SCOPED_TRACE("db is " + txn_db->GetName());
     VerifyDBFromMap(expected_cf1, nullptr, false, nullptr, handles_[1],
                     &not_found_cf1);
     VerifyDBFromMap(expected_cf2, nullptr, false, nullptr, handles_[2]);
@@ -8471,7 +8477,7 @@ TEST_P(CommitBypassMemtableTest, MultiCFOverwrite) {
     SCOPED_TRACE("txn2 commit_bypass_memtable = " +
                  std::to_string(topts2.commit_bypass_memtable));
     Transaction* txn2 = txn_db->BeginTransaction(wopts, topts2);
-    fill_txn(txn2);
+    fill_txn(txn2, "txn2");
     txn2->SetName("xid2");
     ASSERT_OK(txn2->Prepare());
     if (rnd->OneIn(2)) {
@@ -8479,6 +8485,7 @@ TEST_P(CommitBypassMemtableTest, MultiCFOverwrite) {
       expected_cf2["id"] = "2";
     }
     ASSERT_OK(txn2->Commit());
+    delete txn2;
     if (disable_flush) {
       ASSERT_TRUE(txn_db->GetIntProperty(
           handles_[0], DB::Properties::kNumImmutableMemTable, &num_imm_mems));

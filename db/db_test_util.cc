@@ -1623,7 +1623,8 @@ void DBTestBase::VerifyDBFromMap(
   }
   if (not_found) {
     for (const auto& k : *not_found) {
-      ASSERT_TRUE(db_->Get(*ro, cf, k, &result).IsNotFound()) << "key is " << k;
+      ASSERT_TRUE(db_->Get(*ro, cf, k, &result).IsNotFound())
+          << "key is " << k << " val is " << result;
     }
   }
 
@@ -1664,7 +1665,6 @@ void DBTestBase::VerifyDBFromMap(
     // Verify Iterator::Next()
     iter_cnt = 0;
     data_iter = true_data.begin();
-    Status s;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next(), ++data_iter) {
       ASSERT_EQ(iter->key().ToString(), data_iter->first);
         ASSERT_EQ(iter->value().ToString(), data_iter->second);
@@ -1680,7 +1680,6 @@ void DBTestBase::VerifyDBFromMap(
     // Use a new iterator to make sure its status is clean.
     iter = db_->NewIterator(ro_, cf);
     iter_cnt = 0;
-    s = Status::OK();
     auto data_rev = true_data.rbegin();
     for (iter->SeekToLast(); iter->Valid(); iter->Prev(), data_rev++) {
       ASSERT_EQ(iter->key().ToString(), data_rev->first);
