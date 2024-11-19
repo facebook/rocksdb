@@ -114,12 +114,12 @@ void WriteBufferManager::ReserveMem(size_t mem) {
   if (enabled()) {
     memory_active_.fetch_add(mem, std::memory_order_relaxed);
   }
-  std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_idx << ",res," << mem << "," << per_client_memory_used_[client_idx].load(std::memory_order_relaxed) << std::endl;
+  // std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_idx << ",res," << mem << "," << per_client_memory_used_[client_idx].load(std::memory_order_relaxed) << std::endl;
 }
 
 // Should only be called from write thread
 void WriteBufferManager::ReserveMemWithCache(size_t mem) {
-  std::cout << "[FAIRDB_LOG] Surprise!! ReserveMemWithCache() called.\n";
+  // std::cout << "[FAIRDB_LOG] Surprise!! ReserveMemWithCache() called.\n";
   assert(cache_res_mgr_ != nullptr);
   // Use a mutex to protect various data structures. Can be optimized to a
   // lock-free solution if it ends up with a performance bottleneck.
@@ -140,7 +140,7 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 void WriteBufferManager::ScheduleFreeMem(size_t mem) {
   int client_id = TG_GetThreadMetadata().client_id;
   int client_idx = ClientId2ClientIdx(client_id);
-  std::cout << "[FAIRDB_LOG] WBM ScheduleFreeMem for client: " << client_idx << " of size " << mem << std::endl;
+  // std::cout << "[FAIRDB_LOG] WBM ScheduleFreeMem for client: " << client_idx << " of size " << mem << std::endl;
   if (enabled()) {
     memory_active_.fetch_sub(mem, std::memory_order_relaxed);
   }
@@ -149,14 +149,14 @@ void WriteBufferManager::ScheduleFreeMem(size_t mem) {
 void WriteBufferManager::FreeMem(size_t mem) {
   int client_id = TG_GetThreadMetadata().client_id;
   int client_idx = ClientId2ClientIdx(client_id);
-  std::cout << "[FAIRDB_LOG] WBM FreeMem for client: " << client_idx << " of size " << mem << std::endl;
+  // std::cout << "[FAIRDB_LOG] WBM FreeMem for client: " << client_idx << " of size " << mem << std::endl;
   if (cache_res_mgr_ != nullptr) {
     FreeMemWithCache(mem);
   } else if (enabled()) {
     memory_used_.fetch_sub(mem, std::memory_order_relaxed);
     per_client_memory_used_[client_idx].fetch_sub(mem, std::memory_order_relaxed);
   }
-  std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_idx << ",free," << mem << "," << per_client_memory_used_[client_idx].load(std::memory_order_relaxed) << std::endl;
+  // std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_idx << ",free," << mem << "," << per_client_memory_used_[client_idx].load(std::memory_order_relaxed) << std::endl;
 
   // Check if stall is active and can be ended.
   MaybeEndWriteStall();
@@ -165,7 +165,7 @@ void WriteBufferManager::FreeMem(size_t mem) {
 void WriteBufferManager::FreeMemWithCache(size_t mem) {
   int client_id = TG_GetThreadMetadata().client_id;
   int client_idx = ClientId2ClientIdx(client_id);
-  std::cout << "[FAIRDB_LOG] WBM FreeMemWithCache for client: " << client_idx << " of size " << mem << std::endl;
+  // std::cout << "[FAIRDB_LOG] WBM FreeMemWithCache for client: " << client_idx << " of size " << mem << std::endl;
   assert(cache_res_mgr_ != nullptr);
   // Use a mutex to protect various data structures. Can be optimized to a
   // lock-free solution if it ends up with a performance bottleneck.

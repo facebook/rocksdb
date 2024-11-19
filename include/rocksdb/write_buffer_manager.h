@@ -158,6 +158,10 @@ bool ShouldFlush() const {
   //
   // Should only be called by RocksDB internally.
   bool ShouldStall(int client_id) const {
+    int client_idx = ClientId2ClientIdx(client_id);
+    if (client_id == 7 || client_id == 8) {
+      std::cout << "ShouldStall: " << per_client_memory_used_[client_idx].load(std::memory_order_relaxed) << ", " << per_client_buffer_size_[client_idx] << std::endl;
+    }
     if (!allow_stall_.load(std::memory_order_relaxed) || !enabled()) {
       return false;
     }
@@ -174,6 +178,9 @@ bool ShouldFlush() const {
   // Returns true if stalling condition is met for the given client.
   bool IsStallThresholdExceeded(int client_id) const {
     int client_idx = ClientId2ClientIdx(client_id);
+    if (client_id == 6) {
+      std::cout << "IsStallThresholdExceeded: " << per_client_memory_used_[client_idx].load(std::memory_order_relaxed) << ", " << per_client_buffer_size_[client_idx] << std::endl;
+    }
     return per_client_memory_used_[client_idx].load(std::memory_order_relaxed) >=
            per_client_buffer_size_[client_idx];
   }

@@ -31,7 +31,7 @@ ConcurrentArena::ConcurrentArena(size_t block_size, AllocTracker* tracker,
     : shard_block_size_(std::min(kMaxShardBlockSize, block_size / 8)),
       shards_(),
       arena_(block_size, tracker, huge_page_size) {
-  std::cout << "Concurrent Arena created\n";
+  // std::cout << "Concurrent Arena created\n";
   Fixup();
 }
 
