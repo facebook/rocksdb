@@ -196,6 +196,22 @@ public class AbstractMutableOptions {
       return value.asIntArray();
     }
 
+    protected U setString(final K key, final String value) {
+      if (key.getValueType() != MutableOptionKey.ValueType.STRING) {
+        throw new IllegalArgumentException(key + " does not accept a string value");
+      }
+      options.put(key, MutableOptionValue.fromString(value));
+      return self();
+    }
+
+    protected String getString(final K key) {
+      final MutableOptionValue<?> value = options.get(key);
+      if (value == null) {
+        throw new NoSuchElementException(key.name() + HAS_NOT_BEEN_SET);
+      }
+      return value.asString();
+    }
+
     protected <N extends Enum<N>> U setEnum(
         final K key, final N value) {
       if(key.getValueType() != MutableOptionKey.ValueType.ENUM) {
@@ -316,7 +332,8 @@ public class AbstractMutableOptions {
       }
 
       // Check that simple values are the single item in the array
-      if (key.getValueType() != MutableOptionKey.ValueType.INT_ARRAY) {
+      if (key.getValueType() != MutableOptionKey.ValueType.INT_ARRAY
+          && key.getValueType() != MutableOptionKey.ValueType.STRING) {
         {
           if (option.value.list.size() != 1) {
             throw new IllegalArgumentException(
@@ -361,6 +378,8 @@ public class AbstractMutableOptions {
           } else {
             throw new IllegalArgumentException("Unknown enum type: " + key.name());
           }
+        case STRING:
+          return setString(key, option.value.toString());
 
         default:
           throw new IllegalStateException(key + " has unknown value type: " + key.getValueType());
