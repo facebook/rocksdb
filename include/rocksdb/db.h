@@ -2013,17 +2013,13 @@ class DB {
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) = 0;
 
-  // Get the aggregated data age info per level. Data age info is only available
-  // when DB's time tracking is enabled and data's age info tracking is enabled.
-  // The former is enabled with `preserve_internal_time_seconds` and/or
-  // `preclude_last_level_data_seconds`. The latter is enabled via
-  // `CompactForTieringCollectorFactory`.
-  virtual Status GetDataCollectionAgeInfoForLevels(
+  // Get the table properties of files per level.
+  virtual Status GetPropertiesOfTablesForLevels(
       ColumnFamilyHandle* /* column_family */,
       std::vector<
-          std::unique_ptr<DataCollectionAgeInfo>>* /*levels_age_info*/) {
+          std::unique_ptr<TablePropertiesCollection>>* /* levels_props */) {
     return Status::NotSupported(
-        "GetDataCollectionAgeInfoForLevels() is not implemented.");
+        "GetPropertiesOfTablesForLevels() is not implemented.");
   }
 
   virtual Status SuggestCompactRange(ColumnFamilyHandle* /*column_family*/,

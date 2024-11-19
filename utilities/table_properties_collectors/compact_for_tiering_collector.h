@@ -16,9 +16,9 @@ namespace ROCKSDB_NAMESPACE {
 class CompactForTieringCollector : public TablePropertiesCollector {
  public:
   static const std::string kNumEligibleLastLevelEntriesPropertyName;
-  static const std::string kAverageDataAgeAtFileCreationInSecondsPropertyName;
-  static const std::string kMaxDataAgeAtFileCreationInSecondsPropertyName;
-  static const std::string kMinDataAgeAtFileCreationInSecondsPropertyName;
+  static const std::string kAverageDataUnixWriteTimePropertyName;
+  static const std::string kMaxDataUnixWriteTimePropertyName;
+  static const std::string kMinDataUnixWriteTimePropertyName;
   static const std::string kNumInfinitelyOldEntriesPropertyName;
 
   CompactForTieringCollector(
