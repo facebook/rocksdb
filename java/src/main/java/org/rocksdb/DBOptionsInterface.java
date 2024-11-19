@@ -1786,5 +1786,5 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return String value of current offpeak time range, "" if none is set.
    */
-  public String dailyOffpeakTimeUTC();
+  String dailyOffpeakTimeUTC();
 }
