@@ -1,1 +1,0 @@
-* Fix a bug for transaction db with 2pc where an old WAL may be retained longer than needed (#13127). 
