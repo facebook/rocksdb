@@ -20,6 +20,15 @@
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+ConfigOptions GetStrictConfigOptions() {
+  ConfigOptions config_options;
+  config_options.ignore_unknown_options = false;
+  config_options.ignore_unsupported_options = false;
+  config_options.input_strings_escaped = false;
+  return config_options;
+}
+}  // namespace
 
 class TieredCompactionTest : public DBTestBase {
  public:
@@ -1279,12 +1288,12 @@ class PrecludeLastLevelTestBase : public DBTestBase {
       }
     } else {
       if (config_change.size() > 0) {
-        ASSERT_OK(GetColumnFamilyOptionsFromMap(kStrictConfig, *options,
-                                                config_change, options));
+        ASSERT_OK(GetColumnFamilyOptionsFromMap(
+            GetStrictConfigOptions(), *options, config_change, options));
       }
       if (db_config_change.size() > 0) {
-        ASSERT_OK(GetDBOptionsFromMap(kStrictConfig, *options, db_config_change,
-                                      options));
+        ASSERT_OK(GetDBOptionsFromMap(GetStrictConfigOptions(), *options,
+                                      db_config_change, options));
       }
       Reopen(*options);
     }

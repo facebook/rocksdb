@@ -1438,7 +1438,4 @@ class DBTestBase : public testing::Test {
 // unique ids.
 void VerifySstUniqueIds(const TablePropertiesCollection& props);
 
-// Typical ConfigOptions with lots of sanity checking enabled
-extern const ConfigOptions kStrictConfig;
-
 }  // namespace ROCKSDB_NAMESPACE
