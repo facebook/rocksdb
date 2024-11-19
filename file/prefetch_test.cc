@@ -3471,11 +3471,10 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
 
   if (use_async_prefetch) {
-    // This is somewhat undesirable behavior
     // Our buffers were 0-8192, 8192-12288 at the start so we had some
-    // overlapping data in the second buffer that we could have reused
-    // However, since 8192-16384 did not overlap with the first buffer,
-    // we did not end up copying to the overlap buffer
+    // overlapping data in the second buffer
+    // We clean up outdated buffers so 0-8192 gets freed for more prefetching.
+    // Our remaining buffer 8192-12288 has data that we want, so we can reuse it
     // We end up with: 8192-20480, 20480-24576
     ASSERT_EQ(overlap_buffer_info.first, 0);
     ASSERT_EQ(overlap_buffer_info.second, 0);
