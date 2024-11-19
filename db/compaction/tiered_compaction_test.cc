@@ -1729,10 +1729,15 @@ TEST_P(PrecludeLastLevelTest, RangeTombstoneSnapshotMigrateFromLast) {
   EXPECT_EQ("0,0,0,0,0,3,1", FilesPerLevel());
   VerifyLogicalState();
 
-  // ...
+  // Compact everything, but some data still goes to both penultimate and last
+  // levels. A full-range compaction should be safe to "migrate" data from the
+  // last level to penultimate (because of preclude setting change).
   ASSERT_OK(CompactRange({}, {}, {}));
   EXPECT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   VerifyLogicalState();
+  // Key1 should have been migrated out of the last level
+  auto& meta = *GetLevelFileMetadatas(6)[0];
+  ASSERT_LT(Key(1), meta.smallest.user_key().ToString());
 
   // Make data eligible for last level
   db_->ReleaseSnapshot(snapshot);
