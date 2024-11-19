@@ -8,7 +8,9 @@ public interface MutableOptionKey {
     INT,
     BOOLEAN,
     INT_ARRAY,
-    ENUM
+    ENUM,
+    STRING,
+
   }
 
   String name();
