@@ -1,8 +1,6 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb;
 
-import java.time.LocalTime;
-
 public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T>> {
   /**
    * Specifies the maximum number of concurrent background jobs (both flushes
