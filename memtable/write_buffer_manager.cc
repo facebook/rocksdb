@@ -96,25 +96,22 @@ void PrintStackTrace() {
 }
 
 void WriteBufferManager::SetPerClientBufferSize(int client_id, size_t buffer_size) {
-  int client_idx = ClientId2ClientIdx(client_id);
-  per_client_buffer_size_[client_idx] = buffer_size;
+  per_client_buffer_size_[client_id] = buffer_size;
 }
 
 void WriteBufferManager::ReserveMem(size_t mem) {
   // PrintStackTrace();
   int client_id = TG_GetThreadMetadata().client_id;
-  int client_idx = ClientId2ClientIdx(client_id);
-  // std::cout << "[FAIRDB_LOG] WBM ReserveMem for client: " << client_idx << std::endl;
   if (cache_res_mgr_ != nullptr) {
     ReserveMemWithCache(mem);
   } else if (enabled()) {
     memory_used_.fetch_add(mem, std::memory_order_relaxed);
-    per_client_memory_used_[client_idx].fetch_add(mem, std::memory_order_relaxed);
+    per_client_memory_used_[client_id].fetch_add(mem, std::memory_order_relaxed);
   }
   if (enabled()) {
     memory_active_.fetch_add(mem, std::memory_order_relaxed);
   }
-  // std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_idx << ",res," << mem << "," << per_client_memory_used_[client_idx].load(std::memory_order_relaxed) << std::endl;
+  // std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_id << ",res," << mem << "," << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << std::endl;
 }
 
 // Should only be called from write thread
@@ -138,9 +135,8 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 }
 
 void WriteBufferManager::ScheduleFreeMem(size_t mem) {
-  int client_id = TG_GetThreadMetadata().client_id;
-  int client_idx = ClientId2ClientIdx(client_id);
-  // std::cout << "[FAIRDB_LOG] WBM ScheduleFreeMem for client: " << client_idx << " of size " << mem << std::endl;
+  // int client_id = TG_GetThreadMetadata().client_id;
+  // std::cout << "[FAIRDB_LOG] WBM ScheduleFreeMem for client: " << client_id << " of size " << mem << std::endl;
   if (enabled()) {
     memory_active_.fetch_sub(mem, std::memory_order_relaxed);
   }
@@ -148,24 +144,22 @@ void WriteBufferManager::ScheduleFreeMem(size_t mem) {
 
 void WriteBufferManager::FreeMem(size_t mem) {
   int client_id = TG_GetThreadMetadata().client_id;
-  int client_idx = ClientId2ClientIdx(client_id);
-  // std::cout << "[FAIRDB_LOG] WBM FreeMem for client: " << client_idx << " of size " << mem << std::endl;
+  // std::cout << "[FAIRDB_LOG] WBM FreeMem for client: " << client_id << " of size " << mem << std::endl;
   if (cache_res_mgr_ != nullptr) {
     FreeMemWithCache(mem);
   } else if (enabled()) {
     memory_used_.fetch_sub(mem, std::memory_order_relaxed);
-    per_client_memory_used_[client_idx].fetch_sub(mem, std::memory_order_relaxed);
+    per_client_memory_used_[client_id].fetch_sub(mem, std::memory_order_relaxed);
   }
-  // std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_idx << ",free," << mem << "," << per_client_memory_used_[client_idx].load(std::memory_order_relaxed) << std::endl;
+  // std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_id << ",free," << mem << "," << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << std::endl;
 
   // Check if stall is active and can be ended.
   MaybeEndWriteStall();
 }
 
 void WriteBufferManager::FreeMemWithCache(size_t mem) {
-  int client_id = TG_GetThreadMetadata().client_id;
-  int client_idx = ClientId2ClientIdx(client_id);
-  // std::cout << "[FAIRDB_LOG] WBM FreeMemWithCache for client: " << client_idx << " of size " << mem << std::endl;
+  // int client_id = TG_GetThreadMetadata().client_id;
+  // std::cout << "[FAIRDB_LOG] WBM FreeMemWithCache for client: " << client_id << " of size " << mem << std::endl;
   assert(cache_res_mgr_ != nullptr);
   // Use a mutex to protect various data structures. Can be optimized to a
   // lock-free solution if it ends up with a performance bottleneck.
@@ -183,8 +177,6 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
 
 void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall, int client_id) {
   assert(wbm_stall != nullptr);
-  int client_idx = ClientId2ClientIdx(client_id);
-
   // Allocate outside of the lock.
   std::list<StallInterface*> new_node = {wbm_stall};
 
@@ -192,8 +184,8 @@ void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall, int client_i
     std::unique_lock<std::mutex> lock(mu_);
     // Verify if the stall conditions are still active.
     if (ShouldStall(client_id)) {
-      per_client_stall_active_[client_idx].store(true, std::memory_order_relaxed);
-      per_client_queue_[client_idx].splice(per_client_queue_[client_idx].end(), std::move(new_node));
+      per_client_stall_active_[client_id].store(true, std::memory_order_relaxed);
+      per_client_queue_[client_id].splice(per_client_queue_[client_id].end(), std::move(new_node));
     }
   }
 
@@ -210,41 +202,40 @@ void WriteBufferManager::MaybeEndWriteStall() {
   std::vector<std::list<StallInterface*>> cleanup(per_client_queue_.size());
 
   std::unique_lock<std::mutex> lock(mu_);
-  for (size_t client_idx = 0; client_idx < per_client_queue_.size(); ++client_idx) {
-    if (!per_client_stall_active_[client_idx].load(std::memory_order_relaxed)) {
+  for (size_t client_id = 0; client_id < per_client_queue_.size(); ++client_id) {
+    if (!per_client_stall_active_[client_id].load(std::memory_order_relaxed)) {
       continue;  // Nothing to do for this client.
     }
 
     // Stall conditions have not been resolved for this client.
     if (allow_stall_.load(std::memory_order_relaxed) &&
-        IsStallThresholdExceeded(ClientIdx2ClientId(client_idx))) {
+        IsStallThresholdExceeded(client_id)) {
       continue;
     }
 
     // Unblock new writers for this client.
-    per_client_stall_active_[client_idx].store(false, std::memory_order_relaxed);
+    per_client_stall_active_[client_id].store(false, std::memory_order_relaxed);
 
     // Unblock the writers in the queue.
-    for (StallInterface* wbm_stall : per_client_queue_[client_idx]) {
+    for (StallInterface* wbm_stall : per_client_queue_[client_id]) {
       wbm_stall->Signal();
     }
-    cleanup[client_idx] = std::move(per_client_queue_[client_idx]);
+    cleanup[client_id] = std::move(per_client_queue_[client_id]);
   }
 }
 
 void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall, int client_id) {
   assert(wbm_stall != nullptr);
-  int client_idx = ClientId2ClientIdx(client_id);
 
   // Deallocate the removed nodes outside of the lock.
   std::list<StallInterface*> cleanup;
 
   if (enabled() && allow_stall_.load(std::memory_order_relaxed)) {
     std::unique_lock<std::mutex> lock(mu_);
-    for (auto it = per_client_queue_[client_idx].begin(); it != per_client_queue_[client_idx].end();) {
+    for (auto it = per_client_queue_[client_id].begin(); it != per_client_queue_[client_id].end();) {
       auto next = std::next(it);
       if (*it == wbm_stall) {
-        cleanup.splice(cleanup.end(), per_client_queue_[client_idx], std::move(it));
+        cleanup.splice(cleanup.end(), per_client_queue_[client_id], std::move(it));
       }
       it = next;
     }

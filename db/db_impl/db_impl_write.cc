@@ -342,7 +342,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   // }
 
   if (write_buffer_manager_->ShouldStall(TG_GetThreadMetadata().client_id)) {
-    // std::cout << "[FAIRDB_LOG] We should indeed stall\n";
     MultiTenantStallWrites();
   }
 
@@ -2036,7 +2035,7 @@ void DBImpl::MultiTenantStallWrites() {
   // Then WriteBufferManager will add this client's stall to its queue
   // and wake it up once sufficient memory is available.
   write_buffer_manager_->BeginWriteStall(wbm_stall.get(), client_id);
-  std::cout << "[FAIRDB_LOG] About to block due to memtable capacity reached\n";
+  std::cout << "[FAIRDB_LOG] About to block ID #" << client_id << " due to memtable capacity reached\n";
   wbm_stall->Block();
   std::cout << "[FAIRDB_LOG] Block complete\n";
 }

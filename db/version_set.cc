@@ -2432,7 +2432,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   // TODO(tgriggs): Don't do string parsing on the fast path. Just make a lookup.
   auto& thread_metadata = TG_GetThreadMetadata();
   if (cfd_->GetName() == "default") {
-    thread_metadata.client_id = 1;
+    thread_metadata.client_id = 0;
   } else {
     thread_metadata.client_id = std::stoi(cfd_->GetName().substr(2));       
   }
@@ -2586,7 +2586,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     *status = Status::NotFound();  // Use an empty error message for speed
   }
-  thread_metadata.client_id = 0;
+  thread_metadata.client_id = -1;
 }
 
 void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,

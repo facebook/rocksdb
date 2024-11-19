@@ -5,7 +5,7 @@
 #include <string>
 
 struct TGThreadMetadata {
-    int client_id = 0;
+    int client_id = -1;
 };
 
 // Declare the thread-local variable

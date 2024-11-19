@@ -643,7 +643,7 @@ void TG_SetThreadMetadata(std::string key) {
   auto& thread_metadata = TG_GetThreadMetadata();
   int key_num = TG_StringKeyToIntKey(key);
   if (key_num == -2) {
-    thread_metadata.client_id = -2;
+    thread_metadata.client_id = -1;
     return;
   }
 
@@ -1542,7 +1542,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                                              close_file_func);
 
   auto& thread_metadata = TG_GetThreadMetadata();
-  thread_metadata.client_id = 0;
+  thread_metadata.client_id = -1;
 
   if (blob_file_builder) {
     if (status.ok()) {

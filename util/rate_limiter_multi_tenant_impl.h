@@ -35,21 +35,6 @@ class MultiTenantRateLimiter : public RateLimiter {
 
   virtual ~MultiTenantRateLimiter();
 
-  // TODO(tgriggs): update this based on column family IDs
-  int ClientId2ClientIdx(int client_id) const {
-    if (client_id > 0) {
-      return client_id - 1;
-    }
-    return client_id;
-  }
-
-  int ClientIdx2ClientId(int client_idx) const {
-    if (client_idx >= 0) {
-      return client_idx + 1;
-    }
-    return client_idx;
-  }
-
   // Permits dynamically change rate limiter's bytes per second.
   void SetBytesPerSecond(int64_t bytes_per_second) override;
   void SetBytesPerSecond(std::vector<int64_t> bytes_per_second);
@@ -88,7 +73,7 @@ class MultiTenantRateLimiter : public RateLimiter {
   }
 
   int64_t GetTotalBytesThroughForClient(int client_id) const override {
-    return bytes_per_client_[ClientId2ClientIdx(client_id)];
+    return bytes_per_client_[client_id];
   }
 
   int64_t GetTotalRequests(
@@ -112,8 +97,7 @@ class MultiTenantRateLimiter : public RateLimiter {
   }
 
   int64_t GetBytesPerSecond(int client_id) const {
-    int client_idx = ClientId2ClientIdx(client_id);
-    return rate_bytes_per_sec_[client_idx].load(std::memory_order_relaxed);
+    return rate_bytes_per_sec_[client_id].load(std::memory_order_relaxed);
   }
 
   RateLimiter* GetReadRateLimiter() override {
