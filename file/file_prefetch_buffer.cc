@@ -649,6 +649,16 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
     if (copy_to_overlap_buffer) {
       // Data is overlapping i.e. some of the data has been copied to overlap
       // buffer and remaining will be updated below.
+      // Note: why do we not end up performing a duplicate copy when we already
+      // copy to the overlap buffer in HandleOverlappingAsyncData /
+      // HandleOverlappingSyncData? The reason is that when we call
+      // CopyDataToOverlapBuffer, if the buffer is only a "partial hit", then we
+      // clear it out since it does not have any more useful data once we copy
+      // to the overlap buffer. Once we reallocate a fresh buffer, that buffer
+      // will have no data, and it will be the "first" buffer when num_buffers_
+      // = 1. When num_buffers_ > 1, we call ClearOutdatedData() so we know
+      // that, if we get to this point in the control flow, the "front" buffer
+      // has to have the data we need.
       size_t initial_buf_size = overlap_buf_->CurrentSize();
       CopyDataToOverlapBuffer(buf, offset, length);
       UpdateStats(

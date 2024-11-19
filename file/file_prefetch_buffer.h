@@ -389,12 +389,13 @@ class FilePrefetchBuffer {
   void PrefetchAsyncCallback(FSReadRequest& req, void* cb_arg);
 
   void TEST_GetBufferOffsetandSize(
-      std::vector<std::pair<uint64_t, size_t>>& buffer_info) {
+      std::vector<std::tuple<uint64_t, size_t, bool>>& buffer_info) {
     for (size_t i = 0; i < bufs_.size(); i++) {
-      buffer_info[i].first = bufs_[i]->offset_;
-      buffer_info[i].second = bufs_[i]->async_read_in_progress_
-                                  ? bufs_[i]->async_req_len_
-                                  : bufs_[i]->CurrentSize();
+      std::get<0>(buffer_info[i]) = bufs_[i]->offset_;
+      std::get<1>(buffer_info[i]) = bufs_[i]->async_read_in_progress_
+                                        ? bufs_[i]->async_req_len_
+                                        : bufs_[i]->CurrentSize();
+      std::get<2>(buffer_info[i]) = bufs_[i]->async_read_in_progress_;
     }
   }
 
