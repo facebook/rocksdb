@@ -3418,6 +3418,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FilePrefetchBuffer::CopyDataToOverlapBuffer:Complete",
       [&](void* /*arg*/) { overlap_buffer_write_ct++; });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   Slice result;
   // Read 4096 bytes at offset 0.
@@ -3592,6 +3593,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FilePrefetchBuffer::CopyDataToOverlapBuffer:Complete",
       [&](void* /*arg*/) { overlap_buffer_write_ct++; });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   Slice result;
   // Read 3 bytes at offset 5
