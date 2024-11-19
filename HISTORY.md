@@ -1,6 +1,29 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.9.0 (11/18/2024)
+### New Features
+* Multi-Column-Family-Iterator (CoalescingIterator/AttributeGroupIterator) is no longer marked as experimental
+* Adds a new table property "rocksdb.newest.key.time" which records the unix timestamp of the newest key. Uses this table property for FIFO TTL and temperature change compaction.
+
+### Public API Changes
+* Added a new API `Transaction::GetAttributeGroupIterator` that can be used to create a multi-column-family attribute group iterator over the specified column families, including the data from both the transaction and the underlying database. This API is currently supported for optimistic and write-committed pessimistic transactions.
+* Added a new API `Transaction::GetCoalescingIterator` that can be used to create a multi-column-family coalescing iterator over the specified column families, including the data from both the transaction and the underlying database. This API is currently supported for optimistic and write-committed pessimistic transactions.
+
+### Behavior Changes
+* `BaseDeltaIterator` now honors the read option `allow_unprepared_value`.
+
+### Bug Fixes
+* `BaseDeltaIterator` now calls `PrepareValue` on the base iterator in case it has been created with the `allow_unprepared_value` read option set. Earlier, such base iterators could lead to incorrect values being exposed from `BaseDeltaIterator`.
+* Fix a leak of obsolete blob files left open until DB::Close(). This bug was introduced in version 9.4.0.
+* Fix missing cases of corruption retry during DB open and read API processing.
+* Fix a bug for transaction db with 2pc where an old WAL may be retained longer than needed (#13127).
+* Fix leaks of some open SST files (until `DB::Close()`) that are written but never become live due to various failures. (We now have a check for such leaks with no outstanding issues.)
+* Fix a bug for replaying WALs for WriteCommitted transaction DB when its user-defined timestamps setting is toggled on/off between DB sessions.
+
+### Performance Improvements
+* Fix regression in issue #12038 due to `Options::compaction_readahead_size` greater than `max_sectors_kb` (i.e, largest I/O size that the OS issues to a block device defined in linux)
+
 ## 9.8.0 (10/25/2024)
 ### New Features
 * All non-`block_cache` options in `BlockBasedTableOptions` are now mutable with `DB::SetOptions()`. See also Bug Fixes below.
