@@ -86,8 +86,8 @@ TEST_F(DBFlushTest, SyncFail) {
   options.env = fault_injection_env.get();
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
-       {"DBImpl::SyncClosedLogs:Failed", "DBFlushTest::SyncFail:2"}});
+      {{"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedWals:Start"},
+       {"DBImpl::SyncClosedWals:Failed", "DBFlushTest::SyncFail:2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -111,8 +111,8 @@ TEST_F(DBFlushTest, SyncSkip) {
   Options options = CurrentOptions();
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBFlushTest::SyncSkip:1", "DBImpl::SyncClosedLogs:Skip"},
-       {"DBImpl::SyncClosedLogs:Skip", "DBFlushTest::SyncSkip:2"}});
+      {{"DBFlushTest::SyncSkip:1", "DBImpl::SyncClosedWals:Skip"},
+       {"DBImpl::SyncClosedWals:Skip", "DBFlushTest::SyncSkip:2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   Reopen(options);
@@ -2381,7 +2381,7 @@ TEST_F(DBFlushTest, PickRightMemtables) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::SyncClosedLogs:BeforeReLock", [&](void* /*arg*/) {
+      "DBImpl::SyncClosedWals:BeforeReLock", [&](void* /*arg*/) {
         ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "what", "v"));
         auto* cfhi =
             static_cast_with_check<ColumnFamilyHandleImpl>(handles_[1]);

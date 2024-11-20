@@ -154,6 +154,9 @@ bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
   if ((skip_mask & kSkipMmapReads) && option_config == kWalDirAndMmapReads) {
     return true;
   }
+  if ((skip_mask & kSkipRowCache) && option_config == kRowCache) {
+    return true;
+  }
   return false;
 }
 
@@ -363,6 +366,11 @@ Options DBTestBase::GetOptions(
     table_options.block_cache = NewLRUCache(/* too small */ 1);
   }
 
+  // Test anticipated new default as much as reasonably possible (and remove
+  // this code when obsolete)
+  assert(!table_options.decouple_partitioned_filters);
+  table_options.decouple_partitioned_filters = true;
+
   bool can_allow_mmap = IsMemoryMappedAccessSupported();
   switch (option_config) {
     case kHashSkipList:
@@ -562,6 +570,11 @@ Options DBTestBase::GetOptions(
       options.unordered_write = false;
       break;
     }
+    case kBlockBasedTableWithBinarySearchWithFirstKeyIndex: {
+      table_options.index_type =
+          BlockBasedTableOptions::kBinarySearchWithFirstKey;
+      break;
+    }
 
     default:
       break;
@@ -759,9 +772,16 @@ Status DBTestBase::Put(int cf, const Slice& k, const Slice& v,
   }
 }
 
+Status DBTestBase::TimedPut(const Slice& k, const Slice& v,
+                            uint64_t write_unix_time, WriteOptions wo) {
+  return TimedPut(0, k, v, write_unix_time, wo);
+}
+
 Status DBTestBase::TimedPut(int cf, const Slice& k, const Slice& v,
                             uint64_t write_unix_time, WriteOptions wo) {
-  WriteBatch wb;
+  WriteBatch wb(/*reserved_bytes=*/0, /*max_bytes=*/0,
+                wo.protection_bytes_per_key,
+                /*default_cf_ts_sz=*/0);
   ColumnFamilyHandle* cfh;
   if (cf != 0) {
     cfh = handles_[cf];
@@ -914,6 +934,13 @@ Status DBTestBase::Get(const std::string& k, PinnableSlice* v) {
   return s;
 }
 
+Status DBTestBase::CompactRange(const CompactRangeOptions& options,
+                                std::optional<Slice> begin,
+                                std::optional<Slice> end) {
+  return db_->CompactRange(options, begin ? &begin.value() : nullptr,
+                           end ? &end.value() : nullptr);
+}
+
 uint64_t DBTestBase::GetNumSnapshots() {
   uint64_t int_num;
   EXPECT_TRUE(dbfull()->GetIntProperty("rocksdb.num-snapshots", &int_num));
@@ -987,13 +1014,13 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
   ReadOptions read_options;
-  ScopedArenaIterator iter;
+  ScopedArenaPtr<InternalIterator> iter;
   if (cf == 0) {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
-                                           kMaxSequenceNumber));
+    iter.reset(dbfull()->NewInternalIterator(read_options, &arena,
+                                             kMaxSequenceNumber));
   } else {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
-                                           kMaxSequenceNumber, handles_[cf]));
+    iter.reset(dbfull()->NewInternalIterator(read_options, &arena,
+                                             kMaxSequenceNumber, handles_[cf]));
   }
   InternalKey target(user_key, kMaxSequenceNumber, kTypeValue);
   iter->Seek(target.Encode());
@@ -1243,6 +1270,20 @@ Status DBTestBase::CountFiles(size_t* count) {
   return Status::OK();
 }
 
+std::vector<FileMetaData*> DBTestBase::GetLevelFileMetadatas(int level,
+                                                             int cf) {
+  VersionSet* const versions = dbfull()->GetVersionSet();
+  assert(versions);
+  ColumnFamilyData* const cfd =
+      versions->GetColumnFamilySet()->GetColumnFamily(cf);
+  assert(cfd);
+  Version* const current = cfd->current();
+  assert(current);
+  VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+  return storage_info->LevelFiles(level);
+}
+
 Status DBTestBase::Size(const Slice& start, const Slice& limit, int cf,
                         uint64_t* size) {
   Range r(start, limit);
@@ -1466,13 +1507,13 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
   ReadOptions read_options;
-  ScopedArenaIterator iter;
+  ScopedArenaPtr<InternalIterator> iter;
   if (cf != 0) {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
-                                           kMaxSequenceNumber, handles_[cf]));
+    iter.reset(dbfull()->NewInternalIterator(read_options, &arena,
+                                             kMaxSequenceNumber, handles_[cf]));
   } else {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
-                                           kMaxSequenceNumber));
+    iter.reset(dbfull()->NewInternalIterator(read_options, &arena,
+                                             kMaxSequenceNumber));
   }
   iter->SeekToFirst();
   ASSERT_OK(iter->status());

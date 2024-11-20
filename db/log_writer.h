@@ -107,13 +107,21 @@ class Writer {
 
   IOStatus Close(const WriteOptions& write_options);
 
+  // If closing the writer through file(), call this afterwards to modify
+  // this object's state to reflect that. Returns true if the destination file
+  // has been closed. If it hasn't been closed, returns false with no change.
+  bool PublishIfClosed();
+
   bool BufferIsEmpty();
+
+  size_t TEST_block_offset() const { return block_offset_; }
 
  private:
   std::unique_ptr<WritableFileWriter> dest_;
   size_t block_offset_;  // Current offset in block
   uint64_t log_number_;
   bool recycle_log_files_;
+  int header_size_;
 
   // crc32c values for all supported record types.  These are
   // pre-computed to reduce the overhead of computing the crc of the

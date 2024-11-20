@@ -17,13 +17,25 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+intptr_t GetOffset(const Configurable* holder, void* field) {
+  return reinterpret_cast<intptr_t>(field) -
+         reinterpret_cast<intptr_t>(static_cast<const void*>(holder));
+}
+
+void* ApplyOffset(const Configurable* holder, intptr_t offset) {
+  return reinterpret_cast<void*>(
+      reinterpret_cast<intptr_t>(static_cast<const void*>(holder)) + offset);
+}
+}  // namespace
+
 void Configurable::RegisterOptions(
     const std::string& name, void* opt_ptr,
     const std::unordered_map<std::string, OptionTypeInfo>* type_map) {
   RegisteredOptions opts;
   opts.name = name;
   opts.type_map = type_map;
-  opts.opt_ptr = opt_ptr;
+  opts.opt_offset = GetOffset(this, opt_ptr);
   options_.emplace_back(opts);
 }
 
@@ -42,7 +54,8 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
       for (const auto& map_iter : *(opt_iter.type_map)) {
         auto& opt_info = map_iter.second;
         if (opt_info.ShouldPrepare()) {
-          status = opt_info.Prepare(opts, map_iter.first, opt_iter.opt_ptr);
+          status = opt_info.Prepare(opts, map_iter.first,
+                                    ApplyOffset(this, opt_iter.opt_offset));
           if (!status.ok()) {
             return status;
           }
@@ -62,7 +75,7 @@ Status Configurable::ValidateOptions(const DBOptions& db_opts,
         auto& opt_info = map_iter.second;
         if (opt_info.ShouldValidate()) {
           status = opt_info.Validate(db_opts, cf_opts, map_iter.first,
-                                     opt_iter.opt_ptr);
+                                     ApplyOffset(this, opt_iter.opt_offset));
           if (!status.ok()) {
             return status;
           }
@@ -82,7 +95,7 @@ Status Configurable::ValidateOptions(const DBOptions& db_opts,
 const void* Configurable::GetOptionsPtr(const std::string& name) const {
   for (const auto& o : options_) {
     if (o.name == name) {
-      return o.opt_ptr;
+      return ApplyOffset(this, o.opt_offset);
     }
   }
   return nullptr;
@@ -93,14 +106,14 @@ std::string Configurable::GetOptionName(const std::string& opt_name) const {
 }
 
 const OptionTypeInfo* ConfigurableHelper::FindOption(
-    const std::vector<Configurable::RegisteredOptions>& options,
-    const std::string& short_name, std::string* opt_name, void** opt_ptr) {
-  for (const auto& iter : options) {
+    const Configurable& configurable, const std::string& short_name,
+    std::string* opt_name, void** opt_ptr) {
+  for (const auto& iter : configurable.options_) {
     if (iter.type_map != nullptr) {
       const auto opt_info =
           OptionTypeInfo::Find(short_name, *(iter.type_map), opt_name);
       if (opt_info != nullptr) {
-        *opt_ptr = iter.opt_ptr;
+        *opt_ptr = ApplyOffset(&configurable, iter.opt_offset);
         return opt_info;
       }
     }
@@ -244,7 +257,8 @@ Status ConfigurableHelper::ConfigureOptions(
     for (const auto& iter : configurable.options_) {
       if (iter.type_map != nullptr) {
         s = ConfigureSomeOptions(config_options, configurable, *(iter.type_map),
-                                 &remaining, iter.opt_ptr);
+                                 &remaining,
+                                 ApplyOffset(&configurable, iter.opt_offset));
         if (remaining.empty()) {  // Are there more options left?
           break;
         } else if (!s.ok()) {
@@ -354,7 +368,7 @@ Status ConfigurableHelper::ConfigureSingleOption(
   std::string elem_name;
   void* opt_ptr = nullptr;
   const auto opt_info =
-      FindOption(configurable.options_, opt_name, &elem_name, &opt_ptr);
+      FindOption(configurable, opt_name, &elem_name, &opt_ptr);
   if (opt_info == nullptr) {
     return Status::NotFound("Could not find option: ", name);
   } else {
@@ -507,7 +521,7 @@ Status ConfigurableHelper::GetOption(const ConfigOptions& config_options,
   std::string opt_name;
   void* opt_ptr = nullptr;
   const auto opt_info =
-      FindOption(configurable.options_, short_name, &opt_name, &opt_ptr);
+      FindOption(configurable, short_name, &opt_name, &opt_ptr);
   if (opt_info != nullptr) {
     ConfigOptions embedded = config_options;
     embedded.delimiter = ";";
@@ -538,22 +552,22 @@ Status ConfigurableHelper::SerializeOptions(const ConfigOptions& config_options,
         if (opt_info.ShouldSerialize()) {
           std::string value;
           Status s;
+          void* opt_ptr = ApplyOffset(&configurable, opt_iter.opt_offset);
           if (!config_options.mutable_options_only) {
-            s = opt_info.Serialize(config_options, prefix + opt_name,
-                                   opt_iter.opt_ptr, &value);
+            s = opt_info.Serialize(config_options, prefix + opt_name, opt_ptr,
+                                   &value);
           } else if (opt_info.IsMutable()) {
             ConfigOptions copy = config_options;
             copy.mutable_options_only = false;
-            s = opt_info.Serialize(copy, prefix + opt_name, opt_iter.opt_ptr,
-                                   &value);
+            s = opt_info.Serialize(copy, prefix + opt_name, opt_ptr, &value);
           } else if (opt_info.IsConfigurable()) {
             // If it is a Configurable and we are either printing all of the
             // details or not printing only the name, this option should be
             // included in the list
             if (config_options.IsDetailed() ||
                 !opt_info.IsEnabled(OptionTypeFlags::kStringNameOnly)) {
-              s = opt_info.Serialize(config_options, prefix + opt_name,
-                                     opt_iter.opt_ptr, &value);
+              s = opt_info.Serialize(config_options, prefix + opt_name, opt_ptr,
+                                     &value);
             }
           }
           if (!s.ok()) {

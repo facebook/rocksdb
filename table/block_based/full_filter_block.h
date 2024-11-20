@@ -50,10 +50,15 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   ~FullFilterBlockBuilder() {}
 
   void Add(const Slice& key_without_ts) override;
-  bool IsEmpty() const override { return !any_added_; }
+  void AddWithPrevKey(const Slice& key_without_ts,
+                      const Slice& prev_key_without_ts) override;
+
+  bool IsEmpty() const override {
+    return filter_bits_builder_->EstimateEntriesAdded() == 0;
+  }
   size_t EstimateEntriesAdded() override;
-  Slice Finish(const BlockHandle& tmp, Status* status,
-               std::unique_ptr<const char[]>* filter_data = nullptr) override;
+  Status Finish(const BlockHandle& last_partition_block_handle, Slice* filter,
+                std::unique_ptr<const char[]>* filter_owner = nullptr) override;
   using FilterBlockBuilder::Finish;
 
   void ResetFilterBitsBuilder() override { filter_bits_builder_.reset(); }
@@ -63,29 +68,17 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   }
 
  protected:
-  virtual void AddKey(const Slice& key);
+  const SliceTransform* prefix_extractor() const { return prefix_extractor_; }
+  bool whole_key_filtering() const { return whole_key_filtering_; }
+
   std::unique_ptr<FilterBitsBuilder> filter_bits_builder_;
-  virtual void Reset();
-  void AddPrefix(const Slice& key);
-  const SliceTransform* prefix_extractor() { return prefix_extractor_; }
-  const std::string& last_prefix_str() const { return last_prefix_str_; }
 
  private:
   // important: all of these might point to invalid addresses
   // at the time of destruction of this filter block. destructor
   // should NOT dereference them.
-  const SliceTransform* prefix_extractor_;
-  bool whole_key_filtering_;
-  bool last_whole_key_recorded_;
-  std::string last_whole_key_str_;
-  bool last_prefix_recorded_;
-  std::string last_prefix_str_;
-  // Whether prefix_extractor_->InDomain(last_whole_key_) is true.
-  // Used in partitioned filters so that the last prefix from the previous
-  // filter partition will be added to the current partition if
-  // last_key_in_domain_ is true, regardless of the current key.
-  bool last_key_in_domain_;
-  bool any_added_;
+  const SliceTransform* const prefix_extractor_;
+  const bool whole_key_filtering_;
   std::unique_ptr<const char[]> filter_data_;
 };
 
@@ -102,41 +95,38 @@ class FullFilterBlockReader
       FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
       bool pin, BlockCacheLookupContext* lookup_context);
 
-  bool KeyMayMatch(const Slice& key, const bool no_io,
-                   const Slice* const const_ikey_ptr, GetContext* get_context,
+  bool KeyMayMatch(const Slice& key, const Slice* const const_ikey_ptr,
+                   GetContext* get_context,
                    BlockCacheLookupContext* lookup_context,
                    const ReadOptions& read_options) override;
 
-  bool PrefixMayMatch(const Slice& prefix, const bool no_io,
-                      const Slice* const const_ikey_ptr,
+  bool PrefixMayMatch(const Slice& prefix, const Slice* const const_ikey_ptr,
                       GetContext* get_context,
                       BlockCacheLookupContext* lookup_context,
                       const ReadOptions& read_options) override;
 
-  void KeysMayMatch(MultiGetRange* range, const bool no_io,
+  void KeysMayMatch(MultiGetRange* range,
                     BlockCacheLookupContext* lookup_context,
                     const ReadOptions& read_options) override;
   // Used in partitioned filter code
   void KeysMayMatch2(MultiGetRange* range,
                      const SliceTransform* /*prefix_extractor*/,
-                     const bool no_io, BlockCacheLookupContext* lookup_context,
+                     BlockCacheLookupContext* lookup_context,
                      const ReadOptions& read_options) {
-    KeysMayMatch(range, no_io, lookup_context, read_options);
+    KeysMayMatch(range, lookup_context, read_options);
   }
 
   void PrefixesMayMatch(MultiGetRange* range,
                         const SliceTransform* prefix_extractor,
-                        const bool no_io,
                         BlockCacheLookupContext* lookup_context,
                         const ReadOptions& read_options) override;
   size_t ApproximateMemoryUsage() const override;
 
  private:
-  bool MayMatch(const Slice& entry, bool no_io, GetContext* get_context,
+  bool MayMatch(const Slice& entry, GetContext* get_context,
                 BlockCacheLookupContext* lookup_context,
                 const ReadOptions& read_options) const;
-  void MayMatch(MultiGetRange* range, bool no_io,
-                const SliceTransform* prefix_extractor,
+  void MayMatch(MultiGetRange* range, const SliceTransform* prefix_extractor,
                 BlockCacheLookupContext* lookup_context,
                 const ReadOptions& read_options) const;
 };

@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "rocksdb/attribute_groups.h"
 #include "rocksdb/block_cache_trace_writer.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
@@ -27,6 +28,7 @@
 #include "rocksdb/thread_status.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
+#include "rocksdb/user_write_callback.h"
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
@@ -297,6 +299,29 @@ class DB {
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
 
+  // EXPERIMENTAL
+
+  // Open a database as a follower. The difference between this and opening
+  // as secondary is that the follower database has its own directory with
+  // links to the actual files, and can tolarate obsolete file deletions by
+  // the leader to its own database. Another difference is the follower
+  // tries to keep up with the leader by periodically tailing the leader's
+  // MANIFEST, and (in the future) memtable updates, rather than relying on
+  // the user to manually call TryCatchupWithPrimary().
+
+  // Open as a follower with the default column family
+  static Status OpenAsFollower(const Options& options, const std::string& name,
+                               const std::string& leader_path,
+                               std::unique_ptr<DB>* dbptr);
+
+  // Open as a follower with multiple column families
+  static Status OpenAsFollower(
+      const DBOptions& db_options, const std::string& name,
+      const std::string& leader_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr);
+  // End EXPERIMENTAL
+
   // Open DB and run the compaction.
   // It's a read-only operation, the result won't be installed to the DB, it
   // will be output to the `output_directory`. The API should only be used with
@@ -517,6 +542,8 @@ class DB {
   // 2) Limiting the maximum number of open files in the presence of range
   // tombstones can degrade read performance. To avoid this problem, set
   // max_open_files to -1 whenever possible.
+  // 3) Incompatible with row_cache, will return Status::NotSupported() if
+  // row_cache is configured.
   virtual Status DeleteRange(const WriteOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key);
@@ -556,6 +583,15 @@ class DB {
   // Returns OK on success, non-OK on failure.
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
+
+  // Same as DB::Write, and takes a `UserWriteCallback` argument to allow
+  // users to plug in custom logic in callback functions during the write.
+  virtual Status WriteWithCallback(const WriteOptions& /*options*/,
+                                   WriteBatch* /*updates*/,
+                                   UserWriteCallback* /*user_write_cb*/) {
+    return Status::NotSupported(
+        "WriteWithCallback not implemented for this interface.");
+  }
 
   // If the column family specified by "column_family" contains an entry for
   // "key", return the corresponding value in "*value". If the entry is a plain
@@ -971,12 +1007,26 @@ class DB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) = 0;
 
-  // UNDER CONSTRUCTION - DO NOT USE
   // Return a cross-column-family iterator from a consistent database state.
-  // When the same key is present in multiple column families, the iterator
-  // selects the value or columns from the first column family containing the
-  // key, in the order specified by the `column_families` parameter.
-  virtual std::unique_ptr<Iterator> NewMultiCfIterator(
+  //
+  // If a key exists in more than one column family, value() will be determined
+  // by the wide column value of kDefaultColumnName after coalesced as described
+  // below.
+  //
+  // Each wide column will be independently shadowed by the CFs.
+  // For example, if CF1 has "key_1" ==> {"col_1": "foo",
+  // "col_2", "baz"} and CF2 has "key_1" ==> {"col_2": "quux", "col_3", "bla"},
+  // and when the iterator is at key_1, columns() will return
+  // {"col_1": "foo", "col_2", "quux", "col_3", "bla"}
+  // In this example, value() will be empty, because none of them have values
+  // for kDefaultColumnName
+  virtual std::unique_ptr<Iterator> NewCoalescingIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) = 0;
+
+  // A cross-column-family iterator that collects and returns attribute groups
+  // for each key in order provided by comparator
+  virtual std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
@@ -1282,9 +1332,10 @@ class DB {
 
   // DB implementations export properties about their state via this method.
   // If "property" is a valid "string" property understood by this DB
-  // implementation (see Properties struct above for valid options), fills
-  // "*value" with its current value and returns true.  Otherwise, returns
-  // false.
+  // implementation (see Properties struct above for valid options) and the DB
+  // is able to get and fill "*value" with its current value, then return true.
+  // In all the other cases (e.g, "property" is an invalid "string" property, IO
+  // errors ..), it returns false.
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) = 0;
   virtual bool GetProperty(const Slice& property, std::string* value) {
@@ -1432,6 +1483,9 @@ class DB {
   // the files. In this case, client could set options.change_level to true, to
   // move the files back to the minimum level capable of holding the data set
   // or a given level (specified by non-negative options.target_level).
+  //
+  // For FIFO compaction, this will trigger a compaction (if available)
+  // based on CompactionOptionsFIFO.
   //
   // In case of user-defined timestamp, if enabled, `begin` and `end` should
   // not contain timestamp.
@@ -1634,8 +1688,8 @@ class DB {
   // Freezes the logical state of the DB (by stopping writes), and if WAL is
   // enabled, ensures that state has been flushed to DB files (as in
   // FlushWAL()). This can be used for taking a Checkpoint at a known DB
-  // state, though the user must use options to insure no DB flush is invoked
-  // in this frozen state. Other operations allowed on a "read only" DB should
+  // state, though while the WAL is locked, flushes as part of CreateCheckpoint
+  // and simiar are skipped. Other operations allowed on a "read only" DB should
   // work while frozen. Each LockWAL() call that returns OK must eventually be
   // followed by a corresponding call to UnlockWAL(). Where supported, non-OK
   // status is generally only possible with some kind of corruption or I/O
@@ -1788,7 +1842,7 @@ class DB {
                               bool flush_memtable = true) = 0;
 
   // Retrieve the sorted list of all wal files with earliest file first
-  virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
+  virtual Status GetSortedWalFiles(VectorWalPtr& files) = 0;
 
   // Retrieve information about the current wal file
   //
@@ -1798,7 +1852,7 @@ class DB {
   // Additionally, for the sake of optimization current_log_file->StartSequence
   // would always be set to 0
   virtual Status GetCurrentWalFile(
-      std::unique_ptr<LogFile>* current_log_file) = 0;
+      std::unique_ptr<WalFile>* current_log_file) = 0;
 
   // IngestExternalFile() will load a list of external SST files (1) into the DB
   // Two primary modes are supported:
@@ -1818,6 +1872,7 @@ class DB {
   // supported. 4) When an ingested file contains point data and range deletion
   // for the same key, the point data currently overrides the range deletion
   // regardless which one has the higher user-defined timestamps.
+  // For FIFO compaction, SST files will always be ingested into L0.
   //
   // (1) External SST files can be created using SstFileWriter
   // (2) We will try to ingest the files to the lowest possible level
@@ -1965,6 +2020,8 @@ class DB {
     return Status::NotSupported("SuggestCompactRange() is not implemented.");
   }
 
+  // Trivially move L0 files to target level. Should not be called with another
+  // PromoteL0() concurrently
   virtual Status PromoteL0(ColumnFamilyHandle* /*column_family*/,
                            int /*target_level*/) {
     return Status::NotSupported("PromoteL0() is not implemented.");

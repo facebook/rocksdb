@@ -67,8 +67,7 @@ bool FilterBlockReaderCommon<TBlocklike>::cache_filter_blocks() const {
 
 template <typename TBlocklike>
 Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
-    bool no_io, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
     CachableEntry<TBlocklike>* filter_block,
     const ReadOptions& read_options) const {
   assert(filter_block);
@@ -78,12 +77,7 @@ Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
     return Status::OK();
   }
 
-  ReadOptions ro = read_options;
-  if (no_io) {
-    ro.read_tier = kBlockCacheTier;
-  }
-
-  return ReadFilterBlock(table_, nullptr /* prefetch_buffer */, ro,
+  return ReadFilterBlock(table_, nullptr /* prefetch_buffer */, read_options,
                          cache_filter_blocks(), get_context, lookup_context,
                          filter_block);
 }
@@ -102,8 +96,8 @@ bool FilterBlockReaderCommon<TBlocklike>::RangeMayExist(
     const Slice* iterate_upper_bound, const Slice& user_key_without_ts,
     const SliceTransform* prefix_extractor, const Comparator* comparator,
     const Slice* const const_ikey_ptr, bool* filter_checked,
-    bool need_upper_bound_check, bool no_io,
-    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options) {
+    bool need_upper_bound_check, BlockCacheLookupContext* lookup_context,
+    const ReadOptions& read_options) {
   if (!prefix_extractor || !prefix_extractor->InDomain(user_key_without_ts)) {
     *filter_checked = false;
     return true;
@@ -115,7 +109,7 @@ bool FilterBlockReaderCommon<TBlocklike>::RangeMayExist(
     return true;
   } else {
     *filter_checked = true;
-    return PrefixMayMatch(prefix, no_io, const_ikey_ptr,
+    return PrefixMayMatch(prefix, const_ikey_ptr,
                           /* get_context */ nullptr, lookup_context,
                           read_options);
   }
@@ -152,6 +146,18 @@ bool FilterBlockReaderCommon<TBlocklike>::IsFilterCompatible(
     return true;
   } else {
     return false;
+  }
+}
+
+template <typename TBlocklike>
+void FilterBlockReaderCommon<TBlocklike>::EraseFromCacheBeforeDestruction(
+    uint32_t uncache_aggressiveness) {
+  if (uncache_aggressiveness > 0) {
+    if (filter_block_.IsCached()) {
+      filter_block_.ResetEraseIfLastRef();
+    } else {
+      table()->EraseFromCache(table()->get_rep()->filter_handle);
+    }
   }
 }
 

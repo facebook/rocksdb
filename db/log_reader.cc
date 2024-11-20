@@ -232,7 +232,9 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
             // produce a hole in the recovered data. Report an error here, which
             // higher layers can choose to ignore when it's provable there is no
             // hole.
-            ReportCorruption(scratch->size(), "error reading trailing data");
+            ReportCorruption(
+                scratch->size(),
+                "error reading trailing data due to encountering EOF");
           }
           // This can be caused by the writer dying immediately after
           //  writing a physical record but before completing the next; don't
@@ -252,12 +254,18 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
               // produce a hole in the recovered data. Report an error here,
               // which higher layers can choose to ignore when it's provable
               // there is no hole.
-              ReportCorruption(scratch->size(), "error reading trailing data");
+              ReportCorruption(
+                  scratch->size(),
+                  "error reading trailing data due to encountering old record");
             }
             // This can be caused by the writer dying immediately after
             //  writing a physical record but before completing the next; don't
             //  treat it as a corruption, just ignore the entire logical record.
             scratch->clear();
+          } else {
+            if (wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery) {
+              ReportOldLogRecord(scratch->size());
+            }
           }
           return false;
         }
@@ -405,6 +413,12 @@ void Reader::ReportDrop(size_t bytes, const Status& reason) {
   }
 }
 
+void Reader::ReportOldLogRecord(size_t bytes) {
+  if (reporter_ != nullptr) {
+    reporter_->OldLogRecord(bytes);
+  }
+}
+
 bool Reader::ReadMore(size_t* drop_size, int* error) {
   if (!eof_ && !read_error_) {
     // Last read was a full read, so this is a trailer to skip
@@ -473,9 +487,11 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
          type == kRecyclableUserDefinedTimestampSizeType);
     if (is_recyclable_type) {
       header_size = kRecyclableHeaderSize;
-      if (end_of_buffer_offset_ - buffer_.size() == 0) {
-        recycled_ = true;
+      if (first_record_read_ && !recycled_) {
+        // A recycled log should have started with a recycled record
+        return kBadRecord;
       }
+      recycled_ = true;
       // We need enough for the larger header
       if (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
         int r = kEof;
@@ -853,9 +869,12 @@ bool FragmentBufferedReader::TryReadFragment(
   int header_size = kHeaderSize;
   if ((type >= kRecyclableFullType && type <= kRecyclableLastType) ||
       type == kRecyclableUserDefinedTimestampSizeType) {
-    if (end_of_buffer_offset_ - buffer_.size() == 0) {
-      recycled_ = true;
+    if (first_record_read_ && !recycled_) {
+      // A recycled log should have started with a recycled record
+      *fragment_type_or_err = kBadRecord;
+      return true;
     }
+    recycled_ = true;
     header_size = kRecyclableHeaderSize;
     while (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
       size_t old_size = buffer_.size();

@@ -17,16 +17,6 @@
 #include "table/internal_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
-struct FragmentedRangeTombstoneList;
-
-struct FragmentedRangeTombstoneListCache {
-  // ensure only the first reader needs to initialize l
-  std::mutex reader_mutex;
-  std::unique_ptr<FragmentedRangeTombstoneList> tombstones = nullptr;
-  // readers will first check this bool to avoid
-  std::atomic<bool> initialized = false;
-};
-
 struct FragmentedRangeTombstoneList {
  public:
   // A compact representation of a "stack" of range tombstone fragments, which
@@ -124,6 +114,14 @@ struct FragmentedRangeTombstoneList {
   uint64_t total_tombstone_payload_bytes_;
 };
 
+struct FragmentedRangeTombstoneListCache {
+  // ensure only the first reader needs to initialize l
+  std::mutex reader_mutex;
+  std::unique_ptr<FragmentedRangeTombstoneList> tombstones = nullptr;
+  // readers will first check this bool to avoid
+  std::atomic<bool> initialized = false;
+};
+
 // FragmentedRangeTombstoneIterator converts an InternalIterator of a range-del
 // meta block into an iterator over non-overlapping tombstone fragments. The
 // tombstone fragmentation process should be more efficient than the range
@@ -199,11 +197,10 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
     pinned_seq_pos_ = tombstones_->seq_end();
   }
 
-  RangeTombstone Tombstone(bool logical_strip_timestamp = false) const {
+  RangeTombstone Tombstone() const {
     assert(Valid());
     if (icmp_->user_comparator()->timestamp_size()) {
-      return RangeTombstone(start_key(), end_key(), seq(), timestamp(),
-                            logical_strip_timestamp);
+      return RangeTombstone(start_key(), end_key(), seq(), timestamp());
     }
     return RangeTombstone(start_key(), end_key(), seq());
   }

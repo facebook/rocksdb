@@ -67,7 +67,19 @@ enum EntryType {
   kEntryBlobIndex,
   kEntryDeleteWithTimestamp,
   kEntryWideColumnEntity,
+  kEntryTimedPut,  // That hasn't yet converted to a standard Put entry
   kEntryOther,
+};
+
+// Structured user-oriented representation of an internal key. It includes user
+// key, sequence number, and type.
+// If user-defined timestamp is enabled, `timestamp` contains the user-defined
+// timestamp, it's otherwise an empty Slice.
+struct ParsedEntryInfo {
+  Slice user_key;
+  Slice timestamp;
+  SequenceNumber sequence;
+  EntryType type;
 };
 
 enum class WriteStallCause {
@@ -96,6 +108,18 @@ enum class WriteStallCondition {
   kStopped,
   // Always add new WriteStallCondition before `kNormal`
   kNormal,
+};
+
+// Temperature of a file. Used to pass to FileSystem for a different
+// placement and/or coding.
+// Reserve some numbers in the middle, in case we need to insert new tier
+// there.
+enum class Temperature : uint8_t {
+  kUnknown = 0,
+  kHot = 0x04,
+  kWarm = 0x08,
+  kCold = 0x0C,
+  kLastTemperature,
 };
 
 }  // namespace ROCKSDB_NAMESPACE

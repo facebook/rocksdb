@@ -23,6 +23,10 @@ Status Iterator::GetProperty(std::string prop_name, std::string* prop) {
     *prop = "0";
     return Status::OK();
   }
+  if (prop_name == "rocksdb.iterator.is-value-pinned") {
+    *prop = "0";
+    return Status::OK();
+  }
   return Status::InvalidArgument("Unidentified property.");
 }
 
@@ -69,6 +73,10 @@ class EmptyInternalIterator : public InternalIteratorBase<TValue> {
   TValue value() const override {
     assert(false);
     return TValue();
+  }
+  uint64_t write_unix_time() const override {
+    assert(false);
+    return std::numeric_limits<uint64_t>::max();
   }
   Status status() const override { return status_; }
 

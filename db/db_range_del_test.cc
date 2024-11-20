@@ -2833,8 +2833,8 @@ TEST_F(DBRangeDelTest, LeftSentinelKeyTestWithNewerKey) {
   Arena arena;
   InternalKeyComparator icmp(options.comparator);
   ReadOptions read_options;
-  ScopedArenaIterator iter;
-  iter.set(
+  ScopedArenaPtr<InternalIterator> iter;
+  iter.reset(
       dbfull()->NewInternalIterator(read_options, &arena, kMaxSequenceNumber));
 
   auto k = Key(4);
@@ -3805,6 +3805,25 @@ TEST_F(DBRangeDelTest, RefreshWithSnapshot) {
   ASSERT_EQ(iter->key(), Key(4));
   iter.reset();
   db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBRangeDelTest, RowCache) {
+  Options options = CurrentOptions();
+  options.row_cache = NewLRUCache(8 << 10);
+  DestroyAndReopen(options);
+  ASSERT_OK(Put(Key(3), "val"));
+  ASSERT_TRUE(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(3), Key(5))
+                  .IsNotSupported());
+  WriteBatch wb;
+  ASSERT_OK(wb.Put(Key(6), "abc"));
+  ASSERT_OK(wb.DeleteRange(Key(1), Key(5)));
+  ASSERT_TRUE(db_->Write(WriteOptions(), &wb).IsNotSupported());
+  ASSERT_EQ(Get(Key(3)), "val");
+  // By default, memtable insertion failure will turn the DB to read-only mode.
+  // The check for delete range should happen before that to fail early
+  // and should not turn db into read-only mdoe.
+  ASSERT_OK(Put(Key(5), "foo"));
 }
 }  // namespace ROCKSDB_NAMESPACE
 

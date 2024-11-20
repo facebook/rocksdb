@@ -30,6 +30,14 @@ class DBErrorHandlingFSTest : public DBTestBase {
     fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
   }
 
+  ~DBErrorHandlingFSTest() {
+    // Before destroying fault_env_
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->LoadDependency({});
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    Close();
+  }
+
   std::string GetManifestNameFromLiveFiles() {
     std::vector<std::string> live_files;
     uint64_t manifest_size;
@@ -417,7 +425,7 @@ TEST_F(DBErrorHandlingFSTest, FlushWALWriteRetryableError) {
 
   listener->EnableAutoRecovery(false);
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::SyncClosedLogs:Start",
+      "DBImpl::SyncClosedWals:Start",
       [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -462,7 +470,7 @@ TEST_F(DBErrorHandlingFSTest, FlushWALAtomicWriteRetryableError) {
 
   listener->EnableAutoRecovery(false);
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::SyncClosedLogs:Start",
+      "DBImpl::SyncClosedWals:Start",
       [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -843,13 +851,17 @@ TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
-  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  ASSERT_TRUE(s.IsNoSpace());
+  ASSERT_EQ(dbfull()->TEST_GetBGError().severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kHardError);
   ASSERT_FALSE(dbfull()->TEST_GetFilesToQuarantine().empty());
   fault_fs_->SetFilesystemActive(true);
 
   // This Resume() will attempt to create a new manifest file and fail again
   s = dbfull()->Resume();
-  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  ASSERT_TRUE(s.IsNoSpace());
+  ASSERT_EQ(dbfull()->TEST_GetBGError().severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kHardError);
   ASSERT_FALSE(dbfull()->TEST_GetFilesToQuarantine().empty());
   fault_fs_->SetFilesystemActive(true);
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1238,6 +1250,7 @@ TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
                    ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT));
   ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
                    ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT));
+  ASSERT_OK(dbfull()->SyncWAL());
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));

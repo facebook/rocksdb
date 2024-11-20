@@ -11,8 +11,8 @@ class CompactionMergingIterator : public InternalIterator {
   CompactionMergingIterator(
       const InternalKeyComparator* comparator, InternalIterator** children,
       int n, bool is_arena_mode,
-      std::vector<
-          std::pair<TruncatedRangeDelIterator*, TruncatedRangeDelIterator***>>
+      std::vector<std::pair<std::unique_ptr<TruncatedRangeDelIterator>,
+                            std::unique_ptr<TruncatedRangeDelIterator>**>>&
           range_tombstones)
       : is_arena_mode_(is_arena_mode),
         comparator_(comparator),
@@ -27,7 +27,7 @@ class CompactionMergingIterator : public InternalIterator {
     }
     assert(range_tombstones.size() == static_cast<size_t>(n));
     for (auto& p : range_tombstones) {
-      range_tombstone_iters_.push_back(p.first);
+      range_tombstone_iters_.push_back(std::move(p.first));
     }
     pinned_heap_item_.resize(n);
     for (int i = 0; i < n; ++i) {
@@ -47,10 +47,7 @@ class CompactionMergingIterator : public InternalIterator {
   }
 
   ~CompactionMergingIterator() override {
-    // TODO: use unique_ptr for range_tombstone_iters_
-    for (auto child : range_tombstone_iters_) {
-      delete child;
-    }
+    range_tombstone_iters_.clear();
 
     for (auto& child : children_) {
       child.iter.DeleteIter(is_arena_mode_);
@@ -197,7 +194,8 @@ class CompactionMergingIterator : public InternalIterator {
   // nullptr means the sorted run of children_[i] does not have range
   // tombstones (or the current SSTable does not have range tombstones in the
   // case of LevelIterator).
-  std::vector<TruncatedRangeDelIterator*> range_tombstone_iters_;
+  std::vector<std::unique_ptr<TruncatedRangeDelIterator>>
+      range_tombstone_iters_;
   // Used as value for range tombstone keys
   std::string dummy_tombstone_val{};
 
@@ -349,8 +347,9 @@ void CompactionMergingIterator::AddToMinHeapOrCheckStatus(HeapItem* child) {
 
 InternalIterator* NewCompactionMergingIterator(
     const InternalKeyComparator* comparator, InternalIterator** children, int n,
-    std::vector<std::pair<TruncatedRangeDelIterator*,
-                          TruncatedRangeDelIterator***>>& range_tombstone_iters,
+    std::vector<std::pair<std::unique_ptr<TruncatedRangeDelIterator>,
+                          std::unique_ptr<TruncatedRangeDelIterator>**>>&
+        range_tombstone_iters,
     Arena* arena) {
   assert(n >= 0);
   if (n == 0) {

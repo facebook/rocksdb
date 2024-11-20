@@ -213,6 +213,15 @@ class SeqnoToTimeMapping {
   // must be in enforced state as a precondition.
   SequenceNumber GetProximalSeqnoBeforeTime(uint64_t time) const;
 
+  // Given current time, the configured `preserve_internal_time_seconds`, and
+  // `preclude_last_level_data_seconds`, find the relevant cutoff sequence
+  // numbers for tiering.
+  void GetCurrentTieringCutoffSeqnos(
+      uint64_t current_time, uint64_t preserve_internal_time_seconds,
+      uint64_t preclude_last_level_data_seconds,
+      SequenceNumber* preserve_time_min_seqno,
+      SequenceNumber* preclude_last_level_min_seqno) const;
+
   // Encode to a binary string by appending to `dest`.
   // Because this is a const operation depending on sortedness, the structure
   // must be in enforced state as a precondition.
@@ -277,9 +286,15 @@ Slice PackValueAndWriteTime(const Slice& value, uint64_t unix_write_time,
 Slice PackValueAndSeqno(const Slice& value, SequenceNumber seqno,
                         std::string* buf);
 
+// Parse a packed value to get the write time.
+uint64_t ParsePackedValueForWriteTime(const Slice& value);
+
 // Parse a packed value to get the value and the write time. The unpacked value
 // Slice is backed up by the same memory backing up `value`.
 std::tuple<Slice, uint64_t> ParsePackedValueWithWriteTime(const Slice& value);
+
+// Parse a packed value to get the sequence number.
+SequenceNumber ParsePackedValueForSeqno(const Slice& value);
 
 // Parse a packed value to get the value and the sequence number. The unpacked
 // value Slice is backed up by the same memory backing up `value`.

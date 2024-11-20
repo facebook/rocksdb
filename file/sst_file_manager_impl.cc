@@ -99,6 +99,7 @@ void SstFileManagerImpl::OnCompactionCompletion(Compaction* c) {
       size_added_by_compaction += filemeta->fd.GetFileSize();
     }
   }
+  assert(cur_compactions_reserved_size_ >= size_added_by_compaction);
   cur_compactions_reserved_size_ -= size_added_by_compaction;
 }
 
@@ -114,6 +115,16 @@ Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
     OnDeleteFileImpl(old_path);
   }
   TEST_SYNC_POINT("SstFileManagerImpl::OnMoveFile");
+  return Status::OK();
+}
+
+Status SstFileManagerImpl::OnUntrackFile(const std::string& file_path) {
+  {
+    MutexLock l(&mu_);
+    OnDeleteFileImpl(file_path);
+  }
+  TEST_SYNC_POINT_CALLBACK("SstFileManagerImpl::OnUntrackFile",
+                           const_cast<std::string*>(&file_path));
   return Status::OK();
 }
 
@@ -421,8 +432,26 @@ Status SstFileManagerImpl::ScheduleFileDeletion(const std::string& file_path,
   return delete_scheduler_.DeleteFile(file_path, path_to_sync, force_bg);
 }
 
+Status SstFileManagerImpl::ScheduleUnaccountedFileDeletion(
+    const std::string& file_path, const std::string& dir_to_sync,
+    const bool force_bg, std::optional<int32_t> bucket) {
+  TEST_SYNC_POINT_CALLBACK(
+      "SstFileManagerImpl::ScheduleUnaccountedFileDeletion",
+      const_cast<std::string*>(&file_path));
+  return delete_scheduler_.DeleteUnaccountedFile(file_path, dir_to_sync,
+                                                 force_bg, bucket);
+}
+
 void SstFileManagerImpl::WaitForEmptyTrash() {
   delete_scheduler_.WaitForEmptyTrash();
+}
+
+std::optional<int32_t> SstFileManagerImpl::NewTrashBucket() {
+  return delete_scheduler_.NewTrashBucket();
+}
+
+void SstFileManagerImpl::WaitForEmptyTrashBucket(int32_t bucket) {
+  delete_scheduler_.WaitForEmptyTrashBucket(bucket);
 }
 
 void SstFileManagerImpl::OnAddFileImpl(const std::string& file_path,
@@ -432,7 +461,6 @@ void SstFileManagerImpl::OnAddFileImpl(const std::string& file_path,
     // File was added before, we will just update the size
     total_files_size_ -= tracked_file->second;
     total_files_size_ += file_size;
-    cur_compactions_reserved_size_ -= file_size;
   } else {
     total_files_size_ += file_size;
   }

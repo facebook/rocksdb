@@ -68,12 +68,14 @@ struct TablePropertiesNames {
   static const std::string kCompressionOptions;
   static const std::string kCreationTime;
   static const std::string kOldestKeyTime;
+  static const std::string kNewestKeyTime;
   static const std::string kFileCreationTime;
   static const std::string kSlowCompressionEstimatedDataSize;
   static const std::string kFastCompressionEstimatedDataSize;
   static const std::string kSequenceNumberTimeMapping;
   static const std::string kTailStartOffset;
   static const std::string kUserDefinedTimestampsPersisted;
+  static const std::string kKeyLargestSeqno;
 };
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
@@ -125,6 +127,8 @@ class TablePropertiesCollector {
   // Finish() will be called when a table has already been built and is ready
   // for writing the properties block.
   // It will be called only once by RocksDB internal.
+  // When the returned Status is not OK, the collected properties will not be
+  // written to the file's property block.
   //
   // @params properties  User will add their collected statistics to
   // `properties`.
@@ -132,6 +136,7 @@ class TablePropertiesCollector {
 
   // Return the human-readable properties, where the key is property name and
   // the value is the human-readable form of value.
+  // Returned properties are used for logging.
   // It will only be called after Finish() has been called by RocksDB internal.
   virtual UserCollectedProperties GetReadableProperties() const = 0;
 
@@ -157,8 +162,25 @@ class TablePropertiesCollectorFactory : public Customizable {
     // The level at creating the SST file (i.e, table), of which the
     // properties are being collected.
     int level_at_creation = kUnknownLevelAtCreation;
+    int num_levels = kUnknownNumLevels;
+    // In the tiering case, data with seqnos smaller than or equal to this
+    // cutoff sequence number will be considered by a compaction job as eligible
+    // to be placed on the last level. When this is the maximum sequence number,
+    // it indicates tiering is disabled.
+    SequenceNumber last_level_inclusive_max_seqno_threshold;
     static const uint32_t kUnknownColumnFamily;
     static const int kUnknownLevelAtCreation = -1;
+    static const int kUnknownNumLevels = -1;
+
+    Context() {}
+
+    Context(uint32_t _column_family_id, int _level_at_creation, int _num_levels,
+            SequenceNumber _last_level_inclusive_max_seqno_threshold)
+        : column_family_id(_column_family_id),
+          level_at_creation(_level_at_creation),
+          num_levels(_num_levels),
+          last_level_inclusive_max_seqno_threshold(
+              _last_level_inclusive_max_seqno_threshold) {}
   };
 
   ~TablePropertiesCollectorFactory() override {}
@@ -249,6 +271,8 @@ struct TableProperties {
 
   // Timestamp of the earliest key. 0 means unknown.
   uint64_t oldest_key_time = 0;
+  // Timestamp of the newest key. 0 means unknown.
+  uint64_t newest_key_time = 0;
   // Actual SST file creation time. 0 means unknown.
   uint64_t file_creation_time = 0;
   // Estimated size of data blocks if compressed using a relatively slower
@@ -272,6 +296,12 @@ struct TableProperties {
   // when the file is created. Default to be true, only when this flag is false,
   // it's explicitly written to meta properties block.
   uint64_t user_defined_timestamps_persisted = 1;
+
+  // The largest sequence number of keys in this file.
+  // UINT64_MAX means unknown.
+  // Only written to properties block if known (should be known unless the
+  // table is empty).
+  uint64_t key_largest_seqno = UINT64_MAX;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created
@@ -344,6 +374,14 @@ struct TableProperties {
   // Return the approximated memory usage of this TableProperties object,
   // including memory used by the string properties and UserCollectedProperties
   std::size_t ApproximateMemoryUsage() const;
+
+  // Serialize and deserialize Table Properties
+  Status Serialize(const ConfigOptions& opts, std::string* output) const;
+  static Status Parse(const ConfigOptions& opts, const std::string& serialized,
+                      TableProperties* table_properties);
+  bool AreEqual(const ConfigOptions& opts,
+                const TableProperties* other_table_properties,
+                std::string* mismatch) const;
 };
 
 // Extra properties

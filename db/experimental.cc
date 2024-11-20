@@ -152,6 +152,85 @@ Status UpdateManifestForFilesState(
 // EXPERIMENTAL new filtering features
 
 namespace {
+template <size_t N>
+class SemiStaticCappedKeySegmentsExtractor : public KeySegmentsExtractor {
+ public:
+  SemiStaticCappedKeySegmentsExtractor(const uint32_t* byte_widths) {
+    id_ = kName();
+    uint32_t prev_end = 0;
+    if constexpr (N > 0) {  // Suppress a compiler warning
+      for (size_t i = 0; i < N; ++i) {
+        prev_end = prev_end + byte_widths[i];
+        ideal_ends_[i] = prev_end;
+        id_ += std::to_string(byte_widths[i]) + "b";
+      }
+    }
+  }
+
+  static const char* kName() { return "CappedKeySegmentsExtractor"; }
+
+  const char* Name() const override { return kName(); }
+
+  std::string GetId() const override { return id_; }
+
+  void Extract(const Slice& key_or_bound, KeyKind /*kind*/,
+               Result* result) const override {
+    // Optimistic assignment
+    result->segment_ends.assign(ideal_ends_.begin(), ideal_ends_.end());
+    if constexpr (N > 0) {  // Suppress a compiler warning
+      uint32_t key_size = static_cast<uint32_t>(key_or_bound.size());
+      if (key_size < ideal_ends_.back()) {
+        // Need to fix up (should be rare)
+        for (size_t i = 0; i < N; ++i) {
+          result->segment_ends[i] = std::min(key_size, result->segment_ends[i]);
+        }
+      }
+    }
+  }
+
+ private:
+  std::array<uint32_t, N> ideal_ends_;
+  std::string id_;
+};
+
+class DynamicCappedKeySegmentsExtractor : public KeySegmentsExtractor {
+ public:
+  DynamicCappedKeySegmentsExtractor(const std::vector<uint32_t>& byte_widths) {
+    id_ = kName();
+    uint32_t prev_end = 0;
+    for (size_t i = 0; i < byte_widths.size(); ++i) {
+      prev_end = prev_end + byte_widths[i];
+      ideal_ends_[i] = prev_end;
+      id_ += std::to_string(byte_widths[i]) + "b";
+    }
+    final_ideal_end_ = prev_end;
+  }
+
+  static const char* kName() { return "CappedKeySegmentsExtractor"; }
+
+  const char* Name() const override { return kName(); }
+
+  std::string GetId() const override { return id_; }
+
+  void Extract(const Slice& key_or_bound, KeyKind /*kind*/,
+               Result* result) const override {
+    // Optimistic assignment
+    result->segment_ends = ideal_ends_;
+    uint32_t key_size = static_cast<uint32_t>(key_or_bound.size());
+    if (key_size < final_ideal_end_) {
+      // Need to fix up (should be rare)
+      for (size_t i = 0; i < ideal_ends_.size(); ++i) {
+        result->segment_ends[i] = std::min(key_size, result->segment_ends[i]);
+      }
+    }
+  }
+
+ private:
+  std::vector<uint32_t> ideal_ends_;
+  uint32_t final_ideal_end_;
+  std::string id_;
+};
+
 void GetFilterInput(FilterInput select, const Slice& key,
                     const KeySegmentsExtractor::Result& extracted,
                     Slice* out_input, Slice* out_leadup) {
@@ -211,12 +290,6 @@ void GetFilterInput(FilterInput select, const Slice& key,
       assert(false);
       return Slice();
     }
-
-    Slice operator()(SelectValue) {
-      // TODO
-      assert(false);
-      return Slice();
-    }
   };
 
   Slice input = std::visit(FilterInputGetter(key, extracted), select);
@@ -255,9 +328,6 @@ const char* DeserializeFilterInput(const char* p, const char* limit,
           return p;
         case 3:
           *out = SelectColumnName{};
-          return p;
-        case 4:
-          *out = SelectValue{};
           return p;
         default:
           // Reserved for future use
@@ -315,7 +385,6 @@ void SerializeFilterInput(std::string* out, const FilterInput& select) {
     void operator()(SelectLegacyKeyPrefix) { out->push_back(1); }
     void operator()(SelectUserTimestamp) { out->push_back(2); }
     void operator()(SelectColumnName) { out->push_back(3); }
-    void operator()(SelectValue) { out->push_back(4); }
     void operator()(SelectKeySegment select) {
       // TODO: expand supported cases
       assert(select.segment_index < 16);
@@ -372,6 +441,7 @@ enum BuiltinSstQueryFilters : char {
   // and filtered independently because it might be a special case that is
   // not representative of the minimum in a spread of values.
   kBytewiseMinMaxFilter = 0x10,
+  kRevBytewiseMinMaxFilter = 0x11,
 };
 
 class SstQueryFilterBuilder {
@@ -459,7 +529,10 @@ class CategoryScopeFilterWrapperBuilder : public SstQueryFilterBuilder {
 
 class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
  public:
-  using SstQueryFilterConfigImpl::SstQueryFilterConfigImpl;
+  explicit BytewiseMinMaxSstQueryFilterConfig(
+      const FilterInput& input,
+      const KeySegmentsExtractor::KeyCategorySet& categories, bool reverse)
+      : SstQueryFilterConfigImpl(input, categories), reverse_(reverse) {}
 
   std::unique_ptr<SstQueryFilterBuilder> NewBuilder(
       bool sanity_checks) const override {
@@ -477,11 +550,13 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
       const KeySegmentsExtractor::Result& lower_bound_extracted,
       const Slice& upper_bound_excl,
       const KeySegmentsExtractor::Result& upper_bound_extracted) {
-    assert(!filter.empty() && filter[0] == kBytewiseMinMaxFilter);
+    assert(!filter.empty() && (filter[0] == kBytewiseMinMaxFilter ||
+                               filter[0] == kRevBytewiseMinMaxFilter));
     if (filter.size() <= 4) {
       // Missing some data
       return true;
     }
+    bool reverse = (filter[0] == kRevBytewiseMinMaxFilter);
     bool empty_included = (filter[1] & kEmptySeenFlag) != 0;
     const char* p = filter.data() + 2;
     const char* limit = filter.data() + filter.size();
@@ -528,8 +603,13 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
 
     // May match if both the upper bound and lower bound indicate there could
     // be overlap
-    return upper_bound_input.compare(smallest) >= 0 &&
-           lower_bound_input.compare(largest) <= 0;
+    if (reverse) {
+      return upper_bound_input.compare(smallest) <= 0 &&
+             lower_bound_input.compare(largest) >= 0;
+    } else {
+      return upper_bound_input.compare(smallest) >= 0 &&
+             lower_bound_input.compare(largest) <= 0;
+    }
   }
 
  protected:
@@ -551,19 +631,11 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
                        &prev_leadup);
 
         int compare = prev_leadup.compare(leadup);
-        if (compare > 0) {
-          status = Status::Corruption(
-              "Ordering invariant violated from 0x" +
-              prev_key->ToString(/*hex=*/true) + " with prefix 0x" +
-              prev_leadup.ToString(/*hex=*/true) + " to 0x" +
-              key.ToString(/*hex=*/true) + " with prefix 0x" +
-              leadup.ToString(/*hex=*/true));
-          return;
-        } else if (compare == 0) {
+        if (compare == 0) {
           // On the same prefix leading up to the segment, the segments must
           // not be out of order.
           compare = prev_input.compare(input);
-          if (compare > 0) {
+          if (parent.reverse_ ? compare < 0 : compare > 0) {
             status = Status::Corruption(
                 "Ordering invariant violated from 0x" +
                 prev_key->ToString(/*hex=*/true) + " with segment 0x" +
@@ -573,6 +645,9 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
             return;
           }
         }
+        // NOTE: it is not strictly required that the leadup be ordered, just
+        // satisfy the "common segment prefix property" which would be
+        // expensive to check
       }
 
       // Now actually update state for the filter inputs
@@ -598,7 +673,8 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
         return 0;
       }
       return 2 + GetFilterInputSerializedLength(parent.input_) +
-             VarintLength(smallest.size()) + smallest.size() + largest.size();
+             VarintLength(parent.reverse_ ? largest.size() : smallest.size()) +
+             smallest.size() + largest.size();
     }
 
     void Finish(std::string& append_to) override {
@@ -610,23 +686,27 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
       }
       size_t old_append_to_size = append_to.size();
       append_to.reserve(old_append_to_size + encoded_length);
-      append_to.push_back(kBytewiseMinMaxFilter);
+      append_to.push_back(parent.reverse_ ? kRevBytewiseMinMaxFilter
+                                          : kBytewiseMinMaxFilter);
 
       append_to.push_back(empty_seen ? kEmptySeenFlag : 0);
 
       SerializeFilterInput(&append_to, parent.input_);
 
-      PutVarint32(&append_to, static_cast<uint32_t>(smallest.size()));
-      append_to.append(smallest);
-      // The end of `largest` is given by the end of the filter
-      append_to.append(largest);
+      auto& minv = parent.reverse_ ? largest : smallest;
+      auto& maxv = parent.reverse_ ? smallest : largest;
+      PutVarint32(&append_to, static_cast<uint32_t>(minv.size()));
+      append_to.append(minv);
+      // The end of `maxv` is given by the end of the filter
+      append_to.append(maxv);
       assert(append_to.size() == old_append_to_size + encoded_length);
     }
 
     const BytewiseMinMaxSstQueryFilterConfig& parent;
     const bool sanity_checks;
     // Smallest and largest segment seen, excluding the empty segment which
-    // is tracked separately
+    // is tracked separately. "Reverse" from parent is only applied at
+    // serialization time, for efficiency.
     std::string smallest;
     std::string largest;
     bool empty_seen = false;
@@ -634,6 +714,8 @@ class BytewiseMinMaxSstQueryFilterConfig : public SstQueryFilterConfigImpl {
     // Only for sanity checks
     Status status;
   };
+
+  bool reverse_;
 
  private:
   static constexpr char kEmptySeenFlag = 0x1;
@@ -711,7 +793,7 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
                       uint64_t /*file_size*/) override {
       // FIXME later: `key` might contain user timestamp. That should be
       // exposed properly in a future update to TablePropertiesCollector
-      KeySegmentsExtractor::Result extracted;
+      extracted.Reset();
       if (extractor) {
         extractor->Extract(key, KeySegmentsExtractor::kFullUserKey, &extracted);
         if (UNLIKELY(extracted.category >=
@@ -750,7 +832,7 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
         }
       }
       prev_key.assign(key.data(), key.size());
-      prev_extracted = std::move(extracted);
+      std::swap(prev_extracted, extracted);
       first_key = false;
       return Status::OK();
     }
@@ -859,6 +941,7 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
     std::vector<std::shared_ptr<SstQueryFilterBuilder>> builders;
     bool first_key = true;
     std::string prev_key;
+    KeySegmentsExtractor::Result extracted;
     KeySegmentsExtractor::Result prev_extracted;
     KeySegmentsExtractor::KeyCategorySet categories_seen;
   };
@@ -1035,6 +1118,7 @@ class SstQueryFilterConfigsManagerImpl : public SstQueryFilterConfigsManager {
             may_match = MayMatch_CategoryScopeFilterWrapper(filter, *state);
             break;
           case kBytewiseMinMaxFilter:
+          case kRevBytewiseMinMaxFilter:
             if (state == nullptr) {
               // TODO? Report problem
               // No filtering
@@ -1188,14 +1272,63 @@ const std::string SstQueryFilterConfigsManagerImpl::kTablePropertyName =
     "rocksdb.sqfc";
 }  // namespace
 
+std::shared_ptr<const KeySegmentsExtractor>
+MakeSharedCappedKeySegmentsExtractor(const std::vector<size_t>& byte_widths) {
+  std::vector<uint32_t> byte_widths_checked;
+  byte_widths_checked.resize(byte_widths.size());
+  size_t final_end = 0;
+  for (size_t i = 0; i < byte_widths.size(); ++i) {
+    final_end += byte_widths[i];
+    if (byte_widths[i] > UINT32_MAX / 2 || final_end > UINT32_MAX) {
+      // Better to crash than to proceed unsafely
+      return nullptr;
+    }
+    byte_widths_checked[i] = static_cast<uint32_t>(byte_widths[i]);
+  }
+
+  switch (byte_widths_checked.size()) {
+    case 0:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<0>>(
+          byte_widths_checked.data());
+    case 1:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<1>>(
+          byte_widths_checked.data());
+    case 2:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<2>>(
+          byte_widths_checked.data());
+    case 3:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<3>>(
+          byte_widths_checked.data());
+    case 4:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<4>>(
+          byte_widths_checked.data());
+    case 5:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<5>>(
+          byte_widths_checked.data());
+    case 6:
+      return std::make_shared<SemiStaticCappedKeySegmentsExtractor<6>>(
+          byte_widths_checked.data());
+    default:
+      return std::make_shared<DynamicCappedKeySegmentsExtractor>(
+          byte_widths_checked);
+  }
+}
+
 bool SstQueryFilterConfigs::IsEmptyNotFound() const {
   return this == &kEmptyNotFoundSQFC;
 }
 
 std::shared_ptr<SstQueryFilterConfig> MakeSharedBytewiseMinMaxSQFC(
     FilterInput input, KeySegmentsExtractor::KeyCategorySet categories) {
-  return std::make_shared<BytewiseMinMaxSstQueryFilterConfig>(input,
-                                                              categories);
+  return std::make_shared<BytewiseMinMaxSstQueryFilterConfig>(
+      input, categories,
+      /*reverse=*/false);
+}
+
+std::shared_ptr<SstQueryFilterConfig> MakeSharedReverseBytewiseMinMaxSQFC(
+    FilterInput input, KeySegmentsExtractor::KeyCategorySet categories) {
+  return std::make_shared<BytewiseMinMaxSstQueryFilterConfig>(input, categories,
+                                                              /*reverse=*/true);
 }
 
 Status SstQueryFilterConfigsManager::MakeShared(

@@ -71,6 +71,9 @@ Status VerifySstFileChecksumInternal(const Options& options,
   } else {
     return s;
   }
+  if (!s.ok()) {
+    return s;
+  }
   std::unique_ptr<TableReader> table_reader;
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(
@@ -84,7 +87,7 @@ Status VerifySstFileChecksumInternal(const Options& options,
       options.block_protection_bytes_per_key, false /* skip_filters */,
       !kImmortal, false /* force_direct_prefetch */, -1 /* level */);
   reader_options.largest_seqno = largest_seqno;
-  s = ioptions.table_factory->NewTableReader(
+  s = options.table_factory->NewTableReader(
       read_options, reader_options, std::move(file_reader), file_size,
       &table_reader, false /* prefetch_index_and_filter_in_cache */);
   if (!s.ok()) {

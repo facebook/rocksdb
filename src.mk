@@ -12,8 +12,9 @@ LIB_SOURCES =                                                   \
   cache/secondary_cache.cc                                      \
   cache/secondary_cache_adapter.cc                              \
   cache/sharded_cache.cc                                        \
-  cache/tiered_secondary_cache.cc				\
+  cache/tiered_secondary_cache.cc                               \
   db/arena_wrapped_db_iter.cc                                   \
+  db/attribute_group_iterator_impl.cc                           \
   db/blob/blob_contents.cc                                      \
   db/blob/blob_fetcher.cc                                       \
   db/blob/blob_file_addition.cc                                 \
@@ -30,6 +31,7 @@ LIB_SOURCES =                                                   \
   db/blob/prefetch_buffer_collection.cc                         \
   db/builder.cc                                                 \
   db/c.cc                                                       \
+  db/coalescing_iterator.cc                                     \
   db/column_family.cc                                           \
   db/compaction/compaction.cc                                   \
   db/compaction/compaction_iterator.cc                          \
@@ -51,6 +53,7 @@ LIB_SOURCES =                                                   \
   db/db_impl/db_impl_debug.cc                                   \
   db/db_impl/db_impl_experimental.cc                            \
   db/db_impl/db_impl_files.cc                                   \
+  db/db_impl/db_impl_follower.cc                                \
   db/db_impl/db_impl_open.cc                                    \
   db/db_impl/db_impl_readonly.cc                                \
   db/db_impl/db_impl_secondary.cc                               \
@@ -76,7 +79,6 @@ LIB_SOURCES =                                                   \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
-  db/multi_cf_iterator.cc                                       \
   db/output_validator.cc                                        \
   db/periodic_task_scheduler.cc                                 \
   db/range_del_aggregator.cc                                    \
@@ -108,6 +110,7 @@ LIB_SOURCES =                                                   \
   env/env_encryption.cc                                         \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
+  env/fs_on_demand.cc                                               \
   env/fs_posix.cc                                               \
   env/fs_remap.cc                                               \
   env/file_system_tracer.cc                                     \
@@ -138,6 +141,7 @@ LIB_SOURCES =                                                   \
   memtable/hash_skiplist_rep.cc                                 \
   memtable/skiplistrep.cc                                       \
   memtable/vectorrep.cc                                         \
+  memtable/wbwi_memtable.cc                                     \
   memtable/write_buffer_manager.cc                              \
   monitoring/histogram.cc                                       \
   monitoring/histogram_windowing.cc                             \
@@ -303,6 +307,7 @@ LIB_SOURCES =                                                   \
   utilities/persistent_cache/volatile_tier_impl.cc              \
   utilities/simulator_cache/cache_simulator.cc                  \
   utilities/simulator_cache/sim_cache.cc                        \
+  utilities/table_properties_collectors/compact_for_tiering_collector.cc \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/trace/file_trace_reader_writer.cc                   \
   utilities/trace/replayer_impl.cc                              \
@@ -322,6 +327,7 @@ LIB_SOURCES =                                                   \
   utilities/transactions/write_unprepared_txn.cc                \
   utilities/transactions/write_unprepared_txn_db.cc             \
   utilities/ttl/db_ttl_impl.cc                                  \
+  utilities/types_util.cc                                       \
   utilities/wal_filter.cc                                       \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
@@ -378,6 +384,7 @@ STRESS_LIB_SOURCES =                                            \
   db_stress_tool/cf_consistency_stress.cc                      \
   db_stress_tool/db_stress_common.cc                           \
   db_stress_tool/db_stress_driver.cc                           \
+  db_stress_tool/db_stress_filters.cc                          \
   db_stress_tool/db_stress_gflags.cc                           \
   db_stress_tool/db_stress_listener.cc                         \
   db_stress_tool/db_stress_shared_state.cc                     \
@@ -403,6 +410,7 @@ TEST_LIB_SOURCES =                                              \
 FOLLY_SOURCES =                                                 \
   $(FOLLY_DIR)/folly/container/detail/F14Table.cpp              \
   $(FOLLY_DIR)/folly/detail/Futex.cpp                           \
+  $(FOLLY_DIR)/folly/lang/Exception.cpp                         \
   $(FOLLY_DIR)/folly/lang/SafeAssert.cpp                        \
   $(FOLLY_DIR)/folly/lang/ToAscii.cpp                           \
   $(FOLLY_DIR)/folly/ScopeGuard.cpp                             \
@@ -474,6 +482,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_dynamic_level_test.cc                                           \
   db/db_encryption_test.cc                                              \
   db/db_flush_test.cc                                                   \
+  db/db_follower_test.cc						\
   db/db_readonly_with_timestamp_test.cc                                 \
   db/db_with_timestamp_basic_test.cc                                    \
   db/import_column_family_test.cc                                       \
@@ -625,6 +634,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/persistent_cache/persistent_cache_test.cc                   \
   utilities/simulator_cache/cache_simulator_test.cc                     \
   utilities/simulator_cache/sim_cache_test.cc                           \
+  utilities/table_properties_collectors/compact_for_tiering_collector_test.cc \
   utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \
   utilities/transactions/optimistic_transaction_test.cc                 \
   utilities/transactions/lock/range/range_locking_test.cc               \
@@ -635,6 +645,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/transactions/write_committed_transaction_ts_test.cc         \
   utilities/transactions/timestamped_snapshot_test.cc                   \
   utilities/ttl/ttl_test.cc                                             \
+  utilities/types_util_test.cc                                          \
   utilities/util_merge_operators_test.cc                                \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
 

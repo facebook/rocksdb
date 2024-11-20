@@ -26,6 +26,7 @@ struct FileMetaData;
 class InternalStats;
 class Version;
 class VersionSet;
+class VersionEditHandler;
 class ColumnFamilyData;
 class CacheReservationManager;
 
@@ -38,22 +39,81 @@ class VersionBuilder {
                  const ImmutableCFOptions* ioptions, TableCache* table_cache,
                  VersionStorageInfo* base_vstorage, VersionSet* version_set,
                  std::shared_ptr<CacheReservationManager>
-                     file_metadata_cache_res_mgr = nullptr);
+                     file_metadata_cache_res_mgr = nullptr,
+                 ColumnFamilyData* cfd = nullptr,
+                 VersionEditHandler* version_edit_handler = nullptr,
+                 bool track_found_and_missing_files = false,
+                 bool allow_incomplete_valid_version = false);
   ~VersionBuilder();
 
   bool CheckConsistencyForNumLevels();
+
   Status Apply(const VersionEdit* edit);
+
+  // Save the current Version to the provided `vstorage`.
   Status SaveTo(VersionStorageInfo* vstorage) const;
-  Status LoadTableHandlers(
-      InternalStats* internal_stats, int max_threads,
-      bool prefetch_index_and_filter_in_cache, bool is_initial_load,
-      const std::shared_ptr<const SliceTransform>& prefix_extractor,
-      size_t max_file_size_for_l0_meta_pin, const ReadOptions& read_options,
-      uint8_t block_protection_bytes_per_key);
-  uint64_t GetMinOldestBlobFileNumber() const;
+
+  // Load all the table handlers for the current Version in the builder.
+  Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
+                           bool prefetch_index_and_filter_in_cache,
+                           bool is_initial_load,
+                           const MutableCFOptions& mutable_cf_options,
+                           size_t max_file_size_for_l0_meta_pin,
+                           const ReadOptions& read_options);
+
+  //============APIs only used by VersionEditHandlerPointInTime ============//
+
+  // Creates a save point for the Version that has been built so far. Subsequent
+  // VersionEdits applied to the builder will not affect the Version in this
+  // save point. VersionBuilder currently only supports creating one save point,
+  // so when `CreateOrReplaceSavePoint` is called again, the previous save point
+  // is cleared. `ClearSavePoint` can be called explicitly to clear
+  // the save point too.
+  void CreateOrReplaceSavePoint();
+
+  // The builder can find all the files to build a `Version`. Or if
+  // `allow_incomplete_valid_version_` is true and the version history is never
+  // edited in an atomic group, and only a suffix of L0 SST files and their
+  // associated blob files are missing.
+  // From the users' perspective, missing a suffix of L0 files means missing the
+  // user's most recently written data. So the remaining available files still
+  // presents a valid point in time view, although for some previous time.
+  // This validity check result will be cached and reused if the Version is not
+  // updated between two validity checks.
+  bool ValidVersionAvailable();
+
+  bool HasMissingFiles() const;
+
+  // When applying a sequence of VersionEdit, intermediate files are the ones
+  // that are added and then deleted. The caller should clear this intermediate
+  // files tracking after calling this API. So that the tracking for subsequent
+  // VersionEdits can start over with a clean state.
+  std::vector<std::string>& GetAndClearIntermediateFiles();
+
+  // Clearing all the found files in this Version.
+  void ClearFoundFiles();
+
+  // Save the Version in the save point to the provided `vstorage`.
+  // Non-OK status will be returned if there is not a valid save point.
+  Status SaveSavePointTo(VersionStorageInfo* vstorage) const;
+
+  // Load all the table handlers for the Version in the save point.
+  // Non-OK status will be returned if there is not a valid save point.
+  Status LoadSavePointTableHandlers(InternalStats* internal_stats,
+                                    int max_threads,
+                                    bool prefetch_index_and_filter_in_cache,
+                                    bool is_initial_load,
+                                    const MutableCFOptions& mutable_cf_options,
+                                    size_t max_file_size_for_l0_meta_pin,
+                                    const ReadOptions& read_options);
+
+  void ClearSavePoint();
+
+  //======= End of APIs only used by VersionEditPointInTime==========//
 
  private:
   class Rep;
+  std::unique_ptr<Rep> savepoint_;
   std::unique_ptr<Rep> rep_;
 };
 
@@ -62,32 +122,20 @@ class VersionBuilder {
 // Both of the constructor and destructor need to be called inside DB Mutex.
 class BaseReferencedVersionBuilder {
  public:
-  explicit BaseReferencedVersionBuilder(ColumnFamilyData* cfd);
-  BaseReferencedVersionBuilder(ColumnFamilyData* cfd, Version* v);
+  explicit BaseReferencedVersionBuilder(
+      ColumnFamilyData* cfd, VersionEditHandler* version_edit_handler = nullptr,
+      bool track_found_and_missing_files = false,
+      bool allow_incomplete_valid_version = false);
+  BaseReferencedVersionBuilder(
+      ColumnFamilyData* cfd, Version* v,
+      VersionEditHandler* version_edit_handler = nullptr,
+      bool track_found_and_missing_files = false,
+      bool allow_incomplete_valid_version = false);
   ~BaseReferencedVersionBuilder();
   VersionBuilder* version_builder() const { return version_builder_.get(); }
 
  private:
   std::unique_ptr<VersionBuilder> version_builder_;
   Version* version_;
-};
-
-class NewestFirstBySeqNo {
- public:
-  bool operator()(const FileMetaData* lhs, const FileMetaData* rhs) const {
-    assert(lhs);
-    assert(rhs);
-
-    if (lhs->fd.largest_seqno != rhs->fd.largest_seqno) {
-      return lhs->fd.largest_seqno > rhs->fd.largest_seqno;
-    }
-
-    if (lhs->fd.smallest_seqno != rhs->fd.smallest_seqno) {
-      return lhs->fd.smallest_seqno > rhs->fd.smallest_seqno;
-    }
-
-    // Break ties by file number
-    return lhs->fd.GetNumber() > rhs->fd.GetNumber();
-  }
 };
 }  // namespace ROCKSDB_NAMESPACE

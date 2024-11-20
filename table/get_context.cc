@@ -221,7 +221,7 @@ void GetContext::ReportCounters() {
 
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                            const Slice& value, bool* matched,
-                           Cleanable* value_pinner) {
+                           Status* read_status, Cleanable* value_pinner) {
   assert(matched);
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
@@ -356,8 +356,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             // merge_context_->operand_list
             if (type == kTypeBlobIndex) {
               PinnableSlice pin_val;
-              if (GetBlobValue(parsed_key.user_key, unpacked_value, &pin_val) ==
-                  false) {
+              if (GetBlobValue(parsed_key.user_key, unpacked_value, &pin_val,
+                               read_status) == false) {
                 return false;
               }
               Slice blob_value(pin_val);
@@ -383,8 +383,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           assert(merge_operator_ != nullptr);
           if (type == kTypeBlobIndex) {
             PinnableSlice pin_val;
-            if (GetBlobValue(parsed_key.user_key, unpacked_value, &pin_val) ==
-                false) {
+            if (GetBlobValue(parsed_key.user_key, unpacked_value, &pin_val,
+                             read_status) == false) {
               return false;
             }
             Slice blob_value(pin_val);
@@ -547,14 +547,14 @@ void GetContext::MergeWithWideColumnBaseValue(const Slice& entity) {
 }
 
 bool GetContext::GetBlobValue(const Slice& user_key, const Slice& blob_index,
-                              PinnableSlice* blob_value) {
+                              PinnableSlice* blob_value, Status* read_status) {
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
   constexpr uint64_t* bytes_read = nullptr;
 
-  Status status = blob_fetcher_->FetchBlob(
-      user_key, blob_index, prefetch_buffer, blob_value, bytes_read);
-  if (!status.ok()) {
-    if (status.IsIncomplete()) {
+  *read_status = blob_fetcher_->FetchBlob(user_key, blob_index, prefetch_buffer,
+                                          blob_value, bytes_read);
+  if (!read_status->ok()) {
+    if (read_status->IsIncomplete()) {
       // FIXME: this code is not covered by unit tests
       MarkKeyMayExist();
       return false;
@@ -577,9 +577,9 @@ void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {
   }
 }
 
-void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
-                         GetContext* get_context, Cleanable* value_pinner,
-                         SequenceNumber seq_no) {
+Status replayGetContextLog(const Slice& replay_log, const Slice& user_key,
+                           GetContext* get_context, Cleanable* value_pinner,
+                           SequenceNumber seq_no) {
   Slice s = replay_log;
   Slice ts;
   size_t ts_sz = get_context->TimestampSize();
@@ -610,8 +610,13 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
 
     (void)ret;
 
-    get_context->SaveValue(ikey, value, &dont_care, value_pinner);
+    Status read_status;
+    get_context->SaveValue(ikey, value, &dont_care, &read_status, value_pinner);
+    if (!read_status.ok()) {
+      return read_status;
+    }
   }
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

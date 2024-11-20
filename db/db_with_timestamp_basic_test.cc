@@ -172,6 +172,70 @@ TEST_F(DBBasicTestWithTimestamp, MixedCfs) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, MultiGetMultipleCfs) {
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.avoid_flush_during_shutdown = true;
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  Options options1 = CurrentOptions();
+  options1.env = env_;
+  options1.comparator = &test_cmp;
+  ColumnFamilyHandle* handle = nullptr;
+  Status s = db_->CreateColumnFamily(options1, "data", &handle);
+  ASSERT_OK(s);
+
+  std::string ts = Timestamp(1, 0);
+  WriteBatch wb(0, 0, 0, kTimestampSize);
+  ASSERT_OK(wb.Put("a", "value"));
+  ASSERT_OK(wb.Put(handle, "a", "value"));
+  const auto ts_sz_func = [kTimestampSize](uint32_t /*cf_id*/) {
+    return kTimestampSize;
+  };
+  ASSERT_OK(wb.UpdateTimestamps(ts, ts_sz_func));
+  ASSERT_OK(db_->Write(WriteOptions(), &wb));
+
+  int num_keys = 2;
+  std::vector<Slice> keys;
+  std::vector<std::string> expected_values;
+  for (int i = 0; i < num_keys; i++) {
+    keys.push_back("a");
+    expected_values.push_back("value");
+  }
+  std::vector<ColumnFamilyHandle*> handles;
+  handles.push_back(db_->DefaultColumnFamily());
+  handles.push_back(handle);
+
+  {
+    Slice read_ts_slice(ts);
+    ReadOptions read_opts;
+    read_opts.timestamp = &read_ts_slice;
+
+    std::vector<PinnableSlice> values;
+    values.resize(num_keys);
+    std::vector<Status> statuses;
+    statuses.resize(num_keys);
+    std::vector<std::string> timestamps;
+    timestamps.resize(num_keys);
+
+    db_->MultiGet(read_opts, num_keys, handles.data(), keys.data(),
+                  values.data(), timestamps.data(), statuses.data());
+
+    for (int i = 0; i < num_keys; i++) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(expected_values[i], values[i].ToString());
+      ASSERT_EQ(ts, timestamps[i]);
+    }
+  }
+
+  delete handle;
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -768,6 +832,7 @@ TEST_P(DBBasicTestWithTimestampTableOptions, GetAndMultiGet) {
 
 TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithPrefixLessThanKey) {
   Options options = CurrentOptions();
+  options.prefix_seek_opt_in_only = false;  // Use legacy prefix seek
   options.env = env_;
   options.create_if_missing = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(3));
@@ -945,6 +1010,7 @@ TEST_F(DBBasicTestWithTimestamp, ChangeIterationDirection) {
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  options.prefix_seek_opt_in_only = false;  // Use legacy prefix seek
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   DestroyAndReopen(options);
   const std::vector<std::string> timestamps = {Timestamp(1, 1), Timestamp(0, 2),

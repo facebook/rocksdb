@@ -63,6 +63,8 @@ class TransactionTestBase : public ::testing::Test {
     options.unordered_write = write_ordering == kUnorderedWrite;
     options.level0_file_num_compaction_trigger = 2;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+    // Recycling log file is generally more challenging for correctness
+    options.recycle_log_file_num = 2;
     special_env.skip_fsync_ = true;
     fault_fs.reset(new FaultInjectionTestFS(FileSystem::Default()));
     env.reset(new CompositeEnvWrapper(&special_env, fault_fs));
@@ -170,7 +172,8 @@ class TransactionTestBase : public ::testing::Test {
         txn_db_options.write_policy == WRITE_COMMITTED ||
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, cfs, handles, &root_db,
-                            use_seq_per_batch, use_batch_per_txn);
+                            use_seq_per_batch, use_batch_per_txn,
+                            /*is_retry=*/false, /*can_retry=*/nullptr);
     auto stackable_db = std::make_unique<StackableDB>(root_db);
     if (s.ok()) {
       assert(root_db != nullptr);
@@ -200,7 +203,8 @@ class TransactionTestBase : public ::testing::Test {
         txn_db_options.write_policy == WRITE_COMMITTED ||
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, column_families, &handles,
-                            &root_db, use_seq_per_batch, use_batch_per_txn);
+                            &root_db, use_seq_per_batch, use_batch_per_txn,
+                            /*is_retry=*/false, /*can_retry=*/nullptr);
     if (!s.ok()) {
       delete root_db;
       return s;
@@ -459,7 +463,7 @@ class TransactionTestBase : public ::testing::Test {
     }
     db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     // Check that WAL is empty
-    VectorLogPtr log_files;
+    VectorWalPtr log_files;
     ASSERT_OK(db_impl->GetSortedWalFiles(log_files));
     ASSERT_EQ(0, log_files.size());
 

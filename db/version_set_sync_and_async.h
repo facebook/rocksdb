@@ -25,8 +25,7 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
   StopWatchNano timer(clock_, timer_enabled /* auto_start */);
   s = CO_AWAIT(table_cache_->MultiGet)(
       read_options, *internal_comparator(), *f->file_metadata, &file_range,
-      mutable_cf_options_.block_protection_bytes_per_key,
-      mutable_cf_options_.prefix_extractor,
+      mutable_cf_options_,
       cfd_->internal_stats()->GetFileReadHist(hit_file_level), skip_filters,
       skip_range_deletions, hit_file_level, table_handle);
   // TODO: examine the behavior for corrupted key

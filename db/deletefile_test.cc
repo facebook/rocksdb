@@ -223,6 +223,49 @@ TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
   CheckFileTypeCounts(dbname_, 0, 1, 1);
 }
 
+TEST_F(DeleteFileTest, WaitForCompactWithWaitForPurgeOptionTest) {
+  Options options = CurrentOptions();
+  SetOptions(&options);
+  Destroy(options);
+  options.create_if_missing = true;
+  Reopen(options);
+
+  std::string first("0"), last("999999");
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 2;
+  Slice first_slice(first), last_slice(last);
+
+  CreateTwoLevels();
+  Iterator* itr = nullptr;
+  ReadOptions read_options;
+  read_options.background_purge_on_iterator_cleanup = true;
+  itr = db_->NewIterator(read_options);
+  ASSERT_OK(itr->status());
+  ASSERT_OK(db_->CompactRange(compact_options, &first_slice, &last_slice));
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkPurge:start", "DeleteFileTest::WaitForPurgeTest"},
+       {"DBImpl::WaitForCompact:InsideLoop",
+        "DBImpl::BackgroundCallPurge:beforeMutexLock"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  delete itr;
+
+  TEST_SYNC_POINT("DeleteFileTest::WaitForPurgeTest");
+  // At this point, purge got started, but can't finish due to sync points
+  // not purged yet
+  CheckFileTypeCounts(dbname_, 0, 3, 1);
+
+  // The sync point in WaitForCompact should unblock the purge
+  WaitForCompactOptions wait_for_compact_options;
+  wait_for_compact_options.wait_for_purge = true;
+  Status s = dbfull()->WaitForCompact(wait_for_compact_options);
+  ASSERT_OK(s);
+
+  // Now files should be purged
+  CheckFileTypeCounts(dbname_, 0, 1, 1);
+}
+
 TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
   Options options = CurrentOptions();
   SetOptions(&options);
@@ -600,4 +643,3 @@ int main(int argc, char** argv) {
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
-

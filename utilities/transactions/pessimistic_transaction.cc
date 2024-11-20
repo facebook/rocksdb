@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "utilities/transactions/pessimistic_transaction.h"
 
 #include <map>
@@ -74,6 +73,8 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   deadlock_detect_ = txn_options.deadlock_detect;
   deadlock_detect_depth_ = txn_options.deadlock_detect_depth;
   write_batch_.SetMaxBytes(txn_options.max_write_batch_size);
+  write_batch_.GetWriteBatch()->SetTrackTimestampSize(
+      txn_options.write_batch_track_timestamp_size);
   skip_concurrency_control_ = txn_options.skip_concurrency_control;
 
   lock_timeout_ = txn_options.lock_timeout * 1000;
@@ -190,12 +191,9 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
     }
   }
 
-  if (!do_validate && kMaxTxnTimestamp != read_timestamp_) {
-    return Status::InvalidArgument(
-        "If do_validate is false then GetForUpdate with read_timestamp is not "
-        "defined.");
-  } else if (do_validate && kMaxTxnTimestamp == read_timestamp_) {
-    return Status::InvalidArgument("read_timestamp must be set for validation");
+  Status s = SanityCheckReadTimestamp(do_validate);
+  if (!s.ok()) {
+    return s;
   }
 
   if (!read_options.timestamp) {
@@ -216,6 +214,94 @@ inline Status WriteCommittedTxn::GetForUpdateImpl(
   }
   return TransactionBaseImpl::GetForUpdate(read_options, column_family, key,
                                            value, exclusive, do_validate);
+}
+
+Status WriteCommittedTxn::GetEntityForUpdate(const ReadOptions& read_options,
+                                             ColumnFamilyHandle* column_family,
+                                             const Slice& key,
+                                             PinnableWideColumns* columns,
+                                             bool exclusive, bool do_validate) {
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call GetEntityForUpdate without a column family handle");
+  }
+
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  const size_t ts_sz = ucmp->timestamp_size();
+
+  if (ts_sz == 0) {
+    return TransactionBaseImpl::GetEntityForUpdate(
+        read_options, column_family, key, columns, exclusive, do_validate);
+  }
+
+  assert(ts_sz > 0);
+  Status s = SanityCheckReadTimestamp(do_validate);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::string ts_buf;
+  PutFixed64(&ts_buf, read_timestamp_);
+  Slice ts(ts_buf);
+
+  if (!read_options.timestamp) {
+    ReadOptions read_options_copy = read_options;
+    read_options_copy.timestamp = &ts;
+
+    return TransactionBaseImpl::GetEntityForUpdate(
+        read_options_copy, column_family, key, columns, exclusive, do_validate);
+  }
+
+  assert(read_options.timestamp);
+  if (*read_options.timestamp != ts) {
+    return Status::InvalidArgument("Must read from the same read timestamp");
+  }
+
+  return TransactionBaseImpl::GetEntityForUpdate(
+      read_options, column_family, key, columns, exclusive, do_validate);
+}
+
+Status WriteCommittedTxn::SanityCheckReadTimestamp(bool do_validate) {
+  bool enable_udt_validation =
+      txn_db_impl_->GetTxnDBOptions().enable_udt_validation;
+  if (!enable_udt_validation) {
+    if (kMaxTxnTimestamp != read_timestamp_) {
+      return Status::InvalidArgument(
+          "read_timestamp is set but timestamp validation is disabled for the "
+          "DB");
+    }
+  } else {
+    if (!do_validate) {
+      if (kMaxTxnTimestamp != read_timestamp_) {
+        return Status::InvalidArgument(
+            "If do_validate is false then GetForUpdate with read_timestamp is "
+            "not "
+            "defined.");
+      }
+    } else {
+      if (kMaxTxnTimestamp == read_timestamp_) {
+        return Status::InvalidArgument(
+            "read_timestamp must be set for validation");
+      }
+    }
+  }
+  return Status::OK();
+}
+
+Status WriteCommittedTxn::PutEntityImpl(ColumnFamilyHandle* column_family,
+                                        const Slice& key,
+                                        const WideColumns& columns,
+                                        bool do_validate, bool assume_tracked) {
+  return Operate(column_family, key, do_validate, assume_tracked,
+                 [column_family, &key, &columns, this]() {
+                   Status s = GetBatchForWrite()->PutEntity(column_family, key,
+                                                            columns);
+                   if (s.ok()) {
+                     ++num_put_entities_;
+                   }
+                   return s;
+                 });
 }
 
 Status WriteCommittedTxn::Put(ColumnFamilyHandle* column_family,
@@ -428,7 +514,8 @@ Status WriteCommittedTxn::SetReadTimestampForValidation(TxnTimestamp ts) {
 }
 
 Status WriteCommittedTxn::SetCommitTimestamp(TxnTimestamp ts) {
-  if (read_timestamp_ < kMaxTxnTimestamp && ts <= read_timestamp_) {
+  if (txn_db_impl_->GetTxnDBOptions().enable_udt_validation &&
+      read_timestamp_ < kMaxTxnTimestamp && ts <= read_timestamp_) {
     return Status::InvalidArgument(
         "Cannot commit at timestamp smaller than or equal to read timestamp");
   }
@@ -570,9 +657,9 @@ Status WriteCommittedTxn::PrepareInternal() {
   SequenceNumber* const KIgnoreSeqUsed = nullptr;
   const size_t kNoBatchCount = 0;
   s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          kNoWriteCallback, &log_number_, kRefNoLog,
-                          kDisableMemtable, KIgnoreSeqUsed, kNoBatchCount,
-                          &mark_log_callback);
+                          kNoWriteCallback, /*user_write_cb=*/nullptr,
+                          &log_number_, kRefNoLog, kDisableMemtable,
+                          KIgnoreSeqUsed, kNoBatchCount, &mark_log_callback);
   return s;
 }
 
@@ -678,8 +765,16 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
     EncodeFixed64(commit_ts_buf, commit_timestamp_);
     Slice commit_ts(commit_ts_buf, sizeof(commit_ts_buf));
 
-    Status s =
-        wb->UpdateTimestamps(commit_ts, [wbwi, this](uint32_t cf) -> size_t {
+    Status s = wb->UpdateTimestamps(
+        commit_ts, [wb, wbwi, this](uint32_t cf) -> size_t {
+          // First search through timestamp info kept inside the WriteBatch
+          // in case some writes bypassed the Transaction's write APIs.
+          auto cf_id_to_ts_sz = wb->GetColumnFamilyToTimestampSize();
+          auto iter = cf_id_to_ts_sz.find(cf);
+          if (iter != cf_id_to_ts_sz.end()) {
+            size_t ts_sz = iter->second;
+            return ts_sz;
+          }
           auto cf_iter = cfs_with_ts_tracked_when_indexing_disabled_.find(cf);
           if (cf_iter != cfs_with_ts_tracked_when_indexing_disabled_.end()) {
             return sizeof(kMaxTxnTimestamp);
@@ -705,11 +800,11 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
       post_mem_cb = &snapshot_creation_cb;
     }
   }
-  auto s = db_impl_->WriteImpl(write_options_, wb,
-                               /*callback*/ nullptr, /*log_used*/ nullptr,
-                               /*log_ref*/ 0, /*disable_memtable*/ false,
-                               &seq_used, /*batch_cnt=*/0,
-                               /*pre_release_callback=*/nullptr, post_mem_cb);
+  auto s = db_impl_->WriteImpl(
+      write_options_, wb,
+      /*callback*/ nullptr, /*user_write_cb=*/nullptr, /*log_used*/ nullptr,
+      /*log_ref*/ 0, /*disable_memtable*/ false, &seq_used, /*batch_cnt=*/0,
+      /*pre_release_callback=*/nullptr, post_mem_cb);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
@@ -720,6 +815,7 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
 Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch, size_t) {
   uint64_t seq_used = kMaxSequenceNumber;
   auto s = db_impl_->WriteImpl(write_options_, batch, /*callback*/ nullptr,
+                               /*user_write_cb=*/nullptr,
                                /*log_used*/ nullptr, /*log_ref*/ 0,
                                /*disable_memtable*/ false, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
@@ -754,16 +850,24 @@ Status WriteCommittedTxn::CommitInternal() {
     s = WriteBatchInternal::MarkCommitWithTimestamp(working_batch, name_,
                                                     commit_ts);
     if (s.ok()) {
-      s = wb->UpdateTimestamps(commit_ts, [wbwi, this](uint32_t cf) -> size_t {
-        if (cfs_with_ts_tracked_when_indexing_disabled_.find(cf) !=
-            cfs_with_ts_tracked_when_indexing_disabled_.end()) {
-          return sizeof(kMaxTxnTimestamp);
-        }
-        const Comparator* ucmp =
-            WriteBatchWithIndexInternal::GetUserComparator(*wbwi, cf);
-        return ucmp ? ucmp->timestamp_size()
-                    : std::numeric_limits<size_t>::max();
-      });
+      s = wb->UpdateTimestamps(
+          commit_ts, [wb, wbwi, this](uint32_t cf) -> size_t {
+            // first search through timestamp info kept inside the WriteBatch
+            // in case some writes bypassed the Transaction's write APIs.
+            auto cf_id_to_ts_sz = wb->GetColumnFamilyToTimestampSize();
+            auto iter = cf_id_to_ts_sz.find(cf);
+            if (iter != cf_id_to_ts_sz.end()) {
+              return iter->second;
+            }
+            if (cfs_with_ts_tracked_when_indexing_disabled_.find(cf) !=
+                cfs_with_ts_tracked_when_indexing_disabled_.end()) {
+              return sizeof(kMaxTxnTimestamp);
+            }
+            const Comparator* ucmp =
+                WriteBatchWithIndexInternal::GetUserComparator(*wbwi, cf);
+            return ucmp ? ucmp->timestamp_size()
+                        : std::numeric_limits<size_t>::max();
+          });
     }
   }
 
@@ -793,6 +897,7 @@ Status WriteCommittedTxn::CommitInternal() {
     }
   }
   s = db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
+                          /*user_write_cb=*/nullptr,
                           /*log_used*/ nullptr, /*log_ref*/ log_number_,
                           /*disable_memtable*/ false, &seq_used,
                           /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
@@ -893,6 +998,11 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
 
     Status PutCF(uint32_t column_family_id, const Slice& key,
                  const Slice& /* unused */) override {
+      RecordKey(column_family_id, key);
+      return Status::OK();
+    }
+    Status PutEntityCF(uint32_t column_family_id, const Slice& key,
+                       const Slice& /* unused */) override {
       RecordKey(column_family_id, key);
       return Status::OK();
     }
@@ -1132,7 +1242,10 @@ Status PessimisticTransaction::ValidateSnapshot(
 
   return TransactionUtil::CheckKeyForConflicts(
       db_impl_, cfh, key.ToString(), snap_seq, ts_sz == 0 ? nullptr : &ts_buf,
-      false /* cache_only */);
+      false /* cache_only */,
+      /* snap_checker */ nullptr,
+      /* min_uncommitted */ kMaxSequenceNumber,
+      txn_db_impl_->GetTxnDBOptions().enable_udt_validation);
 }
 
 bool PessimisticTransaction::TryStealingLocks() {
@@ -1152,14 +1265,15 @@ Status PessimisticTransaction::SetName(const TransactionName& name) {
   if (txn_state_ == STARTED) {
     if (name_.length()) {
       s = Status::InvalidArgument("Transaction has already been named.");
-    } else if (txn_db_impl_->GetTransactionByName(name) != nullptr) {
-      s = Status::InvalidArgument("Transaction name must be unique.");
     } else if (name.length() < 1 || name.length() > 512) {
       s = Status::InvalidArgument(
           "Transaction name length must be between 1 and 512 chars.");
     } else {
       name_ = name;
-      txn_db_impl_->RegisterTransaction(this);
+      s = txn_db_impl_->RegisterTransaction(this);
+      if (!s.ok()) {
+        name_.clear();
+      }
     }
   } else {
     s = Status::InvalidArgument("Transaction is beyond state for naming.");

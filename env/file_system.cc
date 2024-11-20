@@ -181,10 +181,10 @@ FileOptions FileSystem::OptimizeForBlobFileRead(
 
 IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
                            const std::string& fname, bool should_sync,
-                           const IOOptions& io_options) {
+                           const IOOptions& io_options,
+                           const FileOptions& file_options) {
   std::unique_ptr<FSWritableFile> file;
-  EnvOptions soptions;
-  IOStatus s = fs->NewWritableFile(fname, soptions, &file, nullptr);
+  IOStatus s = fs->NewWritableFile(fname, file_options, &file, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -200,6 +200,11 @@ IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
 
 IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
                           std::string* data) {
+  return ReadFileToString(fs, fname, IOOptions(), data);
+}
+
+IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
+                          const IOOptions& opts, std::string* data) {
   FileOptions soptions;
   data->clear();
   std::unique_ptr<FSSequentialFile> file;
@@ -212,7 +217,7 @@ IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
   char* space = new char[kBufferSize];
   while (true) {
     Slice fragment;
-    s = file->Read(kBufferSize, IOOptions(), &fragment, space, nullptr);
+    s = file->Read(kBufferSize, opts, &fragment, space, nullptr);
     if (!s.ok()) {
       break;
     }

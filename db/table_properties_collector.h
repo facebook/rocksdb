@@ -44,7 +44,9 @@ class InternalTblPropCollFactory {
   virtual ~InternalTblPropCollFactory() {}
   // has to be thread-safe
   virtual InternalTblPropColl* CreateInternalTblPropColl(
-      uint32_t column_family_id, int level_at_creation) = 0;
+      uint32_t column_family_id, int level_at_creation, int num_levels,
+      SequenceNumber last_level_inclusive_max_seqno_threshold =
+          kMaxSequenceNumber) = 0;
 
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;
@@ -92,10 +94,15 @@ class UserKeyTablePropertiesCollectorFactory
       std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory)
       : user_collector_factory_(user_collector_factory) {}
   InternalTblPropColl* CreateInternalTblPropColl(
-      uint32_t column_family_id, int level_at_creation) override {
+      uint32_t column_family_id, int level_at_creation, int num_levels,
+      SequenceNumber last_level_inclusive_max_seqno_threshold =
+          kMaxSequenceNumber) override {
     TablePropertiesCollectorFactory::Context context;
     context.column_family_id = column_family_id;
     context.level_at_creation = level_at_creation;
+    context.num_levels = num_levels;
+    context.last_level_inclusive_max_seqno_threshold =
+        last_level_inclusive_max_seqno_threshold;
     TablePropertiesCollector* collector =
         user_collector_factory_->CreateTablePropertiesCollector(context);
     if (collector) {

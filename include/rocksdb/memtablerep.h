@@ -194,6 +194,15 @@ class MemTableRep {
   virtual void Get(const LookupKey& k, void* callback_args,
                    bool (*callback_func)(void* arg, const char* entry));
 
+  // Same as Get() but performs data integrity validation.
+  virtual Status GetAndValidate(const LookupKey& /* k */,
+                                void* /* callback_args */,
+                                bool (* /* callback_func */)(void* arg,
+                                                             const char* entry),
+                                bool /*allow_data_in_error*/) {
+    return Status::NotSupported("GetAndValidate() not implemented.");
+  }
+
   virtual uint64_t ApproximateNumEntries(const Slice& /*start_ikey*/,
                                          const Slice& /*end_key*/) {
     return 0;
@@ -235,12 +244,37 @@ class MemTableRep {
     // REQUIRES: Valid()
     virtual void Next() = 0;
 
+    // Advances to the next position and performs integrity validations on the
+    // skip list. Iterator becomes invalid and Corruption is returned if a
+    // corruption is found.
+    // REQUIRES: Valid()
+    virtual Status NextAndValidate(bool /* allow_data_in_errors */) {
+      return Status::NotSupported("NextAndValidate() not implemented.");
+    }
+
     // Advances to the previous position.
     // REQUIRES: Valid()
     virtual void Prev() = 0;
 
+    // Advances to the previous position and performs integrity validations on
+    // the skip list. Iterator becomes invalid and Corruption is returned if a
+    // corruption is found.
+    // REQUIRES: Valid()
+    virtual Status PrevAndValidate(bool /* allow_data_in_errors */) {
+      return Status::NotSupported("PrevAndValidate() not implemented.");
+    }
+
     // Advance to the first entry with a key >= target
     virtual void Seek(const Slice& internal_key, const char* memtable_key) = 0;
+
+    // Seek and perform integrity validations on the skip list.
+    // Iterator becomes invalid and Corruption is returned if a
+    // corruption is found.
+    virtual Status SeekAndValidate(const Slice& /* internal_key */,
+                                   const char* /* memtable_key */,
+                                   bool /* allow_data_in_errors */) {
+      return Status::NotSupported("SeekAndValidate() not implemented.");
+    }
 
     // retreat to the first entry with a key <= target
     virtual void SeekForPrev(const Slice& internal_key,

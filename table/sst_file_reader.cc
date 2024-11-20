@@ -15,6 +15,7 @@
 #include "rocksdb/file_system.h"
 #include "table/get_context.h"
 #include "table/table_builder.h"
+#include "table/table_iterator.h"
 #include "table/table_reader.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -24,6 +25,9 @@ struct SstFileReader::Rep {
   EnvOptions soptions;
   ImmutableOptions ioptions;
   MutableCFOptions moptions;
+  // Keep a member variable for this, since `NewIterator()` uses a const
+  // reference of `ReadOptions`.
+  ReadOptions roptions_for_table_iter;
 
   std::unique_ptr<TableReader> table_reader;
 
@@ -31,7 +35,10 @@ struct SstFileReader::Rep {
       : options(opts),
         soptions(options),
         ioptions(options),
-        moptions(ColumnFamilyOptions(options)) {}
+        moptions(ColumnFamilyOptions(options)) {
+    roptions_for_table_iter =
+        ReadOptions(/*_verify_checksums=*/true, /*_fill_cache=*/false);
+  }
 };
 
 SstFileReader::SstFileReader(const Options& options) : rep_(new Rep(options)) {}
@@ -94,6 +101,21 @@ Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
   return res;
 }
 
+std::unique_ptr<Iterator> SstFileReader::NewTableIterator() {
+  auto r = rep_.get();
+  InternalIterator* internal_iter = r->table_reader->NewIterator(
+      r->roptions_for_table_iter, r->moptions.prefix_extractor.get(),
+      /*arena*/ nullptr, false /* skip_filters */,
+      TableReaderCaller::kSSTFileReader);
+  assert(internal_iter);
+  if (internal_iter == nullptr) {
+    // Do not attempt to create a TableIterator if we cannot get a valid
+    // InternalIterator.
+    return nullptr;
+  }
+  return std::make_unique<TableIterator>(internal_iter);
+}
+
 std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()
     const {
   return rep_->table_reader->GetTableProperties();
@@ -118,7 +140,7 @@ Status SstFileReader::VerifyNumEntries(const ReadOptions& read_options) {
   uint64_t num_read = 0;
   for (; internal_iter->Valid(); internal_iter->Next()) {
     ++num_read;
-  };
+  }
   s = internal_iter->status();
   if (!s.ok()) {
     return s;

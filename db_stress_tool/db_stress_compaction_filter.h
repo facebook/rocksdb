@@ -49,7 +49,7 @@ class DbStressCompactionFilter : public CompactionFilter {
       return Decision::kKeep;
     }
     // Reaching here means we acquired the lock.
-
+    key_mutex->AssertHeld();
     bool key_exists = state_->Exists(cf_id_, key_num);
     const bool allow_overwrite = state_->AllowsOverwrite(key_num);
 

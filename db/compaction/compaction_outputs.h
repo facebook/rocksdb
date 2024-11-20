@@ -62,8 +62,9 @@ class CompactionOutputs {
   }
 
   // TODO: Remove it when remote compaction support tiered compaction
-  void SetTotalBytes(uint64_t bytes) { stats_.bytes_written += bytes; }
+  void AddBytesWritten(uint64_t bytes) { stats_.bytes_written += bytes; }
   void SetNumOutputRecords(uint64_t num) { stats_.num_output_records = num; }
+  void SetNumOutputFiles(uint64_t num) { stats_.num_output_files = num; }
 
   // TODO: Move the BlobDB builder into CompactionOutputs
   const std::vector<BlobFileAddition>& GetBlobFileAdditions() const {
@@ -107,6 +108,12 @@ class CompactionOutputs {
   Status Finish(const Status& intput_status,
                 const SeqnoToTimeMapping& seqno_to_time_mapping);
 
+  // Update output table properties from already populated TableProperties.
+  // Used for remote compaction
+  void UpdateTableProperties(const TableProperties& table_properties) {
+    current_output().table_properties =
+        std::make_shared<TableProperties>(table_properties);
+  }
   // Update output table properties from table builder
   void UpdateTableProperties() {
     current_output().table_properties =
@@ -297,6 +304,7 @@ class CompactionOutputs {
   std::unique_ptr<TableBuilder> builder_;
   std::unique_ptr<WritableFileWriter> file_writer_;
   uint64_t current_output_file_size_ = 0;
+  SequenceNumber smallest_preferred_seqno_ = kMaxSequenceNumber;
 
   // all the compaction outputs so far
   std::vector<Output> outputs_;

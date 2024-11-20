@@ -17,6 +17,8 @@ void CompactionJobStats::Reset() {
   num_blobs_read = 0;
   num_input_files = 0;
   num_input_files_at_output_level = 0;
+  num_filtered_input_files = 0;
+  num_filtered_input_files_at_output_level = 0;
 
   num_output_records = 0;
   num_output_files = 0;
@@ -24,11 +26,13 @@ void CompactionJobStats::Reset() {
 
   is_full_compaction = false;
   is_manual_compaction = false;
+  is_remote_compaction = false;
 
   total_input_bytes = 0;
   total_blob_bytes_read = 0;
   total_output_bytes = 0;
   total_output_bytes_blob = 0;
+  total_skipped_input_bytes = 0;
 
   num_records_replaced = 0;
 
@@ -61,6 +65,9 @@ void CompactionJobStats::Add(const CompactionJobStats& stats) {
   num_blobs_read += stats.num_blobs_read;
   num_input_files += stats.num_input_files;
   num_input_files_at_output_level += stats.num_input_files_at_output_level;
+  num_filtered_input_files += stats.num_filtered_input_files;
+  num_filtered_input_files_at_output_level +=
+      stats.num_filtered_input_files_at_output_level;
 
   num_output_records += stats.num_output_records;
   num_output_files += stats.num_output_files;
@@ -70,6 +77,7 @@ void CompactionJobStats::Add(const CompactionJobStats& stats) {
   total_blob_bytes_read += stats.total_blob_bytes_read;
   total_output_bytes += stats.total_output_bytes;
   total_output_bytes_blob += stats.total_output_bytes_blob;
+  total_skipped_input_bytes += stats.total_skipped_input_bytes;
 
   num_records_replaced += stats.num_records_replaced;
 
@@ -88,6 +96,8 @@ void CompactionJobStats::Add(const CompactionJobStats& stats) {
 
   num_single_del_fallthru += stats.num_single_del_fallthru;
   num_single_del_mismatch += stats.num_single_del_mismatch;
+
+  is_remote_compaction |= stats.is_remote_compaction;
 }
 
 

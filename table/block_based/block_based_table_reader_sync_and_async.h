@@ -223,13 +223,16 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         s = VerifyBlockChecksum(footer, data, handle.size(),
                                 rep_->file->file_name(), handle.offset());
         RecordTick(ioptions.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
+        if (!s.ok()) {
+          RecordTick(ioptions.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+        }
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
         if (!s.ok() &&
             CheckFSFeatureSupport(ioptions.fs.get(),
                                   FSSupportedOps::kVerifyAndReconstructRead)) {
           assert(s.IsCorruption());
           assert(!ioptions.allow_mmap_reads);
-          RecordTick(ioptions.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+          RecordTick(ioptions.stats, FILE_READ_CORRUPTION_RETRY_COUNT);
 
           // Repeat the read for this particular block using the regular
           // synchronous Read API. We can use the same chunk of memory
@@ -246,6 +249,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
             assert(result.size() == BlockSizeWithTrailer(handle));
             s = VerifyBlockChecksum(footer, data, handle.size(),
                                     rep_->file->file_name(), handle.offset());
+            if (s.ok()) {
+              RecordTick(ioptions.stats,
+                         FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT);
+            }
           } else {
             s = io_s;
           }
@@ -296,12 +303,15 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
             /*lookup_context=*/nullptr, &serialized_block,
             /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
 
+        if (!s.ok()) {
+          statuses[idx_in_batch] = s;
+          continue;
+        }
         // block_entry value could be null if no block cache is present, i.e
         // BlockBasedTableOptions::no_block_cache is true and no compressed
         // block cache is configured. In that case, fall
         // through and set up the block explicitly
         if (block_entry->GetValue() != nullptr) {
-          s.PermitUncheckedError();
           continue;
         }
       }
@@ -362,7 +372,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
 
   // First check the full filter
   // If full filter not useful, Then go into each block
-  const bool no_io = read_options.read_tier == kBlockCacheTier;
   uint64_t tracing_mget_id = BlockCacheTraceHelper::kReservedGetId;
   if (sst_file_range.begin()->get_context) {
     tracing_mget_id = sst_file_range.begin()->get_context->get_tracing_get_id();
@@ -372,7 +381,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
   BlockCacheLookupContext metadata_lookup_context{
       TableReaderCaller::kUserMultiGet, tracing_mget_id,
       /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
-  FullFilterKeysMayMatch(filter, &sst_file_range, no_io, prefix_extractor,
+  FullFilterKeysMayMatch(filter, &sst_file_range, prefix_extractor,
                          &metadata_lookup_context, read_options);
 
   if (!sst_file_range.empty()) {
@@ -461,9 +470,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             uncompression_dict_status =
                 rep_->uncompression_dict_reader
                     ->GetOrReadUncompressionDictionary(
-                        nullptr /* prefetch_buffer */, read_options, no_io,
-                        read_options.verify_checksums, get_context,
-                        &metadata_lookup_context, &uncompression_dict);
+                        nullptr /* prefetch_buffer */, read_options,
+                        get_context, &metadata_lookup_context,
+                        &uncompression_dict);
             uncompression_dict_inited = true;
           }
 
@@ -668,7 +677,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             biter->status().IsIncomplete()) {
           // couldn't get block from block_cache
           // Update Saver.state to Found because we are only looking for
-          // whether we can guarantee the key is not there when "no_io" is set
+          // whether we can guarantee the key is not there with kBlockCacheTier
           get_context->MarkKeyMayExist();
           break;
         }
@@ -729,15 +738,23 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         }
 
         // Call the *saver function on each entry/block until it returns false
-        for (; biter->Valid(); biter->Next()) {
+        for (; biter->status().ok() && biter->Valid(); biter->Next()) {
           ParsedInternalKey parsed_key;
           Status pik_status = ParseInternalKey(
               biter->key(), &parsed_key, false /* log_err_key */);  // TODO
           if (!pik_status.ok()) {
             s = pik_status;
+            break;
           }
-          if (!get_context->SaveValue(parsed_key, biter->value(), &matched,
-                                      value_pinner)) {
+          Status read_status;
+          bool ret = get_context->SaveValue(
+              parsed_key, biter->value(), &matched, &read_status,
+              value_pinner ? value_pinner : nullptr);
+          if (!read_status.ok()) {
+            s = read_status;
+            break;
+          }
+          if (!ret) {
             if (get_context->State() == GetContext::GetState::kFound) {
               does_referenced_key_exist = true;
               referenced_data_size =
@@ -746,7 +763,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             done = true;
             break;
           }
-          s = biter->status();
         }
         // Write the block cache access.
         // XXX: There appear to be 'break' statements above that bypass this
@@ -769,8 +785,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
               *lookup_data_block_context, lookup_data_block_context->block_key,
               referenced_key, does_referenced_key_exist, referenced_data_size);
         }
-        s = biter->status();
-        if (done) {
+        if (s.ok()) {
+          s = biter->status();
+        }
+        if (done || !s.ok()) {
           // Avoid the extra Next which is expensive in two-level indexes
           break;
         }

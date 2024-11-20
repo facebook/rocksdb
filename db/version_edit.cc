@@ -255,7 +255,6 @@ bool VersionEdit::EncodeTo(std::string* dst,
       char p = static_cast<char>(0);
       PutLengthPrefixedSlice(dst, Slice(&p, 1));
     }
-
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                              dst);
 
@@ -484,7 +483,7 @@ void VersionEdit::EncodeFileBoundaries(std::string* dst,
   StripTimestampFromInternalKey(&largest_buf, meta.largest.Encode(), ts_sz);
   PutLengthPrefixedSlice(dst, smallest_buf);
   PutLengthPrefixedSlice(dst, largest_buf);
-};
+}
 
 Status VersionEdit::DecodeFrom(const Slice& src) {
   Clear();

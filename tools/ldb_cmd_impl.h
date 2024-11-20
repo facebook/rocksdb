@@ -369,7 +369,7 @@ class WALDumperCommand : public LDBCommand {
                    const std::map<std::string, std::string>& options,
                    const std::vector<std::string>& flags);
 
-  bool NoDBOpen() override { return true; }
+  bool NoDBOpen() override { return no_db_open_; }
 
   static void Help(std::string& ret);
 
@@ -379,12 +379,15 @@ class WALDumperCommand : public LDBCommand {
   bool print_header_;
   std::string wal_file_;
   bool print_values_;
+  bool only_print_seqno_gaps_;
   bool is_write_committed_;  // default will be set to true
+  bool no_db_open_ = true;
 
   static const std::string ARG_WAL_FILE;
   static const std::string ARG_WRITE_COMMITTED;
   static const std::string ARG_PRINT_HEADER;
   static const std::string ARG_PRINT_VALUE;
+  static const std::string ARG_ONLY_PRINT_SEQNO_GAPS;
 };
 
 class GetCommand : public LDBCommand {
@@ -433,6 +436,22 @@ class GetEntityCommand : public LDBCommand {
 
  private:
   std::string key_;
+};
+
+class MultiGetEntityCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "multi_get_entity"; }
+
+  MultiGetEntityCommand(const std::vector<std::string>& params,
+                        const std::map<std::string, std::string>& options,
+                        const std::vector<std::string>& flags);
+
+  void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::vector<std::string> keys_;
 };
 
 class ApproxSizeCommand : public LDBCommand {
@@ -492,6 +511,7 @@ class ScanCommand : public LDBCommand {
   bool end_key_specified_;
   int max_keys_scanned_;
   bool no_value_;
+  bool get_write_unix_time_;
 };
 
 class DeleteCommand : public LDBCommand {
@@ -603,6 +623,7 @@ class DBQuerierCommand : public LDBCommand {
   static const char* GET_CMD;
   static const char* PUT_CMD;
   static const char* DELETE_CMD;
+  static const char* COUNT_CMD;
 };
 
 class CheckConsistencyCommand : public LDBCommand {

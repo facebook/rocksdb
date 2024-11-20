@@ -201,8 +201,10 @@ InternalIterator* PlainTableReader::NewIterator(
   assert(table_properties_);
 
   // Auto prefix mode is not implemented in PlainTable.
-  bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek &&
-                         !options.auto_prefix_mode;
+  bool use_prefix_seek =
+      !IsTotalOrderMode() &&
+      (options.prefix_same_as_start ||
+       (!options.total_order_seek && !options.auto_prefix_mode));
   if (arena == nullptr) {
     return new PlainTableIterator(this, use_prefix_seek);
   } else {
@@ -614,8 +616,12 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
     // can we enable the fast path?
     if (internal_comparator_.Compare(found_key, parsed_target) >= 0) {
       bool dont_care __attribute__((__unused__));
-      if (!get_context->SaveValue(found_key, found_value, &dont_care,
-                                  dummy_cleanable_.get())) {
+      bool ret = get_context->SaveValue(found_key, found_value, &dont_care, &s,
+                                        dummy_cleanable_.get());
+      if (!s.ok()) {
+        return s;
+      }
+      if (!ret) {
         break;
       }
     }

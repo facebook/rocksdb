@@ -47,9 +47,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     const ReadOptions& read_options, bool /* disable_prefix_seek */,
     IndexBlockIter* iter, GetContext* get_context,
     BlockCacheLookupContext* lookup_context) {
-  const bool no_io = (read_options.read_tier == kBlockCacheTier);
   CachableEntry<Block> index_block;
-  const Status s = GetOrReadIndexBlock(no_io, get_context, lookup_context,
+  const Status s = GetOrReadIndexBlock(get_context, lookup_context,
                                        &index_block, read_options);
   if (!s.ok()) {
     if (iter != nullptr) {
@@ -78,15 +77,10 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             index_value_is_full(), false /* block_contents_pinned */,
             user_defined_timestamps_persisted()));
   } else {
-    ReadOptions ro;
-    ro.fill_cache = read_options.fill_cache;
-    ro.deadline = read_options.deadline;
-    ro.io_timeout = read_options.io_timeout;
-    ro.adaptive_readahead = read_options.adaptive_readahead;
-    ro.async_io = read_options.async_io;
-    ro.rate_limiter_priority = read_options.rate_limiter_priority;
-    ro.verify_checksums = read_options.verify_checksums;
-    ro.io_activity = read_options.io_activity;
+    ReadOptions ro{read_options};
+    // FIXME? Possible regression seen in prefetch_test if this field is
+    // propagated
+    ro.readahead_size = ReadOptions{}.readahead_size;
 
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
@@ -130,8 +124,8 @@ Status PartitionIndexReader::CacheDependencies(
 
   CachableEntry<Block> index_block;
   {
-    Status s = GetOrReadIndexBlock(false /* no_io */, nullptr /* get_context */,
-                                   &lookup_context, &index_block, ro);
+    Status s = GetOrReadIndexBlock(nullptr /* get_context */, &lookup_context,
+                                   &index_block, ro);
     if (!s.ok()) {
       return s;
     }
@@ -223,4 +217,48 @@ Status PartitionIndexReader::CacheDependencies(
   return s;
 }
 
+void PartitionIndexReader::EraseFromCacheBeforeDestruction(
+    uint32_t uncache_aggressiveness) {
+  // NOTE: essentially a copy of
+  // PartitionedFilterBlockReader::EraseFromCacheBeforeDestruction
+  if (uncache_aggressiveness > 0) {
+    CachableEntry<Block> top_level_block;
+
+    ReadOptions ro_no_io;
+    ro_no_io.read_tier = ReadTier::kBlockCacheTier;
+    GetOrReadIndexBlock(/*get_context=*/nullptr,
+                        /*lookup_context=*/nullptr, &top_level_block, ro_no_io)
+        .PermitUncheckedError();
+
+    if (!partition_map_.empty()) {
+      // All partitions present if any
+      for (auto& e : partition_map_) {
+        e.second.ResetEraseIfLastRef();
+      }
+    } else if (!top_level_block.IsEmpty()) {
+      IndexBlockIter biter;
+      const InternalKeyComparator* const comparator = internal_comparator();
+      Statistics* kNullStats = nullptr;
+      top_level_block.GetValue()->NewIndexIterator(
+          comparator->user_comparator(),
+          table()->get_rep()->get_global_seqno(BlockType::kIndex), &biter,
+          kNullStats, true /* total_order_seek */, index_has_first_key(),
+          index_key_includes_seq(), index_value_is_full(),
+          false /* block_contents_pinned */,
+          user_defined_timestamps_persisted());
+
+      UncacheAggressivenessAdvisor advisor(uncache_aggressiveness);
+      for (biter.SeekToFirst(); biter.Valid() && advisor.ShouldContinue();
+           biter.Next()) {
+        bool erased = table()->EraseFromCache(biter.value().handle);
+        advisor.Report(erased);
+      }
+      biter.status().PermitUncheckedError();
+    }
+    top_level_block.ResetEraseIfLastRef();
+  }
+  // Might be needed to un-cache a pinned top-level block
+  BlockBasedTable::IndexReaderCommon::EraseFromCacheBeforeDestruction(
+      uncache_aggressiveness);
+}
 }  // namespace ROCKSDB_NAMESPACE

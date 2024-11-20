@@ -21,11 +21,7 @@ FullFilterBlockBuilder::FullFilterBlockBuilder(
     const SliceTransform* _prefix_extractor, bool whole_key_filtering,
     FilterBitsBuilder* filter_bits_builder)
     : prefix_extractor_(_prefix_extractor),
-      whole_key_filtering_(whole_key_filtering),
-      last_whole_key_recorded_(false),
-      last_prefix_recorded_(false),
-      last_key_in_domain_(false),
-      any_added_(false) {
+      whole_key_filtering_(whole_key_filtering) {
   assert(filter_bits_builder != nullptr);
   filter_bits_builder_.reset(filter_bits_builder);
 }
@@ -34,88 +30,31 @@ size_t FullFilterBlockBuilder::EstimateEntriesAdded() {
   return filter_bits_builder_->EstimateEntriesAdded();
 }
 
+void FullFilterBlockBuilder::AddWithPrevKey(
+    const Slice& key_without_ts, const Slice& /*prev_key_without_ts*/) {
+  FullFilterBlockBuilder::Add(key_without_ts);
+}
+
 void FullFilterBlockBuilder::Add(const Slice& key_without_ts) {
-  const bool add_prefix =
-      prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts);
-
-  if (!last_prefix_recorded_ && last_key_in_domain_) {
-    // We can reach here when a new filter partition starts in partitioned
-    // filter. The last prefix in the previous partition should be added if
-    // necessary regardless of key_without_ts, to support prefix SeekForPrev.
-    AddKey(last_prefix_str_);
-    last_prefix_recorded_ = true;
-  }
-
-  if (whole_key_filtering_) {
-    if (!add_prefix) {
-      AddKey(key_without_ts);
+  if (prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts)) {
+    Slice prefix = prefix_extractor_->Transform(key_without_ts);
+    if (whole_key_filtering_) {
+      filter_bits_builder_->AddKeyAndAlt(key_without_ts, prefix);
     } else {
-      // if both whole_key and prefix are added to bloom then we will have whole
-      // key_without_ts and prefix addition being interleaved and thus cannot
-      // rely on the bits builder to properly detect the duplicates by comparing
-      // with the last item.
-      Slice last_whole_key = Slice(last_whole_key_str_);
-      if (!last_whole_key_recorded_ ||
-          last_whole_key.compare(key_without_ts) != 0) {
-        AddKey(key_without_ts);
-        last_whole_key_recorded_ = true;
-        last_whole_key_str_.assign(key_without_ts.data(),
-                                   key_without_ts.size());
-      }
+      filter_bits_builder_->AddKey(prefix);
     }
-  }
-  if (add_prefix) {
-    last_key_in_domain_ = true;
-    AddPrefix(key_without_ts);
-  } else {
-    last_key_in_domain_ = false;
+  } else if (whole_key_filtering_) {
+    filter_bits_builder_->AddKey(key_without_ts);
   }
 }
 
-// Add key to filter if needed
-inline void FullFilterBlockBuilder::AddKey(const Slice& key) {
-  filter_bits_builder_->AddKey(key);
-  any_added_ = true;
-}
-
-// Add prefix to filter if needed
-void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
-  assert(prefix_extractor_ && prefix_extractor_->InDomain(key));
-  Slice prefix = prefix_extractor_->Transform(key);
-  if (whole_key_filtering_) {
-    // if both whole_key and prefix are added to bloom then we will have whole
-    // key and prefix addition being interleaved and thus cannot rely on the
-    // bits builder to properly detect the duplicates by comparing with the last
-    // item.
-    Slice last_prefix = Slice(last_prefix_str_);
-    if (!last_prefix_recorded_ || last_prefix.compare(prefix) != 0) {
-      AddKey(prefix);
-      last_prefix_recorded_ = true;
-      last_prefix_str_.assign(prefix.data(), prefix.size());
-    }
-  } else {
-    AddKey(prefix);
-  }
-}
-
-void FullFilterBlockBuilder::Reset() {
-  last_whole_key_recorded_ = false;
-  last_prefix_recorded_ = false;
-}
-
-Slice FullFilterBlockBuilder::Finish(
-    const BlockHandle& /*tmp*/, Status* status,
-    std::unique_ptr<const char[]>* filter_data) {
-  Reset();
-  // In this impl we ignore BlockHandle
-  *status = Status::OK();
-  if (any_added_) {
-    any_added_ = false;
-    Slice filter_content = filter_bits_builder_->Finish(
-        filter_data ? filter_data : &filter_data_, status);
-    return filter_content;
-  }
-  return Slice();
+Status FullFilterBlockBuilder::Finish(
+    const BlockHandle& /*last_partition_block_handle*/, Slice* filter,
+    std::unique_ptr<const char[]>* filter_owner) {
+  Status s = Status::OK();
+  *filter = filter_bits_builder_->Finish(
+      filter_owner ? filter_owner : &filter_data_, &s);
+  return s;
 }
 
 FullFilterBlockReader::FullFilterBlockReader(
@@ -123,7 +62,7 @@ FullFilterBlockReader::FullFilterBlockReader(
     CachableEntry<ParsedFullFilterBlock>&& filter_block)
     : FilterBlockReaderCommon(t, std::move(filter_block)) {}
 
-bool FullFilterBlockReader::KeyMayMatch(const Slice& key, const bool no_io,
+bool FullFilterBlockReader::KeyMayMatch(const Slice& key,
                                         const Slice* const /*const_ikey_ptr*/,
                                         GetContext* get_context,
                                         BlockCacheLookupContext* lookup_context,
@@ -131,7 +70,7 @@ bool FullFilterBlockReader::KeyMayMatch(const Slice& key, const bool no_io,
   if (!whole_key_filtering()) {
     return true;
   }
-  return MayMatch(key, no_io, get_context, lookup_context, read_options);
+  return MayMatch(key, get_context, lookup_context, read_options);
 }
 
 std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
@@ -162,19 +101,19 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
 }
 
 bool FullFilterBlockReader::PrefixMayMatch(
-    const Slice& prefix, const bool no_io,
-    const Slice* const /*const_ikey_ptr*/, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options) {
-  return MayMatch(prefix, no_io, get_context, lookup_context, read_options);
+    const Slice& prefix, const Slice* const /*const_ikey_ptr*/,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context,
+    const ReadOptions& read_options) {
+  return MayMatch(prefix, get_context, lookup_context, read_options);
 }
 
-bool FullFilterBlockReader::MayMatch(const Slice& entry, bool no_io,
+bool FullFilterBlockReader::MayMatch(const Slice& entry,
                                      GetContext* get_context,
                                      BlockCacheLookupContext* lookup_context,
                                      const ReadOptions& read_options) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
-  const Status s = GetOrReadFilterBlock(no_io, get_context, lookup_context,
+  const Status s = GetOrReadFilterBlock(get_context, lookup_context,
                                         &filter_block, read_options);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
@@ -199,32 +138,30 @@ bool FullFilterBlockReader::MayMatch(const Slice& entry, bool no_io,
 }
 
 void FullFilterBlockReader::KeysMayMatch(
-    MultiGetRange* range, const bool no_io,
-    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options) {
+    MultiGetRange* range, BlockCacheLookupContext* lookup_context,
+    const ReadOptions& read_options) {
   if (!whole_key_filtering()) {
     // Simply return. Don't skip any key - consider all keys as likely to be
     // present
     return;
   }
-  MayMatch(range, no_io, nullptr, lookup_context, read_options);
+  MayMatch(range, nullptr, lookup_context, read_options);
 }
 
 void FullFilterBlockReader::PrefixesMayMatch(
     MultiGetRange* range, const SliceTransform* prefix_extractor,
-    const bool no_io, BlockCacheLookupContext* lookup_context,
-    const ReadOptions& read_options) {
-  MayMatch(range, no_io, prefix_extractor, lookup_context, read_options);
+    BlockCacheLookupContext* lookup_context, const ReadOptions& read_options) {
+  MayMatch(range, prefix_extractor, lookup_context, read_options);
 }
 
-void FullFilterBlockReader::MayMatch(MultiGetRange* range, bool no_io,
+void FullFilterBlockReader::MayMatch(MultiGetRange* range,
                                      const SliceTransform* prefix_extractor,
                                      BlockCacheLookupContext* lookup_context,
                                      const ReadOptions& read_options) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
-  const Status s =
-      GetOrReadFilterBlock(no_io, range->begin()->get_context, lookup_context,
-                           &filter_block, read_options);
+  const Status s = GetOrReadFilterBlock(
+      range->begin()->get_context, lookup_context, &filter_block, read_options);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return;

@@ -29,6 +29,8 @@ struct Options;
 // treat errors (e.g. ignore_unknown_objects), the format
 // of the serialization (e.g. delimiter), and how to compare
 // options (sanity_level).
+// NOTE: members of this struct make it potentially problematic for
+// static storage duration ("static initialization order fiasco")
 struct ConfigOptions {
   // Constructs a new ConfigOptions with a new object registry.
   // This method should only be used when a DBOptions is not available,
@@ -56,7 +58,9 @@ struct ConfigOptions {
                      // setting
   };
 
-  // When true, any unused options will be ignored and OK will be returned
+  // When true, any unused options will be ignored and OK will be returned.
+  // For options files that appear to be from the current version or earlier,
+  // unknown options are considered corruption regardless of this setting.
   bool ignore_unknown_options = false;
 
   // When true, any unsupported options will be ignored and OK will be returned

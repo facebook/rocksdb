@@ -374,6 +374,115 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCachePinning) {
   }
 }
 
+TEST_F(DBBlobBasicTest, IterateBlobsAllowUnpreparedValue) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+
+  Reopen(options);
+
+  constexpr size_t num_blobs = 5;
+  std::vector<std::string> keys;
+  std::vector<std::string> blobs;
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    keys.emplace_back("key" + std::to_string(i));
+    blobs.emplace_back("blob" + std::to_string(i));
+    ASSERT_OK(Put(keys[i], blobs[i]));
+  }
+
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+  {
+    size_t i = 0;
+
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(iter->key(), keys[i]);
+      ASSERT_TRUE(iter->value().empty());
+      ASSERT_OK(iter->status());
+
+      ASSERT_TRUE(iter->PrepareValue());
+
+      ASSERT_EQ(iter->key(), keys[i]);
+      ASSERT_EQ(iter->value(), blobs[i]);
+      ASSERT_OK(iter->status());
+
+      ++i;
+    }
+
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(i, num_blobs);
+  }
+
+  {
+    size_t i = 0;
+
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      ASSERT_EQ(iter->key(), keys[num_blobs - 1 - i]);
+      ASSERT_TRUE(iter->value().empty());
+      ASSERT_OK(iter->status());
+
+      ASSERT_TRUE(iter->PrepareValue());
+
+      ASSERT_EQ(iter->key(), keys[num_blobs - 1 - i]);
+      ASSERT_EQ(iter->value(), blobs[num_blobs - 1 - i]);
+      ASSERT_OK(iter->status());
+
+      ++i;
+    }
+
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(i, num_blobs);
+  }
+
+  {
+    size_t i = 1;
+
+    for (iter->Seek(keys[i]); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(iter->key(), keys[i]);
+      ASSERT_TRUE(iter->value().empty());
+      ASSERT_OK(iter->status());
+
+      ASSERT_TRUE(iter->PrepareValue());
+
+      ASSERT_EQ(iter->key(), keys[i]);
+      ASSERT_EQ(iter->value(), blobs[i]);
+      ASSERT_OK(iter->status());
+
+      ++i;
+    }
+
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(i, num_blobs);
+  }
+
+  {
+    size_t i = 1;
+
+    for (iter->SeekForPrev(keys[num_blobs - 1 - i]); iter->Valid();
+         iter->Prev()) {
+      ASSERT_EQ(iter->key(), keys[num_blobs - 1 - i]);
+      ASSERT_TRUE(iter->value().empty());
+      ASSERT_OK(iter->status());
+
+      ASSERT_TRUE(iter->PrepareValue());
+
+      ASSERT_EQ(iter->key(), keys[num_blobs - 1 - i]);
+      ASSERT_EQ(iter->value(), blobs[num_blobs - 1 - i]);
+      ASSERT_OK(iter->status());
+
+      ++i;
+    }
+
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(i, num_blobs);
+  }
+}
+
 TEST_F(DBBlobBasicTest, MultiGetBlobs) {
   constexpr size_t min_blob_size = 6;
 
@@ -1182,6 +1291,30 @@ TEST_F(DBBlobBasicTest, GetMergeBlobWithPut) {
   ASSERT_EQ(Get("Key1"), "v1,v2,v3");
 }
 
+TEST_F(DBBlobBasicTest, GetMergeBlobFromMemoryTier) {
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  ASSERT_OK(Put(Key(0), "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge(Key(0), "v2"));
+  ASSERT_OK(Flush());
+
+  // Regular `Get()` loads data block to cache.
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), Key(0), &value));
+  ASSERT_EQ("v1,v2", value);
+
+  // Base value blob is still uncached, so an in-memory read will fail.
+  ReadOptions read_options;
+  read_options.read_tier = kBlockCacheTier;
+  ASSERT_TRUE(db_->Get(read_options, Key(0), &value).IsIncomplete());
+}
+
 TEST_F(DBBlobBasicTest, MultiGetMergeBlobWithPut) {
   constexpr size_t num_keys = 3;
 
@@ -1527,6 +1660,57 @@ TEST_P(DBBlobBasicIOErrorMultiGetTest, MultipleBlobFiles) {
   ASSERT_TRUE(statuses[1].IsIOError());
 }
 
+TEST_F(DBBlobBasicTest, MultiGetFindTable_IOError) {
+  // Repro test for a specific bug where `MultiGet()` would fail to open a table
+  // in `FindTable()` and then proceed to return raw blob handles for the other
+  // keys.
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  // Force no table cache so every read will preload the SST file.
+  dbfull()->TEST_table_cache()->SetCapacity(0);
+
+  constexpr size_t num_keys = 2;
+
+  constexpr char key1[] = "key1";
+  constexpr char value1[] = "blob1";
+
+  ASSERT_OK(Put(key1, value1));
+  ASSERT_OK(Flush());
+
+  constexpr char key2[] = "key2";
+  constexpr char value2[] = "blob2";
+
+  ASSERT_OK(Put(key2, value2));
+  ASSERT_OK(Flush());
+
+  std::atomic<int> num_files_opened = 0;
+  // This test would be more realistic if we injected an `IOError` from the
+  // `FileSystem`
+  SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::MultiGet:FindTable", [&](void* status) {
+        num_files_opened++;
+        if (num_files_opened == 2) {
+          Status* s = static_cast<Status*>(status);
+          *s = Status::IOError();
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::array<Slice, num_keys> keys{{key1, key2}};
+  std::array<PinnableSlice, num_keys> values;
+  std::array<Status, num_keys> statuses;
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                keys.data(), values.data(), statuses.data());
+
+  ASSERT_TRUE(statuses[0].IsIOError());
+  ASSERT_OK(statuses[1]);
+  ASSERT_EQ(value2, values[1]);
+}
+
 namespace {
 
 class ReadBlobCompactionFilter : public CompactionFilter {
@@ -1575,6 +1759,46 @@ TEST_P(DBBlobBasicIOErrorTest, CompactionFilterReadBlob_IOError) {
   ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
                                 /*end=*/nullptr)
                   .IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(DBBlobBasicIOErrorTest, IterateBlobsAllowUnpreparedValue_IOError) {
+  Options options;
+  options.env = fault_injection_env_.get();
+  options.enable_blob_files = true;
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  ASSERT_OK(Put(key, blob_value));
+
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_->SetFilesystemActive(false,
+                                              Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadOptions read_options;
+  read_options.allow_unprepared_value = true;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->SeekToFirst();
+
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), key);
+  ASSERT_TRUE(iter->value().empty());
+  ASSERT_OK(iter->status());
+
+  ASSERT_FALSE(iter->PrepareValue());
+
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsIOError());
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

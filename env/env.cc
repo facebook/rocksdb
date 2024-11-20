@@ -355,6 +355,12 @@ class LegacyDirectoryWrapper : public FSDirectory {
   std::unique_ptr<Directory> target_;
 };
 
+// A helper class to make legacy `Env` implementations be backward compatible
+// now that all `Env` implementations are expected to have a `FileSystem` type
+// member `file_system_` and a `SystemClock` type member `clock_`.
+// This class wraps a legacy `Env` object and expose its file system related
+// APIs as a `FileSystem` interface. Also check `LegacySystemClock` that does
+// the same thing for the clock related APIs.
 class LegacyFileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
@@ -824,6 +830,15 @@ RandomAccessFile::~RandomAccessFile() = default;
 WritableFile::~WritableFile() = default;
 
 MemoryMappedFileBuffer::~MemoryMappedFileBuffer() = default;
+
+// This const variable can be used in public headers without introducing the
+// possibility of ODR violations due to varying macro definitions.
+const InfoLogLevel Logger::kDefaultLogLevel =
+#ifdef NDEBUG
+    INFO_LEVEL;
+#else
+    DEBUG_LEVEL;
+#endif  // NDEBUG
 
 Logger::~Logger() = default;
 

@@ -84,7 +84,9 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
         if (io_status_.ok()) {
           got_from_prefetch_buffer_ = true;
           used_buf_ = const_cast<char*>(slice_.data());
-        } else if (!(io_status_.IsCorruption() && retry_corrupt_read_)) {
+        } else if (io_status_.IsCorruption()) {
+          // Returning true apparently indicates we either got some data from
+          // the prefetch buffer, or we tried and encountered an error.
           return true;
         }
       }
@@ -334,8 +336,15 @@ void BlockFetcher::ReadBlock(bool retry) {
     ProcessTrailerIfPresent();
   }
 
+  if (retry) {
+    RecordTick(ioptions_.stats, FILE_READ_CORRUPTION_RETRY_COUNT);
+  }
   if (io_status_.ok()) {
     InsertCompressedBlockToPersistentCacheIfNeeded();
+    fs_buf_ = std::move(read_req.fs_scratch);
+    if (retry) {
+      RecordTick(ioptions_.stats, FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT);
+    }
   } else {
     ReleaseFileSystemProvidedBuffer(&read_req);
     direct_io_buf_.reset();
@@ -346,8 +355,6 @@ void BlockFetcher::ReadBlock(bool retry) {
 }
 
 IOStatus BlockFetcher::ReadBlockContents() {
-  FSReadRequest read_req;
-  read_req.status.PermitUncheckedError();
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
@@ -356,7 +363,11 @@ IOStatus BlockFetcher::ReadBlockContents() {
     return IOStatus::OK();
   }
   if (TryGetFromPrefetchBuffer()) {
+    if (io_status_.IsCorruption() && retry_corrupt_read_) {
+      ReadBlock(/*retry=*/true);
+    }
     if (!io_status_.ok()) {
+      assert(!fs_buf_);
       return io_status_;
     }
   } else if (!TryGetSerializedBlockFromPersistentCache()) {
@@ -364,9 +375,11 @@ IOStatus BlockFetcher::ReadBlockContents() {
     // If the file system supports retry after corruption, then try to
     // re-read the block and see if it succeeds.
     if (io_status_.IsCorruption() && retry_corrupt_read_) {
+      assert(!fs_buf_);
       ReadBlock(/*retry=*/true);
     }
     if (!io_status_.ok()) {
+      assert(!fs_buf_);
       return io_status_;
     }
   }
@@ -390,7 +403,6 @@ IOStatus BlockFetcher::ReadBlockContents() {
   }
 
   InsertUncompressedBlockToPersistentCacheIfNeeded();
-  ReleaseFileSystemProvidedBuffer(&read_req);
 
   return io_status_;
 }
@@ -424,6 +436,7 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
           ReadBlock(/*retry = */ true);
         }
         if (!io_status_.ok()) {
+          assert(!fs_buf_);
           return io_status_;
         }
         used_buf_ = const_cast<char*>(slice_.data());

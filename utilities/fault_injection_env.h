@@ -90,7 +90,7 @@ class TestWritableFile : public WritableFile {
       const DataVerificationInfo& /*verification_info*/) override {
     return PositionedAppend(data, offset);
   }
-  bool use_direct_io() const override { return target_->use_direct_io(); };
+  bool use_direct_io() const override { return target_->use_direct_io(); }
   uint64_t GetFileSize() final { return target_->GetFileSize(); }
 
  private:
@@ -117,7 +117,7 @@ class TestRandomRWFile : public RandomRWFile {
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
-  bool use_direct_io() const override { return target_->use_direct_io(); };
+  bool use_direct_io() const override { return target_->use_direct_io(); }
 
  private:
   std::unique_ptr<RandomRWFile> target_;

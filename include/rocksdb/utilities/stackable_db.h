@@ -104,10 +104,16 @@ class StackableDB : public DB {
   }
 
   using DB::GetEntity;
+
   Status GetEntity(const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableWideColumns* columns) override {
     return db_->GetEntity(options, column_family, key, columns);
+  }
+
+  Status GetEntity(const ReadOptions& options, const Slice& key,
+                   PinnableAttributeGroups* result) override {
+    return db_->GetEntity(options, key, result);
   }
 
   using DB::GetMergeOperands;
@@ -146,6 +152,12 @@ class StackableDB : public DB {
                       bool sorted_input) override {
     db_->MultiGetEntity(options, num_keys, column_families, keys, results,
                         statuses, sorted_input);
+  }
+
+  void MultiGetEntity(const ReadOptions& options, size_t num_keys,
+                      const Slice* keys,
+                      PinnableAttributeGroups* results) override {
+    db_->MultiGetEntity(options, num_keys, keys, results);
   }
 
   using DB::IngestExternalFile;
@@ -260,11 +272,18 @@ class StackableDB : public DB {
     return db_->NewIterators(options, column_families, iterators);
   }
 
-  using DB::NewMultiCfIterator;
-  std::unique_ptr<Iterator> NewMultiCfIterator(
+  using DB::NewCoalescingIterator;
+  std::unique_ptr<Iterator> NewCoalescingIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override {
-    return db_->NewMultiCfIterator(options, column_families);
+    return db_->NewCoalescingIterator(options, column_families);
+  }
+
+  using DB::NewAttributeGroupIterator;
+  std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override {
+    return db_->NewAttributeGroupIterator(options, column_families);
   }
 
   const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
@@ -487,12 +506,12 @@ class StackableDB : public DB {
     return db_->GetFullHistoryTsLow(column_family, ts_low);
   }
 
-  Status GetSortedWalFiles(VectorLogPtr& files) override {
+  Status GetSortedWalFiles(VectorWalPtr& files) override {
     return db_->GetSortedWalFiles(files);
   }
 
   Status GetCurrentWalFile(
-      std::unique_ptr<LogFile>* current_log_file) override {
+      std::unique_ptr<WalFile>* current_log_file) override {
     return db_->GetCurrentWalFile(current_log_file);
   }
 

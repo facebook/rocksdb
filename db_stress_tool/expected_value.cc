@@ -21,7 +21,7 @@ void ExpectedValue::Put(bool pending) {
 }
 
 bool ExpectedValue::Delete(bool pending) {
-  if (!Exists()) {
+  if (pending && !Exists()) {
     return false;
   }
   if (pending) {

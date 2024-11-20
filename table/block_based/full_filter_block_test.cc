@@ -29,6 +29,10 @@ class TestFilterBitsBuilder : public FilterBitsBuilder {
   void AddKey(const Slice& key) override {
     hash_entries_.push_back(Hash(key.data(), key.size(), 1));
   }
+  void AddKeyAndAlt(const Slice& key, const Slice& alt) override {
+    AddKey(key);
+    AddKey(alt);
+  }
 
   using FilterBitsBuilder::Finish;
 
@@ -104,7 +108,7 @@ class PluginFullFilterBlockTest : public mock::MockBlockBasedTableTester,
 
 TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
   FullFilterBlockBuilder builder(nullptr, true, GetBuilder());
-  Slice slice = builder.Finish();
+  Slice slice = builder.TEST_Finish();
   ASSERT_EQ("", EscapeString(slice));
 
   CachableEntry<ParsedFullFilterBlock> block(
@@ -115,7 +119,7 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
   FullFilterBlockReader reader(table_.get(), std::move(block));
   // Remain same symantic with blockbased filter
   ASSERT_TRUE(reader.KeyMayMatch("foo",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
                                  /*lookup_context=*/nullptr, ReadOptions()));
 }
@@ -127,7 +131,7 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
   builder.Add("box");
   builder.Add("box");
   builder.Add("hello");
-  Slice slice = builder.Finish();
+  Slice slice = builder.TEST_Finish();
 
   CachableEntry<ParsedFullFilterBlock> block(
       new ParsedFullFilterBlock(table_options_.filter_policy.get(),
@@ -136,31 +140,31 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
   ASSERT_TRUE(reader.KeyMayMatch("foo",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
                                  /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("bar",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
                                  /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("box",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
                                  /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("hello",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
                                  /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("foo",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
                                  /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(!reader.KeyMayMatch("missing",
-                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                  /*const_ikey_ptr=*/nullptr,
                                   /*get_context=*/nullptr,
                                   /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(!reader.KeyMayMatch("other",
-                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                  /*const_ikey_ptr=*/nullptr,
                                   /*get_context=*/nullptr,
                                   /*lookup_context=*/nullptr, ReadOptions()));
 }
@@ -174,7 +178,7 @@ class FullFilterBlockTest : public mock::MockBlockBasedTableTester,
 
 TEST_F(FullFilterBlockTest, EmptyBuilder) {
   FullFilterBlockBuilder builder(nullptr, true, GetBuilder());
-  Slice slice = builder.Finish();
+  Slice slice = builder.TEST_Finish();
   ASSERT_EQ("", EscapeString(slice));
 
   CachableEntry<ParsedFullFilterBlock> block(
@@ -185,7 +189,7 @@ TEST_F(FullFilterBlockTest, EmptyBuilder) {
   FullFilterBlockReader reader(table_.get(), std::move(block));
   // Remain same symantic with blockbased filter
   ASSERT_TRUE(reader.KeyMayMatch("foo",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
                                  /*lookup_context=*/nullptr, ReadOptions()));
 }
@@ -202,6 +206,11 @@ class CountUniqueFilterBitsBuilderWrapper : public FilterBitsBuilder {
   void AddKey(const Slice& key) override {
     b_->AddKey(key);
     uniq_.insert(key.ToString());
+  }
+  void AddKeyAndAlt(const Slice& key, const Slice& alt) override {
+    b_->AddKeyAndAlt(key, alt);
+    uniq_.insert(key.ToString());
+    uniq_.insert(alt.ToString());
   }
 
   using FilterBitsBuilder::Finish;
@@ -274,8 +283,8 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
   // "box" only counts once
   ASSERT_EQ(4, builder.EstimateEntriesAdded());
   ASSERT_FALSE(builder.IsEmpty());
-  Status s;
-  Slice slice = builder.Finish(BlockHandle(), &s);
+  Slice slice;
+  Status s = builder.Finish(BlockHandle(), &slice);
   ASSERT_OK(s);
 
   CachableEntry<ParsedFullFilterBlock> block(
@@ -285,31 +294,31 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
   ASSERT_TRUE(reader.KeyMayMatch("foo",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
                                  /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("bar",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
                                  /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("box",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
                                  /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("hello",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
                                  /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(reader.KeyMayMatch("foo",
-                                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                 /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
                                  /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(!reader.KeyMayMatch("missing",
-                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                  /*const_ikey_ptr=*/nullptr,
                                   /*get_context=*/nullptr,
                                   /*lookup_context=*/nullptr, ReadOptions()));
   ASSERT_TRUE(!reader.KeyMayMatch("other",
-                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
+                                  /*const_ikey_ptr=*/nullptr,
                                   /*get_context=*/nullptr,
                                   /*lookup_context=*/nullptr, ReadOptions()));
 }

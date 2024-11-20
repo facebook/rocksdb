@@ -152,19 +152,21 @@ Status FileChecksumRetriever::ApplyVersionEdit(VersionEdit& edit,
 
 VersionEditHandler::VersionEditHandler(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
-    VersionSet* version_set, bool track_missing_files,
+    VersionSet* version_set, bool track_found_and_missing_files,
     bool no_error_if_files_missing, const std::shared_ptr<IOTracer>& io_tracer,
     const ReadOptions& read_options, bool skip_load_table_files,
+    bool allow_incomplete_valid_version,
     EpochNumberRequirement epoch_number_requirement)
     : VersionEditHandlerBase(read_options),
       read_only_(read_only),
       column_families_(std::move(column_families)),
       version_set_(version_set),
-      track_missing_files_(track_missing_files),
+      track_found_and_missing_files_(track_found_and_missing_files),
       no_error_if_files_missing_(no_error_if_files_missing),
       io_tracer_(io_tracer),
       skip_load_table_files_(skip_load_table_files),
       initialized_(false),
+      allow_incomplete_valid_version_(allow_incomplete_valid_version),
       epoch_number_requirement_(epoch_number_requirement) {
   assert(version_set_ != nullptr);
 }
@@ -218,15 +220,15 @@ Status VersionEditHandler::ApplyVersionEdit(VersionEdit& edit,
 
 Status VersionEditHandler::OnColumnFamilyAdd(VersionEdit& edit,
                                              ColumnFamilyData** cfd) {
-  bool cf_in_not_found = false;
+  bool do_not_open_cf = false;
   bool cf_in_builders = false;
-  CheckColumnFamilyId(edit, &cf_in_not_found, &cf_in_builders);
+  CheckColumnFamilyId(edit, &do_not_open_cf, &cf_in_builders);
 
   assert(cfd != nullptr);
   *cfd = nullptr;
   const std::string& cf_name = edit.GetColumnFamilyName();
   Status s;
-  if (cf_in_builders || cf_in_not_found) {
+  if (cf_in_builders || do_not_open_cf) {
     s = Status::Corruption("MANIFEST adding the same column family twice: " +
                            cf_name);
   }
@@ -239,7 +241,7 @@ Status VersionEditHandler::OnColumnFamilyAdd(VersionEdit& edit,
         cf_name.compare(kPersistentStatsColumnFamilyName) == 0;
     if (cf_options == name_to_options_.end() &&
         !is_persistent_stats_column_family) {
-      column_families_not_found_.emplace(edit.GetColumnFamily(), cf_name);
+      do_not_open_column_families_.emplace(edit.GetColumnFamily(), cf_name);
     } else {
       if (is_persistent_stats_column_family) {
         ColumnFamilyOptions cfo;
@@ -256,9 +258,9 @@ Status VersionEditHandler::OnColumnFamilyAdd(VersionEdit& edit,
 
 Status VersionEditHandler::OnColumnFamilyDrop(VersionEdit& edit,
                                               ColumnFamilyData** cfd) {
-  bool cf_in_not_found = false;
+  bool do_not_open_cf = false;
   bool cf_in_builders = false;
-  CheckColumnFamilyId(edit, &cf_in_not_found, &cf_in_builders);
+  CheckColumnFamilyId(edit, &do_not_open_cf, &cf_in_builders);
 
   assert(cfd != nullptr);
   *cfd = nullptr;
@@ -266,8 +268,8 @@ Status VersionEditHandler::OnColumnFamilyDrop(VersionEdit& edit,
   Status s;
   if (cf_in_builders) {
     tmp_cfd = DestroyCfAndCleanup(edit);
-  } else if (cf_in_not_found) {
-    column_families_not_found_.erase(edit.GetColumnFamily());
+  } else if (do_not_open_cf) {
+    do_not_open_column_families_.erase(edit.GetColumnFamily());
   } else {
     s = Status::Corruption("MANIFEST - dropping non-existing column family");
   }
@@ -288,22 +290,20 @@ Status VersionEditHandler::OnWalDeletion(VersionEdit& edit) {
 
 Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
                                             ColumnFamilyData** cfd) {
-  bool cf_in_not_found = false;
+  bool do_not_open_cf = false;
   bool cf_in_builders = false;
-  CheckColumnFamilyId(edit, &cf_in_not_found, &cf_in_builders);
+  CheckColumnFamilyId(edit, &do_not_open_cf, &cf_in_builders);
 
   assert(cfd != nullptr);
   *cfd = nullptr;
   Status s;
-  if (!cf_in_not_found) {
+  if (!do_not_open_cf) {
     if (!cf_in_builders) {
       s = Status::Corruption(
           "MANIFEST record referencing unknown column family");
     }
     ColumnFamilyData* tmp_cfd = nullptr;
     if (s.ok()) {
-      auto builder_iter = builders_.find(edit.GetColumnFamily());
-      assert(builder_iter != builders_.end());
       tmp_cfd = version_set_->GetColumnFamilySet()->GetColumnFamily(
           edit.GetColumnFamily());
       assert(tmp_cfd != nullptr);
@@ -318,56 +318,33 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
       if (!s.ok()) {
         return s;
       }
-      s = MaybeCreateVersion(edit, tmp_cfd, /*force_create_version=*/false);
-      if (s.ok()) {
-        s = builder_iter->second->version_builder()->Apply(&edit);
-      }
+      s = MaybeCreateVersionBeforeApplyEdit(edit, tmp_cfd,
+                                            /*force_create_version=*/false);
     }
     *cfd = tmp_cfd;
   }
   return s;
 }
 
-// TODO maybe cache the computation result
-bool VersionEditHandler::HasMissingFiles() const {
-  bool ret = false;
-  for (const auto& elem : cf_to_missing_files_) {
-    const auto& missing_files = elem.second;
-    if (!missing_files.empty()) {
-      ret = true;
-      break;
-    }
-  }
-  if (!ret) {
-    for (const auto& elem : cf_to_missing_blob_files_high_) {
-      if (elem.second != kInvalidBlobFileNumber) {
-        ret = true;
-        break;
-      }
-    }
-  }
-  return ret;
-}
-
 void VersionEditHandler::CheckColumnFamilyId(const VersionEdit& edit,
-                                             bool* cf_in_not_found,
+                                             bool* do_not_open_cf,
                                              bool* cf_in_builders) const {
-  assert(cf_in_not_found != nullptr);
+  assert(do_not_open_cf != nullptr);
   assert(cf_in_builders != nullptr);
   // Not found means that user didn't supply that column
   // family option AND we encountered column family add
   // record. Once we encounter column family drop record,
   // we will delete the column family from
-  // column_families_not_found.
+  // do_not_open_column_families_.
   uint32_t cf_id = edit.GetColumnFamily();
-  bool in_not_found = column_families_not_found_.find(cf_id) !=
-                      column_families_not_found_.end();
+  bool in_do_not_open = do_not_open_column_families_.find(cf_id) !=
+                        do_not_open_column_families_.end();
   // in builders means that user supplied that column family
   // option AND that we encountered column family add record
   bool in_builders = builders_.find(cf_id) != builders_.end();
   // They cannot both be true
-  assert(!(in_not_found && in_builders));
-  *cf_in_not_found = in_not_found;
+  assert(!(in_do_not_open && in_builders));
+  *do_not_open_cf = in_do_not_open;
   *cf_in_builders = in_builders;
 }
 
@@ -396,9 +373,9 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
   // There were some column families in the MANIFEST that weren't specified
   // in the argument. This is OK in read_only mode
   if (s->ok() && MustOpenAllColumnFamilies() &&
-      !column_families_not_found_.empty()) {
+      !do_not_open_column_families_.empty()) {
     std::string msg;
-    for (const auto& cf : column_families_not_found_) {
+    for (const auto& cf : do_not_open_column_families_) {
       msg.append(", ");
       msg.append(cf.second);
     }
@@ -453,7 +430,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       }
       assert(cfd->initialized());
       VersionEdit edit;
-      *s = MaybeCreateVersion(edit, cfd, /*force_create_version=*/true);
+      *s = MaybeCreateVersionBeforeApplyEdit(edit, cfd,
+                                             /*force_create_version=*/true);
       if (!s->ok()) {
         break;
       }
@@ -498,12 +476,9 @@ ColumnFamilyData* VersionEditHandler::CreateCfAndInit(
   assert(cfd != nullptr);
   cfd->set_initialized();
   assert(builders_.find(cf_id) == builders_.end());
-  builders_.emplace(cf_id,
-                    VersionBuilderUPtr(new BaseReferencedVersionBuilder(cfd)));
-  if (track_missing_files_) {
-    cf_to_missing_files_.emplace(cf_id, std::unordered_set<uint64_t>());
-    cf_to_missing_blob_files_high_.emplace(cf_id, kInvalidBlobFileNumber);
-  }
+  builders_.emplace(cf_id, VersionBuilderUPtr(new BaseReferencedVersionBuilder(
+                               cfd, this, track_found_and_missing_files_,
+                               allow_incomplete_valid_version_)));
   return cfd;
 }
 
@@ -513,17 +488,6 @@ ColumnFamilyData* VersionEditHandler::DestroyCfAndCleanup(
   auto builder_iter = builders_.find(cf_id);
   assert(builder_iter != builders_.end());
   builders_.erase(builder_iter);
-  if (track_missing_files_) {
-    auto missing_files_iter = cf_to_missing_files_.find(cf_id);
-    assert(missing_files_iter != cf_to_missing_files_.end());
-    cf_to_missing_files_.erase(missing_files_iter);
-
-    auto missing_blob_files_high_iter =
-        cf_to_missing_blob_files_high_.find(cf_id);
-    assert(missing_blob_files_high_iter !=
-           cf_to_missing_blob_files_high_.end());
-    cf_to_missing_blob_files_high_.erase(missing_blob_files_high_iter);
-  }
   ColumnFamilyData* ret =
       version_set_->GetColumnFamilySet()->GetColumnFamily(cf_id);
   assert(ret != nullptr);
@@ -533,15 +497,14 @@ ColumnFamilyData* VersionEditHandler::DestroyCfAndCleanup(
   return ret;
 }
 
-Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
-                                              ColumnFamilyData* cfd,
-                                              bool force_create_version) {
+Status VersionEditHandler::MaybeCreateVersionBeforeApplyEdit(
+    const VersionEdit& edit, ColumnFamilyData* cfd, bool force_create_version) {
   assert(cfd->initialized());
   Status s;
+  auto builder_iter = builders_.find(cfd->GetID());
+  assert(builder_iter != builders_.end());
+  auto* builder = builder_iter->second->version_builder();
   if (force_create_version) {
-    auto builder_iter = builders_.find(cfd->GetID());
-    assert(builder_iter != builders_.end());
-    auto* builder = builder_iter->second->version_builder();
     auto* v = new Version(cfd, version_set_, version_set_->file_options_,
                           *cfd->GetLatestMutableCFOptions(), io_tracer_,
                           version_set_->current_version_number_++,
@@ -557,6 +520,7 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
       delete v;
     }
   }
+  s = builder->Apply(&edit);
   return s;
 }
 
@@ -581,9 +545,8 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
   Status s = builder->LoadTableHandlers(
       cfd->internal_stats(),
       version_set_->db_options_->max_file_opening_threads,
-      prefetch_index_and_filter_in_cache, is_initial_load,
-      moptions->prefix_extractor, MaxFileSizeForL0MetaPin(*moptions),
-      read_options_, moptions->block_protection_bytes_per_key);
+      prefetch_index_and_filter_in_cache, is_initial_load, *moptions,
+      MaxFileSizeForL0MetaPin(*moptions), read_options_);
   if ((s.IsPathNotFound() || s.IsCorruption()) && no_error_if_files_missing_) {
     s = Status::OK();
   }
@@ -726,12 +689,13 @@ Status VersionEditHandler::MaybeHandleFileBoundariesForNewFiles(
 VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
     VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
-    const ReadOptions& read_options,
+    const ReadOptions& read_options, bool allow_incomplete_valid_version,
     EpochNumberRequirement epoch_number_requirement)
     : VersionEditHandler(read_only, column_families, version_set,
-                         /*track_missing_files=*/true,
+                         /*track_found_and_missing_files=*/true,
                          /*no_error_if_files_missing=*/true, io_tracer,
-                         read_options, epoch_number_requirement) {}
+                         read_options, allow_incomplete_valid_version,
+                         epoch_number_requirement) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& cfid_and_version : atomic_update_versions_) {
@@ -757,7 +721,8 @@ Status VersionEditHandlerPointInTime::OnAtomicGroupReplayBegin() {
     assert(!cfd->IsDropped());
     assert(cfd->initialized());
     VersionEdit edit;
-    Status s = MaybeCreateVersion(edit, cfd, true /* force_create_version */);
+    Status s = MaybeCreateVersionBeforeApplyEdit(
+        edit, cfd, true /* force_create_version */);
     if (!s.ok()) {
       return s;
     }
@@ -819,11 +784,17 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
       }
       assert(cfd->initialized());
       auto v_iter = versions_.find(cfd->GetID());
+      auto builder_iter = builders_.find(cfd->GetID());
       if (v_iter != versions_.end()) {
         assert(v_iter->second != nullptr);
+        assert(builder_iter != builders_.end());
 
         version_set_->AppendVersion(cfd, v_iter->second);
         versions_.erase(v_iter);
+        // Let's clear found_files, since any files in that are part of the
+        // installed Version. Any files that got obsoleted would have already
+        // been moved to intermediate_files_
+        builder_iter->second->version_builder()->ClearFoundFiles();
       }
     }
   } else {
@@ -852,128 +823,53 @@ ColumnFamilyData* VersionEditHandlerPointInTime::DestroyCfAndCleanup(
   return cfd;
 }
 
-Status VersionEditHandlerPointInTime::MaybeCreateVersion(
+Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
     const VersionEdit& edit, ColumnFamilyData* cfd, bool force_create_version) {
+  TEST_SYNC_POINT(
+      "VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit:"
+      "Begin1");
+  TEST_SYNC_POINT(
+      "VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit:"
+      "Begin2");
   assert(cfd != nullptr);
   if (!force_create_version) {
     assert(edit.GetColumnFamily() == cfd->GetID());
   }
-  auto missing_files_iter = cf_to_missing_files_.find(cfd->GetID());
-  assert(missing_files_iter != cf_to_missing_files_.end());
-  std::unordered_set<uint64_t>& missing_files = missing_files_iter->second;
-
-  auto missing_blob_files_high_iter =
-      cf_to_missing_blob_files_high_.find(cfd->GetID());
-  assert(missing_blob_files_high_iter != cf_to_missing_blob_files_high_.end());
-  const uint64_t prev_missing_blob_file_high =
-      missing_blob_files_high_iter->second;
-
-  VersionBuilder* builder = nullptr;
-
-  if (prev_missing_blob_file_high != kInvalidBlobFileNumber) {
-    auto builder_iter = builders_.find(cfd->GetID());
-    assert(builder_iter != builders_.end());
-    builder = builder_iter->second->version_builder();
-    assert(builder != nullptr);
-  }
-
-  // At this point, we have not yet applied the new version edits read from the
-  // MANIFEST. We check whether we have any missing table and blob files.
-  const bool prev_has_missing_files =
-      !missing_files.empty() ||
-      (prev_missing_blob_file_high != kInvalidBlobFileNumber &&
-       prev_missing_blob_file_high >= builder->GetMinOldestBlobFileNumber());
-
-  for (const auto& file : edit.GetDeletedFiles()) {
-    uint64_t file_num = file.second;
-    auto fiter = missing_files.find(file_num);
-    if (fiter != missing_files.end()) {
-      missing_files.erase(fiter);
-    }
-  }
-
-  assert(!cfd->ioptions()->cf_paths.empty());
-  Status s;
-  for (const auto& elem : edit.GetNewFiles()) {
-    int level = elem.first;
-    const FileMetaData& meta = elem.second;
-    const FileDescriptor& fd = meta.fd;
-    uint64_t file_num = fd.GetNumber();
-    const std::string fpath =
-        MakeTableFileName(cfd->ioptions()->cf_paths[0].path, file_num);
-    s = VerifyFile(cfd, fpath, level, meta);
-    if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
-      missing_files.insert(file_num);
-      s = Status::OK();
-    } else if (!s.ok()) {
-      break;
-    }
-  }
-
-  uint64_t missing_blob_file_num = prev_missing_blob_file_high;
-  for (const auto& elem : edit.GetBlobFileAdditions()) {
-    uint64_t file_num = elem.GetBlobFileNumber();
-    s = VerifyBlobFile(cfd, file_num, elem);
-    if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
-      missing_blob_file_num = std::max(missing_blob_file_num, file_num);
-      s = Status::OK();
-    } else if (!s.ok()) {
-      break;
-    }
-  }
-
-  bool has_missing_blob_files = false;
-  if (missing_blob_file_num != kInvalidBlobFileNumber &&
-      missing_blob_file_num >= prev_missing_blob_file_high) {
-    missing_blob_files_high_iter->second = missing_blob_file_num;
-    has_missing_blob_files = true;
-  } else if (missing_blob_file_num < prev_missing_blob_file_high) {
-    assert(false);
-  }
-
-  // We still have not applied the new version edit, but have tried to add new
-  // table and blob files after verifying their presence and consistency.
-  // Therefore, we know whether we will see new missing table and blob files
-  // later after actually applying the version edit. We perform the check here
-  // and record the result.
-  const bool has_missing_files =
-      !missing_files.empty() || has_missing_blob_files;
 
   bool missing_info = !version_edit_params_.HasLogNumber() ||
                       !version_edit_params_.HasNextFile() ||
                       !version_edit_params_.HasLastSequence();
 
-  // Create version before apply edit. The version will represent the state
-  // before applying the version edit.
+  Status s;
+  auto builder_iter = builders_.find(cfd->GetID());
+  assert(builder_iter != builders_.end());
+  VersionBuilder* builder = builder_iter->second->version_builder();
+  const bool valid_pit_before_edit = builder->ValidVersionAvailable();
+  builder->CreateOrReplaceSavePoint();
+  s = builder->Apply(&edit);
+  const bool valid_pit_after_edit = builder->ValidVersionAvailable();
+
   // A new version will be created if:
   // 1) no error has occurred so far, and
   // 2) log_number_, next_file_number_ and last_sequence_ are known, and
   // 3) not in an AtomicGroup
   // 4) any of the following:
-  //   a) no missing file before, but will have missing file(s) after applying
-  //      this version edit.
-  //   b) no missing file after applying the version edit, and the caller
-  //      explicitly request that a new version be created.
+  //   a) a valid Version is available before applying the edit
+  //      and a valid Version is not available after the edit.
+  //   b) a valid Version is available after the edit and the
+  //      caller explicitly request that a new version be created.
   if (s.ok() && !missing_info && !in_atomic_group_ &&
-      ((has_missing_files && !prev_has_missing_files) ||
-       (!has_missing_files && force_create_version))) {
-    if (!builder) {
-      auto builder_iter = builders_.find(cfd->GetID());
-      assert(builder_iter != builders_.end());
-      builder = builder_iter->second->version_builder();
-      assert(builder);
-    }
-
+      ((!valid_pit_after_edit && valid_pit_before_edit) ||
+       (valid_pit_after_edit && force_create_version))) {
     const MutableCFOptions* cf_opts_ptr = cfd->GetLatestMutableCFOptions();
     auto* version = new Version(cfd, version_set_, version_set_->file_options_,
                                 *cf_opts_ptr, io_tracer_,
                                 version_set_->current_version_number_++,
                                 epoch_number_requirement_);
-    s = builder->LoadTableHandlers(
+    s = builder->LoadSavePointTableHandlers(
         cfd->internal_stats(),
         version_set_->db_options_->max_file_opening_threads, false, true,
-        cf_opts_ptr->prefix_extractor, MaxFileSizeForL0MetaPin(*cf_opts_ptr),
-        read_options_, cf_opts_ptr->block_protection_bytes_per_key);
+        *cf_opts_ptr, MaxFileSizeForL0MetaPin(*cf_opts_ptr), read_options_);
     if (!s.ok()) {
       delete version;
       if (s.IsCorruption()) {
@@ -981,7 +877,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
       }
       return s;
     }
-    s = builder->SaveTo(version->storage_info());
+    s = builder->SaveSavePointTo(version->storage_info());
     if (s.ok()) {
       if (AtomicUpdateVersionsContains(cfd->GetID())) {
         AtomicUpdateVersionsPut(version);
@@ -1004,6 +900,8 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
       delete version;
     }
   }
+
+  builder->ClearSavePoint();
   return s;
 }
 
@@ -1036,6 +934,15 @@ Status VersionEditHandlerPointInTime::LoadTables(
     ColumnFamilyData* /*cfd*/, bool /*prefetch_index_and_filter_in_cache*/,
     bool /*is_initial_load*/) {
   return Status::OK();
+}
+
+bool VersionEditHandlerPointInTime::HasMissingFiles() const {
+  for (const auto& builder : builders_) {
+    if (builder.second->version_builder()->HasMissingFiles()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool VersionEditHandlerPointInTime::AtomicUpdateVersionsCompleted() {
@@ -1111,8 +1018,9 @@ Status ManifestTailer::Initialize() {
     Version* base_version = dummy_version->Next();
     assert(base_version);
     base_version->Ref();
-    VersionBuilderUPtr new_builder(
-        new BaseReferencedVersionBuilder(default_cfd, base_version));
+    VersionBuilderUPtr new_builder(new BaseReferencedVersionBuilder(
+        default_cfd, base_version, this, track_found_and_missing_files_,
+        allow_incomplete_valid_version_));
     builder_iter->second = std::move(new_builder);
 
     initialized_ = true;
@@ -1155,8 +1063,8 @@ Status ManifestTailer::OnColumnFamilyAdd(VersionEdit& edit,
   Version* base_version = dummy_version->Next();
   assert(base_version);
   base_version->Ref();
-  VersionBuilderUPtr new_builder(
-      new BaseReferencedVersionBuilder(tmp_cfd, base_version));
+  VersionBuilderUPtr new_builder(new BaseReferencedVersionBuilder(
+      tmp_cfd, base_version, this, track_found_and_missing_files_));
   builder_iter->second = std::move(new_builder);
 
 #ifndef NDEBUG
@@ -1177,6 +1085,18 @@ void ManifestTailer::CheckIterationResult(const log::Reader& reader,
       assert(Mode::kCatchUp == mode_);
     }
   }
+}
+
+std::vector<std::string> ManifestTailer::GetAndClearIntermediateFiles() {
+  std::vector<std::string> res;
+  for (const auto& builder : builders_) {
+    auto files =
+        builder.second->version_builder()->GetAndClearIntermediateFiles();
+    res.insert(res.end(), std::make_move_iterator(files.begin()),
+               std::make_move_iterator(files.end()));
+    files.erase(files.begin(), files.end());
+  }
+  return res;
 }
 
 Status ManifestTailer::VerifyFile(ColumnFamilyData* cfd,

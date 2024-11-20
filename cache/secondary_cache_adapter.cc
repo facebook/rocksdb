@@ -134,12 +134,14 @@ bool CacheWithSecondaryAdapter::EvictionHandler(const Slice& key,
     auto obj = target_->Value(handle);
     // Ignore dummy entry
     if (obj != kDummyObj) {
-      bool hit = false;
+      bool force = false;
       if (adm_policy_ == TieredAdmissionPolicy::kAdmPolicyAllowCacheHits) {
-        hit = was_hit;
+        force = was_hit;
+      } else if (adm_policy_ == TieredAdmissionPolicy::kAdmPolicyAllowAll) {
+        force = true;
       }
       // Spill into secondary cache.
-      secondary_cache_->Insert(key, obj, helper, hit).PermitUncheckedError();
+      secondary_cache_->Insert(key, obj, helper, force).PermitUncheckedError();
     }
   }
   // Never takes ownership of obj
@@ -269,7 +271,8 @@ Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
   // Warm up the secondary cache with the compressed block. The secondary
   // cache may choose to ignore it based on the admission policy.
   if (value != nullptr && !compressed_value.empty() &&
-      adm_policy_ == TieredAdmissionPolicy::kAdmPolicyThreeQueue) {
+      adm_policy_ == TieredAdmissionPolicy::kAdmPolicyThreeQueue &&
+      helper->IsSecondaryCacheCompatible()) {
     Status status = secondary_cache_->InsertSaved(key, compressed_value, type);
     assert(status.ok() || status.IsNotSupported());
   }
@@ -661,6 +664,7 @@ std::shared_ptr<Cache> NewTieredCache(const TieredCacheOptions& _opts) {
         break;
       case TieredAdmissionPolicy::kAdmPolicyPlaceholder:
       case TieredAdmissionPolicy::kAdmPolicyAllowCacheHits:
+      case TieredAdmissionPolicy::kAdmPolicyAllowAll:
         if (opts.nvm_sec_cache) {
           valid_adm_policy = false;
         }

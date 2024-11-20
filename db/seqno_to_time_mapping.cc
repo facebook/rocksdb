@@ -69,6 +69,36 @@ SequenceNumber SeqnoToTimeMapping::GetProximalSeqnoBeforeTime(
   return it->seqno;
 }
 
+void SeqnoToTimeMapping::GetCurrentTieringCutoffSeqnos(
+    uint64_t current_time, uint64_t preserve_internal_time_seconds,
+    uint64_t preclude_last_level_data_seconds,
+    SequenceNumber* preserve_time_min_seqno,
+    SequenceNumber* preclude_last_level_min_seqno) const {
+  uint64_t preserve_time_duration = std::max(preserve_internal_time_seconds,
+                                             preclude_last_level_data_seconds);
+  if (preserve_time_duration <= 0) {
+    return;
+  }
+  uint64_t preserve_time = current_time > preserve_time_duration
+                               ? current_time - preserve_time_duration
+                               : 0;
+  // GetProximalSeqnoBeforeTime tells us the last seqno known to have been
+  // written at or before the given time. + 1 to get the minimum we should
+  // preserve without excluding anything that might have been written on or
+  // after the given time.
+  if (preserve_time_min_seqno) {
+    *preserve_time_min_seqno = GetProximalSeqnoBeforeTime(preserve_time) + 1;
+  }
+  if (preclude_last_level_data_seconds > 0 && preclude_last_level_min_seqno) {
+    uint64_t preclude_last_level_time =
+        current_time > preclude_last_level_data_seconds
+            ? current_time - preclude_last_level_data_seconds
+            : 0;
+    *preclude_last_level_min_seqno =
+        GetProximalSeqnoBeforeTime(preclude_last_level_time) + 1;
+  }
+}
+
 void SeqnoToTimeMapping::EnforceMaxTimeSpan(uint64_t now) {
   assert(enforced_);  // at least sorted
   uint64_t cutoff_time;
@@ -504,27 +534,36 @@ Slice PackValueAndSeqno(const Slice& value, SequenceNumber seqno,
   return Slice(*buf);
 }
 
-std::tuple<Slice, uint64_t> ParsePackedValueWithWriteTime(const Slice& value) {
+uint64_t ParsePackedValueForWriteTime(const Slice& value) {
   assert(value.size() >= sizeof(uint64_t));
   Slice write_time_slice(value.data() + value.size() - sizeof(uint64_t),
                          sizeof(uint64_t));
   uint64_t write_time;
   [[maybe_unused]] auto res = GetFixed64(&write_time_slice, &write_time);
   assert(res);
-  return std::make_tuple(Slice(value.data(), value.size() - sizeof(uint64_t)),
-                         write_time);
+  return write_time;
 }
 
-std::tuple<Slice, SequenceNumber> ParsePackedValueWithSeqno(
-    const Slice& value) {
+std::tuple<Slice, uint64_t> ParsePackedValueWithWriteTime(const Slice& value) {
+  return std::make_tuple(Slice(value.data(), value.size() - sizeof(uint64_t)),
+                         ParsePackedValueForWriteTime(value));
+}
+
+SequenceNumber ParsePackedValueForSeqno(const Slice& value) {
   assert(value.size() >= sizeof(SequenceNumber));
   Slice seqno_slice(value.data() + value.size() - sizeof(uint64_t),
                     sizeof(uint64_t));
   SequenceNumber seqno;
   [[maybe_unused]] auto res = GetFixed64(&seqno_slice, &seqno);
   assert(res);
+  return seqno;
+}
+
+std::tuple<Slice, SequenceNumber> ParsePackedValueWithSeqno(
+    const Slice& value) {
   return std::make_tuple(
-      Slice(value.data(), value.size() - sizeof(SequenceNumber)), seqno);
+      Slice(value.data(), value.size() - sizeof(SequenceNumber)),
+      ParsePackedValueForSeqno(value));
 }
 
 Slice ParsePackedValueForValue(const Slice& value) {
