@@ -2311,13 +2311,13 @@ void Java_org_rocksdb_Options_setDailyOffpeakTimeUTC(JNIEnv* env, jclass,
                                                      jlong jhandle,
                                                      jstring jtimeutc) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  const jsize jtimesz = env->GetStringUTFLength(jtimeutc);
-  const char* timeutc = env->GetStringUTFChars(jtimeutc, nullptr);
-  if (env->ExceptionCheck()) {
+  jboolean has_exception;
+  auto timeutc =
+      ROCKSDB_NAMESPACE::JniUtil::copyStdString(env, jtimeutc, &has_exception);
+  if (has_exception == JNI_TRUE) {
     return;
   }
-  opt->daily_offpeak_time_utc = std::string(timeutc, jtimesz);
-  env->ReleaseStringUTFChars(jtimeutc, timeutc);
+  opt->daily_offpeak_time_utc = timeutc;
 }
 
 /*
