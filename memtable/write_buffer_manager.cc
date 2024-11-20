@@ -115,7 +115,7 @@ void WriteBufferManager::ReserveMem(size_t mem) {
   if (enabled()) {
     memory_active_.fetch_add(mem, std::memory_order_relaxed);
   }
-  std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_id << ",res," << mem << "," << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << std::endl;
+  // std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_id << ",res," << mem << "," << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << std::endl;
 }
 
 // Should only be called from write thread
@@ -159,7 +159,7 @@ void WriteBufferManager::FreeMem(size_t mem) {
     memory_used_.fetch_sub(mem, std::memory_order_relaxed);
     per_client_memory_used_[client_id].fetch_sub(mem, std::memory_order_relaxed);
   }
-  std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_id << ",free," << mem << "," << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << std::endl;
+  // std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_id << ",free," << mem << "," << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << std::endl;
 
   // Check if stall is active and can be ended.
   MaybeEndWriteStall();

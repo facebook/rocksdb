@@ -109,9 +109,9 @@ MultiTenantRateLimiter::MultiTenantRateLimiter(
     }
   }
 
-  std::cout << "[TGRIGGS_LOG] per-client bytes/s limit:" << std::endl;
+  std::cout << "[FAIRDB_LOG] per-client bytes/s limit:" << std::endl;
   for (int i = 0; i < num_clients_; ++i) {
-    std::cout << "[TGRIGGS_LOG] Client " << i << ": " << rate_bytes_per_sec_[i].load(std::memory_order_relaxed) << std::endl;
+    std::cout << "[FAIRDB_LOG] Client " << i << ": " << rate_bytes_per_sec_[i].load(std::memory_order_relaxed) << std::endl;
   }
 
   // TODO(tgriggs): create a separate (read) rate limiter
@@ -166,12 +166,12 @@ void MultiTenantRateLimiter::SetBytesPerSecondLocked(std::vector<int64_t> bytes_
 
 void MultiTenantRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
   (void) bytes_per_second;
-  std::cout << "[TGRIGGS_LOG] Deprecated 'SetBytesPerSecond'.\n";
+  std::cout << "[FAIRDB_LOG] Deprecated 'SetBytesPerSecond'.\n";
 }
 
 void MultiTenantRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
   (void) bytes_per_second;
-  std::cout << "[TGRIGGS_LOG] Deprecated 'SetBytesPerSecondLocked'.\n";
+  std::cout << "[FAIRDB_LOG] Deprecated 'SetBytesPerSecondLocked'.\n";
 }
 
 int64_t MultiTenantRateLimiter::GetSingleBurstBytes() const {
@@ -263,14 +263,10 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   // Extract client ID from thread-local metadata.
   int client_id = TG_GetThreadMetadata().client_id;
 
-  if (client_id == 0) {
+  if (client_id < 0) {
+    std::cout << "[FAIRDB_LOG] Call to Request() has error in client id assignment: " << client_id << std::endl;
     unassigned_calls_++;
     unassigned_bytes_ += bytes;
-    // TGprintStackTrace();
-    return;
-  }
-  if (client_id < 0) {
-    std::cout << "[TGRIGGS_LOG] Call to Request() has error in client id assignment: " << client_id << std::endl;
     return;
   }
   
@@ -278,7 +274,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   bytes_per_client_[client_id] += bytes;
   if (total_calls_++ >= 10000) {
     total_calls_ = 0;
-    std::cout << "[TGRIGGS_LOG] RL calls and bytes per-client for ";
+    std::cout << "[FAIRDB_LOG] RL calls and bytes per-client for ";
     if (mode_ == rocksdb::RateLimiter::Mode::kReadsOnly) {
       std::cout << "READ: ";
     } else {
@@ -332,9 +328,7 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   // Request cannot be satisfied at this moment, enqueue.
   Req req(bytes, &request_mutex_);
-  std::cout << "[FAIRDB_LOG] Queueing request with size " << bytes << " at addr: " << &req << std::endl;
   request_queue_map_[ReqKey(client_id, pri)].push_back(&req);
-  std::cout << "[FAIRDB_LOG] Queue length: " << request_queue_map_[ReqKey(client_id, pri)].size() << std::endl;
   TEST_SYNC_POINT_CALLBACK("MultiTenantRateLimiter::Request:PostEnqueueRequest",
                            &request_mutex_);
   // A thread representing a queued request coordinates with other such threads.
@@ -396,9 +390,6 @@ void MultiTenantRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 //     }
 // #endif  // NDEBUG
   } while (!stop_ && req.request_bytes > 0);
-
-  std::cout << "[FAIRDB_LOG] Request at addr: " << &req << " is now done" << std::endl;
-
 
   if (stop_) {
     // It is now in the clean-up of ~MultiTenantRateLimiter().
@@ -473,11 +464,6 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
       auto* queue = &request_queue_map_[req_key];
       while (!queue->empty()) {
         auto* next_req = queue->front();
-        std::cout << "[FAIRDB_LOG] Next_req == nullptr? " << (next_req == nullptr) << std::endl;
-        std::cout << "[FAIRDB_LOG] queue.size() " << (queue->size()) << std::endl;
-        // This next line gives a segfault!
-        std::cout << "[FAIRDB_LOG] Next_req->request_bytes = " << (next_req->request_bytes) << std::endl;
-        std::cout << "[FAIRDB_LOG] available_bytes_[client_id] = " << (available_bytes_[client_id]) << std::endl;
         if (available_bytes_[client_id] < next_req->request_bytes) {
           // Grant partial request_bytes even if request is for more than
           // `available_bytes_`, which can happen in a few situations:
@@ -493,7 +479,6 @@ void MultiTenantRateLimiter::RefillBytesAndGrantRequestsLocked() {
         available_bytes_[client_id] -= next_req->request_bytes;
         next_req->request_bytes = 0;
         total_bytes_through_[priority] += next_req->bytes;
-        std::cout << "[FAIRDB_LOG] Popping from queue\n";
         queue->pop_front();
 
         // Quota granted, signal the thread to exit
