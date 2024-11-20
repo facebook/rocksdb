@@ -6,8 +6,8 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-
 #ifndef NDEBUG
+#include <iostream>
 
 #include "db/blob/blob_file_cache.h"
 #include "db/column_family.h"
@@ -379,7 +379,11 @@ void DBImpl::TEST_VerifyNoObsoleteFilesCached(
     uint64_t file_number;
     GetUnaligned(reinterpret_cast<const uint64_t*>(key.data()), &file_number);
     // Assert file is in live/quarantined set
-    assert(live_and_quar_files.find(file_number) != live_and_quar_files.end());
+    if (live_and_quar_files.find(file_number) == live_and_quar_files.end()) {
+      std::cerr << "File " << file_number << " is not live nor quarantined"
+                << std::endl;
+      assert(false);
+    }
   };
   table_cache_->ApplyToAllEntries(fn, {});
 }
