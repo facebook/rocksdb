@@ -46,11 +46,20 @@ public class IteratorClosedDBTest {
       it.seekToFirst();
       assertThat(it.isValid()).isTrue();
 
+      byte[] valueOK = it.value();
+      assertThat(valueOK).isEqualTo(value);
+
       // Close should work because iterator references are now cleaned up
       // Previously would have thrown an exception here (assertion failure in C++) -
       // when built with DEBUG_LEVEL=1
       // Because the outstanding iterator has a reference to the column family which is being closed
       db.close();
+
+      try {
+        byte[] valueShouldAssert = it.value();
+        throw new RuntimeException("it.value() should cause an assertion");
+      } catch (AssertionError ignored) {
+      }
 
       // should assert
       try {
