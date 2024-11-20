@@ -346,7 +346,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // TODO(tgriggs): Super hacky. Update code to use cfd->GetID()
   // auto& thread_metadata = TG_GetThreadMetadata();
   // if (cfd->GetName() == "default") {
-  //   thread_metadata.client_id = 1;
+  //   thread_metadata.client_id = 0;
   // } else {
   //   thread_metadata.client_id = std::stoi(cfd->GetName().substr(2));       
   // }
@@ -469,7 +469,7 @@ Status DBImpl::FlushMemTablesToOutputFiles(
   auto& thread_metadata = TG_GetThreadMetadata();
   std::string cf_name = bg_flush_args[0].cfd_->GetName();
   if (cf_name == "default") {
-    thread_metadata.client_id = 1;
+    thread_metadata.client_id = 0;
   } else {
     thread_metadata.client_id = std::stoi(cf_name.substr(2));       
   }
@@ -3379,7 +3379,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
       job_context.Clean();
 
       // Reset the thread metadata.
-      TG_GetThreadMetadata().client_id = -2;
+      TG_GetThreadMetadata().client_id = -1;
 
       mutex_.Lock();
     }

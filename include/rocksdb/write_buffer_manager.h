@@ -142,6 +142,10 @@ bool ShouldFlush() const {
   //
   // Should only be called by RocksDB internally.
   bool ShouldStall(int client_id) const {
+    if (client_id < 0) {
+      std::cout << "[FAIRDB_LOG] Unaccounted ShouldStall " << client_id << std::endl;
+      return false;
+    }
     if (!allow_stall_.load(std::memory_order_relaxed) || !enabled()) {
       return false;
     }
@@ -156,6 +160,8 @@ bool ShouldFlush() const {
 
   // Returns true if stalling condition is met for the given client.
   bool IsStallThresholdExceeded(int client_id) const {
+    // std::cout << "IsStallThresholdExceeded for " << client_id << ": " << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << " vs " << per_client_buffer_size_[client_id] << std::endl;
+
     return per_client_memory_used_[client_id].load(std::memory_order_relaxed) >=
            per_client_buffer_size_[client_id];
   }

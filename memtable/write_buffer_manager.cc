@@ -102,6 +102,10 @@ void WriteBufferManager::SetPerClientBufferSize(int client_id, size_t buffer_siz
 void WriteBufferManager::ReserveMem(size_t mem) {
   // PrintStackTrace();
   int client_id = TG_GetThreadMetadata().client_id;
+  if (client_id < 0) {
+    std::cout << "[FAIRDB_LOG] Unaccounted ReserveMem " << client_id << std::endl;
+    return;
+  }
   if (cache_res_mgr_ != nullptr) {
     ReserveMemWithCache(mem);
   } else if (enabled()) {
@@ -111,7 +115,7 @@ void WriteBufferManager::ReserveMem(size_t mem) {
   if (enabled()) {
     memory_active_.fetch_add(mem, std::memory_order_relaxed);
   }
-  // std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_id << ",res," << mem << "," << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << std::endl;
+  std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_id << ",res," << mem << "," << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << std::endl;
 }
 
 // Should only be called from write thread
@@ -144,6 +148,10 @@ void WriteBufferManager::ScheduleFreeMem(size_t mem) {
 
 void WriteBufferManager::FreeMem(size_t mem) {
   int client_id = TG_GetThreadMetadata().client_id;
+  if (client_id < 0) {
+    std::cout << "[FAIRDB_LOG] Unaccounted FreeMem " << client_id << std::endl;
+    return;
+  }
   // std::cout << "[FAIRDB_LOG] WBM FreeMem for client: " << client_id << " of size " << mem << std::endl;
   if (cache_res_mgr_ != nullptr) {
     FreeMemWithCache(mem);
@@ -151,7 +159,7 @@ void WriteBufferManager::FreeMem(size_t mem) {
     memory_used_.fetch_sub(mem, std::memory_order_relaxed);
     per_client_memory_used_[client_id].fetch_sub(mem, std::memory_order_relaxed);
   }
-  // std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_id << ",free," << mem << "," << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << std::endl;
+  std::cout << "wbm," << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "," << client_id << ",free," << mem << "," << per_client_memory_used_[client_id].load(std::memory_order_relaxed) << std::endl;
 
   // Check if stall is active and can be ended.
   MaybeEndWriteStall();
@@ -177,6 +185,10 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
 
 void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall, int client_id) {
   assert(wbm_stall != nullptr);
+  if (client_id < 0) {
+    std::cout << "[FAIRDB_LOG] Unaccounted BeginWriteStall " << client_id << std::endl;
+    return;
+  }
   // Allocate outside of the lock.
   std::list<StallInterface*> new_node = {wbm_stall};
 
