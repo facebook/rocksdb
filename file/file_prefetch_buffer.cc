@@ -22,11 +22,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-void FilePrefetchBuffer::PrepareBufferForRead(BufferInfo* buf, size_t alignment,
-                                              uint64_t offset,
-                                              size_t roundup_len,
-                                              bool refit_tail,
-                                              uint64_t& aligned_useful_len) {
+void FilePrefetchBuffer::PrepareBufferForRead(
+    BufferInfo* buf, size_t alignment, uint64_t offset, size_t roundup_len,
+    bool refit_tail, bool use_fs_buffer, uint64_t& aligned_useful_len) {
   uint64_t aligned_useful_offset_in_buf = 0;
   bool copy_data_to_new_buffer = false;
   // Check if requested bytes are in the existing buffer_.
@@ -39,6 +37,9 @@ void FilePrefetchBuffer::PrepareBufferForRead(BufferInfo* buf, size_t alignment,
     // new buffer is created.
     aligned_useful_offset_in_buf =
         Rounddown(static_cast<size_t>(offset - buf->offset_), alignment);
+    // aligned_useful_len is passed by reference and used to calculate how much
+    // data needs to be read, so it is needed regardless of whether
+    // use_fs_buffer is true
     aligned_useful_len = static_cast<uint64_t>(buf->CurrentSize()) -
                          aligned_useful_offset_in_buf;
     assert(aligned_useful_offset_in_buf % alignment == 0);
@@ -53,6 +54,16 @@ void FilePrefetchBuffer::PrepareBufferForRead(BufferInfo* buf, size_t alignment,
     }
   }
 
+  // The later buffer allocation / tail refitting does not apply when
+  // use_fs_buffer is true. If we allocate a new buffer, we end up throwing it
+  // away later when we reuse the file system allocated buffer. If we refit
+  // the tail in the main buffer, we don't have a place to put the next chunk of
+  // data provided by the file system (without performing another copy, which we
+  // are trying to avoid in the first place)
+  if (use_fs_buffer) {
+    return;
+  }
+
   // Create a new buffer only if current capacity is not sufficient, and memcopy
   // bytes from old buffer if needed (i.e., if aligned_useful_len is greater
   // than 0).
@@ -62,8 +73,8 @@ void FilePrefetchBuffer::PrepareBufferForRead(BufferInfo* buf, size_t alignment,
         static_cast<size_t>(roundup_len), copy_data_to_new_buffer,
         aligned_useful_offset_in_buf, static_cast<size_t>(aligned_useful_len));
   } else if (aligned_useful_len > 0 && refit_tail) {
-    // New buffer not needed. But memmove bytes from tail to the beginning since
-    // aligned_useful_len is greater than 0.
+    // New buffer not needed. But memmove bytes from tail to the beginning
+    // since aligned_useful_len is greater than 0.
     buf->buffer_.RefitTail(static_cast<size_t>(aligned_useful_offset_in_buf),
                            static_cast<size_t>(aligned_useful_len));
   } else if (aligned_useful_len > 0) {
@@ -84,9 +95,18 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
                                 uint64_t read_len, uint64_t aligned_useful_len,
                                 uint64_t start_offset) {
   Slice result;
-  char* to_buf = buf->buffer_.BufferStart() + aligned_useful_len;
-  Status s = reader->Read(opts, start_offset + aligned_useful_len, read_len,
-                          &result, to_buf, /*aligned_buf=*/nullptr);
+  Status s;
+  char* to_buf = nullptr;
+  bool use_fs_buffer = UseFSBuffer(reader);
+  if (use_fs_buffer) {
+    s = FSBufferDirectRead(reader, buf, opts, start_offset + aligned_useful_len,
+                           read_len, result);
+  } else {
+    to_buf = buf->buffer_.BufferStart() + aligned_useful_len;
+    s = reader->Read(opts, start_offset + aligned_useful_len, read_len, &result,
+                     to_buf, /*aligned_buf=*/nullptr);
+  }
+
 #ifndef NDEBUG
   if (result.size() < read_len) {
     // Fake an IO error to force db_stress fault injection to ignore
@@ -97,7 +117,7 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
   if (!s.ok()) {
     return s;
   }
-  if (result.data() != to_buf) {
+  if (!use_fs_buffer && result.data() != to_buf) {
     // If the read is coming from some other buffer already in memory (such as
     // mmap) then it would be inefficient to create another copy in this
     // FilePrefetchBuffer. The caller is expected to exclude this case.
@@ -108,8 +128,11 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
   if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {
     RecordTick(stats_, PREFETCH_BYTES, read_len);
   }
-  // Update the buffer size.
-  buf->buffer_.Size(static_cast<size_t>(aligned_useful_len) + result.size());
+  if (!use_fs_buffer) {
+    // Update the buffer size.
+    // We already explicitly set the buffer size when we reuse the FS buffer
+    buf->buffer_.Size(static_cast<size_t>(aligned_useful_len) + result.size());
+  }
   return s;
 }
 
@@ -157,13 +180,14 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
     return Status::OK();
   }
 
-  size_t alignment = reader->file()->GetRequiredBufferAlignment();
+  size_t alignment = GetRequiredBufferAlignment(reader);
   uint64_t rounddown_offset = offset, roundup_end = 0, aligned_useful_len = 0;
   size_t read_len = 0;
+  bool use_fs_buffer = UseFSBuffer(reader);
 
   ReadAheadSizeTuning(buf, /*read_curr_block=*/true,
-                      /*refit_tail=*/true, rounddown_offset, alignment, 0, n,
-                      rounddown_offset, roundup_end, read_len,
+                      /*refit_tail=*/true, use_fs_buffer, rounddown_offset,
+                      alignment, 0, n, rounddown_offset, roundup_end, read_len,
                       aligned_useful_len);
 
   Status s;
@@ -178,12 +202,13 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
 }
 
 // Copy data from src to overlap_buf_.
-void FilePrefetchBuffer::CopyDataToBuffer(BufferInfo* src, uint64_t& offset,
-                                          size_t& length) {
+void FilePrefetchBuffer::CopyDataToOverlapBuffer(BufferInfo* src,
+                                                 uint64_t& offset,
+                                                 size_t& length) {
   if (length == 0) {
     return;
   }
-
+  assert(src->IsOffsetInBuffer(offset));
   uint64_t copy_offset = (offset - src->offset_);
   size_t copy_len = 0;
   if (src->IsDataBlockInBuffer(offset, length)) {
@@ -194,10 +219,8 @@ void FilePrefetchBuffer::CopyDataToBuffer(BufferInfo* src, uint64_t& offset,
   }
 
   BufferInfo* dst = overlap_buf_;
-  memcpy(dst->buffer_.BufferStart() + dst->CurrentSize(),
-         src->buffer_.BufferStart() + copy_offset, copy_len);
-
-  dst->buffer_.Size(dst->CurrentSize() + copy_len);
+  assert(copy_len <= dst->buffer_.Capacity() - dst->buffer_.CurrentSize());
+  dst->buffer_.Append(src->buffer_.BufferStart() + copy_offset, copy_len);
 
   // Update offset and length.
   offset += copy_len;
@@ -208,6 +231,7 @@ void FilePrefetchBuffer::CopyDataToBuffer(BufferInfo* src, uint64_t& offset,
   if (length > 0) {
     FreeFrontBuffer();
   }
+  TEST_SYNC_POINT("FilePrefetchBuffer::CopyDataToOverlapBuffer:Complete");
 }
 
 // Clear the buffers if it contains outdated data. Outdated data can be because
@@ -355,7 +379,7 @@ void FilePrefetchBuffer::PollIfNeeded(uint64_t offset, size_t length) {
 //                       of ReadAsync to make sure it doesn't read anything from
 //                       previous buffer which is already prefetched.
 void FilePrefetchBuffer::ReadAheadSizeTuning(
-    BufferInfo* buf, bool read_curr_block, bool refit_tail,
+    BufferInfo* buf, bool read_curr_block, bool refit_tail, bool use_fs_buffer,
     uint64_t prev_buf_end_offset, size_t alignment, size_t length,
     size_t readahead_size, uint64_t& start_offset, uint64_t& end_offset,
     size_t& read_len, uint64_t& aligned_useful_len) {
@@ -408,7 +432,7 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
   uint64_t roundup_len = end_offset - start_offset;
 
   PrepareBufferForRead(buf, alignment, start_offset, roundup_len, refit_tail,
-                       aligned_useful_len);
+                       use_fs_buffer, aligned_useful_len);
   assert(roundup_len >= aligned_useful_len);
 
   // Update the buffer offset.
@@ -422,11 +446,43 @@ void FilePrefetchBuffer::ReadAheadSizeTuning(
                              (end_offset - start_offset));
 }
 
+// This is for when num_buffers_ = 1.
+// If we are reusing the file system allocated buffer, and only some of the
+// requested data is in the buffer, we copy the relevant data to overlap_buf_
+void FilePrefetchBuffer::HandleOverlappingSyncData(uint64_t offset,
+                                                   size_t length,
+                                                   uint64_t& tmp_offset,
+                                                   size_t& tmp_length,
+                                                   bool& use_overlap_buffer) {
+  if (IsBufferQueueEmpty()) {
+    return;
+  }
+  BufferInfo* buf = GetFirstBuffer();
+  // We should only be calling this when num_buffers_ = 1, so there should
+  // not be any async reads.
+  assert(!buf->async_read_in_progress_);
+
+  if (!buf->async_read_in_progress_ && buf->DoesBufferContainData() &&
+      buf->IsOffsetInBuffer(offset) &&
+      buf->offset_ + buf->CurrentSize() < offset + length) {
+    // Allocated overlap_buf_ is just enough to hold the result for the user
+    // Alignment does not matter here
+    use_overlap_buffer = true;
+    overlap_buf_->ClearBuffer();
+    overlap_buf_->buffer_.Alignment(1);
+    overlap_buf_->buffer_.AllocateNewBuffer(length);
+    overlap_buf_->offset_ = offset;
+    CopyDataToOverlapBuffer(buf, tmp_offset, tmp_length);
+    UpdateStats(/*found_in_buffer=*/false, overlap_buf_->CurrentSize());
+  }
+}
+
+// This is for when num_buffers_ > 1.
 // If data is overlapping between two buffers then during this call:
 //   - data from first buffer is copied into overlapping buffer,
 //   - first is removed from bufs_ and freed so that it can be used for async
 //     prefetching of further data.
-Status FilePrefetchBuffer::HandleOverlappingData(
+Status FilePrefetchBuffer::HandleOverlappingAsyncData(
     const IOOptions& opts, RandomAccessFileReader* reader, uint64_t offset,
     size_t length, size_t readahead_size, bool& copy_to_overlap_buffer,
     uint64_t& tmp_offset, size_t& tmp_length) {
@@ -436,7 +492,7 @@ Status FilePrefetchBuffer::HandleOverlappingData(
   }
 
   Status s;
-  size_t alignment = reader->file()->GetRequiredBufferAlignment();
+  size_t alignment = GetRequiredBufferAlignment(reader);
 
   BufferInfo* buf = GetFirstBuffer();
 
@@ -470,7 +526,7 @@ Status FilePrefetchBuffer::HandleOverlappingData(
     overlap_buf_->offset_ = offset;
     copy_to_overlap_buffer = true;
 
-    CopyDataToBuffer(buf, tmp_offset, tmp_length);
+    CopyDataToOverlapBuffer(buf, tmp_offset, tmp_length);
     UpdateStats(/*found_in_buffer=*/false, overlap_buf_->CurrentSize());
 
     // Call async prefetching on freed buffer since data has been consumed
@@ -495,8 +551,8 @@ Status FilePrefetchBuffer::HandleOverlappingData(
       uint64_t end_offset = start_offset, aligned_useful_len = 0;
 
       ReadAheadSizeTuning(new_buf, /*read_curr_block=*/false,
-                          /*refit_tail=*/false, next_buf->offset_ + second_size,
-                          alignment,
+                          /*refit_tail=*/false, /*use_fs_buffer=*/false,
+                          next_buf->offset_ + second_size, alignment,
                           /*length=*/0, readahead_size, start_offset,
                           end_offset, read_len, aligned_useful_len);
       if (read_len > 0) {
@@ -537,7 +593,7 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
 
   TEST_SYNC_POINT("FilePrefetchBuffer::Prefetch:Start");
 
-  size_t alignment = reader->file()->GetRequiredBufferAlignment();
+  size_t alignment = GetRequiredBufferAlignment(reader);
   Status s;
   uint64_t tmp_offset = offset;
   size_t tmp_length = length;
@@ -550,11 +606,19 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   }
   ClearOutdatedData(offset, length);
 
-  // Handle overlapping data over two buffers.
-  s = HandleOverlappingData(opts, reader, offset, length, readahead_size,
-                            copy_to_overlap_buffer, tmp_offset, tmp_length);
+  // Handle overlapping data over two buffers (async prefetching case).
+  s = HandleOverlappingAsyncData(opts, reader, offset, length, readahead_size,
+                                 copy_to_overlap_buffer, tmp_offset,
+                                 tmp_length);
   if (!s.ok()) {
     return s;
+  }
+  // Handle partially available data when reusing the file system buffer
+  // and num_buffers_ = 1 (sync prefetching case)
+  bool use_fs_buffer = UseFSBuffer(reader);
+  if (!copy_to_overlap_buffer && use_fs_buffer) {
+    HandleOverlappingSyncData(offset, length, tmp_offset, tmp_length,
+                              copy_to_overlap_buffer);
   }
 
   AllocateBufferIfEmpty();
@@ -586,8 +650,18 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
     if (copy_to_overlap_buffer) {
       // Data is overlapping i.e. some of the data has been copied to overlap
       // buffer and remaining will be updated below.
+      // Note: why do we not end up performing a duplicate copy when we already
+      // copy to the overlap buffer in HandleOverlappingAsyncData /
+      // HandleOverlappingSyncData? The reason is that when we call
+      // CopyDataToOverlapBuffer, if the buffer is only a "partial hit", then we
+      // clear it out since it does not have any more useful data once we copy
+      // to the overlap buffer. Once we reallocate a fresh buffer, that buffer
+      // will have no data, and it will be the "first" buffer when num_buffers_
+      // = 1. When num_buffers_ > 1, we call ClearOutdatedData() so we know
+      // that, if we get to this point in the control flow, the "front" buffer
+      // has to have the data we need.
       size_t initial_buf_size = overlap_buf_->CurrentSize();
-      CopyDataToBuffer(buf, offset, length);
+      CopyDataToOverlapBuffer(buf, offset, length);
       UpdateStats(
           /*found_in_buffer=*/false,
           overlap_buf_->CurrentSize() - initial_buf_size);
@@ -636,10 +710,10 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
       UpdateStats(/*found_in_buffer=*/false,
                   (buf->offset_ + buf->CurrentSize() - offset));
     }
-    ReadAheadSizeTuning(buf, /*read_curr_block=*/true, /*refit_tail*/
-                        true, start_offset1, alignment, length, readahead_size,
-                        start_offset1, end_offset1, read_len1,
-                        aligned_useful_len1);
+    ReadAheadSizeTuning(buf, /*read_curr_block=*/true, /*refit_tail=*/
+                        true, /*use_fs_buffer=*/use_fs_buffer, start_offset1,
+                        alignment, length, readahead_size, start_offset1,
+                        end_offset1, read_len1, aligned_useful_len1);
   } else {
     UpdateStats(/*found_in_buffer=*/true, original_length);
   }
@@ -662,10 +736,10 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
     }
   }
 
-  // Copy remaining requested bytes to overlap_buffer. No need to update stats
-  // as data is prefetched during this call.
+  // Copy remaining requested bytes to overlap_buf_. No need to
+  // update stats as data is prefetched during this call.
   if (copy_to_overlap_buffer && length > 0) {
-    CopyDataToBuffer(buf, offset, length);
+    CopyDataToOverlapBuffer(buf, offset, length);
   }
   return s;
 }
@@ -892,7 +966,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   std::string msg;
 
   Status s;
-  size_t alignment = reader->file()->GetRequiredBufferAlignment();
+  size_t alignment = GetRequiredBufferAlignment(reader);
   size_t readahead_size = is_eligible_for_prefetching ? readahead_size_ / 2 : 0;
   size_t offset_to_read = static_cast<size_t>(offset);
   uint64_t start_offset1 = offset, end_offset1 = 0, aligned_useful_len1 = 0;
@@ -915,6 +989,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     // Prefetch full data + readahead_size in the first buffer.
     if (is_eligible_for_prefetching || reader->use_direct_io()) {
       ReadAheadSizeTuning(buf, /*read_curr_block=*/true, /*refit_tail=*/false,
+                          /*use_fs_buffer=*/false,
                           /*prev_buf_end_offset=*/start_offset1, alignment, n,
                           readahead_size, start_offset1, end_offset1, read_len1,
                           aligned_useful_len1);
@@ -923,7 +998,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
       start_offset1 = offset_to_read;
       end_offset1 = offset_to_read + n;
       roundup_len1 = end_offset1 - start_offset1;
-      PrepareBufferForRead(buf, alignment, start_offset1, roundup_len1, false,
+      PrepareBufferForRead(buf, alignment, start_offset1, roundup_len1,
+                           /*refit_tail=*/false, /*use_fs_buffer=*/false,
                            aligned_useful_len1);
       assert(aligned_useful_len1 == 0);
       assert(roundup_len1 >= aligned_useful_len1);
@@ -970,7 +1046,7 @@ Status FilePrefetchBuffer::PrefetchRemBuffers(const IOOptions& opts,
     uint64_t end_offset2 = start_offset2, aligned_useful_len2 = 0;
     size_t read_len2 = 0;
     ReadAheadSizeTuning(new_buf, /*read_curr_block=*/false,
-                        /*refit_tail=*/false,
+                        /*refit_tail=*/false, /*use_fs_buffer=*/false,
                         /*prev_buf_end_offset=*/end_offset1, alignment,
                         /*length=*/0, readahead_size, start_offset2,
                         end_offset2, read_len2, aligned_useful_len2);
