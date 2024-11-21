@@ -186,6 +186,16 @@ class Footer {
   // Create empty. Populate using DecodeFrom.
   Footer() {}
 
+  void Reset() {
+    table_magic_number_ = kNullTableMagicNumber;
+    format_version_ = kInvalidFormatVersion;
+    base_context_checksum_ = 0;
+    metaindex_handle_ = BlockHandle::NullBlockHandle();
+    index_handle_ = BlockHandle::NullBlockHandle();
+    checksum_type_ = kInvalidChecksumType;
+    block_trailer_size_ = 0;
+  }
+
   // Deserialize a footer (populate fields) from `input` and check for various
   // corruptions. `input_offset` is the offset within the target file of
   // `input` buffer, which is needed for verifying format_version >= 6 footer.
@@ -304,7 +314,8 @@ class FooterBuilder {
 Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           FileSystem& fs, FilePrefetchBuffer* prefetch_buffer,
                           uint64_t file_size, Footer* footer,
-                          uint64_t enforce_table_magic_number = 0);
+                          uint64_t enforce_table_magic_number = 0,
+                          Statistics* stats = nullptr);
 
 // Computes a checksum using the given ChecksumType. Sometimes we need to
 // include one more input byte logically at the end but not part of the main

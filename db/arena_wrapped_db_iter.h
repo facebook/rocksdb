@@ -83,6 +83,8 @@ class ArenaWrappedDBIter : public Iterator {
   Status Refresh() override;
   Status Refresh(const Snapshot*) override;
 
+  bool PrepareValue() override { return db_iter_->PrepareValue(); }
+
   void Init(Env* env, const ReadOptions& read_options,
             const ImmutableOptions& ioptions,
             const MutableCFOptions& mutable_cf_options, const Version* version,

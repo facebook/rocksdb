@@ -289,10 +289,12 @@ TEST_F(DBFollowerTest, RetryCatchup) {
       {"DBImplFollower::TryCatchupWithLeader:Begin1", "Leader::Start"},
       {"DBImpl::BackgroundCompaction:Start",
        "DBImplFollower::TryCatchupWithLeader:Begin2"},
-      {"VersionEditHandlerPointInTime::MaybeCreateVersion:Begin1",
+      {"VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit:"
+       "Begin1",
        "DBImpl::BackgroundCompaction:BeforeCompaction"},
       {"DBImpl::BackgroundCallCompaction:PurgedObsoleteFiles",
-       "VersionEditHandlerPointInTime::MaybeCreateVersion:Begin2"},
+       "VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit:"
+       "Begin2"},
       {"DBImplFollower::TryCatchupWithLeader:End", "Follower::WaitForCatchup"},
   });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -335,10 +337,12 @@ TEST_F(DBFollowerTest, RetryCatchupManifestRollover) {
   SyncPoint::GetInstance()->LoadDependency({
       {"DBImplFollower::TryCatchupWithLeader:Begin1", "Leader::Start"},
       {"Leader::Flushed", "DBImplFollower::TryCatchupWithLeader:Begin2"},
-      {"VersionEditHandlerPointInTime::MaybeCreateVersion:Begin1",
+      {"VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit:"
+       "Begin1",
        "Leader::Done"},
       {"DBImpl::BackgroundCallCompaction:PurgedObsoleteFiles",
-       "VersionEditHandlerPointInTime::MaybeCreateVersion:Begin2"},
+       "VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit:"
+       "Begin2"},
       {"DBImplFollower::TryCatchupWithLeader:End",
        "Follower::WaitForCatchup:1"},
   });

@@ -87,8 +87,10 @@ struct ImmutableDBOptions {
   bool background_close_inactive_wals;
   bool atomic_flush;
   bool avoid_unnecessary_blocking_io;
+  bool prefix_seek_opt_in_only;
   bool persist_stats_to_disk;
   bool write_dbid_to_manifest;
+  bool write_identity_file;
   size_t log_readahead_size;
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory;
   bool best_efforts_recovery;
@@ -103,6 +105,8 @@ struct ImmutableDBOptions {
   uint64_t follower_refresh_catchup_period_ms;
   uint64_t follower_catchup_retry_count;
   uint64_t follower_catchup_retry_wait_ms;
+  Temperature metadata_write_temperature;
+  Temperature wal_write_temperature;
 
   // Beginning convenience/helper objects that are not part of the base
   // DBOptions

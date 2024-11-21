@@ -904,5 +904,7 @@ struct ReadOptionsNoIo : public ReadOptions {
 };
 extern const ReadOptionsNoIo kReadOptionsNoIo;
 
+extern const std::string kUnitTestDbId;
+
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

@@ -137,7 +137,13 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 
 BlockBasedTable::~BlockBasedTable() {
   auto ua = rep_->uncache_aggressiveness.LoadRelaxed();
-  if (ua > 0 && rep_->table_options.block_cache) {
+  // NOTE: there is an undiagnosed incompatibility with mmap reads,
+  // where attempting to read the index below can result in bus error.
+  // In theory the mmap should remain in place until destruction of
+  // rep_, so even a page fault should be satisfiable. But also, combining
+  // mmap reads with block cache is weird, so it's not a concerning loss.
+  if (ua > 0 && rep_->table_options.block_cache &&
+      !rep_->ioptions.allow_mmap_reads) {
     if (rep_->filter) {
       rep_->filter->EraseFromCacheBeforeDestruction(ua);
     }
@@ -647,6 +653,7 @@ Status BlockBasedTable::Open(
   ro.rate_limiter_priority = read_options.rate_limiter_priority;
   ro.verify_checksums = read_options.verify_checksums;
   ro.io_activity = read_options.io_activity;
+  ro.fill_cache = read_options.fill_cache;
 
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
@@ -680,22 +687,12 @@ Status BlockBasedTable::Open(
   if (s.ok()) {
     s = ReadFooterFromFile(opts, file.get(), *ioptions.fs,
                            prefetch_buffer.get(), file_size, &footer,
-                           kBlockBasedTableMagicNumber);
-  }
-  // If the footer is corrupted and the FS supports checksum verification and
-  // correction, try reading the footer again
-  if (s.IsCorruption()) {
-    RecordTick(ioptions.statistics.get(), SST_FOOTER_CORRUPTION_COUNT);
-    if (CheckFSFeatureSupport(ioptions.fs.get(),
-                              FSSupportedOps::kVerifyAndReconstructRead)) {
-      IOOptions retry_opts = opts;
-      retry_opts.verify_and_reconstruct_read = true;
-      s = ReadFooterFromFile(retry_opts, file.get(), *ioptions.fs,
-                             prefetch_buffer.get(), file_size, &footer,
-                             kBlockBasedTableMagicNumber);
-    }
+                           kBlockBasedTableMagicNumber, ioptions.stats);
   }
   if (!s.ok()) {
+    if (s.IsCorruption()) {
+      RecordTick(ioptions.statistics.get(), SST_FOOTER_CORRUPTION_COUNT);
+    }
     return s;
   }
   if (!IsSupportedFormatVersion(footer.format_version())) {
@@ -2073,7 +2070,9 @@ InternalIterator* BlockBasedTable::NewIterator(
   if (arena == nullptr) {
     return new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
-        !skip_filters && !read_options.total_order_seek &&
+        !skip_filters &&
+            (!read_options.total_order_seek || read_options.auto_prefix_mode ||
+             read_options.prefix_same_as_start) &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, caller,
         compaction_readahead_size, allow_unprepared_value);
@@ -2081,7 +2080,9 @@ InternalIterator* BlockBasedTable::NewIterator(
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
-        !skip_filters && !read_options.total_order_seek &&
+        !skip_filters &&
+            (!read_options.total_order_seek || read_options.auto_prefix_mode ||
+             read_options.prefix_same_as_start) &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, caller,
         compaction_readahead_size, allow_unprepared_value);

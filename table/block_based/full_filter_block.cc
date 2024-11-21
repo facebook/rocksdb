@@ -20,13 +20,8 @@ namespace ROCKSDB_NAMESPACE {
 FullFilterBlockBuilder::FullFilterBlockBuilder(
     const SliceTransform* _prefix_extractor, bool whole_key_filtering,
     FilterBitsBuilder* filter_bits_builder)
-    : need_last_prefix_(whole_key_filtering && _prefix_extractor != nullptr),
-      prefix_extractor_(_prefix_extractor),
-      whole_key_filtering_(whole_key_filtering),
-      last_whole_key_recorded_(false),
-      last_prefix_recorded_(false),
-      last_key_in_domain_(false),
-      any_added_(false) {
+    : prefix_extractor_(_prefix_extractor),
+      whole_key_filtering_(whole_key_filtering) {
   assert(filter_bits_builder != nullptr);
   filter_bits_builder_.reset(filter_bits_builder);
 }
@@ -35,95 +30,30 @@ size_t FullFilterBlockBuilder::EstimateEntriesAdded() {
   return filter_bits_builder_->EstimateEntriesAdded();
 }
 
+void FullFilterBlockBuilder::AddWithPrevKey(
+    const Slice& key_without_ts, const Slice& /*prev_key_without_ts*/) {
+  FullFilterBlockBuilder::Add(key_without_ts);
+}
+
 void FullFilterBlockBuilder::Add(const Slice& key_without_ts) {
-  const bool add_prefix =
-      prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts);
-
-  if (need_last_prefix_ && !last_prefix_recorded_ && last_key_in_domain_) {
-    // We can reach here when a new filter partition starts in partitioned
-    // filter. The last prefix in the previous partition should be added if
-    // necessary regardless of key_without_ts, to support prefix SeekForPrev.
-    AddKey(last_prefix_str_);
-    last_prefix_recorded_ = true;
-  }
-
-  if (whole_key_filtering_) {
-    if (!add_prefix) {
-      AddKey(key_without_ts);
+  if (prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts)) {
+    Slice prefix = prefix_extractor_->Transform(key_without_ts);
+    if (whole_key_filtering_) {
+      filter_bits_builder_->AddKeyAndAlt(key_without_ts, prefix);
     } else {
-      // if both whole_key and prefix are added to bloom then we will have whole
-      // key_without_ts and prefix addition being interleaved and thus cannot
-      // rely on the bits builder to properly detect the duplicates by comparing
-      // with the last item.
-      Slice last_whole_key = Slice(last_whole_key_str_);
-      if (!last_whole_key_recorded_ ||
-          last_whole_key.compare(key_without_ts) != 0) {
-        AddKey(key_without_ts);
-        last_whole_key_recorded_ = true;
-        last_whole_key_str_.assign(key_without_ts.data(),
-                                   key_without_ts.size());
-      }
+      filter_bits_builder_->AddKey(prefix);
     }
+  } else if (whole_key_filtering_) {
+    filter_bits_builder_->AddKey(key_without_ts);
   }
-  if (add_prefix) {
-    last_key_in_domain_ = true;
-    AddPrefix(key_without_ts);
-  } else {
-    last_key_in_domain_ = false;
-  }
-}
-
-// Add key to filter if needed
-inline void FullFilterBlockBuilder::AddKey(const Slice& key) {
-  filter_bits_builder_->AddKey(key);
-  any_added_ = true;
-}
-
-// Add prefix to filter if needed
-void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
-  assert(prefix_extractor_ && prefix_extractor_->InDomain(key));
-  Slice prefix = prefix_extractor_->Transform(key);
-  if (need_last_prefix_) {
-    // WART/FIXME: Because last_prefix_str_ is needed above to make
-    // SeekForPrev work with partitioned + prefix filters, we are currently
-    // use this inefficient code in that case (in addition to prefix+whole
-    // key). Hopefully this can be optimized with some refactoring up the call
-    // chain to BlockBasedTableBuilder. Even in PartitionedFilterBlockBuilder,
-    // we don't currently have access to the previous key/prefix by the time we
-    // know we are starting a new partition.
-
-    // if both whole_key and prefix are added to bloom then we will have whole
-    // key and prefix addition being interleaved and thus cannot rely on the
-    // bits builder to properly detect the duplicates by comparing with the last
-    // item.
-    Slice last_prefix = Slice(last_prefix_str_);
-    if (!last_prefix_recorded_ || last_prefix.compare(prefix) != 0) {
-      AddKey(prefix);
-      last_prefix_recorded_ = true;
-      last_prefix_str_.assign(prefix.data(), prefix.size());
-    }
-  } else {
-    AddKey(prefix);
-  }
-}
-
-void FullFilterBlockBuilder::Reset() {
-  last_whole_key_recorded_ = false;
-  last_prefix_recorded_ = false;
 }
 
 Status FullFilterBlockBuilder::Finish(
     const BlockHandle& /*last_partition_block_handle*/, Slice* filter,
     std::unique_ptr<const char[]>* filter_owner) {
-  Reset();
   Status s = Status::OK();
-  if (any_added_) {
-    any_added_ = false;
-    *filter = filter_bits_builder_->Finish(
-        filter_owner ? filter_owner : &filter_data_, &s);
-  } else {
-    *filter = Slice{};
-  }
+  *filter = filter_bits_builder_->Finish(
+      filter_owner ? filter_owner : &filter_data_, &s);
   return s;
 }
 

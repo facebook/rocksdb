@@ -161,11 +161,12 @@ bool ParseFileName(const std::string& filename, uint64_t* number,
 // when
 IOStatus SetCurrentFile(const WriteOptions& write_options, FileSystem* fs,
                         const std::string& dbname, uint64_t descriptor_number,
+                        Temperature temp,
                         FSDirectory* dir_contains_current_file);
 
 // Make the IDENTITY file for the db
 Status SetIdentityFile(const WriteOptions& write_options, Env* env,
-                       const std::string& dbname,
+                       const std::string& dbname, Temperature temp,
                        const std::string& db_id = {});
 
 // Sync manifest file `file`.

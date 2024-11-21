@@ -125,7 +125,6 @@ DECLARE_int32(level0_stop_writes_trigger);
 DECLARE_int32(block_size);
 DECLARE_int32(format_version);
 DECLARE_int32(index_block_restart_interval);
-DECLARE_bool(disable_auto_compactions);
 DECLARE_int32(max_background_compactions);
 DECLARE_int32(num_bottom_pri_threads);
 DECLARE_int32(compaction_thread_pool_adjust_interval);
@@ -151,6 +150,7 @@ DECLARE_bool(charge_filter_construction);
 DECLARE_bool(charge_table_reader);
 DECLARE_bool(charge_file_metadata);
 DECLARE_bool(charge_blob_cache);
+DECLARE_bool(decouple_partitioned_filters);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
 DECLARE_int32(unpartitioned_pinning);
@@ -260,6 +260,7 @@ DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);
 DECLARE_bool(write_dbid_to_manifest);
+DECLARE_bool(write_identity_file);
 DECLARE_bool(avoid_flush_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
@@ -274,6 +275,7 @@ DECLARE_bool(verification_only);
 DECLARE_string(last_level_temperature);
 DECLARE_string(default_write_temperature);
 DECLARE_string(default_temperature);
+DECLARE_bool(paranoid_memory_checks);
 
 // Options for transaction dbs.
 // Use TransactionDB (a.k.a. Pessimistic Transaction DB)
@@ -318,7 +320,6 @@ DECLARE_int32(prepopulate_blob_cache);
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
-DECLARE_bool(enable_compaction_filter);
 DECLARE_bool(paranoid_file_checks);
 DECLARE_bool(fail_if_options_file_error);
 DECLARE_uint64(batch_protection_bytes_per_key);
@@ -416,6 +417,8 @@ DECLARE_bool(check_multiget_consistency);
 DECLARE_bool(check_multiget_entity_consistency);
 DECLARE_bool(inplace_update_support);
 DECLARE_uint32(uncache_aggressiveness);
+DECLARE_int32(test_ingest_standalone_range_deletion_one_in);
+DECLARE_bool(allow_unprepared_value);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

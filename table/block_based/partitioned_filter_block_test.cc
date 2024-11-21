@@ -58,7 +58,7 @@ class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
 class PartitionedFilterBlockTest
     : public testing::Test,
       virtual public ::testing::WithParamInterface<
-          std::tuple<uint32_t, test::UserDefinedTimestampTestMode>> {
+          std::tuple<uint32_t, test::UserDefinedTimestampTestMode, bool>> {
  public:
   Options options_;
   ImmutableOptions ioptions_;
@@ -70,6 +70,7 @@ class PartitionedFilterBlockTest
   int bits_per_key_;
   size_t ts_sz_;
   bool user_defined_timestamps_persisted_;
+  bool decouple_partitioned_filters;
 
   PartitionedFilterBlockTest() : bits_per_key_(10) {
     auto udt_test_mode = std::get<1>(GetParam());
@@ -85,6 +86,8 @@ class PartitionedFilterBlockTest
         NewBloomFilterPolicy(bits_per_key_, false));
     table_options_.format_version = std::get<0>(GetParam());
     table_options_.index_block_restart_interval = 3;
+    table_options_.decouple_partitioned_filters = decouple_partitioned_filters =
+        std::get<2>(GetParam());
   }
 
   ~PartitionedFilterBlockTest() override = default;
@@ -160,11 +163,12 @@ class PartitionedFilterBlockTest
             FilterBuildingContext(table_options_)),
         table_options_.index_block_restart_interval, !kValueDeltaEncoded,
         p_index_builder, partition_size, ts_sz_,
-        user_defined_timestamps_persisted_);
+        user_defined_timestamps_persisted_, decouple_partitioned_filters);
   }
 
   PartitionedFilterBlockReader* NewReader(
-      PartitionedFilterBlockBuilder* builder, PartitionedIndexBuilder* pib) {
+      PartitionedFilterBlockBuilder* builder, PartitionedIndexBuilder* pib,
+      bool expect_empty = false) {
     BlockHandle bh;
     Status status;
     Slice slice;
@@ -172,6 +176,11 @@ class PartitionedFilterBlockTest
     do {
       status = builder->Finish(bh, &slice, &filter_data);
       bh = Write(slice);
+      if (expect_empty) {
+        // Ensure most efficient "empty" filter is used
+        EXPECT_OK(status);
+        EXPECT_EQ(0, slice.size());
+      }
     } while (status.IsIncomplete());
 
     constexpr bool skip_filters = false;
@@ -196,7 +205,7 @@ class PartitionedFilterBlockTest
   void VerifyReader(PartitionedFilterBlockBuilder* builder,
                     PartitionedIndexBuilder* pib, bool empty = false) {
     std::unique_ptr<PartitionedFilterBlockReader> reader(
-        NewReader(builder, pib));
+        NewReader(builder, pib, empty));
     // Querying added keys
     std::vector<std::string> keys = PrepareKeys(keys_without_ts, kKeyNum);
     for (const auto& key : keys) {
@@ -312,10 +321,9 @@ class PartitionedFilterBlockTest
   void CutABlock(PartitionedIndexBuilder* builder, const std::string& user_key,
                  const std::string& next_user_key) {
     // Assuming a block is cut, add an entry to the index
-    std::string key =
-        std::string(*InternalKey(user_key, 0, ValueType::kTypeValue).rep());
-    std::string next_key = std::string(
-        *InternalKey(next_user_key, 0, ValueType::kTypeValue).rep());
+    std::string key = *InternalKey(user_key, 0, ValueType::kTypeValue).rep();
+    std::string next_key =
+        *InternalKey(next_user_key, 0, ValueType::kTypeValue).rep();
     BlockHandle dont_care_block_handle(1, 1);
     Slice slice = Slice(next_key.data(), next_key.size());
     std::string scratch;
@@ -338,10 +346,10 @@ class PartitionedFilterBlockTest
 // Format versions potentially intersting to partitioning
 INSTANTIATE_TEST_CASE_P(
     FormatVersions, PartitionedFilterBlockTest,
-    testing::Combine(testing::ValuesIn(std::set<uint32_t>{
-                         2, 3, 4, test::kDefaultFormatVersion,
-                         kLatestFormatVersion}),
-                     testing::ValuesIn(test::GetUDTTestModes())));
+    testing::Combine(
+        testing::ValuesIn(std::set<uint32_t>{
+            2, 3, 4, 5, test::kDefaultFormatVersion, kLatestFormatVersion}),
+        testing::ValuesIn(test::GetUDTTestModes()), testing::Bool()));
 
 TEST_P(PartitionedFilterBlockTest, EmptyBuilder) {
   std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());

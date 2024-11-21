@@ -265,7 +265,8 @@ Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
     const std::shared_ptr<FileSystem>& fs = db_options.env->GetFileSystem();
     std::string manifest_path;
     uint64_t manifest_file_number;
-    s = VersionSet::GetCurrentManifestPath(dbname, fs.get(), &manifest_path,
+    s = VersionSet::GetCurrentManifestPath(dbname, fs.get(), /*is_retry=*/false,
+                                           &manifest_path,
                                            &manifest_file_number);
   } else {
     // Historic behavior that doesn't necessarily make sense

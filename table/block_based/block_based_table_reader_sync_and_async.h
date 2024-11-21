@@ -223,13 +223,16 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         s = VerifyBlockChecksum(footer, data, handle.size(),
                                 rep_->file->file_name(), handle.offset());
         RecordTick(ioptions.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
+        if (!s.ok()) {
+          RecordTick(ioptions.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+        }
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
         if (!s.ok() &&
             CheckFSFeatureSupport(ioptions.fs.get(),
                                   FSSupportedOps::kVerifyAndReconstructRead)) {
           assert(s.IsCorruption());
           assert(!ioptions.allow_mmap_reads);
-          RecordTick(ioptions.stats, BLOCK_CHECKSUM_MISMATCH_COUNT);
+          RecordTick(ioptions.stats, FILE_READ_CORRUPTION_RETRY_COUNT);
 
           // Repeat the read for this particular block using the regular
           // synchronous Read API. We can use the same chunk of memory
@@ -246,6 +249,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
             assert(result.size() == BlockSizeWithTrailer(handle));
             s = VerifyBlockChecksum(footer, data, handle.size(),
                                     rep_->file->file_name(), handle.offset());
+            if (s.ok()) {
+              RecordTick(ioptions.stats,
+                         FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT);
+            }
           } else {
             s = io_s;
           }
@@ -296,12 +303,15 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
             /*lookup_context=*/nullptr, &serialized_block,
             /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
 
+        if (!s.ok()) {
+          statuses[idx_in_batch] = s;
+          continue;
+        }
         // block_entry value could be null if no block cache is present, i.e
         // BlockBasedTableOptions::no_block_cache is true and no compressed
         // block cache is configured. In that case, fall
         // through and set up the block explicitly
         if (block_entry->GetValue() != nullptr) {
-          s.PermitUncheckedError();
           continue;
         }
       }

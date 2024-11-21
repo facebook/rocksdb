@@ -613,6 +613,21 @@ class BatchedOpsStressTest : public StressTest {
         // no iterator should finish before the first one
         assert(iters[i]->Valid() &&
                iters[i]->key().starts_with(prefix_slices[i]));
+
+        if (ro_copies[i].allow_unprepared_value) {
+          // Save key in case PrepareValue fails and invalidates the iterator
+          const std::string prepare_value_key =
+              iters[i]->key().ToString(/* hex */ true);
+
+          if (!iters[i]->PrepareValue()) {
+            fprintf(stderr,
+                    "prefix scan error: PrepareValue failed for key %s: %s\n",
+                    prepare_value_key.c_str(),
+                    iters[i]->status().ToString().c_str());
+            continue;
+          }
+        }
+
         values[i] = iters[i]->value().ToString();
 
         // make sure the last character of the value is the expected digit

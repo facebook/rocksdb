@@ -283,9 +283,10 @@ Compaction::Compaction(
     uint32_t _output_path_id, CompressionType _compression,
     CompressionOptions _compression_opts, Temperature _output_temperature,
     uint32_t _max_subcompactions, std::vector<FileMetaData*> _grandparents,
-    bool _manual_compaction, const std::string& _trim_ts, double _score,
-    bool _deletion_compaction, bool l0_files_might_overlap,
-    CompactionReason _compaction_reason,
+    std::optional<SequenceNumber> _earliest_snapshot,
+    const SnapshotChecker* _snapshot_checker, bool _manual_compaction,
+    const std::string& _trim_ts, double _score, bool _deletion_compaction,
+    bool l0_files_might_overlap, CompactionReason _compaction_reason,
     BlobGarbageCollectionPolicy _blob_garbage_collection_policy,
     double _blob_garbage_collection_age_cutoff)
     : input_vstorage_(vstorage),
@@ -307,6 +308,8 @@ Compaction::Compaction(
       l0_files_might_overlap_(l0_files_might_overlap),
       inputs_(PopulateWithAtomicBoundaries(vstorage, std::move(_inputs))),
       grandparents_(std::move(_grandparents)),
+      earliest_snapshot_(_earliest_snapshot),
+      snapshot_checker_(_snapshot_checker),
       score_(_score),
       bottommost_level_(
           // For simplicity, we don't support the concept of "bottommost level"
@@ -342,8 +345,9 @@ Compaction::Compaction(
           _compaction_reason == CompactionReason::kExternalSstIngestion ||
                   _compaction_reason == CompactionReason::kRefitLevel
               ? Compaction::kInvalidLevel
-              : EvaluatePenultimateLevel(vstorage, immutable_options_,
-                                         start_level_, output_level_)) {
+              : EvaluatePenultimateLevel(vstorage, mutable_cf_options_,
+                                         immutable_options_, start_level_,
+                                         output_level_)) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
@@ -364,12 +368,17 @@ Compaction::Compaction(
   }
 #endif
 
-  // setup input_levels_
+  // setup input_levels_ and filtered_input_levels_
   {
     input_levels_.resize(num_input_levels());
-    for (size_t which = 0; which < num_input_levels(); which++) {
-      DoGenerateLevelFilesBrief(&input_levels_[which], inputs_[which].files,
-                                &arena_);
+    filtered_input_levels_.resize(num_input_levels());
+    if (earliest_snapshot_.has_value()) {
+      FilterInputsForCompactionIterator();
+    } else {
+      for (size_t which = 0; which < num_input_levels(); which++) {
+        DoGenerateLevelFilesBrief(&input_levels_[which], inputs_[which].files,
+                                  &arena_);
+      }
     }
   }
 
@@ -686,12 +695,11 @@ bool Compaction::KeyRangeNotExistsBeyondOutputLevel(
 };
 
 // Mark (or clear) each file that is being compacted
-void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
+void Compaction::MarkFilesBeingCompacted(bool being_compacted) const {
   for (size_t i = 0; i < num_input_levels(); i++) {
     for (size_t j = 0; j < inputs_[i].size(); j++) {
-      assert(mark_as_compacted ? !inputs_[i][j]->being_compacted
-                               : inputs_[i][j]->being_compacted);
-      inputs_[i][j]->being_compacted = mark_as_compacted;
+      assert(being_compacted != inputs_[i][j]->being_compacted);
+      inputs_[i][j]->being_compacted = being_compacted;
     }
   }
 }
@@ -735,7 +743,7 @@ uint64_t Compaction::CalculateTotalInputSize() const {
   return size;
 }
 
-void Compaction::ReleaseCompactionFiles(Status status) {
+void Compaction::ReleaseCompactionFiles(const Status& status) {
   MarkFilesBeingCompacted(false);
   cfd_->compaction_picker()->ReleaseCompactionFiles(this, status);
 }
@@ -746,8 +754,10 @@ void Compaction::ResetNextCompactionIndex() {
 }
 
 namespace {
-int InputSummary(const std::vector<FileMetaData*>& files, char* output,
+int InputSummary(const std::vector<FileMetaData*>& files,
+                 const std::vector<bool>& files_filtered, char* output,
                  int len) {
+  assert(files_filtered.empty() || (files.size() == files_filtered.size()));
   *output = '\0';
   int write = 0;
   for (size_t i = 0; i < files.size(); i++) {
@@ -755,8 +765,14 @@ int InputSummary(const std::vector<FileMetaData*>& files, char* output,
     int ret;
     char sztxt[16];
     AppendHumanBytes(files.at(i)->fd.GetFileSize(), sztxt, 16);
-    ret = snprintf(output + write, sz, "%" PRIu64 "(%s) ",
-                   files.at(i)->fd.GetNumber(), sztxt);
+    if (files_filtered.empty()) {
+      ret = snprintf(output + write, sz, "%" PRIu64 "(%s) ",
+                     files.at(i)->fd.GetNumber(), sztxt);
+    } else {
+      ret = snprintf(output + write, sz, "%" PRIu64 "(%s filtered:%s) ",
+                     files.at(i)->fd.GetNumber(), sztxt,
+                     files_filtered.at(i) ? "true" : "false");
+    }
     if (ret < 0 || ret >= sz) {
       break;
     }
@@ -782,8 +798,15 @@ void Compaction::Summary(char* output, int len) {
         return;
       }
     }
-    write +=
-        InputSummary(inputs_[level_iter].files, output + write, len - write);
+
+    assert(non_start_level_input_files_filtered_.empty() ||
+           non_start_level_input_files_filtered_.size() == inputs_.size() - 1);
+    write += InputSummary(
+        inputs_[level_iter].files,
+        (level_iter == 0 || non_start_level_input_files_filtered_.empty())
+            ? std::vector<bool>{}
+            : non_start_level_input_files_filtered_[level_iter - 1],
+        output + write, len - write);
     if (write < 0 || write >= len) {
       return;
     }
@@ -866,7 +889,7 @@ bool Compaction::ShouldFormSubcompactions() const {
     return false;
   }
 
-  if (cfd_->ioptions()->table_factory->Name() ==
+  if (mutable_cf_options_.table_factory->Name() ==
       TableFactory::kPlainTableName()) {
     return false;
   }
@@ -914,6 +937,25 @@ bool Compaction::DoesInputReferenceBlobFiles() const {
   return false;
 }
 
+uint64_t Compaction::MaxInputFileNewestKeyTime(const InternalKey* start,
+                                               const InternalKey* end) const {
+  uint64_t newest_key_time = kUnknownNewestKeyTime;
+  const InternalKeyComparator& icmp =
+      column_family_data()->internal_comparator();
+  for (const auto& level_files : inputs_) {
+    for (const auto& file : level_files.files) {
+      if (start != nullptr && icmp.Compare(file->largest, *start) < 0) {
+        continue;
+      }
+      if (end != nullptr && icmp.Compare(file->smallest, *end) > 0) {
+        continue;
+      }
+      newest_key_time = std::max(newest_key_time, file->TryGetNewestKeyTime());
+    }
+  }
+  return newest_key_time;
+}
+
 uint64_t Compaction::MinInputFileOldestAncesterTime(
     const InternalKey* start, const InternalKey* end) const {
   uint64_t min_oldest_ancester_time = std::numeric_limits<uint64_t>::max();
@@ -949,6 +991,7 @@ uint64_t Compaction::MinInputFileEpochNumber() const {
 
 int Compaction::EvaluatePenultimateLevel(
     const VersionStorageInfo* vstorage,
+    const MutableCFOptions& mutable_cf_options,
     const ImmutableOptions& immutable_options, const int start_level,
     const int output_level) {
   // TODO: currently per_key_placement feature only support level and universal
@@ -980,7 +1023,7 @@ int Compaction::EvaluatePenultimateLevel(
   }
 
   bool supports_per_key_placement =
-      immutable_options.preclude_last_level_data_seconds > 0;
+      mutable_cf_options.preclude_last_level_data_seconds > 0;
 
   // it could be overridden by unittest
   TEST_SYNC_POINT_CALLBACK("Compaction::SupportsPerKeyPlacement:Enabled",
@@ -990,6 +1033,72 @@ int Compaction::EvaluatePenultimateLevel(
   }
 
   return penultimate_level;
+}
+
+void Compaction::FilterInputsForCompactionIterator() {
+  assert(earliest_snapshot_.has_value());
+  // cfd_ is not populated at Compaction construction time, get it from
+  // VersionStorageInfo instead.
+  assert(input_vstorage_);
+  const auto* ucmp = input_vstorage_->user_comparator();
+  assert(ucmp);
+  // Simply comparing file boundaries when user-defined timestamp is defined
+  // is not as safe because we need to also compare timestamp to know for
+  // sure. Although entries with higher timestamp is also supposed to have
+  // higher sequence number for the same user key (without timestamp).
+  assert(ucmp->timestamp_size() == 0);
+  size_t num_input_levels = inputs_.size();
+  // TODO(yuzhangyu): filtering of older L0 file by new L0 file is not
+  // supported yet.
+  FileMetaData* rangedel_candidate = inputs_[0].level == 0
+                                         ? inputs_[0].files.back()
+                                         : inputs_[0].files.front();
+  assert(rangedel_candidate);
+  if (!rangedel_candidate->FileIsStandAloneRangeTombstone() ||
+      !DataIsDefinitelyInSnapshot(rangedel_candidate->fd.smallest_seqno,
+                                  earliest_snapshot_.value(),
+                                  snapshot_checker_)) {
+    for (size_t level = 0; level < num_input_levels; level++) {
+      DoGenerateLevelFilesBrief(&input_levels_[level], inputs_[level].files,
+                                &arena_);
+    }
+    return;
+  }
+
+  Slice rangedel_start_ukey = rangedel_candidate->smallest.user_key();
+  Slice rangedel_end_ukey = rangedel_candidate->largest.user_key();
+  SequenceNumber rangedel_seqno = rangedel_candidate->fd.smallest_seqno;
+
+  std::vector<std::vector<FileMetaData*>> non_start_level_input_files;
+  non_start_level_input_files.reserve(num_input_levels - 1);
+  non_start_level_input_files_filtered_.reserve(num_input_levels - 1);
+  for (size_t level = 1; level < num_input_levels; level++) {
+    non_start_level_input_files.emplace_back();
+    non_start_level_input_files_filtered_.emplace_back();
+    for (FileMetaData* file : inputs_[level].files) {
+      non_start_level_input_files_filtered_.back().push_back(false);
+      // When range data and point data has the same sequence number, point
+      // data wins. Range deletion end key is exclusive, so check it's bigger
+      // than file right boundary user key.
+      if (rangedel_seqno > file->fd.largest_seqno &&
+          ucmp->CompareWithoutTimestamp(rangedel_start_ukey,
+                                        file->smallest.user_key()) <= 0 &&
+          ucmp->CompareWithoutTimestamp(rangedel_end_ukey,
+                                        file->largest.user_key()) > 0) {
+        non_start_level_input_files_filtered_.back().back() = true;
+        filtered_input_levels_[level].push_back(file);
+      } else {
+        non_start_level_input_files.back().push_back(file);
+      }
+    }
+  }
+
+  DoGenerateLevelFilesBrief(&input_levels_[0], inputs_[0].files, &arena_);
+  assert(non_start_level_input_files.size() == num_input_levels - 1);
+  for (size_t level = 1; level < num_input_levels; level++) {
+    DoGenerateLevelFilesBrief(&input_levels_[level],
+                              non_start_level_input_files[level - 1], &arena_);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

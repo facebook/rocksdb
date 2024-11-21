@@ -73,6 +73,10 @@ class CuckooTableFactory : public TableFactory {
 
   std::string GetPrintableOptions() const override;
 
+  std::unique_ptr<TableFactory> Clone() const override {
+    return std::make_unique<CuckooTableFactory>(*this);
+  }
+
  private:
   CuckooTableOptions table_options_;
 };

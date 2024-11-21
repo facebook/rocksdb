@@ -353,6 +353,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // is used to disable the lookup.
   IterDirection direction_ = IterDirection::kForward;
 
+  // The prefix of the key called with SeekImpl().
+  // This is for readahead trimming so no data blocks containing keys of a
+  // different prefix are prefetched
+  std::string seek_key_prefix_for_readahead_trimming_ = "";
+
   void SeekSecondPass(const Slice* target);
 
   // If `target` is null, seek to first.
@@ -408,15 +413,41 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     ClearBlockHandles();
   }
 
-  bool IsNextBlockOutOfBound() {
+  bool IsNextBlockOutOfReadaheadBound() {
+    const Slice& index_iter_user_key = index_iter_->user_key();
     // If curr block's index key >= iterate_upper_bound, it means all the keys
     // in next block or above are out of bound.
-    return (user_comparator_.CompareWithoutTimestamp(
-                index_iter_->user_key(),
-                /*a_has_ts=*/true, *read_options_.iterate_upper_bound,
-                /*b_has_ts=*/false) >= 0
-                ? true
-                : false);
+    bool out_of_upper_bound =
+        read_options_.iterate_upper_bound != nullptr &&
+        (user_comparator_.CompareWithoutTimestamp(
+             index_iter_user_key,
+             /*a_has_ts=*/true, *read_options_.iterate_upper_bound,
+             /*b_has_ts=*/false) >= 0
+             ? true
+             : false);
+    if (out_of_upper_bound) {
+      return true;
+    }
+
+    // If curr block's index key has a different prefix from the seek key's, it
+    // means all the keys in next block or above has a different prefix from the
+    // seek key's.
+    bool out_of_prefix_bound =
+        (read_options_.prefix_same_as_start &&
+         !seek_key_prefix_for_readahead_trimming_.empty() &&
+         (prefix_extractor_->InDomain(index_iter_user_key)
+              ? (prefix_extractor_->Transform(index_iter_user_key)
+                     .compare(seek_key_prefix_for_readahead_trimming_) != 0)
+              : user_comparator_.CompareWithoutTimestamp(
+                    index_iter_user_key,
+                    /*a_has_ts=*/true, seek_key_prefix_for_readahead_trimming_,
+                    /*b_has_ts=*/false) > 0));
+
+    if (out_of_prefix_bound) {
+      return true;
+    }
+
+    return false;
   }
 
   void ClearBlockHandles() {

@@ -33,7 +33,7 @@ class Log:
     def is_new_log(log_line):
         # The assumption is that a new log will start with a date printed in
         # the below regex format.
-        date_regex = "\d{4}/\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d{6}"  # noqa
+        date_regex = r"\d{4}/\d{2}/\d{2}-\d{2}:\d{2}:\d{2}\.\d{6}"  # noqa
         return re.match(date_regex, log_line)
 
     def __init__(self, log_line, column_families):
@@ -46,7 +46,7 @@ class Log:
         # "2018/07/25-17:29:05.176080 7f969de68700 [db/compaction_job.cc:1634]
         # [default] [JOB 3] Compacting 24@0 + 16@1 files to L1, score 6.00\n"
         for col_fam in column_families:
-            search_for_str = "\[" + col_fam + "\]"  # noqa
+            search_for_str = r"\[" + col_fam + r"\]"  # noqa
             if re.search(search_for_str, self.message):
                 self.column_family = col_fam
                 break
@@ -119,7 +119,7 @@ class DatabaseLogs(DataSource):
             # 'old' and were not deleted for some reason
             if re.search("old", file_name, re.IGNORECASE):
                 continue
-            with open(file_name, "r") as db_logs:
+            with open(file_name) as db_logs:
                 new_log = None
                 for line in db_logs:
                     if Log.is_new_log(line):

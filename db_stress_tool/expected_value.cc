@@ -10,11 +10,7 @@
 #include <atomic>
 
 namespace ROCKSDB_NAMESPACE {
-bool ExpectedValue::Put(bool pending) {
-  if (pending && (PendingWrite() || PendingDelete())) {
-    return false;
-  }
-
+void ExpectedValue::Put(bool pending) {
   if (pending) {
     SetPendingWrite();
   } else {
@@ -22,15 +18,10 @@ bool ExpectedValue::Put(bool pending) {
     ClearDeleted();
     ClearPendingWrite();
   }
-  return true;
 }
 
 bool ExpectedValue::Delete(bool pending) {
-  if (pending && (PendingWrite() || PendingDelete())) {
-    return false;
-  }
-
-  if (!Exists()) {
+  if (pending && !Exists()) {
     return false;
   }
   if (pending) {

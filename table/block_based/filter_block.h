@@ -52,11 +52,26 @@ class FilterBlockBuilder {
 
   virtual ~FilterBlockBuilder() {}
 
-  virtual void Add(
-      const Slice& key_without_ts) = 0;  // Add a key to current filter
+  // Add a key to current filter.
+  virtual void Add(const Slice& key_without_ts) = 0;
+  // A potentially more efficient version of Add(), though you cannot go back
+  // to Add() after using AddWithPrevKey() on a FilterBlockBuilder.
+  // prev_key_without_ts should be the empty Slice for the first key added
+  // (regardless of comparator; e.g. for bootstrapping delta encoding).
+  // More detail: The previous key is used when filters are key-range
+  // partitioned, and the PartitionedFilterBlockBuilder doesn't need to buffer
+  // the previous key when it is provided by calling this function.
+  virtual void AddWithPrevKey(const Slice& key_without_ts,
+                              const Slice& /*prev_key_without_ts*/) = 0;
+
   virtual bool IsEmpty() const = 0;      // Empty == none added
   // For reporting stats on how many entries the builder considered unique
   virtual size_t EstimateEntriesAdded() = 0;
+
+  // When using AddWithPrevKey, this must be called before Finish(). (May also
+  // be called without AddWithPrevKey, but prev_key_without_ts must be
+  // accurate regardless.)
+  virtual void PrevKeyBeforeFinish(const Slice& /*prev_key_without_ts*/) {}
 
   // Generate a filter block. Returns OK if finished, or Incomplete if more
   // filters are needed (partitioned filter). In the latter case, subsequent

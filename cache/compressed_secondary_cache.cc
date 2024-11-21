@@ -79,7 +79,11 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     data_ptr = GetVarint32Ptr(data_ptr, data_ptr + 1,
                               static_cast<uint32_t*>(&source_32));
     source = static_cast<CacheTier>(source_32);
-    handle_value_charge -= (data_ptr - ptr->get());
+    uint64_t data_size = 0;
+    data_ptr = GetVarint64Ptr(data_ptr, ptr->get() + handle_value_charge,
+                              static_cast<uint64_t*>(&data_size));
+    assert(handle_value_charge > data_size);
+    handle_value_charge = data_size;
   }
   MemoryAllocator* allocator = cache_options_.memory_allocator.get();
 
@@ -169,13 +173,15 @@ Status CompressedSecondaryCache::InsertInternal(
   }
 
   auto internal_helper = GetHelper(cache_options_.enable_custom_split_merge);
-  char header[10];
+  char header[20];
   char* payload = header;
   payload = EncodeVarint32(payload, static_cast<uint32_t>(type));
   payload = EncodeVarint32(payload, static_cast<uint32_t>(source));
+  size_t data_size = (*helper->size_cb)(value);
+  char* data_size_ptr = payload;
+  payload = EncodeVarint64(payload, data_size);
 
   size_t header_size = payload - header;
-  size_t data_size = (*helper->size_cb)(value);
   size_t total_size = data_size + header_size;
   CacheAllocationPtr ptr =
       AllocateBlock(total_size, cache_options_.memory_allocator.get());
@@ -210,6 +216,8 @@ Status CompressedSecondaryCache::InsertInternal(
 
     val = Slice(compressed_val);
     data_size = compressed_val.size();
+    payload = EncodeVarint64(data_size_ptr, data_size);
+    header_size = payload - header;
     total_size = header_size + data_size;
     PERF_COUNTER_ADD(compressed_sec_cache_compressed_bytes, data_size);
 
@@ -222,14 +230,21 @@ Status CompressedSecondaryCache::InsertInternal(
 
   PERF_COUNTER_ADD(compressed_sec_cache_insert_real_count, 1);
   if (cache_options_.enable_custom_split_merge) {
-    size_t charge{0};
-    CacheValueChunk* value_chunks_head =
-        SplitValueIntoChunks(val, cache_options_.compression_type, charge);
-    return cache_->Insert(key, value_chunks_head, internal_helper, charge);
+    size_t split_charge{0};
+    CacheValueChunk* value_chunks_head = SplitValueIntoChunks(
+        val, cache_options_.compression_type, split_charge);
+    return cache_->Insert(key, value_chunks_head, internal_helper,
+                          split_charge);
   } else {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    size_t charge = malloc_usable_size(ptr.get());
+#else
+    size_t charge = total_size;
+#endif
     std::memcpy(ptr.get(), header, header_size);
     CacheAllocationPtr* buf = new CacheAllocationPtr(std::move(ptr));
-    return cache_->Insert(key, buf, internal_helper, total_size);
+    charge += sizeof(CacheAllocationPtr);
+    return cache_->Insert(key, buf, internal_helper, charge);
   }
 }
 
@@ -396,6 +411,21 @@ const Cache::CacheItemHelper* CompressedSecondaryCache::GetHelper(
         }};
     return &kHelper;
   }
+}
+
+size_t CompressedSecondaryCache::TEST_GetCharge(const Slice& key) {
+  Cache::Handle* lru_handle = cache_->Lookup(key);
+  if (lru_handle == nullptr) {
+    return 0;
+  }
+
+  size_t charge = cache_->GetCharge(lru_handle);
+  if (cache_->Value(lru_handle) != nullptr &&
+      !cache_options_.enable_custom_split_merge) {
+    charge -= 10;
+  }
+  cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+  return charge;
 }
 
 std::shared_ptr<SecondaryCache>

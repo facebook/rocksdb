@@ -83,7 +83,8 @@ class BlockFetcherTest : public testing::Test {
         TableBuilderOptions(ioptions, moptions, read_options, write_options,
                             comparator, &factories, compression_type,
                             CompressionOptions(), 0 /* column_family_id */,
-                            kDefaultColumnFamilyName, -1 /* level */),
+                            kDefaultColumnFamilyName, -1 /* level */,
+                            kUnknownNewestKeyTime),
         writer.get()));
 
     // Build table.
