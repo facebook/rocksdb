@@ -8161,9 +8161,9 @@ TEST_P(CommitBypassMemtableTest, SingleCFUpdate) {
     std::unordered_set<std::string> expected_not_found;
     for (int i = 0; i < 10000; i += 2) {
       std::string v = "val" + std::to_string(i);
-      txn1->Put(Key(i), v);
+      ASSERT_OK(txn1->Put(Key(i), v));
       expected_map[Key(i)] = v;
-      txn1->Delete(Key(i + 1));
+      ASSERT_OK(txn1->Delete(Key(i + 1)));
       expected_not_found.insert(Key(i + 1));
     }
     ASSERT_OK(txn1->SetName("xid1"));
@@ -8320,7 +8320,7 @@ TEST_P(CommitBypassMemtableTest, MultiCFOverwrite) {
     SCOPED_TRACE("disable_flush: " + std::to_string(disable_flush));
     SetUpTransactionDB();
     if (disable_flush) {
-      txn_db->PauseBackgroundWork();
+      ASSERT_OK(txn_db->PauseBackgroundWork());
     }
     std::vector<std::string> cfs = {"puppy", "kitty", "meta"};
     CreateColumnFamilies(cfs, options);
@@ -8478,7 +8478,7 @@ TEST_P(CommitBypassMemtableTest, MultiCFOverwrite) {
                  std::to_string(topts2.commit_bypass_memtable));
     Transaction* txn2 = txn_db->BeginTransaction(wopts, topts2);
     fill_txn(txn2, "txn2");
-    txn2->SetName("xid2");
+    ASSERT_OK(txn2->SetName("xid2"));
     ASSERT_OK(txn2->Prepare());
     if (rnd->OneIn(2)) {
       ASSERT_OK(txn2->GetCommitTimeWriteBatch()->Put(handles_[2], "id", "2"));
@@ -8550,25 +8550,26 @@ TEST_P(CommitBypassMemtableTest, Recovery) {
   TransactionOptions txn_opts;
   txn_opts.commit_bypass_memtable = true;
   Transaction* txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
-  txn1->SetName("xid1");
-  txn1->Put("k2", "v2");
-  txn1->Put("k1", "v1");
-  txn1->Prepare();
-  txn1->Commit();
+  ASSERT_OK(txn1->SetName("xid1"));
+  ASSERT_OK(txn1->Put("k2", "v2"));
+  ASSERT_OK(txn1->Put("k1", "v1"));
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_OK(txn1->Commit());
 
   // Test txn reuse code path
   txn1 = txn_db->BeginTransaction(wopts, txn_opts, txn1);
-  txn1->SetName("xid2");
-  txn1->Put("k1", "v3");
-  txn1->Put("k2", "v4");
-  txn1->Prepare();
-  txn1->Commit();
+  ASSERT_OK(txn1->SetName("xid2"));
+  ASSERT_OK(txn1->Put("k1", "v3"));
+  ASSERT_OK(txn1->Put("k2", "v4"));
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_OK(txn1->Commit());
   delete txn1;
 
   std::map<std::string, std::string> expected = {{"k1", "v3"}, {"k2", "v4"}};
   VerifyDBFromMap(expected);
 
-  ASSERT_OK(db_->Close());
+  ASSERT_OK(txn_db->Close());
+  delete txn_db;
   ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
   db_ = txn_db;
 
