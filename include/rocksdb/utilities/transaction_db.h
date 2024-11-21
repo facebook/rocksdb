@@ -346,8 +346,9 @@ struct TransactionOptions {
   // makes Commit() much faster for transactions with many operations.
   //
   // Note that the transaction will be ingested as an immutable memtable for
-  // each CF it updates. So ingesting many transactions in a short period of
-  // time may cause stall due to too many memtables.
+  // CFs it updates, and the current memtable will be switched to a new one.
+  // So ingesting many transactions in a short period of time may cause stall
+  // due to too many memtables.
   bool commit_bypass_memtable = false;
 };
 

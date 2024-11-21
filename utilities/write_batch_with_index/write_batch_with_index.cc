@@ -123,7 +123,6 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
   if (track_cf_stat) {
     if (non_const_entry->has_single_del &&
         !non_const_entry->has_overwritten_single_del) {
-      // increment count here
       cf_id_to_stat[column_family_id].overwritten_sd_count++;
       non_const_entry->has_overwritten_single_del = true;
     }

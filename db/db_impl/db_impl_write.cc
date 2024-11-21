@@ -600,7 +600,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // the seq per valid written key to mem.
     size_t seq_inc = seq_per_batch_ ? valid_batches : total_count;
     if (wbwi) {
-      // Reserve sequence numbers for recovery. During recovery,
+      // Reserve sequence numbers for the ingested memtable. We need to reserve
+      // at lease this amount for recovery. During recovery,
       // transactions do not commit by ingesting WBWI. The sequence number
       // associated with the commit entry in WAL is used as the starting
       // sequence number for inserting into memtable. We need to reserve

@@ -447,6 +447,7 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
     }
   }
   if (!ret->empty() && it != memlist.rend()) {
+    // checks that the first memtable not picked to flush is not ingested wbwi.
     // Ingested memtable should be flushed together with the memtable before it
     // since they map to the same WAL and have the same NextLogNumber().
     assert(strcmp((*it)->Name(), "WBWIMemTable") != 0);

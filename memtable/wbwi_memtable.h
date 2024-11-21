@@ -25,7 +25,6 @@ namespace ROCKSDB_NAMESPACE {
 // - live memtable contains SD(k)
 // - flush memtable and compact with L0 will drop SD(k) and PUT(k)
 // - the PUT(k) in L1 incorrectly becomes visible
-//
 // So during flush, iterator from this memtable will need emit overwritten
 // single deletion. These single deletion entries will be
 // assigned seqno.upper_bound - 1.

@@ -1515,9 +1515,9 @@ class DBImpl : public DB {
   // REQUIRES: this thread is currently at the front of the main writer queue.
   // @param prep_log refers to the WAL that contains prepare record
   // for the transaction based on wbwi.
-  // @param assigned_seqno Sequence number for the ingested memtable.
-  // @param the value of versions_->LastSequence() after the write ingests
-  // `wbwi` is done.
+  // @param assigned_seqno Sequence numbers for the ingested memtable.
+  // @param last_seqno the value of versions_->LastSequence() after the write
+  // ingests `wbwi` is done.
   Status IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
                     const WBWIMemTable::SeqnoRange& assigned_seqno,
                     uint64_t min_prep_log, SequenceNumber last_seqno);

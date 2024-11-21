@@ -358,7 +358,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
     uint32_t entry_count = 0;
     uint32_t overwritten_sd_count = 0;
   };
-  // Will track CF ID, per CF entry count and overwritten sd count writes.
+  // Will track CF ID, per CF entry count and overwritten sd count.
   // Should be enabled when WBWI is empty for correct tracking.
   void SetTrackPerCFStat(bool track);
   const std::unordered_map<uint32_t, CFStat>& GetCFStats() const;
