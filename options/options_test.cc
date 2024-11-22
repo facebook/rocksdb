@@ -832,6 +832,21 @@ TEST_F(OptionsTest, CompressionOptionsFromString) {
   ASSERT_OK(GetColumnFamilyOptionsFromString(ignore, ColumnFamilyOptions(),
                                              "compression_opts.unknown=bad",
                                              &base_cf_opt));
+
+  // Test with some additional values added
+  config_options.ignore_unknown_options = false;
+  ASSERT_NOK(
+      GetColumnFamilyOptionsFromString(config_options, ColumnFamilyOptions(),
+                                       "new_unknown_field=whatever; "
+                                       "bottommost_compression_opts=4:5:6:7",
+                                       &base_cf_opt));
+  // Test Ignoring Unknown Options
+  config_options.ignore_unknown_options = true;
+  ASSERT_OK(
+      GetColumnFamilyOptionsFromString(config_options, ColumnFamilyOptions(),
+                                       "new_unknown_field=whatever; "
+                                       "bottommost_compression_opts=4:5:6:7",
+                                       &base_cf_opt));
 }
 
 TEST_F(OptionsTest, OldInterfaceTest) {
