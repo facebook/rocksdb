@@ -139,7 +139,7 @@ class Transaction {
   Transaction(const Transaction&) = delete;
   void operator=(const Transaction&) = delete;
 
-  virtual ~Transaction() {}
+  virtual ~Transaction() = default;
 
   // If a transaction has a snapshot set, the transaction will ensure that
   // any keys successfully written(or fetched via GetForUpdate()) have not
@@ -699,13 +699,13 @@ class Transaction {
   // output SST file to have two identical internal keys.
   virtual WriteBatch* GetCommitTimeWriteBatch() = 0;
 
-  virtual void SetLogNumber(uint64_t log) { log_number_ = log; }
+  virtual void SetLogNumber(uint64_t log) = 0;
 
-  virtual uint64_t GetLogNumber() const { return log_number_; }
+  virtual uint64_t GetLogNumber() const = 0;
 
   virtual Status SetName(const TransactionName& name) = 0;
 
-  virtual TransactionName GetName() const { return name_; }
+  virtual TransactionName GetName() const = 0;
 
   virtual TransactionID GetID() const { return 0; }
 
@@ -729,8 +729,8 @@ class Transaction {
     LOCKS_STOLEN = 7,
   };
 
-  TransactionState GetState() const { return txn_state_; }
-  void SetState(TransactionState state) { txn_state_ = state; }
+  virtual TransactionState GetState() const = 0;
+  virtual void SetState(TransactionState state) = 0;
 
   // NOTE: Experimental feature
   // The globally unique id with which the transaction is identified. This id
@@ -738,7 +738,7 @@ class Transaction {
   // implementation decides the point in lifetime of a transaction at which it
   // assigns the id. Although currently it is the case, the id is not guaranteed
   // to remain the same across restarts.
-  uint64_t GetId() { return id_; }
+  virtual uint64_t GetId() = 0;
 
   virtual Status SetReadTimestampForValidation(TxnTimestamp /*ts*/) {
     return Status::NotSupported("timestamp not supported");
@@ -751,22 +751,11 @@ class Transaction {
   virtual TxnTimestamp GetCommitTimestamp() const { return kMaxTxnTimestamp; }
 
  protected:
-  explicit Transaction(const TransactionDB* /*db*/) {}
-  Transaction() : log_number_(0), txn_state_(STARTED) {}
+  Transaction() = default;
 
-  // the log in which the prepared section for this txn resides
-  // (for two phase commit)
-  uint64_t log_number_;
-  TransactionName name_;
+  virtual void SetId(uint64_t id) = 0;
 
-  // Execution status of the transaction.
-  std::atomic<TransactionState> txn_state_;
-
-  uint64_t id_ = 0;
-  virtual void SetId(uint64_t id) {
-    assert(id_ == 0);
-    id_ = id;
-  }
+  virtual uint64_t GetLastLogNumber() const = 0;
 
   virtual Status GetImpl(const ReadOptions& /* options */,
                          ColumnFamilyHandle* /* column_family */,
@@ -782,8 +771,6 @@ class Transaction {
     pinnable_val->PinSelf();
     return s;
   }
-
-  virtual uint64_t GetLastLogNumber() const { return log_number_; }
 
  private:
   friend class PessimisticTransactionDB;
