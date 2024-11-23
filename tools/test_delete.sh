@@ -1,0 +1,1 @@
+# sudo ./tools/test_delete --db_path=/home/wangfan/delete/global-range-delete/build/testdb --mode=mixseq --num=1000000 --prep_num=1000000 --write_num=1000000 --read_num=1000000 --zread_num=0 --seek_num=10000 --seek_keys=100 --range_del_num=10000
