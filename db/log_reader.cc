@@ -313,11 +313,11 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       default: {
-        char buf[40];
-        snprintf(buf, sizeof(buf), "unknown record type %u", record_type);
+        std::string reason =
+            "unknown record type " + std::to_string(record_type);
         ReportCorruption(
             (fragment.size() + (in_fragmented_record ? scratch->size() : 0)),
-            buf);
+            reason.c_str());
         in_fragmented_record = false;
         scratch->clear();
         break;
@@ -781,12 +781,11 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       default: {
-        char buf[40];
-        snprintf(buf, sizeof(buf), "unknown record type %u",
-                 fragment_type_or_err);
+        std::string reason =
+            "unknown record type " + std::to_string(fragment_type_or_err);
         ReportCorruption(
             fragment.size() + (in_fragmented_record_ ? fragments_.size() : 0),
-            buf);
+            reason.c_str());
         in_fragmented_record_ = false;
         fragments_.clear();
         break;
