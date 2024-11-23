@@ -12,6 +12,7 @@ endforeach()
 if(WITH_TOOLS)
   set(TOOLS
     db_sanity_test.cc
+    test_delete.cc
     write_stress.cc
     db_repl_stress.cc
     dump/rocksdb_dump.cc
