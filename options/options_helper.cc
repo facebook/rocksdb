@@ -995,7 +995,8 @@ Status OptionTypeInfo::ParseStruct(
     std::unordered_map<std::string, std::string> unused;
     status =
         ParseType(config_options, opt_value, *struct_map, opt_addr, &unused);
-    if (status.ok() && !unused.empty()) {
+    if (status.ok() && !unused.empty() &&
+        !config_options.ignore_unknown_options) {
       status = Status::InvalidArgument(
           "Unrecognized option", struct_name + "." + unused.begin()->first);
     }
@@ -1006,7 +1007,7 @@ Status OptionTypeInfo::ParseStruct(
         Find(opt_name.substr(struct_name.size() + 1), *struct_map, &elem_name);
     if (opt_info != nullptr) {
       status = opt_info->Parse(config_options, elem_name, opt_value, opt_addr);
-    } else {
+    } else if (!config_options.ignore_unknown_options) {
       status = Status::InvalidArgument("Unrecognized option", opt_name);
     }
   } else {
@@ -1015,7 +1016,7 @@ Status OptionTypeInfo::ParseStruct(
     const auto opt_info = Find(opt_name, *struct_map, &elem_name);
     if (opt_info != nullptr) {
       status = opt_info->Parse(config_options, elem_name, opt_value, opt_addr);
-    } else {
+    } else if (!config_options.ignore_unknown_options) {
       status = Status::InvalidArgument("Unrecognized option",
                                        struct_name + "." + opt_name);
     }
