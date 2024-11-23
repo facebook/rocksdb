@@ -13,7 +13,6 @@
 #include <algorithm>
 #include <cinttypes>
 #include <cstddef>
-#include <iomanip>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -90,44 +89,35 @@ const double kMB = 1048576.0;
 const double kGB = kMB * 1024;
 const double kMicrosInSec = 1000000.0;
 
-void PrintLevelStatsHeader(std::ostringstream& oss, const std::string& cf_name,
+void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name,
                            const std::string& group_by) {
-  oss << "\n** Compaction Stats [" << cf_name.c_str() << "] **\n";
-
+  int written_size =
+      snprintf(buf, len, "\n** Compaction Stats [%s] **\n", cf_name.c_str());
+  written_size = std::min(written_size, static_cast<int>(len));
   auto hdr = [](LevelStatType t) {
     return InternalStats::compaction_level_stats.at(t).header_name.c_str();
   };
+  int line_size = snprintf(
+      buf + written_size, len - written_size,
+      "%s    %s   %s     %s %s  %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s "
+      "%s\n",
+      // Note that we skip COMPACTED_FILES and merge it with Files column
+      group_by.c_str(), hdr(LevelStatType::NUM_FILES),
+      hdr(LevelStatType::SIZE_BYTES), hdr(LevelStatType::SCORE),
+      hdr(LevelStatType::READ_GB), hdr(LevelStatType::RN_GB),
+      hdr(LevelStatType::RNP1_GB), hdr(LevelStatType::WRITE_GB),
+      hdr(LevelStatType::W_NEW_GB), hdr(LevelStatType::MOVED_GB),
+      hdr(LevelStatType::WRITE_AMP), hdr(LevelStatType::READ_MBPS),
+      hdr(LevelStatType::WRITE_MBPS), hdr(LevelStatType::COMP_SEC),
+      hdr(LevelStatType::COMP_CPU_SEC), hdr(LevelStatType::COMP_COUNT),
+      hdr(LevelStatType::AVG_SEC), hdr(LevelStatType::KEY_IN),
+      hdr(LevelStatType::KEY_DROP), hdr(LevelStatType::R_BLOB_GB),
+      hdr(LevelStatType::W_BLOB_GB));
 
-  // Note that we skip COMPACTED_FILES and merge it with Files column
-  oss << group_by.c_str() << "    "
-      << hdr(LevelStatType::NUM_FILES) << "   "
-      << hdr(LevelStatType::SIZE_BYTES) << "     "
-      << hdr(LevelStatType::SCORE) << " "
-      << hdr(LevelStatType::READ_GB) << "  "
-      << hdr(LevelStatType::RN_GB) << " "
-      << hdr(LevelStatType::RNP1_GB) << " "
-      << hdr(LevelStatType::WRITE_GB) << " "
-      << hdr(LevelStatType::W_NEW_GB) << " "
-      << hdr(LevelStatType::MOVED_GB) << " "
-      << hdr(LevelStatType::WRITE_AMP) << " "
-      << hdr(LevelStatType::READ_MBPS) << " "
-      << hdr(LevelStatType::WRITE_MBPS) << " "
-      << hdr(LevelStatType::COMP_SEC) << " "
-      << hdr(LevelStatType::COMP_CPU_SEC) << " "
-      << hdr(LevelStatType::COMP_COUNT) << " "
-      << hdr(LevelStatType::AVG_SEC) << " "
-      << hdr(LevelStatType::KEY_IN) << " "
-      << hdr(LevelStatType::KEY_DROP) << " "
-      << hdr(LevelStatType::R_BLOB_GB) << " "
-      << hdr(LevelStatType::W_BLOB_GB) << "\n";
-
-  // NOTE:
-  //
-  // Please make sure to return string stream config to the upstream caller
-  // in exact same condition you obtained it. Especially if you're overriding
-  // width, precision or notation of the underlying oss stream.
-  //
-  // Check PrintLevelStats for reference.
+  written_size += line_size;
+  written_size = std::min(written_size, static_cast<int>(len));
+  snprintf(buf + written_size, len - written_size, "%s\n",
+           std::string(line_size, '-').c_str());
 }
 
 void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
@@ -168,93 +158,68 @@ void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
   (*level_stats)[LevelStatType::W_BLOB_GB] = stats.bytes_written_blob / kGB;
 }
 
-void PrintLevelStats(std::ostringstream& oss, const std::string& name,
+void PrintLevelStats(char* buf, size_t len, const std::string& name,
                      const std::map<LevelStatType, double>& stat_value) {
-  int original_precision = oss.precision();
-  int original_width = oss.width();
-  std::ios_base::fmtflags original_flags = oss.flags();
-
-  oss << std::fixed
-      // Level
-      << std::setw(4) << name.c_str() << " "
-      // Files
-      << std::setw(6)
-      << static_cast<int>(stat_value.at(LevelStatType::NUM_FILES))
-      << "/"
-      << std::setw(3) << std::left
-      << static_cast<int>(stat_value.at(LevelStatType::COMPACTED_FILES))
-      << " " << std::right
-      // Size
-      << std::setw(8)
-      << BytesToHumanString(
+  snprintf(
+      buf, len,
+      "%4s "      /*  Level */
+      "%6d/%-3d " /*  Files */
+      "%8s "      /*  Size */
+      "%5.1f "    /*  Score */
+      "%8.1f "    /*  Read(GB) */
+      "%7.1f "    /*  Rn(GB) */
+      "%8.1f "    /*  Rnp1(GB) */
+      "%9.1f "    /*  Write(GB) */
+      "%8.1f "    /*  Wnew(GB) */
+      "%9.1f "    /*  Moved(GB) */
+      "%5.1f "    /*  W-Amp */
+      "%8.1f "    /*  Rd(MB/s) */
+      "%8.1f "    /*  Wr(MB/s) */
+      "%9.2f "    /*  Comp(sec) */
+      "%17.2f "   /*  CompMergeCPU(sec) */
+      "%9d "      /*  Comp(cnt) */
+      "%8.3f "    /*  Avg(sec) */
+      "%7s "      /*  KeyIn */
+      "%6s "      /*  KeyDrop */
+      "%9.1f "    /*  Rblob(GB) */
+      "%9.1f\n",  /*  Wblob(GB) */
+      name.c_str(), static_cast<int>(stat_value.at(LevelStatType::NUM_FILES)),
+      static_cast<int>(stat_value.at(LevelStatType::COMPACTED_FILES)),
+      BytesToHumanString(
           static_cast<uint64_t>(stat_value.at(LevelStatType::SIZE_BYTES)))
-          .c_str()
-      << " "
-      // Score
-      << std::setprecision(1)
-      << std::setw(5) << stat_value.at(LevelStatType::SCORE) << " "
-      // Read(GB)
-      << std::setw(8) << stat_value.at(LevelStatType::READ_GB) << " "
-      // Rn(GB)
-      << std::setw(7) << stat_value.at(LevelStatType::RN_GB) << " "
-      // Rnp1(GB)
-      << std::setw(8) << stat_value.at(LevelStatType::RNP1_GB) << " "
-      // Write(GB)
-      << std::setw(9) << stat_value.at(LevelStatType::WRITE_GB) << " "
-      // Wnew(GB)
-      << std::setw(8) << stat_value.at(LevelStatType::W_NEW_GB) << " "
-      // Moved(GB)
-      << std::setw(9) << stat_value.at(LevelStatType::MOVED_GB) << " "
-      // W-Amp
-      << std::setw(5) << stat_value.at(LevelStatType::WRITE_AMP) << " "
-      // Rd(MB/s)
-      << std::setw(8) << stat_value.at(LevelStatType::READ_MBPS) << " "
-      // Wr(MB/s)
-      << std::setw(8) << stat_value.at(LevelStatType::WRITE_MBPS) << " "
-      // Comp(sec)
-      << std::setprecision(2)
-      << std::setw(9) << stat_value.at(LevelStatType::COMP_SEC) << " "
-      // CompMergeCPU(sec)
-      << std::setw(17) << stat_value.at(LevelStatType::COMP_CPU_SEC) << " "
-      // Comp(cnt)
-      << std::setw(9)
-      << static_cast<int>(stat_value.at(LevelStatType::COMP_COUNT)) << " "
-      // Avg(sec)
-      << std::setw(8)
-      << std::setprecision(3) << stat_value.at(LevelStatType::AVG_SEC) << " "
-      // KeyIn
-      << std::setw(7)
-      << NumberToHumanString(
+          .c_str(),
+      stat_value.at(LevelStatType::SCORE),
+      stat_value.at(LevelStatType::READ_GB),
+      stat_value.at(LevelStatType::RN_GB),
+      stat_value.at(LevelStatType::RNP1_GB),
+      stat_value.at(LevelStatType::WRITE_GB),
+      stat_value.at(LevelStatType::W_NEW_GB),
+      stat_value.at(LevelStatType::MOVED_GB),
+      stat_value.at(LevelStatType::WRITE_AMP),
+      stat_value.at(LevelStatType::READ_MBPS),
+      stat_value.at(LevelStatType::WRITE_MBPS),
+      stat_value.at(LevelStatType::COMP_SEC),
+      stat_value.at(LevelStatType::COMP_CPU_SEC),
+      static_cast<int>(stat_value.at(LevelStatType::COMP_COUNT)),
+      stat_value.at(LevelStatType::AVG_SEC),
+      NumberToHumanString(
           static_cast<std::int64_t>(stat_value.at(LevelStatType::KEY_IN)))
-          .c_str()
-      // KeyDrop
-      << " "
-      << std::setw(6)
-      << NumberToHumanString(
+          .c_str(),
+      NumberToHumanString(
           static_cast<std::int64_t>(stat_value.at(LevelStatType::KEY_DROP)))
-          .c_str()
-      << " "
-      // Rblob(GB)
-      << std::setprecision(1)
-      << std::setw(9)
-      << stat_value.at(LevelStatType::R_BLOB_GB)
-      // Wblob(GB)
-      << stat_value.at(LevelStatType::W_BLOB_GB)
-      << "\n";
-
-  // Restore original string stream configuration.
-  oss << std::setw(original_width) << std::setprecision(original_precision);
-  oss.flags(original_flags);
+          .c_str(),
+      stat_value.at(LevelStatType::R_BLOB_GB),
+      stat_value.at(LevelStatType::W_BLOB_GB));
 }
 
-void PrintLevelStats(std::ostringstream& oss, const std::string& name,
+void PrintLevelStats(char* buf, size_t len, const std::string& name,
                      int num_files, int being_compacted, double total_file_size,
                      double score, double w_amp,
                      const InternalStats::CompactionStats& stats) {
   std::map<LevelStatType, double> level_stats;
   PrepareLevelStats(&level_stats, num_files, being_compacted, total_file_size,
                     score, w_amp, stats);
-  PrintLevelStats(oss, name, level_stats);
+  PrintLevelStats(buf, len, name, level_stats);
 }
 
 // Assumes that trailing numbers represent an optional argument. This requires
@@ -1043,9 +1008,10 @@ bool InternalStats::HandleNumFilesAtLevel(std::string* value, Slice suffix) {
   if (!ok || static_cast<int>(level) >= number_levels_) {
     return false;
   } else {
-    std::string num_files(
-      std::to_string(vstorage->NumLevelFiles(static_cast<int>(level))));
-    *value = num_files;
+    char buf[100];
+    snprintf(buf, sizeof(buf), "%d",
+             vstorage->NumLevelFiles(static_cast<int>(level)));
+    *value = buf;
     return true;
   }
 }
@@ -1064,18 +1030,19 @@ bool InternalStats::HandleCompressionRatioAtLevelPrefix(std::string* value,
 }
 
 bool InternalStats::HandleLevelStats(std::string* value, Slice /*suffix*/) {
+  char buf[1000];
   const auto* vstorage = cfd_->current()->storage_info();
-  std::ostringstream stats;
-  stats << "Level Files Size(MB)\n"
-        << "--------------------\n";
+  snprintf(buf, sizeof(buf),
+           "Level Files Size(MB)\n"
+           "--------------------\n");
+  value->append(buf);
 
-  stats << std::fixed << std::setprecision(0);
   for (int level = 0; level < number_levels_; level++) {
-    stats << std::setw(3) << level << " "
-          << std::setw(8) << vstorage->NumLevelFiles(level) << " "
-          << vstorage->NumLevelBytes(level) / kMB << "\n";
+    snprintf(buf, sizeof(buf), "%3d %8d %8.0f\n", level,
+             vstorage->NumLevelFiles(level),
+             vstorage->NumLevelBytes(level) / kMB);
+    value->append(buf);
   }
-  value->append(stats.str());
   return true;
 }
 
@@ -1577,18 +1544,14 @@ void InternalStats::DumpDBMapStats(
 }
 
 void InternalStats::DumpDBStats(std::string* value) {
-  std::ostringstream stats;
-  stats << std::fixed;
-
+  char buf[1000];
   // DB-level stats, only available from default column family
   double seconds_up = (clock_->NowMicros() - started_at_) / kMicrosInSec;
   double interval_seconds_up = seconds_up - db_stats_snapshot_.seconds_up;
-
-  stats << "\n** DB Stats **\nUptime(secs): "
-        << std::setprecision(1)
-        << seconds_up << " total, "
-        << interval_seconds_up << " interval\n";
-
+  snprintf(buf, sizeof(buf),
+           "\n** DB Stats **\nUptime(secs): %.1f total, %.1f interval\n",
+           seconds_up, interval_seconds_up);
+  value->append(buf);
   // Cumulative
   uint64_t user_bytes_written =
       GetDBStats(InternalStats::kIntStatsBytesWritten);
@@ -1614,92 +1577,77 @@ void InternalStats::DumpDBStats(std::string* value) {
   // writes/groups is the average group commit size.
   //
   // The format is the same for interval stats.
-  stats << "Cumulative writes: "
-        << NumberToHumanString(write_other + write_self).c_str() << " writes, "
-        << NumberToHumanString(num_keys_written).c_str() << " keys, "
-        << NumberToHumanString(write_self).c_str() << " commit groups, ";
-
-  stats << std::setprecision(1)
-        << (write_other + write_self) /
-          std::max(1.0, static_cast<double>(write_self))
-        << " writes per commit group,"
-        << " ingest: "
-        << std::setprecision(2)
-        << user_bytes_written / kGB << " GB, "
-        << user_bytes_written / kMB / std::max(seconds_up, 0.001) << " MB/s\n";
-
+  snprintf(buf, sizeof(buf),
+           "Cumulative writes: %s writes, %s keys, %s commit groups, "
+           "%.1f writes per commit group, ingest: %.2f GB, %.2f MB/s\n",
+           NumberToHumanString(write_other + write_self).c_str(),
+           NumberToHumanString(num_keys_written).c_str(),
+           NumberToHumanString(write_self).c_str(),
+           (write_other + write_self) /
+               std::max(1.0, static_cast<double>(write_self)),
+           user_bytes_written / kGB,
+           user_bytes_written / kMB / std::max(seconds_up, 0.001));
+  value->append(buf);
   // WAL
-  stats << "Cumulative WAL: "
-        << NumberToHumanString(write_with_wal).c_str() << " writes, "
-        << NumberToHumanString(wal_synced).c_str() << " syncs, "
-        << std::setprecision(2)
-        << write_with_wal / std::max(1.0, static_cast<double>(wal_synced))
-        << " writes per sync,"
-        << " written: "
-        << wal_bytes / kGB << " GB, "
-        << wal_bytes / kMB / std::max(seconds_up, 0.001) << " MB/s\n";
-
+  snprintf(buf, sizeof(buf),
+           "Cumulative WAL: %s writes, %s syncs, "
+           "%.2f writes per sync, written: %.2f GB, %.2f MB/s\n",
+           NumberToHumanString(write_with_wal).c_str(),
+           NumberToHumanString(wal_synced).c_str(),
+           write_with_wal / std::max(1.0, static_cast<double>(wal_synced)),
+           wal_bytes / kGB, wal_bytes / kMB / std::max(seconds_up, 0.001));
+  value->append(buf);
   // Stall
   AppendHumanMicros(write_stall_micros, human_micros, kHumanMicrosLen, true);
-  stats << "Cumulative stall: " << human_micros << ", "
-        << std::setprecision(1)
-        // 10000 = divide by 1M to get secs, then multiply by 100 for pct
-        << write_stall_micros / 10000.0 / std::max(seconds_up, 0.001)
-        << " percent\n";
+  snprintf(buf, sizeof(buf), "Cumulative stall: %s, %.1f percent\n",
+           human_micros,
+           // 10000 = divide by 1M to get secs, then multiply by 100 for pct
+           write_stall_micros / 10000.0 / std::max(seconds_up, 0.001));
+  value->append(buf);
 
   // Interval
   uint64_t interval_write_other = write_other - db_stats_snapshot_.write_other;
   uint64_t interval_write_self = write_self - db_stats_snapshot_.write_self;
   uint64_t interval_num_keys_written =
       num_keys_written - db_stats_snapshot_.num_keys_written;
-
-  stats << "Interval writes: "
-        << NumberToHumanString(interval_write_other + interval_write_self)
-        << " writes, "
-        << NumberToHumanString(interval_num_keys_written).c_str()
-        << " keys, "
-        << NumberToHumanString(interval_write_self).c_str()
-        << " commit groups, "
-        << std::setprecision(1)
-        << static_cast<double>(interval_write_other + interval_write_self) /
-          std::max(1.0, static_cast<double>(interval_write_self))
-        << " writes per commit group,"
-        << " ingest: "
-        << std::setprecision(2)
-        << (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB
-        << " MB, "
-        << (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB /
-          std::max(interval_seconds_up, 0.001)
-        << " MB/s\n";
+  snprintf(
+      buf, sizeof(buf),
+      "Interval writes: %s writes, %s keys, %s commit groups, "
+      "%.1f writes per commit group, ingest: %.2f MB, %.2f MB/s\n",
+      NumberToHumanString(interval_write_other + interval_write_self).c_str(),
+      NumberToHumanString(interval_num_keys_written).c_str(),
+      NumberToHumanString(interval_write_self).c_str(),
+      static_cast<double>(interval_write_other + interval_write_self) /
+          std::max(1.0, static_cast<double>(interval_write_self)),
+      (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB,
+      (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB /
+          std::max(interval_seconds_up, 0.001)),
+      value->append(buf);
 
   uint64_t interval_write_with_wal =
       write_with_wal - db_stats_snapshot_.write_with_wal;
   uint64_t interval_wal_synced = wal_synced - db_stats_snapshot_.wal_synced;
   uint64_t interval_wal_bytes = wal_bytes - db_stats_snapshot_.wal_bytes;
 
-  stats << "Interval WAL: "
-        << NumberToHumanString(interval_write_with_wal).c_str() << " writes, "
-        << NumberToHumanString(interval_wal_synced).c_str() << " syncs, "
-        << std::setprecision(2)
-        << interval_write_with_wal /
-          std::max(1.0, static_cast<double>(interval_wal_synced))
-        << " writes per sync,"
-        << " written:"
-        << interval_wal_bytes / kGB
-        << " MB, "
-        << interval_wal_bytes / kMB / std::max(interval_seconds_up, 0.001)
-        << " MB/s\n";
+  snprintf(buf, sizeof(buf),
+           "Interval WAL: %s writes, %s syncs, "
+           "%.2f writes per sync, written: %.2f GB, %.2f MB/s\n",
+           NumberToHumanString(interval_write_with_wal).c_str(),
+           NumberToHumanString(interval_wal_synced).c_str(),
+           interval_write_with_wal /
+               std::max(1.0, static_cast<double>(interval_wal_synced)),
+           interval_wal_bytes / kGB,
+           interval_wal_bytes / kMB / std::max(interval_seconds_up, 0.001));
+  value->append(buf);
 
   // Stall
   AppendHumanMicros(write_stall_micros - db_stats_snapshot_.write_stall_micros,
                     human_micros, kHumanMicrosLen, true);
-  stats << "Interval stall: " << human_micros << ", "
-        << std::setprecision(1)
-        << (write_stall_micros - db_stats_snapshot_.write_stall_micros) /
-               10000.0 / std::max(interval_seconds_up, 0.001)
-        << " percent\n";
-
-  value->append(stats.str());
+  snprintf(buf, sizeof(buf), "Interval stall: %s, %.1f percent\n", human_micros,
+           // 10000 = divide by 1M to get secs, then multiply by 100 for pct
+           (write_stall_micros - db_stats_snapshot_.write_stall_micros) /
+               10000.0 / std::max(interval_seconds_up, 0.001));
+  value->append(buf);
 
   std::string write_stall_stats;
   DumpDBStatsWriteStall(&write_stall_stats);
@@ -1978,9 +1926,10 @@ void InternalStats::DumpCFStats(std::string* value) {
 
 void InternalStats::DumpCFStatsNoFileHistogram(bool is_periodic,
                                                std::string* value) {
+  char buf[2000];
   // Per-ColumnFamily stats
-  std::ostringstream cf_stats;
-  PrintLevelStatsHeader(cf_stats, cfd_->GetName(), "Level");
+  PrintLevelStatsHeader(buf, sizeof(buf), cfd_->GetName(), "Level");
+  value->append(buf);
 
   // Print stats for each level
   const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
@@ -1989,12 +1938,15 @@ void InternalStats::DumpCFStatsNoFileHistogram(bool is_periodic,
   DumpCFMapStats(vstorage, &levels_stats, &compaction_stats_sum);
   for (int l = 0; l < number_levels_; ++l) {
     if (levels_stats.find(l) != levels_stats.end()) {
-      PrintLevelStats(cf_stats, "L" + std::to_string(l), levels_stats[l]);
+      PrintLevelStats(buf, sizeof(buf), "L" + std::to_string(l),
+                      levels_stats[l]);
+      value->append(buf);
     }
   }
 
   // Print sum of level stats
-  PrintLevelStats(cf_stats, "Sum", levels_stats[-1]);
+  PrintLevelStats(buf, sizeof(buf), "Sum", levels_stats[-1]);
+  value->append(buf);
 
   uint64_t flush_ingest = cf_stats_value_[BYTES_FLUSHED];
   uint64_t add_file_ingest = cf_stats_value_[BYTES_INGESTED_ADD_FILE];
@@ -2005,73 +1957,76 @@ void InternalStats::DumpCFStatsNoFileHistogram(bool is_periodic,
   // Interval summary
   uint64_t interval_flush_ingest =
       flush_ingest - cf_stats_snapshot_.ingest_bytes_flush;
-  uint64_t interval_add_file_ingest =
+  uint64_t interval_add_file_inget =
       add_file_ingest - cf_stats_snapshot_.ingest_bytes_addfile;
   uint64_t interval_ingest =
-      interval_flush_ingest + interval_add_file_ingest + 1;
+      interval_flush_ingest + interval_add_file_inget + 1;
   CompactionStats interval_stats(compaction_stats_sum);
   interval_stats.Subtract(cf_stats_snapshot_.comp_stats);
   double w_amp =
       (interval_stats.bytes_written + interval_stats.bytes_written_blob) /
       static_cast<double>(interval_ingest);
-  PrintLevelStats(cf_stats, "Int", 0, 0, 0, 0, w_amp, interval_stats);
+  PrintLevelStats(buf, sizeof(buf), "Int", 0, 0, 0, 0, w_amp, interval_stats);
+  value->append(buf);
 
-  PrintLevelStatsHeader(cf_stats, cfd_->GetName(), "Priority");
+  PrintLevelStatsHeader(buf, sizeof(buf), cfd_->GetName(), "Priority");
+  value->append(buf);
   std::map<int, std::map<LevelStatType, double>> priorities_stats;
   DumpCFMapStatsByPriority(&priorities_stats);
   for (size_t priority = 0; priority < comp_stats_by_pri_.size(); ++priority) {
     if (priorities_stats.find(static_cast<int>(priority)) !=
         priorities_stats.end()) {
       PrintLevelStats(
-          cf_stats,
+          buf, sizeof(buf),
           Env::PriorityToString(static_cast<Env::Priority>(priority)),
           priorities_stats[static_cast<int>(priority)]);
+      value->append(buf);
     }
   }
 
   const auto blob_st = vstorage->GetBlobStats();
 
-  cf_stats << std::setprecision(1);
-  cf_stats << "\nBlob file count: " << vstorage->GetBlobFiles().size() << ", "
-           << "total size: "<< blob_st.total_file_size / kGB << " GB, "
-           << "garbage size: " << blob_st.total_garbage_size / kGB << " GB, "
-           << "space amp: " << blob_st.space_amp << "\n\n";
+  snprintf(buf, sizeof(buf),
+           "\nBlob file count: %" ROCKSDB_PRIszt
+           ", total size: %.1f GB, garbage size: %.1f GB, space amp: %.1f\n\n",
+           vstorage->GetBlobFiles().size(), blob_st.total_file_size / kGB,
+           blob_st.total_garbage_size / kGB, blob_st.space_amp);
+  value->append(buf);
 
   uint64_t now_micros = clock_->NowMicros();
   double seconds_up = (now_micros - started_at_) / kMicrosInSec;
   double interval_seconds_up = seconds_up - cf_stats_snapshot_.seconds_up;
-
-  cf_stats << "Uptime(secs): "
-           << seconds_up << " total, "
-           << interval_seconds_up << " interval\n";
-
-  cf_stats << std::setprecision(3);
-  cf_stats << "Flush(GB): "
-           << "cumulative " << flush_ingest / kGB << ", "
-           << "interval " << interval_flush_ingest / kGB << "\n";
-
-  cf_stats << "AddFile(GB): "
-           << "cumulative " << add_file_ingest / kGB << ", "
-           << "interval " << interval_add_file_ingest / kGB << "\n";
+  snprintf(buf, sizeof(buf), "Uptime(secs): %.1f total, %.1f interval\n",
+           seconds_up, interval_seconds_up);
+  value->append(buf);
+  snprintf(buf, sizeof(buf), "Flush(GB): cumulative %.3f, interval %.3f\n",
+           flush_ingest / kGB, interval_flush_ingest / kGB);
+  value->append(buf);
+  snprintf(buf, sizeof(buf), "AddFile(GB): cumulative %.3f, interval %.3f\n",
+           add_file_ingest / kGB, interval_add_file_inget / kGB);
+  value->append(buf);
 
   uint64_t interval_ingest_files_addfile =
       ingest_files_addfile - cf_stats_snapshot_.ingest_files_addfile;
-
-  cf_stats << "AddFile(Total Files): "
-           << "cumulative " << ingest_files_addfile << ", "
-           << "interval " << interval_ingest_files_addfile << "\n";
+  snprintf(buf, sizeof(buf),
+           "AddFile(Total Files): cumulative %" PRIu64 ", interval %" PRIu64
+           "\n",
+           ingest_files_addfile, interval_ingest_files_addfile);
+  value->append(buf);
 
   uint64_t interval_ingest_l0_files_addfile =
       ingest_l0_files_addfile - cf_stats_snapshot_.ingest_l0_files_addfile;
-  cf_stats << "AddFile(L0 Files): "
-           << "cumulative " << ingest_l0_files_addfile << ", "
-           << "interval " << interval_ingest_l0_files_addfile << "\n";
+  snprintf(buf, sizeof(buf),
+           "AddFile(L0 Files): cumulative %" PRIu64 ", interval %" PRIu64 "\n",
+           ingest_l0_files_addfile, interval_ingest_l0_files_addfile);
+  value->append(buf);
 
   uint64_t interval_ingest_keys_addfile =
       ingest_keys_addfile - cf_stats_snapshot_.ingest_keys_addfile;
-  cf_stats << "AddFile(Keys): "
-           << "cumulative " << ingest_keys_addfile << ", "
-           << "interval " << interval_ingest_keys_addfile << "\n";
+  snprintf(buf, sizeof(buf),
+           "AddFile(Keys): cumulative %" PRIu64 ", interval %" PRIu64 "\n",
+           ingest_keys_addfile, interval_ingest_keys_addfile);
+  value->append(buf);
 
   // Compact
   uint64_t compact_bytes_read = 0;
@@ -2086,14 +2041,15 @@ void InternalStats::DumpCFStatsNoFileHistogram(bool is_periodic,
     compact_micros += comp_stats_[level].micros;
   }
 
-  cf_stats << std::setprecision(2);
-  cf_stats << "Cumulative compaction: "
-           << compact_bytes_write / kGB << " GB write, "
-           << compact_bytes_write / kMB / std::max(seconds_up, 0.001) << "MB/s write, "
-           << compact_bytes_read / kGB << " GB read, "
-           << compact_bytes_read / kMB / std::max(seconds_up, 0.001) << " MB/s read, "
-           << std::setprecision(1)
-           << compact_micros / kMicrosInSec << " seconds\n";
+  snprintf(buf, sizeof(buf),
+           "Cumulative compaction: %.2f GB write, %.2f MB/s write, "
+           "%.2f GB read, %.2f MB/s read, %.1f seconds\n",
+           compact_bytes_write / kGB,
+           compact_bytes_write / kMB / std::max(seconds_up, 0.001),
+           compact_bytes_read / kGB,
+           compact_bytes_read / kMB / std::max(seconds_up, 0.001),
+           compact_micros / kMicrosInSec);
+  value->append(buf);
 
   // Compaction interval
   uint64_t interval_compact_bytes_write =
@@ -2103,26 +2059,27 @@ void InternalStats::DumpCFStatsNoFileHistogram(bool is_periodic,
   uint64_t interval_compact_micros =
       compact_micros - cf_stats_snapshot_.compact_micros;
 
-  cf_stats << std::setprecision(2);
-  cf_stats << "Interval compaction: "
-           << interval_compact_bytes_write / kGB << " GB write, "
-           << interval_compact_bytes_write / kMB /
-            std::max(interval_seconds_up, 0.001) << " MB/s write, "
-           << interval_compact_bytes_read / kGB  << " GB read, "
-           << interval_compact_bytes_read / kMB /
-            std::max(interval_seconds_up, 0.001) << " MB/s read, "
-           << std::setprecision(1)
-           << interval_compact_micros / kMicrosInSec << " seconds\n";
+  snprintf(
+      buf, sizeof(buf),
+      "Interval compaction: %.2f GB write, %.2f MB/s write, "
+      "%.2f GB read, %.2f MB/s read, %.1f seconds\n",
+      interval_compact_bytes_write / kGB,
+      interval_compact_bytes_write / kMB / std::max(interval_seconds_up, 0.001),
+      interval_compact_bytes_read / kGB,
+      interval_compact_bytes_read / kMB / std::max(interval_seconds_up, 0.001),
+      interval_compact_micros / kMicrosInSec);
+  value->append(buf);
 
-  cf_stats << "Estimated pending compaction bytes: "
-           << vstorage->estimated_compaction_needed_bytes();
+  snprintf(buf, sizeof(buf),
+           "Estimated pending compaction bytes: %" PRIu64 "\n",
+           vstorage->estimated_compaction_needed_bytes());
+  value->append(buf);
 
   if (is_periodic) {
     cf_stats_snapshot_.compact_bytes_write = compact_bytes_write;
     cf_stats_snapshot_.compact_bytes_read = compact_bytes_read;
     cf_stats_snapshot_.compact_micros = compact_micros;
   }
-  value->append(cf_stats.str());
 
   std::string write_stall_stats;
   uint64_t total_stall_count;

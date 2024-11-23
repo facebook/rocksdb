@@ -232,8 +232,7 @@ bool TransactionLogIteratorImpl::IsBatchExpected(
   SequenceNumber batchSeq = WriteBatchInternal::Sequence(batch);
   if (batchSeq != expected_seq) {
     std::ostringstream oss;
-    oss << "Discontinuity in log records. "
-        << "Got seq=" << batchSeq << ", "
+    oss << "Discontinuity in log records. " << "Got seq=" << batchSeq << ", "
         << "Expected seq=" << expected_seq << ", "
         << "Last flushed seq=" << versions_->LastSequence() << ". "
         << "Log iterator will reseek the correct batch.";

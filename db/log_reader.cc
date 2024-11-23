@@ -313,7 +313,8 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       default: {
-        std::string reason = "unknown record type " + std::to_string(record_type);
+        std::string reason =
+            "unknown record type " + std::to_string(record_type);
         ReportCorruption(
             (fragment.size() + (in_fragmented_record ? scratch->size() : 0)),
             reason.c_str());
@@ -780,7 +781,8 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       default: {
-        std::string reason = "unknown record type " + std::to_string(fragment_type_or_err);
+        std::string reason =
+            "unknown record type " + std::to_string(fragment_type_or_err);
         ReportCorruption(
             fragment.size() + (in_fragmented_record_ ? fragments_.size() : 0),
             reason.c_str());
