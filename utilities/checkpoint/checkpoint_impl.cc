@@ -457,7 +457,7 @@ Status CheckpointImpl::ExportFilesInMetaData(
                          const std::string& src_fname)>
         copy_file_cb) {
   Status s;
-  auto hardlink_file = true;
+  auto hardlink_file = false;
 
   // Copy/hard link files in metadata.
   size_t num_files = 0;
