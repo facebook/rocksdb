@@ -3807,7 +3807,6 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
                          ColumnFamilyHandle* column_family, const Slice& key,
                          std::string* value, std::string* timestamp,
                          bool* value_found) {
-  assert(value != nullptr);
   assert(read_options.io_activity == Env::IOActivity::kUnknown);
 
   if (value_found != nullptr) {
@@ -3824,7 +3823,9 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   get_impl_options.value_found = value_found;
   get_impl_options.timestamp = timestamp;
   auto s = GetImpl(roptions, key, get_impl_options);
-  value->assign(pinnable_val.data(), pinnable_val.size());
+  if (value_found && *value_found && value) {
+    value->assign(pinnable_val.data(), pinnable_val.size());
+  }
 
   // If block_cache is enabled and the index block of the table didn't
   // not present in block_cache, the return value will be Status::Incomplete.

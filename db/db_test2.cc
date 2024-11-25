@@ -2103,16 +2103,15 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
   ASSERT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_ADD));
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
 
-  std::string value;
   // Miss and hit count should remain the same, they're all pinned.
-  ASSERT_TRUE(db_->KeyMayExist(ReadOptions(), handles_[1], "key", &value));
+  ASSERT_TRUE(db_->KeyMayExist(ReadOptions(), handles_[1], "key", nullptr));
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
 
   // Miss and hit count should remain the same, they're all pinned.
-  value = Get(1, "key");
+  std::string value = Get(1, "key");
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
