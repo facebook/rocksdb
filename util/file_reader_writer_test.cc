@@ -233,8 +233,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
 TEST_F(WritableFileWriterTest, AlignedBufferedWrites) {
   class FakeWF : public FSWritableFile {
    public:
-    explicit FakeWF(std::string* _file_data)
-        : file_data_(_file_data) {}
+    explicit FakeWF(std::string* _file_data) : file_data_(_file_data) {}
     ~FakeWF() override = default;
 
     using FSWritableFile::Append;
@@ -302,12 +301,13 @@ TEST_F(WritableFileWriterTest, AlignedBufferedWrites) {
   env_options.writable_file_max_buffer_size = 64 * 1024 * 1024;
   std::string actual;
   std::unique_ptr<FakeWF> wf(new FakeWF(&actual));
-  std::unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
-      std::move(wf), "" /* don't care */, env_options));
+  std::unique_ptr<WritableFileWriter> writer(
+      new WritableFileWriter(std::move(wf), "" /* don't care */, env_options));
 
   std::string target;
   uint32_t left =
-    static_cast<uint32_t>(2 * env_options.writable_file_max_buffer_size);;
+      static_cast<uint32_t>(2 * env_options.writable_file_max_buffer_size);
+  ;
   while (left > 0) {
     uint32_t num = 4096 + r.Uniform(8192);
     num = std::min<uint32_t>(num, left);

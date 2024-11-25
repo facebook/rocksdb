@@ -271,10 +271,9 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   DestroyAndRecreateExternalSSTFilesDir();
 }
 
-TEST_F(ExternalSSTFileBasicTest,AlignedBufferedWrite) {
+TEST_F(ExternalSSTFileBasicTest, AlignedBufferedWrite) {
   class AlignedWriteFS : public FileSystemWrapper {
    public:
-
     explicit AlignedWriteFS(const std::shared_ptr<FileSystem>& _target)
         : FileSystemWrapper(_target) {}
     ~AlignedWriteFS() override {}
@@ -286,8 +285,7 @@ TEST_F(ExternalSSTFileBasicTest,AlignedBufferedWrite) {
       class AlignedWritableFile : public FSWritableFileOwnerWrapper {
        public:
         AlignedWritableFile(std::unique_ptr<FSWritableFile>& file)
-          : FSWritableFileOwnerWrapper(std::move(file)),
-            last_write_(false) {}
+            : FSWritableFileOwnerWrapper(std::move(file)), last_write_(false) {}
 
         using FSWritableFileOwnerWrapper::Append;
         IOStatus Append(const Slice& data, const IOOptions& options,
@@ -314,7 +312,7 @@ TEST_F(ExternalSSTFileBasicTest,AlignedBufferedWrite) {
 
   Options options = CurrentOptions();
   std::shared_ptr<AlignedWriteFS> aligned_fs =
-    std::make_shared<AlignedWriteFS>(env_->GetFileSystem());
+      std::make_shared<AlignedWriteFS>(env_->GetFileSystem());
   std::unique_ptr<Env> wrap_env(
       new CompositeEnvWrapper(options.env, aligned_fs));
   options.env = wrap_env.get();
