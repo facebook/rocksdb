@@ -289,6 +289,7 @@ TEST_F(ExternalSSTFileBasicTest,AlignedBufferedWrite) {
           : FSWritableFileOwnerWrapper(std::move(file)),
             last_write_(false) {}
 
+        using FSWritableFileOwnerWrapper::Append;
         IOStatus Append(const Slice& data, const IOOptions& options,
                         IODebugContext* dbg) override {
           EXPECT_FALSE(last_write_);
