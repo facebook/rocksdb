@@ -833,6 +833,14 @@ TEST_P(CompactionIteratorTest, ConvertToPutAtBottom) {
           true /*bottomost_level*/);
 }
 
+TEST_P(CompactionIteratorTest, ZeroSeqOfKeyAndSnapshot) {
+  AddSnapshot(0);
+  const std::vector<std::string> input_keys = {
+      test::KeyStr("a", 0, kTypeValue), test::KeyStr("b", 0, kTypeValue)};
+  const std::vector<std::string> input_values = {"a1", "b1"};
+  RunTest(input_keys, input_values, input_keys, input_values);
+}
+
 INSTANTIATE_TEST_CASE_P(CompactionIteratorTestInstance, CompactionIteratorTest,
                         testing::Values(true, false));
 
@@ -1844,6 +1852,22 @@ TEST_P(CompactionIteratorTsGcTest, SingleDeleteAllKeysOlderThanThreshold) {
             /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
             /*key_not_exists_beyond_output_level=*/false, &full_history_ts_low);
   }
+}
+
+TEST_P(CompactionIteratorTsGcTest, ZeroSeqOfKeyAndSnapshot) {
+  AddSnapshot(0);
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, std::numeric_limits<uint64_t>::max());
+  const std::vector<std::string> input_keys = {
+      test::KeyStr(101, "a", 0, kTypeValue),
+      test::KeyStr(102, "b", 0, kTypeValue)};
+  const std::vector<std::string> input_values = {"a1", "b1"};
+  RunTest(input_keys, input_values, input_keys, input_values,
+          /*last_committed_seq=*/kMaxSequenceNumber,
+          /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
+          /*bottommost_level=*/false,
+          /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
+          /*key_not_exists_beyond_output_level=*/false, &full_history_ts_low);
 }
 
 INSTANTIATE_TEST_CASE_P(CompactionIteratorTsGcTestInstance,

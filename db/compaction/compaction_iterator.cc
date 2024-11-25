@@ -872,8 +872,8 @@ void CompactionIterator::NextFromInput() {
       if (Valid()) {
         at_next_ = true;
       }
-    } else if (last_snapshot == current_user_key_snapshot_ ||
-               (last_snapshot > 0 &&
+    } else if (last_sequence != kMaxSequenceNumber &&
+               (last_snapshot == current_user_key_snapshot_ ||
                 last_snapshot < current_user_key_snapshot_)) {
       // If the earliest snapshot is which this key is visible in
       // is the same as the visibility of a previous instance of the
