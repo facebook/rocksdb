@@ -24,14 +24,10 @@
 // A temporary hook into long-running RocksDB threads to support modifying their
 // priority etc. This should become a public API hook once the requirements
 // are better understood.
-extern "C" void RocksDbThreadYield() __attribute__((__weak__));
-#define ROCKSDB_THREAD_YIELD_HOOK() \
-  {                                 \
-    if (RocksDbThreadYield) {       \
-      RocksDbThreadYield();         \
-    }                               \
-  }
+// Returns true if query is aborted.
+extern "C" bool RocksDbThreadYieldAndCheckAbort() __attribute__((__weak__));
+#define ROCKSDB_THREAD_YIELD_CHECK_ABORT() \
+  (RocksDbThreadYieldAndCheckAbort ? RocksDbThreadYieldAndCheckAbort() : false)
 #else
-#define ROCKSDB_THREAD_YIELD_HOOK() \
-  {}
+#define ROCKSDB_THREAD_YIELD_CHECK_ABORT() (false)
 #endif
