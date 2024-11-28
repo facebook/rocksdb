@@ -73,6 +73,7 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/coro_utils.h"
+#include "util/manifest_reader.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
@@ -6015,35 +6016,8 @@ Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
                                           FileSystem* fs, bool is_retry,
                                           std::string* manifest_path,
                                           uint64_t* manifest_file_number) {
-  assert(fs != nullptr);
-  assert(manifest_path != nullptr);
-  assert(manifest_file_number != nullptr);
-
-  IOOptions opts;
-  std::string fname;
-  if (is_retry) {
-    opts.verify_and_reconstruct_read = true;
-  }
-  Status s = ReadFileToString(fs, CurrentFileName(dbname), opts, &fname);
-  if (!s.ok()) {
-    return s;
-  }
-  if (fname.empty() || fname.back() != '\n') {
-    return Status::Corruption("CURRENT file does not end with newline");
-  }
-  // remove the trailing '\n'
-  fname.resize(fname.size() - 1);
-  FileType type;
-  bool parse_ok = ParseFileName(fname, manifest_file_number, &type);
-  if (!parse_ok || type != kDescriptorFile) {
-    return Status::Corruption("CURRENT file corrupted");
-  }
-  *manifest_path = dbname;
-  if (dbname.back() != '/') {
-    manifest_path->push_back('/');
-  }
-  manifest_path->append(fname);
-  return Status::OK();
+  return GetCurrentManifestPathUtil(dbname, fs, is_retry,
+    manifest_path, manifest_file_number);
 }
 
 Status VersionSet::Recover(

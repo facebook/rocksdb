@@ -98,4 +98,9 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
                                     uint64_t manifest_file_size,
                                     FileChecksumList* checksum_list);
 
+Status GetFileChecksumsFromCurrentManifest(Env* src_env,
+                                           const std::string &db_path,
+                                           uint64_t manifest_file_size,
+                                           FileChecksumList *checksum_list);
+
 }  // namespace ROCKSDB_NAMESPACE

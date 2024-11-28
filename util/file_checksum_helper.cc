@@ -16,6 +16,7 @@
 #include "db/version_edit_handler.h"
 #include "file/sequence_file_reader.h"
 #include "rocksdb/utilities/customizable_util.h"
+#include "util/manifest_reader.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -130,11 +131,22 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
   FileChecksumRetriever retriever(read_options, manifest_file_size,
                                   *checksum_list);
   retriever.Iterate(reader, &s);
-  assert(!retriever.status().ok() ||
-         manifest_file_size == std::numeric_limits<uint64_t>::max() ||
-         reader.LastRecordEnd() == manifest_file_size);
-
   return retriever.status();
+}
+
+Status GetFileChecksumsFromCurrentManifest(Env* src_env,
+                                           const std::string &db_path,
+                                           uint64_t manifest_file_size,
+                                           FileChecksumList *checksum_list) {
+  std::string manifest_path;
+  uint64_t manifest_file_number;
+  Status s = GetCurrentManifestPathUtil(db_path, src_env->GetFileSystem().get(),
+    true /* is_retry */, &manifest_path, &manifest_file_number);
+  if (!s.ok()) {
+    return s;
+  }
+  return GetFileChecksumsFromManifest(src_env, manifest_path,
+    manifest_file_size, checksum_list);
 }
 
 namespace {

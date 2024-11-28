@@ -233,10 +233,10 @@ class FileChecksumDumpCommand : public LDBCommand {
   void DoCommand() override;
 
   bool NoDBOpen() override { return true; }
-
  private:
   std::string path_;
   bool is_checksum_hex_;
+  bool read_from_manifest_;
 
   static const std::string ARG_PATH;
 };
