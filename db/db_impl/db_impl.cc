@@ -3247,8 +3247,13 @@ Status DBImpl::MultiGetImpl(
       s = Status::Aborted();
       break;
     }
+
     // This could be a long-running operation
-    ROCKSDB_THREAD_YIELD_HOOK();
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (aborted) {
+      s = Status::Aborted("Query abort.");
+      break;
+    }
   }
 
   // Post processing (decrement reference counts and record statistics)
