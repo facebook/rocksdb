@@ -581,8 +581,14 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
     } else {
       iter_.Next();
     }
+
     // This could be a long-running operation due to tombstones, etc.
-    ROCKSDB_THREAD_YIELD_HOOK();
+    bool aborted = ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+    if (aborted) {
+      valid_ = false;
+      status_ = Status::Aborted("Query abort.");
+      return false;
+    }
   } while (iter_.Valid());
 
   valid_ = false;
