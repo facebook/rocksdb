@@ -2875,7 +2875,7 @@ class NonBatchedOpsStressTest : public StressTest {
           const size_t sz = GenerateValue(value_base, value, sizeof(value));
           const Slice v(value, sz);
 
-          if (op == Op::PutOrPutEntity) {
+          if (op == Op::PutOrPutEntity || !FLAGS_use_merge) {
             if (FLAGS_use_put_entity_one_in > 0 &&
                 (value_base % FLAGS_use_put_entity_one_in) == 0) {
               s = txn->PutEntity(cfh, k, GenerateWideColumns(value_base, v));
