@@ -530,6 +530,9 @@ txn_params = {
     "inplace_update_support": 0,
     # TimedPut is not supported in transaction
     "use_timed_put_one_in": 0,
+    # txn commit with this option will create a new memtable, keep the
+    # frequency low to reduce stalls
+    "commit_bypass_memtable_one_in": random.choice([0] * 2 + [500, 1000]),
 }
 
 # For optimistic transaction db
@@ -786,12 +789,20 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
+    # Remove the following once write-prepared/write-unprepared with/without
+    # unordered write supports timestamped snapshots
+    if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
+        dest_params["txn_write_policy"] = 0
+        dest_params["unordered_write"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     # unordered_write is only enabled with --txn, and txn_params disables inplace_update_support, so
     # setting allow_concurrent_memtable_write=1 won't conflcit with inplace_update_support.
+    # don't overwrite txn_write_policy
     if dest_params.get("unordered_write", 0) == 1:
-        dest_params["txn_write_policy"] = 1
-        dest_params["allow_concurrent_memtable_write"] = 1
+        if dest_params.get("txn_write_policy", 0) == 1:
+            dest_params["allow_concurrent_memtable_write"] = 1
+        else:
+            dest_params["unordered_write"] = 0
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
         dest_params["sync"] = 0
@@ -837,11 +848,6 @@ def finalize_and_sanitize(src_params):
         dest_params["write_fault_one_in"] = 0
         dest_params["skip_verifydb"] = 1
         dest_params["verify_db_one_in"] = 0
-    # Remove the following once write-prepared/write-unprepared with/without
-    # unordered write supports timestamped snapshots
-    if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
-        dest_params["txn_write_policy"] = 0
-        dest_params["unordered_write"] = 0
     # For TransactionDB, correctness testing with unsync data loss is currently
     # compatible with only write committed policy
     if dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy", 0) != 0:
@@ -853,6 +859,8 @@ def finalize_and_sanitize(src_params):
         dest_params["use_put_entity_one_in"] = 0
         # MultiCfIterator is currently only compatible with write committed policy
         dest_params["use_multi_cf_iterator"] = 0
+        # only works with write committed policy
+        dest_params["commit_bypass_memtable_one_in"] = 0
     # TODO(hx235): enable test_multi_ops_txns with fault injection after stabilizing the CI
     if dest_params.get("test_multi_ops_txns") == 1:
         dest_params["write_fault_one_in"] = 0
@@ -989,7 +997,7 @@ def finalize_and_sanitize(src_params):
         or dest_params.get("delrangepercent") == 0
     ):
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
-    if dest_params.get("commit_bypass_memtable_one_in", 0) > 0:
+    if dest_params.get("use_txn", 0) == 1 and dest_params.get("commit_bypass_memtable_one_in", 0) > 0:
         dest_params["enable_blob_files"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
         dest_params["atomic_flush"] = 0
@@ -1000,6 +1008,7 @@ def finalize_and_sanitize(src_params):
         dest_params["use_merge"] = 0
         dest_params["use_full_merge_v1"] = 0
         dest_params["enable_pipelined_write"] = 0
+        dest_params["use_attribute_group"] = 0
 
     return dest_params
 
