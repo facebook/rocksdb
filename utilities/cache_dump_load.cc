@@ -53,14 +53,26 @@ Status NewDefaultCacheDumper(const CacheDumpOptions& dump_options,
   return Status::OK();
 }
 
+template <>
 Status NewDefaultCacheDumpedLoader(
     const CacheDumpOptions& dump_options,
     const BlockBasedTableOptions& toptions,
-    const std::shared_ptr<SecondaryCache>& secondary_cache,
+    const std::shared_ptr<SecondaryCache>& cache,
     std::unique_ptr<CacheDumpReader>&& reader,
     std::unique_ptr<CacheDumpedLoader>* cache_dump_loader) {
-  cache_dump_loader->reset(new CacheDumpedLoaderImpl(
-      dump_options, toptions, secondary_cache, std::move(reader)));
+  cache_dump_loader->reset(new CacheDumpedLoaderSecondaryCacheImpl(
+      dump_options, toptions, cache, std::move(reader)));
+  return Status::OK();
+}
+
+template <>
+Status NewDefaultCacheDumpedLoader(
+    const CacheDumpOptions& dump_options,
+    const BlockBasedTableOptions& toptions, const std::shared_ptr<Cache>& cache,
+    std::unique_ptr<CacheDumpReader>&& reader,
+    std::unique_ptr<CacheDumpedLoader>* cache_dump_loader) {
+  cache_dump_loader->reset(new CacheDumpedLoaderBlockCacheImpl(
+      dump_options, toptions, cache, std::move(reader)));
   return Status::OK();
 }
 
