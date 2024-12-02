@@ -593,16 +593,23 @@ ts_params = {
 }
 
 tiered_params = {
-    # Set tiered compaction hot data time as: 1 minute, 1 hour, 10 hour
-    "preclude_last_level_data_seconds": lambda: random.choice([60, 3600, 36000]),
-    # only test universal compaction for now, level has known issue of
-    # endless compaction
-    "compaction_style": 1,
+    # For Leveled/Universal compaction (ignored for FIFO)
+    # TODO: there is an alleged bug with leveled compaction infinite looping
+    # but that does not fail the crash test.
+    # Bias toward times that can elapse during a crash test run series
+    "preclude_last_level_data_seconds": lambda: random.choice([10, 60, 1200, 86400]),
+    "last_level_temperature": "kCold",
+    # For FIFO compaction (ignored otherwise)
+    "file_temperature_age_thresholds": lambda: random.choice(
+        [
+            "{{temperature=kWarm;age=30}:{temperature=kCold;age=300}}",
+            "{{temperature=kCold;age=100}}",
+        ]
+    ),
     # tiered storage doesn't support blob db yet
     "enable_blob_files": 0,
     "use_blob_db": 0,
     "default_write_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm"]),
-    "last_level_temperature": "kCold",
 }
 
 multiops_txn_default_params = {
@@ -924,7 +931,10 @@ def finalize_and_sanitize(src_params):
         dest_params["check_multiget_consistency"] = 0
         dest_params["check_multiget_entity_consistency"] = 0
     if dest_params.get("disable_wal") == 0:
-        if dest_params.get("reopen") > 0 or (dest_params.get("manual_wal_flush_one_in") and dest_params.get("column_families") != 1):
+        if dest_params.get("reopen") > 0 or (
+            dest_params.get("manual_wal_flush_one_in")
+            and dest_params.get("column_families") != 1
+        ):
             # Reopen with WAL currently requires persisting WAL data before closing for reopen.
             # Previous injected WAL write errors may not be cleared by the time of closing and ready
             # for persisting WAL.
@@ -969,7 +979,10 @@ def finalize_and_sanitize(src_params):
     # can cause checkpoint verification to fail. So make the two mutually exclusive.
     if dest_params.get("checkpoint_one_in") != 0:
         dest_params["lock_wal_one_in"] = 0
-    if dest_params.get("ingest_external_file_one_in") == 0 or dest_params.get("delrangepercent") == 0:
+    if (
+        dest_params.get("ingest_external_file_one_in") == 0
+        or dest_params.get("delrangepercent") == 0
+    ):
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
     return dest_params
 
@@ -1145,7 +1158,9 @@ def blackbox_crash_main(args, unknown_args):
     cmd = gen_cmd(
         dict(list(cmd_params.items()) + list({"db": dbname}.items())), unknown_args
     )
-    hit_timeout, retcode, outs, errs = execute_cmd(cmd, cmd_params["verify_timeout"], True)
+    hit_timeout, retcode, outs, errs = execute_cmd(
+        cmd, cmd_params["verify_timeout"], True
+    )
 
     # For the final run
     print_output_and_exit_on_error(outs, errs, args.print_stderr_separately)
@@ -1235,7 +1250,7 @@ def whitebox_crash_main(args, unknown_args):
                         "num_levels": 1,
                     }
                 )
-        elif check_mode == 2 and not args.test_tiered_storage:
+        elif check_mode == 2:
             # normal run with FIFO compaction mode
             # ops_per_thread is divided by 5 because FIFO compaction
             # style is quite a bit slower on reads with lot of files
