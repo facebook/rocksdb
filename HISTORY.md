@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.9.2 (11/22/2024)
+### Bug Fixes
+* Honor ConfigOptions.ignore_unknown_options in ParseStruct()
+
 ## 9.9.1 (11/30/2024)
 ### Behavior Changes
 * Updates the hidden hook RocksDbThreadYieldAndCheckAbort() to support MySQL to abort long-running query.
