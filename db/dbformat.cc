@@ -178,11 +178,9 @@ std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex,
     result += "<redacted>";
   }
 
-  char buf[50];
-  snprintf(buf, sizeof(buf), "' seq:%" PRIu64 ", type:%d", sequence,
-           static_cast<int>(type));
+  result += "' seq:" + std::to_string(sequence);
+  result += ", type:" + std::to_string(type);
 
-  result += buf;
   return result;
 }
 

@@ -3290,6 +3290,426 @@ TEST_F(FilePrefetchBufferTest, SyncReadaheadStats) {
       /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
 }
 
+class FSBufferPrefetchTest : public testing::Test,
+                             public ::testing::WithParamInterface<bool> {
+ public:
+  // Mock file system supporting the kFSBuffer buffer reuse operation
+  class BufferReuseFS : public FileSystemWrapper {
+   public:
+    explicit BufferReuseFS(const std::shared_ptr<FileSystem>& _target)
+        : FileSystemWrapper(_target) {}
+    ~BufferReuseFS() override {}
+    const char* Name() const override { return "BufferReuseFS"; }
+
+    IOStatus NewRandomAccessFile(const std::string& fname,
+                                 const FileOptions& opts,
+                                 std::unique_ptr<FSRandomAccessFile>* result,
+                                 IODebugContext* dbg) override {
+      class WrappedRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+       public:
+        explicit WrappedRandomAccessFile(
+            std::unique_ptr<FSRandomAccessFile>& file)
+            : FSRandomAccessFileOwnerWrapper(std::move(file)) {}
+
+        IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                           const IOOptions& options,
+                           IODebugContext* dbg) override {
+          for (size_t i = 0; i < num_reqs; ++i) {
+            FSReadRequest& req = reqs[i];
+            FSAllocationPtr buffer(new char[req.len], [](void* ptr) {
+              delete[] static_cast<char*>(ptr);
+            });
+            req.fs_scratch = std::move(buffer);
+            req.status = Read(req.offset, req.len, options, &req.result,
+                              static_cast<char*>(req.fs_scratch.get()), dbg);
+          }
+          return IOStatus::OK();
+        }
+      };
+
+      std::unique_ptr<FSRandomAccessFile> file;
+      IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+      EXPECT_OK(s);
+      result->reset(new WrappedRandomAccessFile(file));
+      return s;
+    }
+
+    void SupportedOps(int64_t& supported_ops) override {
+      supported_ops = 1 << FSSupportedOps::kAsyncIO;
+      supported_ops |= 1 << FSSupportedOps::kFSBuffer;
+    }
+  };
+
+  void SetUp() override {
+    SetupSyncPointsToMockDirectIO();
+    env_ = Env::Default();
+    bool use_async_prefetch = GetParam();
+    if (use_async_prefetch) {
+      fs_ = FileSystem::Default();
+    } else {
+      fs_ = std::make_shared<BufferReuseFS>(FileSystem::Default());
+    }
+
+    test_dir_ = test::PerThreadDBPath("fs_buffer_prefetch_test");
+    ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
+    stats_ = CreateDBStatistics();
+  }
+
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
+
+  void Write(const std::string& fname, const std::string& content) {
+    std::unique_ptr<FSWritableFile> f;
+    ASSERT_OK(fs_->NewWritableFile(Path(fname), FileOptions(), &f, nullptr));
+    ASSERT_OK(f->Append(content, IOOptions(), nullptr));
+    ASSERT_OK(f->Close(IOOptions(), nullptr));
+  }
+
+  void Read(const std::string& fname, const FileOptions& opts,
+            std::unique_ptr<RandomAccessFileReader>* reader) {
+    std::string fpath = Path(fname);
+    std::unique_ptr<FSRandomAccessFile> f;
+    ASSERT_OK(fs_->NewRandomAccessFile(fpath, opts, &f, nullptr));
+    reader->reset(new RandomAccessFileReader(
+        std::move(f), fpath, env_->GetSystemClock().get(),
+        /*io_tracer=*/nullptr, stats_.get()));
+  }
+
+  FileSystem* fs() { return fs_.get(); }
+  Statistics* stats() { return stats_.get(); }
+  SystemClock* clock() { return env_->GetSystemClock().get(); }
+
+ private:
+  Env* env_;
+  std::shared_ptr<FileSystem> fs_;
+  std::string test_dir_;
+  std::shared_ptr<Statistics> stats_;
+
+  std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
+};
+
+INSTANTIATE_TEST_CASE_P(FSBufferPrefetchTest, FSBufferPrefetchTest,
+                        ::testing::Bool());
+
+TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
+  // Check that the main buffer, the overlap_buf_, and the secondary buffer (in
+  // the case of num_buffers_ > 1) are populated correctly while reading a 32
+  // KiB file
+  std::string fname = "fs-buffer-prefetch-stats-internals";
+  Random rand(0);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 8192;
+  readahead_params.max_readahead_size = 8192;
+  bool use_async_prefetch = GetParam();
+  size_t num_buffers = use_async_prefetch ? 2 : 1;
+  readahead_params.num_buffers = num_buffers;
+
+  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
+                         stats.get());
+
+  int overlap_buffer_write_ct = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::CopyDataToOverlapBuffer:Complete",
+      [&](void* /*arg*/) { overlap_buffer_write_ct++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Slice result;
+  // Read 4096 bytes at offset 0.
+  Status s;
+  std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(num_buffers);
+  std::pair<uint64_t, size_t> overlap_buffer_info;
+  bool could_read_from_cache =
+      fpb.TryReadFromCache(IOOptions(), r.get(), 0, 4096, &result, &s);
+  // Platforms that don't have IO uring may not support async IO.
+  if (use_async_prefetch && s.IsNotSupported()) {
+    return;
+  }
+  ASSERT_TRUE(could_read_from_cache);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL), 0);
+  ASSERT_EQ(strncmp(result.data(), content.substr(0, 4096).c_str(), 4096), 0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  if (use_async_prefetch) {
+    // Cut the readahead of 8192 in half.
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Buffers: 0-8192, 8192-12288
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 4096 + 8192 / 2);
+    ASSERT_EQ(std::get<0>(buffer_info[1]), 4096 + 8192 / 2);
+    ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
+  } else {
+    // Read at offset 0 with length 4096 + 8192 = 12288.
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Main buffer contains the requested data + the 8192 of prefetched data
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 4096 + 8192);
+  }
+
+  // Simulate a block cache hit
+  fpb.UpdateReadPattern(4096, 4096, false);
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 8192, 8192, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+            4096);  // 8192-12288
+  ASSERT_EQ(strncmp(result.data(), content.substr(8192, 8192).c_str(), 8192),
+            0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+
+  if (use_async_prefetch) {
+    // Our buffers were 0-8192, 8192-12288 at the start so we had some
+    // overlapping data in the second buffer
+    // We clean up outdated buffers so 0-8192 gets freed for more prefetching.
+    // Our remaining buffer 8192-12288 has data that we want, so we can reuse it
+    // We end up with: 8192-20480, 20480-24576
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 8192);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 8192 + 8192 / 2);
+    ASSERT_EQ(std::get<0>(buffer_info[1]), 8192 + (8192 + 8192 / 2));
+    ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
+  } else {
+    // We only have 0-12288 cached, so reading from 8192-16384 will trigger a
+    // prefetch up through 16384 + 8192 = 24576.
+    // Overlap buffer reuses bytes 8192 to 12288
+    ASSERT_EQ(overlap_buffer_info.first, 8192);
+    ASSERT_EQ(overlap_buffer_info.second, 8192);
+    ASSERT_EQ(overlap_buffer_write_ct, 2);
+    // We spill to the overlap buffer so the remaining buffer only has the
+    // missing and prefetched part
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 12288);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 12288);
+  }
+
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 12288, 4096, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 1);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+            4096);  // 12288-16384
+  ASSERT_EQ(strncmp(result.data(), content.substr(12288, 4096).c_str(), 4096),
+            0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+
+  if (use_async_prefetch) {
+    // Same as before: 8192-20480, 20480-24576 (cache hit in first buffer)
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 8192);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 8192 + 8192 / 2);
+    ASSERT_EQ(std::get<0>(buffer_info[1]), 8192 + (8192 + 8192 / 2));
+    ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
+  } else {
+    // The main buffer has 12288-24576, so 12288-16384 is a cache hit.
+    // Overlap buffer does not get used
+    fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+    ASSERT_EQ(overlap_buffer_info.first, 8192);
+    ASSERT_EQ(overlap_buffer_info.second, 8192);
+    ASSERT_EQ(overlap_buffer_write_ct, 2);
+    // Main buffer stays the same
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 12288);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 12288);
+  }
+
+  // Read from 16000-26000 (start and end do not meet normal alignment)
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 16000, 10000, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(
+      stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+      /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
+  ASSERT_EQ(strncmp(result.data(), content.substr(16000, 10000).c_str(), 10000),
+            0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  if (use_async_prefetch) {
+    // Overlap buffer reuses bytes 16000 to 20480
+    ASSERT_EQ(overlap_buffer_info.first, 16000);
+    ASSERT_EQ(overlap_buffer_info.second, 10000);
+    // First 2 writes are reusing existing 2 buffers. Last write fills in
+    // what could not be found in either.
+    ASSERT_EQ(overlap_buffer_write_ct, 3);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 24576);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 32768 - 24576);
+    ASSERT_EQ(std::get<0>(buffer_info[1]), 32768);
+    ASSERT_EQ(std::get<1>(buffer_info[1]), 4096);
+    ASSERT_TRUE(std::get<2>(
+        buffer_info[1]));  // in progress async request (otherwise we should not
+                           // be getting 4096 for the size)
+  } else {
+    // Overlap buffer reuses bytes 16000 to 24576
+    ASSERT_EQ(overlap_buffer_info.first, 16000);
+    ASSERT_EQ(overlap_buffer_info.second, 10000);
+    ASSERT_EQ(overlap_buffer_write_ct, 4);
+    // Even if you try to readahead to offset 16000 + 10000 + 8192, there are
+    // only 32768 bytes in the original file
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 12288 + 12288);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
+  }
+}
+
+TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
+  // Check that the main buffer, the overlap_buf_, and the secondary buffer (in
+  // the case of num_buffers_ > 1) are populated correctly
+  // while reading with no regard to alignment
+  std::string fname = "fs-buffer-prefetch-unaligned-reads";
+  Random rand(0);
+  std::string content = rand.RandomString(1000);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  ReadaheadParams readahead_params;
+  // Readahead size will double each time
+  readahead_params.initial_readahead_size = 5;
+  readahead_params.max_readahead_size = 100;
+  bool use_async_prefetch = GetParam();
+  size_t num_buffers = use_async_prefetch ? 2 : 1;
+  readahead_params.num_buffers = num_buffers;
+  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
+                         stats.get());
+
+  int overlap_buffer_write_ct = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::CopyDataToOverlapBuffer:Complete",
+      [&](void* /*arg*/) { overlap_buffer_write_ct++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Slice result;
+  // Read 3 bytes at offset 5
+  Status s;
+  std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(num_buffers);
+  std::pair<uint64_t, size_t> overlap_buffer_info;
+  bool could_read_from_cache =
+      fpb.TryReadFromCache(IOOptions(), r.get(), 5, 3, &result, &s);
+  // Platforms that don't have IO uring may not support async IO.
+  if (use_async_prefetch && s.IsNotSupported()) {
+    return;
+  }
+  ASSERT_TRUE(could_read_from_cache);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(5, 3).c_str(), 3), 0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  if (use_async_prefetch) {
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // With async prefetching, we still try to align to 4096 bytes, so
+    // our main buffer read and secondary buffer prefetch are rounded up
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 1000);
+    // This buffer won't actually get filled up with data since there is nothing
+    // after 1000
+    ASSERT_EQ(std::get<0>(buffer_info[1]), 4096);
+    ASSERT_EQ(std::get<1>(buffer_info[1]), 4096);
+    ASSERT_TRUE(std::get<2>(buffer_info[1]));  // in progress async request
+  } else {
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Main buffer contains the requested data + 5 of prefetched data (5 - 13)
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 5);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 3 + 5);
+  }
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 16, 7, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(16, 7).c_str(), 7), 0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  if (use_async_prefetch) {
+    // Complete hit since we have the entire file loaded in the main buffer
+    // The remaining requests will be the same when use_async_prefetch is true
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 1000);
+  } else {
+    // Complete miss: read 7 bytes at offset 16
+    // Overlap buffer is not used (no partial hit)
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Main buffer contains the requested data + 10 of prefetched data (16 - 33)
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 16);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 7 + 10);
+  }
+
+  // Go backwards
+  if (use_async_prefetch) {
+    ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 10, 8, &result, &s));
+  } else {
+    // TryReadFromCacheUntracked returns false since the offset
+    // requested is less than the start of our buffer
+    ASSERT_FALSE(
+        fpb.TryReadFromCache(IOOptions(), r.get(), 10, 8, &result, &s));
+  }
+  ASSERT_EQ(s, Status::OK());
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 27, 6, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(27, 6).c_str(), 6), 0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  if (use_async_prefetch) {
+    // Complete hit since we have the entire file loaded in the main buffer
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 1000);
+  } else {
+    // Complete hit
+    // Overlap buffer still not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Main buffer unchanged
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 16);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 7 + 10);
+  }
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 30, 20, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(30, 20).c_str(), 20), 0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  if (use_async_prefetch) {
+    // Complete hit since we have the entire file loaded in the main buffer
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 1000);
+  } else {
+    // Partial hit (overlapping with end of main buffer)
+    // Overlap buffer is used because we already had 30-33
+    ASSERT_EQ(overlap_buffer_info.first, 30);
+    ASSERT_EQ(overlap_buffer_info.second, 20);
+    ASSERT_EQ(overlap_buffer_write_ct, 2);
+    // Main buffer has up to offset 50 + 20 of prefetched data
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 33);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), (50 - 33) + 20);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

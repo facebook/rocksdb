@@ -25,7 +25,7 @@ class Statistics;
 class HistogramImpl;
 class SystemClock;
 
-using AlignedBuf = std::unique_ptr<char[]>;
+using AlignedBuf = FSAllocationPtr;
 
 // Align the request r according to alignment and return the aligned result.
 FSReadRequest Align(const FSReadRequest& r, size_t alignment);

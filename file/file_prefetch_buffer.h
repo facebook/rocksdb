@@ -15,7 +15,9 @@
 #include <sstream>
 #include <string>
 
+#include "file/random_access_file_reader.h"
 #include "file/readahead_file_info.h"
+#include "file_util.h"
 #include "monitoring/statistics_impl.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -149,6 +151,9 @@ enum class FilePrefetchBufferUsage {
 //
 // If num_buffers_ == 1, it's a sequential read flow. Read API will be called on
 // that one buffer whenever the data is requested and is not in the buffer.
+// When reusing the file system allocated buffer, overlap_buf_ is used if the
+// main buffer only contains part of the requested data. It is returned to
+// the caller after the remaining data is fetched.
 // If num_buffers_ > 1, then the data is prefetched asynchronosuly in the
 // buffers whenever the data is consumed from the buffers and that buffer is
 // freed.
@@ -206,10 +211,15 @@ class FilePrefetchBuffer {
     assert((num_file_reads_ >= num_file_reads_for_auto_readahead_ + 1) ||
            (num_file_reads_ == 0));
 
-    // If num_buffers_ > 1, data is asynchronously filled in the
-    // queue. As result, data can be overlapping in two buffers. It copies the
-    // data to overlap_buf_ in order to to return continuous buffer.
-    if (num_buffers_ > 1) {
+    // overlap_buf_ is used whenever the main buffer only has part of the
+    // requested data. The relevant data is copied into overlap_buf_ and the
+    // remaining data is copied in later to satisfy the user's request. This is
+    // used in both the synchronous (num_buffers_ = 1) and asynchronous
+    // (num_buffers_ > 1) cases. In the asynchronous case, the requested data
+    // may be spread out over 2 buffers.
+    if (num_buffers_ > 1 ||
+        (fs_ != nullptr &&
+         CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer))) {
       overlap_buf_ = new BufferInfo();
     }
 
@@ -379,12 +389,21 @@ class FilePrefetchBuffer {
   void PrefetchAsyncCallback(FSReadRequest& req, void* cb_arg);
 
   void TEST_GetBufferOffsetandSize(
-      std::vector<std::pair<uint64_t, size_t>>& buffer_info) {
+      std::vector<std::tuple<uint64_t, size_t, bool>>& buffer_info) {
     for (size_t i = 0; i < bufs_.size(); i++) {
-      buffer_info[i].first = bufs_[i]->offset_;
-      buffer_info[i].second = bufs_[i]->async_read_in_progress_
-                                  ? bufs_[i]->async_req_len_
-                                  : bufs_[i]->CurrentSize();
+      std::get<0>(buffer_info[i]) = bufs_[i]->offset_;
+      std::get<1>(buffer_info[i]) = bufs_[i]->async_read_in_progress_
+                                        ? bufs_[i]->async_req_len_
+                                        : bufs_[i]->CurrentSize();
+      std::get<2>(buffer_info[i]) = bufs_[i]->async_read_in_progress_;
+    }
+  }
+
+  void TEST_GetOverlapBufferOffsetandSize(
+      std::pair<uint64_t, size_t>& buffer_info) {
+    if (overlap_buf_ != nullptr) {
+      buffer_info.first = overlap_buf_->offset_;
+      buffer_info.second = overlap_buf_->CurrentSize();
     }
   }
 
@@ -394,7 +413,7 @@ class FilePrefetchBuffer {
   // required.
   void PrepareBufferForRead(BufferInfo* buf, size_t alignment, uint64_t offset,
                             size_t roundup_len, bool refit_tail,
-                            uint64_t& aligned_useful_len);
+                            bool use_fs_buffer, uint64_t& aligned_useful_len);
 
   void AbortOutdatedIO(uint64_t offset);
 
@@ -418,7 +437,8 @@ class FilePrefetchBuffer {
                    uint64_t start_offset);
 
   // Copy the data from src to overlap_buf_.
-  void CopyDataToBuffer(BufferInfo* src, uint64_t& offset, size_t& length);
+  void CopyDataToOverlapBuffer(BufferInfo* src, uint64_t& offset,
+                               size_t& length);
 
   bool IsBlockSequential(const size_t& offset) {
     return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
@@ -465,6 +485,50 @@ class FilePrefetchBuffer {
     return true;
   }
 
+  // Whether we reuse the file system provided buffer
+  // Until we also handle the async read case, only enable this optimization
+  // for the synchronous case when num_buffers_ = 1.
+  bool UseFSBuffer(RandomAccessFileReader* reader) {
+    return reader->file() != nullptr && !reader->use_direct_io() &&
+           fs_ != nullptr &&
+           CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer) &&
+           num_buffers_ == 1;
+  }
+
+  // When we are reusing the file system provided buffer, we are not concerned
+  // with alignment. However, quite a bit of prefetch code incorporates
+  // alignment, so we can put in 1 to keep the code simpler.
+  size_t GetRequiredBufferAlignment(RandomAccessFileReader* reader) {
+    if (UseFSBuffer(reader)) {
+      return 1;
+    }
+    return reader->file()->GetRequiredBufferAlignment();
+  }
+
+  // Reuses the file system allocated buffer to avoid an extra copy
+  IOStatus FSBufferDirectRead(RandomAccessFileReader* reader, BufferInfo* buf,
+                              const IOOptions& opts, uint64_t offset, size_t n,
+                              Slice& result) {
+    FSReadRequest read_req;
+    read_req.offset = offset;
+    read_req.len = n;
+    read_req.scratch = nullptr;
+    IOStatus s = reader->MultiRead(opts, &read_req, 1, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+    s = read_req.status;
+    if (!s.ok()) {
+      return s;
+    }
+    buf->buffer_.SetBuffer(read_req.result.size(),
+                           std::move(read_req.fs_scratch));
+    buf->offset_ = offset;
+    buf->initial_end_offset_ = offset + read_req.result.size();
+    result = read_req.result;
+    return s;
+  }
+
   void DestroyAndClearIOHandle(BufferInfo* buf) {
     if (buf->io_handle_ != nullptr && buf->del_fn_ != nullptr) {
       buf->del_fn_(buf->io_handle_);
@@ -474,11 +538,16 @@ class FilePrefetchBuffer {
     buf->async_read_in_progress_ = false;
   }
 
-  Status HandleOverlappingData(const IOOptions& opts,
-                               RandomAccessFileReader* reader, uint64_t offset,
-                               size_t length, size_t readahead_size,
-                               bool& copy_to_third_buffer, uint64_t& tmp_offset,
-                               size_t& tmp_length);
+  void HandleOverlappingSyncData(uint64_t offset, size_t length,
+                                 uint64_t& tmp_offset, size_t& tmp_length,
+                                 bool& use_overlap_buffer);
+
+  Status HandleOverlappingAsyncData(const IOOptions& opts,
+                                    RandomAccessFileReader* reader,
+                                    uint64_t offset, size_t length,
+                                    size_t readahead_size,
+                                    bool& copy_to_third_buffer,
+                                    uint64_t& tmp_offset, size_t& tmp_length);
 
   bool TryReadFromCacheUntracked(const IOOptions& opts,
                                  RandomAccessFileReader* reader,
@@ -487,11 +556,11 @@ class FilePrefetchBuffer {
                                  bool for_compaction = false);
 
   void ReadAheadSizeTuning(BufferInfo* buf, bool read_curr_block,
-                           bool refit_tail, uint64_t prev_buf_end_offset,
-                           size_t alignment, size_t length,
-                           size_t readahead_size, uint64_t& offset,
-                           uint64_t& end_offset, size_t& read_len,
-                           uint64_t& aligned_useful_len);
+                           bool refit_tail, bool use_fs_buffer,
+                           uint64_t prev_buf_end_offset, size_t alignment,
+                           size_t length, size_t readahead_size,
+                           uint64_t& offset, uint64_t& end_offset,
+                           size_t& read_len, uint64_t& aligned_useful_len);
 
   void UpdateStats(bool found_in_buffer, size_t length_found) {
     if (found_in_buffer) {

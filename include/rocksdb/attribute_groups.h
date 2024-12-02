@@ -116,7 +116,6 @@ using IteratorAttributeGroups = std::vector<IteratorAttributeGroup>;
 
 extern const IteratorAttributeGroups kNoIteratorAttributeGroups;
 
-// EXPERIMENTAL
 // A cross-column-family iterator that collects and returns attribute groups for
 // each key in order provided by comparator
 class AttributeGroupIterator : public IteratorBase {

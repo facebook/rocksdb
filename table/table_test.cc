@@ -3252,14 +3252,14 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
       FilePrefetchBuffer* prefetch_buffer =
           (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
-      std::vector<std::pair<uint64_t, size_t>> buffer_info(1);
+      std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(1);
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
 
       bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first, block_handle);
       // It won't prefetch the data of cache hit.
       // One block data.
-      ASSERT_EQ(buffer_info[0].second, 4096);
-      ASSERT_EQ(buffer_info[0].first, block_handle.offset());
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 4096);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
 
       ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                 1);
@@ -3290,14 +3290,14 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
       FilePrefetchBuffer* prefetch_buffer =
           (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
-      std::vector<std::pair<uint64_t, size_t>> buffer_info(1);
+      std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(1);
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
       bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first, block_handle);
 
       // It won't prefetch the data of cache hit.
       // 3 blocks data.
-      ASSERT_EQ(buffer_info[0].second, 12288);
-      ASSERT_EQ(buffer_info[0].first, block_handle.offset());
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 12288);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
 
       for (; kv_iter != kvmap.end() && iter->Valid(); kv_iter++) {
         ASSERT_EQ(iter->key(), kv_iter->first);
@@ -3313,8 +3313,8 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
       // Second Prefetch.
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
       bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first, block_handle);
-      ASSERT_EQ(buffer_info[0].second, 20480);
-      ASSERT_EQ(buffer_info[0].first, block_handle.offset());
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 20480);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
 
       ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                 1);
@@ -3401,13 +3401,13 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       FilePrefetchBuffer* prefetch_buffer =
           (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
-      std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
+      std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(2);
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
 
       bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first, block_handle);
-      ASSERT_EQ(buffer_info[0].first, block_handle.offset());
-      ASSERT_EQ(buffer_info[0].second, 4096);
-      ASSERT_EQ(buffer_info[1].second, 0);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 4096);
+      ASSERT_EQ(std::get<1>(buffer_info[1]), 0);
 
       ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                 2);
@@ -3440,21 +3440,21 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       FilePrefetchBuffer* prefetch_buffer =
           (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
-      std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
+      std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(2);
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
       {
         // 1st Buffer Verification.
         bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first,
                                      block_handle);
-        ASSERT_EQ(buffer_info[0].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[0].second, 8192);
+        ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
 
         // 2nd Buffer Verification.
         InternalKey ikey_tmp("00000360", 0, kTypeValue);
         bbt->TEST_GetDataBlockHandle(read_options, ikey_tmp.Encode().ToString(),
                                      block_handle);
-        ASSERT_EQ(buffer_info[1].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[1].second, 8192);
+        ASSERT_EQ(std::get<0>(buffer_info[1]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[1]), 8192);
 
         ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                   1);
@@ -3493,21 +3493,21 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
               ->prefetch_buffer();
 
       {
-        std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
+        std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(2);
         prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
 
         // 1st Buffer Verification.
         bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first,
                                      block_handle);
-        ASSERT_EQ(buffer_info[0].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[0].second, 8192);
+        ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
 
         // 2nd Buffer Verification.
         InternalKey ikey_tmp("00000540", 0, kTypeValue);
         bbt->TEST_GetDataBlockHandle(read_options, ikey_tmp.Encode().ToString(),
                                      block_handle);
-        ASSERT_EQ(buffer_info[1].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[1].second, 8192);
+        ASSERT_EQ(std::get<0>(buffer_info[1]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[1]), 8192);
 
         ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                   1);
@@ -3527,21 +3527,21 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       }
 
       {
-        std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
+        std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(2);
         prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
 
         // 1st Buffer Verification.
         bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first,
                                      block_handle);
-        ASSERT_EQ(buffer_info[0].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[0].second, 8192);
+        ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
 
         // 2nd Buffer Verification.
         InternalKey ikey_tmp("00000585", 0, kTypeValue);
         bbt->TEST_GetDataBlockHandle(read_options, ikey_tmp.Encode().ToString(),
                                      block_handle);
-        ASSERT_EQ(buffer_info[1].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[1].second, 4096);
+        ASSERT_EQ(std::get<0>(buffer_info[1]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[1]), 4096);
 
         ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                   1);
@@ -3561,21 +3561,21 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       }
 
       {
-        std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
+        std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(2);
         prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
 
         // 1st Buffer Verification.
         bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first,
                                      block_handle);
-        ASSERT_EQ(buffer_info[0].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[0].second, 4096);
+        ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[0]), 4096);
 
         // 2nd Buffer Verification.
         InternalKey ikey_tmp("00000615", 0, kTypeValue);
         bbt->TEST_GetDataBlockHandle(read_options, ikey_tmp.Encode().ToString(),
                                      block_handle);
-        ASSERT_EQ(buffer_info[1].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[1].second, 4096);
+        ASSERT_EQ(std::get<0>(buffer_info[1]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[1]), 4096);
 
         ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                   1);
@@ -3595,21 +3595,21 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       }
 
       {
-        std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
+        std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(2);
         prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
 
         // 1st Buffer Verification.
         bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first,
                                      block_handle);
-        ASSERT_EQ(buffer_info[0].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[0].second, 4096);
+        ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[0]), 4096);
 
         // 2nd Buffer Verification.
         InternalKey ikey_tmp("00000630", 0, kTypeValue);
         bbt->TEST_GetDataBlockHandle(read_options, ikey_tmp.Encode().ToString(),
                                      block_handle);
-        ASSERT_EQ(buffer_info[1].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[1].second, 8192);
+        ASSERT_EQ(std::get<0>(buffer_info[1]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[1]), 8192);
 
         ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                   0);

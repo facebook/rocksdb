@@ -1273,5 +1273,7 @@ std::vector<std::string> TEST_GetImmutableInMutableCFOptions() {
   }
   return result;
 }
+
+bool TEST_allowSetOptionsImmutableInMutable = false;
 #endif  // !NDEBUG
 }  // namespace ROCKSDB_NAMESPACE

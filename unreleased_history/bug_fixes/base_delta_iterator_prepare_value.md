@@ -1,1 +1,0 @@
-`BaseDeltaIterator` now calls `PrepareValue` on the base iterator in case it has been created with the `allow_unprepared_value` read option set. Earlier, such base iterators could lead to incorrect values being exposed from `BaseDeltaIterator`.
