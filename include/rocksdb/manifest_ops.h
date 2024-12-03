@@ -7,14 +7,13 @@
 #include <cassert>
 
 #include "rocksdb/env.h"
-#include "rocksdb/status.h"
 #include "rocksdb/file_checksum.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-Status GetCurrentManifestPath(const std::string& abs_path,
-                              FileSystem* fs, bool is_retry,
-                              std::string* manifest_path,
+Status GetCurrentManifestPath(const std::string& abs_path, FileSystem* fs,
+                              bool is_retry, std::string* manifest_path,
                               uint64_t* manifest_file_number);
 
 // Requires absolute path to CURRENT file directory as a parameter.
@@ -24,8 +23,8 @@ Status GetCurrentManifestPath(const std::string& abs_path,
 // NOTE: We're NOT locking the referenced MANIFEST-* file.
 // It might become stale in case of intertwining DB operations.
 Status GetFileChecksumsFromCurrentManifest(Env* src_env,
-                                           const std::string &abs_path,
+                                           const std::string& abs_path,
                                            uint64_t manifest_file_size,
-                                           FileChecksumList *checksum_list);
+                                           FileChecksumList* checksum_list);
 
 }  // namespace ROCKSDB_NAMESPACE

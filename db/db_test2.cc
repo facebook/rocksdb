@@ -20,8 +20,8 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/experimental.h"
-#include "rocksdb/manifest_ops.h"
 #include "rocksdb/iostats_context.h"
+#include "rocksdb/manifest_ops.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/trace_record_result.h"
@@ -8113,8 +8113,8 @@ TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
   uint64_t manifest_file_size = 1024 * 1024 * 1024;
 
   std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
-  ASSERT_OK(GetFileChecksumsFromCurrentManifest(opts.env, dbname,
-    manifest_file_size, checksum_list.get()));
+  ASSERT_OK(GetFileChecksumsFromCurrentManifest(
+      opts.env, dbname, manifest_file_size, checksum_list.get()));
   ASSERT_TRUE(checksum_list != nullptr);
 
   std::vector<uint64_t> file_numbers;

@@ -13,9 +13,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-Status GetCurrentManifestPath(const std::string& abs_path,
-                              FileSystem* fs, bool is_retry,
-                              std::string* manifest_path,
+Status GetCurrentManifestPath(const std::string& abs_path, FileSystem* fs,
+                              bool is_retry, std::string* manifest_path,
                               uint64_t* manifest_file_number) {
   assert(fs != nullptr);
   assert(manifest_path != nullptr);
@@ -57,7 +56,8 @@ Status GetFileChecksumsFromCurrentManifest(Env* src_env,
   std::string manifest_path;
   uint64_t manifest_file_number;
   Status s = GetCurrentManifestPath(abs_path, src_env->GetFileSystem().get(),
-    true /* is_retry */, &manifest_path, &manifest_file_number);
+                                    true /* is_retry */, &manifest_path,
+                                    &manifest_file_number);
   if (!s.ok()) {
     return s;
   }
@@ -100,4 +100,4 @@ Status GetFileChecksumsFromCurrentManifest(Env* src_env,
   return retriever.status();
 }
 
-}
+}  // namespace ROCKSDB_NAMESPACE
