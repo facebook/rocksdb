@@ -29,6 +29,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/user_write_callback.h"
+#include "rocksdb/utilities/table_properties_collectors.h"
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
@@ -2011,6 +2012,15 @@ class DB {
   virtual Status GetPropertiesOfTablesInRange(
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) = 0;
+
+  // Get the table properties of files per level.
+  virtual Status GetPropertiesOfTablesForLevels(
+      ColumnFamilyHandle* /* column_family */,
+      std::vector<
+          std::unique_ptr<TablePropertiesCollection>>* /* levels_props */) {
+    return Status::NotSupported(
+        "GetPropertiesOfTablesForLevels() is not implemented.");
+  }
 
   virtual Status SuggestCompactRange(ColumnFamilyHandle* /*column_family*/,
                                      const Slice* /*begin*/,

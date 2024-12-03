@@ -16,10 +16,14 @@ namespace ROCKSDB_NAMESPACE {
 class CompactForTieringCollector : public TablePropertiesCollector {
  public:
   static const std::string kNumEligibleLastLevelEntriesPropertyName;
+  static const std::string kAverageDataUnixWriteTimePropertyName;
+  static const std::string kMaxDataUnixWriteTimePropertyName;
+  static const std::string kMinDataUnixWriteTimePropertyName;
+  static const std::string kNumInfinitelyOldEntriesPropertyName;
 
   CompactForTieringCollector(
-      SequenceNumber last_level_inclusive_max_seqno_threshold_,
-      double compaction_trigger_ratio);
+      SequenceNumber last_level_inclusive_max_seqno_threshold,
+      double compaction_trigger_ratio, bool collect_data_age_stats);
 
   Status AddUserKey(const Slice& key, const Slice& value, EntryType type,
                     SequenceNumber seq, uint64_t file_size) override;
@@ -41,5 +45,6 @@ class CompactForTieringCollector : public TablePropertiesCollector {
   size_t total_entries_counter_ = 0;
   bool finish_called_ = false;
   bool need_compaction_ = false;
+  bool collect_data_age_stats_ = false;
 };
 }  // namespace ROCKSDB_NAMESPACE

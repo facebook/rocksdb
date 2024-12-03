@@ -129,21 +129,6 @@ Status WideColumnSerialization::Deserialize(Slice& input,
   return Status::OK();
 }
 
-WideColumns::const_iterator WideColumnSerialization::Find(
-    const WideColumns& columns, const Slice& column_name) {
-  const auto it =
-      std::lower_bound(columns.cbegin(), columns.cend(), column_name,
-                       [](const WideColumn& lhs, const Slice& rhs) {
-                         return lhs.name().compare(rhs) < 0;
-                       });
-
-  if (it == columns.cend() || it->name() != column_name) {
-    return columns.cend();
-  }
-
-  return it;
-}
-
 Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
                                                         Slice& value) {
   WideColumns columns;

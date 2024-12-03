@@ -271,6 +271,79 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   DestroyAndRecreateExternalSSTFilesDir();
 }
 
+TEST_F(ExternalSSTFileBasicTest, AlignedBufferedWrite) {
+  class AlignedWriteFS : public FileSystemWrapper {
+   public:
+    explicit AlignedWriteFS(const std::shared_ptr<FileSystem>& _target)
+        : FileSystemWrapper(_target) {}
+    ~AlignedWriteFS() override {}
+    const char* Name() const override { return "AlignedWriteFS"; }
+
+    IOStatus NewWritableFile(const std::string& fname, const FileOptions& opts,
+                             std::unique_ptr<FSWritableFile>* result,
+                             IODebugContext* dbg) override {
+      class AlignedWritableFile : public FSWritableFileOwnerWrapper {
+       public:
+        AlignedWritableFile(std::unique_ptr<FSWritableFile>& file)
+            : FSWritableFileOwnerWrapper(std::move(file)), last_write_(false) {}
+
+        using FSWritableFileOwnerWrapper::Append;
+        IOStatus Append(const Slice& data, const IOOptions& options,
+                        IODebugContext* dbg) override {
+          EXPECT_FALSE(last_write_);
+          if ((data.size() & (data.size() - 1)) != 0) {
+            last_write_ = true;
+          }
+          return target()->Append(data, options, dbg);
+        }
+
+       private:
+        bool last_write_;
+      };
+
+      std::unique_ptr<FSWritableFile> file;
+      IOStatus s = target()->NewWritableFile(fname, opts, &file, dbg);
+      if (s.ok()) {
+        result->reset(new AlignedWritableFile(file));
+      }
+      return s;
+    }
+  };
+
+  Options options = CurrentOptions();
+  std::shared_ptr<AlignedWriteFS> aligned_fs =
+      std::make_shared<AlignedWriteFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> wrap_env(
+      new CompositeEnvWrapper(options.env, aligned_fs));
+  options.env = wrap_env.get();
+
+  EnvOptions env_options;
+  env_options.writable_file_max_buffer_size = 64 * 1024 * 1024;
+
+  SstFileWriter sst_file_writer(env_options, options);
+
+  // Current file size should be 0 after sst_file_writer init and before open a
+  // file.
+  ASSERT_EQ(sst_file_writer.FileSize(), 0);
+
+  // file1.sst (0 => 99)
+  std::string file1 = sst_files_dir_ + "file1.sst";
+  ASSERT_OK(sst_file_writer.Open(file1));
+  Random r(301);
+  for (int k = 0; k < 16 * 1024; k++) {
+    uint32_t num = 4096 + r.Uniform(8192);
+    std::string random_string = r.RandomString(num);
+    ASSERT_OK(sst_file_writer.Put(Key(k), random_string));
+  }
+  Status s = sst_file_writer.Finish();
+  ASSERT_OK(s) << s.ToString();
+
+  // Current file size should be non-zero after success write.
+  ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+  DestroyAndRecreateExternalSSTFilesDir();
+}
+
 class ChecksumVerifyHelper {
  private:
   Options options_;
