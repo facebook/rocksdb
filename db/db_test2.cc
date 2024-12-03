@@ -8104,6 +8104,8 @@ TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
   }
   ASSERT_OK(db->Flush(fopts));
 
+  ASSERT_OK(db->DisableFileDeletions());
+
   std::vector<LiveFileMetaData> live_files;
   db->GetLiveFilesMetaData(&live_files);
 
