@@ -31,7 +31,6 @@
 #include "rocksdb/experimental.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/filter_policy.h"
-#include "rocksdb/manifest_ops.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/backup_engine.h"
@@ -1744,7 +1743,7 @@ void FileChecksumDumpCommand::DoCommand() {
   //  ......
 
   std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
-  Status s = GetLiveFilesChecksumInfoFromVersionSet(options_, path_,
+  Status s = GetLiveFilesChecksumInfoFromVersionSet(options_, db_path_,
                                                     checksum_list.get());
   if (s.ok() && checksum_list != nullptr) {
     std::vector<uint64_t> file_numbers;
