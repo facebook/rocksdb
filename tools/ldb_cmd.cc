@@ -31,6 +31,7 @@
 #include "rocksdb/experimental.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/manifest_ops.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/backup_engine.h"
@@ -1749,7 +1750,6 @@ void FileChecksumDumpCommand::DoCommand() {
   if (read_from_manifest_) {
     s = GetFileChecksumsFromCurrentManifest(options_.env, path_,
       options_.max_manifest_file_size, checksum_list.get());
-
   } else {
     s = GetLiveFilesChecksumInfoFromVersionSet(options_, path_,
                                                     checksum_list.get());

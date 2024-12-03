@@ -12,6 +12,7 @@
 #include "db/merge_context.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
+#include "rocksdb/manifest_ops.h"
 #include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -265,9 +266,9 @@ Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
     const std::shared_ptr<FileSystem>& fs = db_options.env->GetFileSystem();
     std::string manifest_path;
     uint64_t manifest_file_number;
-    s = VersionSet::GetCurrentManifestPath(dbname, fs.get(), /*is_retry=*/false,
-                                           &manifest_path,
-                                           &manifest_file_number);
+    s = GetCurrentManifestPath(dbname, fs.get(), /*is_retry=*/false,
+                               &manifest_path,
+                               &manifest_file_number);
   } else {
     // Historic behavior that doesn't necessarily make sense
     s = db_options.env->CreateDirIfMissing(dbname);

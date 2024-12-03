@@ -1277,10 +1277,6 @@ class VersionSet {
       const std::vector<std::function<void(const Status&)>>& manifest_wcbs =
           {});
 
-  static Status GetCurrentManifestPath(const std::string& dbname,
-                                       FileSystem* fs, bool is_retry,
-                                       std::string* manifest_filename,
-                                       uint64_t* manifest_file_number);
   void WakeUpWaitingManifestWriters();
 
   // Recover the last saved descriptor (MANIFEST) from persistent storage.

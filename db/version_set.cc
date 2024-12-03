@@ -57,6 +57,7 @@
 #include "monitoring/persistent_stats_history.h"
 #include "options/options_helper.h"
 #include "rocksdb/env.h"
+#include "rocksdb/manifest_ops.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/format.h"
@@ -73,7 +74,6 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/coro_utils.h"
-#include "util/manifest_reader.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
@@ -6010,14 +6010,6 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   // we return Status::OK() in this case.
   assert(builder || edit->IsWalManipulation());
   return builder ? builder->Apply(edit) : Status::OK();
-}
-
-Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
-                                          FileSystem* fs, bool is_retry,
-                                          std::string* manifest_path,
-                                          uint64_t* manifest_file_number) {
-  return GetCurrentManifestPathUtil(dbname, fs, is_retry,
-    manifest_path, manifest_file_number);
 }
 
 Status VersionSet::Recover(

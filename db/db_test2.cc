@@ -20,6 +20,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/experimental.h"
+#include "rocksdb/manifest_ops.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
@@ -8059,6 +8060,80 @@ TEST_F(DBTest2, TableCacheMissDuringReadFromBlockCacheTier) {
   ASSERT_TRUE(db_->Get(non_blocking_opts, "foo", &value).IsIncomplete());
 
   ASSERT_EQ(orig_num_file_opens, TestGetTickerCount(options, NO_FILE_OPENS));
+}
+
+TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
+  Options opts = GetDefaultOptions();
+  opts.create_if_missing = true;
+  opts.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+
+  DB* db = nullptr;
+  std::string dbname = test::PerThreadDBPath("file_chksum");
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+
+  WriteOptions wopts;
+  FlushOptions fopts;
+  fopts.wait = true;
+  Random rnd(test::RandomSeed());
+  for (int i = 0; i < 100; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+  for (int i = 50; i < 150; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+  for (int i = 100; i < 200; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+  for (int i = 150; i < 250; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+
+  std::vector<LiveFileMetaData> live_files;
+  db->GetLiveFilesMetaData(&live_files);
+
+  ASSERT_OK(db->Close());
+  delete db;
+
+  uint64_t manifest_file_size = 1024 * 1024 * 1024;
+
+  std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
+  ASSERT_OK(GetFileChecksumsFromCurrentManifest(opts.env, dbname,
+    manifest_file_size, checksum_list.get()));
+  ASSERT_TRUE(checksum_list != nullptr);
+
+  std::vector<uint64_t> file_numbers;
+  std::vector<std::string> checksums;
+  std::vector<std::string> checksum_func_names;
+  ASSERT_OK(checksum_list->GetAllFileChecksums(&file_numbers, &checksums,
+                                               &checksum_func_names));
+
+  ASSERT_EQ(live_files.size(), checksum_list->size());
+
+  for (size_t i = 0; i < live_files.size(); i++) {
+    std::string stored_checksum;
+    std::string stored_func_name;
+    ASSERT_OK(checksum_list->SearchOneFileChecksum(
+        live_files[i].file_number, &stored_checksum, &stored_func_name));
+
+    ASSERT_EQ(live_files[i].file_checksum, stored_checksum);
+    ASSERT_EQ(live_files[i].file_checksum_func_name, stored_func_name);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

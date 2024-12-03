@@ -716,6 +716,7 @@ set(SOURCES
         db/log_reader.cc
         db/log_writer.cc
         db/malloc_stats.cc
+        db/manifest_ops.cc
         db/memtable.cc
         db/memtable_list.cc
         db/merge_helper.cc
@@ -897,7 +898,6 @@ set(SOURCES
         util/udt_util.cc
         util/write_batch_util.cc
         util/xxhash.cc
-        util/manifest_reader.cc
         utilities/agg_merge/agg_merge.cc
         utilities/backup/backup_engine.cc
         utilities/blob_db/blob_compaction_filter.cc

@@ -50,6 +50,8 @@ Env::IOActivity ThreadStatusUtil::TEST_GetExpectedIOActivity(
       return Env::IOActivity::kGetEntity;
     case ThreadStatus::OperationType::OP_MULTIGETENTITY:
       return Env::IOActivity::kMultiGetEntity;
+    case ThreadStatus::OperationType::OP_READ_MANIFEST:
+      return Env::IOActivity::kReadManifest;
     default:
       return Env::IOActivity::kUnknown;
   }

@@ -19,6 +19,7 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/manifest_ops.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/unique_id_impl.h"
@@ -1390,7 +1391,7 @@ class VersionSetTestBase {
   void GetManifestPath(std::string* manifest_path) const {
     assert(manifest_path != nullptr);
     uint64_t manifest_file_number = 0;
-    Status s = versions_->GetCurrentManifestPath(
+    Status s = GetCurrentManifestPath(
         dbname_, fs_.get(), /*is_retry=*/false, manifest_path,
         &manifest_file_number);
     ASSERT_OK(s);
@@ -1399,7 +1400,7 @@ class VersionSetTestBase {
   void VerifyManifest(std::string* manifest_path) const {
     assert(manifest_path != nullptr);
     uint64_t manifest_file_number = 0;
-    Status s = versions_->GetCurrentManifestPath(
+    Status s = GetCurrentManifestPath(
         dbname_, fs_.get(), /*is_retry=*/false, manifest_path,
         &manifest_file_number);
     ASSERT_OK(s);
