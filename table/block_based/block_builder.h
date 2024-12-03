@@ -98,6 +98,7 @@ class BlockBuilder {
   // This is non-zero if there is user-defined timestamp in the user key and it
   // should not be persisted.
   const size_t strip_ts_sz_;
+  const size_t user_ts_sz;
   // Whether the keys provided to build this block are user keys. If not,
   // the keys are internal keys. This will affect how timestamp stripping is
   // done for the key if `persisted_user_defined_timestamps_` is false and

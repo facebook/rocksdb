@@ -357,7 +357,7 @@ void MetaBlockIter::SeekImpl(const Slice& target) {
 //    with a smaller [ type | seqno ] (i.e. a larger seqno, or the same seqno
 //    but larger type).
 bool DataBlockIter::SeekForGetImpl(const Slice& target) {
-  Slice target_user_key = ExtractUserKey(target);
+  Slice target_user_key = ExtractUserKeyAndStripTimestamp(target, ts_sz_);
   uint32_t map_offset = restarts_ + num_restarts_ * sizeof(uint32_t);
   uint8_t entry =
       data_block_hash_index_->Lookup(data_, map_offset, target_user_key);
