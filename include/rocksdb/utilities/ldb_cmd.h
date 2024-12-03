@@ -75,7 +75,6 @@ class LDBCommand {
   static const std::string ARG_DUMP_UNCOMPRESSED_BLOBS;
   static const std::string ARG_READ_TIMESTAMP;
   static const std::string ARG_GET_WRITE_UNIX_TIME;
-  static const std::string ARG_READ_FROM_MANIFEST;
 
   struct ParsedParams {
     std::string cmd;

@@ -113,7 +113,6 @@ const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
     "dump_uncompressed_blobs";
 const std::string LDBCommand::ARG_READ_TIMESTAMP = "read_timestamp";
 const std::string LDBCommand::ARG_GET_WRITE_UNIX_TIME = "get_write_unix_time";
-const std::string LDBCommand::ARG_READ_FROM_MANIFEST = "read_from_manifest";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -1726,7 +1725,7 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, false,
-                 BuildCmdLineOptions({ARG_PATH, ARG_HEX, ARG_READ_FROM_MANIFEST})) {
+                 BuildCmdLineOptions({ARG_PATH, ARG_HEX})) {
   auto itr = options.find(ARG_PATH);
   if (itr != options.end()) {
     path_ = itr->second;
@@ -1735,7 +1734,6 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
     }
   }
   is_checksum_hex_ = IsFlagPresent(flags, ARG_HEX);
-  read_from_manifest_ = IsFlagPresent(flags, ARG_READ_FROM_MANIFEST);
 }
 
 void FileChecksumDumpCommand::DoCommand() {
@@ -1746,15 +1744,8 @@ void FileChecksumDumpCommand::DoCommand() {
   //  ......
 
   std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
-  Status s;
-  if (read_from_manifest_) {
-    s = GetFileChecksumsFromCurrentManifest(options_.env, path_,
-      options_.max_manifest_file_size, checksum_list.get());
-  } else {
-    s = GetLiveFilesChecksumInfoFromVersionSet(options_, path_,
+  Status s = GetLiveFilesChecksumInfoFromVersionSet(options_, path_,
                                                     checksum_list.get());
-  }
-
   if (s.ok() && checksum_list != nullptr) {
     std::vector<uint64_t> file_numbers;
     std::vector<std::string> checksums;
