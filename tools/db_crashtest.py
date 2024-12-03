@@ -1199,7 +1199,7 @@ def whitebox_crash_main(args, unknown_args):
     )
 
     total_check_mode = 4
-    check_mode = 0
+    check_mode = 2  # XXX
     kill_random_test = cmd_params["random_kill_odd"]
     kill_mode = 0
     prev_compaction_style = -1
@@ -1257,11 +1257,7 @@ def whitebox_crash_main(args, unknown_args):
             # Single level universal has a lot of special logic. Ensure we cover
             # it sometimes.
             if not args.test_tiered_storage and random.randint(0, 1) == 1:
-                additional_opts.update(
-                    {
-                        "num_levels": 1,
-                    }
-                )
+                additional_opts["num_levels"] = 1
         elif check_mode == 2:
             # normal run with FIFO compaction mode
             # ops_per_thread is divided by 5 because FIFO compaction
@@ -1271,6 +1267,12 @@ def whitebox_crash_main(args, unknown_args):
                 "ops_per_thread": cmd_params["ops_per_thread"] // 5,
                 "compaction_style": 2,
             }
+            # TODO: test transition from non-FIFO to FIFO with num_levels > 1.
+            # See https://github.com/facebook/rocksdb/pull/10348
+            # For now, tiered storage FIFO (file_temperature_age_thresholds)
+            # requires num_levels == 1 and non-tiered operates that way.
+            if args.test_tiered_storage:
+                additional_opts["num_levels"] = 1
         else:
             # normal run
             additional_opts = {

@@ -4177,8 +4177,6 @@ void InitializeOptionsFromFlags(
               s.ToString().c_str());
       exit(1);
     }
-    // XXX: ???
-    options.num_levels = 1;
   }
   options.preclude_last_level_data_seconds =
       FLAGS_preclude_last_level_data_seconds;
