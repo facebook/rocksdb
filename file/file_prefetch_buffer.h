@@ -486,14 +486,8 @@ class FilePrefetchBuffer {
   }
 
   // Whether we reuse the file system provided buffer
-  // Until we also handle the async read case, only enable this optimization
-  // for the synchronous case when num_buffers_ = 1.
-  bool UseFSBuffer(RandomAccessFileReader* reader) {
-    return reader->file() != nullptr && !reader->use_direct_io() &&
-           fs_ != nullptr &&
-           CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer) &&
-           num_buffers_ == 1;
-  }
+  // TODO: renable when use-after-free issue is resolved
+  bool UseFSBuffer(RandomAccessFileReader*) { return false; }
 
   // When we are reusing the file system provided buffer, we are not concerned
   // with alignment. However, quite a bit of prefetch code incorporates
@@ -552,8 +546,7 @@ class FilePrefetchBuffer {
   bool TryReadFromCacheUntracked(const IOOptions& opts,
                                  RandomAccessFileReader* reader,
                                  uint64_t offset, size_t n, Slice* result,
-                                 Status* s,
-                                 bool for_compaction = false);
+                                 Status* s, bool for_compaction = false);
 
   void ReadAheadSizeTuning(BufferInfo* buf, bool read_curr_block,
                            bool refit_tail, bool use_fs_buffer,
