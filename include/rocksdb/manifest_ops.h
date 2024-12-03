@@ -17,12 +17,12 @@ Status GetCurrentManifestPath(const std::string& abs_path,
                               std::string* manifest_path,
                               uint64_t* manifest_file_number);
 
-// Requires absolute path to manifest directory as a parameter.
-// Returns the FileChecksumList constructed purely off of the manifest file
+// Requires absolute path to CURRENT file directory as a parameter.
+// Returns the FileChecksumList constructed purely off of the MANIFEST file
 // that was considered 'current' at the time of invoking this API.
 //
-// NOTE: Tradeoff. Referenced file might be stale if manual actions OR
-// intertwining DB operations triggered compaction / files modifications.
+// NOTE: We're NOT locking the referenced MANIFEST-* file.
+// It might become stale in case of intertwining DB operations.
 Status GetFileChecksumsFromCurrentManifest(Env* src_env,
                                            const std::string &abs_path,
                                            uint64_t manifest_file_size,
