@@ -413,8 +413,7 @@ bool StressTest::BuildOptionsTable() {
                                                  "2147483646", "2147483647"});
   }
 
-  if (FLAGS_compaction_style == kCompactionStyleFIFO &&
-      !FLAGS_file_temperature_age_thresholds.empty()) {
+  if (!FLAGS_file_temperature_age_thresholds.empty()) {
     // Modify file_temperature_age_thresholds only if it is set initially
     // (FIFO tiered storage setup)
     options_tbl.emplace(
@@ -4160,33 +4159,30 @@ void InitializeOptionsFromFlags(
   options.wal_compression =
       StringToCompressionType(FLAGS_wal_compression.c_str());
 
+  options.last_level_temperature =
+      StringToTemperature(FLAGS_last_level_temperature.c_str());
   options.default_write_temperature =
       StringToTemperature(FLAGS_default_write_temperature.c_str());
   options.default_temperature =
       StringToTemperature(FLAGS_default_temperature.c_str());
 
-  if (FLAGS_compaction_style == kCompactionStyleFIFO) {
-    if (!FLAGS_file_temperature_age_thresholds.empty()) {
-      Status s = GetColumnFamilyOptionsFromString(
-          {}, options,
-          "compaction_options_fifo={file_temperature_age_thresholds=" +
-              FLAGS_file_temperature_age_thresholds + "}",
-          &options);
-      if (!s.ok()) {
-        fprintf(stderr, "While setting file_temperature_age_thresholds: %s\n",
-                s.ToString().c_str());
-        exit(1);
-      }
-      options.num_levels = 1;
+  if (!FLAGS_file_temperature_age_thresholds.empty()) {
+    Status s = GetColumnFamilyOptionsFromString(
+        {}, options,
+        "compaction_options_fifo={file_temperature_age_thresholds=" +
+            FLAGS_file_temperature_age_thresholds + "}",
+        &options);
+    if (!s.ok()) {
+      fprintf(stderr, "While setting file_temperature_age_thresholds: %s\n",
+              s.ToString().c_str());
+      exit(1);
     }
-  } else {
-    options.preclude_last_level_data_seconds =
-        FLAGS_preclude_last_level_data_seconds;
-    options.preserve_internal_time_seconds =
-        FLAGS_preserve_internal_time_seconds;
-    options.last_level_temperature =
-        StringToTemperature(FLAGS_last_level_temperature.c_str());
+    // XXX: ???
+    options.num_levels = 1;
   }
+  options.preclude_last_level_data_seconds =
+      FLAGS_preclude_last_level_data_seconds;
+  options.preserve_internal_time_seconds = FLAGS_preserve_internal_time_seconds;
 
   switch (FLAGS_rep_factory) {
     case kSkipList:

@@ -594,8 +594,6 @@ ts_params = {
 
 tiered_params = {
     # For Leveled/Universal compaction (ignored for FIFO)
-    # TODO: there is an alleged bug with leveled compaction infinite looping
-    # but that does not fail the crash test.
     # Bias toward times that can elapse during a crash test run series
     "preclude_last_level_data_seconds": lambda: random.choice([10, 60, 1200, 86400]),
     "last_level_temperature": "kCold",
@@ -807,6 +805,12 @@ def finalize_and_sanitize(src_params):
         # now assertion failures are triggered.
         dest_params["compaction_ttl"] = 0
         dest_params["periodic_compaction_seconds"] = 0
+        # Disable irrelevant tiering options
+        dest_params["preclude_last_level_data_seconds"] = 0
+        dest_params["last_level_temperature"] = "kUnknown"
+    else:
+        # Disable irrelevant tiering options
+        dest_params["file_temperature_age_thresholds"] = ""
     if dest_params["partition_filters"] == 1:
         if dest_params["index_type"] != 2:
             dest_params["partition_filters"] = 0
@@ -1029,6 +1033,14 @@ def gen_cmd_params(args):
         and random.choice([0] * 9 + [1]) == 1
     ):
         params.update(blob_params)
+
+    if "compaction_style" not in params:
+        # Default to leveled compaction
+        # TODO: Fix "Unsafe to store Seq later" with tiered+leveled and
+        # enable that combination rather than falling back to universal.
+        # TODO: There is also an alleged bug with leveled compaction
+        # infinite looping but that likely would not fail the crash test.
+        params["compaction_style"] = 0 if not args.test_tiered_storage else 1
 
     for k, v in vars(args).items():
         if v is not None:
