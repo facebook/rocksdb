@@ -1199,7 +1199,7 @@ def whitebox_crash_main(args, unknown_args):
     )
 
     total_check_mode = 4
-    check_mode = 2  # XXX
+    check_mode = 0
     kill_random_test = cmd_params["random_kill_odd"]
     kill_mode = 0
     prev_compaction_style = -1
