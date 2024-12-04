@@ -546,6 +546,10 @@ DEFINE_uint32(use_timed_put_one_in, 0,
               "If greater than zero, TimedPut is used per every N write ops on "
               "on average.");
 
+DEFINE_string(file_temperature_age_thresholds, "",
+              "See CompactionOptionsFIFO::file_temperature_age_thresholds. "
+              "empty == unset");
+
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
