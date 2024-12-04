@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.9.3 (12/03/2024)
+### Performance Improvements
+* In buffered IO mode, try to align writes on power of 2 if checksum handoff is not enabled for the file type being written.
+
 ## 9.9.2 (11/22/2024)
 ### Bug Fixes
 * Honor ConfigOptions.ignore_unknown_options in ParseStruct()
