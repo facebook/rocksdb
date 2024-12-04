@@ -8098,6 +8098,9 @@ TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
   auto read_only_fs = new ReadOnlyFileSystem(env_->GetFileSystem());
   ASSERT_OK(GetFileChecksumsFromCurrentManifest(read_only_fs, dbname,
                                                 checksum_list.get()));
+  delete read_only_fs;
+  read_only_fs = nullptr;
+
   ASSERT_TRUE(checksum_list != nullptr);
 
   std::vector<uint64_t> file_numbers;

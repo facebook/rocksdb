@@ -13,7 +13,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Setting is_retry=true sets the verify_and_reconstruct_read flag.
+// Parameter is_retry=true sets the verify_and_reconstruct_read flag.
 // It comes handy when caller intends to re-read the data with much stronger
 // data integrity checking - e.g. in case of a perceived file corruption.
 Status GetCurrentManifestPath(const std::string& dbname, FileSystem* fs,
