@@ -114,6 +114,9 @@ class Comparator : public Customizable, public CompareInterface {
   // with the customized comparator.
   virtual bool CanKeysWithDifferentByteContentsBeEqual() const { return true; }
 
+  // return true if two keys
+  virtual bool KeysAreBytewiseComparableOtherThanTimestamp() const { return false; }
+
   // if it is a wrapped comparator, may return the root one.
   // return itself it is not wrapped.
   virtual const Comparator* GetRootComparator() const { return this; }
