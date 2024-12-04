@@ -19,12 +19,12 @@ namespace ROCKSDB_NAMESPACE {
 // With overwrite_key = true, WBWI keeps track of the most recent update for
 // each key, and each such key will be assigned seqno.upper_bound during reads.
 // One exception is during flush, consider the following scenario:
-// - WBWI has SD(k) then PUT(k)
-// - DB has PUT(k) in L1
-// - flush WBWI adds PUT(k) into L0
+// - WBWI has SD(k) then PUT(k, v1)
+// - DB has PUT(k, v2) in L1
+// - flush WBWI adds PUT(k, v1) into L0
 // - live memtable contains SD(k)
-// - flush memtable and compact with L0 will drop SD(k) and PUT(k)
-// - the PUT(k) in L1 incorrectly becomes visible
+// - flush live memtable and compact it with L0 will drop SD(k) and PUT(k, v1)
+// - the PUT(k, v2) in L1 incorrectly becomes visible
 // So during flush, iterator from this memtable will need emit overwritten
 // single deletion. These single deletion entries will be
 // assigned seqno.upper_bound - 1.
@@ -57,7 +57,7 @@ class WBWIMemTable final : public ReadOnlyMemTable {
   WBWIMemTable(const WBWIMemTable&) = delete;
   WBWIMemTable& operator=(const WBWIMemTable&) = delete;
 
-  ~WBWIMemTable() override = default;
+  ~WBWIMemTable() override { assert(refs_ == 0); }
 
   const char* Name() const override { return "WBWIMemTable"; }
 

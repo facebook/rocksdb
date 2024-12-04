@@ -1518,9 +1518,13 @@ class DBImpl : public DB {
   // @param assigned_seqno Sequence numbers for the ingested memtable.
   // @param last_seqno the value of versions_->LastSequence() after the write
   // ingests `wbwi` is done.
+  // @param memtable_updated Whether the same write that ingests wbwi has
+  // updated memtable. This is useful for determining whether to set bg
+  // error when IngestWBWI fails.
   Status IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
                     const WBWIMemTable::SeqnoRange& assigned_seqno,
-                    uint64_t min_prep_log, SequenceNumber last_seqno);
+                    uint64_t min_prep_log, SequenceNumber last_seqno,
+                    bool memtable_updated, bool ignore_missing_cf);
 
   // If disable_memtable is set the application logic must guarantee that the
   // batch will still be skipped from memtable during the recovery. An excption

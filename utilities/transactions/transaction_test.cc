@@ -8197,7 +8197,7 @@ TEST_P(CommitBypassMemtableTest, SingleCFUpdateWithOverWrite) {
   // live mem has k2
   // ingested wbwi has k2 del k4, del k5, k6
   // older imm mem has k3, k4, k5, k6
-  // SST has k1, k2, k4
+  // SST has k1, k2, k4 (if not using single del)
   for (bool single_del : {false, true}) {
     SCOPED_TRACE("use single_del " + std::to_string(single_del));
     for (bool disable_flush : {false, true}) {
@@ -8269,6 +8269,10 @@ TEST_P(CommitBypassMemtableTest, SingleCFUpdateWithOverWrite) {
       if (disable_flush) {
         ASSERT_TRUE(txn_db->GetIntProperty(
             DB::Properties::kNumImmutableMemTable, &num_imm_mems));
+        // During Commit(), current empty memtable becomes a new immutable
+        // memtable. 3 here includes wbwi for this transaction, the empty
+        // immutable memtable, and the immutable memtable created
+        // by TEST_SwitchMemtable() above.
         ASSERT_EQ(num_imm_mems, 3);
       }
 

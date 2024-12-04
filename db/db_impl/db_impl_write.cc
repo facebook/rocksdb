@@ -193,7 +193,8 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
                           const WBWIMemTable::SeqnoRange& assigned_seqno,
                           uint64_t prep_log,
-                          SequenceNumber last_seqno_after_ingest) {
+                          SequenceNumber last_seqno_after_ingest,
+                          bool memtable_updated, bool ignore_missing_cf) {
   // Keys in new memtable have seqno > last_seqno_after_ingest >= keys in wbwi.
   assert(assigned_seqno.upper_bound <= last_seqno_after_ingest);
   // Keys in the current memtable have seqno <= LastSequence() < keys in wbwi.
@@ -207,12 +208,28 @@ Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
   for (const auto [cf_id, stat] : wbwi->GetCFStats()) {
     ColumnFamilyData* cfd = cf_set->GetColumnFamily(cf_id);
     if (!cfd) {
+      if (ignore_missing_cf) {
+        continue;
+      }
       for (auto mem : memtables) {
+        mem->Unref();
         delete mem;
       }
-      return Status::InvalidArgument(
+      for (auto cfd_ptr : cfds) {
+        cfd_ptr->UnrefAndTryDelete();
+      }
+      Status s = Status::InvalidArgument(
           "Invalid column family id from WriteBatchWithIndex: " +
           std::to_string(cf_id));
+      if (memtable_updated) {
+        s = Status::Corruption(
+            "Part of the write batch is applied. Memtable is in a inconsistent "
+            "state. " +
+            s.ToString());
+        error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+      }
+
+      return s;
     }
     WBWIMemTable* wbwi_memtable =
         new WBWIMemTable(wbwi, cfd->user_comparator(), cf_id, cfd->ioptions(),
@@ -223,6 +240,7 @@ Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
     // committed data in this memtable is persisted.
     wbwi_memtable->SetMinPrepLog(prep_log);
     memtables.push_back(wbwi_memtable);
+    cfd->Ref();
     cfds.push_back(cfd);
   }
 
@@ -245,28 +263,52 @@ Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
     s = SwitchMemtable(cfds[i], &write_context, memtables[i],
                        last_seqno_after_ingest);
     if (!s.ok()) {
-      for (size_t j = i; j < memtables.size(); j++) {
-        delete memtables[j];
-        return s;
+      // SwitchMemtable() can only fail if a new WAL is to be created, this
+      // should only happen for the first call to SwitchMemtable(). log will
+      // be empty and no new WAL is created for the rest of the calls.
+      assert(i == 0);
+      if (i != 0 || memtable_updated) {
+        // escalate error to non-recoverable
+        s = Status::Corruption(
+            "Part of the write batch is applied. Memtable is in a inconsistent "
+            "state. " +
+            s.ToString());
+        error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+      } else {
+        // SwitchMemtable() already sets appropriate bg error
       }
+      for (size_t j = i; j < memtables.size(); j++) {
+        memtables[j]->Unref();
+        delete memtables[j];
+      }
+      break;
+    }
+  }
+  for (size_t i = 0; i < cfds.size(); ++i) {
+    if (cfds[i]->UnrefAndTryDelete()) {
+      cfds[i] = nullptr;
     }
   }
 
-  // Resume writes to the DB
+  // exit the second queue before returning
   if (two_write_queues_) {
     nonmem_write_thread_.ExitUnbatched(&nonmem_w);
   }
-  // Trigger flushes for the new immutable memtables.
-  assert(s.ok());
-  for (const auto cfd : cfds) {
-    cfd->imm()->FlushRequested();
-    FlushRequest flush_req;
-    // TODO: a new flush reason for ingesting memtable
-    GenerateFlushRequest({cfd}, FlushReason::kExternalFileIngestion,
-                         &flush_req);
-    EnqueuePendingFlush(flush_req);
+  if (s.ok()) {
+    // Trigger flushes for the new immutable memtables.
+    for (const auto cfd : cfds) {
+      if (cfd == nullptr) {
+        continue;
+      }
+      cfd->imm()->FlushRequested();
+      FlushRequest flush_req;
+      // TODO: a new flush reason for ingesting memtable
+      GenerateFlushRequest({cfd}, FlushReason::kExternalFileIngestion,
+                           &flush_req);
+      EnqueuePendingFlush(flush_req);
+    }
+    MaybeScheduleFlushOrCompaction();
   }
-  MaybeScheduleFlushOrCompaction();
   return s;
 }
 
@@ -791,19 +833,23 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     should_exit_batch_group = write_thread_.CompleteParallelMemTableWriter(&w);
   }
   if (wbwi) {
-    if (status.ok()) {
-      // w.batch contains commit time batch updates
+    if (status.ok() && w.status.ok()) {
+      // w.batch contains (potentially empty) commit time batch updates,
+      // only ingest wbwi if w.batch is applied to memtable successfully
       assert(wbwi->GetWriteBatch()->Count() > 0);
-      SequenceNumber lb = versions_->LastSequence() + w.batch->Count() + 1;
-      SequenceNumber ub = versions_->LastSequence() + w.batch->Count() +
+
+      uint32_t memtable_update_count = w.batch->Count();
+      SequenceNumber lb = versions_->LastSequence() + memtable_update_count + 1;
+      SequenceNumber ub = versions_->LastSequence() + memtable_update_count +
                           wbwi->GetWriteBatch()->Count();
       assert(ub == last_sequence);
       if (two_write_queues_) {
         assert(ub <= versions_->LastAllocatedSequence());
       }
       status = IngestWBWI(wbwi, {/*lower_bound=*/lb, /*upper_bound=*/ub},
-                          prep_log, last_sequence);
-      MemTableInsertStatusCheck(status);
+                          prep_log, last_sequence,
+                          /*memtable_updated=*/memtable_update_count > 0,
+                          write_options.ignore_missing_column_families);
     }
   }
 
