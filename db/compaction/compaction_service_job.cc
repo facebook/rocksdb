@@ -376,16 +376,18 @@ Status CompactionServiceCompactionJob::Run() {
   // Build Output
   compaction_result_->output_level = compact_->compaction->output_level();
   compaction_result_->output_path = output_path_;
-  for (const auto& output_file : sub_compact->GetOutputs()) {
-    auto& meta = output_file.meta;
-    compaction_result_->output_files.emplace_back(
-        MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
-        meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
-        meta.largest.Encode().ToString(), meta.oldest_ancester_time,
-        meta.file_creation_time, meta.epoch_number, meta.file_checksum,
-        meta.file_checksum_func_name, output_file.validator.GetHash(),
-        meta.marked_for_compaction, meta.unique_id,
-        *output_file.table_properties);
+  if (status.ok()) {
+    for (const auto& output_file : sub_compact->GetOutputs()) {
+      auto& meta = output_file.meta;
+      compaction_result_->output_files.emplace_back(
+          MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
+          meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
+          meta.largest.Encode().ToString(), meta.oldest_ancester_time,
+          meta.file_creation_time, meta.epoch_number, meta.file_checksum,
+          meta.file_checksum_func_name, output_file.validator.GetHash(),
+          meta.marked_for_compaction, meta.unique_id,
+          *output_file.table_properties);
+    }
   }
 
   TEST_SYNC_POINT_CALLBACK("CompactionServiceCompactionJob::Run:0",

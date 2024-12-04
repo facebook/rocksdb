@@ -1586,6 +1586,8 @@ Status CompactionJob::FinishCompactionOutputFile(
   const uint64_t current_entries = outputs.NumEntries();
 
   s = outputs.Finish(s, seqno_to_time_mapping_);
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::FinishCompactionOutputFile()::AfterFinish", &s);
 
   if (s.ok()) {
     // With accurate smallest and largest key, we can get a slightly more
