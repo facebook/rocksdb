@@ -419,6 +419,7 @@ DECLARE_bool(inplace_update_support);
 DECLARE_uint32(uncache_aggressiveness);
 DECLARE_int32(test_ingest_standalone_range_deletion_one_in);
 DECLARE_bool(allow_unprepared_value);
+DECLARE_string(file_temperature_age_thresholds);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
