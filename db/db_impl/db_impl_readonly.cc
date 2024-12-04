@@ -9,10 +9,10 @@
 #include "db/db_impl/compacted_db_impl.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
+#include "db/manifest_ops.h"
 #include "db/merge_context.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
-#include "rocksdb/manifest_ops.h"
 #include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {

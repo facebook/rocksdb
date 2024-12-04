@@ -14,14 +14,15 @@
 #include <memory>
 
 #include "db/db_test_util.h"
+#include "db/manifest_ops.h"
 #include "db/read_callback.h"
 #include "db/version_edit.h"
+#include "env/fs_readonly.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/iostats_context.h"
-#include "rocksdb/manifest_ops.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/trace_record_result.h"
@@ -8063,9 +8064,12 @@ TEST_F(DBTest2, TableCacheMissDuringReadFromBlockCacheTier) {
 }
 
 TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
+  const int kNumL0Files = 5;
+
   Options opts = GetDefaultOptions();
   opts.create_if_missing = true;
   opts.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  opts.level0_file_num_compaction_trigger = kNumL0Files;
 
   DB* db = nullptr;
   std::string dbname = test::PerThreadDBPath("file_chksum");
@@ -8075,48 +8079,25 @@ TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
   FlushOptions fopts;
   fopts.wait = true;
   Random rnd(test::RandomSeed());
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < kNumL0Files; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
     std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
+    ASSERT_OK(db->Flush(fopts));
   }
-  ASSERT_OK(db->Flush(fopts));
-  for (int i = 50; i < 150; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v = rnd.RandomString(100);
-    ASSERT_OK(db->Put(wopts, buf, v));
-  }
-  ASSERT_OK(db->Flush(fopts));
-  for (int i = 100; i < 200; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v = rnd.RandomString(100);
-    ASSERT_OK(db->Put(wopts, buf, v));
-  }
-  ASSERT_OK(db->Flush(fopts));
-  for (int i = 150; i < 250; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v = rnd.RandomString(100);
-    ASSERT_OK(db->Put(wopts, buf, v));
-  }
-  ASSERT_OK(db->Flush(fopts));
-
-  ASSERT_OK(db->DisableFileDeletions());
 
   std::vector<LiveFileMetaData> live_files;
   db->GetLiveFilesMetaData(&live_files);
 
   ASSERT_OK(db->Close());
   delete db;
-
-  uint64_t manifest_file_size = 1024 * 1024 * 1024;
+  db = nullptr;
 
   std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
-  ASSERT_OK(GetFileChecksumsFromCurrentManifest(
-      opts.env, dbname, manifest_file_size, checksum_list.get()));
+  auto read_only_fs = new ReadOnlyFileSystem(env_->GetFileSystem());
+  ASSERT_OK(GetFileChecksumsFromCurrentManifest(read_only_fs, dbname,
+                                                checksum_list.get()));
   ASSERT_TRUE(checksum_list != nullptr);
 
   std::vector<uint64_t> file_numbers;

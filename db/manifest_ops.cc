@@ -1,9 +1,10 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "rocksdb/manifest_ops.h"
+#include "db/manifest_ops.h"
 
 #include "db/version_edit_handler.h"
 #include "file/filename.h"
@@ -13,7 +14,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-Status GetCurrentManifestPath(const std::string& abs_path, FileSystem* fs,
+Status GetCurrentManifestPath(const std::string& dbname, FileSystem* fs,
                               bool is_retry, std::string* manifest_path,
                               uint64_t* manifest_file_number) {
   assert(fs != nullptr);
@@ -25,7 +26,7 @@ Status GetCurrentManifestPath(const std::string& abs_path, FileSystem* fs,
   if (is_retry) {
     opts.verify_and_reconstruct_read = true;
   }
-  Status s = ReadFileToString(fs, CurrentFileName(abs_path), opts, &fname);
+  Status s = ReadFileToString(fs, CurrentFileName(dbname), opts, &fname);
   if (!s.ok()) {
     return s;
   }
@@ -39,25 +40,21 @@ Status GetCurrentManifestPath(const std::string& abs_path, FileSystem* fs,
   if (!parse_ok || type != kDescriptorFile) {
     return Status::Corruption("CURRENT file corrupted");
   }
-  *manifest_path = abs_path;
-  if (abs_path.back() != '/') {
+  *manifest_path = dbname;
+  if (dbname.back() != '/') {
     manifest_path->push_back('/');
   }
   manifest_path->append(fname);
   return Status::OK();
 }
 
-// Return a list of all table (SST) and blob files checksum info.
-// NOTE: This is a lightweight implementation that does not require opening DB.
-Status GetFileChecksumsFromCurrentManifest(Env* src_env,
-                                           const std::string& abs_path,
-                                           uint64_t manifest_file_size,
+Status GetFileChecksumsFromCurrentManifest(FileSystem* fs,
+                                           const std::string& dbname,
                                            FileChecksumList* checksum_list) {
   std::string manifest_path;
   uint64_t manifest_file_number;
-  Status s = GetCurrentManifestPath(abs_path, src_env->GetFileSystem().get(),
-                                    true /* is_retry */, &manifest_path,
-                                    &manifest_file_number);
+  Status s = GetCurrentManifestPath(dbname, fs, true /* is_retry */,
+                                    &manifest_path, &manifest_file_number);
   if (!s.ok()) {
     return s;
   }
@@ -73,7 +70,6 @@ Status GetFileChecksumsFromCurrentManifest(Env* src_env,
   std::unique_ptr<SequentialFileReader> file_reader;
   {
     std::unique_ptr<FSSequentialFile> file;
-    const std::shared_ptr<FileSystem>& fs = src_env->GetFileSystem();
     s = fs->NewSequentialFile(manifest_path,
                               fs->OptimizeForManifestRead(FileOptions()), &file,
                               nullptr /* dbg */);
@@ -94,9 +90,18 @@ Status GetFileChecksumsFromCurrentManifest(Env* src_env,
   reporter.status_ptr = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
                      true /* checksum */, 0 /* log_number */);
+
+  uint64_t manifest_file_size;
+  IOOptions opts;
+  fs->GetFileSize(manifest_path, opts, &manifest_file_size, nullptr);
+
   FileChecksumRetriever retriever(read_options, manifest_file_size,
                                   *checksum_list);
   retriever.Iterate(reader, &s);
+  assert(!retriever.status().ok() ||
+         manifest_file_size == std::numeric_limits<uint64_t>::max() ||
+         reader.LastRecordEnd() == manifest_file_size);
+
   return retriever.status();
 }
 
