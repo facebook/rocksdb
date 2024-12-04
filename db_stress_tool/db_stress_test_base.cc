@@ -413,6 +413,16 @@ bool StressTest::BuildOptionsTable() {
                                                  "2147483646", "2147483647"});
   }
 
+  if (!FLAGS_file_temperature_age_thresholds.empty()) {
+    // Modify file_temperature_age_thresholds only if it is set initially
+    // (FIFO tiered storage setup)
+    options_tbl.emplace(
+        "file_temperature_age_thresholds",
+        std::vector<std::string>{
+            "{{temperature=kWarm;age=30}:{temperature=kCold;age=300}}",
+            "{{temperature=kCold;age=100}}", "{}"});
+  }
+
   options_table_ = std::move(options_tbl);
 
   for (const auto& iter : options_table_) {
@@ -4156,6 +4166,18 @@ void InitializeOptionsFromFlags(
   options.default_temperature =
       StringToTemperature(FLAGS_default_temperature.c_str());
 
+  if (!FLAGS_file_temperature_age_thresholds.empty()) {
+    Status s = GetColumnFamilyOptionsFromString(
+        {}, options,
+        "compaction_options_fifo={file_temperature_age_thresholds=" +
+            FLAGS_file_temperature_age_thresholds + "}",
+        &options);
+    if (!s.ok()) {
+      fprintf(stderr, "While setting file_temperature_age_thresholds: %s\n",
+              s.ToString().c_str());
+      exit(1);
+    }
+  }
   options.preclude_last_level_data_seconds =
       FLAGS_preclude_last_level_data_seconds;
   options.preserve_internal_time_seconds = FLAGS_preserve_internal_time_seconds;

@@ -230,6 +230,98 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
   }
 }
 
+TEST_F(WritableFileWriterTest, AlignedBufferedWrites) {
+  class FakeWF : public FSWritableFile {
+   public:
+    explicit FakeWF(std::string* _file_data) : file_data_(_file_data) {}
+    ~FakeWF() override = default;
+
+    using FSWritableFile::Append;
+    IOStatus Append(const Slice& data, const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(data.size() & (data.size() - 1), 0);
+      file_data_->append(data.data(), data.size());
+      size_ += data.size();
+      return IOStatus::OK();
+    }
+    using FSWritableFile::PositionedAppend;
+    IOStatus PositionedAppend(const Slice& data, uint64_t pos,
+                              const IOOptions& /*options*/,
+                              IODebugContext* /*dbg*/) override {
+      EXPECT_TRUE(pos % 512 == 0);
+      EXPECT_TRUE(data.size() % 512 == 0);
+      file_data_->resize(pos);
+      file_data_->append(data.data(), data.size());
+      size_ += data.size();
+      return IOStatus::OK();
+    }
+
+    IOStatus Truncate(uint64_t size, const IOOptions& /*options*/,
+                      IODebugContext* /*dbg*/) override {
+      file_data_->resize(size);
+      return IOStatus::OK();
+    }
+    IOStatus Close(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Flush(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Sync(const IOOptions& /*options*/,
+                  IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Fsync(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    void SetIOPriority(Env::IOPriority /*pri*/) override {}
+    uint64_t GetFileSize(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) override {
+      return size_;
+    }
+    void GetPreallocationStatus(size_t* /*block_size*/,
+                                size_t* /*last_allocated_block*/) override {}
+    size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
+      return 0;
+    }
+    IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
+      return IOStatus::OK();
+    }
+    bool use_direct_io() const override { return false; }
+
+    std::string* file_data_;
+    size_t size_ = 0;
+  };
+
+  Random r(301);
+  EnvOptions env_options;
+  env_options.writable_file_max_buffer_size = 64 * 1024 * 1024;
+  std::string actual;
+  std::unique_ptr<FakeWF> wf(new FakeWF(&actual));
+  std::unique_ptr<WritableFileWriter> writer(
+      new WritableFileWriter(std::move(wf), "" /* don't care */, env_options));
+
+  std::string target;
+  uint32_t left =
+      static_cast<uint32_t>(2 * env_options.writable_file_max_buffer_size);
+  ;
+  while (left > 0) {
+    uint32_t num = 4096 + r.Uniform(8192);
+    num = std::min<uint32_t>(num, left);
+    std::string random_string = r.RandomString(num);
+    ASSERT_OK(writer->Append(IOOptions(), Slice(random_string.c_str(), num)));
+    target.append(random_string.c_str(), num);
+    left -= num;
+  }
+  ASSERT_OK(writer->Flush(IOOptions()));
+  ASSERT_OK(writer->Close(IOOptions()));
+  ASSERT_EQ(target.size(), actual.size());
+  ASSERT_EQ(target, actual);
+}
+
 TEST_F(WritableFileWriterTest, BufferWithZeroCapacityDirectIO) {
   EnvOptions env_opts;
   env_opts.use_direct_writes = true;
