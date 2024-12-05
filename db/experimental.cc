@@ -85,16 +85,11 @@ Status GetFileChecksumsFromCurrentManifest(FileSystem* fs,
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
                      true /* checksum */, 0 /* log_number */);
 
-  uint64_t manifest_file_size;
-  IOOptions opts;
-  fs->GetFileSize(manifest_path, opts, &manifest_file_size, nullptr /* dbg */);
-
+  // Read all records from the manifest file...
+  uint64_t manifest_file_size = std::numeric_limits<uint64_t>::max();
   FileChecksumRetriever retriever(read_options, manifest_file_size,
                                   *checksum_list);
   retriever.Iterate(reader, &s);
-  assert(!retriever.status().ok() ||
-         manifest_file_size == std::numeric_limits<uint64_t>::max() ||
-         reader.LastRecordEnd() == manifest_file_size);
 
   return retriever.status();
 }

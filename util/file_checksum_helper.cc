@@ -9,12 +9,6 @@
 
 #include "util/file_checksum_helper.h"
 
-#include <unordered_set>
-
-#include "db/log_reader.h"
-#include "db/version_edit.h"
-#include "db/version_edit_handler.h"
-#include "file/sequence_file_reader.h"
 #include "rocksdb/utilities/customizable_util.h"
 
 namespace ROCKSDB_NAMESPACE {

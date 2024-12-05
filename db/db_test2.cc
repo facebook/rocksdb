@@ -8063,13 +8063,12 @@ TEST_F(DBTest2, TableCacheMissDuringReadFromBlockCacheTier) {
 }
 
 TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
-  const int kNumL0Files = 5;
-
-  Options opts = GetDefaultOptions();
+  Options opts = CurrentOptions();
   opts.create_if_missing = true;
   opts.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
-  opts.level0_file_num_compaction_trigger = kNumL0Files;
+  opts.level0_file_num_compaction_trigger = 10;
 
+  // Bootstrap the test database.
   DB* db = nullptr;
   std::string dbname = test::PerThreadDBPath("file_chksum");
   ASSERT_OK(DB::Open(opts, dbname, &db));
@@ -8078,14 +8077,12 @@ TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
   FlushOptions fopts;
   fopts.wait = true;
   Random rnd(test::RandomSeed());
-  for (int i = 0; i < kNumL0Files; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v = rnd.RandomString(100);
-    ASSERT_OK(db->Put(wopts, buf, v));
+  for (int i = 0; i < 4; i++) {
+    ASSERT_OK(db->Put(wopts, Key(i), rnd.RandomString(100)));
     ASSERT_OK(db->Flush(fopts));
   }
 
+  // Obtain rich files metadata for source of truth.
   std::vector<LiveFileMetaData> live_files;
   db->GetLiveFilesMetaData(&live_files);
 
@@ -8093,23 +8090,24 @@ TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
   delete db;
   db = nullptr;
 
+  // Process current MANIFEST file and build internal file checksum mappings.
   std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
-  auto read_only_fs = new ReadOnlyFileSystem(env_->GetFileSystem());
+  auto read_only_fs =
+      std::make_shared<ReadOnlyFileSystem>(env_->GetFileSystem());
   ASSERT_OK(experimental::GetFileChecksumsFromCurrentManifest(
-      read_only_fs, dbname, checksum_list.get()));
-  delete read_only_fs;
-  read_only_fs = nullptr;
+      read_only_fs.get(), dbname, checksum_list.get()));
 
   ASSERT_TRUE(checksum_list != nullptr);
 
+  // Retrieve files, related checksums and checksum functions.
   std::vector<uint64_t> file_numbers;
   std::vector<std::string> checksums;
   std::vector<std::string> checksum_func_names;
   ASSERT_OK(checksum_list->GetAllFileChecksums(&file_numbers, &checksums,
                                                &checksum_func_names));
 
+  // Compare results.
   ASSERT_EQ(live_files.size(), checksum_list->size());
-
   for (size_t i = 0; i < live_files.size(); i++) {
     std::string stored_checksum;
     std::string stored_func_name;

@@ -4,13 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <cassert>
+
 #include <unordered_map>
 
-#include "port/port.h"
-#include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
-#include "rocksdb/status.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/math.h"
