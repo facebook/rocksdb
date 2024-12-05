@@ -423,6 +423,11 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     // finish. Those previouly waiting threads can now proceed, which may
     // include closing the db.
     s = error_handler_.ClearBGError();
+    log_write_mutex_.Lock();
+    for (auto& log : logs_) {
+      log.writer->file()->reset_seen_error();
+    }
+    log_write_mutex_.Unlock();
   } else {
     // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
     // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
