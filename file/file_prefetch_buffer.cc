@@ -865,6 +865,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
   }
   assert(buf->offset_ <= offset);
   uint64_t offset_in_buffer = offset - buf->offset_;
+  assert(n <= buf->CurrentSize() - offset_in_buffer);
   *result = Slice(buf->buffer_.BufferStart() + offset_in_buffer, n);
   if (prefetched) {
     readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
