@@ -290,7 +290,9 @@ class SpecialEnv : public EnvWrapper {
         Status s;
         if (env_->log_write_error_.load(std::memory_order_acquire)) {
           s = Status::IOError("simulated writer error");
-        } else {
+        } else if (env_->no_space_.load(std::memory_order_acquire)) {
+          return Status::NoSpace("No space left on device");
+        }else {
           int slowdown =
               env_->log_write_slowdown_.load(std::memory_order_acquire);
           if (slowdown > 0) {
