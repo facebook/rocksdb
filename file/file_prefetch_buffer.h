@@ -521,8 +521,7 @@ class FilePrefetchBuffer {
     if (!s.ok()) {
       return s;
     }
-    buf->buffer_.SetBuffer(read_req.result.size(),
-                           std::move(read_req.fs_scratch));
+    buf->buffer_.SetBuffer(read_req.result, std::move(read_req.fs_scratch));
     buf->offset_ = offset;
     buf->initial_end_offset_ = offset + read_req.result.size();
     result = read_req.result;
@@ -552,8 +551,7 @@ class FilePrefetchBuffer {
   bool TryReadFromCacheUntracked(const IOOptions& opts,
                                  RandomAccessFileReader* reader,
                                  uint64_t offset, size_t n, Slice* result,
-                                 Status* s,
-                                 bool for_compaction = false);
+                                 Status* s, bool for_compaction = false);
 
   void ReadAheadSizeTuning(BufferInfo* buf, bool read_curr_block,
                            bool refit_tail, bool use_fs_buffer,
