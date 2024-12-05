@@ -1373,6 +1373,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         }
       }
     }
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Recovered to log #%" PRIu64 " seq #%" PRIu64, wal_number,
+                   *next_sequence);
 
     if (!status.ok() || old_log_record) {
       if (status.IsNotSupported()) {
@@ -1405,10 +1408,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         if (corrupted_wal_found != nullptr) {
           *corrupted_wal_found = true;
         }
-        ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                       "Point in time recovered to log #%" PRIu64
-                       " seq #%" PRIu64,
-                       wal_number, *next_sequence);
       } else {
         assert(immutable_db_options_.wal_recovery_mode ==
                    WALRecoveryMode::kTolerateCorruptedTailRecords ||
@@ -1681,7 +1680,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   ro, /*seqno_to_time_mapping=*/nullptr, &arena,
                   /*prefix_extractor=*/nullptr, ts_sz)
             : mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
-                               /*prefix_extractor=*/nullptr));
+                               /*prefix_extractor=*/nullptr,
+                               /*for_flush=*/true));
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] [WriteLevel0TableForRecovery]"
                     " Level-0 table #%" PRIu64 ": started",

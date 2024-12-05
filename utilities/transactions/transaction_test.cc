@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <functional>
+#include <numeric>
 #include <string>
 #include <thread>
 
@@ -8098,6 +8099,485 @@ TEST_F(TransactionDBTest, FlushedLogWithPendingPrepareIsSynced) {
                       "key" + std::to_string(i), &value));
     ASSERT_EQ("value", value);
   }
+}
+
+class CommitBypassMemtableTest : public DBTestBase,
+                                 public ::testing::WithParamInterface<bool> {
+ public:
+  CommitBypassMemtableTest() : DBTestBase("commit_bypass_memtable_test", true) {
+    SetUpTransactionDB();
+  }
+
+ protected:
+  TransactionDB* txn_db = nullptr;
+  Options options;
+  TransactionDBOptions txn_db_opts;
+
+  void SetUpTransactionDB() {
+    options = CurrentOptions();
+    options.create_if_missing = true;
+    options.allow_2pc = true;
+    options.two_write_queues = GetParam();
+    // Avoid write stall
+    options.max_write_buffer_number = 8;
+    // Destroy the DB to recreate as a TransactionDB.
+    Close();
+    Destroy(options, true);
+
+    txn_db_opts.write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
+    ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+    ASSERT_NE(txn_db, nullptr);
+    db_ = txn_db;
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(, CommitBypassMemtableTest, testing::Bool());
+
+// TODO: parameterize other tests in the file with commit_bypass_memtable
+TEST_P(CommitBypassMemtableTest, SingleCFUpdate) {
+  // 10000 updates for one CF in a single transaction.
+  // Tests basic read before and after flush, with and w/o snapshot.
+  for (bool disable_flush : {false, true}) {
+    SetUpTransactionDB();
+    if (disable_flush) {
+      ASSERT_OK(db_->PauseBackgroundWork());
+    }
+
+    WriteOptions wopts;
+    std::unordered_set<std::string> not_found_at_snapshot;
+    std::map<std::string, std::string> snapshot_map;
+    std::map<std::string, std::string> expected_map;
+
+    for (int i = 0; i < 10000; i += 3) {
+      ASSERT_OK(db_->Put(wopts, Key(i), "foo"));
+      not_found_at_snapshot.insert(Key(i + 1));
+      snapshot_map[Key(i)] = "foo";
+    }
+    const Snapshot* snapshot = db_->GetSnapshot();
+
+    TransactionOptions txn_opts;
+    txn_opts.commit_bypass_memtable = true;
+    Transaction* txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+    std::unordered_set<std::string> expected_not_found;
+    for (int i = 0; i < 10000; i += 2) {
+      std::string v = "val" + std::to_string(i);
+      ASSERT_OK(txn1->Put(Key(i), v));
+      expected_map[Key(i)] = v;
+      ASSERT_OK(txn1->Delete(Key(i + 1)));
+      expected_not_found.insert(Key(i + 1));
+    }
+    ASSERT_OK(txn1->SetName("xid1"));
+    ASSERT_OK(txn1->Prepare());
+    ASSERT_OK(txn1->Commit());
+    delete txn1;
+
+    ReadOptions ro_snapshot;
+    ro_snapshot.snapshot = snapshot;
+    // Verify at snapshot
+    VerifyDBFromMap(snapshot_map, nullptr, false, &ro_snapshot, nullptr,
+                    &not_found_at_snapshot);
+    // Verify latest state
+    VerifyDBFromMap(expected_map, nullptr, false, nullptr, nullptr,
+                    &expected_not_found);
+
+    db_->ReleaseSnapshot(snapshot);
+    if (disable_flush) {
+      ASSERT_OK(db_->ContinueBackgroundWork());
+    }
+    ASSERT_OK(db_->Flush({}));
+    VerifyDBFromMap(expected_map, nullptr, false, nullptr, nullptr,
+                    &expected_not_found);
+  }
+}
+
+TEST_P(CommitBypassMemtableTest, SingleCFUpdateWithOverWrite) {
+  // Test the case where DB has base data and there are overwrites
+  // over the data in WBWI for one CF.
+  //
+  // live mem has k2
+  // ingested wbwi has k2 del k4, del k5, k6
+  // older imm mem has k3, k4, k5, k6
+  // SST has k1, k2, k4 (if not using single del)
+  for (bool single_del : {false, true}) {
+    SCOPED_TRACE("use single_del " + std::to_string(single_del));
+    for (bool disable_flush : {false, true}) {
+      SCOPED_TRACE("disable_flush: " + std::to_string(disable_flush));
+      SetUpTransactionDB();
+
+      std::map<std::string, std::string> expected = {{"k1", "sst"},
+                                                     {"k2", "sst"}};
+      WriteOptions wopts;
+      ASSERT_OK(txn_db->Put(wopts, "k1", "sst"));
+      ASSERT_OK(txn_db->Put(wopts, "k2", "sst"));
+      if (!single_del) {
+        // single del does not allow overwrite. We write to this key below.
+        ASSERT_OK(txn_db->Put(wopts, "k4", "sst"));
+        expected["k4"] = "sst";
+      }
+      ASSERT_OK(txn_db->Flush({}));
+      std::unordered_set<std::string> not_found;
+      VerifyDBFromMap(expected, nullptr, false, nullptr, nullptr, &not_found);
+
+      if (disable_flush) {
+        ASSERT_OK(db_->PauseBackgroundWork());
+      }
+
+      // immutable mem
+      TransactionOptions topts;
+      Transaction* txn = txn_db->BeginTransaction(wopts, topts);
+      ASSERT_OK(txn->Put("k3", "imm"));
+      ASSERT_OK(txn->Put("k4", "imm"));
+      ASSERT_OK(txn->Put("k5", "imm"));
+      ASSERT_OK(txn->Put("k6", "imm"));
+      ASSERT_OK(txn->SetName("xid1"));
+      ASSERT_OK(txn->Prepare());
+      ASSERT_OK(txn->Commit());
+      auto dbimpl = static_cast_with_check<DBImpl>(txn_db->GetRootDB());
+      ASSERT_OK(dbimpl->TEST_SwitchMemtable());
+      for (const auto k : {"k3", "k4", "k5", "k6"}) {
+        expected[k] = "imm";
+      }
+      VerifyDBFromMap(expected, nullptr, false, nullptr, nullptr, &not_found);
+
+      uint64_t num_imm_mems;
+      if (disable_flush) {
+        ASSERT_TRUE(txn_db->GetIntProperty(
+            DB::Properties::kNumImmutableMemTable, &num_imm_mems));
+        ASSERT_EQ(num_imm_mems, 1);
+      }
+
+      // ingest wbwi
+      const Snapshot* snapshot = txn_db->GetSnapshot();
+      TransactionOptions topts_ingest;
+      topts_ingest.commit_bypass_memtable = true;
+      // reuse txn1
+      txn = txn_db->BeginTransaction(wopts, topts_ingest, txn);
+      ASSERT_OK(txn->Put("k2", "wbwi"));
+      if (single_del) {
+        ASSERT_OK(txn->SingleDelete("k4"));
+        ASSERT_OK(txn->SingleDelete("k5"));
+      } else {
+        ASSERT_OK(txn->Delete("k4"));
+        ASSERT_OK(txn->Delete("k5"));
+      }
+      ASSERT_OK(txn->Put("k6", "wbwi"));
+      ASSERT_OK(txn->SetName("xid2"));
+      ASSERT_OK(txn->Prepare());
+      VerifyDBFromMap(expected, nullptr, false, nullptr, nullptr, &not_found);
+
+      ASSERT_OK(txn->Commit());
+      if (disable_flush) {
+        ASSERT_TRUE(txn_db->GetIntProperty(
+            DB::Properties::kNumImmutableMemTable, &num_imm_mems));
+        // During Commit(), current empty memtable becomes a new immutable
+        // memtable. 3 here includes wbwi for this transaction, the empty
+        // immutable memtable, and the immutable memtable created
+        // by TEST_SwitchMemtable() above.
+        ASSERT_EQ(num_imm_mems, 3);
+      }
+
+      ReadOptions ro_snapshot;
+      ro_snapshot.snapshot = snapshot;
+      auto expected_at_snapshot = expected;
+      auto not_found_at_snapshot = not_found;
+      VerifyDBFromMap(expected, nullptr, false, &ro_snapshot, nullptr,
+                      &not_found);
+      not_found = {"k4", "k5"};
+      expected.erase("k4");
+      expected.erase("k5");
+      expected["k2"] = "wbwi";
+      expected["k6"] = "wbwi";
+      VerifyDBFromMap(expected, nullptr, false, nullptr, nullptr, &not_found);
+
+      // live mem
+      txn = txn_db->BeginTransaction(wopts, topts, txn);
+      ASSERT_OK(txn->Put("k2", "live_mem"));
+      ASSERT_OK(txn->SetName("xid3"));
+      ASSERT_OK(txn->Prepare());
+      ASSERT_OK(txn->Commit());
+      delete txn;
+      expected["k2"] = "live_mem";
+      VerifyDBFromMap(expected, nullptr, false, nullptr, nullptr, &not_found);
+
+      if (disable_flush) {
+        ASSERT_OK(db_->ContinueBackgroundWork());
+        ASSERT_OK(db_->Flush({}));
+      } else {
+        ASSERT_OK(db_->WaitForCompact({}));
+      }
+      ASSERT_TRUE(txn_db->GetIntProperty(DB::Properties::kNumImmutableMemTable,
+                                         &num_imm_mems));
+      ASSERT_EQ(num_imm_mems, 0);
+
+      VerifyDBFromMap(expected, nullptr, false, nullptr, nullptr, &not_found);
+      VerifyDBFromMap(expected_at_snapshot, nullptr, false, &ro_snapshot,
+                      nullptr, &not_found_at_snapshot);
+      txn_db->ReleaseSnapshot(snapshot);
+    }
+  }
+}
+
+TEST_P(CommitBypassMemtableTest, MultiCFOverwrite) {
+  // mini-stress test multi CF update
+  const int kNumKeys = 10000;
+  for (bool disable_flush : {false, true}) {
+    SCOPED_TRACE("disable_flush: " + std::to_string(disable_flush));
+    SetUpTransactionDB();
+    if (disable_flush) {
+      ASSERT_OK(txn_db->PauseBackgroundWork());
+    }
+    std::vector<std::string> cfs = {"puppy", "kitty", "meta"};
+    CreateColumnFamilies(cfs, options);
+    ASSERT_EQ(handles_.size(), 3);
+    ASSERT_EQ(handles_[0]->GetName(), cfs[0]);
+    ASSERT_EQ(handles_[1]->GetName(), cfs[1]);
+    ASSERT_EQ(handles_[2]->GetName(), cfs[2]);
+
+    std::map<std::string, std::string> expected_cf0;
+    std::unordered_set<std::string> not_found_cf0;
+    std::map<std::string, std::string> expected_cf1;
+    std::unordered_set<std::string> not_found_cf1;
+    WriteOptions wopts;
+    Random* rnd = Random::GetTLSInstance();
+    // Some base data
+    for (int i = 0; i < kNumKeys; ++i) {
+      std::string val_cf0 = "cf0_sst" + std::to_string(i);
+      if (rnd->OneIn(2)) {
+        ASSERT_OK(txn_db->Put(wopts, handles_[0], Key(i), val_cf0));
+        expected_cf0[Key(i)] = val_cf0;
+      } else {
+        not_found_cf0.insert(Key(i));
+      }
+      std::string val_cf1 = "cf1_sst" + std::to_string(i);
+      ASSERT_OK(txn_db->Put(wopts, handles_[1], Key(i), val_cf1));
+      expected_cf1[Key(i)] = val_cf1;
+    }
+    SCOPED_TRACE("Verify after SST");
+    ASSERT_OK(txn_db->Put(wopts, handles_[2], "id", "0"));
+    std::map<std::string, std::string> expected_cf2 = {{"id", "0"}};
+    VerifyDBFromMap(expected_cf0, nullptr, false, nullptr, handles_[0],
+                    &not_found_cf0);
+    VerifyDBFromMap(expected_cf1, nullptr, false, nullptr, handles_[1],
+                    &not_found_cf1);
+
+    if (!disable_flush) {
+      ASSERT_OK(txn_db->Flush({}, handles_[0]));
+      ASSERT_OK(txn_db->Flush({}, handles_[1]));
+    }
+
+    const Snapshot* snapshot = nullptr;
+    std::map<std::string, std::string> expected_cf0_snapshot;
+    std::unordered_set<std::string> not_found_cf0_snapshot;
+    std::map<std::string, std::string> expected_cf1_snapshot;
+    std::unordered_set<std::string> not_found_cf1_snapshot;
+    std::map<std::string, std::string> expected_cf2_snapshot;
+    auto init_snapshot_states = [&]() {
+      snapshot = txn_db->GetSnapshot();
+      expected_cf0_snapshot = expected_cf0;
+      not_found_cf0_snapshot = not_found_cf0;
+      expected_cf1_snapshot = expected_cf1;
+      not_found_cf1_snapshot = not_found_cf1;
+      expected_cf2_snapshot = expected_cf2;
+    };
+    if (rnd->OneIn(4)) {
+      init_snapshot_states();
+    }
+
+    // Transaction 1
+    TransactionOptions topts;
+    topts.commit_bypass_memtable = true;
+    Transaction* txn1 = txn_db->BeginTransaction(wopts, topts);
+    auto fill_txn = [&](Transaction* txn, const std::string& v) {
+      std::vector<int> indices(kNumKeys);
+      std::iota(indices.begin(), indices.end(), 0);
+      RandomShuffle(indices.begin(), indices.end());
+      for (int i : indices) {
+        // CF0 update
+        if (rnd->OneIn(4)) {
+          std::string val_cf0 = "cf0_" + v + std::to_string(i);
+          ASSERT_OK(txn->Put(handles_[0], Key(i), val_cf0));
+          expected_cf0[Key(i)] = val_cf0;
+          not_found_cf0.erase(Key(i));
+        } else if (rnd->OneIn(4)) {
+          ASSERT_OK(txn->Delete(handles_[0], Key(i)));
+          expected_cf0.erase(Key(i));
+          not_found_cf0.insert(Key(i));
+        }
+
+        // CF1 update
+        if (rnd->OneIn(4)) {
+          ASSERT_OK(txn->SingleDelete(handles_[1], Key(i)));
+          expected_cf1.erase(Key(i));
+          not_found_cf1.insert(Key(i));
+        }
+        if (rnd->OneIn(4) &&
+            not_found_cf1.find(Key(i)) != not_found_cf1.end()) {
+          // Can not overwrite when using SD.
+          std::string val_cf1 = "cf1_" + v + std::to_string(i);
+          ASSERT_OK(txn->Put(handles_[1], Key(i), val_cf1));
+          expected_cf1[Key(i)] = val_cf1;
+          not_found_cf1.erase(Key(i));
+        }
+      }
+    };
+    fill_txn(txn1, "txn1");
+    ASSERT_OK(txn1->SetName("xid1"));
+    ASSERT_OK(txn1->Prepare());
+    if (rnd->OneIn(2)) {
+      ASSERT_OK(txn1->GetCommitTimeWriteBatch()->Put(handles_[2], "id", "1"));
+      expected_cf2["id"] = "1";
+    }
+    ASSERT_OK(txn1->Commit());
+    delete txn1;
+
+    uint64_t num_imm_mems = 0;
+    if (disable_flush) {
+      ASSERT_TRUE(txn_db->GetIntProperty(
+          handles_[0], DB::Properties::kNumImmutableMemTable, &num_imm_mems));
+      ASSERT_EQ(num_imm_mems, 2);
+
+      ASSERT_TRUE(txn_db->GetIntProperty(
+          handles_[1], DB::Properties::kNumImmutableMemTable, &num_imm_mems));
+      ASSERT_EQ(num_imm_mems, 2);
+      ASSERT_TRUE(txn_db->GetIntProperty(
+          handles_[2], DB::Properties::kNumImmutableMemTable, &num_imm_mems));
+      ASSERT_EQ(num_imm_mems, 0);
+    }
+    SCOPED_TRACE("Verify cf0 after txn1");
+    VerifyDBFromMap(expected_cf0, nullptr, false, nullptr, handles_[0],
+                    &not_found_cf0);
+    SCOPED_TRACE("Verify cf1 after txn1");
+    SCOPED_TRACE("db is " + txn_db->GetName());
+    VerifyDBFromMap(expected_cf1, nullptr, false, nullptr, handles_[1],
+                    &not_found_cf1);
+    VerifyDBFromMap(expected_cf2, nullptr, false, nullptr, handles_[2]);
+    auto verify_at_snapshot = [&](const std::string& m) {
+      if (snapshot) {
+        SCOPED_TRACE("Verify at snapshot " + m);
+        ReadOptions ro;
+        ro.snapshot = snapshot;
+        SCOPED_TRACE("Verify cf0 after txn1");
+        VerifyDBFromMap(expected_cf0_snapshot, nullptr, false, &ro, handles_[0],
+                        &not_found_cf0_snapshot);
+        SCOPED_TRACE("Verify cf1 after txn1");
+        VerifyDBFromMap(expected_cf1_snapshot, nullptr, false, &ro, handles_[1],
+                        &not_found_cf1_snapshot);
+        VerifyDBFromMap(expected_cf2_snapshot, nullptr, false, &ro,
+                        handles_[2]);
+        if (rnd->OneIn(2)) {
+          txn_db->ReleaseSnapshot(snapshot);
+          snapshot = nullptr;
+        }
+      }
+    };
+    verify_at_snapshot("txn1");
+    if (!snapshot && rnd->OneIn(4)) {
+      init_snapshot_states();
+    }
+
+    // Live memtable or another transaction with commit_bypass_memtable
+    TransactionOptions topts2;
+    topts2.commit_bypass_memtable = rnd->OneIn(2);
+    SCOPED_TRACE("txn2 commit_bypass_memtable = " +
+                 std::to_string(topts2.commit_bypass_memtable));
+    Transaction* txn2 = txn_db->BeginTransaction(wopts, topts2);
+    fill_txn(txn2, "txn2");
+    ASSERT_OK(txn2->SetName("xid2"));
+    ASSERT_OK(txn2->Prepare());
+    if (rnd->OneIn(2)) {
+      ASSERT_OK(txn2->GetCommitTimeWriteBatch()->Put(handles_[2], "id", "2"));
+      expected_cf2["id"] = "2";
+    }
+    ASSERT_OK(txn2->Commit());
+    delete txn2;
+    if (disable_flush) {
+      ASSERT_TRUE(txn_db->GetIntProperty(
+          handles_[0], DB::Properties::kNumImmutableMemTable, &num_imm_mems));
+      ASSERT_EQ(num_imm_mems, topts2.commit_bypass_memtable ? 4 : 2);
+
+      ASSERT_TRUE(txn_db->GetIntProperty(
+          handles_[1], DB::Properties::kNumImmutableMemTable, &num_imm_mems));
+      ASSERT_EQ(num_imm_mems, topts2.commit_bypass_memtable ? 4 : 2);
+      ASSERT_TRUE(txn_db->GetIntProperty(
+          handles_[2], DB::Properties::kNumImmutableMemTable, &num_imm_mems));
+      ASSERT_EQ(num_imm_mems, 0);
+    }
+
+    SCOPED_TRACE("Verify cf0 after txn2");
+    VerifyDBFromMap(expected_cf0, nullptr, false, nullptr, handles_[0],
+                    &not_found_cf0);
+    SCOPED_TRACE("Verify cf1 after txn2");
+    VerifyDBFromMap(expected_cf1, nullptr, false, nullptr, handles_[1],
+                    &not_found_cf1);
+    // cf2 should not have keys in not_found_cf1 either
+    VerifyDBFromMap(expected_cf2, nullptr, false, nullptr, handles_[2],
+                    &not_found_cf1);
+    verify_at_snapshot("txn2");
+    if (!snapshot && rnd->OneIn(4)) {
+      init_snapshot_states();
+    }
+
+    // Verify all data is flushed
+    if (disable_flush) {
+      ASSERT_OK(db_->ContinueBackgroundWork());
+      ASSERT_OK(db_->Flush({}, handles_[0]));
+      ASSERT_OK(db_->Flush({}, handles_[1]));
+    } else {
+      ASSERT_OK(db_->WaitForCompact({}));
+    }
+
+    VerifyDBFromMap(expected_cf0, nullptr, false, nullptr, handles_[0],
+                    &not_found_cf0);
+    VerifyDBFromMap(expected_cf1, nullptr, false, nullptr, handles_[1],
+                    &not_found_cf1);
+    VerifyDBFromMap(expected_cf2, nullptr, false, nullptr, handles_[2],
+                    &not_found_cf1);
+    verify_at_snapshot("flush");
+    if (snapshot) {
+      db_->ReleaseSnapshot(snapshot);
+    }
+  }
+}
+
+TEST_P(CommitBypassMemtableTest, Recovery) {
+  // Test that ingested txn can be recovered.
+  // Implementation detail: this tests that write path reserves enough sequence
+  // number for the ingested memtables (see seq_inc in WriteImpl()). For
+  // example, suppose that we only assign one sequence number per ingested
+  // memtable. Then txn1 will be assigned seqno 1 and txn2 will be assigned 2.
+  // During recovery, we will not use memtable ingestion and will fall back
+  // to memtable insertion. The sequence number for the first key in a
+  // transaction is the commit sequence number. So for txn1, we will insert into
+  // memtable k2@1 and k1@2. And for txn2, we will insert k1@2 and k2@3. This
+  // results in duplicated key@seqno.
+  WriteOptions wopts;
+  TransactionOptions txn_opts;
+  txn_opts.commit_bypass_memtable = true;
+  Transaction* txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_OK(txn1->SetName("xid1"));
+  ASSERT_OK(txn1->Put("k2", "v2"));
+  ASSERT_OK(txn1->Put("k1", "v1"));
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_OK(txn1->Commit());
+
+  // Test txn reuse code path
+  txn1 = txn_db->BeginTransaction(wopts, txn_opts, txn1);
+  ASSERT_OK(txn1->SetName("xid2"));
+  ASSERT_OK(txn1->Put("k1", "v3"));
+  ASSERT_OK(txn1->Put("k2", "v4"));
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_OK(txn1->Commit());
+  delete txn1;
+
+  std::map<std::string, std::string> expected = {{"k1", "v3"}, {"k2", "v4"}};
+  VerifyDBFromMap(expected);
+
+  ASSERT_OK(txn_db->Close());
+  delete txn_db;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+  db_ = txn_db;
+
+  VerifyDBFromMap(expected);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

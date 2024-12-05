@@ -1208,7 +1208,7 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
   MergeIteratorBuilder merge_iter_builder(&internal_comparator_, &arena);
   merge_iter_builder.AddIterator(super_version->mem->NewIterator(
       read_opts, /*seqno_to_time_mapping=*/nullptr, &arena,
-      /*prefix_extractor=*/nullptr));
+      /*prefix_extractor=*/nullptr, /*for_flush=*/false));
   super_version->imm->AddIterators(read_opts, /*seqno_to_time_mapping=*/nullptr,
                                    /*prefix_extractor=*/nullptr,
                                    &merge_iter_builder,

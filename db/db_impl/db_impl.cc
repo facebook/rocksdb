@@ -2098,7 +2098,8 @@ InternalIterator* DBImpl::NewInternalIterator(
   // Collect iterator for mutable memtable
   auto mem_iter = super_version->mem->NewIterator(
       read_options, super_version->GetSeqnoToTimeMapping(), arena,
-      super_version->mutable_cf_options.prefix_extractor.get());
+      super_version->mutable_cf_options.prefix_extractor.get(),
+      /*for_flush=*/false);
   Status s;
   if (!read_options.ignore_range_deletions) {
     std::unique_ptr<TruncatedRangeDelIterator> mem_tombstone_iter;

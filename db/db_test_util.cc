@@ -1600,42 +1600,74 @@ std::vector<std::uint64_t> DBTestBase::ListTableFiles(Env* env,
   return file_numbers;
 }
 
-void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
-                                 size_t* total_reads_res, bool tailing_iter,
-                                 std::map<std::string, Status> status) {
-  size_t total_reads = 0;
+void DBTestBase::VerifyDBFromMap(
+    std::map<std::string, std::string> true_data, size_t* total_reads_res,
+    bool tailing_iter, ReadOptions* ro, ColumnFamilyHandle* cf,
+    std::unordered_set<std::string>* not_found) const {
+  ReadOptions temp_ro;
+  if (!ro) {
+    ro = &temp_ro;
+    ro->verify_checksums = true;
+  }
+  if (!cf) {
+    cf = db_->DefaultColumnFamily();
+  }
 
-  for (auto& kv : true_data) {
-    Status s = status[kv.first];
-    if (s.ok()) {
-      ASSERT_EQ(Get(kv.first), kv.second);
-    } else {
-      std::string value;
-      ASSERT_EQ(s, db_->Get(ReadOptions(), kv.first, &value));
-    }
+  // Get
+  size_t total_reads = 0;
+  std::string result;
+  for (auto& [k, v] : true_data) {
+    ASSERT_OK(db_->Get(*ro, cf, k, &result)) << "key is " << k;
+    ASSERT_EQ(v, result);
     total_reads++;
+  }
+  if (not_found) {
+    for (const auto& k : *not_found) {
+      ASSERT_TRUE(db_->Get(*ro, cf, k, &result).IsNotFound())
+          << "key is " << k << " val is " << result;
+    }
+  }
+
+  // MultiGet
+  std::vector<Slice> key_slice;
+  for (const auto& [k, _] : true_data) {
+    key_slice.emplace_back(k);
+  }
+  std::vector<std::string> values;
+  std::vector<ColumnFamilyHandle*> cfs(key_slice.size(), cf);
+  std::vector<Status> status = db_->MultiGet(*ro, cfs, key_slice, &values);
+  total_reads += key_slice.size();
+  auto data_iter = true_data.begin();
+  for (size_t i = 0; i < key_slice.size(); ++i, ++data_iter) {
+    ASSERT_OK(status[i]);
+    ASSERT_EQ(values[i], data_iter->second);
+  }
+  // MultiGet - not found
+  if (not_found) {
+    key_slice.clear();
+    for (const auto& k : *not_found) {
+      key_slice.emplace_back(k);
+    }
+    cfs = std::vector<ColumnFamilyHandle*>(key_slice.size(), cf);
+    values.clear();
+    status = db_->MultiGet(*ro, cfs, key_slice, &values);
+    for (const auto& s : status) {
+      ASSERT_TRUE(s.IsNotFound());
+    }
   }
 
   // Normal Iterator
   {
     int iter_cnt = 0;
-    ReadOptions ro;
-    ro.total_order_seek = true;
-    Iterator* iter = db_->NewIterator(ro);
+    ReadOptions ro_ = *ro;
+    ro_.total_order_seek = true;
+    Iterator* iter = db_->NewIterator(ro_, cf);
     // Verify Iterator::Next()
     iter_cnt = 0;
-    auto data_iter = true_data.begin();
-    Status s;
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next(), data_iter++) {
+    data_iter = true_data.begin();
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next(), ++data_iter) {
       ASSERT_EQ(iter->key().ToString(), data_iter->first);
-      Status current_status = status[data_iter->first];
-      if (!current_status.ok()) {
-        s = current_status;
-      }
-      ASSERT_EQ(iter->status(), s);
-      if (current_status.ok()) {
         ASSERT_EQ(iter->value().ToString(), data_iter->second);
-      }
       iter_cnt++;
       total_reads++;
     }
@@ -1646,20 +1678,12 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
 
     // Verify Iterator::Prev()
     // Use a new iterator to make sure its status is clean.
-    iter = db_->NewIterator(ro);
+    iter = db_->NewIterator(ro_, cf);
     iter_cnt = 0;
-    s = Status::OK();
     auto data_rev = true_data.rbegin();
     for (iter->SeekToLast(); iter->Valid(); iter->Prev(), data_rev++) {
       ASSERT_EQ(iter->key().ToString(), data_rev->first);
-      Status current_status = status[data_rev->first];
-      if (!current_status.ok()) {
-        s = current_status;
-      }
-      ASSERT_EQ(iter->status(), s);
-      if (current_status.ok()) {
         ASSERT_EQ(iter->value().ToString(), data_rev->second);
-      }
       iter_cnt++;
       total_reads++;
     }
@@ -1667,12 +1691,20 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
     ASSERT_EQ(data_rev, true_data.rend())
         << iter_cnt << " / " << true_data.size();
 
-    // Verify Iterator::Seek()
-    for (const auto& kv : true_data) {
-      iter->Seek(kv.first);
-      ASSERT_EQ(kv.first, iter->key().ToString());
-      ASSERT_EQ(kv.second, iter->value().ToString());
-      total_reads++;
+    // Verify Iterator::Seek() and SeekForPrev()
+    for (const auto& [k, v] : true_data) {
+      for (bool prev : {false, true}) {
+        if (prev) {
+          iter->SeekForPrev(k);
+        } else {
+          iter->Seek(k);
+        }
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_OK(iter->status());
+        ASSERT_EQ(iter->key(), k);
+        ASSERT_EQ(iter->value(), v);
+        ++total_reads;
+      }
     }
     delete iter;
   }
@@ -1680,14 +1712,14 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
   if (tailing_iter) {
     // Tailing iterator
     int iter_cnt = 0;
-    ReadOptions ro;
-    ro.tailing = true;
-    ro.total_order_seek = true;
-    Iterator* iter = db_->NewIterator(ro);
+    ReadOptions ro_ = *ro;
+    ro_.tailing = true;
+    ro_.total_order_seek = true;
+    Iterator* iter = db_->NewIterator(ro_, cf);
 
     // Verify ForwardIterator::Next()
     iter_cnt = 0;
-    auto data_iter = true_data.begin();
+    data_iter = true_data.begin();
     for (iter->SeekToFirst(); iter->Valid(); iter->Next(), data_iter++) {
       ASSERT_EQ(iter->key().ToString(), data_iter->first);
       ASSERT_EQ(iter->value().ToString(), data_iter->second);

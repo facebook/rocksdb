@@ -48,6 +48,7 @@
 #include "db/write_controller.h"
 #include "db/write_thread.h"
 #include "logging/event_logger.h"
+#include "memtable/wbwi_memtable.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -60,6 +61,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/user_write_callback.h"
 #include "rocksdb/utilities/replayer.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
@@ -1507,6 +1509,23 @@ class DBImpl : public DB {
 
   void EraseThreadStatusDbInfo() const;
 
+  // For CFs that has updates in `wbwi`, their memtable will be switched,
+  // and `wbwi` will be added as the latest immutable memtable.
+  //
+  // REQUIRES: this thread is currently at the front of the main writer queue.
+  // @param prep_log refers to the WAL that contains prepare record
+  // for the transaction based on wbwi.
+  // @param assigned_seqno Sequence numbers for the ingested memtable.
+  // @param last_seqno the value of versions_->LastSequence() after the write
+  // ingests `wbwi` is done.
+  // @param memtable_updated Whether the same write that ingests wbwi has
+  // updated memtable. This is useful for determining whether to set bg
+  // error when IngestWBWI fails.
+  Status IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
+                    const WBWIMemTable::SeqnoRange& assigned_seqno,
+                    uint64_t min_prep_log, SequenceNumber last_seqno,
+                    bool memtable_updated, bool ignore_missing_cf);
+
   // If disable_memtable is set the application logic must guarantee that the
   // batch will still be skipped from memtable during the recovery. An excption
   // to this is seq_per_batch_ mode, in which since each batch already takes one
@@ -1522,6 +1541,16 @@ class DBImpl : public DB {
   // batch_cnt is expected to be non-zero in seq_per_batch mode and
   // indicates the number of sub-patches. A sub-patch is a subset of the write
   // batch that does not have duplicate keys.
+  // `callback` is called before WAL write.
+  // See more in comment above WriteCallback::Callback().
+  // pre_release_callback is called after WAL write and before memtable write.
+  // See more in comment above PreReleaseCallback::Callback().
+  // post_memtable_callback is called after memtable write but before publishing
+  // the sequence number to readers.
+  //
+  // The main write queue. This is the only write queue that updates
+  // LastSequence. When using one write queue, the same sequence also indicates
+  // the last published sequence.
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
                    UserWriteCallback* user_write_cb = nullptr,
@@ -1529,7 +1558,9 @@ class DBImpl : public DB {
                    bool disable_memtable = false, uint64_t* seq_used = nullptr,
                    size_t batch_cnt = 0,
                    PreReleaseCallback* pre_release_callback = nullptr,
-                   PostMemTableCallback* post_memtable_callback = nullptr);
+                   PostMemTableCallback* post_memtable_callback = nullptr,
+                   std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr,
+                   uint64_t min_prep_log = 0);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
@@ -2053,7 +2084,19 @@ class DBImpl : public DB {
 
   // Switches the current live memtable to immutable/read-only memtable.
   // A new WAL is created if the current WAL is not empty.
-  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
+  // If `new_imm` is not nullptr, it will be added as the newest immutable
+  // memtable, if and only if OK status is returned.
+  // `last_seqno` needs to be provided if `new_imm` is not nullptr. It is
+  // the value of versions_->LastSequence() after the write that ingests new_imm
+  // is done.
+  //
+  // REQUIRES: mutex_ is held
+  // REQUIRES: this thread is currently at the front of the writer queue
+  // REQUIRES: this thread is currently at the front of the 2nd writer queue if
+  // two_write_queues_ is true (This is to simplify the reasoning.)
+  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
+                        ReadOnlyMemTable* new_imm = nullptr,
+                        SequenceNumber last_seqno = 0);
 
   // Select and output column families qualified for atomic flush in
   // `selected_cfds`. If `provided_candidate_cfds` is non-empty, it will be used

@@ -422,7 +422,8 @@ Status FlushJob::MemPurge() {
       range_del_iters;
   for (ReadOnlyMemTable* m : mems_) {
     memtables.push_back(m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr,
-                                       &arena, /*prefix_extractor=*/nullptr));
+                                       &arena, /*prefix_extractor=*/nullptr,
+                                       /*for_flush=*/true));
     auto* range_del_iter = m->NewRangeTombstoneIterator(
         ro, kMaxSequenceNumber, true /* immutable_memtable */);
     if (range_del_iter != nullptr) {
@@ -624,10 +625,13 @@ Status FlushJob::MemPurge() {
         // Construct fragmented memtable range tombstones without mutex
         new_mem->ConstructFragmentedRangeTombstones();
         db_mutex_->Lock();
-        uint64_t new_mem_id = mems_[0]->GetID();
+        // Take the newest id, so that memtables in MemtableList don't have
+        // out-of-order memtable ids.
+        uint64_t new_mem_id = mems_.back()->GetID();
 
         new_mem->SetID(new_mem_id);
-        new_mem->SetNextLogNumber(mems_[0]->GetNextLogNumber());
+        // Take the latest memtable's next log number.
+        new_mem->SetNextLogNumber(mems_.back()->GetNextLogNumber());
 
         // This addition will not trigger another flush, because
         // we do not call EnqueuePendingFlush().
@@ -907,7 +911,7 @@ Status FlushJob::WriteLevel0Table() {
       } else {
         memtables.push_back(
             m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
-                           /*prefix_extractor=*/nullptr));
+                           /*prefix_extractor=*/nullptr, /*for_flush=*/true));
       }
       auto* range_del_iter =
           logical_strip_timestamp

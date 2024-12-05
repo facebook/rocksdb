@@ -388,8 +388,12 @@ class ColumnFamilyData {
   uint64_t GetTotalBlobFileSize() const;  // REQUIRE: DB mutex held
   // REQUIRE: DB mutex held
   void SetMemtable(MemTable* new_mem) {
-    new_mem->SetID(++last_memtable_id_);
+    AssignMemtableID(new_mem);
     mem_ = new_mem;
+  }
+
+  void AssignMemtableID(ReadOnlyMemTable* new_imm) {
+    new_imm->SetID(++last_memtable_id_);
   }
 
   // calculate the oldest log needed for the durability of this column family

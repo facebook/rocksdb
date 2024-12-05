@@ -3417,6 +3417,52 @@ TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
   }
 }
 
+TEST_P(WriteBatchWithIndexTest, TrackAndClearCFStats) {
+  std::string value;
+  batch_->SetTrackPerCFStat(true);
+  ASSERT_OK(batch_->Put("A", "val"));
+  ASSERT_OK(batch_->SingleDelete("B"));
+
+  ColumnFamilyHandleImplDummy cf1(/*id=*/1, BytewiseComparator());
+  ASSERT_OK(batch_->Put(&cf1, "bar", "foo"));
+
+  {
+    auto& cf_id_to_count = batch_->GetCFStats();
+    ASSERT_EQ(2, cf_id_to_count.size());
+    for (const auto [cf_id, stat] : cf_id_to_count) {
+      if (cf_id == 0) {
+        ASSERT_EQ(2, stat.entry_count);
+        ASSERT_EQ(0, stat.overwritten_sd_count);
+      } else {
+        ASSERT_EQ(cf_id, 1);
+        ASSERT_EQ(1, stat.entry_count);
+        ASSERT_EQ(0, stat.overwritten_sd_count);
+      }
+    }
+  }
+
+  batch_->Clear();
+  ASSERT_TRUE(batch_->GetCFStats().empty());
+
+  // Now do a version with overwritten SD
+  ASSERT_OK(batch_->Put("A", "val"));
+  ASSERT_OK(batch_->SingleDelete("A"));
+  bool overwrite = GetParam();
+  {
+    auto& cf_id_to_count = batch_->GetCFStats();
+    ASSERT_EQ(1, cf_id_to_count.size());
+    ASSERT_EQ(overwrite ? 1 : 2, cf_id_to_count.at(0).entry_count);
+    ASSERT_EQ(0, cf_id_to_count.at(0).overwritten_sd_count);
+  }
+  ASSERT_OK(batch_->Put("A", "new_val"));
+  {
+    auto& cf_id_to_count = batch_->GetCFStats();
+    ASSERT_EQ(1, cf_id_to_count.size());
+    ASSERT_EQ(overwrite ? 1 : 3, cf_id_to_count.at(0).entry_count);
+    ASSERT_EQ(overwrite ? 1 : 0, cf_id_to_count.at(0).overwritten_sd_count);
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(WBWI, WriteBatchWithIndexTest, testing::Bool());
 
 std::string Get(const std::string& k, std::unique_ptr<WBWIMemTable>& wbwi_mem,
@@ -3453,8 +3499,10 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   ImmutableOptions immutable_opts(opts);
   MutableCFOptions mutable_cf_options(opts);
 
-  Random rnd(301);
-  auto wbwi = std::make_shared<WriteBatchWithIndex>(cmp, 0, true, 0, 0);
+  Random& rnd = *Random::GetTLSInstance();
+  auto wbwi = std::make_shared<WriteBatchWithIndex>(
+      cmp, 0, /*overwrite_key=*/true, 0, 0);
+  wbwi->SetTrackPerCFStat(true);
   std::vector<std::pair<std::string, std::string>> expected;
   expected.resize(10000);
   for (int i = 0; i < 10000; ++i) {
@@ -3468,12 +3516,14 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   RandomShuffle(expected.begin(), expected.end());
   std::unique_ptr<WBWIMemTable> wbwi_mem{
       new WBWIMemTable(wbwi, cmp,
-                       /*cf_id=*/0, &immutable_opts, &mutable_cf_options)};
+                       /*cf_id=*/0, &immutable_opts, &mutable_cf_options,
+                       // stats is inaccurate but read path should still work
+                       /*stat=*/{})};
   ASSERT_TRUE(wbwi_mem->IsEmpty());
-  constexpr SequenceNumber visible_seq = 3;
+  constexpr SequenceNumber visible_seq = 10002;
   constexpr SequenceNumber non_visible_seq = 1;
-  constexpr SequenceNumber assigned_seq = 2;
-  wbwi_mem->SetGlobalSequenceNumber(assigned_seq);
+  constexpr WBWIMemTable::SeqnoRange assigned_seq = {2, 10001};
+  wbwi_mem->AssignSequenceNumbers(assigned_seq);
 
   bool found_final_value = false;
   for (const auto& [key, val] : expected) {
@@ -3501,7 +3551,7 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   RandomShuffle(expected.begin(), expected.end());
   // overwrites
   for (size_t i = 0; i < 2000; ++i) {
-    // We don't expect mixing SD and DEL, or issue multiple SD consecutively in
+    // We don't expect to mix SD and DEL, or issue multiple SD consecutively in
     // a DB. Read from WBWI should still work so we do it here to keep the test
     // simple.
     if (rnd.OneIn(2)) {
@@ -3540,7 +3590,6 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
     ASSERT_TRUE(val == Get(key, wbwi_mem, visible_seq, &found_final_value));
     ASSERT_TRUE(found_final_value);
   }
-
   // MultiGet
   int batch_size = 30;
   for (int i = 0; i < 10000; i += batch_size) {
@@ -3601,9 +3650,9 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
               return a.first < b.first;
             });
   Arena arena;
-  InternalIterator* iter =
-      wbwi_mem->NewIterator(ReadOptions(), /*seqno_to_time_mapping=*/nullptr,
-                            &arena, /*prefix_extractor=*/nullptr);
+  InternalIterator* iter = wbwi_mem->NewIterator(
+      ReadOptions(), /*seqno_to_time_mapping=*/nullptr, &arena,
+      /*prefix_extractor=*/nullptr, /*for_flush=*/false);
   ASSERT_OK(iter->status());
 
   auto verify_iter_at = [&](size_t idx) {
@@ -3615,7 +3664,7 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
     ValueType val_type;
     UnPackSequenceAndType(ExtractInternalKeyFooter(iter->key()), &seq,
                           &val_type);
-    ASSERT_EQ(seq, assigned_seq);
+    ASSERT_EQ(seq, assigned_seq.upper_bound);
     if (expected[idx].second == "NOT_FOUND") {
       ASSERT_TRUE(val_type == kTypeDeletion || val_type == kTypeSingleDeletion);
     } else {
@@ -3639,14 +3688,20 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
         iter->Seek(seek_key.GetInternalKey());
       }
       verify_iter_at(key_idx);
-      uint32_t j = key_idx + 1;
-      for (; j < std::min(10000u, key_idx + 5); ++j) {
+
+      // verify next/prev 5 times
+      for (int j = 0; j < 5; ++j) {
+        if (++key_idx >= 10000) {
+          --key_idx;
+          break;
+        }
         iter->Next();
-        verify_iter_at(j);
+        verify_iter_at(key_idx);
       }
-      for (j -= 2; j >= key_idx; --j) {
+      for (int j = 0; j < 5; ++j) {
         iter->Prev();
-        verify_iter_at(j);
+        assert(key_idx >= 1);
+        verify_iter_at(--key_idx);
       }
     }
   }
@@ -3668,8 +3723,9 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
 
   // Read from another CF
   std::unique_ptr<WBWIMemTable> meta_wbwi_mem{new WBWIMemTable(
-      wbwi, cmp, /*cf_id=*/1, &immutable_opts, &mutable_cf_options)};
-  meta_wbwi_mem->SetGlobalSequenceNumber(assigned_seq);
+      wbwi, cmp, /*cf_id=*/1, &immutable_opts, &mutable_cf_options,
+      /*stat=*/{1, 0})};
+  meta_wbwi_mem->AssignSequenceNumbers(assigned_seq);
   found_final_value = false;
   ASSERT_TRUE("foo" == Get(DBTestBase::Key(0), meta_wbwi_mem, visible_seq,
                            &found_final_value));
@@ -3682,7 +3738,8 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   wbwi_mem.reset();
   // allocated by arena
   iter->~InternalIterator();
-  iter = meta_wbwi_mem->NewIterator(ReadOptions(), nullptr, &arena, nullptr);
+  iter = meta_wbwi_mem->NewIterator(ReadOptions(), nullptr, &arena, nullptr,
+                                    /*for_flush=*/false);
   iter->SeekToFirst();
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
@@ -3692,6 +3749,64 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   ASSERT_OK(iter->status());
   ASSERT_FALSE(iter->Valid());
   iter->~InternalIterator();
+}
+
+TEST_F(WBWIMemTableTest, IterEmitSingleDelete) {
+  const Comparator* cmp = BytewiseComparator();
+  Options opts;
+  ImmutableOptions immutable_opts(opts);
+  MutableCFOptions mutable_cf_options(opts);
+
+  auto wbwi = std::make_shared<WriteBatchWithIndex>(
+      cmp, 0, /*overwrite_key=*/true, 0, 0);
+  wbwi->SetTrackPerCFStat(true);
+
+  ASSERT_OK(wbwi->Put(DBTestBase::Key(0), "val0"));
+  ASSERT_OK(wbwi->SingleDelete(DBTestBase::Key(0)));
+  ASSERT_OK(wbwi->SingleDelete(DBTestBase::Key(1)));
+  ASSERT_OK(wbwi->SingleDelete(DBTestBase::Key(2)));
+  ASSERT_OK(wbwi->Put(DBTestBase::Key(3), "val3"));
+  // SD at key1 overwritten
+  ASSERT_OK(wbwi->Put(DBTestBase::Key(1), "val1"));
+
+  std::unique_ptr<WBWIMemTable> wbwi_mem{
+      new WBWIMemTable(wbwi, cmp,
+                       /*cf_id=*/0, &immutable_opts, &mutable_cf_options,
+                       /*stat=*/wbwi->GetCFStats().at(0))};
+  WBWIMemTable::SeqnoRange assigned_seqno = {
+      1, 1 + wbwi->GetWriteBatch()->Count()};
+  wbwi_mem->AssignSequenceNumbers(assigned_seqno);
+  Arena arena;
+  InternalIterator* iter_for_flush = wbwi_mem->NewIterator(
+      ReadOptions(), /*seqno_to_time_mapping=*/nullptr, &arena,
+      /*prefix_extractor=*/nullptr, /*for_flush=*/true);
+  InternalIterator* iter = wbwi_mem->NewIterator(
+      ReadOptions(), /*seqno_to_time_mapping=*/nullptr, &arena,
+      /*prefix_extractor=*/nullptr, /*for_flush=*/false);
+  iter->SeekToFirst();
+  iter_for_flush->SeekToFirst();
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(iter_for_flush->Valid());
+    ASSERT_EQ(iter->key(), iter_for_flush->key());
+
+    iter->Next();
+    iter_for_flush->Next();
+    if (i == 1) {
+      // overwritten SD at key1
+      // See WBWIMemTableIterator::UpdateSingleDeleteKey() for seqno assignment
+      InternalKey ikey(DBTestBase::Key(1), assigned_seqno.upper_bound - 1,
+                       kTypeSingleDeletion);
+      ASSERT_EQ(ikey.Encode(), iter_for_flush->key());
+      iter_for_flush->Next();
+    }
+  }
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_FALSE(iter_for_flush->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_OK(iter_for_flush->status());
+  iter->~InternalIterator();
+  iter_for_flush->~InternalIteratorBase();
 }
 }  // namespace ROCKSDB_NAMESPACE
 
