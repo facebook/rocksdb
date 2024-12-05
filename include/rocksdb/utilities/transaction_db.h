@@ -344,11 +344,17 @@ struct TransactionOptions {
   // Only supports write-committed policy. If set to true, the transaction will
   // skip memtable write and ingest into the DB directly during Commit(). This
   // makes Commit() much faster for transactions with many operations.
+  // Transactions with Merge() or PutEntity() is not supported yet.
   //
   // Note that the transaction will be ingested as an immutable memtable for
   // CFs it updates, and the current memtable will be switched to a new one.
   // So ingesting many transactions in a short period of time may cause stall
   // due to too many memtables.
+  // Note that the ingestion relies on the transaction's underlying index,
+  // (WriteBatchWithIndex), so updates that are added to the transaction
+  // without indexing (e.g. added directly to the transaction underlying
+  // write batch through Transaction::GetWriteBatch()->GetWriteBatch())
+  // are not supported. They will not be applied to the DB.
   bool commit_bypass_memtable = false;
 };
 
