@@ -11,6 +11,13 @@
 #include "rocksjni/portal.h"
 
 namespace ROCKSDB_NAMESPACE {
+/**
+ * Create new instance of event listener.
+ * @param env JNIEnv
+ * @param jevent_listener Instance of AbstractEventListener
+ * @param enabled_event_callbacks set of subscribed events.
+ * @throw JniException when JNI initialization calls fail.
+ */
 EventListenerJniCallback::EventListenerJniCallback(
     JNIEnv* env, jobject jevent_listener,
     const std::set<EnabledEventCallback>& enabled_event_callbacks)
@@ -115,9 +122,44 @@ EventListenerJniCallback::EventListenerJniCallback(
       m_on_error_recovery_completed_mid,
       EnabledEventCallback::ON_ERROR_RECOVERY_COMPLETED, env,
       AbstractEventListenerJni::getOnErrorRecoveryCompletedMethodId);
+
+  flushJobInfoJniConverter = std::make_unique<rocksdb::FlushJobInfoJni>(env);
+  compactionJobInfoJniConverter = std::make_unique<CompactionJobInfoJni>(env);
+  tableFileCreationInfoJniConverter =
+      std::make_unique<TableFileCreationInfoJni>(env);
+  tableFileCreationBriefInfoJniConterter =
+      std::make_unique<TableFileCreationBriefInfoJni>(env);
+  memTableInfoJniConverter = std::make_unique<MemTableInfoJni>(env);
+  columnFamilyHandleJniConverter = std::make_unique<ColumnFamilyHandleJni>(env);
+  externalFileIngestionInfoJniConverter =
+      std::make_unique<ExternalFileIngestionInfoJni>(env);
+  writeStallInfoJniConverter = std::make_unique<WriteStallInfoJni>(env);
+  fileOperationInfoJniConverter = std::make_unique<FileOperationInfoJni>(env);
+  tableFileDeletionInfoJniConverter =
+      std::make_unique<TableFileDeletionInfoJni>(env);
+
+  statusJClazz = StatusJni::getJClass(env);
+  ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
+
+  statusJClazz = static_cast<jclass>(env->NewGlobalRef(statusJClazz));
+  ROCKSDB_NAMESPACE::JniException::ThrowIfTrue(
+      env, "Unable to obtain global reference for Status class",
+      statusJClazz == nullptr);
+
+  statusCtor = StatusJni::getConstructorMethodId(env, statusJClazz);
+  ROCKSDB_NAMESPACE::JniException::checkAndThrowException(env);
 }
 
-EventListenerJniCallback::~EventListenerJniCallback() {}
+EventListenerJniCallback::~EventListenerJniCallback() {
+  JNIEnv* env;
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+  env->DeleteGlobalRef(statusJClazz);
+
+  releaseJniEnv(attached_thread);
+}
 
 void EventListenerJniCallback::OnFlushCompleted(
     DB* db, const FlushJobInfo& flush_job_info) {
@@ -126,10 +168,13 @@ void EventListenerJniCallback::OnFlushCompleted(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jflush_job_info = SetupCallbackInvocation<FlushJobInfo>(
-      env, attached_thread, flush_job_info,
-      FlushJobInfoJni::fromCppFlushJobInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jflush_job_info =
+      flushJobInfoJniConverter->fromCppFlushJobInfo(env, &flush_job_info);
 
   if (jflush_job_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_flush_completed_proxy_mid,
@@ -146,10 +191,13 @@ void EventListenerJniCallback::OnFlushBegin(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jflush_job_info = SetupCallbackInvocation<FlushJobInfo>(
-      env, attached_thread, flush_job_info,
-      FlushJobInfoJni::fromCppFlushJobInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jflush_job_info =
+      flushJobInfoJniConverter->fromCppFlushJobInfo(env, &flush_job_info);
 
   if (jflush_job_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_flush_begin_proxy_mid,
@@ -166,10 +214,14 @@ void EventListenerJniCallback::OnTableFileDeleted(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jdeletion_info = SetupCallbackInvocation<TableFileDeletionInfo>(
-      env, attached_thread, info,
-      TableFileDeletionInfoJni::fromCppTableFileDeletionInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jdeletion_info =
+      tableFileDeletionInfoJniConverter->fromCppTableFileDeletionInfo(env,
+                                                                      &info);
 
   if (jdeletion_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_table_file_deleted_mid,
@@ -186,9 +238,13 @@ void EventListenerJniCallback::OnCompactionBegin(DB* db,
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jcompaction_job_info = SetupCallbackInvocation<CompactionJobInfo>(
-      env, attached_thread, ci, CompactionJobInfoJni::fromCppCompactionJobInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jcompaction_job_info =
+      compactionJobInfoJniConverter->fromCppCompactionJobInfo(env, &ci);
 
   if (jcompaction_job_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_compaction_begin_proxy_mid,
@@ -205,9 +261,13 @@ void EventListenerJniCallback::OnCompactionCompleted(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jcompaction_job_info = SetupCallbackInvocation<CompactionJobInfo>(
-      env, attached_thread, ci, CompactionJobInfoJni::fromCppCompactionJobInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jcompaction_job_info =
+      compactionJobInfoJniConverter->fromCppCompactionJobInfo(env, &ci);
 
   if (jcompaction_job_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_compaction_completed_proxy_mid,
@@ -224,10 +284,14 @@ void EventListenerJniCallback::OnTableFileCreated(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jfile_creation_info = SetupCallbackInvocation<TableFileCreationInfo>(
-      env, attached_thread, info,
-      TableFileCreationInfoJni::fromCppTableFileCreationInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jfile_creation_info =
+      tableFileCreationInfoJniConverter->fromCppTableFileCreationInfo(env,
+                                                                      &info);
 
   if (jfile_creation_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_table_file_created_mid,
@@ -244,11 +308,14 @@ void EventListenerJniCallback::OnTableFileCreationStarted(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
   jobject jcreation_brief_info =
-      SetupCallbackInvocation<TableFileCreationBriefInfo>(
-          env, attached_thread, info,
-          TableFileCreationBriefInfoJni::fromCppTableFileCreationBriefInfo);
+      tableFileCreationBriefInfoJniConterter->fromCppTableFileCreationBriefInfo(
+          env, &info);
 
   if (jcreation_brief_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_table_file_creation_started_mid,
@@ -264,9 +331,13 @@ void EventListenerJniCallback::OnMemTableSealed(const MemTableInfo& info) {
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jmem_table_info = SetupCallbackInvocation<MemTableInfo>(
-      env, attached_thread, info, MemTableInfoJni::fromCppMemTableInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jmem_table_info =
+      memTableInfoJniConverter->fromCppMemTableInfo(env, &info);
 
   if (jmem_table_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_mem_table_sealed_mid,
@@ -283,10 +354,13 @@ void EventListenerJniCallback::OnColumnFamilyHandleDeletionStarted(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jcf_handle = SetupCallbackInvocation<ColumnFamilyHandle>(
-      env, attached_thread, *handle,
-      ColumnFamilyHandleJni::fromCppColumnFamilyHandle);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jcf_handle =
+      columnFamilyHandleJniConverter->fromCppColumnFamilyHandle(env, handle);
 
   if (jcf_handle != nullptr) {
     env->CallVoidMethod(m_jcallback_obj,
@@ -304,10 +378,14 @@ void EventListenerJniCallback::OnExternalFileIngested(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jingestion_info = SetupCallbackInvocation<ExternalFileIngestionInfo>(
-      env, attached_thread, info,
-      ExternalFileIngestionInfoJni::fromCppExternalFileIngestionInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jingestion_info =
+      externalFileIngestionInfoJniConverter->fromCppExternalFileIngestionInfo(
+          env, &info);
 
   if (jingestion_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_external_file_ingested_proxy_mid,
@@ -324,9 +402,13 @@ void EventListenerJniCallback::OnBackgroundError(BackgroundErrorReason reason,
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jstatus = SetupCallbackInvocation<Status>(
-      env, attached_thread, *bg_error, StatusJni::construct);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jstatus =
+      StatusJni::construct(env, *bg_error, statusJClazz, statusCtor);
 
   if (jstatus != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_background_error_proxy_mid,
@@ -343,9 +425,13 @@ void EventListenerJniCallback::OnStallConditionsChanged(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jwrite_stall_info = SetupCallbackInvocation<WriteStallInfo>(
-      env, attached_thread, info, WriteStallInfoJni::fromCppWriteStallInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jwrite_stall_info =
+      writeStallInfoJniConverter->fromCppWriteStallInfo(env, &info);
 
   if (jwrite_stall_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_stall_conditions_changed_mid,
@@ -412,9 +498,13 @@ void EventListenerJniCallback::OnErrorRecoveryBegin(
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jbg_error = SetupCallbackInvocation<Status>(
-      env, attached_thread, bg_error, StatusJni::construct);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jbg_error =
+      StatusJni::construct(env, bg_error, statusJClazz, statusCtor);
 
   if (jbg_error != nullptr) {
     jboolean jauto_recovery = env->CallBooleanMethod(
@@ -432,9 +522,13 @@ void EventListenerJniCallback::OnErrorRecoveryCompleted(Status old_bg_error) {
   }
 
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jold_bg_error = SetupCallbackInvocation<Status>(
-      env, attached_thread, old_bg_error, StatusJni::construct);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jold_bg_error =
+      StatusJni::construct(env, old_bg_error, statusJClazz, statusCtor);
 
   if (jold_bg_error != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, m_on_error_recovery_completed_mid,
@@ -486,12 +580,14 @@ void EventListenerJniCallback::OnFileOperation(const jmethodID& mid,
   if (mid == nullptr) {
     return;
   }
-
   JNIEnv* env;
-  jboolean attached_thread;
-  jobject jop_info = SetupCallbackInvocation<FileOperationInfo>(
-      env, attached_thread, info,
-      FileOperationInfoJni::fromCppFileOperationInfo);
+  jboolean attached_thread = JNI_FALSE;
+
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jop_info =
+      fileOperationInfoJniConverter->fromCppFileOperationInfo(env, &info);
 
   if (jop_info != nullptr) {
     env->CallVoidMethod(m_jcallback_obj, mid, jop_info);
