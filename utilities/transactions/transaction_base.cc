@@ -74,7 +74,6 @@ TransactionBaseImpl::TransactionBaseImpl(
                          0 /* default_cf_ts_sz */),
       indexing_enabled_(true) {
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
-  log_number_ = 0;
   if (dbimpl_->allow_2pc()) {
     InitWriteBatch();
   }

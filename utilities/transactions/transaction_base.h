@@ -309,9 +309,27 @@ class TransactionBaseImpl : public Transaction {
 
   WriteBatch* GetCommitTimeWriteBatch() override;
 
+  void SetLogNumber(uint64_t log) override { log_number_ = log; }
+
+  uint64_t GetLogNumber() const override { return log_number_; }
+
+  TransactionName GetName() const override { return name_; }
+
+  TransactionState GetState() const override { return txn_state_; }
+  void SetState(TransactionState state) override { txn_state_ = state; }
+
+  uint64_t GetId() override { return id_; }
+
   LockTracker& GetTrackedLocks() { return *tracked_locks_; }
 
  protected:
+  void SetId(uint64_t id) override {
+    assert(id_ == 0);
+    id_ = id;
+  }
+
+  uint64_t GetLastLogNumber() const override { return log_number_; }
+
   template <typename IterType, typename ImplType,
             typename ErrorIteratorFuncType>
   std::unique_ptr<IterType> NewMultiCfIterator(
@@ -379,6 +397,17 @@ class TransactionBaseImpl : public Transaction {
   const Comparator* cmp_;
 
   const LockTrackerFactory& lock_tracker_factory_;
+
+  // the log in which the prepared section for this txn resides
+  // (for two phase commit)
+  uint64_t log_number_ = 0;
+
+  TransactionName name_;
+
+  // Execution status of the transaction.
+  std::atomic<TransactionState> txn_state_{STARTED};
+
+  uint64_t id_ = 0;
 
   // Stores that time the txn was constructed, in microseconds.
   uint64_t start_time_;

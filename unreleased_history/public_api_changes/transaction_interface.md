@@ -1,0 +1,1 @@
+The `Transaction` class is now an abstract interface class with no data members, and the methods `Transaction::{SetLogNumber, GetLogNumber, GetName, GetState, SetState, GetId, SetId, GetLastLogNumber}` are now accordingly pure virtuals implemented further down in the class hierarchy.
