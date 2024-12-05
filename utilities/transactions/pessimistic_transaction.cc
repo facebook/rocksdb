@@ -1015,6 +1015,9 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
       RecordKey(column_family_id, key);
       return Status::OK();
     }
+    Status MarkNoop(bool /*empty_batch*/) override {
+      return rocksdb::Status::OK();
+    }
   };
 
   // Iterating on this handler will add all keys in this batch into keys
