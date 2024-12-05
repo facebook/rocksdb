@@ -760,6 +760,19 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  public DBOptions setDailyOffpeakTimeUTC(String offpeakTimeUTC) {
+    assert (isOwningHandle());
+    setDailyOffpeakTimeUTC(nativeHandle_, offpeakTimeUTC);
+    return this;
+  }
+
+  @Override
+  public String dailyOffpeakTimeUTC() {
+    assert (isOwningHandle());
+    return dailyOffpeakTimeUTC(nativeHandle_);
+  }
+
+  @Override
   public DBOptions setRandomAccessMaxBufferSize(final long randomAccessMaxBufferSize) {
     assert(isOwningHandle());
     setRandomAccessMaxBufferSize(nativeHandle_, randomAccessMaxBufferSize);
@@ -1348,6 +1361,9 @@ public class DBOptions extends RocksObject
   private static native void setCompactionReadaheadSize(
       final long handle, final long compactionReadaheadSize);
   private static native long compactionReadaheadSize(final long handle);
+  private static native void setDailyOffpeakTimeUTC(
+      final long handle, final String dailyOffpeakTimeUTC);
+  private static native String dailyOffpeakTimeUTC(final long handle);
   private static native void setRandomAccessMaxBufferSize(
       final long handle, final long randomAccessMaxBufferSize);
   private static native long randomAccessMaxBufferSize(final long handle);
