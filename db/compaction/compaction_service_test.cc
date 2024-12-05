@@ -416,6 +416,38 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
   ASSERT_TRUE(result.stats.is_remote_compaction);
 }
 
+TEST_F(CompactionServiceTest, CompactionOutputFileIOError) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::FinishCompactionOutputFile()::AfterFinish",
+      [&](void* status) {
+        // override status
+        auto s = static_cast<Status*>(status);
+        *s = Status::IOError("Injected IOError!");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  uint64_t comp_num = my_cs->GetCompactionNum();
+  ASSERT_NOK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  ASSERT_NOK(result.status);
+  ASSERT_TRUE(result.stats.is_manual_compaction);
+  ASSERT_TRUE(result.stats.is_remote_compaction);
+}
+
 TEST_F(CompactionServiceTest, PreservedOptionsLocalCompaction) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 2;
