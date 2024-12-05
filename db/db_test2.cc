@@ -14,7 +14,6 @@
 #include <memory>
 
 #include "db/db_test_util.h"
-#include "db/manifest_ops.h"
 #include "db/read_callback.h"
 #include "db/version_edit.h"
 #include "env/fs_readonly.h"
@@ -8096,8 +8095,8 @@ TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
 
   std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
   auto read_only_fs = new ReadOnlyFileSystem(env_->GetFileSystem());
-  ASSERT_OK(GetFileChecksumsFromCurrentManifest(read_only_fs, dbname,
-                                                checksum_list.get()));
+  ASSERT_OK(experimental::GetFileChecksumsFromCurrentManifest(
+      read_only_fs, dbname, checksum_list.get()));
   delete read_only_fs;
   read_only_fs = nullptr;
 

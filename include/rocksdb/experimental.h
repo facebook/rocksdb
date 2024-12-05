@@ -30,6 +30,13 @@ Status SuggestCompactRange(DB* db, const Slice* begin, const Slice* end);
 Status PromoteL0(DB* db, ColumnFamilyHandle* column_family,
                  int target_level = 1);
 
+// This function is intended to be called with the DB closed and does not write
+// to the DB path. It will usually work on an open DB but may fail spuriously
+// in that case, and results may be out of date on return.
+Status GetFileChecksumsFromCurrentManifest(FileSystem* fs,
+                                           const std::string& dbname,
+                                           FileChecksumList* checksum_list);
+
 struct UpdateManifestForFilesStateOptions {
   // When true, read current file temperatures from FileSystem and update in
   // DB manifest when a temperature other than Unknown is reported and

@@ -8,8 +8,6 @@
 #include <cassert>
 
 #include "rocksdb/env.h"
-#include "rocksdb/file_checksum.h"
-#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -19,12 +17,4 @@ namespace ROCKSDB_NAMESPACE {
 Status GetCurrentManifestPath(const std::string& dbname, FileSystem* fs,
                               bool is_retry, std::string* manifest_path,
                               uint64_t* manifest_file_number);
-
-// This function is intended to be called with the DB closed and does not write
-// to the DB path. It will usually work on an open DB but may fail spuriously
-// in that case, and results may be out of date on return.
-Status GetFileChecksumsFromCurrentManifest(FileSystem* fs,
-                                           const std::string& dbname,
-                                           FileChecksumList* checksum_list);
-
 }  // namespace ROCKSDB_NAMESPACE
