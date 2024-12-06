@@ -16,6 +16,7 @@
 #include "db/db_test_util.h"
 #include "db/read_callback.h"
 #include "db/version_edit.h"
+#include "env/fs_readonly.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -8059,6 +8060,63 @@ TEST_F(DBTest2, TableCacheMissDuringReadFromBlockCacheTier) {
   ASSERT_TRUE(db_->Get(non_blocking_opts, "foo", &value).IsIncomplete());
 
   ASSERT_EQ(orig_num_file_opens, TestGetTickerCount(options, NO_FILE_OPENS));
+}
+
+TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
+  Options opts = CurrentOptions();
+  opts.create_if_missing = true;
+  opts.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  opts.level0_file_num_compaction_trigger = 10;
+
+  // Bootstrap the test database.
+  DB* db = nullptr;
+  std::string dbname = test::PerThreadDBPath("file_chksum");
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+
+  WriteOptions wopts;
+  FlushOptions fopts;
+  fopts.wait = true;
+  Random rnd(test::RandomSeed());
+  for (int i = 0; i < 4; i++) {
+    ASSERT_OK(db->Put(wopts, Key(i), rnd.RandomString(100)));
+    ASSERT_OK(db->Flush(fopts));
+  }
+
+  // Obtain rich files metadata for source of truth.
+  std::vector<LiveFileMetaData> live_files;
+  db->GetLiveFilesMetaData(&live_files);
+
+  ASSERT_OK(db->Close());
+  delete db;
+  db = nullptr;
+
+  // Process current MANIFEST file and build internal file checksum mappings.
+  std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
+  auto read_only_fs =
+      std::make_shared<ReadOnlyFileSystem>(env_->GetFileSystem());
+  ASSERT_OK(experimental::GetFileChecksumsFromCurrentManifest(
+      read_only_fs.get(), dbname, checksum_list.get()));
+
+  ASSERT_TRUE(checksum_list != nullptr);
+
+  // Retrieve files, related checksums and checksum functions.
+  std::vector<uint64_t> file_numbers;
+  std::vector<std::string> checksums;
+  std::vector<std::string> checksum_func_names;
+  ASSERT_OK(checksum_list->GetAllFileChecksums(&file_numbers, &checksums,
+                                               &checksum_func_names));
+
+  // Compare results.
+  ASSERT_EQ(live_files.size(), checksum_list->size());
+  for (size_t i = 0; i < live_files.size(); i++) {
+    std::string stored_checksum;
+    std::string stored_func_name;
+    ASSERT_OK(checksum_list->SearchOneFileChecksum(
+        live_files[i].file_number, &stored_checksum, &stored_func_name));
+
+    ASSERT_EQ(live_files[i].file_checksum, stored_checksum);
+    ASSERT_EQ(live_files[i].file_checksum_func_name, stored_func_name);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

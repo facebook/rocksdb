@@ -8,7 +8,7 @@
 #include "db/arena_wrapped_db_iter.h"
 #include "db/db_impl/compacted_db_impl.h"
 #include "db/db_impl/db_impl.h"
-#include "db/db_iter.h"
+#include "db/manifest_ops.h"
 #include "db/merge_context.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
@@ -265,9 +265,8 @@ Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
     const std::shared_ptr<FileSystem>& fs = db_options.env->GetFileSystem();
     std::string manifest_path;
     uint64_t manifest_file_number;
-    s = VersionSet::GetCurrentManifestPath(dbname, fs.get(), /*is_retry=*/false,
-                                           &manifest_path,
-                                           &manifest_file_number);
+    s = GetCurrentManifestPath(dbname, fs.get(), /*is_retry=*/false,
+                               &manifest_path, &manifest_file_number);
   } else {
     // Historic behavior that doesn't necessarily make sense
     s = db_options.env->CreateDirIfMissing(dbname);

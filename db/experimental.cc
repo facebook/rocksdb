@@ -13,6 +13,8 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
+#include "db/manifest_ops.h"
+#include "db/version_edit_handler.h"
 #include "db/version_util.h"
 #include "logging/logging.h"
 #include "util/atomic.h"
@@ -38,6 +40,58 @@ Status PromoteL0(DB* db, ColumnFamilyHandle* column_family, int target_level) {
 
 Status SuggestCompactRange(DB* db, const Slice* begin, const Slice* end) {
   return SuggestCompactRange(db, db->DefaultColumnFamily(), begin, end);
+}
+
+Status GetFileChecksumsFromCurrentManifest(FileSystem* fs,
+                                           const std::string& dbname,
+                                           FileChecksumList* checksum_list) {
+  std::string manifest_path;
+  uint64_t manifest_file_number;
+  Status s = GetCurrentManifestPath(dbname, fs, true /* is_retry */,
+                                    &manifest_path, &manifest_file_number);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (checksum_list == nullptr) {
+    return Status::InvalidArgument("checksum_list is nullptr");
+  }
+  assert(checksum_list);
+
+  const ReadOptions read_options(Env::IOActivity::kReadManifest);
+  checksum_list->reset();
+
+  std::unique_ptr<SequentialFileReader> file_reader;
+  {
+    std::unique_ptr<FSSequentialFile> file;
+    s = fs->NewSequentialFile(manifest_path,
+                              fs->OptimizeForManifestRead(FileOptions()), &file,
+                              nullptr /* dbg */);
+    if (!s.ok()) {
+      return s;
+    }
+    file_reader.reset(new SequentialFileReader(std::move(file), manifest_path));
+  }
+
+  struct LogReporter : public log::Reader::Reporter {
+    Status* status_ptr;
+    void Corruption(size_t /*bytes*/, const Status& st) override {
+      if (status_ptr->ok()) {
+        *status_ptr = st;
+      }
+    }
+  } reporter;
+  reporter.status_ptr = &s;
+  log::Reader reader(nullptr, std::move(file_reader), &reporter,
+                     true /* checksum */, 0 /* log_number */);
+
+  // Read all records from the manifest file...
+  uint64_t manifest_file_size = std::numeric_limits<uint64_t>::max();
+  FileChecksumRetriever retriever(read_options, manifest_file_size,
+                                  *checksum_list);
+  retriever.Iterate(reader, &s);
+
+  return retriever.status();
 }
 
 Status UpdateManifestForFilesState(
