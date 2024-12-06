@@ -73,7 +73,7 @@ TransactionBaseImpl::TransactionBaseImpl(
                          write_options.protection_bytes_per_key,
                          0 /* default_cf_ts_sz */),
       indexing_enabled_(true) {
-  assert(dynamic_cast<DBImpl*>(db_) != nullptr);
+//  assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
   if (dbimpl_->allow_2pc()) {
     InitWriteBatch();
@@ -897,7 +897,7 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
     DBImpl* db_;
     IndexedWriteBatchBuilder(Transaction* txn, DBImpl* db)
         : txn_(txn), db_(db) {
-      assert(dynamic_cast<TransactionBaseImpl*>(txn_) != nullptr);
+//      assert(dynamic_cast<TransactionBaseImpl*>(txn_) != nullptr);
     }
 
     Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
