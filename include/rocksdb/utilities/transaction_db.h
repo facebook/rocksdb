@@ -20,6 +20,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class SecondaryIndex;
 class TransactionDBMutexFactory;
 
 enum TxnDBWritePolicy {
@@ -239,6 +240,14 @@ struct TransactionDBOptions {
   // validation are enabled when applicable. Only WriteCommittedTxn support
   // user-defined timestamps so this option only applies in this case.
   bool enable_udt_validation = true;
+
+  //       / \     UNDER CONSTRUCTION
+  //      / ! \    UNDER CONSTRUCTION
+  //     /-----\   UNDER CONSTRUCTION
+  //
+  // The secondary indices to be maintained. See the SecondaryIndex interface
+  // for more details.
+  std::vector<std::shared_ptr<SecondaryIndex>> secondary_indices;
 
  private:
   // 128 entries

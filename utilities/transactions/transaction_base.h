@@ -312,6 +312,11 @@ class TransactionBaseImpl : public Transaction {
   LockTracker& GetTrackedLocks() { return *tracked_locks_; }
 
  protected:
+  ColumnFamilyHandle* DefaultColumnFamily() const {
+    assert(db_);
+    return db_->DefaultColumnFamily();
+  }
+
   template <typename IterType, typename ImplType,
             typename ErrorIteratorFuncType>
   std::unique_ptr<IterType> NewMultiCfIterator(
