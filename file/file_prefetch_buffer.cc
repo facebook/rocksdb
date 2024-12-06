@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cinttypes>
 
 #include "file/random_access_file_reader.h"
 #include "monitoring/histogram.h"
@@ -863,9 +864,23 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
   if (copy_to_overlap_buffer) {
     buf = overlap_buf_;
   }
-  assert(buf->offset_ <= offset);
+  if (offset < buf->offset_) {
+    fprintf(stderr,
+            "Requested offset %" PRIu64 " is less than buffer offset %" PRIu64
+            ". UseFSBuffer(reader)=%d\n",
+            offset, buf->offset_, UseFSBuffer(reader));
+    assert(false);
+    return false;
+  }
   uint64_t offset_in_buffer = offset - buf->offset_;
-  assert(n <= buf->CurrentSize() - offset_in_buffer);
+  if (buf->CurrentSize() - offset_in_buffer < n) {
+    fprintf(stderr,
+            "Insufficient room in buffer. Only have %" PRIu64
+            " but need %lu. UseFSBuffer(reader)=%d\n",
+            buf->CurrentSize() - offset_in_buffer, n, UseFSBuffer(reader));
+    assert(false);
+    return false;
+  }
   *result = Slice(buf->buffer_.BufferStart() + offset_in_buffer, n);
   if (prefetched) {
     readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
