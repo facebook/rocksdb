@@ -32,7 +32,9 @@ class ColumnFamilyHandle;
 // The primary and secondary key-value pairs can be stored in either the same
 // column family or different ones. It is the application's responsibility to
 // avoid conflicts and ambiguities (for example, by using prefixes to create
-// separate key spaces).
+// separate key spaces or using a dedicated column family for each secondary
+// index). Also, note that applications are not expected to manipulate secondary
+// index entries directly.
 //
 // In the general case where there are concurrent writers, maintaining a
 // secondary index requires transactional semantics and concurrency control.
