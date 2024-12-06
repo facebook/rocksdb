@@ -83,6 +83,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/log_writer.cc",
         "db/logs_with_prep_tracker.cc",
         "db/malloc_stats.cc",
+        "db/manifest_ops.cc",
         "db/memtable.cc",
         "db/memtable_list.cc",
         "db/merge_helper.cc",
