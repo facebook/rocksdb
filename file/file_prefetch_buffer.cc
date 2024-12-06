@@ -865,7 +865,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
     buf = overlap_buf_;
   }
   if (offset < buf->offset_) {
-    fprintf(stderr,
+    fprintf(stdout,
             "Requested offset %" PRIu64 " is less than buffer offset %" PRIu64
             ". UseFSBuffer(reader)=%d\n",
             offset, buf->offset_, UseFSBuffer(reader));
@@ -873,14 +873,6 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
     return false;
   }
   uint64_t offset_in_buffer = offset - buf->offset_;
-  if (buf->CurrentSize() - offset_in_buffer < n) {
-    fprintf(stderr,
-            "Insufficient room in buffer. Only have %" PRIu64
-            " but need %lu. UseFSBuffer(reader)=%d\n",
-            buf->CurrentSize() - offset_in_buffer, n, UseFSBuffer(reader));
-    assert(false);
-    return false;
-  }
   *result = Slice(buf->buffer_.BufferStart() + offset_in_buffer, n);
   if (prefetched) {
     readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
