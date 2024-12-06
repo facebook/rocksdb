@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cinttypes>
 
 #include "file/random_access_file_reader.h"
 #include "monitoring/histogram.h"
@@ -855,6 +856,14 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
   buf = GetFirstBuffer();
   if (copy_to_overlap_buffer) {
     buf = overlap_buf_;
+  }
+  if (offset < buf->offset_) {
+    fprintf(stdout,
+            "Requested offset %" PRIu64 " is less than buffer offset %" PRIu64
+            ". UseFSBuffer(reader)=%d\n",
+            offset, buf->offset_, UseFSBuffer(reader));
+    assert(false);
+    return false;
   }
   uint64_t offset_in_buffer = offset - buf->offset_;
   *result = Slice(buf->buffer_.BufferStart() + offset_in_buffer, n);
