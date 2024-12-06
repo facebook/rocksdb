@@ -3316,12 +3316,24 @@ class FSBufferPrefetchTest : public testing::Test,
                            IODebugContext* dbg) override {
           for (size_t i = 0; i < num_reqs; ++i) {
             FSReadRequest& req = reqs[i];
-            FSAllocationPtr buffer(new char[req.len], [](void* ptr) {
-              delete[] static_cast<char*>(ptr);
-            });
-            req.fs_scratch = std::move(buffer);
+
+            // We cannot assume that fs_scratch points to the start of
+            // the read data. We can have the FSAllocationPtr point to a
+            // wrapper around the result buffer in our test implementation so
+            // that we can catch whenever we incorrectly make this assumption.
+            // See https://github.com/facebook/rocksdb/pull/13189 for more
+            // context.
+            char* internalData = new char[req.len];
             req.status = Read(req.offset, req.len, options, &req.result,
-                              static_cast<char*>(req.fs_scratch.get()), dbg);
+                              internalData, dbg);
+
+            Slice* internalSlice = new Slice(internalData, req.len);
+            FSAllocationPtr internalPtr(internalSlice, [](void* ptr) {
+              delete[] static_cast<const char*>(
+                  static_cast<Slice*>(ptr)->data_);
+              delete static_cast<Slice*>(ptr);
+            });
+            req.fs_scratch = std::move(internalPtr);
           }
           return IOStatus::OK();
         }
