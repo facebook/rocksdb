@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
+if [[ ! -f "BUCK" ]]
+then
+  echo "BUCK file is missing!"
+  exit 1
+fi
+
 TGT_DIFF=`git diff BUCK | head -n 1`
 
 if [ ! -z "$TGT_DIFF" ]
