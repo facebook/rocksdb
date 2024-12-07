@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-# If clang_format_diff.py command is not specfied, we assume we are able to
-# access directly without any path.
 
 TGT_DIFF=`git diff BUCK | head -n 1`
 
@@ -16,6 +14,13 @@ echo Backup original BUCK file.
 cp BUCK BUCK.bkp
 
 ${PYTHON:-python3} buckifier/buckify_rocksdb.py
+
+if [[ ! -f "BUCK" ]]
+then
+  echo "buckifier/buckify_rocksdb.py was expected to (re)generate BUCK file."
+  echo "BUCK file is missing!"
+  exit 1
+fi
 
 TGT_DIFF=`git diff BUCK | head -n 1`
 
