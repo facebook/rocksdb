@@ -161,6 +161,15 @@ def generate_buck(repo_path, deps_map):
         extra_external_deps="",
         link_whole=True,
     )
+    # rocksdb_with_faiss_lib
+    BUCK.add_library(
+        "rocksdb_with_faiss_lib",
+        src_mk.get("WITH_FAISS_LIB_SOURCES", []),
+        deps=[
+            "//faiss:faiss",
+            ":rocksdb_lib",
+        ],
+    )
     # rocksdb_test_lib
     BUCK.add_library(
         "rocksdb_test_lib",
@@ -169,6 +178,18 @@ def generate_buck(repo_path, deps_map):
         + src_mk.get("EXP_LIB_SOURCES", [])
         + src_mk.get("ANALYZER_LIB_SOURCES", []),
         [":rocksdb_lib"],
+        extra_test_libs=True,
+    )
+    # rocksdb_with_faiss_test_lib
+    BUCK.add_library(
+        "rocksdb_with_faiss_test_lib",
+        src_mk.get("MOCK_LIB_SOURCES", [])
+        + src_mk.get("TEST_LIB_SOURCES", [])
+        + src_mk.get("EXP_LIB_SOURCES", [])
+        + src_mk.get("ANALYZER_LIB_SOURCES", []),
+        deps=[
+            ":rocksdb_with_faiss_lib",
+        ],
         extra_test_libs=True,
     )
     # rocksdb_tools_lib
@@ -278,11 +299,16 @@ def generate_buck(repo_path, deps_map):
 
     for test_src in src_mk.get("TEST_MAIN_SOURCES", []):
         test = test_src.split(".c")[0].strip().split("/")[-1].strip()
-        test_source_map[test] = test_src
+        test_source_map[test] = (test_src, False)
         print("" + test + " " + test_src)
 
+    for test_src in src_mk.get("WITH_FAISS_TEST_MAIN_SOURCES", []):
+        test = test_src.split(".c")[0].strip().split("/")[-1].strip()
+        test_source_map[test] = (test_src, True)
+        print("" + test + " " + test_src + " [FAISS]")
+
     for target_alias, deps in deps_map.items():
-        for test, test_src in sorted(test_source_map.items()):
+        for test, (test_src, with_faiss) in sorted(test_source_map.items()):
             if len(test) == 0:
                 print(ColorString.warning("Failed to get test name for %s" % test_src))
                 continue
@@ -304,12 +330,20 @@ def generate_buck(repo_path, deps_map):
                     extra_compiler_flags=json.dumps(deps["extra_compiler_flags"]),
                 )
             else:
-                BUCK.register_test(
-                    test_target_name,
-                    test_src,
-                    deps=json.dumps(deps["extra_deps"] + [":rocksdb_test_lib"]),
-                    extra_compiler_flags=json.dumps(deps["extra_compiler_flags"]),
-                )
+                if with_faiss:
+                    BUCK.register_test(
+                        test_target_name,
+                        test_src,
+                        deps=json.dumps(deps["extra_deps"] + [":rocksdb_with_faiss_test_lib"]),
+                        extra_compiler_flags=json.dumps(deps["extra_compiler_flags"]),
+                    )
+                else:
+                    BUCK.register_test(
+                        test_target_name,
+                        test_src,
+                        deps=json.dumps(deps["extra_deps"] + [":rocksdb_test_lib"]),
+                        extra_compiler_flags=json.dumps(deps["extra_compiler_flags"]),
+                    )
     BUCK.export_file("tools/db_crashtest.py")
 
     print(ColorString.info("Generated BUCK Summary:"))
