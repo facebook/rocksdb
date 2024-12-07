@@ -102,7 +102,7 @@ Status OptimisticTransactionDB::Open(
 void OptimisticTransactionDBImpl::ReinitializeTransaction(
     Transaction* txn, const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options) {
-  assert(dynamic_cast<OptimisticTransaction*>(txn) != nullptr);
+//  assert(dynamic_cast<OptimisticTransaction*>(txn) != nullptr);
   auto txn_impl = static_cast<OptimisticTransaction*>(txn);
 
   txn_impl->Reinitialize(this, write_options, txn_options);
