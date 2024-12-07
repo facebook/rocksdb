@@ -341,6 +341,9 @@ LIB_SOURCES_ASM =
 LIB_SOURCES_C =
 endif
 
+WITH_FAISS_LIB_SOURCES = \
+  utilities/secondary_index/faiss_ivf_index.cc                  \
+
 RANGE_TREE_SOURCES =\
   utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc \
   utilities/transactions/lock/range/range_tree/lib/locktree/keyrange.cc        \
@@ -650,6 +653,9 @@ TEST_MAIN_SOURCES =                                                     \
 
 TEST_MAIN_SOURCES_C = \
   db/c_test.c                                                           \
+
+WITH_FAISS_TEST_MAIN_SOURCES = \
+  utilities/secondary_index/faiss_ivf_index_test.cc                     \
 
 MICROBENCH_SOURCES =                                          \
   microbench/ribbon_bench.cc                                  \
