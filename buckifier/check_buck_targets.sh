@@ -4,6 +4,7 @@
 if [[ ! -f "BUCK" ]]
 then
   echo "BUCK file is missing!"
+  echo "Please do not remove / rename BUCK file in your commit(s)."
   exit 1
 fi
 
@@ -23,8 +24,8 @@ ${PYTHON:-python3} buckifier/buckify_rocksdb.py
 
 if [[ ! -f "BUCK" ]]
 then
-  echo "buckifier/buckify_rocksdb.py was expected to (re)generate BUCK file."
-  echo "BUCK file is missing!"
+  echo "BUCK file went missing after running buckifier/buckify_rocksdb.py!"
+  echo "Please do not remove the BUCK file."
   exit 1
 fi
 
