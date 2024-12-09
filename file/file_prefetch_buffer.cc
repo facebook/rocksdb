@@ -820,9 +820,16 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
       assert(reader != nullptr);
       assert(max_readahead_size_ >= readahead_size_);
 
+      // We disallow async IO for compaction reads since their
+      // latencies are not user-visible
       if (for_compaction) {
-        s = PrefetchInternal(opts, reader, offset, std::max(n, readahead_size_),
-                             0, copy_to_overlap_buffer);
+        assert(num_buffers_ == 1);
+        uint64_t trimmed_readahead_size = 0;
+        if (n < readahead_size_) {
+          trimmed_readahead_size = readahead_size_ - n;
+        }
+        s = PrefetchInternal(opts, reader, offset, n, trimmed_readahead_size,
+                             copy_to_overlap_buffer);
       } else {
         if (implicit_auto_readahead_) {
           if (!IsEligibleForPrefetch(offset, n)) {
