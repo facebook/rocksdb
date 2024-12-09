@@ -821,7 +821,8 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
       assert(max_readahead_size_ >= readahead_size_);
 
       if (for_compaction) {
-        s = Prefetch(opts, reader, offset, std::max(n, readahead_size_));
+        s = PrefetchInternal(opts, reader, offset, std::max(n, readahead_size_),
+                             0, copy_to_overlap_buffer);
       } else {
         if (implicit_auto_readahead_) {
           if (!IsEligibleForPrefetch(offset, n)) {
