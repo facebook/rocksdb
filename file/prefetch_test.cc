@@ -3400,6 +3400,8 @@ class FSBufferPrefetchTest
   std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 };
 
+// param 1: whether async IO is enabled (num_buffers_ > 1)
+// param 2: whether for_compaction is set to true for TryReadFromCache requests
 INSTANTIATE_TEST_CASE_P(FSBufferPrefetchTest, FSBufferPrefetchTest,
                         ::testing::Combine(::testing::Bool(),
                                            ::testing::Bool()));
@@ -3423,6 +3425,8 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   readahead_params.max_readahead_size = 8192;
   bool use_async_prefetch = std::get<0>(GetParam());
   bool for_compaction = std::get<1>(GetParam());
+  // We disallow async IO for compaction reads since they are background
+  // operations anyways and their latencies are not visible to the end user
   if (use_async_prefetch && for_compaction) {
     return;
   }
@@ -3451,15 +3455,21 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   }
   ASSERT_TRUE(could_read_from_cache);
   ASSERT_EQ(s, Status::OK());
-  if (!for_compaction) {
-    ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
-    ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL), 0);
-  }
+
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL), 0);
 
   ASSERT_EQ(strncmp(result.data(), content.substr(0, 4096).c_str(), 4096), 0);
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
-  if (use_async_prefetch) {
+  if (for_compaction) {
+    // Read at offset 0 with length max(4096, 8192) = 8192.
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
+  } else if (use_async_prefetch) {
     // Cut the readahead of 8192 in half.
     // Overlap buffer is not used
     ASSERT_EQ(overlap_buffer_info.first, 0);
@@ -3469,7 +3479,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
     ASSERT_EQ(std::get<1>(buffer_info[0]), 4096 + 8192 / 2);
     ASSERT_EQ(std::get<0>(buffer_info[1]), 4096 + 8192 / 2);
     ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
-  } else if (!for_compaction) {
+  } else {
     // Read at offset 0 with length 4096 + 8192 = 12288.
     // Overlap buffer is not used
     ASSERT_EQ(overlap_buffer_info.first, 0);
@@ -3484,7 +3494,11 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 8192, 8192, &result,
                                    &s, for_compaction));
   ASSERT_EQ(s, Status::OK());
-  if (!for_compaction) {
+  if (for_compaction) {
+    ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+    ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+              0);  // Buffer only had up to offset 8192
+  } else {
     ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
     ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
               4096);  // 8192-12288
@@ -3495,7 +3509,14 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
 
-  if (use_async_prefetch) {
+  if (for_compaction) {
+    // Read at offset 8192 with length max(8192, 8192) = 8192.
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 8192);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
+  } else if (use_async_prefetch) {
     // Our buffers were 0-8192, 8192-12288 at the start so we had some
     // overlapping data in the second buffer
     // We clean up outdated buffers so 0-8192 gets freed for more prefetching.
@@ -3507,7 +3528,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
     ASSERT_EQ(std::get<1>(buffer_info[0]), 8192 + 8192 / 2);
     ASSERT_EQ(std::get<0>(buffer_info[1]), 8192 + (8192 + 8192 / 2));
     ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
-  } else if (!for_compaction) {
+  } else {
     // We only have 0-12288 cached, so reading from 8192-16384 will trigger a
     // prefetch up through 16384 + 8192 = 24576.
     // Overlap buffer reuses bytes 8192 to 12288
@@ -3534,7 +3555,14 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
 
-  if (use_async_prefetch) {
+  if (for_compaction) {
+    // Main buffer stays the same
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 8192);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
+  } else if (use_async_prefetch) {
     // Same as before: 8192-20480, 20480-24576 (cache hit in first buffer)
     ASSERT_EQ(overlap_buffer_info.first, 0);
     ASSERT_EQ(overlap_buffer_info.second, 0);
@@ -3542,7 +3570,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
     ASSERT_EQ(std::get<1>(buffer_info[0]), 8192 + 8192 / 2);
     ASSERT_EQ(std::get<0>(buffer_info[1]), 8192 + (8192 + 8192 / 2));
     ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
-  } else if (!for_compaction) {
+  } else {
     // The main buffer has 12288-24576, so 12288-16384 is a cache hit.
     // Overlap buffer does not get used
     fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
@@ -3568,7 +3596,14 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
             0);
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
-  if (use_async_prefetch) {
+  if (for_compaction) {
+    // Main buffer starts at 16384 amd has length 10000 - 384 = 9616
+    // Overlap buffer is used because the main buffer had bytes 16000-16384
+    ASSERT_EQ(overlap_buffer_info.first, 16000);
+    ASSERT_EQ(overlap_buffer_info.second, 10000);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 16384);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 10000 - 384);
+  } else if (use_async_prefetch) {
     // Overlap buffer reuses bytes 16000 to 20480
     ASSERT_EQ(overlap_buffer_info.first, 16000);
     ASSERT_EQ(overlap_buffer_info.second, 10000);
@@ -3582,7 +3617,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
     ASSERT_TRUE(std::get<2>(
         buffer_info[1]));  // in progress async request (otherwise we should not
                            // be getting 4096 for the size)
-  } else if (!for_compaction) {
+  } else {
     // Overlap buffer reuses bytes 16000 to 24576
     ASSERT_EQ(overlap_buffer_info.first, 16000);
     ASSERT_EQ(overlap_buffer_info.second, 10000);
@@ -3614,6 +3649,8 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   readahead_params.max_readahead_size = 100;
   bool use_async_prefetch = std::get<0>(GetParam());
   bool for_compaction = std::get<1>(GetParam());
+  // We disallow async IO for compaction reads since they are background
+  // operations anyways and their latencies are not visible to the end user
   if (use_async_prefetch && for_compaction) {
     return;
   }
@@ -3644,7 +3681,15 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   ASSERT_EQ(strncmp(result.data(), content.substr(5, 3).c_str(), 3), 0);
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
-  if (use_async_prefetch) {
+  if (for_compaction) {
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Main buffer starts at offset 3 and has length of max(3, 5) = 5
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 5);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 5);
+
+  } else if (use_async_prefetch) {
     // Overlap buffer is not used
     ASSERT_EQ(overlap_buffer_info.first, 0);
     ASSERT_EQ(overlap_buffer_info.second, 0);
@@ -3657,7 +3702,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
     ASSERT_EQ(std::get<0>(buffer_info[1]), 4096);
     ASSERT_EQ(std::get<1>(buffer_info[1]), 4096);
     ASSERT_TRUE(std::get<2>(buffer_info[1]));  // in progress async request
-  } else if (!for_compaction) {
+  } else {
     // Overlap buffer is not used
     ASSERT_EQ(overlap_buffer_info.first, 0);
     ASSERT_EQ(overlap_buffer_info.second, 0);
@@ -3672,14 +3717,21 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   ASSERT_EQ(strncmp(result.data(), content.substr(16, 7).c_str(), 7), 0);
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
-  if (use_async_prefetch) {
+  if (for_compaction) {
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Main buffer starts at offset 16 and has length of max(7, 2*5) = 10
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 16);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 10);
+  } else if (use_async_prefetch) {
     // Complete hit since we have the entire file loaded in the main buffer
     // The remaining requests will be the same when use_async_prefetch is true
     ASSERT_EQ(overlap_buffer_info.first, 0);
     ASSERT_EQ(overlap_buffer_info.second, 0);
     ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
     ASSERT_EQ(std::get<1>(buffer_info[0]), 1000);
-  } else if (!for_compaction) {
+  } else {
     // Complete miss: read 7 bytes at offset 16
     // Overlap buffer is not used (no partial hit)
     ASSERT_EQ(overlap_buffer_info.first, 0);
@@ -3693,7 +3745,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   if (use_async_prefetch) {
     ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 10, 8, &result, &s,
                                      for_compaction));
-  } else if (!for_compaction) {
+  } else {
     // TryReadFromCacheUntracked returns false since the offset
     // requested is less than the start of our buffer
     ASSERT_FALSE(fpb.TryReadFromCache(IOOptions(), r.get(), 10, 8, &result, &s,
@@ -3707,13 +3759,20 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   ASSERT_EQ(strncmp(result.data(), content.substr(27, 6).c_str(), 6), 0);
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
-  if (use_async_prefetch) {
+  if (for_compaction) {
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Main buffer starts at offset 27 and has length of max(6, 2*10) = 20
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 27);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 20);
+  } else if (use_async_prefetch) {
     // Complete hit since we have the entire file loaded in the main buffer
     ASSERT_EQ(overlap_buffer_info.first, 0);
     ASSERT_EQ(overlap_buffer_info.second, 0);
     ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
     ASSERT_EQ(std::get<1>(buffer_info[0]), 1000);
-  } else if (!for_compaction) {
+  } else {
     // Complete hit
     // Overlap buffer still not used
     ASSERT_EQ(overlap_buffer_info.first, 0);
@@ -3729,13 +3788,21 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   ASSERT_EQ(strncmp(result.data(), content.substr(30, 20).c_str(), 20), 0);
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
   fpb.TEST_GetBufferOffsetandSize(buffer_info);
-  if (use_async_prefetch) {
+  if (for_compaction) {
+    // Overlap buffer is used because we had bytes 30-47
+    ASSERT_EQ(overlap_buffer_info.first, 30);
+    ASSERT_EQ(overlap_buffer_info.second, 20);
+    // Main buffer starts at offset 47 and has length 70-47=23
+    // 30 + max(20, 2 * 20) = 30 + 40 = 70
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 47);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 23);
+  } else if (use_async_prefetch) {
     // Complete hit since we have the entire file loaded in the main buffer
     ASSERT_EQ(overlap_buffer_info.first, 0);
     ASSERT_EQ(overlap_buffer_info.second, 0);
     ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
     ASSERT_EQ(std::get<1>(buffer_info[0]), 1000);
-  } else if (!for_compaction) {
+  } else {
     // Partial hit (overlapping with end of main buffer)
     // Overlap buffer is used because we already had 30-33
     ASSERT_EQ(overlap_buffer_info.first, 30);
