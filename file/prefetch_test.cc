@@ -3390,7 +3390,7 @@ class FSBufferPrefetchTest : public testing::Test,
 INSTANTIATE_TEST_CASE_P(FSBufferPrefetchTest, FSBufferPrefetchTest,
                         ::testing::Bool());
 
-TEST_P(FSBufferPrefetchTest, DISABLED_FSBufferPrefetchStatsInternals) {
+TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   // Check that the main buffer, the overlap_buf_, and the secondary buffer (in
   // the case of num_buffers_ > 1) are populated correctly while reading a 32
   // KiB file
@@ -3565,7 +3565,7 @@ TEST_P(FSBufferPrefetchTest, DISABLED_FSBufferPrefetchStatsInternals) {
   }
 }
 
-TEST_P(FSBufferPrefetchTest, DISABLED_FSBufferPrefetchUnalignedReads) {
+TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   // Check that the main buffer, the overlap_buf_, and the secondary buffer (in
   // the case of num_buffers_ > 1) are populated correctly
   // while reading with no regard to alignment

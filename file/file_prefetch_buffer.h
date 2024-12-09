@@ -486,8 +486,14 @@ class FilePrefetchBuffer {
   }
 
   // Whether we reuse the file system provided buffer
-  // TODO: renable when use-after-free issue is resolved
-  bool UseFSBuffer(RandomAccessFileReader*) { return false; }
+  // Until we also handle the async read case, only enable this optimization
+  // for the synchronous case when num_buffers_ = 1.
+  bool UseFSBuffer(RandomAccessFileReader* reader) {
+    return reader->file() != nullptr && !reader->use_direct_io() &&
+           fs_ != nullptr &&
+           CheckFSFeatureSupport(fs_, FSSupportedOps::kFSBuffer) &&
+           num_buffers_ == 1;
+  }
 
   // When we are reusing the file system provided buffer, we are not concerned
   // with alignment. However, quite a bit of prefetch code incorporates

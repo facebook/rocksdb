@@ -183,7 +183,12 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
   size_t alignment = GetRequiredBufferAlignment(reader);
   uint64_t rounddown_offset = offset, roundup_end = 0, aligned_useful_len = 0;
   size_t read_len = 0;
-  bool use_fs_buffer = UseFSBuffer(reader);
+  // TODO: Enable file system buffer reuse optimization. Need to incorporate
+  // overlap buffer logic here (similar to what is done in PrefetchInternal).
+  // Currently, if we attempt to use the optimization, it results in an
+  // unsigned integer overflow because the returned buffer's offset ends up
+  // higher than the requested offset.
+  bool use_fs_buffer = false;
 
   ReadAheadSizeTuning(buf, /*read_curr_block=*/true,
                       /*refit_tail=*/true, use_fs_buffer, rounddown_offset,
