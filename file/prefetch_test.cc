@@ -3814,13 +3814,10 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   }
 }
 
-TEST_P(FSBufferPrefetchTest, FSBufferPrefetchForCompaction) {
-  // Quick test to make sure file system buffer reuse is disabled for compaction
-  // reads. Will update once it is re-enabled
-  // Primarily making sure we do not hit unsigned integer overflow issues
-  std::string fname = "fs-buffer-prefetch-for-compaction";
+TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
+  std::string fname = "fs-buffer-prefetch-randomized";
   Random rand(0);
-  std::string content = rand.RandomString(32768);
+  std::string content = rand.RandomString(64 * 1024 * 1024);
   Write(fname, content);
 
   FileOptions opts;
@@ -3829,45 +3826,39 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchForCompaction) {
 
   std::shared_ptr<Statistics> stats = CreateDBStatistics();
   ReadaheadParams readahead_params;
-  readahead_params.initial_readahead_size = 8192;
-  readahead_params.max_readahead_size = 8192;
-  bool use_async_prefetch = GetParam();
-  // Async IO is not enabled for compaction prefetching
-  if (use_async_prefetch) {
+  readahead_params.initial_readahead_size = 512;
+  readahead_params.max_readahead_size = 2048;
+  bool use_async_prefetch = std::get<0>(GetParam());
+  bool for_compaction = std::get<1>(GetParam());
+  if (use_async_prefetch && for_compaction) {
     return;
   }
-  readahead_params.num_buffers = 1;
+  size_t num_buffers = use_async_prefetch ? 2 : 1;
+  readahead_params.num_buffers = num_buffers;
 
   FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
                          stats.get());
 
   Slice result;
   Status s;
-  ASSERT_TRUE(
-      fpb.TryReadFromCache(IOOptions(), r.get(), 0, 4096, &result, &s, true));
-  ASSERT_EQ(s, Status::OK());
-  ASSERT_EQ(strncmp(result.data(), content.substr(0, 4096).c_str(), 4096), 0);
 
-  fpb.UpdateReadPattern(4096, 4096, false);
-
-  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 8192, 8192, &result,
-                                   &s, true));
-  ASSERT_EQ(s, Status::OK());
-  ASSERT_EQ(strncmp(result.data(), content.substr(8192, 8192).c_str(), 8192),
-            0);
-
-  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 12288, 4096, &result,
-                                   &s, true));
-  ASSERT_EQ(s, Status::OK());
-  ASSERT_EQ(strncmp(result.data(), content.substr(12288, 4096).c_str(), 4096),
-            0);
-
-  // Read from 16000-26000 (start and end do not meet normal alignment)
-  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 16000, 10000, &result,
-                                   &s, true));
-  ASSERT_EQ(s, Status::OK());
-  ASSERT_EQ(strncmp(result.data(), content.substr(16000, 10000).c_str(), 10000),
-            0);
+  uint64_t offset = 0;
+  Random rnd(301);
+  for (int i = 0; i < 1000; i++) {
+    size_t len = rnd.Uniform(16 * 1024);
+    if (offset >= content.size()) {
+      std::cout << "Ran for " << i << " iterations" << std::endl;
+      break;
+    }
+    if (fpb.TryReadFromCache(IOOptions(), r.get(), offset, len, &result, &s,
+                             true)) {
+      ASSERT_EQ(strncmp(result.data(),
+                        content.substr(offset, offset + len).c_str(), len),
+                0);
+    }
+    offset += len;
+  }
+  std::cout << "Final offset: " << offset << std::endl;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
