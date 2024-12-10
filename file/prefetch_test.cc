@@ -3802,6 +3802,53 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   }
 }
 
+TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
+  std::string fname = "fs-buffer-prefetch-randomized";
+  Random rand(0);
+  std::string content = rand.RandomString(64 * 1024 * 1024);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 512;
+  readahead_params.max_readahead_size = 2048;
+  bool use_async_prefetch = std::get<0>(GetParam());
+  bool for_compaction = std::get<1>(GetParam());
+  if (use_async_prefetch && for_compaction) {
+    return;
+  }
+  size_t num_buffers = use_async_prefetch ? 2 : 1;
+  readahead_params.num_buffers = num_buffers;
+
+  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
+                         stats.get());
+
+  Slice result;
+  Status s;
+
+  uint64_t offset = 0;
+  Random rnd(301);
+  for (int i = 0; i < 1000; i++) {
+    size_t len = rnd.Uniform(16 * 1024);
+    if (offset >= content.size()) {
+      std::cout << "Ran for " << i << " iterations" << std::endl;
+      break;
+    }
+    if (fpb.TryReadFromCache(IOOptions(), r.get(), offset, len, &result, &s,
+                             true)) {
+      ASSERT_EQ(strncmp(result.data(),
+                        content.substr(offset, offset + len).c_str(), len),
+                0);
+    }
+    offset += len;
+  }
+  std::cout << "Final offset: " << offset << std::endl;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
