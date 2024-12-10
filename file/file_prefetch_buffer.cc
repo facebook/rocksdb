@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cinttypes>
 
 #include "file/random_access_file_reader.h"
 #include "monitoring/histogram.h"
@@ -203,6 +204,7 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
   if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail && s.ok()) {
     RecordInHistogram(stats_, TABLE_OPEN_PREFETCH_TAIL_READ_BYTES, read_len);
   }
+  assert(buf->offset_ <= offset);
   return s;
 }
 
@@ -817,8 +819,16 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
       assert(reader != nullptr);
       assert(max_readahead_size_ >= readahead_size_);
 
+      // We disallow async IO for compaction reads since their
+      // latencies are not user-visible
       if (for_compaction) {
-        s = Prefetch(opts, reader, offset, std::max(n, readahead_size_));
+        assert(num_buffers_ == 1);
+        uint64_t trimmed_readahead_size = 0;
+        if (n < readahead_size_) {
+          trimmed_readahead_size = readahead_size_ - n;
+        }
+        s = PrefetchInternal(opts, reader, offset, n, trimmed_readahead_size,
+                             copy_to_overlap_buffer);
       } else {
         if (implicit_auto_readahead_) {
           if (!IsEligibleForPrefetch(offset, n)) {
@@ -861,6 +871,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
   if (copy_to_overlap_buffer) {
     buf = overlap_buf_;
   }
+  assert(buf->offset_ <= offset);
   uint64_t offset_in_buffer = offset - buf->offset_;
   *result = Slice(buf->buffer_.BufferStart() + offset_in_buffer, n);
   if (prefetched) {
