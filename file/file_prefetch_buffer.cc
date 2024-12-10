@@ -93,11 +93,10 @@ void FilePrefetchBuffer::PrepareBufferForRead(
 Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
                                 RandomAccessFileReader* reader,
                                 uint64_t read_len, uint64_t aligned_useful_len,
-                                uint64_t start_offset) {
+                                uint64_t start_offset, bool use_fs_buffer) {
   Slice result;
   Status s;
   char* to_buf = nullptr;
-  bool use_fs_buffer = UseFSBuffer(reader);
   if (use_fs_buffer) {
     s = FSBufferDirectRead(reader, buf, opts, start_offset + aligned_useful_len,
                            read_len, result);
@@ -197,12 +196,14 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
 
   Status s;
   if (read_len > 0) {
-    s = Read(buf, opts, reader, read_len, aligned_useful_len, rounddown_offset);
+    s = Read(buf, opts, reader, read_len, aligned_useful_len, rounddown_offset,
+             use_fs_buffer);
   }
 
   if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail && s.ok()) {
     RecordInHistogram(stats_, TABLE_OPEN_PREFETCH_TAIL_READ_BYTES, read_len);
   }
+  assert(buf->offset_ <= offset);
   return s;
 }
 
@@ -733,7 +734,8 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   }
 
   if (read_len1 > 0) {
-    s = Read(buf, opts, reader, read_len1, aligned_useful_len1, start_offset1);
+    s = Read(buf, opts, reader, read_len1, aligned_useful_len1, start_offset1,
+             use_fs_buffer);
     if (!s.ok()) {
       AbortAllIOs();
       FreeAllBuffers();
@@ -861,6 +863,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
   if (copy_to_overlap_buffer) {
     buf = overlap_buf_;
   }
+  assert(buf->offset_ <= offset);
   uint64_t offset_in_buffer = offset - buf->offset_;
   *result = Slice(buf->buffer_.BufferStart() + offset_in_buffer, n);
   if (prefetched) {

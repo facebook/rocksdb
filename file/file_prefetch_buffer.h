@@ -430,7 +430,8 @@ class FilePrefetchBuffer {
 
   Status Read(BufferInfo* buf, const IOOptions& opts,
               RandomAccessFileReader* reader, uint64_t read_len,
-              uint64_t aligned_useful_len, uint64_t start_offset);
+              uint64_t aligned_useful_len, uint64_t start_offset,
+              bool use_fs_buffer);
 
   Status ReadAsync(BufferInfo* buf, const IOOptions& opts,
                    RandomAccessFileReader* reader, uint64_t read_len,
