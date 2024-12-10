@@ -16,6 +16,7 @@
 
 #include "db/log_format.h"
 #include "file/sequence_file_reader.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -123,6 +124,20 @@ class Reader {
     return !first_record_read_ && compression_type_record_read_;
   }
 
+  IOStatus Skip(uint64_t n) {
+    if (n == 0) {
+      return IOStatus::OK();
+    }
+    auto s = file_->Skip(n);
+    if (!s.ok()) {
+      return s;
+    }
+    end_of_buffer_offset_ += n;
+    may_skip_first_fragmented_record_ = true;
+    buffer_.clear();
+    return s;
+  }
+
  protected:
   std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;
@@ -169,6 +184,10 @@ class Reader {
   // The recorded user-defined timestamp sizes that have been read so far. This
   // is only for WAL logs.
   UnorderedMap<uint32_t, size_t> recorded_cf_to_ts_sz_;
+
+  // if log reader is skipped, may need to drop bytes
+  // until seek to the first of a record
+  bool may_skip_first_fragmented_record_;
 
   // Extend record types with the following special values
   enum {
