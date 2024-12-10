@@ -78,7 +78,10 @@ class StressTest {
     // first write fails
     if (!write_s.ok() && (*initial_write_s).ok()) {
       *initial_write_s = write_s;
+      // With commit_bypass_memtable_one_in > 0, error status may come from
+      // SwitchMemTable() which happens after WAL write.
       *initial_wal_write_may_succeed =
+          FLAGS_commit_bypass_memtable_one_in > 0 ||
           !FaultInjectionTestFS::IsFailedToWriteToWALError(*initial_write_s);
       *wait_for_recover_start_time = db_stress_env->NowMicros();
     }
