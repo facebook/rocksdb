@@ -437,4 +437,47 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * @return The compaction read-ahead size
    */
   long compactionReadaheadSize();
+
+  /**
+   * Implementing off-peak duration awareness in RocksDB. In this context,
+   * "off-peak time" signifies periods characterized by significantly less read
+   * and write activity compared to other times. By leveraging this knowledge,
+   * we can prevent low-priority tasks, such as TTL-based compactions, from
+   * competing with read and write operations during peak hours. Essentially, we
+   * preprocess these tasks during the preceding off-peak period, just before
+   * the next peak cycle begins. For example, if the TTL is configured for 25
+   * days, we may compact the files during the off-peak hours of the 24th day.
+   *
+   * Time of the day in UTC, start_time-end_time inclusive.
+   * Format - HH:mm-HH:mm (00:00-23:59)
+   * If the start time exceeds the end time, it will be considered that the time period
+   * spans to the next day (e.g., 23:30-04:00). To make an entire day off-peak,
+   * use "0:00-23:59". To make an entire day have no offpeak period, leave
+   * this field blank. Default: Empty string (no offpeak).
+   *
+   * @param offpeakTimeUTC String value from which to parse offpeak time range
+   */
+  T setDailyOffpeakTimeUTC(final String offpeakTimeUTC);
+
+  /**
+   *
+   * Implementing off-peak duration awareness in RocksDB. In this context,
+   * "off-peak time" signifies periods characterized by significantly less read
+   * and write activity compared to other times. By leveraging this knowledge,
+   * we can prevent low-priority tasks, such as TTL-based compactions, from
+   * competing with read and write operations during peak hours. Essentially, we
+   * preprocess these tasks during the preceding off-peak period, just before
+   * the next peak cycle begins. For example, if the TTL is configured for 25
+   * days, we may compact the files during the off-peak hours of the 24th day.
+   *
+   * Time of the day in UTC, start_time-end_time inclusive.
+   * Format - HH:mm-HH:mm (00:00-23:59)
+   * If the start time exceeds the end time, it will be considered that the time period
+   * spans to the next day (e.g., 23:30-04:00). To make an entire day off-peak,
+   * use "0:00-23:59". To make an entire day have no offpeak period, leave
+   * this field blank. Default: Empty string (no offpeak).
+   *
+   * @return String value of current offpeak time range, "" if none is set.
+   */
+  String dailyOffpeakTimeUTC();
 }
