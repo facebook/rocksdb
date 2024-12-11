@@ -218,7 +218,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
                                 Iterator* base_iterator,
                                 const ReadOptions* opts = nullptr);
   // default column family
-  Iterator* NewIteratorWithBase(Iterator* base_iterator);
+  Iterator* NewIteratorWithBase(Iterator* base_iterator,
+                                const ReadOptions* opts = nullptr);
 
   // Similar to DB::Get() but will only read the key from this batch.
   // If the batch does not have enough data to resolve Merge operations,
