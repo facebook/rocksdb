@@ -3842,8 +3842,8 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
     ASSERT_EQ(overlap_buffer_info.first, 30);
     ASSERT_EQ(overlap_buffer_info.second, 20);
     // Main buffer starts at offset 47 and has length 40-17=23
-    // max(20, 2 * 20) = 40
-    // 40 - (47 - 30) = 23
+    // Target read size is max(20, 2 * 20) = 40, but since bytes 30-47 already
+    // were there, main buffer ends up with 40 - (47 - 30) = 23 bytes
     ASSERT_EQ(std::get<0>(buffer_info[0]), 47);
     ASSERT_EQ(std::get<1>(buffer_info[0]), 23);
   } else if (use_async_prefetch) {
@@ -3914,7 +3914,19 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
     ASSERT_EQ(strncmp(result.data(),
                       content.substr(offset, offset + len).c_str(), len),
               0);
-    offset += len;
+    if (i % 4 == 0) {
+      // Test reads where we "skip forward" in the file more than we could read
+      // ahead
+      offset += len + 2 * readahead_params.max_readahead_size;
+    } else if (i % 4 == 1) {
+      // Test reads where we "skip forward" in the file but should have some
+      // overlap with the read ahead data
+      offset += len + readahead_params.max_readahead_size / 2;
+    } else {
+      // Test "back to back" reads (next read starts right at end of previous
+      // one)
+      offset += len;
+    }
   }
 }
 
