@@ -3823,7 +3823,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
   // We scan through a file reading between 0 and 16 KiB at a time
   std::string fname = "fs-buffer-prefetch-randomized";
   Random rand(0);
-  std::string content = rand.RandomString(16 * 1024 * 100);
+  std::string content = rand.RandomString(16 * 1024 * 1024);
   Write(fname, content);
 
   FileOptions opts;
@@ -3849,15 +3849,20 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
   Status s;
 
   uint64_t offset = 0;
-  Random rnd(301);
-  for (int i = 0; i < 100; i++) {
+  Random rnd(987654);
+  for (int i = 0; i < 1000; i++) {
     size_t len = rnd.Uniform(16 * 1024);
     if (offset >= content.size()) {
       std::cout << "Stopped early after " << i << " iterations" << std::endl;
       break;
     }
-    ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), offset, len, &result,
-                                     &s, for_compaction));
+    bool could_read_from_cache = fpb.TryReadFromCache(
+        IOOptions(), r.get(), offset, len, &result, &s, for_compaction);
+    // Platforms that don't have IO uring may not support async IO.
+    if (use_async_prefetch && s.IsNotSupported()) {
+      return;
+    }
+    ASSERT_TRUE(could_read_from_cache);
     ASSERT_EQ(s, Status::OK());
     ASSERT_EQ(strncmp(result.data(),
                       content.substr(offset, offset + len).c_str(), len),
