@@ -3290,6 +3290,53 @@ TEST_F(FilePrefetchBufferTest, SyncReadaheadStats) {
       /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
 }
 
+TEST_F(FilePrefetchBufferTest, ForCompaction) {
+  // Make sure TryReadWithCache with for_compaction=true works without file
+  // system buffer reuse optimization
+  std::string fname = "fs-prefetch-buffer-for-compaction";
+  Random rand(0);
+  std::string content = rand.RandomString(64 * 1024);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 8192;
+  readahead_params.max_readahead_size = 8192;
+  readahead_params.num_buffers = 1;
+
+  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), nullptr,
+                         stats.get());
+
+  Slice result;
+  Status s;
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 0, 3000, &result, &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(0, 3000).c_str(), 3000), 0);
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 3000, 10000, &result,
+                                   &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(3000, 10000).c_str(), 10000),
+            0);
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 15000, 4096, &result,
+                                   &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(15000, 4096).c_str(), 4096),
+            0);
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 40000, 20000, &result,
+                                   &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(40000, 20000).c_str(), 20000),
+            0);
+}
+
 class FSBufferPrefetchTest
     : public testing::Test,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
