@@ -47,7 +47,6 @@ DECLARE_int32(open_read_fault_one_in);
 DECLARE_int32(inject_error_severity);
 DECLARE_bool(disable_auto_compactions);
 DECLARE_bool(enable_compaction_filter);
-DECLARE_uint32(commit_bypass_memtable_one_in);
 
 namespace ROCKSDB_NAMESPACE {
 class StressTest;
