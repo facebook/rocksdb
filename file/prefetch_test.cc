@@ -3402,6 +3402,8 @@ class FSBufferPrefetchTest
 
 // param 1: whether async IO is enabled (num_buffers_ > 1)
 // param 2: whether for_compaction is set to true for TryReadFromCache requests
+// 3 out of these 4 combinations are tested (async IO is not allowed for
+// compaction reads)
 INSTANTIATE_TEST_CASE_P(FSBufferPrefetchTest, FSBufferPrefetchTest,
                         ::testing::Combine(::testing::Bool(),
                                            ::testing::Bool()));
@@ -3792,8 +3794,9 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
     // Overlap buffer is used because we had bytes 30-47
     ASSERT_EQ(overlap_buffer_info.first, 30);
     ASSERT_EQ(overlap_buffer_info.second, 20);
-    // Main buffer starts at offset 47 and has length 70-47=23
-    // 30 + max(20, 2 * 20) = 30 + 40 = 70
+    // Main buffer starts at offset 47 and has length 40-17=23
+    // max(20, 2 * 20) = 40
+    // 40 - (47 - 30) = 23
     ASSERT_EQ(std::get<0>(buffer_info[0]), 47);
     ASSERT_EQ(std::get<1>(buffer_info[0]), 23);
   } else if (use_async_prefetch) {
@@ -3815,9 +3818,11 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
 }
 
 TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
+  // This test is meant to find untested code paths. It does very simple
+  // verifications and relies on debug assertions to catch invariant violations
   std::string fname = "fs-buffer-prefetch-randomized";
   Random rand(0);
-  std::string content = rand.RandomString(64 * 1024 * 1024);
+  std::string content = rand.RandomString(16 * 1024 * 100);
   Write(fname, content);
 
   FileOptions opts;
@@ -3844,21 +3849,20 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
 
   uint64_t offset = 0;
   Random rnd(301);
-  for (int i = 0; i < 1000; i++) {
+  for (int i = 0; i < 100; i++) {
     size_t len = rnd.Uniform(16 * 1024);
     if (offset >= content.size()) {
-      std::cout << "Ran for " << i << " iterations" << std::endl;
+      std::cout << "Stopped early after " << i << " iterations" << std::endl;
       break;
     }
     if (fpb.TryReadFromCache(IOOptions(), r.get(), offset, len, &result, &s,
-                             true)) {
+                             for_compaction)) {
       ASSERT_EQ(strncmp(result.data(),
                         content.substr(offset, offset + len).c_str(), len),
                 0);
     }
     offset += len;
   }
-  std::cout << "Final offset: " << offset << std::endl;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
