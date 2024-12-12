@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cinttypes>
 
 #include "file/random_access_file_reader.h"
 #include "monitoring/histogram.h"
@@ -824,6 +823,10 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
       // latencies are not user-visible
       if (for_compaction) {
         assert(num_buffers_ == 1);
+        // The readahead size for compaction reads is different and the
+        // historical reason is not clear at the moment. TODO: revisit whether
+        // we want to just use the "regular" logic and readahead by the full
+        // readahize_size_.
         uint64_t trimmed_readahead_size = 0;
         if (n < readahead_size_) {
           trimmed_readahead_size = readahead_size_ - n;
