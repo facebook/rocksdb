@@ -3820,6 +3820,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
 TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
   // This test is meant to find untested code paths. It does very simple
   // verifications and relies on debug assertions to catch invariant violations
+  // We scan through a file reading between 0 and 16 KiB at a time
   std::string fname = "fs-buffer-prefetch-randomized";
   Random rand(0);
   std::string content = rand.RandomString(16 * 1024 * 100);
@@ -3855,12 +3856,12 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
       std::cout << "Stopped early after " << i << " iterations" << std::endl;
       break;
     }
-    if (fpb.TryReadFromCache(IOOptions(), r.get(), offset, len, &result, &s,
-                             for_compaction)) {
-      ASSERT_EQ(strncmp(result.data(),
-                        content.substr(offset, offset + len).c_str(), len),
-                0);
-    }
+    ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), offset, len, &result,
+                                     &s, for_compaction));
+    ASSERT_EQ(s, Status::OK());
+    ASSERT_EQ(strncmp(result.data(),
+                      content.substr(offset, offset + len).c_str(), len),
+              0);
     offset += len;
   }
 }
