@@ -35,16 +35,19 @@ class FaissIVFIndex : public SecondaryIndex {
       const override;
 
   Status GetSecondaryKeyPrefix(
-      const Slice& primary_key, const Slice& primary_column_value,
+      const Slice& primary_column_value,
       std::variant<Slice, std::string>* secondary_key_prefix) const override;
 
-  Status GetSecondaryValue(const Slice& primary_key,
-                           const Slice& primary_column_value,
+  Status GetSecondaryValue(const Slice& primary_column_value,
                            const Slice& original_column_value,
                            std::optional<std::variant<Slice, std::string>>*
                                secondary_value) const override;
 
+  std::unique_ptr<Iterator> NewIterator(const ReadOptions& read_options,
+                                        Iterator* underlying_it) const override;
+
  private:
+  class KNNIterator;
   class Adapter;
 
   static std::string SerializeLabel(faiss::idx_t label);

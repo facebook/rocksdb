@@ -1940,6 +1940,23 @@ struct ReadOptions {
   // Default: false
   bool allow_unprepared_value = false;
 
+  // The maximum number of neighbors K to return when performing a
+  // K-nearest-neighbors vector similarity search. The number of neighbors
+  // returned can be smaller if there are not enough vectors in the inverted
+  // lists probed. Only applicable to FAISS IVF secondary indices. See also
+  // `SecondaryIndex::NewIterator` and `similarity_search_probes` below.
+  //
+  // Default: 10
+  size_t similarity_search_neighbors = 10;
+
+  // The number of inverted lists to probe when performing a K-nearest-neighbors
+  // vector similarity search. Only applicable to FAISS IVF secondary indices.
+  // See also `SecondaryIndex::NewIterator` and `similarity_search_neighbors`
+  // above.
+  //
+  // Default: 1
+  size_t similarity_search_probes = 1;
+
   // *** END options only relevant to iterators or scans ***
 
   // *** BEGIN options for RocksDB internal use only ***
