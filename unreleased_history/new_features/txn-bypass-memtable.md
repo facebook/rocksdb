@@ -1,1 +1,0 @@
-* Introduce `TransactionOptions::commit_bypass_memtable` to enable transaction commit to bypass memtable insertions. This can be beneficial for transactions with many operations, as it reduces commit time that is mostly spent on memtable insertion.  

@@ -1,1 +1,0 @@
-* DB::KeyMayExist() now follows its function comment, which means `value` parameter can be null, and it will be set only if `value_found` is passed in.
