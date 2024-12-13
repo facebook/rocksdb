@@ -478,6 +478,11 @@ void DBImpl::WaitForBackgroundWork() {
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
          bg_flush_scheduled_) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "[Micheal_Log] WaitForBackgroundWork - bg_bottom_compaction_scheduled_: %d, bg_compaction_scheduled_: %d, bg_flush_scheduled_: %d", 
+                       bg_bottom_compaction_scheduled_,
+                       bg_compaction_scheduled_,
+                       bg_flush_scheduled_);
     bg_cv_.Wait();
   }
 }
@@ -787,27 +792,39 @@ Status DBImpl::StartPeriodicTaskScheduler() {
 
 #endif  // !NDEBUG
   if (mutable_db_options_.stats_dump_period_sec > 0) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] StartPeriodicTaskScheduler: Start Register task: %d",
+                  static_cast<uint8_t>(PeriodicTaskType::kDumpStats));
     Status s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kDumpStats,
         periodic_task_functions_.at(PeriodicTaskType::kDumpStats),
         mutable_db_options_.stats_dump_period_sec);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] StartPeriodicTaskScheduler: Finished Register task: %d, Status: %s",
+                  static_cast<uint8_t>(PeriodicTaskType::kDumpStats), s.ToString().c_str());
     if (!s.ok()) {
       return s;
     }
   }
   if (mutable_db_options_.stats_persist_period_sec > 0) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] StartPeriodicTaskScheduler: Start Register task: %d",
+                  static_cast<uint8_t>(PeriodicTaskType::kPersistStats));
     Status s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kPersistStats,
         periodic_task_functions_.at(PeriodicTaskType::kPersistStats),
         mutable_db_options_.stats_persist_period_sec);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] StartPeriodicTaskScheduler: Finished Register task: %d, Status: %s",
+                  static_cast<uint8_t>(PeriodicTaskType::kPersistStats), s.ToString().c_str());
     if (!s.ok()) {
       return s;
     }
   }
 
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] StartPeriodicTaskScheduler: Start Register task: %d",
+                  static_cast<uint8_t>(PeriodicTaskType::kFlushInfoLog));
   Status s = periodic_task_scheduler_.Register(
       PeriodicTaskType::kFlushInfoLog,
       periodic_task_functions_.at(PeriodicTaskType::kFlushInfoLog));
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] StartPeriodicTaskScheduler: Finished Register task: %d, Status: %s",
+                  static_cast<uint8_t>(PeriodicTaskType::kFlushInfoLog), s.ToString().c_str());
 
   return s;
 }
@@ -934,8 +951,12 @@ Status DBImpl::CancelPeriodicTaskScheduler() {
   Status s = Status::OK();
   for (uint8_t task_type = 0;
        task_type < static_cast<uint8_t>(PeriodicTaskType::kMax); task_type++) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] CancelPeriodicTaskScheduler: About to unregister task_type: %d", task_type);
     s = periodic_task_scheduler_.Unregister(
         static_cast<PeriodicTaskType>(task_type));
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] CancelPeriodicTaskScheduler: Finished unregister task_type: %d, status: %s",
+                  task_type,
+                  s.ToString().c_str());
     if (!s.ok()) {
       ROCKS_LOG_WARN(immutable_db_options_.info_log,
                      "Failed to unregister periodic task %d, status: %s",

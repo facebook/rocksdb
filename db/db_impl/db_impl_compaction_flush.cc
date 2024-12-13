@@ -1946,7 +1946,9 @@ Status DBImpl::FlushAllColumnFamilies(const FlushOptions& flush_options,
   Status status;
   if (immutable_db_options_.atomic_flush) {
     mutex_.Unlock();
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushAllColumnFamilies: Start AtomicFlushMemTables.");
     status = AtomicFlushMemTables(flush_options, flush_reason);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushAllColumnFamilies: Finished AtomicFlushMemTables. Status: %s\n", status.ToString().c_str());
     if (status.IsColumnFamilyDropped()) {
       status = Status::OK();
     }
@@ -1957,10 +1959,14 @@ Status DBImpl::FlushAllColumnFamilies(const FlushOptions& flush_options,
         continue;
       }
       mutex_.Unlock();
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushAllColumnFamilies: Start FlushMemTable. ColumnFamily: %s\n", cfd->GetName().c_str());
       status = FlushMemTable(cfd, flush_options, flush_reason);
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushAllColumnFamilies: Finished FlushMemTable. ColumnFamily: %s, Status: %s\n",
+                    cfd->GetName().c_str(), status.ToString().c_str());
       TEST_SYNC_POINT("DBImpl::FlushAllColumnFamilies:1");
       TEST_SYNC_POINT("DBImpl::FlushAllColumnFamilies:2");
       mutex_.Lock();
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushAllColumnFamilies: Mutex acquired.");
       if (!status.ok() && !status.IsColumnFamilyDropped()) {
         break;
       } else if (status.IsColumnFamilyDropped()) {
@@ -1978,9 +1984,13 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
                  cfh->GetName().c_str());
   Status s;
   if (immutable_db_options_.atomic_flush) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] Flush: Start AtomicFlushMemTables for column family: %s",
+                  cfh->GetName().c_str());
     s = AtomicFlushMemTables(flush_options, FlushReason::kManualFlush,
                              {cfh->cfd()});
   } else {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] Flush: Start FlushMemTable for column family: %s",
+                  cfh->GetName().c_str());
     s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
   }
 
@@ -2283,7 +2293,11 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   Status s;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Start WaitUntilFlushWouldNotStallWrites for column family: %s",
+                  cfd->GetName().c_str());
     s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Finished WaitUntilFlushWouldNotStallWrites for column family: %s, Status: %s",
+                  cfd->GetName().c_str(), s.ToString().c_str());
     TEST_SYNC_POINT("DBImpl::FlushMemTable:StallWaitDone");
     if (!s.ok() || !flush_needed) {
       return s;
@@ -2305,7 +2319,11 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
       }
     }
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Start WaitForPendingWrites for column family: %s",
+                  cfd->GetName().c_str());
     WaitForPendingWrites();
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Finished WaitForPendingWrites for column family: %s",
+                  cfd->GetName().c_str());
 
     if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
       s = SwitchMemtable(cfd, &context);
@@ -2372,15 +2390,31 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         }
       }
       for (const auto& req : flush_reqs) {
+        ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Start SchedulePendingFlush for column family: %s",
+                  cfd->GetName().c_str());
         SchedulePendingFlush(req);
+        ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Finished SchedulePendingFlush for column family: %s",
+                  cfd->GetName().c_str());
       }
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Start MaybeScheduleFlushOrCompaction for column family: %s",
+                  cfd->GetName().c_str());
       MaybeScheduleFlushOrCompaction();
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Finished MaybeScheduleFlushOrCompaction for column family: %s",
+                  cfd->GetName().c_str());
     }
 
     if (needs_to_join_write_thread) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Start write_thread_.ExitUnbatched for column family: %s",
+                  cfd->GetName().c_str());
       write_thread_.ExitUnbatched(&w);
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Finished write_thread_.ExitUnbatched for column family: %s",
+                  cfd->GetName().c_str());
       if (two_write_queues_) {
+        ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Start nonmem_write_thread_.ExitUnbatched for column family: %s",
+                  cfd->GetName().c_str());
         nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+        ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Finished nonmem_write_thread_.ExitUnbatched for column family: %s",
+                  cfd->GetName().c_str());
       }
     }
   }
@@ -2395,9 +2429,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       cfds.push_back(flush_reqs[i].cfd_to_max_mem_id_to_persist.begin()->first);
       flush_memtable_ids.push_back(&(memtable_ids_to_wait[i]));
     }
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Start WaitForFlushMemTables for column family: %s",
+                  cfd->GetName().c_str());
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
         flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] FlushMemTable: Finished WaitForFlushMemTables for column family: %s, Status: %s",
+                  cfd->GetName().c_str(), s.ToString().c_str());
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
       tmp_cfd->UnrefAndTryDelete();
@@ -2439,7 +2477,11 @@ Status DBImpl::AtomicFlushMemTables(
     int num_cfs_to_flush = 0;
     for (auto cfd : candidate_cfds) {
       bool flush_needed = true;
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Start WaitUntilFlushWouldNotStallWrites for column family: %s",
+                  cfd->GetName().c_str());
       s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Finished WaitUntilFlushWouldNotStallWrites for column family: %s, Status: %s",
+                  cfd->GetName().c_str(), s.ToString().c_str());
       if (!s.ok()) {
         // Unref the newly generated candidate cfds (when not provided) in
         // `candidate_cfds`
@@ -2479,7 +2521,9 @@ Status DBImpl::AtomicFlushMemTables(
         nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
       }
     }
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Start WaitForPendingWrites");
     WaitForPendingWrites();
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Finished WaitForPendingWrites");
 
     SelectColumnFamiliesForAtomicFlush(&cfds, candidate_cfds);
 
@@ -2517,14 +2561,22 @@ Status DBImpl::AtomicFlushMemTables(
         }
       }
       GenerateFlushRequest(cfds, flush_reason, &flush_req);
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Start SchedulePendingFlush");
       SchedulePendingFlush(flush_req);
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Finish SchedulePendingFlush");
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Start MaybeScheduleFlushOrCompaction");
       MaybeScheduleFlushOrCompaction();
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Finish MaybeScheduleFlushOrCompaction");
     }
 
     if (needs_to_join_write_thread) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Start write_thread_.ExitUnbatched");
       write_thread_.ExitUnbatched(&w);
+      ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Finish write_thread_.ExitUnbatched");
       if (two_write_queues_) {
+        ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Start nonmem_write_thread_.ExitUnbatched");
         nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+        ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Finish nonmem_write_thread_.ExitUnbatched");
       }
     }
   }
@@ -2535,9 +2587,12 @@ Status DBImpl::AtomicFlushMemTables(
     for (auto& iter : flush_req.cfd_to_max_mem_id_to_persist) {
       flush_memtable_ids.push_back(&(iter.second));
     }
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Start WaitForFlushMemTables");
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
         flush_reason == FlushReason::kErrorRecovery /* resuming_from_bg_err */);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] AtomicFlushMemTables: Finished WaitForFlushMemTables. Status: %s",
+                  s.ToString().c_str());
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* cfd : cfds) {
       cfd->UnrefAndTryDelete();

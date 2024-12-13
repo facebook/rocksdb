@@ -220,6 +220,8 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
                      bool* switched_to_mempurge, bool* skipped_since_bg_error,
                      ErrorHandler* error_handler) {
   TEST_SYNC_POINT("FlushJob::Start");
+  ROCKS_LOG_INFO(db_options_.info_log, "[Micheal_Log] FlushJob::Run: Starting for column family: %s",
+                  cfd_->GetName().c_str());
   db_mutex_->AssertHeld();
   assert(pick_memtable_called);
   // Mempurge threshold can be dynamically changed.
@@ -380,6 +382,8 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
            << (IOSTATS(cpu_read_nanos) - prev_cpu_read_nanos);
   }
 
+  ROCKS_LOG_INFO(db_options_.info_log, "[Micheal_Log] FlushJob::Run: Finished for column family: %s, Status: %s",
+                  cfd_->GetName().c_str(), s.ToString().c_str());
   TEST_SYNC_POINT("FlushJob::End");
   return s;
 }
