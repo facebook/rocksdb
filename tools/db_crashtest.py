@@ -533,6 +533,7 @@ txn_params = {
     # txn commit with this option will create a new memtable, keep the
     # frequency low to reduce stalls
     "commit_bypass_memtable_one_in": random.choice([0] * 2 + [500, 1000]),
+    "two_write_queues": lambda: random.choice([0, 1]),
 }
 
 # For optimistic transaction db
