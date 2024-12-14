@@ -1985,7 +1985,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   } else {
     assert(impl->init_logger_creation_s_.ok());
   }
+  ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "[Micheal_Log] DBImpl::Open: Start WAL dir CreateDirIfMissing for db: %s",
+                  dbname.c_str());
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.GetWalDir());
+  ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "[Micheal_Log] DBImpl::Open: Finish WAL dir CreateDirIfMissing for db: %s, status: %s",
+                  dbname.c_str(), s.ToString().c_str());
   if (s.ok()) {
     std::vector<std::string> paths;
     for (auto& db_path : impl->immutable_db_options_.db_paths) {
@@ -1997,7 +2001,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       }
     }
     for (auto& path : paths) {
+      ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "[Micheal_Log] DBImpl::Open: Start CreateDirIfMissing for path: %s",
+                  path.c_str());
       s = impl->env_->CreateDirIfMissing(path);
+      ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "[Micheal_Log] DBImpl::Open: Finished CreateDirIfMissing for path: %s, status: %s",
+                  path.c_str(), s.ToString().c_str());
       if (!s.ok()) {
         break;
       }
@@ -2165,7 +2173,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     impl->opened_successfully_ = true;
     impl->DeleteObsoleteFiles();
     TEST_SYNC_POINT("DBImpl::Open:AfterDeleteFiles");
+    ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "[Micheal_Log] DBImpl::Open: Start MaybeScheduleFlushOrCompaction for db: %s",
+                  dbname.c_str());
     impl->MaybeScheduleFlushOrCompaction();
+    ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "[Micheal_Log] DBImpl::Open: Finished MaybeScheduleFlushOrCompaction for db: %s",
+                  dbname.c_str());
   } else {
     persist_options_status.PermitUncheckedError();
   }
@@ -2268,8 +2280,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         IOOptions opts;
         s = WritableFileWriter::PrepareIOOptions(write_options, opts);
         if (s.ok()) {
+          ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "[Micheal_Log] DBImpl::Open: Start FlushWAL sync for db: %s",
+                  dbname.c_str());
           s = log_writer->file()->Sync(opts,
                                        impl->immutable_db_options_.use_fsync);
+          ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "[Micheal_Log] DBImpl::Open: Finished FlushWAL sync for db: %s, status: %s",
+                  dbname.c_str(), s.ToString().c_str());
         }
       }
     }
@@ -2284,11 +2300,19 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                    "DB::Open() failed: %s", s.ToString().c_str());
   }
   if (s.ok()) {
+    ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "[Micheal_Log] DBImpl::Open: Start StartPeriodicTaskScheduler for db: %s",
+                  dbname.c_str());
     s = impl->StartPeriodicTaskScheduler();
+    ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "[Micheal_Log] DBImpl::Open: Finished StartPeriodicTaskScheduler for db: %s, status: %s",
+                  dbname.c_str(), s.ToString().c_str());
   }
   if (s.ok()) {
+    ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "[Micheal_Log] DBImpl::Open: Start RegisterRecordSeqnoTimeWorker for db: %s",
+                  dbname.c_str());
     s = impl->RegisterRecordSeqnoTimeWorker(read_options, write_options,
                                             recovery_ctx.is_new_db_);
+    ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "[Micheal_Log] DBImpl::Open: Finished RegisterRecordSeqnoTimeWorker for db: %s, status: %s",
+                  dbname.c_str(), s.ToString().c_str());
   }
   impl->options_mutex_.Unlock();
   if (!s.ok()) {

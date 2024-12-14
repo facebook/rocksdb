@@ -632,6 +632,8 @@ Status CompactionJob::Run() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
   TEST_SYNC_POINT("CompactionJob::Run():Start");
+  ROCKS_LOG_INFO(db_options_.info_log, "[Micheal_Log] CompactionJob::Run: Starting for db: %s, job_id: %d",
+                  dbname_.c_str(), job_id_);
   log_buffer_->FlushBufferToLog();
   LogCompaction();
 
@@ -854,6 +856,8 @@ Status CompactionJob::Run() {
   }
   RecordCompactionIOStats();
   LogFlush(db_options_.info_log);
+  ROCKS_LOG_INFO(db_options_.info_log, "[Micheal_Log] CompactionJob::Run: Finished for db: %s, job_id: %d, Status: %s",
+                  dbname_.c_str(), job_id_, status.ToString().c_str());
   TEST_SYNC_POINT("CompactionJob::Run():End");
   compact_->status = status;
   TEST_SYNC_POINT_CALLBACK("CompactionJob::Run():EndStatusSet", &status);
