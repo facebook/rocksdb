@@ -90,7 +90,7 @@ class CacheShardBase {
 class ShardedCacheBase : public Cache {
  public:
   explicit ShardedCacheBase(const ShardedCacheOptions& opts);
-  virtual ~ShardedCacheBase() = default;
+  virtual ~ShardedCacheBase() override = default;
 
   int GetNumShardBits() const;
   uint32_t GetNumShards() const;
@@ -143,7 +143,7 @@ class ShardedCache : public ShardedCacheBase {
             sizeof(CacheShard) * GetNumShards()))),
         destroy_shards_in_dtor_(false) {}
 
-  virtual ~ShardedCache() {
+  virtual ~ShardedCache() override {
     if (destroy_shards_in_dtor_) {
       ForEachShard([](CacheShard* cs) { cs->~CacheShard(); });
     }
