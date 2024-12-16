@@ -66,7 +66,7 @@ class UserKeyTablePropertiesCollector : public InternalTblPropColl {
   explicit UserKeyTablePropertiesCollector(TablePropertiesCollector* collector)
       : collector_(collector) {}
 
-  virtual ~UserKeyTablePropertiesCollector() {}
+  virtual ~UserKeyTablePropertiesCollector() override {}
 
   Status InternalAdd(const Slice& key, const Slice& value,
                      uint64_t file_size) override;

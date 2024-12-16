@@ -118,7 +118,7 @@ class BlockCacheTraceWriterImpl : public BlockCacheTraceWriter {
   BlockCacheTraceWriterImpl(SystemClock* clock,
                             const BlockCacheTraceWriterOptions& trace_options,
                             std::unique_ptr<TraceWriter>&& trace_writer);
-  ~BlockCacheTraceWriterImpl() = default;
+  ~BlockCacheTraceWriterImpl() override = default;
   // No copy and move.
   BlockCacheTraceWriterImpl(const BlockCacheTraceWriterImpl&) = delete;
   BlockCacheTraceWriterImpl& operator=(const BlockCacheTraceWriterImpl&) =
@@ -187,7 +187,7 @@ class BlockCacheHumanReadableTraceReader : public BlockCacheTraceReader {
  public:
   BlockCacheHumanReadableTraceReader(const std::string& trace_file_path);
 
-  ~BlockCacheHumanReadableTraceReader();
+  ~BlockCacheHumanReadableTraceReader() override;
 
   Status ReadHeader(BlockCacheTraceHeader* header);
 

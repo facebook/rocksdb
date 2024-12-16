@@ -5,7 +5,6 @@
 //
 #pragma once
 
-
 #include <limits>
 #include <list>
 #include <map>
@@ -236,7 +235,7 @@ class PersistentCacheTier : public PersistentCache {
  public:
   using Tier = std::shared_ptr<PersistentCacheTier>;
 
-  virtual ~PersistentCacheTier() {}
+  virtual ~PersistentCacheTier() override {}
 
   // Open the persistent cache tier
   virtual Status Open();
@@ -297,7 +296,7 @@ class PersistentCacheTier : public PersistentCache {
 // ease and support PersistentCache methods for accessing data.
 class PersistentTieredCache : public PersistentCacheTier {
  public:
-  virtual ~PersistentTieredCache();
+  virtual ~PersistentTieredCache() override;
 
   Status Open() override;
   Status Close() override;
@@ -337,4 +336,3 @@ class PersistentTieredCache : public PersistentCacheTier {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-
 #ifndef OS_WIN
 #include <unistd.h>
 #endif  // ! OS_WIN
@@ -50,7 +49,7 @@ class BlockCacheTier : public PersistentCacheTier {
          opt_.write_buffer_size, opt_.write_buffer_count());
   }
 
-  virtual ~BlockCacheTier() {
+  virtual ~BlockCacheTier() override {
     // Close is re-entrant so we can call close even if it is already closed
     Close().PermitUncheckedError();
     assert(!insert_th_.joinable());
@@ -151,4 +150,3 @@ class BlockCacheTier : public PersistentCacheTier {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

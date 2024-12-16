@@ -41,7 +41,7 @@ class Arena : public Allocator {
   // page TLB first. If allocation fails, will fall back to normal case.
   explicit Arena(size_t block_size = kMinBlockSize,
                  AllocTracker* tracker = nullptr, size_t huge_page_size = 0);
-  ~Arena();
+  ~Arena() override;
 
   char* Allocate(size_t bytes) override;
 

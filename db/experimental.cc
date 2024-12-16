@@ -37,7 +37,6 @@ Status PromoteL0(DB* db, ColumnFamilyHandle* column_family, int target_level) {
   return db->PromoteL0(column_family, target_level);
 }
 
-
 Status SuggestCompactRange(DB* db, const Slice* begin, const Slice* end) {
   return SuggestCompactRange(db, db->DefaultColumnFamily(), begin, end);
 }
@@ -517,7 +516,7 @@ class SstQueryFilterConfigImpl : public SstQueryFilterConfig {
       const KeySegmentsExtractor::KeyCategorySet& categories)
       : input_(input), categories_(categories) {}
 
-  virtual ~SstQueryFilterConfigImpl() = default;
+  virtual ~SstQueryFilterConfigImpl() override = default;
 
   virtual std::unique_ptr<SstQueryFilterBuilder> NewBuilder(
       bool sanity_checks) const = 0;

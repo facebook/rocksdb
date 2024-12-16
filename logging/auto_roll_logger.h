@@ -67,7 +67,7 @@ class AutoRollLogger : public Logger {
     }
   }
 
-  virtual ~AutoRollLogger() {
+  virtual ~AutoRollLogger() override {
     if (logger_ && !closed_) {
       logger_->Close().PermitUncheckedError();
     }

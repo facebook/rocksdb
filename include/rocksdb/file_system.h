@@ -296,7 +296,7 @@ class FileSystem : public Customizable {
   // No copying allowed
   FileSystem(const FileSystem&) = delete;
 
-  virtual ~FileSystem();
+  virtual ~FileSystem() override;
 
   static const char* Type() { return "FileSystem"; }
   static const char* kDefaultName() { return "DefaultFileSystem"; }

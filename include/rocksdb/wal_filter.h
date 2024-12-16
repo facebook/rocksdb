@@ -42,7 +42,7 @@ class WalFilter : public Customizable {
     kWalProcessingOptionMax = 4
   };
 
-  virtual ~WalFilter() {}
+  virtual ~WalFilter() override {}
 
   // Provide ColumnFamily->LogNumber map to filter
   // so that filter can determine whether a log number applies to a given

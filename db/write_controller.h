@@ -128,21 +128,21 @@ class StopWriteToken : public WriteControllerToken {
  public:
   explicit StopWriteToken(WriteController* controller)
       : WriteControllerToken(controller) {}
-  virtual ~StopWriteToken();
+  virtual ~StopWriteToken() override;
 };
 
 class DelayWriteToken : public WriteControllerToken {
  public:
   explicit DelayWriteToken(WriteController* controller)
       : WriteControllerToken(controller) {}
-  virtual ~DelayWriteToken();
+  virtual ~DelayWriteToken() override;
 };
 
 class CompactionPressureToken : public WriteControllerToken {
  public:
   explicit CompactionPressureToken(WriteController* controller)
       : WriteControllerToken(controller) {}
-  virtual ~CompactionPressureToken();
+  virtual ~CompactionPressureToken() override;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

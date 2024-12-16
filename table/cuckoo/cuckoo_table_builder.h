@@ -37,7 +37,7 @@ class CuckooTableBuilder : public TableBuilder {
   void operator=(const CuckooTableBuilder&) = delete;
 
   // REQUIRES: Either Finish() or Abandon() has been called.
-  ~CuckooTableBuilder() {}
+  ~CuckooTableBuilder() override {}
 
   // Add key,value to the table being constructed.
   // REQUIRES: key is after any previously added key according to comparator.
@@ -133,4 +133,3 @@ class CuckooTableBuilder : public TableBuilder {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

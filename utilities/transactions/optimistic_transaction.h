@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <stack>
 #include <string>
 #include <unordered_map>
@@ -34,7 +33,7 @@ class OptimisticTransaction : public TransactionBaseImpl {
   OptimisticTransaction(const OptimisticTransaction&) = delete;
   void operator=(const OptimisticTransaction&) = delete;
 
-  virtual ~OptimisticTransaction();
+  virtual ~OptimisticTransaction() override;
 
   void Reinitialize(OptimisticTransactionDB* txn_db,
                     const WriteOptions& write_options,
@@ -96,4 +95,3 @@ class OptimisticTransactionCallback : public WriteCallback {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

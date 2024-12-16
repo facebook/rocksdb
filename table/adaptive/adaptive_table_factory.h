@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <string>
 
 #include "rocksdb/options.h"
@@ -23,7 +22,7 @@ class TableBuilder;
 
 class AdaptiveTableFactory : public TableFactory {
  public:
-  ~AdaptiveTableFactory() {}
+  ~AdaptiveTableFactory() override {}
 
   explicit AdaptiveTableFactory(
       std::shared_ptr<TableFactory> table_factory_to_write,

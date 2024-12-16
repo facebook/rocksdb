@@ -65,7 +65,7 @@ class TestFSWritableFile : public FSWritableFile {
                               const FileOptions& file_opts,
                               std::unique_ptr<FSWritableFile>&& f,
                               FaultInjectionTestFS* fs);
-  virtual ~TestFSWritableFile();
+  virtual ~TestFSWritableFile() override;
   IOStatus Append(const Slice& data, const IOOptions&,
                   IODebugContext*) override;
   IOStatus Append(const Slice& data, const IOOptions& options,
@@ -113,7 +113,7 @@ class TestFSRandomRWFile : public FSRandomRWFile {
   explicit TestFSRandomRWFile(const std::string& fname,
                               std::unique_ptr<FSRandomRWFile>&& f,
                               FaultInjectionTestFS* fs);
-  virtual ~TestFSRandomRWFile();
+  virtual ~TestFSRandomRWFile() override;
   IOStatus Write(uint64_t offset, const Slice& data, const IOOptions& options,
                  IODebugContext* dbg) override;
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
@@ -185,7 +185,7 @@ class TestFSDirectory : public FSDirectory {
   explicit TestFSDirectory(FaultInjectionTestFS* fs, std::string dirname,
                            FSDirectory* dir)
       : fs_(fs), dirname_(std::move(dirname)), dir_(dir) {}
-  ~TestFSDirectory() {}
+  ~TestFSDirectory() override {}
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override;
 
@@ -589,8 +589,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   bool filesystem_writable_;  // Bypass FaultInjectionTestFS and go directly
                               // to underlying FS for writable files
   bool inject_unsynced_data_loss_;  // See InjectUnsyncedDataLoss()
-  bool read_unsynced_data_;   // See SetReadUnsyncedData()
-  bool allow_link_open_file_;  // See SetAllowLinkOpenFile()
+  bool read_unsynced_data_;         // See SetReadUnsyncedData()
+  bool allow_link_open_file_;       // See SetAllowLinkOpenFile()
   IOStatus fs_error_;
 
   enum ErrorType : int {

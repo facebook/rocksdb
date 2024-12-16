@@ -396,7 +396,7 @@ class InternalKeyComparator
   //    overhead, set `named` to false. In that case, `Name()` will return a
   //    generic name that is non-specific to the underlying comparator.
   explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
-  virtual ~InternalKeyComparator() {}
+  virtual ~InternalKeyComparator() override {}
 
   int Compare(const Slice& a, const Slice& b) const override;
 
