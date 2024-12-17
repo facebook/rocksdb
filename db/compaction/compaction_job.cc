@@ -245,7 +245,7 @@ void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
   compaction_job_stats_->is_full_compaction = compaction->is_full_compaction();
 }
 
-void CompactionJob::Prepare() {
+void CompactionJob::PrepareSubs() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PREPARE);
 
@@ -283,10 +283,12 @@ void CompactionJob::Prepare() {
     compact_->sub_compact_states.emplace_back(c, std::nullopt, std::nullopt,
                                               /*sub_job_id*/ 0);
   }
+}
 
+void CompactionJob::PrepareTimes() {
   // collect all seqno->time information from the input files which will be used
   // to encode seqno->time to the output files.
-
+  auto* c = compact_->compaction;
   uint64_t preserve_time_duration =
       std::max(c->mutable_cf_options()->preserve_internal_time_seconds,
                c->mutable_cf_options()->preclude_last_level_data_seconds);
@@ -341,6 +343,16 @@ void CompactionJob::Prepare() {
     // larger than kMaxSeqnoTimePairsPerSST.
     seqno_to_time_mapping_.SetCapacity(kMaxSeqnoToTimeEntries);
   }
+#ifndef NDEBUG
+  assert(preserve_time_min_seqno_ <= preclude_last_level_min_seqno_);
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
+      static_cast<void*>(&preclude_last_level_min_seqno_));
+  // Restore the invariant asserted above, in case it was broken under the
+  // callback
+  preserve_time_min_seqno_ =
+      std::min(preclude_last_level_min_seqno_, preserve_time_min_seqno_);
+#endif
 }
 
 uint64_t CompactionJob::GetSubcompactionsLimit() {
@@ -959,8 +971,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
   UpdateCompactionJobStats(stats);
 
   auto stream = event_logger_->LogToBuffer(log_buffer_, 8192);
-  stream << "job" << job_id_ << "event"
-         << "compaction_finished"
+  stream << "job" << job_id_ << "event" << "compaction_finished"
          << "compaction_time_micros" << stats.micros
          << "compaction_time_cpu_micros" << stats.cpu_micros << "output_level"
          << compact_->compaction->output_level() << "num_output_files"
@@ -1050,12 +1061,10 @@ void CompactionJob::NotifyOnSubcompactionBegin(
     listener->OnSubcompactionBegin(info);
   }
   info.status.PermitUncheckedError();
-
 }
 
 void CompactionJob::NotifyOnSubcompactionCompleted(
     SubcompactionState* sub_compact) {
-
   if (db_options_.listeners.empty()) {
     return;
   }
@@ -2120,7 +2129,6 @@ void CompactionJob::UpdateCompactionJobStats(
 void CompactionJob::LogCompaction() {
   Compaction* compaction = compact_->compaction;
   ColumnFamilyData* cfd = compaction->column_family_data();
-
   // Let's check if anything will get logged. Don't prepare all the info if
   // we're not logging
   if (db_options_.info_log_level <= InfoLogLevel::INFO_LEVEL) {
@@ -2135,8 +2143,7 @@ void CompactionJob::LogCompaction() {
                    cfd->GetName().c_str(), scratch);
     // build event logger report
     auto stream = event_logger_->Log();
-    stream << "job" << job_id_ << "event"
-           << "compaction_started"
+    stream << "job" << job_id_ << "event" << "compaction_started"
            << "compaction_reason"
            << GetCompactionReasonString(compaction->compaction_reason());
     for (size_t i = 0; i < compaction->num_input_levels(); ++i) {

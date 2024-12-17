@@ -678,7 +678,8 @@ class CompactionJobTestBase : public testing::Test {
         full_history_ts_low_);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
-    compaction_job.Prepare();
+    compaction_job.PrepareSubs();
+    compaction_job.PrepareTimes();
     mutex_.Unlock();
     Status s = compaction_job.Run();
     ASSERT_OK(s);

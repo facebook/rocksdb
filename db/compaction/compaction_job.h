@@ -175,8 +175,13 @@ class CompactionJob {
   CompactionJob& operator=(const CompactionJob& job) = delete;
 
   // REQUIRED: mutex held
-  // Prepare for the compaction by setting up boundaries for each subcompaction
-  void Prepare();
+  // Prepare for the compaction by setting up boundaries for each subcompaction.
+  // At present this is *not* called by CompactionServiceCompactionJob.
+  void PrepareSubs();
+  // REQUIRED: mutex held
+  // Prepare for the compaction by organizing seqno <-> time info
+  // This *is* called by CompactionServiceCompactionJob.
+  void PrepareTimes();
   // REQUIRED mutex not held
   // Launch threads for each subcompaction and wait for them to finish. After
   // that, verify table is usable and finally do bookkeeping to unify

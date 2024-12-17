@@ -189,6 +189,10 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
     FileMetaData meta;
     uint64_t file_size;
+    // FIXME: file_size should be part of CompactionServiceOutputFile so that
+    // we don't get DB corruption if the full file size has not been propagated
+    // back to the caller through the file system (which could have metadata
+    // lag or caching bugs).
     s = fs_->GetFileSize(tgt_file, IOOptions(), &file_size, nullptr);
     if (!s.ok()) {
       sub_compact->status = s;
@@ -302,6 +306,9 @@ Status CompactionServiceCompactionJob::Run() {
       compaction_input_.has_end ? std::optional<Slice>(end)
                                 : std::optional<Slice>(),
       /*sub_job_id*/ 0);
+
+  // Needed for tiered storage support
+  PrepareTimes();
 
   log_buffer_->FlushBufferToLog();
   LogCompaction();
