@@ -89,6 +89,8 @@ class Iterator : public IteratorBase {
   //   no matter whether the seqno to time recording feature is enabled or not.
   virtual Status GetProperty(std::string prop_name, std::string* prop);
 
+  virtual Status GetCurrentSequence(uint64_t* seq);
+
   virtual Slice timestamp() const {
     assert(false);
     return Slice();

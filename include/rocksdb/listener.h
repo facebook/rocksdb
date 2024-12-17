@@ -443,6 +443,12 @@ struct CompactionJobInfo {
   // the output level of the compaction.
   int output_level;
 
+  // least sequence number in the input files
+  SequenceNumber least_input_seq;
+
+  // true: the output level is the bottommost level
+  bool bottommost_level;
+
   // The following variables contain information about compaction inputs
   // and outputs. A file may appear in both the input and output lists
   // if it was simply moved to a different level. The order of elements

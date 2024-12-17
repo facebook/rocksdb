@@ -79,6 +79,7 @@ class ArenaWrappedDBIter : public Iterator {
   bool IsBlob() const { return db_iter_->IsBlob(); }
 
   Status GetProperty(std::string prop_name, std::string* prop) override;
+  Status GetCurrentSequence(uint64_t* seq) override {return db_iter_->GetCurrentSequence(seq);}
 
   Status Refresh() override;
   Status Refresh(const Snapshot*) override;

@@ -242,6 +242,11 @@ class DBImpl : public DB {
              ColumnFamilyHandle* column_family, const Slice& key,
              PinnableSlice* value, std::string* timestamp) override;
 
+  using DB::GetWithSeq;
+  Status GetWithSeq(const ReadOptions& _read_options,
+             ColumnFamilyHandle* column_family, const Slice& key,
+             PinnableSlice* value, SequenceNumber& sequence, std::string* timestamp) override;
+
   using DB::GetEntity;
   Status GetEntity(const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
@@ -639,6 +644,7 @@ class DBImpl : public DB {
   struct GetImplOptions {
     ColumnFamilyHandle* column_family = nullptr;
     PinnableSlice* value = nullptr;
+    SequenceNumber* target_seq_num = nullptr;
     PinnableWideColumns* columns = nullptr;
     std::string* timestamp = nullptr;
     bool* value_found = nullptr;
@@ -662,7 +668,14 @@ class DBImpl : public DB {
   Status GetImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
                  PinnableSlice* value, std::string* timestamp);
+  
+  Status GetWithSeqImpl(const ReadOptions& read_options,
+                 ColumnFamilyHandle* column_family, const Slice& key,
+                 PinnableSlice* value, SequenceNumber& sequence);
 
+  Status GetWithSeqImpl(const ReadOptions& read_options,
+                 ColumnFamilyHandle* column_family, const Slice& key,
+                 PinnableSlice* value, SequenceNumber& sequence, std::string* timestamp);
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
   // This function is also called by GetMergeOperands

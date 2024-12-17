@@ -1,157 +1,65 @@
 #pragma once
-
-#include <algorithm>
-#include <chrono>
-#include <cstdlib>
-#include <ctime>
-#include <fstream>
-#include <iostream>
-#include <random>
-#include <sstream>
-#include <string>
-#include <unordered_map>
-#include <vector>
-#include <atomic>
-#include <functional>
-#include <thread>
-
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/file_system.h"
-#include "rocksdb/filter_policy.h"
-#include "rocksdb/listener.h"
-#include "rocksdb/table.h"
-#include "table/mock_table.h"
-#include "rocksdb/options.h"
-#include "options/options_helper.h"
-#include "rocksdb/advanced_options.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/iostats_context.h"
-#include "rocksdb/statistics.h"
-
-#include "db/db_impl/db_impl.h"
-#include "file/filename.h"
-#include "rocksdb/cache.h"
-#include "rocksdb/compaction_filter.h"
-#include "rocksdb/convenience.h"
-
-#include "util/cast_util.h"
-#include "util/compression.h"
-#include "util/mutexlock.h"
-#include "util/string_util.h"
-#include "utilities/merge_operators.h"
-
-// #include "rocksdb/global_range_deleter.h"
-
+#include "rocksdb/range_delete_db.hpp"
 #include <gflags/gflags.h>
+#include <boost/dynamic_bitset.hpp>
 
-namespace ROCKSDB_NAMESPACE {
+DEFINE_string(db_path, "/home/wangfan/delete/global-range-delete/build/testdb", "dbpath");
+DEFINE_string(mode, "default", "methods: default or grd");
+//LSM
+DEFINE_int32(buffer_size, 64, "Buffer size in MB");
+DEFINE_int32(size_ratio, 10, "size_ratio");
+DEFINE_int32(bpk_filter, 5, "Bits per key for rocksdb bloom filter");
+//GRD
+DEFINE_uint64(max_key, 10000000, "the upper bound of key space");
+DEFINE_int32(bpk_rd_filter, 10, "Bits per key for range delete filter");
+DEFINE_int32(rep_buffer_size, 64, "LSM RTree Buffer size in KB");
+DEFINE_int32(rep_size_ratio, 10, "LSM RTree size_ratio");
+DEFINE_int32(ksize, 24, "Size of key-value pair");
+DEFINE_int32(kvsize, 128, "Size of key-value pair");
+//Workload
+DEFINE_string(workload, "prepare", "prepare or test");
+DEFINE_uint64(prep_num, 100000, "#entries to prepare");
+DEFINE_uint64(write_num, 100000, "#write operations");
+DEFINE_uint64(read_num, 100000, "#read operations");
+DEFINE_uint64(seek_num, 100000, "#range query operations");
+DEFINE_uint64(seek_len, 10, "length of range query");
+DEFINE_uint64(rdelete_num, 100000, "#range delete operations");
+DEFINE_uint64(rdelete_len, 10, "length of delete range");
 
-// class GlobalRangeDeleterGCListener : public EventListener {
-//  public:
-//   explicit GlobalRangeDeleterGCListener(Options* db_options)
-//       : db_options_(db_options) {}
-
-// //   void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci, GlobalRangeDeleter<std::string>& global_range_deleter) override {
-//   void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override {
-//     if(ci.bottommost_level && (ci.output_level > 1)){
-//       // std::cout << "Garbage collection ..." << std::endl;
-//       // std::cout << "Bottommost level: " << ci.output_level << " least_input_seq: " << ci.least_input_seq << std::endl;
-//       db->GarbageCollectGlobalRangeDeleter(ci.least_input_seq);
-//     }
-//     // std::cout << "Skip garbage collection ..." << std::endl;
-//   }
-
-//   int max_level_checked = 0;
-//   const Options* db_options_;
-// };
-
-}  // namespace ROCKSDB_NAMESPACE
-
-void WaitForCompaction(rocksdb::DB* db) {
-  // This is an imperfect way of waiting for compaction. The loop and sleep
-  // is done because a thread that finishes a compaction job should get a
-  // chance to pickup a new compaction job.
-  using rocksdb::DB;
-  // 5 second
-  db->GetEnv()->SleepForMicroseconds(10 * 1000000);
-  std::vector<std::string> keys = {DB::Properties::kMemTableFlushPending,
-                                   DB::Properties::kNumRunningFlushes,
-                                   DB::Properties::kNumRunningCompactions};
-
-  fprintf(stdout, "waitforcompaction(%s): started\n", db->GetName().c_str());
-
-  while (true) {
-    bool retry = false;
-
-    for (const auto& k : keys) {
-      uint64_t v;
-      if (!db->GetIntProperty(k, &v)) {
-        fprintf(stderr, "waitforcompaction(%s): GetIntProperty(%s) failed\n",
-                db->GetName().c_str(), k.c_str());
-        exit(1);
-      } else if (v > 0) {
-        fprintf(stdout, "waitforcompaction(%s): active(%s). Sleep 10 seconds\n",
-                db->GetName().c_str(), k.c_str());
-        retry = true;
-        break;
-      }
-    }
-
-    if (!retry) {
-      fprintf(stdout, "waitforcompaction(%s): finished\n",
-              db->GetName().c_str());
-      return;
-    }
-    db->GetEnv()->SleepForMicroseconds(10 * 1000000);
-  }
-}
-
-rocksdb::Options get_default_options() {
-  std::cout << "Default setting initializing ..." << std::endl;
-  auto options = rocksdb::Options();
-  options.create_if_missing = true;
-  options.write_buffer_size = 5 * 1024 * 1024;
-  options.target_file_size_base = 1024 * 1024 * 1024;
-  options.target_file_size_multiplier = 10;
-  options.max_bytes_for_level_multiplier = 5;
-  options.max_bytes_for_level_base = 25 * 1024 * 1024;
-  options.level_compaction_dynamic_level_bytes = false;
-  options.use_direct_reads = true;
-  options.use_direct_io_for_flush_and_compaction = true;
+rocksdb::range_delete_db_opt get_default_options() {
+  rocksdb::Options db_opts;
+  db_opts.create_if_missing = true;
+  db_opts.write_buffer_size = FLAGS_buffer_size << 20;  // MB
+  // db_opts.target_file_size_base = 1024 * 1024 * 1024;
+  db_opts.target_file_size_multiplier = FLAGS_size_ratio;
+  db_opts.max_bytes_for_level_multiplier = FLAGS_size_ratio;
+  db_opts.level_compaction_dynamic_level_bytes = false;
+  db_opts.max_bytes_for_level_base = db_opts.write_buffer_size * db_opts.max_bytes_for_level_multiplier;
+  db_opts.use_direct_reads = true;
+  db_opts.use_direct_io_for_flush_and_compaction = true;
   auto table_options =
-      options.table_factory->GetOptions<rocksdb::BlockBasedTableOptions>();
+      db_opts.table_factory->GetOptions<rocksdb::BlockBasedTableOptions>();
   table_options->no_block_cache = true;
-  
-  options.statistics = rocksdb::CreateDBStatistics();
+  // db_opts.statistics = rocksdb::CreateDBStatistics();
 
-  return options;
-}
+  rangedelete_filter::rd_filter_opt filter_opts;
+  filter_opts.bit_per_key = FLAGS_bpk_rd_filter;
+  filter_opts.num_keys = FLAGS_max_key / 100;
+  filter_opts.num_blocks = filter_opts.num_keys / 10000  * FLAGS_bpk_rd_filter;
+  filter_opts.min_key = 0;
+  filter_opts.max_key = FLAGS_max_key;
 
-rocksdb::Options get_GRDR_options() {
-  std::cout << "GRDR setting initializing ..." << std::endl;
-  auto options = rocksdb::Options();
-  options.create_if_missing = true;
-  options.write_buffer_size = 5 * 1024 * 1024;
-  options.target_file_size_base = 1024 * 1024 * 1024;
-  options.target_file_size_multiplier = 10;
-  options.max_bytes_for_level_multiplier = 5;
-  options.max_bytes_for_level_base = 25 * 1024 * 1024;
-  options.level_compaction_dynamic_level_bytes = false;
-  options.use_direct_reads = true;
-  options.use_direct_io_for_flush_and_compaction = true;
+  rangedelete_rep::rd_rep_opt rep_opts;
+  rep_opts.buffer_cap = (FLAGS_rep_buffer_size << 10) / sizeof(rangedelete_rep::Rectangle); //size is 32
+  rep_opts.T = FLAGS_rep_size_ratio;
+  rep_opts.path = FLAGS_db_path + "/";
 
-//   options.enable_global_range_deleter = true;
-
-  auto table_options =
-      options.table_factory->GetOptions<rocksdb::BlockBasedTableOptions>();
-  table_options->no_block_cache = true;
-  
-  options.statistics = rocksdb::CreateDBStatistics();
-
-//   rocksdb::GlobalRangeDeleterGCListener* listener =
-//       new rocksdb::GlobalRangeDeleterGCListener(&options);
-//   options.listeners.emplace_back(listener);
+  rocksdb::range_delete_db_opt options;
+  options.enable_global_rd = false;
+  options.db_path = FLAGS_db_path;
+  options.db_conf = db_opts;
+  options.filter_conf = filter_opts;
+  options.rep_conf = rep_opts;
 
   return options;
 }

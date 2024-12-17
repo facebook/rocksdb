@@ -199,6 +199,7 @@ class DBIter final : public Iterator {
   }
 
   Status GetProperty(std::string prop_name, std::string* prop) override;
+  Status GetCurrentSequence(uint64_t* seq) override;
 
   void Next() final override;
   void Prev() final override;

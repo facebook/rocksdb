@@ -666,6 +666,53 @@ class DB {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
   }
 
+  // version recording the sequence number of retrieved entry
+  virtual Status GetWithSeq(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value, SequenceNumber& sequence, std::string* timestamp);
+
+  virtual inline Status GetWithSeq(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            std::string* value, SequenceNumber& sequence, std::string* timestamp) final {
+    assert(value != nullptr);
+    PinnableSlice pinnable_val(value);
+    assert(!pinnable_val.IsPinned());
+    auto s = GetWithSeq(options, column_family, key, &pinnable_val, sequence, timestamp);
+    if (s.ok() && pinnable_val.IsPinned()) {
+      value->assign(pinnable_val.data(), pinnable_val.size());
+    }  // else value is already assigned
+    return s;
+  }
+
+  virtual Status GetWithSeq(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value, SequenceNumber& sequence) final {
+    return GetWithSeq(options, column_family, key, value, sequence, nullptr);
+  }
+
+  virtual inline Status GetWithSeq(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            std::string* value, SequenceNumber& sequence) final {
+    assert(value != nullptr);
+    PinnableSlice pinnable_val(value);
+    assert(!pinnable_val.IsPinned());
+    auto s = GetWithSeq(options, column_family, key, &pinnable_val, sequence);
+    if (s.ok() && pinnable_val.IsPinned()) {
+      value->assign(pinnable_val.data(), pinnable_val.size());
+    }  // else value is already assigned
+    return s;
+  }
+  
+  virtual Status GetWithSeq(const ReadOptions& options, const Slice& key,
+                     std::string* value, SequenceNumber& sequence) final {
+    return GetWithSeq(options, DefaultColumnFamily(), key, value, sequence);
+  }
+
+  virtual Status GetWithSeq(const ReadOptions& options, const Slice& key,
+                     std::string* value, SequenceNumber& sequence, std::string* timestamp) final {
+    return GetWithSeq(options, DefaultColumnFamily(), key, value, sequence, timestamp);
+  }
+
   // If the column family specified by "column_family" contains an entry for
   // "key", return it as a wide-column entity in "*columns". If the entry is a
   // wide-column entity, return it as-is; if it is a plain key-value, return it

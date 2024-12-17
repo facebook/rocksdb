@@ -26,6 +26,8 @@
 #include <utility>
 #include <vector>
 
+#include <iostream>
+
 #include "db/arena_wrapped_db_iter.h"
 #include "db/attribute_group_iterator_impl.h"
 #include "db/builder.h"
@@ -2192,8 +2194,65 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   get_impl_options.column_family = column_family;
   get_impl_options.value = value;
   get_impl_options.timestamp = timestamp;
+  get_impl_options.target_seq_num = new SequenceNumber(0);
 
   Status s = GetImpl(read_options, key, get_impl_options);
+  return s;
+}
+
+Status DBImpl::GetWithSeqImpl(const ReadOptions& read_options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       PinnableSlice* value, SequenceNumber& sequence) {
+  return GetWithSeqImpl(read_options, column_family, key, value, sequence,
+                 /*timestamp=*/nullptr);
+}
+
+Status DBImpl::GetWithSeq(const ReadOptions& _read_options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableSlice* value, SequenceNumber& sequence, std::string* timestamp) {
+  assert(value != nullptr);
+  value->Reset();
+
+  if (_read_options.io_activity != Env::IOActivity::kUnknown &&
+      _read_options.io_activity != Env::IOActivity::kGet) {
+    return Status::InvalidArgument(
+        "Can only call Get with `ReadOptions::io_activity` is "
+        "`Env::IOActivity::kUnknown` or `Env::IOActivity::kGet`");
+  }
+
+  ReadOptions read_options(_read_options);
+  if (read_options.io_activity == Env::IOActivity::kUnknown) {
+    read_options.io_activity = Env::IOActivity::kGet;
+  }
+
+  Status s = GetWithSeqImpl(read_options, column_family, key, value, sequence, timestamp);
+  // DB::GetWithSeq(read_options, column_family, key, value, sequence, timestamp);
+  return s;
+}
+
+Status DBImpl::GetWithSeqImpl(const ReadOptions& read_options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       PinnableSlice* value, SequenceNumber& sequence, std::string* timestamp) {
+  GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.value = value;
+  get_impl_options.timestamp = timestamp;
+  // record the seq of the target key
+  get_impl_options.target_seq_num = new SequenceNumber(0);
+
+  Status s = GetImpl(read_options, key, get_impl_options);
+
+  sequence = *(get_impl_options.target_seq_num);
+
+  // std::cout << "GetWithSeqImpl sequence : " << sequence << std::endl;
+
+  return s;
+}
+
+Status DB::GetWithSeq(const ReadOptions& _read_options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableSlice* value, SequenceNumber& sequence, std::string* timestamp) {
+  Status s = Status::OK();
   return s;
 }
 
@@ -2326,7 +2385,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
          get_impl_options.merge_operands != nullptr ||
-         get_impl_options.columns != nullptr);
+         get_impl_options.columns != nullptr ||
+         get_impl_options.target_seq_num != nullptr);
 
   assert(get_impl_options.column_family);
 
@@ -2468,7 +2528,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
               get_impl_options.value ? get_impl_options.value->GetSelf()
                                      : nullptr,
               get_impl_options.columns, timestamp, &s, &merge_context,
-              &max_covering_tombstone_seq, read_options,
+              &max_covering_tombstone_seq,
+              get_impl_options.target_seq_num,
+              read_options,
               false /* immutable_memtable */, get_impl_options.callback,
               get_impl_options.is_blob_index)) {
         done = true;
@@ -2485,6 +2547,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                                   : nullptr,
                               get_impl_options.columns, timestamp, &s,
                               &merge_context, &max_covering_tombstone_seq,
+                              get_impl_options.target_seq_num,
                               read_options, get_impl_options.callback,
                               get_impl_options.is_blob_index)) {
         done = true;
@@ -2495,6 +2558,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
         RecordTick(stats_, MEMTABLE_HIT);
       }
+      // std::cout << "  Sequence at mem (get_value): " << *get_impl_options.target_seq_num << std::endl;
     } else {
       // Get Merge Operands associated with key, Merge Operands should not be
       // merged and raw values should be returned to the user.
@@ -2505,12 +2569,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        false)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
+        // std::cout << "  Sequence at mem (!get_value): " << *get_impl_options.target_seq_num << std::endl;
       } else if ((s.ok() || s.IsMergeInProgress()) &&
                  sv->imm->GetMergeOperands(lkey, &s, &merge_context,
                                            &max_covering_tombstone_seq,
                                            read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
+        // std::cout << "  Sequence at imm (!get_value): " << *get_impl_options.target_seq_num << std::endl;
       }
     }
     if (!s.ok() && !s.IsMergeInProgress() && !s.IsNotFound()) {
@@ -2529,11 +2595,13 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         timestamp, &s, &merge_context, &max_covering_tombstone_seq,
         &pinned_iters_mgr,
         get_impl_options.get_value ? get_impl_options.value_found : nullptr,
-        nullptr, nullptr,
+        nullptr, 
+        get_impl_options.target_seq_num,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
         get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
         get_impl_options.get_value);
     RecordTick(stats_, MEMTABLE_MISS);
+    // std::cout << "  Sequence at current : " << *get_impl_options.target_seq_num << std::endl;
   }
 
   {

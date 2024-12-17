@@ -130,6 +130,11 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
   return Status::InvalidArgument("Unidentified property.");
 }
 
+Status DBIter::GetCurrentSequence(uint64_t* seq){
+  *seq = ikey_.sequence;
+  return Status::OK();
+}
+
 bool DBIter::ParseKey(ParsedInternalKey* ikey) {
   Status s = ParseInternalKey(iter_.key(), ikey, false /* log_err_key */);
   if (!s.ok()) {

@@ -30,6 +30,11 @@ Status Iterator::GetProperty(std::string prop_name, std::string* prop) {
   return Status::InvalidArgument("Unidentified property.");
 }
 
+Status Iterator::GetCurrentSequence(uint64_t* seq){
+  *seq = 0;
+  return Status::OK();
+}
+
 namespace {
 class EmptyIterator : public Iterator {
  public:

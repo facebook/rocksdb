@@ -4214,6 +4214,7 @@ void DBImpl::BuildCompactionJobInfo(
   compaction_job_info->job_id = job_id;
   compaction_job_info->base_input_level = c->start_level();
   compaction_job_info->output_level = c->output_level();
+  compaction_job_info->bottommost_level = c->bottommost_level();
   compaction_job_info->stats = compaction_job_stats;
   const auto& input_table_properties = c->GetOrInitInputTableProperties();
   const auto& output_table_properties = c->GetOutputTableProperties();
@@ -4225,6 +4226,10 @@ void DBImpl::BuildCompactionJobInfo(
   compaction_job_info->compression = c->output_compression();
 
   const ReadOptions read_options(Env::IOActivity::kCompaction);
+
+  // record the least sequence number in input files
+  SequenceNumber least_input_seq = std::numeric_limits<uint64_t>::max();
+
   for (size_t i = 0; i < c->num_input_levels(); ++i) {
     for (const auto fmd : *c->inputs(i)) {
       const FileDescriptor& desc = fmd->fd;
@@ -4234,8 +4239,14 @@ void DBImpl::BuildCompactionJobInfo(
       compaction_job_info->input_files.push_back(fn);
       compaction_job_info->input_file_infos.push_back(CompactionFileInfo{
           static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
+      if (!(c->level(i) == c->output_level()) && (desc.smallest_seqno < least_input_seq))
+      {
+        least_input_seq = desc.smallest_seqno;
+      }
     }
   }
+
+  compaction_job_info->least_input_seq = least_input_seq;
 
   for (const auto& newf : c->edit()->GetNewFiles()) {
     const FileMetaData& meta = newf.second;
