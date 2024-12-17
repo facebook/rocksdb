@@ -58,9 +58,14 @@ class Reader {
   // live while this Reader is in use.
   //
   // If "checksum" is true, verify checksums if available.
+  // TODO(hx235): seperate WAL related parameters from general `Reader`
+  // parameters
   Reader(std::shared_ptr<Logger> info_log,
          std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
-         bool checksum, uint64_t log_num);
+         bool checksum, uint64_t log_num, bool track_and_verify_wals = false,
+         bool stop_replay_for_corruption = false,
+         uint64_t min_wal_number_to_keep = std::numeric_limits<uint64_t>::max(),
+         const PredecessorWALInfo& predecessor_wal_info = PredecessorWALInfo());
   // No copying allowed
   Reader(const Reader&) = delete;
   void operator=(const Reader&) = delete;
@@ -148,6 +153,17 @@ class Reader {
   // which log number this is
   uint64_t const log_number_;
 
+  // See `Optinos::track_and_verify_wals`
+  bool track_and_verify_wals_;
+  // Below variables are used for WAL verification
+  // TODO(hx235): to revise `stop_replay_for_corruption_` in `LogReader` since
+  // we have `predecessor_wal_info_` to verify against the `PredecessorWALInfo`
+  // recorded in current WAL. If there is no WAL hole, we can revise
+  // `stop_replay_for_corruption_` to be false.
+  bool stop_replay_for_corruption_;
+  uint64_t min_wal_number_to_keep_;
+  PredecessorWALInfo predecessor_wal_info_;
+
   // Whether this is a recycled log file
   bool recycled_;
 
@@ -211,14 +227,24 @@ class Reader {
 
   Status UpdateRecordedTimestampSize(
       const std::vector<std::pair<uint32_t, size_t>>& cf_to_ts_sz);
+
+  void MaybeVerifyPredecessorWALInfo(
+      WALRecoveryMode wal_recovery_mode, Slice fragment,
+      const PredecessorWALInfo& expected_predecessor_wal_info);
 };
 
 class FragmentBufferedReader : public Reader {
  public:
-  FragmentBufferedReader(std::shared_ptr<Logger> info_log,
-                         std::unique_ptr<SequentialFileReader>&& _file,
-                         Reporter* reporter, bool checksum, uint64_t log_num)
-      : Reader(info_log, std::move(_file), reporter, checksum, log_num),
+  FragmentBufferedReader(
+      std::shared_ptr<Logger> info_log,
+      std::unique_ptr<SequentialFileReader>&& _file, Reporter* reporter,
+      bool checksum, uint64_t log_num, bool verify_and_track_wals = false,
+      bool stop_replay_for_corruption = false,
+      uint64_t min_wal_number_to_keep = std::numeric_limits<uint64_t>::max(),
+      const PredecessorWALInfo& predecessor_wal_info = PredecessorWALInfo())
+      : Reader(info_log, std::move(_file), reporter, checksum, log_num,
+               verify_and_track_wals, stop_replay_for_corruption,
+               min_wal_number_to_keep, predecessor_wal_info),
         fragments_(),
         in_fragmented_record_(false) {}
   ~FragmentBufferedReader() override {}
