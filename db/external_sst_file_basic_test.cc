@@ -11,6 +11,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/options.h"
+#include "rocksdb/perf_context.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -261,13 +262,28 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
 
   DestroyAndReopen(options);
   // Add file using file path
+  SetPerfLevel(kEnableTimeExceptForMutex);
+  PerfContext* perf_ctx = get_perf_context();
+  perf_ctx->Reset();
   s = DeprecatedAddFile({file1});
+  ASSERT_GT(perf_context.file_ingestion_nanos, 0);
+  ASSERT_GT(perf_context.file_ingestion_blocking_live_writes_nanos, 0);
   ASSERT_OK(s) << s.ToString();
   ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
   for (int k = 0; k < 100; k++) {
     ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
   }
 
+  // Re-ingest the file just to check the perf context not enabled at and below
+  // kEnableWait.
+  SetPerfLevel(kEnableWait);
+  perf_ctx->Reset();
+  IngestExternalFileOptions opts;
+  opts.allow_global_seqno = true;
+  opts.allow_blocking_flush = true;
+  ASSERT_OK(db_->IngestExternalFile({file1}, opts));
+  ASSERT_EQ(perf_context.file_ingestion_nanos, 0);
+  ASSERT_EQ(perf_context.file_ingestion_blocking_live_writes_nanos, 0);
   DestroyAndRecreateExternalSSTFilesDir();
 }
 
