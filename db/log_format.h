@@ -41,9 +41,13 @@ enum RecordType : int {
   kRecyclableUserDefinedTimestampSizeType = 11,
 
   // Reserve kRecordTypeSafeIgnoreMask = 32
+
+  // For WAL verification
+  kPredecessorWALInfoType = 33,
+  kRecyclePredecessorWALInfoType = 34,
 };
 const int kRecordTypeSafeIgnoreMask = 1 << 5;
-constexpr int kMaxRecordType = kRecordTypeSafeIgnoreMask + 5;
+constexpr int kMaxRecordType = kRecyclePredecessorWALInfoType;
 
 constexpr unsigned int kBlockSize = 32768;
 
