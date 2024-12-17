@@ -84,7 +84,7 @@ class PlainInternalKeyComparator : public InternalKeyComparator {
   explicit PlainInternalKeyComparator(const Comparator* c)
       : InternalKeyComparator(c) {}
 
-  virtual ~PlainInternalKeyComparator() {}
+  virtual ~PlainInternalKeyComparator() override {}
 
   int Compare(const Slice& a, const Slice& b) const override {
     return user_comparator()->Compare(a, b);
@@ -310,7 +310,7 @@ class StringSource : public FSRandomAccessFile {
         mmap_(mmap),
         total_reads_(0) {}
 
-  virtual ~StringSource() {}
+  virtual ~StringSource() override {}
 
   uint64_t Size() const { return contents_.size(); }
 
@@ -744,7 +744,7 @@ class ChanglingMergeOperator : public MergeOperator {
  public:
   explicit ChanglingMergeOperator(const std::string& name)
       : name_(name + "MergeOperator") {}
-  ~ChanglingMergeOperator() {}
+  ~ChanglingMergeOperator() override {}
 
   void SetName(const std::string& name) { name_ = name; }
 
@@ -783,7 +783,7 @@ class ChanglingCompactionFilter : public CompactionFilter {
  public:
   explicit ChanglingCompactionFilter(const std::string& name)
       : name_(name + "CompactionFilter") {}
-  ~ChanglingCompactionFilter() {}
+  ~ChanglingCompactionFilter() override {}
 
   void SetName(const std::string& name) { name_ = name; }
 
@@ -819,7 +819,7 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
  public:
   explicit ChanglingCompactionFilterFactory(const std::string& name)
       : name_(name + "CompactionFilterFactory") {}
-  ~ChanglingCompactionFilterFactory() {}
+  ~ChanglingCompactionFilterFactory() override {}
 
   void SetName(const std::string& name) { name_ = name; }
 

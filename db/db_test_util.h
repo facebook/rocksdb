@@ -282,7 +282,9 @@ class SpecialEnv : public EnvWrapper {
           : env_(env), base_(std::move(b)) {
         env_->num_open_wal_file_.fetch_add(1);
       }
-      virtual ~SpecialWalFile() { env_->num_open_wal_file_.fetch_add(-1); }
+      virtual ~SpecialWalFile() override {
+        env_->num_open_wal_file_.fetch_add(-1);
+      }
       Status Append(const Slice& data) override {
 #if !(defined NDEBUG) || !defined(OS_WIN)
         TEST_SYNC_POINT("SpecialEnv::SpecialWalFile::Append:1");
@@ -594,7 +596,7 @@ class SpecialEnv : public EnvWrapper {
       class NoopDirectory : public Directory {
        public:
         NoopDirectory() {}
-        ~NoopDirectory() {}
+        ~NoopDirectory() override {}
 
         Status Fsync() override { return Status::OK(); }
         Status Close() override { return Status::OK(); }
@@ -1098,7 +1100,7 @@ class DBTestBase : public testing::Test {
   // tests, but won't cover the exact fsync logic.
   DBTestBase(const std::string path, bool env_do_fsync);
 
-  ~DBTestBase();
+  ~DBTestBase() override;
 
   static std::string Key(int i) {
     char buf[100];
