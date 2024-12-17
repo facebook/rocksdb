@@ -1179,4 +1179,64 @@ struct ParsedInternalKeyComparator {
   const InternalKeyComparator* cmp;
 };
 
+class PredecessorWALInfo {
+ public:
+  PredecessorWALInfo()
+      : log_number_(0),
+        size_bytes_(0),
+        last_seqno_recorded_(0),
+        initialized_(false) {}
+
+  explicit PredecessorWALInfo(uint64_t log_number, uint64_t size_bytes,
+                              SequenceNumber last_seqno_recorded)
+      : log_number_(log_number),
+        size_bytes_(size_bytes),
+        last_seqno_recorded_(last_seqno_recorded),
+        initialized_(true) {}
+
+  uint64_t GetLogNumber() const {
+    assert(initialized_);
+    return log_number_;
+  }
+
+  uint64_t GetSizeBytes() const {
+    assert(initialized_);
+    return size_bytes_;
+  }
+
+  SequenceNumber GetLastSeqnoRecorded() const {
+    assert(initialized_);
+    return last_seqno_recorded_;
+  }
+
+  bool IsInitialized() const { return initialized_; }
+
+  inline void EncodeTo(std::string* dst) const {
+    assert(dst != nullptr);
+    assert(initialized_);
+    PutFixed64(dst, log_number_);
+    PutFixed64(dst, size_bytes_);
+    PutFixed64(dst, last_seqno_recorded_);
+  }
+
+  inline Status DecodeFrom(Slice* src) {
+    if (!GetFixed64(src, &log_number_)) {
+      return Status::Corruption("Error decoding log number");
+    }
+    if (!GetFixed64(src, &size_bytes_)) {
+      return Status::Corruption("Error decoding size bytes");
+    }
+    if (!GetFixed64(src, &last_seqno_recorded_)) {
+      return Status::Corruption("Error decoding last seqno recorded");
+    }
+    initialized_ = true;
+    return Status::OK();
+  }
+
+ private:
+  uint64_t log_number_;
+  uint64_t size_bytes_;
+  SequenceNumber last_seqno_recorded_;
+  bool initialized_;
+};
 }  // namespace ROCKSDB_NAMESPACE
