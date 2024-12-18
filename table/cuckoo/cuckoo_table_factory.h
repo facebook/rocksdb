@@ -54,7 +54,7 @@ class CuckooTableFactory : public TableFactory {
  public:
   explicit CuckooTableFactory(
       const CuckooTableOptions& table_option = CuckooTableOptions());
-  ~CuckooTableFactory() {}
+  ~CuckooTableFactory() override {}
 
   // Method to allow CheckedCast to work for this class
   static const char* kClassName() { return kCuckooTableName(); }

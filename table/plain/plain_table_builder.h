@@ -53,7 +53,7 @@ class PlainTableBuilder : public TableBuilder {
   void operator=(const PlainTableBuilder&) = delete;
 
   // REQUIRES: Either Finish() or Abandon() has been called.
-  ~PlainTableBuilder();
+  ~PlainTableBuilder() override;
 
   // Add key,value to the table being constructed.
   // REQUIRES: key is after any previously added key according to comparator.

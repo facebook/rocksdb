@@ -100,7 +100,7 @@ class OnDemandSequentialFile : public FSSequentialFile {
         eof_(false),
         offset_(0) {}
 
-  virtual ~OnDemandSequentialFile() {}
+  virtual ~OnDemandSequentialFile() override {}
 
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
                 char* scratch, IODebugContext* dbg) override;

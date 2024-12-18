@@ -34,7 +34,7 @@ class PessimisticTransactionDB : public TransactionDB {
   explicit PessimisticTransactionDB(StackableDB* db,
                                     const TransactionDBOptions& txn_db_options);
 
-  virtual ~PessimisticTransactionDB();
+  virtual ~PessimisticTransactionDB() override;
 
   const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
 
@@ -274,7 +274,7 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
                                const TransactionDBOptions& txn_db_options)
       : PessimisticTransactionDB(db, txn_db_options) {}
 
-  virtual ~WriteCommittedTxnDB() {}
+  virtual ~WriteCommittedTxnDB() override {}
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,

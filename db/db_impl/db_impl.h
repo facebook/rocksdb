@@ -195,7 +195,7 @@ class DBImpl : public DB {
   DBImpl(const DBImpl&) = delete;
   void operator=(const DBImpl&) = delete;
 
-  virtual ~DBImpl();
+  virtual ~DBImpl() override;
 
   // ---- Implementations of the DB interface ----
 
@@ -1921,8 +1921,8 @@ class DBImpl : public DB {
     const InternalKey* begin = nullptr;  // nullptr means beginning of key range
     const InternalKey* end = nullptr;    // nullptr means end of key range
     InternalKey* manual_end = nullptr;   // how far we are compacting
-    InternalKey tmp_storage;      // Used to keep track of compaction progress
-    InternalKey tmp_storage1;     // Used to keep track of compaction progress
+    InternalKey tmp_storage;   // Used to keep track of compaction progress
+    InternalKey tmp_storage1;  // Used to keep track of compaction progress
 
     // When the user provides a canceled pointer in CompactRangeOptions, the
     // above varaibe is the reference of the user-provided

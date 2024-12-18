@@ -60,7 +60,7 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
     }
   }
 
-  ~OptimisticTransactionDBImpl() {
+  ~OptimisticTransactionDBImpl() override {
     // Prevent this stackable from destroying
     // base db
     if (!db_owner_) {

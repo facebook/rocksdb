@@ -71,7 +71,7 @@ class TestWritableFile : public WritableFile {
   explicit TestWritableFile(const std::string& fname,
                             std::unique_ptr<WritableFile>&& f,
                             FaultInjectionTestEnv* env);
-  virtual ~TestWritableFile();
+  virtual ~TestWritableFile() override;
   Status Append(const Slice& data) override;
   Status Append(const Slice& data,
                 const DataVerificationInfo& /*verification_info*/) override {
@@ -107,7 +107,7 @@ class TestRandomRWFile : public RandomRWFile {
   explicit TestRandomRWFile(const std::string& fname,
                             std::unique_ptr<RandomRWFile>&& f,
                             FaultInjectionTestEnv* env);
-  virtual ~TestRandomRWFile();
+  virtual ~TestRandomRWFile() override;
   Status Write(uint64_t offset, const Slice& data) override;
   Status Read(uint64_t offset, size_t n, Slice* result,
               char* scratch) const override;
@@ -130,7 +130,7 @@ class TestDirectory : public Directory {
   explicit TestDirectory(FaultInjectionTestEnv* env, std::string dirname,
                          Directory* dir)
       : env_(env), dirname_(dirname), dir_(dir) {}
-  ~TestDirectory() {}
+  ~TestDirectory() override {}
 
   Status Fsync() override;
   Status Close() override;
@@ -145,7 +145,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
  public:
   explicit FaultInjectionTestEnv(Env* base)
       : EnvWrapper(base), filesystem_active_(true) {}
-  virtual ~FaultInjectionTestEnv() { error_.PermitUncheckedError(); }
+  virtual ~FaultInjectionTestEnv() override { error_.PermitUncheckedError(); }
 
   static const char* kClassName() { return "FaultInjectionTestEnv"; }
   const char* Name() const override { return kClassName(); }

@@ -135,7 +135,7 @@ class MockTableReader : public TableReader {
     return std::make_shared<const TableProperties>(tp_);
   }
 
-  ~MockTableReader() = default;
+  ~MockTableReader() override = default;
 
  private:
   const KVVector& table_;

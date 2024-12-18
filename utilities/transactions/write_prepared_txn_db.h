@@ -59,7 +59,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     Init(txn_db_options);
   }
 
-  virtual ~WritePreparedTxnDB();
+  virtual ~WritePreparedTxnDB() override;
 
   Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
                     const std::vector<ColumnFamilyHandle*>& handles) override;
@@ -851,7 +851,7 @@ class WritePreparedTxnReadCallback : public ReadCallback {
     (void)backed_by_snapshot_;  // to silence unused private field warning
   }
 
-  virtual ~WritePreparedTxnReadCallback() {
+  virtual ~WritePreparedTxnReadCallback() override {
     // If it is not backed by snapshot, the caller must check validity
     assert(valid_checked_ || backed_by_snapshot_ == kBackedByDBSnapshot);
   }

@@ -40,7 +40,7 @@ class EnvLogger : public Logger {
         last_flush_micros_(0),
         flush_pending_(false) {}
 
-  ~EnvLogger() {
+  ~EnvLogger() override {
     if (!closed_) {
       closed_ = true;
       CloseHelper().PermitUncheckedError();

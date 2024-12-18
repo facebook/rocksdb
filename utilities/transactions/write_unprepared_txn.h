@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <set>
 
 #include "utilities/transactions/write_prepared_txn.h"
@@ -69,7 +68,7 @@ class WriteUnpreparedTxnReadCallback : public ReadCallback {
     (void)backed_by_snapshot_;  // to silence unused private field warning
   }
 
-  virtual ~WriteUnpreparedTxnReadCallback() {
+  virtual ~WriteUnpreparedTxnReadCallback() override {
     // If it is not backed by snapshot, the caller must check validity
     assert(valid_checked_ || backed_by_snapshot_ == kBackedByDBSnapshot);
   }
@@ -114,7 +113,7 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
                      const WriteOptions& write_options,
                      const TransactionOptions& txn_options);
 
-  virtual ~WriteUnpreparedTxn();
+  virtual ~WriteUnpreparedTxn() override;
 
   using TransactionBaseImpl::Put;
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
@@ -272,7 +271,7 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
     SavePoint(const std::map<SequenceNumber, size_t>& seqs,
               ManagedSnapshot* snapshot)
-        : unprep_seqs_(seqs), snapshot_(snapshot){}
+        : unprep_seqs_(seqs), snapshot_(snapshot) {}
   };
 
   // We have 3 data structures holding savepoint information:

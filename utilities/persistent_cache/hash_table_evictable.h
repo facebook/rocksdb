@@ -5,7 +5,6 @@
 //
 #pragma once
 
-
 #include <functional>
 
 #include "util/random.h"
@@ -33,7 +32,7 @@ class EvictableHashTable : private HashTable<T*, Hash, Equal> {
     assert(lru_lists_);
   }
 
-  virtual ~EvictableHashTable() { AssertEmptyLRU(); }
+  virtual ~EvictableHashTable() override { AssertEmptyLRU(); }
 
   //
   // Insert given record to hash table (and LRU list)
@@ -163,4 +162,3 @@ class EvictableHashTable : private HashTable<T*, Hash, Equal> {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

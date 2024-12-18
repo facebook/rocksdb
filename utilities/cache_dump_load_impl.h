@@ -99,7 +99,7 @@ class CacheDumperImpl : public CacheDumper {
       : options_(dump_options), cache_(cache), writer_(std::move(writer)) {
     dumped_size_bytes_ = 0;
   }
-  ~CacheDumperImpl() { writer_.reset(); }
+  ~CacheDumperImpl() override { writer_.reset(); }
   Status SetDumpFilter(std::vector<DB*> db_list) override;
   IOStatus DumpCacheEntriesToWriter() override;
 
@@ -140,7 +140,7 @@ class CacheDumpedLoaderImpl : public CacheDumpedLoader {
       : options_(dump_options),
         secondary_cache_(secondary_cache),
         reader_(std::move(reader)) {}
-  ~CacheDumpedLoaderImpl() {}
+  ~CacheDumpedLoaderImpl() override {}
   IOStatus RestoreCacheEntriesToSecondaryCache() override;
 
  private:
@@ -162,7 +162,7 @@ class ToFileCacheDumpWriter : public CacheDumpWriter {
       std::unique_ptr<WritableFileWriter>&& file_writer)
       : file_writer_(std::move(file_writer)) {}
 
-  ~ToFileCacheDumpWriter() { Close().PermitUncheckedError(); }
+  ~ToFileCacheDumpWriter() override { Close().PermitUncheckedError(); }
 
   // Write the serialized metadata to the file
   IOStatus WriteMetadata(const Slice& metadata) override {
@@ -217,7 +217,7 @@ class FromFileCacheDumpReader : public CacheDumpReader {
         offset_(0),
         buffer_(new char[kDumpReaderBufferSize]) {}
 
-  ~FromFileCacheDumpReader() { delete[] buffer_; }
+  ~FromFileCacheDumpReader() override { delete[] buffer_; }
 
   IOStatus ReadMetadata(std::string* metadata) override {
     uint32_t metadata_len = 0;

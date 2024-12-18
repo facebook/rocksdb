@@ -137,7 +137,7 @@ class TableBuilder;
 //
 class PlainTableFactory : public TableFactory {
  public:
-  ~PlainTableFactory() {}
+  ~PlainTableFactory() override {}
   // user_key_len is the length of the user key. If it is set to be
   // kPlainTableVariableLength, then it means variable length. Otherwise, all
   // the keys need to have the fix length of this value. bloom_bits_per_key is

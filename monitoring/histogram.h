@@ -88,7 +88,7 @@ struct HistogramStat {
 class Histogram {
  public:
   Histogram() {}
-  virtual ~Histogram(){}
+  virtual ~Histogram() {}
 
   virtual void Clear() = 0;
   virtual bool Empty() const = 0;
@@ -131,7 +131,7 @@ class HistogramImpl : public Histogram {
   double StandardDeviation() const override;
   void Data(HistogramData* const data) const override;
 
-  virtual ~HistogramImpl() {}
+  virtual ~HistogramImpl() override {}
 
   inline HistogramStat& TEST_GetStats() { return stats_; }
 

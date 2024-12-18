@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <string>
 #include <vector>
 
@@ -21,7 +20,7 @@ class DBImplReadOnly : public DBImpl {
   DBImplReadOnly(const DBImplReadOnly&) = delete;
   void operator=(const DBImplReadOnly&) = delete;
 
-  virtual ~DBImplReadOnly();
+  virtual ~DBImplReadOnly() override;
 
   // Implementations of the DB interface
   using DBImpl::GetImpl;

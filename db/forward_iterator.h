@@ -4,13 +4,12 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include "rocksdb/comparator.h"
-
 #include <queue>
 #include <string>
 #include <vector>
 
 #include "memory/arena.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -55,7 +54,7 @@ class ForwardIterator : public InternalIterator {
   ForwardIterator(DBImpl* db, const ReadOptions& read_options,
                   ColumnFamilyData* cfd, SuperVersion* current_sv = nullptr,
                   bool allow_unprepared_value = false);
-  virtual ~ForwardIterator();
+  virtual ~ForwardIterator() override;
 
   void SeekForPrev(const Slice& /*target*/) override {
     status_ = Status::NotSupported("ForwardIterator::SeekForPrev()");

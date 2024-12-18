@@ -273,7 +273,7 @@ class PosixSequentialFile : public FSSequentialFile {
  public:
   PosixSequentialFile(const std::string& fname, FILE* file, int fd,
                       size_t logical_block_size, const EnvOptions& options);
-  virtual ~PosixSequentialFile();
+  virtual ~PosixSequentialFile() override;
 
   IOStatus Read(size_t n, const IOOptions& opts, Slice* result, char* scratch,
                 IODebugContext* dbg) override;
@@ -326,7 +326,7 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
                         ThreadLocalPtr* thread_local_io_urings
 #endif
   );
-  virtual ~PosixRandomAccessFile();
+  virtual ~PosixRandomAccessFile() override;
 
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts, Slice* result,
                 char* scratch, IODebugContext* dbg) const override;
@@ -375,7 +375,7 @@ class PosixWritableFile : public FSWritableFile {
   explicit PosixWritableFile(const std::string& fname, int fd,
                              size_t logical_block_size,
                              const EnvOptions& options);
-  virtual ~PosixWritableFile();
+  virtual ~PosixWritableFile() override;
 
   // Need to implement this so the file is truncated correctly
   // with direct I/O
@@ -431,7 +431,7 @@ class PosixMmapReadableFile : public FSRandomAccessFile {
  public:
   PosixMmapReadableFile(const int fd, const std::string& fname, void* base,
                         size_t length, const EnvOptions& options);
-  virtual ~PosixMmapReadableFile();
+  virtual ~PosixMmapReadableFile() override;
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts, Slice* result,
                 char* scratch, IODebugContext* dbg) const override;
   void Hint(AccessPattern pattern) override;
@@ -470,7 +470,7 @@ class PosixMmapFile : public FSWritableFile {
  public:
   PosixMmapFile(const std::string& fname, int fd, size_t page_size,
                 const EnvOptions& options);
-  ~PosixMmapFile();
+  ~PosixMmapFile() override;
 
   // Means Close() will properly take care of truncate
   // and it does not need any additional information
@@ -501,7 +501,7 @@ class PosixRandomRWFile : public FSRandomRWFile {
  public:
   explicit PosixRandomRWFile(const std::string& fname, int fd,
                              const EnvOptions& options);
-  virtual ~PosixRandomRWFile();
+  virtual ~PosixRandomRWFile() override;
 
   IOStatus Write(uint64_t offset, const Slice& data, const IOOptions& opts,
                  IODebugContext* dbg) override;
@@ -522,13 +522,13 @@ class PosixRandomRWFile : public FSRandomRWFile {
 struct PosixMemoryMappedFileBuffer : public MemoryMappedFileBuffer {
   PosixMemoryMappedFileBuffer(void* _base, size_t _length)
       : MemoryMappedFileBuffer(_base, _length) {}
-  virtual ~PosixMemoryMappedFileBuffer();
+  virtual ~PosixMemoryMappedFileBuffer() override;
 };
 
 class PosixDirectory : public FSDirectory {
  public:
   explicit PosixDirectory(int fd, const std::string& directory_name);
-  ~PosixDirectory();
+  ~PosixDirectory() override;
   IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
 
   IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;

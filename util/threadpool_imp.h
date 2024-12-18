@@ -19,7 +19,7 @@ namespace ROCKSDB_NAMESPACE {
 class ThreadPoolImpl : public ThreadPool {
  public:
   ThreadPoolImpl();
-  ~ThreadPoolImpl();
+  ~ThreadPoolImpl() override;
 
   ThreadPoolImpl(ThreadPoolImpl&&) = delete;
   ThreadPoolImpl& operator=(ThreadPoolImpl&&) = delete;

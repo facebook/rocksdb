@@ -34,7 +34,7 @@ class DBWithTTLImpl : public DBWithTTL {
   static void RegisterTtlClasses();
   explicit DBWithTTLImpl(DB* db);
 
-  virtual ~DBWithTTLImpl();
+  virtual ~DBWithTTLImpl() override;
 
   Status Close() override;
 
@@ -109,7 +109,7 @@ class TtlIterator : public Iterator {
  public:
   explicit TtlIterator(Iterator* iter) : iter_(iter) { assert(iter_); }
 
-  ~TtlIterator() { delete iter_; }
+  ~TtlIterator() override { delete iter_; }
 
   bool Valid() const override { return iter_->Valid(); }
 

@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <atomic>
 #include <condition_variable>
 #include <limits>
@@ -166,7 +165,7 @@ class BlobDBImpl : public BlobDB {
       const LiveFilesStorageInfoOptions& opts,
       std::vector<LiveFileStorageInfo>* files) override;
 
-  ~BlobDBImpl();
+  ~BlobDBImpl() override;
 
   Status Open(std::vector<ColumnFamilyHandle*>* handles);
 

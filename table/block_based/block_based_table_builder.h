@@ -50,7 +50,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   BlockBasedTableBuilder& operator=(const BlockBasedTableBuilder&) = delete;
 
   // REQUIRES: Either Finish() or Abandon() has been called.
-  ~BlockBasedTableBuilder();
+  ~BlockBasedTableBuilder() override;
 
   // Add key,value to the table being constructed.
   // REQUIRES: Unless key has type kTypeRangeDeletion, key is after any

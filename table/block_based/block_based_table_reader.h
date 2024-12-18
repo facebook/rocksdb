@@ -213,7 +213,7 @@ class BlockBasedTable : public TableReader {
 
   void MarkObsolete(uint32_t uncache_aggressiveness) override;
 
-  ~BlockBasedTable();
+  ~BlockBasedTable() override;
 
   bool TEST_FilterBlockInCache() const;
   bool TEST_IndexBlockInCache() const;

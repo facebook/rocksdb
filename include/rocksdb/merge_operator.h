@@ -52,7 +52,7 @@ class Logger;
 // including data loss, unreported corruption, deadlocks, and more.
 class MergeOperator : public Customizable {
  public:
-  virtual ~MergeOperator() {}
+  virtual ~MergeOperator() override {}
   static const char* Type() { return "MergeOperator"; }
   static Status CreateFromString(const ConfigOptions& opts,
                                  const std::string& id,

@@ -26,7 +26,7 @@ class SnapshotChecker {
 
 class DisableGCSnapshotChecker : public SnapshotChecker {
  public:
-  virtual ~DisableGCSnapshotChecker() {}
+  virtual ~DisableGCSnapshotChecker() override {}
   SnapshotCheckerResult CheckInSnapshot(
       SequenceNumber /*sequence*/,
       SequenceNumber /*snapshot_sequence*/) const override {
@@ -46,7 +46,7 @@ class WritePreparedTxnDB;
 class WritePreparedSnapshotChecker : public SnapshotChecker {
  public:
   explicit WritePreparedSnapshotChecker(WritePreparedTxnDB* txn_db);
-  virtual ~WritePreparedSnapshotChecker() {}
+  virtual ~WritePreparedSnapshotChecker() override {}
 
   SnapshotCheckerResult CheckInSnapshot(
       SequenceNumber sequence, SequenceNumber snapshot_sequence) const override;

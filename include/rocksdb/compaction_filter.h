@@ -177,7 +177,7 @@ class CompactionFilter : public Customizable {
     static const int kUnknownStartLevel = -1;
   };
 
-  virtual ~CompactionFilter() {}
+  virtual ~CompactionFilter() override {}
   static const char* Type() { return "CompactionFilter"; }
   static Status CreateFromString(const ConfigOptions& config_options,
                                  const std::string& name,
@@ -348,7 +348,7 @@ class CompactionFilter : public Customizable {
 // including data loss, unreported corruption, deadlocks, and more.
 class CompactionFilterFactory : public Customizable {
  public:
-  virtual ~CompactionFilterFactory() {}
+  virtual ~CompactionFilterFactory() override {}
   static const char* Type() { return "CompactionFilterFactory"; }
   static Status CreateFromString(
       const ConfigOptions& config_options, const std::string& name,
