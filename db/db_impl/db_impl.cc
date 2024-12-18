@@ -5897,6 +5897,7 @@ Status DBImpl::IngestExternalFile(
 
 Status DBImpl::IngestExternalFiles(
     const std::vector<IngestExternalFileArg>& args) {
+  PERF_TIMER_GUARD(file_ingestion_nanos);
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const WriteOptions write_options;
 
@@ -6041,6 +6042,7 @@ Status DBImpl::IngestExternalFiles(
     if (two_write_queues_) {
       nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
     }
+    PERF_TIMER_GUARD(file_ingestion_blocking_live_writes_nanos);
 
     // When unordered_write is enabled, the keys are writing to memtable in an
     // unordered way. If the ingestion job checks memtable key range before the
@@ -6203,6 +6205,7 @@ Status DBImpl::IngestExternalFiles(
       nonmem_write_thread_.ExitUnbatched(&nonmem_w);
     }
     write_thread_.ExitUnbatched(&w);
+    PERF_TIMER_STOP(file_ingestion_blocking_live_writes_nanos);
 
     if (status.ok()) {
       for (auto& job : ingestion_jobs) {
