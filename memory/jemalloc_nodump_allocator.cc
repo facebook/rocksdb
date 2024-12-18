@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "port/likely.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"

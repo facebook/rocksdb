@@ -45,3 +45,4 @@
 #endif // !defined(XXH_STATIC_LINKING_ONLY)
 #define XXH_IMPLEMENTATION   /* access definitions */
 
+#include "xxhash.h"

@@ -13,6 +13,7 @@
 
 #include <cassert>
 #if defined(__i386__) || defined(__x86_64__)
+#include <cpuid.h>
 #endif
 #include <sched.h>
 #include <sys/resource.h>

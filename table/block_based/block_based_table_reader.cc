@@ -117,8 +117,10 @@ INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kMetaIndex);
 // WITH_COROUTINES or WITHOUT_COROUTINES is defined
 // clang-format off
 #define WITHOUT_COROUTINES
+#include "table/block_based/block_based_table_reader_sync_and_async.h"
 #undef WITHOUT_COROUTINES
 #define WITH_COROUTINES
+#include "table/block_based/block_based_table_reader_sync_and_async.h"
 #undef WITH_COROUTINES
 // clang-format on
 

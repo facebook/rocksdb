@@ -36,8 +36,10 @@
 // WITH_COROUTINES or WITHOUT_COROUTINES is defined
 // clang-format off
 #define WITHOUT_COROUTINES
+#include "db/table_cache_sync_and_async.h"
 #undef WITHOUT_COROUTINES
 #define WITH_COROUTINES
+#include "db/table_cache_sync_and_async.h"
 #undef WITH_COROUTINES
 // clang-format on
 
@@ -50,13 +52,11 @@ static Slice GetSliceForFileNumber(const uint64_t* file_number) {
                sizeof(*file_number));
 }
 
-
 void AppendVarint64(IterKey* key, uint64_t v) {
   char buf[10];
   auto ptr = EncodeVarint64(buf, v);
   key->TrimAppend(key->Size(), buf, ptr - buf);
 }
-
 
 }  // anonymous namespace
 
