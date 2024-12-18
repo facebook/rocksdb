@@ -368,7 +368,7 @@ jobs:
     resource_class: 2xlarge+
     steps:
       - pre-steps
-      - run: COMPILE_WITH_TSAN=1 CC=clang-13 CXX=clang++-13 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
+      - run: COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
       - post-steps
 
   build-linux-clang10-ubsan:
