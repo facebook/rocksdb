@@ -235,7 +235,7 @@ class SecondaryIndexMixin : public Txn {
     std::variant<Slice, std::string> secondary_key_prefix;
 
     const Status s = secondary_index->GetSecondaryKeyPrefix(
-        primary_key, existing_primary_column_value, &secondary_key_prefix);
+        existing_primary_column_value, &secondary_key_prefix);
     if (!s.ok()) {
       return s;
     }
@@ -268,7 +268,7 @@ class SecondaryIndexMixin : public Txn {
 
     {
       const Status s = secondary_index->GetSecondaryKeyPrefix(
-          primary_key, primary_column_value, &secondary_key_prefix);
+          primary_column_value, &secondary_key_prefix);
       if (!s.ok()) {
         return s;
       }
@@ -278,8 +278,7 @@ class SecondaryIndexMixin : public Txn {
 
     {
       const Status s = secondary_index->GetSecondaryValue(
-          primary_key, primary_column_value, previous_column_value,
-          &secondary_value);
+          primary_column_value, previous_column_value, &secondary_value);
       if (!s.ok()) {
         return s;
       }

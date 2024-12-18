@@ -33,8 +33,6 @@ TEST(FaissIVFIndexTest, Basic) {
 
   index->train(num_vectors, embeddings.data());
 
-  index->nprobe = 2;
-
   const std::string db_name = test::PerThreadDBPath("faiss_ivf_index_test");
   EXPECT_OK(DestroyDB(db_name, Options()));
 
@@ -113,6 +111,52 @@ TEST(FaissIVFIndexTest, Basic) {
     ASSERT_OK(it->status());
     ASSERT_EQ(num_found, num_vectors);
   }
+
+  ReadOptions read_options;
+  read_options.similarity_search_neighbors = 8;
+  read_options.similarity_search_probes = num_lists;
+
+  std::unique_ptr<Iterator> underlying_it(db->NewIterator(read_options, cfh2));
+
+  std::unique_ptr<Iterator> it =
+      txn_db_options.secondary_indices.back()->NewIterator(read_options,
+                                                           underlying_it.get());
+
+  float distance = 0.0f;
+
+  auto get_distance_prop = [&]() {
+    std::string distance_str;
+    ASSERT_OK(
+        it->GetProperty("rocksdb.faiss.ivf.index.distance", &distance_str));
+    ASSERT_EQ(
+        std::from_chars(distance_str.data(),
+                        distance_str.data() + distance_str.size(), distance)
+            .ec,
+        std::errc());
+  };
+
+  // Search for the first vector; we expect to find the vector itself as the
+  // closest match, since we're doing exhaustive search
+  it->Seek(Slice(reinterpret_cast<const char*>(embeddings.data()),
+                 dim * sizeof(float)));
+  get_distance_prop();
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ(it->key(), "0");
+  ASSERT_EQ(distance, 0.0f);
+
+  float prev_distance = distance;
+
+  size_t num_found = 1;
+  for (it->Next(); it->Valid(); it->Next()) {
+    get_distance_prop();
+    ASSERT_GE(distance, prev_distance);
+
+    prev_distance = distance;
+    ++num_found;
+  }
+
+  ASSERT_OK(it->status());
+  ASSERT_EQ(num_found, read_options.similarity_search_neighbors);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

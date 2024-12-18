@@ -6,10 +6,13 @@
 
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <variant>
 
+#include "rocksdb/iterator.h"
+#include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -82,7 +85,7 @@ class SecondaryIndex {
   // index id or length indicator). Returning a non-OK status rolls back all
   // operations in the transaction related to this primary key-value.
   virtual Status GetSecondaryKeyPrefix(
-      const Slice& primary_key, const Slice& primary_column_value,
+      const Slice& primary_column_value,
       std::variant<Slice, std::string>* secondary_key_prefix) const = 0;
 
   // Get the optional secondary value for a given primary key-value. This method
@@ -93,10 +96,29 @@ class SecondaryIndex {
   // Returning a non-OK status rolls back all operations in the transaction
   // related to this primary key-value.
   virtual Status GetSecondaryValue(
-      const Slice& primary_key, const Slice& primary_column_value,
-      const Slice& previous_column_value,
+      const Slice& primary_column_value, const Slice& previous_column_value,
       std::optional<std::variant<Slice, std::string>>* secondary_value)
       const = 0;
+
+  // Create an iterator that can be used to query the secondary index by calling
+  // the Seek API with a search target. The exact semantics of the returned
+  // iterator depend on the index and are implementation-specific. In the most
+  // common case, the search target is a primary column value, and the iterator
+  // returns all primary keys that have the given column value; however, other
+  // semantics are also possible. For example, in the case of vector similarity
+  // search, the search target is a vector, and the iterator returns similar
+  // vectors from the index.
+  //
+  // The returned iterator is expected to expose primary keys (i.e. the
+  // secondary key prefix is expected to be removed). The iterator is expected
+  // to support the Seek API (see above) but not the SeekToFirst, SeekToLast,
+  // and SeekForPrev APIs.
+  //
+  // The input parameter underlying_it is used to read secondary index entries,
+  // and is thus expected to be an iterator over the index's secondary column
+  // family.
+  virtual std::unique_ptr<Iterator> NewIterator(
+      const ReadOptions& read_options, Iterator* underlying_it) const = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

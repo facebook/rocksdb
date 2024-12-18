@@ -26,6 +26,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
+#include "util/overload.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
@@ -6290,9 +6291,9 @@ TEST_P(TransactionTest, DuplicateKeys) {
           }
         }
         delete cf_handle;
-      }  // with_commit_batch
-    }    // do_rollback
-  }      // do_prepare
+      }
+    }
+  }
 
   if (!options.unordered_write) {
     // Also test with max_successive_merges > 0. max_successive_merges will not
@@ -8054,7 +8055,7 @@ TEST_P(TransactionTest, SecondaryIndex) {
     }
 
     Status GetSecondaryKeyPrefix(
-        const Slice& /* primary_key */, const Slice& primary_column_value,
+        const Slice& primary_column_value,
         std::variant<Slice, std::string>* secondary_key_prefix) const override {
       assert(secondary_key_prefix);
 
@@ -8068,8 +8069,7 @@ TEST_P(TransactionTest, SecondaryIndex) {
       return Status::OK();
     }
 
-    Status GetSecondaryValue(const Slice& /* primary_key */,
-                             const Slice& primary_column_value,
+    Status GetSecondaryValue(const Slice& primary_column_value,
                              const Slice& previous_column_value,
                              std::optional<std::variant<Slice, std::string>>*
                                  secondary_value) const override {
@@ -8084,7 +8084,120 @@ TEST_P(TransactionTest, SecondaryIndex) {
       return Status::OK();
     }
 
+    std::unique_ptr<Iterator> NewIterator(
+        const ReadOptions& /* read_options */,
+        Iterator* underlying_it) const override {
+      return std::make_unique<FooIterator>(this, underlying_it);
+    }
+
    private:
+    class FooIterator : public Iterator {
+     public:
+      FooIterator(const SecondaryIndex* index, Iterator* underlying_it)
+          : index_(index), underlying_it_(underlying_it) {
+        assert(index_);
+        assert(underlying_it_);
+      }
+
+      bool Valid() const override {
+        return status_.ok() && underlying_it_->Valid() &&
+               underlying_it_->key().starts_with(prefix_);
+      }
+
+      void SeekToFirst() override {
+        status_ = Status::NotSupported("SeekToFirst");
+      }
+
+      void SeekToLast() override {
+        status_ = Status::NotSupported("SeekToLast");
+      }
+
+      void Seek(const Slice& target) override {
+        status_ = Status::OK();
+
+        std::variant<Slice, std::string> prefix;
+
+        const Status s = index_->GetSecondaryKeyPrefix(target, &prefix);
+        if (!s.ok()) {
+          status_ = s;
+          return;
+        }
+
+        prefix_ = std::visit(
+            overload{
+                [](const Slice& value) -> std::string {
+                  return value.ToString();
+                },
+                [](const std::string& value) -> std::string { return value; }},
+            prefix);
+
+        underlying_it_->Seek(prefix_);
+      }
+
+      void SeekForPrev(const Slice& /* target */) override {
+        status_ = Status::NotSupported("SeekForPrev");
+      }
+
+      void Next() override {
+        assert(Valid());
+
+        underlying_it_->Next();
+      }
+
+      void Prev() override {
+        assert(Valid());
+
+        underlying_it_->Prev();
+      }
+
+      bool PrepareValue() override {
+        assert(Valid());
+
+        return underlying_it_->PrepareValue();
+      }
+
+      Status status() const override {
+        if (!status_.ok()) {
+          return status_;
+        }
+
+        return underlying_it_->status();
+      }
+
+      Slice key() const override {
+        assert(Valid());
+
+        Slice key = underlying_it_->key();
+        key.remove_prefix(prefix_.size());
+
+        return key;
+      }
+
+      Slice value() const override {
+        assert(Valid());
+
+        return underlying_it_->value();
+      }
+
+      const WideColumns& columns() const override {
+        assert(Valid());
+
+        return underlying_it_->columns();
+      }
+
+      Slice timestamp() const override {
+        assert(Valid());
+
+        return Slice();
+      }
+
+     private:
+      const SecondaryIndex* index_;
+      Iterator* underlying_it_;
+      Status status_;
+      std::string prefix_;
+    };
+
     ColumnFamilyHandle* primary_cfh_{};
     ColumnFamilyHandle* secondary_cfh_{};
   };
@@ -8199,6 +8312,31 @@ TEST_P(TransactionTest, SecondaryIndex) {
     ASSERT_OK(it->status());
   }
 
+  {
+    std::unique_ptr<Iterator> underlying_it(
+        db->NewIterator(ReadOptions(), cfh2));
+    std::unique_ptr<Iterator> it(
+        index->NewIterator(ReadOptions(), underlying_it.get()));
+
+    it->Seek("box");  // last character used for indexing: x
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key3");
+    ASSERT_EQ(it->value(), "zab");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key4");
+    ASSERT_EQ(it->value(), "xuuq");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+
+    it->Seek("toy");  // last character used for indexing: y
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
   // Make some updates to the key-values indexed above through the database
   // interface (i.e. using implicit transactions)
 
@@ -8267,6 +8405,31 @@ TEST_P(TransactionTest, SecondaryIndex) {
     it->Next();
     ASSERT_TRUE(it->Valid());
     ASSERT_EQ(it->key(), "ykey3");
+    ASSERT_EQ(it->value(), "ylprag");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    std::unique_ptr<Iterator> underlying_it(
+        db->NewIterator(ReadOptions(), cfh2));
+    std::unique_ptr<Iterator> it(
+        index->NewIterator(ReadOptions(), underlying_it.get()));
+
+    it->Seek("bot");  // last character used for indexing: t
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key1");
+    ASSERT_EQ(it->value(), "tluarg");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+
+    it->Seek("toy");  // last character used for indexing: y
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key3");
     ASSERT_EQ(it->value(), "ylprag");
 
     it->Next();
