@@ -989,11 +989,22 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_writebatch_wi_get_from_batch_and_db(
     rocksdb_writebatch_wi_t* wbwi, rocksdb_t* db,
     const rocksdb_readoptions_t* options, const char* key, size_t keylen,
     size_t* vallen, char** errptr);
+extern ROCKSDB_LIBRARY_API rocksdb_pinnableslice_t*
+rocksdb_writebatch_wi_get_pinned_from_batch_and_db(
+    rocksdb_writebatch_wi_t* wbwi, rocksdb_t* db,
+    const rocksdb_readoptions_t* options, const char* key, size_t keylen,
+    char** errptr);
 extern ROCKSDB_LIBRARY_API char* rocksdb_writebatch_wi_get_from_batch_and_db_cf(
     rocksdb_writebatch_wi_t* wbwi, rocksdb_t* db,
     const rocksdb_readoptions_t* options,
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, size_t* vallen, char** errptr);
+extern ROCKSDB_LIBRARY_API rocksdb_pinnableslice_t*
+rocksdb_writebatch_wi_get_pinned_from_batch_and_db_cf(
+    rocksdb_writebatch_wi_t* wbwi, rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_write_writebatch_wi(
     rocksdb_t* db, const rocksdb_writeoptions_t* options,
     rocksdb_writebatch_wi_t* wbwi, char** errptr);
