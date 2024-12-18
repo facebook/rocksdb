@@ -15,7 +15,6 @@
 #include "cache/cache_reservation_manager.h"
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/status.h"
-#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 WriteBufferManager::WriteBufferManager(size_t _buffer_size,

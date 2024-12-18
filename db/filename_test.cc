@@ -10,7 +10,6 @@
 #include "file/filename.h"
 
 #include "db/dbformat.h"
-#include "port/port.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -12,7 +12,6 @@
 #ifndef OS_WIN
 #include <sys/resource.h>
 #endif
-#include "port/jemalloc_helper.h"
 #include "port/port.h"
 #include "test_util/testharness.h"
 #include "util/random.h"

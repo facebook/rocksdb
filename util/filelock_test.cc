@@ -14,7 +14,6 @@
 #ifdef __OpenBSD__
 #include <sys/wait.h>
 #endif
-#include <vector>
 
 #include "test_util/testharness.h"
 #include "util/coding.h"

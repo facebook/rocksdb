@@ -21,7 +21,6 @@ int main() {
 
 #include "dynamic_bloom.h"
 #include "memory/arena.h"
-#include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"

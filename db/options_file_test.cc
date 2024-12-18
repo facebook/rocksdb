@@ -8,7 +8,6 @@
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "rocksdb/options.h"
-#include "rocksdb/table.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -11,9 +11,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/table.h"
 #include "table/format.h"
-#include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 void ForceReleaseCachedEntry(void* arg, void* h) {

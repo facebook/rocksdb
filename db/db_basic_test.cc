@@ -27,7 +27,6 @@
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
 #include "utilities/merge_operators.h"
-#include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {

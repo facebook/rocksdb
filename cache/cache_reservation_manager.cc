@@ -10,14 +10,12 @@
 
 #include <cassert>
 #include <cstddef>
-#include <cstring>
 #include <memory>
 
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "table/block_based/reader_common.h"
-#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 

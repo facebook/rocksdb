@@ -23,7 +23,6 @@
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/hash_containers.h"
-#include "util/string_util.h"
 
 // HyperClockCache only supports 16-byte keys, so some of the tests
 // originally written for LRUCache do not work on the other caches.

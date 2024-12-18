@@ -8,7 +8,6 @@
 #include "db/table_properties_collector.h"
 #include "file/file_util.h"
 #include "options/options_helper.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_system.h"

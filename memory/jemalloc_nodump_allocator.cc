@@ -6,10 +6,7 @@
 #include "memory/jemalloc_nodump_allocator.h"
 
 #include <string>
-#include <thread>
 
-#include "port/likely.h"
-#include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"

@@ -33,7 +33,6 @@
 #include <sys/sysmacros.h>
 #endif
 #include "monitoring/iostats_context_imp.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/slice.h"
 #include "test_util/sync_point.h"

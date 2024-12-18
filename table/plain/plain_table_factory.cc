@@ -9,7 +9,6 @@
 #include <memory>
 
 #include "db/dbformat.h"
-#include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"

@@ -13,7 +13,6 @@
 #include <limits>
 
 #include "db/db_test_util.h"
-#include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"

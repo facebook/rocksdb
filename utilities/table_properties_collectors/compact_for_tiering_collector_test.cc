@@ -10,7 +10,6 @@
 #include <cmath>
 #include <cstdio>
 #include <iostream>
-#include <vector>
 
 #include "db/seqno_to_time_mapping.h"
 #include "port/stack_trace.h"
@@ -18,7 +17,6 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "test_util/testharness.h"
-#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 

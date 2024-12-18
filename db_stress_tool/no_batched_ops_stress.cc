@@ -10,7 +10,6 @@
 #include "db/dbformat.h"
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
-#include "db_stress_tool/expected_state.h"
 #include "rocksdb/status.h"
 #ifdef GFLAGS
 #include "db/wide/wide_columns_helper.h"

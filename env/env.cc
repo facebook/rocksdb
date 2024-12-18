@@ -16,16 +16,13 @@
 #include "env/mock_env.h"
 #include "env/unique_id_gen.h"
 #include "logging/env_logger.h"
-#include "memory/arena.h"
 #include "options/db_options.h"
-#include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
-#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {

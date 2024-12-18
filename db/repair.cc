@@ -67,13 +67,11 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/log_reader.h"
-#include "db/log_writer.h"
 #include "db/memtable.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
-#include "file/writable_file_writer.h"
 #include "logging/logging.h"
 #include "options/cf_options.h"
 #include "rocksdb/comparator.h"
@@ -82,7 +80,6 @@
 #include "rocksdb/options.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/unique_id_impl.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 

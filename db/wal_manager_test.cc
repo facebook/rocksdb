@@ -6,10 +6,8 @@
 
 #include "db/wal_manager.h"
 
-#include <map>
 #include <string>
 
-#include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
 #include "db/version_set.h"
@@ -21,8 +19,6 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
-#include "test_util/testutil.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 

@@ -13,7 +13,6 @@
 #include "monitoring/statistics_impl.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
-#include "util/coding.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {

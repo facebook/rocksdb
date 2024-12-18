@@ -14,13 +14,10 @@
 #include <dlfcn.h>
 #endif
 #include <fcntl.h>
-#include <pthread.h>
-#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 
 #include <cerrno>
-#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -29,8 +26,6 @@
 #include <sys/sysmacros.h>
 #endif
 #include <sys/statvfs.h>
-#include <sys/time.h>
-#include <sys/types.h>
 
 #include <algorithm>
 #include <ctime>
@@ -53,17 +48,14 @@
 #include "monitoring/thread_status_updater.h"
 #include "options/db_options.h"
 #include "port/lang.h"
-#include "port/port.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
-#include "util/random.h"
 #include "util/string_util.h"
 #include "util/thread_local.h"
-#include "util/threadpool_imp.h"
 
 #if !defined(TMPFS_MAGIC)
 #define TMPFS_MAGIC 0x01021994

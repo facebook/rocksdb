@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cinttypes>
 #include <functional>
 #include <map>
 #include <memory>
@@ -32,9 +31,7 @@
 #include "db/version_edit.h"
 #include "db/version_edit_handler.h"
 #include "db/version_set.h"
-#include "port/port.h"
 #include "table/table_reader.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 

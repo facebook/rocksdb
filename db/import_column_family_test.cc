@@ -8,10 +8,8 @@
 #include <functional>
 
 #include "db/db_test_util.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
-#include "test_util/testutil.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {

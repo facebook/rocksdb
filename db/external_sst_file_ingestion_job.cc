@@ -16,7 +16,6 @@
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
-#include "table/merging_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"

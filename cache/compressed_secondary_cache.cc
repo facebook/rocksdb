@@ -13,7 +13,6 @@
 #include "monitoring/perf_context_imp.h"
 #include "util/coding.h"
 #include "util/compression.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 

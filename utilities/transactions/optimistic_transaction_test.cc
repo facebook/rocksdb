@@ -11,7 +11,6 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
-#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"

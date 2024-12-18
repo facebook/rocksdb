@@ -9,13 +9,10 @@
 #include <cinttypes>
 
 #include "db/arena_wrapped_db_iter.h"
-#include "db/merge_context.h"
 #include "env/composite_env_wrapper.h"
 #include "env/fs_on_demand.h"
 #include "logging/auto_roll_logger.h"
 #include "logging/logging.h"
-#include "monitoring/perf_context_imp.h"
-#include "rocksdb/configurable.h"
 #include "rocksdb/db.h"
 #include "util/cast_util.h"
 #include "util/write_batch_util.h"

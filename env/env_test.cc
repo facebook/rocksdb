@@ -13,7 +13,6 @@
 
 #if defined(ROCKSDB_IOURING_PRESENT)
 #include <liburing.h>
-#include <sys/uio.h>
 #endif
 
 #include <sys/types.h>
@@ -46,8 +45,6 @@
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
 #include "options/options_helper.h"
-#include "port/malloc.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"

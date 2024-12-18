@@ -12,10 +12,7 @@
 #include <numa.h>
 #endif
 #ifndef OS_WIN
-#include <unistd.h>
 #endif
-#include <fcntl.h>
-#include <sys/types.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -41,11 +38,8 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
-#include "db/version_set.h"
 #include "monitoring/histogram.h"
-#include "monitoring/statistics_impl.h"
 #include "options/cf_options.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
@@ -65,11 +59,9 @@
 #include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
-#include "rocksdb/utilities/options_type.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/utilities/sim_cache.h"
-#include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
 #include "test_util/testutil.h"
@@ -84,10 +76,8 @@
 #include "util/random.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
-#include "util/xxhash.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/counted_fs.h"
-#include "utilities/merge_operators.h"
 #include "utilities/merge_operators/bytesxor.h"
 #include "utilities/merge_operators/sortlist.h"
 #include "utilities/persistent_cache/block_cache_tier.h"

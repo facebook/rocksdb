@@ -15,8 +15,6 @@
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/cast_util.h"
-#include "util/coding.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 BaseDeltaIterator::BaseDeltaIterator(ColumnFamilyHandle* column_family,

@@ -7,10 +7,8 @@
 
 #ifdef GFLAGS
 #ifdef NUMA
-#include <numa.h>
 #endif
 #ifndef OS_WIN
-#include <unistd.h>
 #endif
 #include <cinttypes>
 #include <cmath>
@@ -18,33 +16,18 @@
 #include <cstdlib>
 #include <memory>
 #include <sstream>
-#include <stdexcept>
 
 #include "db/db_impl/db_impl.h"
-#include "db/memtable.h"
-#include "db/write_batch_internal.h"
 #include "env/composite_env_wrapper.h"
 #include "file/line_file_reader.h"
-#include "file/writable_file_writer.h"
-#include "options/cf_options.h"
-#include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/slice_transform.h"
 #include "rocksdb/status.h"
-#include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "rocksdb/write_batch.h"
-#include "table/meta_blocks.h"
-#include "table/table_reader.h"
 #include "tools/trace_analyzer_tool.h"
 #include "trace_replay/trace_replay.h"
-#include "util/coding.h"
-#include "util/compression.h"
 #include "util/gflags_compat.h"
-#include "util/random.h"
-#include "util/string_util.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 

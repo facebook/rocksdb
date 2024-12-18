@@ -17,7 +17,6 @@
 #include "utilities/merge_operators/bytesxor.h"
 #include "utilities/ttl/db_ttl_impl.h"
 #ifndef OS_WIN
-#include <unistd.h>
 #endif
 
 namespace ROCKSDB_NAMESPACE {

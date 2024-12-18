@@ -13,12 +13,10 @@
 #include "memory/arena.h"
 #include "monitoring/histogram.h"
 #include "monitoring/perf_context_imp.h"
-#include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
-#include "rocksdb/statistics.h"
 #include "table/block_based/block.h"
 #include "table/block_based/filter_block.h"
 #include "table/format.h"
@@ -26,14 +24,9 @@
 #include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
 #include "table/plain/plain_table_bloom.h"
-#include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_key_coding.h"
-#include "table/two_level_iterator.h"
 #include "util/coding.h"
-#include "util/dynamic_bloom.h"
 #include "util/hash.h"
-#include "util/stop_watch.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 

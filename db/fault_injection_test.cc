@@ -13,10 +13,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
-#include "db/log_format.h"
-#include "db/version_set.h"
 #include "env/mock_env.h"
-#include "file/filename.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -26,7 +23,6 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/mutexlock.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 #ifndef NDEBUG

@@ -9,8 +9,6 @@
 #include "db/db_test_util.h"
 #include "env/mock_env.h"
 #include "file/line_file_reader.h"
-#include "file/random_access_file_reader.h"
-#include "file/read_write_util.h"
 #include "file/readahead_raf.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"

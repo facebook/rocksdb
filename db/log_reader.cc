@@ -15,7 +15,6 @@
 #include "port/lang.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
-#include "util/coding.h"
 #include "util/crc32c.h"
 
 namespace ROCKSDB_NAMESPACE::log {

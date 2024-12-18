@@ -13,7 +13,6 @@
 #include "rocksdb/comparator.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/coding.h"
 #include "util/vector_iterator.h"
 #include "utilities/merge_operators.h"
 

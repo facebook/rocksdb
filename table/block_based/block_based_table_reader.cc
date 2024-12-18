@@ -26,7 +26,6 @@
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "file/file_prefetch_buffer.h"
-#include "file/file_util.h"
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
@@ -38,7 +37,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
-#include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/statistics.h"
@@ -50,7 +48,6 @@
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_iterator.h"
-#include "table/block_based/block_prefix_index.h"
 #include "table/block_based/block_type.h"
 #include "table/block_based/filter_block.h"
 #include "table/block_based/filter_policy_internal.h"
@@ -69,10 +66,8 @@
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
-#include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -122,10 +117,8 @@ INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kMetaIndex);
 // WITH_COROUTINES or WITHOUT_COROUTINES is defined
 // clang-format off
 #define WITHOUT_COROUTINES
-#include "table/block_based/block_based_table_reader_sync_and_async.h"
 #undef WITHOUT_COROUTINES
 #define WITH_COROUTINES
-#include "table/block_based/block_based_table_reader_sync_and_async.h"
 #undef WITH_COROUTINES
 // clang-format on
 

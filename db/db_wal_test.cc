@@ -9,8 +9,6 @@
 
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
-#include "options/options_helper.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/file_system.h"
 #include "test_util/sync_point.h"

@@ -8,9 +8,7 @@
 #include <algorithm>
 
 #include "memory/allocator.h"
-#include "port/port.h"
 #include "rocksdb/slice.h"
-#include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
 

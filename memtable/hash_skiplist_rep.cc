@@ -9,7 +9,6 @@
 #include "db/memtable.h"
 #include "memory/arena.h"
 #include "memtable/skiplist.h"
-#include "port/port.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"

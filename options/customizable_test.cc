@@ -10,7 +10,6 @@
 #include "rocksdb/customizable.h"
 
 #include <cctype>
-#include <cinttypes>
 #include <cstring>
 #include <unordered_map>
 #include <unordered_set>
@@ -18,7 +17,6 @@
 #include "db/db_test_util.h"
 #include "memory/jemalloc_nodump_allocator.h"
 #include "memory/memkind_kmem_allocator.h"
-#include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
@@ -40,9 +38,7 @@
 #include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/file_checksum_helper.h"
 #include "util/string_util.h"
-#include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
 #include "utilities/memory_allocators.h"
 #include "utilities/merge_operators/bytesxor.h"
 #include "utilities/merge_operators/sortlist.h"

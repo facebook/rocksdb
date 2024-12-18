@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
-#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/user_write_callback.h"
 #include "rocksdb/write_batch.h"

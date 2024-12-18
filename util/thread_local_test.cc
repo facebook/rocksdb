@@ -9,7 +9,6 @@
 #include <string>
 #include <thread>
 
-#include "port/port.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"

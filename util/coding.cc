@@ -9,9 +9,7 @@
 
 #include "util/coding.h"
 
-#include <algorithm>
 
-#include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -22,7 +22,6 @@
 
 #include "db/blob/blob_fetcher.h"
 #include "db/blob/blob_file_cache.h"
-#include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_source.h"
 #include "db/compaction/compaction.h"
@@ -32,7 +31,6 @@
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/manifest_ops.h"
-#include "db/memtable.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
@@ -66,13 +64,10 @@
 #include "table/merging_iterator.h"
 #include "table/meta_blocks.h"
 #include "table/multiget_context.h"
-#include "table/plain/plain_table_factory.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
-#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
-#include "util/coding.h"
 #include "util/coro_utils.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -84,10 +79,8 @@
 // WITH_COROUTINES or WITHOUT_COROUTINES is defined
 // clang-format off
 #define WITHOUT_COROUTINES
-#include "db/version_set_sync_and_async.h"
 #undef WITHOUT_COROUTINES
 #define WITH_COROUTINES
-#include "db/version_set_sync_and_async.h"
 #undef WITH_COROUTINES
 // clang-format on
 

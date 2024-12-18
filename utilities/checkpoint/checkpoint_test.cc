@@ -11,7 +11,6 @@
 #include "rocksdb/utilities/checkpoint.h"
 
 #ifndef OS_WIN
-#include <unistd.h>
 #endif
 #include <cstdlib>
 #include <iostream>
@@ -20,7 +19,6 @@
 
 #include "db/db_impl/db_impl.h"
 #include "file/file_util.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"

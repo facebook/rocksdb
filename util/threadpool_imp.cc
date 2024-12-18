@@ -29,7 +29,6 @@
 #include <vector>
 
 #include "monitoring/thread_status_util.h"
-#include "port/port.h"
 #include "test_util/sync_point.h"
 #include "util/string_util.h"
 

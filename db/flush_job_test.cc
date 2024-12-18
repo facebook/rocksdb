@@ -22,7 +22,6 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {

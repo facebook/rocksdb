@@ -10,7 +10,6 @@
 // Introduction of SyncPoint effectively disabled building and running this test
 // in Release build.
 // which is a pity, it is a good test
-#include <fcntl.h>
 
 #include <algorithm>
 #include <set>
@@ -19,7 +18,6 @@
 #include <utility>
 
 #ifndef OS_WIN
-#include <unistd.h>
 #endif
 #ifdef OS_SOLARIS
 #include <alloca.h>
@@ -32,13 +30,10 @@
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
-#include "db/job_context.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "monitoring/thread_status_util.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -48,7 +43,6 @@
 #include "rocksdb/experimental.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
-#include "rocksdb/perf_context.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/snapshot.h"
@@ -56,7 +50,6 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/thread_status.h"
 #include "rocksdb/types.h"
-#include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "table/mock_table.h"

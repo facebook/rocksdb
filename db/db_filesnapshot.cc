@@ -12,20 +12,15 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
-#include "db/job_context.h"
 #include "db/version_set.h"
-#include "file/file_util.h"
 #include "file/filename.h"
 #include "logging/logging.h"
-#include "port/port.h"
-#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "test_util/sync_point.h"
 #include "util/file_checksum_helper.h"
-#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 

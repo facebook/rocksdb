@@ -25,7 +25,6 @@
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/write_stall_stats.h"
-#include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "table/block_based/cachable_entry.h"

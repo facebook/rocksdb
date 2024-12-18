@@ -12,20 +12,11 @@
 #include <iostream>
 #include <mutex>
 #include <queue>
-#include <set>
 #include <thread>
 #include <unordered_set>
 #include <utility>
 
 #include "db/db_impl/db_impl.h"
-#include "db/dbformat.h"
-#include "db/job_context.h"
-#include "db/version_set.h"
-#include "db/write_batch_internal.h"
-#include "env/mock_env.h"
-#include "file/filename.h"
-#include "monitoring/statistics_impl.h"
-#include "monitoring/thread_status_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -35,26 +26,17 @@
 #include "rocksdb/experimental.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
-#include "rocksdb/perf_context.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-#include "rocksdb/thread_status.h"
-#include "rocksdb/utilities/checkpoint.h"
-#include "rocksdb/utilities/write_batch_with_index.h"
-#include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
-#include "table/plain/plain_table_factory.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
-#include "util/hash.h"
-#include "util/mutexlock.h"
 #include "util/rate_limiter_impl.h"
-#include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
 #if !defined(IOS_CROSS_COMPILE)

@@ -10,7 +10,6 @@
 #include "table/block_fetcher.h"
 
 #include <cassert>
-#include <cinttypes>
 #include <string>
 
 #include "logging/logging.h"
@@ -18,14 +17,12 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
-#include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_type.h"
 #include "table/block_based/reader_common.h"
 #include "table/format.h"
 #include "table/persistent_cache_helper.h"
 #include "util/compression.h"
-#include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
 

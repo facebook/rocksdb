@@ -16,8 +16,6 @@
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "logging/logging.h"
-#include "port/likely.h"
-#include "rocksdb/listener.h"
 #include "table/internal_iterator.h"
 #include "test_util/sync_point.h"
 

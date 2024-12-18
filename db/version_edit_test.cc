@@ -10,7 +10,6 @@
 #include "db/version_edit.h"
 
 #include "db/blob/blob_index.h"
-#include "rocksdb/advanced_options.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"

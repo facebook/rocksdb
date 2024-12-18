@@ -43,7 +43,6 @@
 #include <limits>
 #include <map>
 #include <stack>
-#include <stdexcept>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
@@ -54,13 +53,11 @@
 #include "db/flush_scheduler.h"
 #include "db/kv_checksum.h"
 #include "db/memtable.h"
-#include "db/merge_context.h"
 #include "db/snapshot_impl.h"
 #include "db/trim_history_scheduler.h"
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
-#include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics_impl.h"
 #include "port/lang.h"
 #include "rocksdb/merge_operator.h"
@@ -70,7 +67,6 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/duplicate_detector.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 

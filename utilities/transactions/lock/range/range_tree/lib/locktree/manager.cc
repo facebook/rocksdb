@@ -56,7 +56,6 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 #include <string.h>
 
 #include "../portability/toku_pthread.h"
-#include "../util/status.h"
 #include "lock_request.h"
 #include "locktree.h"
 

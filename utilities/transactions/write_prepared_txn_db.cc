@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cinttypes>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "db/arena_wrapped_db_iter.h"
@@ -21,9 +20,6 @@
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
-#include "util/string_util.h"
-#include "utilities/transactions/pessimistic_transaction.h"
-#include "utilities/transactions/transaction_db_mutex_impl.h"
 
 // This function is for testing only. If it returns true, then all entries in
 // the commit cache will be evicted. Unit and/or stress tests (db_stress)

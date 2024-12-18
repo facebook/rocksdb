@@ -11,8 +11,6 @@
 
 #include "db/pinned_iterators_manager.h"
 #include "memory/arena.h"
-#include "rocksdb/options.h"
-#include "rocksdb/table.h"
 #include "table/block_based/block.h"
 #include "table/format.h"
 

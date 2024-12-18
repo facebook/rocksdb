@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "rocksdb/convenience.h"
-#include "rocksdb/options.h"
 #include "rocksdb/utilities/customizable_util.h"
 
 namespace ROCKSDB_NAMESPACE {

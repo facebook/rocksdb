@@ -9,7 +9,6 @@
 #include "file/random_access_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "trace_replay/trace_replay.h"
-#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 

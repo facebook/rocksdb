@@ -13,7 +13,6 @@
 #include <thread>
 
 #include "db/db_impl/db_impl.h"
-#include "port/port.h"
 #include "rocksdb/attribute_groups.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -27,9 +26,7 @@
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
 #include "util/random.h"
-#include "util/string_util.h"
 #include "utilities/merge_operators.h"
-#include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
 namespace ROCKSDB_NAMESPACE {

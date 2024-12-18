@@ -5,17 +5,13 @@
 
 #include "db/range_del_aggregator.h"
 
-#include "db/compaction/compaction_iteration_stats.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/range_tombstone_fragmenter.h"
-#include "db/version_edit.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/types.h"
 #include "table/internal_iterator.h"
-#include "table/table_builder.h"
 #include "util/heap.h"
-#include "util/kv_map.h"
 #include "util/vector_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {

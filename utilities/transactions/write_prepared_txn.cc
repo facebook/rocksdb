@@ -10,7 +10,6 @@
 #include <set>
 
 #include "db/attribute_group_iterator_impl.h"
-#include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"

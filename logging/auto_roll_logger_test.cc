@@ -7,7 +7,6 @@
 
 #include "logging/auto_roll_logger.h"
 
-#include <sys/stat.h>
 
 #include <algorithm>
 #include <cmath>
@@ -22,7 +21,6 @@
 #include "env/emulated_clock.h"
 #include "logging/env_logger.h"
 #include "logging/logging.h"
-#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/system_clock.h"

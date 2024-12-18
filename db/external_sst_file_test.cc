@@ -12,7 +12,6 @@
 #include "db/dbformat.h"
 #include "file/filename.h"
 #include "options/options_helper.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"

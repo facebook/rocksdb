@@ -14,7 +14,6 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
-#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 

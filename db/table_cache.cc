@@ -17,7 +17,6 @@
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
-#include "rocksdb/advanced_options.h"
 #include "rocksdb/statistics.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/get_context.h"
@@ -37,10 +36,8 @@
 // WITH_COROUTINES or WITHOUT_COROUTINES is defined
 // clang-format off
 #define WITHOUT_COROUTINES
-#include "db/table_cache_sync_and_async.h"
 #undef WITHOUT_COROUTINES
 #define WITH_COROUTINES
-#include "db/table_cache_sync_and_async.h"
 #undef WITH_COROUTINES
 // clang-format on
 

@@ -13,7 +13,6 @@
 #include <cinttypes>
 #include <memory>
 #include <optional>
-#include <set>
 #include <utility>
 #include <vector>
 
@@ -28,7 +27,6 @@
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/history_trimming_iterator.h"
-#include "db/log_writer.h"
 #include "db/merge_helper.h"
 #include "db/range_del_aggregator.h"
 #include "db/version_edit.h"
@@ -41,17 +39,12 @@
 #include "logging/logging.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
-#include "options/configurable_helper.h"
 #include "options/options_helper.h"
-#include "port/port.h"
-#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "rocksdb/utilities/options_type.h"
-#include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"

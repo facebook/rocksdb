@@ -16,14 +16,10 @@
 
 #include "db/blob/blob_index.h"
 #include "db/memtable.h"
-#include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
 #include "options/cf_options.h"
-#include "port/port.h"
-#include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
@@ -31,13 +27,10 @@
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
-#include "table/block_based/block_builder.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
-#include "table/plain/plain_table_factory.h"
 #include "table/table_reader.h"
 #include "util/compression.h"
-#include "util/random.h"
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {

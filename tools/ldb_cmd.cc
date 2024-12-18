@@ -8,7 +8,6 @@
 
 #include <cstddef>
 #include <cstdlib>
-#include <ctime>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -22,7 +21,6 @@
 #include "db/dbformat.h"
 #include "db/log_reader.h"
 #include "db/version_util.h"
-#include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
@@ -42,7 +40,6 @@
 #include "table/sst_file_dumper.h"
 #include "tools/ldb_cmd_impl.h"
 #include "util/cast_util.h"
-#include "util/coding.h"
 #include "util/file_checksum_helper.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"

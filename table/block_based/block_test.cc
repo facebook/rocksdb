@@ -16,11 +16,6 @@
 
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
-#include "db/memtable.h"
-#include "db/write_batch_internal.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_reader.h"

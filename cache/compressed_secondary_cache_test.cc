@@ -5,7 +5,6 @@
 
 #include "cache/compressed_secondary_cache.h"
 
-#include <array>
 #include <iterator>
 #include <memory>
 #include <tuple>

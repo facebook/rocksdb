@@ -9,10 +9,7 @@
 
 #include "db/malloc_stats.h"
 
-#include <cstring>
-#include <memory>
 
-#include "port/jemalloc_helper.h"
 
 namespace ROCKSDB_NAMESPACE {
 

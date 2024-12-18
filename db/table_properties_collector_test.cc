@@ -13,7 +13,6 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
-#include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
 #include "rocksdb/flush_block_policy.h"

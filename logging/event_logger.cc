@@ -6,7 +6,6 @@
 #include "logging/event_logger.h"
 
 #include <cassert>
-#include <cinttypes>
 #include <sstream>
 #include <string>
 

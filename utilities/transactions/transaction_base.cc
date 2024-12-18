@@ -16,7 +16,6 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "util/cast_util.h"
-#include "util/string_util.h"
 #include "utilities/transactions/lock/lock_tracker.h"
 
 namespace ROCKSDB_NAMESPACE {

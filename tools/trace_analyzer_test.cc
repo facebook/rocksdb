@@ -28,11 +28,8 @@ int main() {
 #include "rocksdb/status.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "test_util/testharness.h"
-#include "test_util/testutil.h"
 #include "tools/trace_analyzer_tool.h"
-#include "trace_replay/trace_replay.h"
 #include "utilities/fault_injection_env.h"
-#include "utilities/trace/file_trace_reader_writer.h"
 
 namespace ROCKSDB_NAMESPACE {
 

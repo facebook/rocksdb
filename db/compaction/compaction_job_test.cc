@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cinttypes>
 #include <map>
 #include <string>
 #include <tuple>
@@ -31,7 +30,6 @@
 #include "table/unique_id_impl.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {

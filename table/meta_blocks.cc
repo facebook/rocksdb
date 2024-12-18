@@ -20,7 +20,6 @@
 #include "table/internal_iterator.h"
 #include "table/persistent_cache_helper.h"
 #include "table/sst_file_writer_collectors.h"
-#include "table/table_properties_internal.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 

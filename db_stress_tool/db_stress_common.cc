@@ -15,7 +15,6 @@
 
 #include "rocksdb/secondary_cache.h"
 #include "util/file_checksum_helper.h"
-#include "util/xxhash.h"
 
 ROCKSDB_NAMESPACE::Env* db_stress_listener_env = nullptr;
 ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
