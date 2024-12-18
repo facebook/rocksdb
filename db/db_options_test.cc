@@ -119,7 +119,7 @@ TEST_F(DBOptionsTest, ImmutableVerifySstUniqueIdInManifest) {
 
 // RocksDB lite don't support dynamic options.
 
-TEST_F(DBOptionsTest, AvoidUpdatingOptions) {
+TEST_F(DBOptionsTest, SkipUpdatingOptionsWhenNoValuesToUpdate) {
   Options options;
   options.env = env_;
   options.max_background_jobs = 4;
