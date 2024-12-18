@@ -12,8 +12,6 @@
 #include <cstring>
 #include <random>
 
-#include "port/lang.h"
-#include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/version.h"
 #include "util/hash.h"

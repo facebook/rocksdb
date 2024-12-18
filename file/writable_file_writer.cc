@@ -10,18 +10,12 @@
 #include "file/writable_file_writer.h"
 
 #include <algorithm>
-#include <mutex>
 
-#include "db/version_edit.h"
 #include "file/file_util.h"
-#include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
-#include "port/port.h"
 #include "rocksdb/io_status.h"
-#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/crc32c.h"
-#include "util/random.h"
 #include "util/rate_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {

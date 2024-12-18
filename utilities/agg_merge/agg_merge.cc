@@ -13,13 +13,11 @@
 #include <vector>
 
 #include "port/lang.h"
-#include "port/likely.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/coding.h"
 #include "utilities/agg_merge/agg_merge_impl.h"
-#include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
 static std::unordered_map<std::string, std::unique_ptr<Aggregator>> func_map;

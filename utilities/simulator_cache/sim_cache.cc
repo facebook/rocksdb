@@ -10,7 +10,6 @@
 
 #include "file/writable_file_writer.h"
 #include "monitoring/statistics_impl.h"
-#include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "util/mutexlock.h"

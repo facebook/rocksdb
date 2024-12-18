@@ -15,13 +15,10 @@
 #include "db/arena_wrapped_db_iter.h"
 #include "db/blob/blob_index.h"
 #include "db/column_family.h"
-#include "db/db_iter.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/write_batch_internal.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
-#include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {

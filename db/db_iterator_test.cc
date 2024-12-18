@@ -10,9 +10,7 @@
 #include <functional>
 
 #include "db/arena_wrapped_db_iter.h"
-#include "db/db_iter.h"
 #include "db/db_test_util.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"

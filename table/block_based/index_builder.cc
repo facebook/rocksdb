@@ -10,7 +10,6 @@
 #include "table/block_based/index_builder.h"
 
 #include <cassert>
-#include <cinttypes>
 #include <list>
 #include <string>
 

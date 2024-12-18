@@ -12,9 +12,7 @@
 #include <cstdint>
 
 #include "file/writable_file_writer.h"
-#include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
-#include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/udt_util.h"
 

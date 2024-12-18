@@ -9,16 +9,12 @@
 
 #include "rocksdb/options.h"
 
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 
 #include <cinttypes>
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/log_format.h"
-#include "db/version_set.h"
 #include "file/filename.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"

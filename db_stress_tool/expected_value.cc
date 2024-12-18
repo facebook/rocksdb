@@ -7,7 +7,6 @@
 
 #include "db_stress_tool/expected_value.h"
 
-#include <atomic>
 
 namespace ROCKSDB_NAMESPACE {
 void ExpectedValue::Put(bool pending) {

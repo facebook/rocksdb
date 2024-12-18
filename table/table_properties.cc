@@ -7,7 +7,6 @@
 
 #include "db/seqno_to_time_mapping.h"
 #include "port/malloc.h"
-#include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/unique_id.h"
 #include "rocksdb/utilities/options_type.h"

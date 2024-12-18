@@ -9,7 +9,6 @@
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "db_stress_tool/db_stress_common.h"
-#include "db_stress_tool/db_stress_shared_state.h"
 #include "db_stress_tool/expected_state.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/trace_record_result.h"

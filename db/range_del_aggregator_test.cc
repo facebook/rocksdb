@@ -12,7 +12,6 @@
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/range_tombstone_fragmenter.h"
-#include "test_util/testutil.h"
 #include "util/vector_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {

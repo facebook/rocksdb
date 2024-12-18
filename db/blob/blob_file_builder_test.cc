@@ -6,7 +6,6 @@
 #include "db/blob/blob_file_builder.h"
 
 #include <cassert>
-#include <cinttypes>
 #include <string>
 #include <utility>
 #include <vector>
@@ -25,7 +24,6 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/compression.h"
-#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 

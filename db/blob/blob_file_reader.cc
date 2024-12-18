@@ -20,7 +20,6 @@
 #include "table/multiget_context.h"
 #include "test_util/sync_point.h"
 #include "util/compression.h"
-#include "util/crc32c.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {

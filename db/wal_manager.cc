@@ -22,15 +22,12 @@
 #include "file/filename.h"
 #include "file/sequence_file_reader.h"
 #include "logging/logging.h"
-#include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/write_batch.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
-#include "util/coding.h"
 #include "util/mutexlock.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 

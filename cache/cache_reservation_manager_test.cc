@@ -12,11 +12,9 @@
 #include <cstring>
 #include <memory>
 
-#include "cache/cache_entry_roles.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
 #include "test_util/testharness.h"
-#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CacheReservationManagerTest : public ::testing::Test {

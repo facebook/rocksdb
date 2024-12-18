@@ -12,16 +12,13 @@
 #include <atomic>
 #include <cassert>
 #include <cstdio>
-#include <list>
 #include <map>
 #include <memory>
-#include <numeric>
 #include <string>
 #include <unordered_map>
 #include <utility>
 
 #include "block_cache.h"
-#include "cache/cache_entry_roles.h"
 #include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
 #include "cache/cache_reservation_manager.h"
@@ -51,7 +48,6 @@
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/stop_watch.h"
-#include "util/string_util.h"
 #include "util/work_queue.h"
 
 namespace ROCKSDB_NAMESPACE {

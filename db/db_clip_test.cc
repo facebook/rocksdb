@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_test_util.h"
-#include "port/port.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {

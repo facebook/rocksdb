@@ -55,7 +55,6 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 #include "../db.h"
 #include "../portability/memory.h"
 // PORT #include <toku_assert.h>
-#include <memory.h>
 #include <string.h>
 
 #include "txnid_set.h"

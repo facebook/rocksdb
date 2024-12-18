@@ -6,12 +6,9 @@
 #include "table/mock_table.h"
 
 #include "db/dbformat.h"
-#include "env/composite_env_wrapper.h"
 #include "file/random_access_file_reader.h"
-#include "port/port.h"
 #include "rocksdb/table_properties.h"
 #include "table/get_context.h"
-#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE::mock {
 

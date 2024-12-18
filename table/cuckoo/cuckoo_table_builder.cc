@@ -7,21 +7,17 @@
 
 #include <algorithm>
 #include <cassert>
-#include <limits>
 #include <string>
 #include <vector>
 
 #include "db/dbformat.h"
 #include "file/writable_file_writer.h"
-#include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_builder.h"
 #include "table/cuckoo/cuckoo_table_factory.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "util/autovector.h"
-#include "util/random.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 const std::string CuckooTablePropertyNames::kEmptyKey =

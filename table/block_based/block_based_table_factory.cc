@@ -16,9 +16,7 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
-#include "logging/logging.h"
 #include "options/options_helper.h"
-#include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"

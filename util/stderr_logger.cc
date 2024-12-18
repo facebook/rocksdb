@@ -6,7 +6,6 @@
 
 #include "util/stderr_logger.h"
 
-#include "port/malloc.h"
 #include "port/sys_time.h"
 
 namespace ROCKSDB_NAMESPACE {

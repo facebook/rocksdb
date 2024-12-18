@@ -9,31 +9,24 @@
 
 #include "table/format.h"
 
-#include <cinttypes>
 #include <cstdint>
 #include <string>
 
 #include "block_fetcher.h"
 #include "file/random_access_file_reader.h"
 #include "memory/memory_allocator_impl.h"
-#include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics_impl.h"
 #include "options/options_helper.h"
-#include "port/likely.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
-#include "table/persistent_cache_helper.h"
-#include "unique_id_impl.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/hash.h"
 #include "util/stop_watch.h"
-#include "util/string_util.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {

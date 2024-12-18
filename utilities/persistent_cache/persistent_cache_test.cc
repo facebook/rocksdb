@@ -11,7 +11,6 @@
 
 #include <functional>
 #include <memory>
-#include <thread>
 
 #include "file/file_util.h"
 #include "utilities/persistent_cache/block_cache_tier.h"

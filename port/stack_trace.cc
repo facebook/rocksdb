@@ -43,7 +43,6 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #endif  // OS_FREEBSD
 #ifdef OS_LINUX
 #include <sys/prctl.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 #if __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 30)
 #include <sys/syscall.h>
@@ -54,7 +53,6 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #include <algorithm>
 #include <atomic>
 
-#include "port/lang.h"
 
 namespace ROCKSDB_NAMESPACE::port {
 

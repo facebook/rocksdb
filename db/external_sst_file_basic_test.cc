@@ -6,8 +6,6 @@
 #include <functional>
 
 #include "db/db_test_util.h"
-#include "db/version_edit.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/options.h"

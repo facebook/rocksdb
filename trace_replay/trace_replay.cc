@@ -5,20 +5,16 @@
 
 #include "trace_replay/trace_replay.h"
 
-#include <chrono>
 #include <sstream>
 #include <thread>
 
 #include "db/db_impl/db_impl.h"
-#include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 

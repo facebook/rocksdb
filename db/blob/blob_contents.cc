@@ -5,10 +5,8 @@
 
 #include "db/blob/blob_contents.h"
 
-#include <cassert>
 
 #include "cache/cache_entry_roles.h"
-#include "cache/cache_helpers.h"
 #include "port/malloc.h"
 
 namespace ROCKSDB_NAMESPACE {

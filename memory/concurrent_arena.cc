@@ -11,7 +11,6 @@
 
 #include <thread>
 
-#include "port/port.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {

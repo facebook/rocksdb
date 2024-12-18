@@ -6,9 +6,7 @@
 #include "port/mmap.h"
 
 #include <cassert>
-#include <cstdio>
 #include <cstring>
-#include <new>
 #include <utility>
 
 #include "util/hash.h"

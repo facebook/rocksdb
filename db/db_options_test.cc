@@ -18,7 +18,6 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/rate_limiter.h"
-#include "rocksdb/stats_history.h"
 #include "rocksdb/utilities/options_util.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"

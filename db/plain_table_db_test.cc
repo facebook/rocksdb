@@ -12,9 +12,6 @@
 #include <set>
 
 #include "db/db_impl/db_impl.h"
-#include "db/version_set.h"
-#include "db/write_batch_internal.h"
-#include "file/filename.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
@@ -31,10 +28,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
-#include "util/hash.h"
-#include "util/mutexlock.h"
 #include "util/random.h"
-#include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {

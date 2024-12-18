@@ -9,7 +9,6 @@
 
 #include "db/db_with_timestamp_test_util.h"
 #include "port/stack_trace.h"
-#include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"

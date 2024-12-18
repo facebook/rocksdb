@@ -21,7 +21,6 @@ int main() {
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
-#include "memory/arena.h"
 #include "port/jemalloc_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"

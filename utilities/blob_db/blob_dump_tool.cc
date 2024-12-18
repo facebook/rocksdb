@@ -13,12 +13,9 @@
 
 #include "file/random_access_file_reader.h"
 #include "file/readahead_raf.h"
-#include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_system.h"
 #include "table/format.h"
-#include "util/coding.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE::blob_db {
 

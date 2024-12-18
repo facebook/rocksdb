@@ -12,7 +12,6 @@
 #include "db/memtable.h"
 #include "memory/arena.h"
 #include "memtable/stl_wrappers.h"
-#include "port/port.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/mutexlock.h"

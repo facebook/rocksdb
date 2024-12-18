@@ -15,9 +15,6 @@
 #include <cstdlib>
 
 #include "cache/secondary_cache_adapter.h"
-#include "monitoring/perf_context_imp.h"
-#include "monitoring/statistics_impl.h"
-#include "port/lang.h"
 #include "util/distributed_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -6,7 +6,6 @@
 #include "utilities/persistent_cache/block_cache_tier_file.h"
 
 #ifndef OS_WIN
-#include <unistd.h>
 #endif
 #include <functional>
 #include <memory>
@@ -14,7 +13,6 @@
 
 #include "env/composite_env_wrapper.h"
 #include "logging/logging.h"
-#include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "util/crc32c.h"
 

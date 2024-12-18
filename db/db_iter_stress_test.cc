@@ -10,7 +10,6 @@
 #include "rocksdb/slice.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
-#include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
 #ifdef GFLAGS

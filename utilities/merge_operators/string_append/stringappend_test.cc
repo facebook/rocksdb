@@ -24,7 +24,6 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
-#include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
 namespace ROCKSDB_NAMESPACE {

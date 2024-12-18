@@ -16,7 +16,6 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <limits>
 #include <memory>
 #include <random>
@@ -29,14 +28,12 @@
 #include "env/composite_env_wrapper.h"
 #include "env/env_chroot.h"
 #include "file/filename.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/stackable_db.h"

@@ -7,7 +7,6 @@
 
 #include <gtest/gtest.h>
 
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/data_structure.h"
 #include "rocksdb/types.h"
