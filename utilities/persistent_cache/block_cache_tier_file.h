@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-
 #include <list>
 #include <memory>
 #include <string>
@@ -288,4 +287,3 @@ class ThreadedWriter : public Writer {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

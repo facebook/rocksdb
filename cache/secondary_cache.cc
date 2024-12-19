@@ -7,6 +7,4 @@
 
 #include "cache/cache_entry_roles.h"
 
-namespace ROCKSDB_NAMESPACE {
-
-}  // namespace ROCKSDB_NAMESPACE
+namespace ROCKSDB_NAMESPACE {}  // namespace ROCKSDB_NAMESPACE

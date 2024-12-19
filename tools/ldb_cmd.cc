@@ -4794,7 +4794,7 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
               NormalizePath(sst_metadata.db_path + "/" + sst_metadata.name);
           all_files.emplace_back(filename, level, cf);
         }  // End of for-loop over sst files
-      }    // End of for-loop over levels
+      }  // End of for-loop over levels
 
       const auto& blob_files = column_metadata.blob_files;
       for (const auto& blob_metadata : blob_files) {
@@ -4808,7 +4808,7 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
         // Level for blob files is encoded as -1
         all_files.emplace_back(filename, -1, cf);
       }  // End of for-loop over blob files
-    }    // End of for-loop over column metadata
+    }  // End of for-loop over column metadata
 
     // Sort by filename (i.e. first entry in tuple)
     std::sort(all_files.begin(), all_files.end());
@@ -4847,7 +4847,7 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
               NormalizePath(sst_metadata.db_path + "/" + sst_metadata.name);
           std::cout << filename << std::endl;
         }  // End of for-loop over sst files
-      }    // End of for-loop over levels
+      }  // End of for-loop over levels
 
       std::cout << "Live Blob Files:" << std::endl;
       const auto& blob_files = column_metadata.blob_files;
@@ -4861,8 +4861,8 @@ void DBLiveFilesMetadataDumperCommand::DoCommand() {
             blob_metadata.blob_file_path + "/" + blob_metadata.blob_file_name);
         std::cout << filename << std::endl;
       }  // End of for-loop over blob files
-    }    // End of for-loop over column metadata
-  }      // End of else ("not sort_by_filename")
+    }  // End of for-loop over column metadata
+  }  // End of else ("not sort_by_filename")
   std::cout << "------------------------------" << std::endl;
 }
 

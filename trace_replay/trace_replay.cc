@@ -588,11 +588,9 @@ bool Tracer::IsTraceFileOverMax() {
 
 Status Tracer::WriteHeader() {
   std::ostringstream s;
-  s << kTraceMagic << "\t"
-    << "Trace Version: " << kTraceFileMajorVersion << "."
-    << kTraceFileMinorVersion << "\t"
-    << "RocksDB Version: " << kMajorVersion << "." << kMinorVersion << "\t"
-    << "Format: Timestamp OpType Payload\n";
+  s << kTraceMagic << "\t" << "Trace Version: " << kTraceFileMajorVersion << "."
+    << kTraceFileMinorVersion << "\t" << "RocksDB Version: " << kMajorVersion
+    << "." << kMinorVersion << "\t" << "Format: Timestamp OpType Payload\n";
   std::string header(s.str());
 
   Trace trace;

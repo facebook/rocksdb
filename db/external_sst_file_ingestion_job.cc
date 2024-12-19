@@ -631,8 +631,7 @@ void ExternalSstFileIngestionJob::UpdateStats() {
   uint64_t total_time = clock_->NowMicros() - job_start_time_;
 
   EventLoggerStream stream = event_logger_->Log();
-  stream << "event"
-         << "ingest_finished";
+  stream << "event" << "ingest_finished";
   stream << "files_ingested";
   stream.StartArray();
 

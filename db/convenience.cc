@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-
 #include "rocksdb/convenience.h"
 
 #include "db/convenience_impl.h"

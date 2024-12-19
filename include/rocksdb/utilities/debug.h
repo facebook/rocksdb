@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include "rocksdb/db.h"
 #include "rocksdb/types.h"
 
@@ -43,4 +42,3 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
                          std::vector<KeyVersion>* key_versions);
 
 }  // namespace ROCKSDB_NAMESPACE
-

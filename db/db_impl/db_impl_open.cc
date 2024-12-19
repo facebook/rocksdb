@@ -1158,8 +1158,7 @@ void DBImpl::SetupLogFilesRecovery(
   {
     auto stream = event_logger_.Log();
     stream << "job" << *job_id;
-    stream << "event"
-           << "recovery_started";
+    stream << "event" << "recovery_started";
     stream << "wal_files";
     stream.StartArray();
     for (auto wal_number : wal_numbers) {

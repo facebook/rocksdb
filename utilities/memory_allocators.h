@@ -6,6 +6,7 @@
 #pragma once
 
 #include <atomic>
+
 #include "rocksdb/memory_allocator.h"
 
 namespace ROCKSDB_NAMESPACE {

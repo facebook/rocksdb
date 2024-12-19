@@ -53,4 +53,3 @@ class BlobDumpTool {
 
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-

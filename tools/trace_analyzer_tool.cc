@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-
 #ifdef GFLAGS
 #ifdef NUMA
 #include <numa.h>
