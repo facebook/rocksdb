@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "rocksdb/env_encryption.h"
 
 #include <algorithm>
@@ -1187,6 +1186,5 @@ Status EncryptionProvider::CreateFromString(
   RegisterEncryptionBuiltins();
   return LoadSharedObject<EncryptionProvider>(config_options, value, result);
 }
-
 
 }  // namespace ROCKSDB_NAMESPACE

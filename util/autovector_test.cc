@@ -248,8 +248,8 @@ size_t BenchmarkSequenceAccess(std::string name, size_t ops, size_t elem_size) {
   }
   auto elapsed = env->NowNanos() - start_time;
   cout << "performed " << ops << " sequence access against " << name << "\n\t"
-       << "size: " << elem_size << "\n\t"
-       << "total time elapsed: " << elapsed << " (ns)" << endl;
+       << "size: " << elem_size << "\n\t" << "total time elapsed: " << elapsed
+       << " (ns)" << endl;
   // HACK avoid compiler's optimization to ignore total
   return total;
 }

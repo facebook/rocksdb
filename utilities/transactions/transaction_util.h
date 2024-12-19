@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <string>
 #include <unordered_map>
 
@@ -83,4 +82,3 @@ class TransactionUtil {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

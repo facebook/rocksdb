@@ -231,7 +231,7 @@ struct rocksdb_livefiles_t {
 };
 struct rocksdb_column_family_handle_t {
   ColumnFamilyHandle* rep;
-  bool immortal;  /* only true for default cf */
+  bool immortal; /* only true for default cf */
 };
 struct rocksdb_column_family_metadata_t {
   ColumnFamilyMetaData rep;

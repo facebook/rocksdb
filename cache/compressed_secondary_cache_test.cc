@@ -845,7 +845,6 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam,
   BasicTestHelper(sec_cache, sec_cache_is_compressed_);
 }
 
-
 TEST_P(CompressedSecondaryCacheTestWithCompressionParam, FailsTest) {
   FailsTest(sec_cache_is_compressed_);
 }

@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <array>
 
 #include "rocksdb/slice.h"
@@ -196,4 +195,3 @@ class PlainTableKeyDecoder {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

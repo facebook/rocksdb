@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include "rocksdb/env_encryption.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -24,8 +23,8 @@ class CTRCipherStream final : public BlockAccessCipherStream {
  public:
   CTRCipherStream(const std::shared_ptr<BlockCipher>& c, const char* iv,
                   uint64_t initialCounter)
-      : cipher_(c), iv_(iv, c->BlockSize()), initialCounter_(initialCounter){}
-  virtual ~CTRCipherStream(){}
+      : cipher_(c), iv_(iv, c->BlockSize()), initialCounter_(initialCounter) {}
+  virtual ~CTRCipherStream() {}
 
   size_t BlockSize() override { return cipher_->BlockSize(); }
 
@@ -94,4 +93,3 @@ Status NewEncryptedFileSystemImpl(
     std::unique_ptr<FileSystem>* fs);
 
 }  // namespace ROCKSDB_NAMESPACE
-

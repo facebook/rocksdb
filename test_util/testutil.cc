@@ -765,7 +765,6 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& arg) {
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 
-
 void RegisterTestLibrary(const std::string& arg) {
   static bool registered = false;
   if (!registered) {

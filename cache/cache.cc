@@ -118,7 +118,6 @@ Status SecondaryCache::CreateFromString(
       sec_cache = NewCompressedSecondaryCache(sec_cache_opts);
     }
 
-
     if (status.ok()) {
       result->swap(sec_cache);
     }

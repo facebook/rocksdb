@@ -6,7 +6,6 @@
 // This file contains utility functions for RocksDB Options.
 #pragma once
 
-
 #include <string>
 #include <vector>
 

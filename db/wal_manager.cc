@@ -34,7 +34,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-
 Status WalManager::DeleteFile(const std::string& fname, uint64_t number) {
   auto s = env_->DeleteFile(wal_dir_ + "/" + fname);
   if (s.ok()) {

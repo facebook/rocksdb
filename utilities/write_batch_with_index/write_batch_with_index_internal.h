@@ -154,12 +154,12 @@ struct WriteBatchIndexEntry {
   bool has_single_del;     // whether single del was issued for this key
   bool has_overwritten_single_del;  // whether a single del for this key was
                                     // overwritten by another key
-  size_t key_offset;       // offset of the key in write batch's string buffer.
-  size_t key_size;         // size of the key. kFlagMinInCf indicates
-                           // that this is a dummy look up entry for
-                           // SeekToFirst() to the beginning of the column
-                           // family. We use the flag here to save a boolean
-                           // in the struct.
+  size_t key_offset;  // offset of the key in write batch's string buffer.
+  size_t key_size;    // size of the key. kFlagMinInCf indicates
+                      // that this is a dummy look up entry for
+                      // SeekToFirst() to the beginning of the column
+                      // family. We use the flag here to save a boolean
+                      // in the struct.
 
   const Slice* search_key;  // if not null, instead of reading keys from
                             // write batch, use it to compare. This is used

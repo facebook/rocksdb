@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"

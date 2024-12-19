@@ -208,4 +208,3 @@ Slice PlainTableIndexBuilder::FillIndexes(
 const std::string PlainTableIndexBuilder::kPlainTableIndexBlock =
     "PlainTableIndexBlock";
 }  // namespace ROCKSDB_NAMESPACE
-
