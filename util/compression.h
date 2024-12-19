@@ -1424,10 +1424,10 @@ inline bool ZSTD_Compress(const CompressionInfo& info, const char* input,
                                      info.dict().GetRawDict().size(), level);
   }
 #endif                          // ZSTD_ADVANCED
-#else   // up to v0.4.x
+#else                           // up to v0.4.x
   outlen = ZSTD_compress(&(*output)[output_header_len], compressBound, input,
                          length, level);
-#endif  // ZSTD_VERSION_NUMBER >= 500
+#endif                          // ZSTD_VERSION_NUMBER >= 500
   if (outlen == 0) {
     return false;
   }

@@ -77,4 +77,3 @@ std::shared_ptr<LockManager> NewLockManager(PessimisticTransactionDB* db,
                                             const TransactionDBOptions& opt);
 
 }  // namespace ROCKSDB_NAMESPACE
-

@@ -248,8 +248,7 @@ class TransactionBaseImpl : public Transaction {
 
   WriteBatchWithIndex* GetWriteBatch() override;
 
-  void SetLockTimeout(int64_t /*timeout*/) override { /* Do nothing */
-  }
+  void SetLockTimeout(int64_t /*timeout*/) override { /* Do nothing */ }
 
   const Snapshot* GetSnapshot() const override {
     // will return nullptr when there is no snapshot

@@ -3,12 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
+#include <iostream>
+#include <string>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "test_util/sync_point.h"
-#include <iostream>
-#include <string>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -24,7 +25,6 @@ class DBEncryptionTest : public DBTestBase {
     }
   }
 };
-
 
 TEST_F(DBEncryptionTest, CheckEncrypted) {
   ASSERT_OK(Put("foo567", "v1.fetdq"));
@@ -115,7 +115,6 @@ TEST_F(DBEncryptionTest, ReadEmptyFile) {
 
   ASSERT_TRUE(data.empty());
 }
-
 
 }  // namespace ROCKSDB_NAMESPACE
 

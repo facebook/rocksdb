@@ -101,4 +101,3 @@ class SstFileDumper {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
