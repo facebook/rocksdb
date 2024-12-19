@@ -14,8 +14,6 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "table/internal_iterator.h"
-#include "table/iterator_wrapper.h"
-#include "util/user_comparator_wrapper.h"
 
 namespace ROCKSDB_NAMESPACE {
 

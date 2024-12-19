@@ -7,13 +7,11 @@
 #include "rocksdb/sst_file_reader.h"
 
 #include "db/arena_wrapped_db_iter.h"
-#include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
-#include "table/get_context.h"
 #include "table/table_builder.h"
 #include "table/table_iterator.h"
 #include "table/table_reader.h"

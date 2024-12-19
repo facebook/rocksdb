@@ -19,7 +19,6 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
-#include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_filters.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "db_stress_tool/db_stress_wide_merge_operator.h"

@@ -16,7 +16,6 @@
 #include "cache/sharded_cache.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
-#include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/file_checksum.h"

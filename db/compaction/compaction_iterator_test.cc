@@ -9,10 +9,8 @@
 #include <vector>
 
 #include "db/dbformat.h"
-#include "port/port.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/string_util.h"
 #include "util/vector_iterator.h"
 #include "utilities/merge_operators.h"
 

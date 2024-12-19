@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <cctype>
 #include <iostream>
 
 #include "env/composite_env_wrapper.h"

@@ -17,14 +17,12 @@
 #endif
 #include <sched.h>
 #include <sys/resource.h>
-#include <sys/time.h>
 #include <unistd.h>
 
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <fstream>
 #include <string>
 

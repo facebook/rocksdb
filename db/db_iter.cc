@@ -19,9 +19,7 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
-#include "file/filename.h"
 #include "logging/logging.h"
-#include "memory/arena.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -30,9 +28,6 @@
 #include "rocksdb/system_clock.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
-#include "trace_replay/trace_replay.h"
-#include "util/mutexlock.h"
-#include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
 
 namespace ROCKSDB_NAMESPACE {

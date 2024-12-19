@@ -6,11 +6,9 @@
 #include "test_agg_merge.h"
 
 #include <cassert>
-#include <deque>
 #include <vector>
 
 #include "util/coding.h"
-#include "utilities/agg_merge/agg_merge_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 

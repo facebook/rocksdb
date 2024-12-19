@@ -9,7 +9,6 @@
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
 #include "logging/logging.h"
-#include "port/lang.h"
 
 namespace ROCKSDB_NAMESPACE {
 

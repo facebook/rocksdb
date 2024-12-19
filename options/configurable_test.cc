@@ -10,11 +10,9 @@
 #include "options/configurable_test.h"
 
 #include <cctype>
-#include <cinttypes>
 #include <cstring>
 #include <unordered_map>
 
-#include "options/configurable_helper.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "rocksdb/configurable.h"

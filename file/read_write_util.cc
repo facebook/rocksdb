@@ -9,7 +9,6 @@
 
 #include "file/read_write_util.h"
 
-#include <sstream>
 
 #include "test_util/sync_point.h"
 

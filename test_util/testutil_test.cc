@@ -6,7 +6,6 @@
 #include "test_util/testutil.h"
 
 #include "file/file_util.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "test_util/testharness.h"
 

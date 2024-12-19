@@ -10,7 +10,6 @@
 #include "logging/logging.h"
 #include "options/configurable_helper.h"
 #include "options/options_helper.h"
-#include "options/options_parser.h"
 #include "port/port.h"
 #include "rocksdb/advanced_cache.h"
 #include "rocksdb/configurable.h"

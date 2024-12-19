@@ -8,7 +8,6 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
-#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 

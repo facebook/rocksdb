@@ -12,12 +12,10 @@
 #include <vector>
 
 #include "db/db_test_util.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
-#include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/table_properties_internal.h"
 #include "test_util/testharness.h"

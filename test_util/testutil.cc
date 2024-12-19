@@ -9,8 +9,6 @@
 
 #include "test_util/testutil.h"
 
-#include <fcntl.h>
-#include <sys/stat.h>
 
 #include <array>
 #include <cctype>
@@ -18,16 +16,11 @@
 #include <sstream>
 
 #include "db/memtable_list.h"
-#include "env/composite_env_wrapper.h"
-#include "file/random_access_file_reader.h"
 #include "file/sequence_file_reader.h"
-#include "file/writable_file_writer.h"
-#include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/mock_time_env.h"
-#include "test_util/sync_point.h"
 #include "util/random.h"
 
 #ifndef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

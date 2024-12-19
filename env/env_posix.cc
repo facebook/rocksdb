@@ -22,21 +22,14 @@
 #include <liburing.h>
 #endif
 #include <pthread.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
 
-#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
-#include <sys/statfs.h>
 #endif
-#include <sys/statvfs.h>
 #include <sys/time.h>
-#include <sys/types.h>
 #if defined(ROCKSDB_IOURING_PRESENT)
-#include <sys/uio.h>
 #endif
 #include <unistd.h>
 
@@ -59,16 +52,13 @@
 #include "env/io_posix.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
-#include "port/port.h"
 #include "port/sys_time.h"
 #include "rocksdb/env.h"
-#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
-#include "util/random.h"
 #include "util/string_util.h"
 #include "util/thread_local.h"
 #include "util/threadpool_imp.h"

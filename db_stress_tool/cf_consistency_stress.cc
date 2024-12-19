@@ -9,7 +9,6 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
-#include "file/file_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CfConsistencyStressTest : public StressTest {

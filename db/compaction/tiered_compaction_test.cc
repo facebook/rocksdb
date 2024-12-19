@@ -11,7 +11,6 @@
 #include "db/db_test_util.h"
 #include "options/cf_options.h"
 #include "port/stack_trace.h"
-#include "rocksdb/iostats_context.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/utilities/debug.h"
 #include "rocksdb/utilities/table_properties_collectors.h"

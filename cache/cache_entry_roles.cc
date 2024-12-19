@@ -7,7 +7,6 @@
 
 #include <mutex>
 
-#include "port/lang.h"
 
 namespace ROCKSDB_NAMESPACE {
 

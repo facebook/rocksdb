@@ -5,7 +5,6 @@
 
 #include "rocksdb/configurable.h"
 
-#include "logging/logging.h"
 #include "options/configurable_helper.h"
 #include "options/options_helper.h"
 #include "rocksdb/customizable.h"

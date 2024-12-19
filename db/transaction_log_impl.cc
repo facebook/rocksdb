@@ -6,7 +6,6 @@
 
 #include "db/transaction_log_impl.h"
 
-#include <cinttypes>
 
 #include "db/write_batch_internal.h"
 #include "file/sequence_file_reader.h"

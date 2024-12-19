@@ -12,11 +12,9 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
-#include "util/random.h"
 #include "utilities/cassandra/cassandra_compaction_filter.h"
 #include "utilities/cassandra/merge_operator.h"
 #include "utilities/cassandra/test_utils.h"
-#include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE::cassandra {
 

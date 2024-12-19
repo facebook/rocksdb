@@ -9,7 +9,6 @@
 #include <memory>
 #include <sstream>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
@@ -17,9 +16,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "test_util/sync_point.h"
 #include "util/cast_util.h"
-#include "util/mutexlock.h"
 #include "utilities/secondary_index/secondary_index_mixin.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"

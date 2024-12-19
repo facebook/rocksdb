@@ -18,7 +18,6 @@
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
-#include "env/unique_id_gen.h"
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/statistics.h"

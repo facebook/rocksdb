@@ -12,8 +12,6 @@
 #include <cstdio>
 
 #include "db/lookup_key.h"
-#include "monitoring/perf_context_imp.h"
-#include "port/port.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 

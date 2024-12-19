@@ -13,11 +13,9 @@
 
 #include <algorithm>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "monitoring/perf_context_imp.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
 #include "table/block_based/block_prefix_index.h"

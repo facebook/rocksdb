@@ -12,7 +12,6 @@
 #include "db.h"
 #include "ft/ft-status.h"
 #include "portability/memory.h"
-#include "util/dbt.h"
 
 // portability/os_malloc.cc
 

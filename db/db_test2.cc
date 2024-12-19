@@ -18,7 +18,6 @@
 #include "db/version_edit.h"
 #include "env/fs_readonly.h"
 #include "options/options_helper.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/iostats_context.h"

@@ -14,7 +14,6 @@
 #include "rocksdb/env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/random.h"
 #include "utilities/memory_allocators.h"

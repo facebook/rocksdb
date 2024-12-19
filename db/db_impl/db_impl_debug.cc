@@ -14,7 +14,6 @@
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/periodic_task_scheduler.h"
-#include "monitoring/thread_status_updater.h"
 #include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {

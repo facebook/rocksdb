@@ -23,10 +23,8 @@
 #include "table/block_based/block.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
-#include "table/table_builder.h"
 #include "test_util/mock_time_env.h"
 #include "util/random.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 

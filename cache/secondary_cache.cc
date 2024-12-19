@@ -5,7 +5,6 @@
 
 #include "rocksdb/secondary_cache.h"
 
-#include "cache/cache_entry_roles.h"
 
 namespace ROCKSDB_NAMESPACE {
 

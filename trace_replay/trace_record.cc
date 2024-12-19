@@ -8,8 +8,6 @@
 #include <utility>
 
 #include "rocksdb/db.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/trace_record_result.h"
 #include "trace_replay/trace_record_handler.h"

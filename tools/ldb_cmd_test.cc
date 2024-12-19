@@ -8,7 +8,6 @@
 #include <cinttypes>
 
 #include "db/db_test_util.h"
-#include "db/version_edit.h"
 #include "db/version_set.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"

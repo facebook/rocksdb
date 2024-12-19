@@ -21,10 +21,7 @@
 #include <functional>
 #include <utility>
 
-#include "env/composite_env_wrapper.h"
-#include "port/lang.h"
 #include "port/stack_trace.h"
-#include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/types.h"
 #include "test_util/sync_point.h"

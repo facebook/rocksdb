@@ -17,12 +17,9 @@
 
 #include "db/dbformat.h"
 #include "port/lang.h"
-#include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
-#include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
 

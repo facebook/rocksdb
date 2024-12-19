@@ -7,7 +7,6 @@
 #include <cstdio>
 
 #include "memory/jemalloc_nodump_allocator.h"
-#include "memory/memkind_kmem_allocator.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"

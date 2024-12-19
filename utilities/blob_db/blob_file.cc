@@ -12,7 +12,6 @@
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
-#include "db/dbformat.h"
 #include "file/filename.h"
 #include "file/readahead_raf.h"
 #include "logging/logging.h"
