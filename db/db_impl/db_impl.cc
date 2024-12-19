@@ -418,10 +418,19 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     }
   }
 
+  JobContext job_context(0);
+  FindObsoleteFiles(&job_context, true);
+  mutex_.Unlock();
+  // If DB shutdown initiated here, it will wait for this ongoing recovery.
+  job_context.manifest_file_number = 1;
+  if (job_context.HaveSomethingToDelete()) {
+    PurgeObsoleteFiles(job_context);
+  }
+  job_context.Clean();
+  mutex_.Lock();
+
   if (s.ok()) {
-    // This will notify and unblock threads waiting for error recovery to
-    // finish. Those previouly waiting threads can now proceed, which may
-    // include closing the db.
+    // Will notify and unblock threads waiting for error recovery to finish.
     s = error_handler_.ClearBGError();
   } else {
     // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
@@ -430,15 +439,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     error_handler_.GetRecoveryError().PermitUncheckedError();
   }
 
-  JobContext job_context(0);
-  FindObsoleteFiles(&job_context, true);
-  mutex_.Unlock();
-  job_context.manifest_file_number = 1;
-  if (job_context.HaveSomethingToDelete()) {
-    PurgeObsoleteFiles(job_context);
-  }
-  job_context.Clean();
-
   if (s.ok()) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   } else {
@@ -446,7 +446,6 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
                    s.ToString().c_str());
   }
 
-  mutex_.Lock();
   // Check for shutdown again before scheduling further compactions,
   // since we released and re-acquired the lock above
   if (shutdown_initiated_) {
@@ -540,8 +539,8 @@ Status DBImpl::CloseHelper() {
   // continuing with the shutdown
   mutex_.Lock();
   shutdown_initiated_ = true;
-  error_handler_.CancelErrorRecovery();
-  while (error_handler_.IsRecoveryInProgress()) {
+  error_handler_.CancelErrorRecoveryForShutDown();
+  while (!error_handler_.ReadyForShutdown()) {
     bg_cv_.Wait();
   }
   mutex_.Unlock();

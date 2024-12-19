@@ -44,6 +44,7 @@ class ErrorHandler {
         auto_recovery_(false),
         recovery_in_prog_(false),
         soft_error_no_bg_work_(false),
+        allow_db_shutdown_(true),
         is_db_stopped_(false),
         bg_error_stats_(db_options.statistics) {
     // Clear the checked flag for uninitialized errors
@@ -63,6 +64,12 @@ class ErrorHandler {
 
   Status GetRecoveryError() const { return recovery_error_; }
 
+  // REQUIREs: db mutex held
+  //
+  // Returns non-OK status if encountered error during recovery.
+  // Returns OK if bg error is successfully cleared. May releases and
+  // re-acquire db mutex to notify listeners. However, DB close (if initiated)
+  // will be blocked until db mutex is released after return.
   Status ClearBGError();
 
   bool IsDBStopped() { return is_db_stopped_.load(std::memory_order_acquire); }
@@ -79,8 +86,14 @@ class ErrorHandler {
 
   bool IsRecoveryInProgress() { return recovery_in_prog_; }
 
+  // REQUIRES: db mutex held
+  bool ReadyForShutdown() {
+    db_mutex_->AssertHeld();
+    return !recovery_in_prog_ && allow_db_shutdown_;
+  }
+
   Status RecoverFromBGError(bool is_manual = false);
-  void CancelErrorRecovery();
+  void CancelErrorRecoveryForShutDown();
 
   void EndAutoRecovery();
 
@@ -121,6 +134,8 @@ class ErrorHandler {
   // A flag to indicate that for the soft error, we should not allow any
   // background work except the work is from recovery.
   bool soft_error_no_bg_work_;
+  // Used in ClearBGError() to prevent DB from being closed.
+  bool allow_db_shutdown_;
 
   // Used to store the context for recover, such as flush reason.
   DBRecoverContext recover_context_;
