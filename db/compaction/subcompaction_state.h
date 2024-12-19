@@ -201,21 +201,20 @@ class SubcompactionState {
   // Close all compaction output files, both output_to_penultimate_level outputs
   // and normal outputs.
   Status CloseCompactionFiles(const Status& curr_status,
-                              bool supports_per_key_placement,
                               const CompactionFileOpenFunc& open_file_func,
                               const CompactionFileCloseFunc& close_file_func) {
+    auto per_key = compaction->SupportsPerKeyPlacement();
     // Call FinishCompactionOutputFile() even if status is not ok: it needs to
     // close the output file.
     // CloseOutput() may open new compaction output files.
     is_current_penultimate_level_ = true;
     Status s = penultimate_level_outputs_.CloseOutput(
-        curr_status,
-        supports_per_key_placement ? range_del_agg_.get() : nullptr,
-        open_file_func, close_file_func);
+        curr_status, per_key ? range_del_agg_.get() : nullptr, open_file_func,
+        close_file_func);
     is_current_penultimate_level_ = false;
     s = compaction_outputs_.CloseOutput(
-        s, supports_per_key_placement ? nullptr : range_del_agg_.get(),
-        open_file_func, close_file_func);
+        s, per_key ? nullptr : range_del_agg_.get(), open_file_func,
+        close_file_func);
     return s;
   }
 

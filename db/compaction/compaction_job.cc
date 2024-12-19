@@ -1442,9 +1442,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // close the output files. Open file function is also passed, in case there's
   // only range-dels, no file was opened, to save the range-dels, it need to
   // create a new output file.
-  status = sub_compact->CloseCompactionFiles(
-      status, sub_compact->compaction->SupportsPerKeyPlacement(),
-      open_file_func, close_file_func);
+  status = sub_compact->CloseCompactionFiles(status, open_file_func,
+                                             close_file_func);
 
   if (blob_file_builder) {
     if (status.ok()) {
