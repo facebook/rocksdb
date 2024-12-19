@@ -596,6 +596,27 @@ class BackupEngineImpl {
                              std::string* db_id, std::string* db_session_id);
 
   struct WorkItemResult {
+    WorkItemResult()
+        : size(0),
+          expected_src_temperature(Temperature::kUnknown),
+          current_src_temperature(Temperature::kUnknown) {}
+
+    WorkItemResult(const WorkItemResult& other) = delete;
+    WorkItemResult& operator=(const WorkItemResult& other) = delete;
+
+    WorkItemResult(WorkItemResult&& o) noexcept { *this = std::move(o); }
+
+    WorkItemResult& operator=(WorkItemResult&& o) noexcept {
+      size = o.size;
+      checksum_hex = std::move(o.checksum_hex);
+      db_id = std::move(o.db_id);
+      db_session_id = std::move(o.db_session_id);
+      io_status = std::move(o.io_status);
+      expected_src_temperature = o.expected_src_temperature;
+      current_src_temperature = o.current_src_temperature;
+      return *this;
+    }
+
     ~WorkItemResult() {
       // The Status needs to be ignored here for two reasons.
       // First, if the BackupEngineImpl shuts down with jobs outstanding, then
@@ -715,6 +736,8 @@ class BackupEngineImpl {
           db_id(_db_id),
           db_session_id(_db_session_id),
           type(_type) {}
+
+    ~WorkItem() = default;
   };
 
   struct BackupAfterCopyOrCreateWorkItem {
