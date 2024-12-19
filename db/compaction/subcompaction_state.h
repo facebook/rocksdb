@@ -187,6 +187,10 @@ class SubcompactionState {
     return *current_outputs_;
   }
 
+  CompactionOutputs& StandardOutputs() { return compaction_outputs_; }
+
+  CompactionOutputs& PenultimateOutputs() { return penultimate_level_outputs_; }
+
   // Add compaction_iterator key/value to the `Current` output group.
   Status AddToOutput(const CompactionIterator& iter,
                      const CompactionFileOpenFunc& open_file_func,

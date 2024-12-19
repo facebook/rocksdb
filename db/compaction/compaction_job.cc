@@ -245,7 +245,7 @@ void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
   compaction_job_stats_->is_full_compaction = compaction->is_full_compaction();
 }
 
-void CompactionJob::Prepare() {
+void CompactionJob::PrepareSubs() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PREPARE);
 
@@ -283,10 +283,12 @@ void CompactionJob::Prepare() {
     compact_->sub_compact_states.emplace_back(c, std::nullopt, std::nullopt,
                                               /*sub_job_id*/ 0);
   }
+}
 
+void CompactionJob::PrepareTimes() {
   // collect all seqno->time information from the input files which will be used
   // to encode seqno->time to the output files.
-
+  auto* c = compact_->compaction;
   uint64_t preserve_time_duration =
       std::max(c->mutable_cf_options()->preserve_internal_time_seconds,
                c->mutable_cf_options()->preclude_last_level_data_seconds);
@@ -341,6 +343,16 @@ void CompactionJob::Prepare() {
     // larger than kMaxSeqnoTimePairsPerSST.
     seqno_to_time_mapping_.SetCapacity(kMaxSeqnoToTimeEntries);
   }
+#ifndef NDEBUG
+  assert(preserve_time_min_seqno_ <= preclude_last_level_min_seqno_);
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
+      static_cast<void*>(&preclude_last_level_min_seqno_));
+  // Restore the invariant asserted above, in case it was broken under the
+  // callback
+  preserve_time_min_seqno_ =
+      std::min(preclude_last_level_min_seqno_, preserve_time_min_seqno_);
+#endif
 }
 
 uint64_t CompactionJob::GetSubcompactionsLimit() {
@@ -2117,7 +2129,6 @@ void CompactionJob::UpdateCompactionJobStats(
 void CompactionJob::LogCompaction() {
   Compaction* compaction = compact_->compaction;
   ColumnFamilyData* cfd = compaction->column_family_data();
-
   // Let's check if anything will get logged. Don't prepare all the info if
   // we're not logging
   if (db_options_.info_log_level <= InfoLogLevel::INFO_LEVEL) {

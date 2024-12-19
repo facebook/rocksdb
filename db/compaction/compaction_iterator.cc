@@ -46,8 +46,7 @@ CompactionIterator::CompactionIterator(
           report_detailed_time, expect_valid_internal_key, range_del_agg,
           blob_file_builder, allow_data_in_errors, enforce_single_del_contracts,
           manual_compaction_canceled,
-          std::unique_ptr<CompactionProxy>(
-              compaction ? new RealCompaction(compaction) : nullptr),
+          compaction ? std::make_unique<RealCompaction>(compaction) : nullptr,
           must_count_input_entries, compaction_filter, shutting_down, info_log,
           full_history_ts_low, preserve_time_min_seqno,
           preclude_last_level_min_seqno) {}
