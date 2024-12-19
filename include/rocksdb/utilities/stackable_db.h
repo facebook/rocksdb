@@ -36,7 +36,10 @@ class StackableDB : public DB {
     db_ = nullptr;
   }
 
-  Status Close() override { return db_->Close(); }
+  using DB::Close;
+  Status Close(const CloseOptions& close_options) override {
+    return db_->Close(close_options);
+  }
 
   virtual DB* GetBaseDB() { return db_; }
 

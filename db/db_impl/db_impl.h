@@ -502,7 +502,8 @@ class DBImpl : public DB {
 
   ColumnFamilyHandle* PersistentStatsColumnFamily() const;
 
-  Status Close() override;
+  using DB::Close;
+  Status Close(const CloseOptions& close_options) override;
 
   Status DisableFileDeletions() override;
 

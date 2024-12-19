@@ -5318,7 +5318,7 @@ Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
 
 DB::~DB() = default;
 
-Status DBImpl::Close() {
+Status DBImpl::Close(const CloseOptions& close_options) {
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (closed_) {
     return closing_status_;
@@ -5330,7 +5330,9 @@ Status DBImpl::Close() {
       return s;
     }
   }
-
+  if (close_options.prepare_close_fn) {
+    close_options.prepare_close_fn();
+  }
   closing_status_ = CloseImpl();
   closed_ = true;
   return closing_status_;

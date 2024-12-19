@@ -105,16 +105,16 @@ BlobDBImpl::~BlobDBImpl() {
   assert(s.ok());
 }
 
-Status BlobDBImpl::Close() {
+Status BlobDBImpl::Close(const CloseOptions& close_options) {
   ThreadStatus::OperationType cur_op_type =
       ThreadStatusUtil::GetThreadOperation();
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType::OP_UNKNOWN);
-  Status s = CloseImpl();
+  Status s = CloseImpl(close_options);
   ThreadStatusUtil::SetThreadOperation(cur_op_type);
   return s;
 }
 
-Status BlobDBImpl::CloseImpl() {
+Status BlobDBImpl::CloseImpl(const CloseOptions& close_options) {
   if (closed_) {
     return Status::OK();
   }
@@ -122,7 +122,7 @@ Status BlobDBImpl::CloseImpl() {
 
   // Close base DB before BlobDBImpl destructs to stop event listener and
   // compaction filter call.
-  Status s = db_->Close();
+  Status s = db_->Close(close_options);
   // delete db_ anyway even if close failed.
   delete db_;
   // Reset pointers to avoid StackableDB delete the pointer again.

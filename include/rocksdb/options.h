@@ -2391,6 +2391,10 @@ struct LiveFilesStorageInfoOptions {
   uint64_t wal_size_for_flush = 0;
 };
 
+struct CloseOptions {
+  std::function<void()> prepare_close_fn;
+};
+
 struct WaitForCompactOptions {
   // A boolean to abort waiting in case of a pause (PauseBackgroundWork()
   // called) If true, Status::Aborted will be returned immediately. If false,
@@ -2412,6 +2416,8 @@ struct WaitForCompactOptions {
   // returned Aborted status due to unreleased snapshots in the system. See
   // comments in DB::Close() for details.
   bool close_db = false;
+  // Options to be used for closing db. If close_db is false, this is ignored
+  CloseOptions close_options;
 
   // Timeout in microseconds for waiting for compaction to complete.
   // Status::TimedOut will be returned if timeout expires.

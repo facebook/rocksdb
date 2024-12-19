@@ -199,7 +199,7 @@ class BlobDB : public StackableDB {
   }
 
   using ROCKSDB_NAMESPACE::StackableDB::Close;
-  Status Close() override = 0;
+  Status Close(const CloseOptions& close_options) override = 0;
 
   // Opening blob db.
   static Status Open(const Options& options, const BlobDBOptions& bdb_options,

@@ -21,7 +21,8 @@ class DBImplFollower : public DBImplSecondary {
                  const std::string& dbname, std::string src_path);
   ~DBImplFollower();
 
-  Status Close() override;
+  using DBImpl::Close;
+  Status Close(const CloseOptions& close_options) override;
 
  protected:
   bool OwnTablesAndLogs() const override {

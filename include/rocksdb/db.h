@@ -383,7 +383,10 @@ class DB {
   // WaitForCompact() with WaitForCompactOptions.close_db=true will be a good
   // choice for users who want to wait for background work before closing
   // (rather than aborting and potentially redoing some work on re-open)
-  virtual Status Close() { return Status::NotSupported(); }
+  Status Close() { return Close(CloseOptions()); }
+  virtual Status Close(const CloseOptions& /*close_options*/) {
+    return Status::NotSupported();
+  }
 
   // ListColumnFamilies will open the DB specified by argument name
   // and return the list of all column families in that DB

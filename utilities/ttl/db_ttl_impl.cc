@@ -313,13 +313,13 @@ DBWithTTLImpl::~DBWithTTLImpl() {
   }
 }
 
-Status DBWithTTLImpl::Close() {
+Status DBWithTTLImpl::Close(const CloseOptions& close_options) {
   Status ret = Status::OK();
   if (!closed_) {
     Options default_options = GetOptions();
     // Need to stop background compaction before getting rid of the filter
     CancelAllBackgroundWork(db_, /* wait = */ true);
-    ret = db_->Close();
+    ret = db_->Close(close_options);
     delete default_options.compaction_filter;
     closed_ = true;
   }
