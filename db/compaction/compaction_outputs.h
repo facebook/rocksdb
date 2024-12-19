@@ -45,6 +45,8 @@ class CompactionOutputs {
   explicit CompactionOutputs(const Compaction* compaction,
                              const bool is_penultimate_level);
 
+  bool IsPenultimateLevel() const { return is_penultimate_level_; }
+
   // Add generated output to the list
   void AddOutput(FileMetaData&& meta, const InternalKeyComparator& icmp,
                  bool enable_hash, bool finished = false,
@@ -182,18 +184,14 @@ class CompactionOutputs {
   // @param next_table_min_key internal key lower bound for the next compaction
   // output.
   // @param full_history_ts_low used for range tombstone garbage collection.
-  Status AddRangeDels(const Slice* comp_start_user_key,
+  Status AddRangeDels(CompactionRangeDelAggregator& range_del_agg,
+                      const Slice* comp_start_user_key,
                       const Slice* comp_end_user_key,
                       CompactionIterationStats& range_del_out_stats,
                       bool bottommost_level, const InternalKeyComparator& icmp,
                       SequenceNumber earliest_snapshot,
                       const Slice& next_table_min_key,
                       const std::string& full_history_ts_low);
-
-  // if the outputs have range delete, range delete is also data
-  bool HasRangeDel() const {
-    return range_del_agg_ && !range_del_agg_->IsEmpty();
-  }
 
  private:
   friend class SubcompactionState;
@@ -259,11 +257,13 @@ class CompactionOutputs {
   // Close the current output. `open_file_func` is needed for creating new file
   // for range-dels only output file.
   Status CloseOutput(const Status& curr_status,
+                     CompactionRangeDelAggregator* range_del_agg,
                      const CompactionFileOpenFunc& open_file_func,
                      const CompactionFileCloseFunc& close_file_func) {
     Status status = curr_status;
     // handle subcompaction containing only range deletions
-    if (status.ok() && !HasBuilder() && !HasOutput() && HasRangeDel()) {
+    if (status.ok() && !HasBuilder() && !HasOutput() && range_del_agg &&
+        !range_del_agg->IsEmpty()) {
       status = open_file_func(*this);
     }
     if (HasBuilder()) {
@@ -288,16 +288,6 @@ class CompactionOutputs {
     return outputs_.back();
   }
 
-  // Assign the range_del_agg to the target output level. There's only one
-  // range-del-aggregator per compaction outputs, for
-  // output_to_penultimate_level compaction it is only assigned to the
-  // penultimate level.
-  void AssignRangeDelAggregator(
-      std::unique_ptr<CompactionRangeDelAggregator>&& range_del_agg) {
-    assert(range_del_agg_ == nullptr);
-    range_del_agg_ = std::move(range_del_agg);
-  }
-
   const Compaction* compaction_;
 
   // current output builder and writer
@@ -319,7 +309,6 @@ class CompactionOutputs {
   // indicate if this CompactionOutputs obj for penultimate_level, should always
   // be false if per_key_placement feature is not enabled.
   const bool is_penultimate_level_;
-  std::unique_ptr<CompactionRangeDelAggregator> range_del_agg_ = nullptr;
 
   // partitioner information
   std::string last_key_for_partitioner_;
