@@ -30,9 +30,7 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-ConfigOptions::ConfigOptions()
-    : registry(ObjectRegistry::NewInstance())
-{
+ConfigOptions::ConfigOptions() : registry(ObjectRegistry::NewInstance()) {
   env = Env::Default();
 }
 
@@ -512,13 +510,11 @@ bool SerializeSingleOptionHelper(const void* opt_address,
     case OptionType::kInt32T:
       *value = std::to_string(*(static_cast<const int32_t*>(opt_address)));
       break;
-    case OptionType::kInt64T:
-      {
-        int64_t v;
-        GetUnaligned(static_cast<const int64_t*>(opt_address), &v);
-        *value = std::to_string(v);
-      }
-      break;
+    case OptionType::kInt64T: {
+      int64_t v;
+      GetUnaligned(static_cast<const int64_t*>(opt_address), &v);
+      *value = std::to_string(v);
+    } break;
     case OptionType::kUInt:
       *value = std::to_string(*(static_cast<const unsigned int*>(opt_address)));
       break;
@@ -528,20 +524,16 @@ bool SerializeSingleOptionHelper(const void* opt_address,
     case OptionType::kUInt32T:
       *value = std::to_string(*(static_cast<const uint32_t*>(opt_address)));
       break;
-    case OptionType::kUInt64T:
-      {
-        uint64_t v;
-        GetUnaligned(static_cast<const uint64_t*>(opt_address), &v);
-        *value = std::to_string(v);
-      }
-      break;
-    case OptionType::kSizeT:
-      {
-        size_t v;
-        GetUnaligned(static_cast<const size_t*>(opt_address), &v);
-        *value = std::to_string(v);
-      }
-      break;
+    case OptionType::kUInt64T: {
+      uint64_t v;
+      GetUnaligned(static_cast<const uint64_t*>(opt_address), &v);
+      *value = std::to_string(v);
+    } break;
+    case OptionType::kSizeT: {
+      size_t v;
+      GetUnaligned(static_cast<const size_t*>(opt_address), &v);
+      *value = std::to_string(v);
+    } break;
     case OptionType::kDouble:
       *value = std::to_string(*(static_cast<const double*>(opt_address)));
       break;
@@ -606,7 +598,6 @@ Status ConfigureFromMap(
   return s;
 }
 
-
 Status StringToMap(const std::string& opts_str,
                    std::unordered_map<std::string, std::string>* opts_map) {
   assert(opts_map);
@@ -650,7 +641,6 @@ Status StringToMap(const std::string& opts_str,
   return Status::OK();
 }
 
-
 Status GetStringFromDBOptions(std::string* opt_string,
                               const DBOptions& db_options,
                               const std::string& delimiter) {
@@ -667,7 +657,6 @@ Status GetStringFromDBOptions(const ConfigOptions& config_options,
   auto config = DBOptionsAsConfigurable(db_options);
   return config->GetOptionString(config_options, opt_string);
 }
-
 
 Status GetStringFromColumnFamilyOptions(std::string* opt_string,
                                         const ColumnFamilyOptions& cf_options,

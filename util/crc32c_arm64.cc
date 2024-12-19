@@ -37,15 +37,15 @@
   crc0 = crc32c_u64(crc0, *(buf64 + (ITR)));
 
 /* unfolding to compute 24 * 7 = 168 bytes parallelly */
-#define CRC32C7X24BYTES(ITR)   \
-  do {                         \
-    CRC32C24BYTES((ITR)*7 + 0) \
-    CRC32C24BYTES((ITR)*7 + 1) \
-    CRC32C24BYTES((ITR)*7 + 2) \
-    CRC32C24BYTES((ITR)*7 + 3) \
-    CRC32C24BYTES((ITR)*7 + 4) \
-    CRC32C24BYTES((ITR)*7 + 5) \
-    CRC32C24BYTES((ITR)*7 + 6) \
+#define CRC32C7X24BYTES(ITR)     \
+  do {                           \
+    CRC32C24BYTES((ITR) * 7 + 0) \
+    CRC32C24BYTES((ITR) * 7 + 1) \
+    CRC32C24BYTES((ITR) * 7 + 2) \
+    CRC32C24BYTES((ITR) * 7 + 3) \
+    CRC32C24BYTES((ITR) * 7 + 4) \
+    CRC32C24BYTES((ITR) * 7 + 5) \
+    CRC32C24BYTES((ITR) * 7 + 6) \
   } while (0)
 #endif
 

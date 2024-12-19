@@ -43,7 +43,7 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       compression_type_record_read_(false),
       uncompress_(nullptr),
       hash_state_(nullptr),
-      uncompress_hash_state_(nullptr){}
+      uncompress_hash_state_(nullptr) {}
 
 Reader::~Reader() {
   delete[] backing_store_;

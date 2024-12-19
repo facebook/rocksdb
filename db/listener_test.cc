@@ -33,7 +33,6 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-
 namespace ROCKSDB_NAMESPACE {
 
 class EventListenerTest : public DBTestBase {
@@ -1590,7 +1589,6 @@ TEST_F(EventListenerTest, BlobDBFileTest) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

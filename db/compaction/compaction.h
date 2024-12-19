@@ -460,7 +460,6 @@ class Compaction {
   void MarkFilesBeingCompacted(bool being_compacted) const;
 
  private:
-
   Status InitInputTableProperties();
 
   // get the smallest and largest key present in files to be compacted

@@ -31,7 +31,7 @@ jobs:
   # ======================== Fast Initial Checks ====================== #
   check-format-and-targets:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4.1.0
       with:

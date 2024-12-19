@@ -417,4 +417,3 @@ Status NewPersistentCache(Env* const env, const std::string& path,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

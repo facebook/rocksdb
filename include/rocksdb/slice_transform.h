@@ -34,7 +34,7 @@ struct ConfigOptions;
 // including data loss, unreported corruption, deadlocks, and more.
 class SliceTransform : public Customizable {
  public:
-  virtual ~SliceTransform(){}
+  virtual ~SliceTransform() {}
 
   // Return the name of this transformation.
   const char* Name() const override = 0;

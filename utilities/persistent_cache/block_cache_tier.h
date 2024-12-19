@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-
 #ifndef OS_WIN
 #include <unistd.h>
 #endif  // ! OS_WIN
@@ -151,4 +150,3 @@ class BlockCacheTier : public PersistentCacheTier {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

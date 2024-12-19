@@ -147,5 +147,4 @@ class RocksDBOptionsParser {
   int opt_file_version[3];
 };
 
-
 }  // namespace ROCKSDB_NAMESPACE

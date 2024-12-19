@@ -16,7 +16,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-
 DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
                                const std::string& dbname)
     : DBImpl(db_options, dbname, /*seq_per_batch*/ false,
@@ -371,6 +370,5 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
   }
   return s;
 }
-
 
 }  // namespace ROCKSDB_NAMESPACE

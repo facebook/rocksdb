@@ -28,8 +28,7 @@ class StringLogger : public Logger {
 TEST_F(EventLoggerTest, SimpleTest) {
   StringLogger logger;
   EventLogger event_logger(&logger);
-  event_logger.Log() << "id" << 5 << "event"
-                     << "just_testing";
+  event_logger.Log() << "id" << 5 << "event" << "just_testing";
   std::string output(logger.buffer());
   ASSERT_TRUE(output.find("\"event\": \"just_testing\"") != std::string::npos);
   ASSERT_TRUE(output.find("\"id\": 5") != std::string::npos);

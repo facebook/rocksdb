@@ -345,8 +345,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
 
   // When measure_io_stats_ is true, the default 512 bytes is not enough.
   auto stream = event_logger_->LogToBuffer(log_buffer_, 1024);
-  stream << "job" << job_context_->job_id << "event"
-         << "flush_finished";
+  stream << "job" << job_context_->job_id << "event" << "flush_finished";
   stream << "output_compression"
          << CompressionTypeToString(output_compression_);
   stream << "lsm_state";
@@ -933,9 +932,8 @@ Status FlushJob::WriteLevel0Table() {
     //  hitting limit memtable_max_range_deletions, flush_reason_ is still
     //  "Write Buffer Full", should make update flush_reason_ accordingly.
     event_logger_->Log() << "job" << job_context_->job_id << "event"
-                         << "flush_started"
-                         << "num_memtables" << mems_.size() << "num_entries"
-                         << total_num_entries << "num_deletes"
+                         << "flush_started" << "num_memtables" << mems_.size()
+                         << "num_entries" << total_num_entries << "num_deletes"
                          << total_num_deletes << "total_data_size"
                          << total_data_size << "memory_usage"
                          << total_memory_usage << "num_range_deletes"

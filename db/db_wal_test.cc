@@ -2124,7 +2124,6 @@ TEST_F(DBWALTest, FixSyncWalOnObseletedWalWithNewManifestCausingMissingWAL) {
         wal_synced = true;
       });
 
-
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Flush());
@@ -2699,12 +2698,12 @@ TEST_F(DBWALTest, ReadOnlyRecoveryNoTruncate) {
   // create DB and close with file truncate disabled
   std::atomic_bool enable_truncate{false};
 
-  SyncPoint::GetInstance()->SetCallBack(
-      "PosixWritableFile::Close", [&](void* arg) {
-        if (!enable_truncate) {
-          *(static_cast<size_t*>(arg)) = 0;
-        }
-      });
+  SyncPoint::GetInstance()->SetCallBack("PosixWritableFile::Close",
+                                        [&](void* arg) {
+                                          if (!enable_truncate) {
+                                            *(static_cast<size_t*>(arg)) = 0;
+                                          }
+                                        });
   SyncPoint::GetInstance()->EnableProcessing();
 
   DestroyAndReopen(options);
@@ -2792,7 +2791,6 @@ TEST_F(DBWALTest, WalInManifestButNotInSortedWals) {
   wals_go_missing = false;
   Close();
 }
-
 
 TEST_F(DBWALTest, WalTermTest) {
   Options options = CurrentOptions();
