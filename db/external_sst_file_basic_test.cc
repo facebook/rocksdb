@@ -269,13 +269,19 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
        "DBImpl::IngestExternalFiles:InstallSVForFirstCF:0"},
   });
   SyncPoint::GetInstance()->EnableProcessing();
+  PerfContext* write_thread_perf_context;
   std::thread write_thread([&] {
     TEST_SYNC_POINT("ExternalSSTFileBasicTest.LiveWriteStart");
     SetPerfLevel(kEnableWait);
-    PerfContext* write_thread_perf_context = get_perf_context();
+    write_thread_perf_context = get_perf_context();
     write_thread_perf_context->Reset();
     ASSERT_OK(db_->Put(WriteOptions(), "bar", "v2"));
     ASSERT_GT(write_thread_perf_context->write_thread_wait_nanos, 0);
+    // Test sync points were used to make sure this live write enter write
+    // thread after the file ingestion entered write thread. So by the time this
+    // live write finishes, the latest seqno is 1 means file ingestion used
+    // seqno 0.
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 1U);
   });
 
   // Add file using file path
@@ -286,11 +292,13 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   ASSERT_GT(perf_context.file_ingestion_nanos, 0);
   ASSERT_GT(perf_context.file_ingestion_blocking_live_writes_nanos, 0);
   ASSERT_OK(s) << s.ToString();
-  ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
   for (int k = 0; k < 100; k++) {
     ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
   }
+
   write_thread.join();
+  ASSERT_GT(perf_context.file_ingestion_blocking_live_writes_nanos,
+            write_thread_perf_context->write_thread_wait_nanos);
   SyncPoint::GetInstance()->DisableProcessing();
 
   // Re-ingest the file just to check the perf context not enabled at and below
