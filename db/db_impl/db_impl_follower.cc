@@ -36,7 +36,7 @@ DBImplFollower::DBImplFollower(const DBOptions& db_options,
 }
 
 DBImplFollower::~DBImplFollower() {
-  Status s = DBImplFollower::Close();
+  Status s = Close();
   if (!s.ok()) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Error closing DB : %s",
                    s.ToString().c_str());
