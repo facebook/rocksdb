@@ -10,8 +10,18 @@
 
 #include "rocksdb/perf_level.h"
 
+/*
+ * NOTE:
+ * If you plan to add new metrics, please read documentation in perf_level.h and
+ * try to come up with a metric name that follows the naming conventions
+ * mentioned there. It helps to indicate the metric's starting enabling P
+ * erfLevel. Document this starting PerfLevel if the metric name cannot meet the
+ * naming conventions.
+ */
+
 // A thread local context for gathering io-stats efficiently and transparently.
 // Use SetPerfLevel(PerfLevel::kEnableTime) to enable time stats.
+//
 
 namespace ROCKSDB_NAMESPACE {
 
