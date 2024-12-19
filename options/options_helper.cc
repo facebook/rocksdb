@@ -71,6 +71,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.compaction_verify_record_count;
   options.track_and_verify_wals_in_manifest =
       immutable_db_options.track_and_verify_wals_in_manifest;
+  options.track_and_verify_wals = immutable_db_options.track_and_verify_wals;
   options.verify_sst_unique_id_in_manifest =
       immutable_db_options.verify_sst_unique_id_in_manifest;
   options.env = immutable_db_options.env;
