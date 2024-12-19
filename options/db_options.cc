@@ -230,6 +230,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    track_and_verify_wals_in_manifest),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"track_and_verify_wals",
+         {offsetof(struct ImmutableDBOptions, track_and_verify_wals),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"verify_sst_unique_id_in_manifest",
          {offsetof(struct ImmutableDBOptions, verify_sst_unique_id_in_manifest),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -716,6 +720,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       compaction_verify_record_count(options.compaction_verify_record_count),
       track_and_verify_wals_in_manifest(
           options.track_and_verify_wals_in_manifest),
+      track_and_verify_wals(options.track_and_verify_wals),
       verify_sst_unique_id_in_manifest(
           options.verify_sst_unique_id_in_manifest),
       env(options.env),
@@ -820,6 +825,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    "                              "
                    "Options.track_and_verify_wals_in_manifest: %d",
                    track_and_verify_wals_in_manifest);
+  ROCKS_LOG_HEADER(log,
+                   "                              "
+                   "Options.track_and_verify_wals: %d",
+                   track_and_verify_wals);
   ROCKS_LOG_HEADER(log, "       Options.verify_sst_unique_id_in_manifest: %d",
                    verify_sst_unique_id_in_manifest);
   ROCKS_LOG_HEADER(log, "                                    Options.env: %p",

@@ -426,14 +426,14 @@ TEST_P(LogTest, ReadError) {
   ASSERT_EQ("OK", MatchError("read error"));
 }
 
-TEST_P(LogTest, BadRecordType) {
+TEST_P(LogTest, ForwardCompatibleType) {
   Write("foo");
   // Type is stored in header[6]
   IncrementByte(6, 100);
   FixChecksum(0, 3, false);
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(3U, DroppedBytes());
-  ASSERT_EQ("OK", MatchError("unknown record type"));
+  ASSERT_EQ(0U, DroppedBytes());
+  ASSERT_EQ("", ReportMessage());
 }
 
 TEST_P(LogTest, TruncatedTrailingRecordIsIgnored) {
