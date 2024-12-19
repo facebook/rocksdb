@@ -4,6 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
+#include <algorithm>
+#include <cstdint>
 #include <vector>
 
 #include "db/log_reader.h"
@@ -54,6 +56,71 @@ class WalFileImpl : public WalFile {
   uint64_t sizeFileBytes_;
 };
 
+class TransactionLogSeqCache {
+ public:
+  TransactionLogSeqCache(size_t size, SystemClock* clock)
+      : size_(size), clock_(clock) {}
+  struct SeqWithFileBlockIdx {
+    uint64_t log_number;
+    uint64_t seq_number;
+    uint64_t block_index;
+    uint64_t timestamp;
+    SeqWithFileBlockIdx(uint64_t log_num, uint64_t seq_num, uint64_t block_idx,
+                        uint64_t ts)
+        : log_number(log_num),
+          seq_number(seq_num),
+          block_index(block_idx),
+          timestamp(ts){};
+    bool operator<(const SeqWithFileBlockIdx& other) const {
+      return std::tie(other.log_number, other.seq_number) <
+             std::tie(log_number, seq_number);
+    }
+  };
+
+  void Insert(uint64_t log_number, uint64_t seq_number, uint64_t block_index) {
+    std::lock_guard<std::mutex> lk{mutex_};
+    auto now = clock_->NowMicros();
+    auto res = cache_.emplace(log_number, seq_number, block_index, now);
+    if (!res.second) {
+      // block idx should be the same with the same log number and seq number
+      assert(block_index == res.first->block_index);
+      auto pos_hint = res.first;
+      pos_hint++;
+      cache_.erase(res.first);
+      cache_.emplace_hint(pos_hint, log_number, seq_number, block_index, now);
+    }
+    // delete the oldest record when cache is full
+    if (cache_.size() > size_) {
+      auto iter = std::min_element(cache_.begin(), cache_.end(),
+                                   [](const auto& a, const auto& b) {
+                                     return a.timestamp < b.timestamp;
+                                   });
+      cache_.erase(iter);
+    }
+  }
+
+  bool Lookup(uint64_t log_number, uint64_t seq_number, uint64_t* block_index) {
+    std::lock_guard<std::mutex> lk{mutex_};
+    const static uint64_t max_uint64 = std::numeric_limits<uint64_t>::max();
+    auto iter = cache_.lower_bound(
+        SeqWithFileBlockIdx{log_number, seq_number, max_uint64, max_uint64});
+    if (iter == cache_.end()) {
+      return false;
+    }
+    if (log_number == iter->log_number && seq_number >= iter->seq_number) {
+      *block_index = iter->block_index;
+      return true;
+    }
+    return false;
+  }
+
+ private:
+  size_t size_;
+  std::mutex mutex_;
+  SystemClock* const clock_;
+  std::set<SeqWithFileBlockIdx> cache_;
+};
+
 class TransactionLogIteratorImpl : public TransactionLogIterator {
  public:
   TransactionLogIteratorImpl(
@@ -61,7 +128,8 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
       const TransactionLogIterator::ReadOptions& read_options,
       const EnvOptions& soptions, const SequenceNumber seqNum,
       std::unique_ptr<VectorWalPtr> files, VersionSet const* const versions,
-      const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer);
+      const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer,
+      const std::shared_ptr<TransactionLogSeqCache>& transaction_log_seq_cache);
 
   bool Valid() override;
 
@@ -92,6 +160,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   std::unique_ptr<WriteBatch> current_batch_;
   std::unique_ptr<log::Reader> current_log_reader_;
   std::string scratch_;
+  std::shared_ptr<TransactionLogSeqCache> transaction_log_seq_cache_;
   Status OpenLogFile(const WalFile* log_file,
                      std::unique_ptr<SequentialFileReader>* file);
 
@@ -123,6 +192,6 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   bool IsBatchExpected(const WriteBatch* batch, SequenceNumber expected_seq);
   // Update current batch if a continuous batch is found.
   void UpdateCurrentWriteBatch(const Slice& record);
-  Status OpenLogReader(const WalFile* file);
+  Status OpenLogReader(const WalFile* file, uint64_t hint_offset);
 };
 }  // namespace ROCKSDB_NAMESPACE

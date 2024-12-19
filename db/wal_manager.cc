@@ -25,6 +25,7 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
+#include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
@@ -111,6 +112,11 @@ Status WalManager::GetUpdatesSince(
 
   assert(!seq_per_batch_);
 
+  if (db_options_.wal_compression != kNoCompression &&
+      read_options.with_cache_) {
+    return Status::NotSupported("not support cache with compressed wal");
+  }
+
   //  Get all sorted Wal Files.
   //  Do binary search and open files and find the seq number.
 
@@ -126,7 +132,8 @@ Status WalManager::GetUpdatesSince(
   }
   iter->reset(new TransactionLogIteratorImpl(
       wal_dir_, &db_options_, read_options, file_options_, seq,
-      std::move(wal_files), version_set, seq_per_batch_, io_tracer_));
+      std::move(wal_files), version_set, seq_per_batch_, io_tracer_,
+      transaction_log_seq_cache_));
   return (*iter)->status();
 }
 

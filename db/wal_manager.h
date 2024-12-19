@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/transaction_log_impl.h"
 #include "db/version_set.h"
 #include "file/file_util.h"
 #include "options/db_options.h"
@@ -47,7 +48,9 @@ class WalManager {
         seq_per_batch_(seq_per_batch),
         wal_dir_(db_options_.GetWalDir()),
         wal_in_db_path_(db_options_.IsWalDirSameAsDBPath()),
-        io_tracer_(io_tracer) {}
+        io_tracer_(io_tracer),
+        transaction_log_seq_cache_(
+            std::make_shared<TransactionLogSeqCache>(128, db_options_.clock)) {}
 
   Status GetSortedWalFiles(VectorWalPtr& files, bool need_seqnos = true,
                            bool include_archived = true);
@@ -133,6 +136,9 @@ class WalManager {
   static constexpr uint64_t kDefaultIntervalToDeleteObsoleteWAL = 600;
 
   std::shared_ptr<IOTracer> io_tracer_;
+
+  // cache for sequence to log block index
+  std::shared_ptr<TransactionLogSeqCache> transaction_log_seq_cache_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

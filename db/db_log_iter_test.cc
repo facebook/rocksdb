@@ -10,10 +10,20 @@
 // Introduction of SyncPoint effectively disabled building and running this test
 // in Release build.
 // which is a pity, it is a good test
+#include <gtest/gtest.h>
+
+#include <atomic>
+#include <cstdint>
+#include <memory>
+#include <string>
 
 #include "db/db_test_util.h"
 #include "env/mock_env.h"
+#include "log_format.h"
 #include "port/stack_trace.h"
+#include "rocksdb/status.h"
+#include "rocksdb/transaction_log.h"
+#include "test_util/testharness.h"
 #include "util/atomic.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -24,9 +34,9 @@ class DBTestXactLogIterator : public DBTestBase {
       : DBTestBase("db_log_iter_test", /*env_do_fsync=*/true) {}
 
   std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(
-      const SequenceNumber seq) {
+      const SequenceNumber seq, TransactionLogIterator::ReadOptions ro = {}) {
     std::unique_ptr<TransactionLogIterator> iter;
-    Status status = dbfull()->GetUpdatesSince(seq, &iter);
+    Status status = dbfull()->GetUpdatesSince(seq, &iter, ro);
     EXPECT_OK(status);
     EXPECT_TRUE(iter->Valid());
     return iter;
@@ -60,6 +70,37 @@ void ExpectRecords(const int expected_no_records,
   int num_records;
   ReadRecords(iter, num_records);
   ASSERT_EQ(num_records, expected_no_records);
+}
+
+Status GetLogOffset(Options options, std::string wal_file, uint64_t log_num,
+                    uint64_t seq, uint64_t* offset) {
+  const auto& fs = options.env->GetFileSystem();
+  std::unique_ptr<SequentialFileReader> wal_file_reader;
+  Status s = SequentialFileReader::Create(fs, wal_file, FileOptions(options),
+                                          &wal_file_reader, nullptr, nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+  log::Reader reader(options.info_log, std::move(wal_file_reader), nullptr,
+                     true, log_num);
+  Slice record;
+  WriteBatch batch;
+  std::string scratch;
+  while (reader.ReadRecord(&record, &scratch)) {
+    s = WriteBatchInternal::SetContents(&batch, record);
+    if (!s.ok()) {
+      break;
+    }
+    auto cur_seq = WriteBatchInternal::Sequence(&batch);
+    if (cur_seq > seq) {
+      break;
+    }
+    if (WriteBatchInternal::Sequence(&batch) == seq) {
+      *offset = reader.LastRecordOffset();
+      return Status::OK();
+    }
+  }
+  return Status::NotFound();
 }
 }  // anonymous namespace
 
@@ -330,6 +371,63 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
       "Delete(0, key2)",
       handler.seen);
 }
+
+TEST_F(DBTestXactLogIterator, TransactionIteratorCache) {
+  Options options = OptionsForLogIterTest();
+  DestroyAndReopen(options);
+  ASSERT_OK(dbfull()->Put({}, "key1", DummyString(log::kBlockSize, 'a')));
+  ASSERT_OK(dbfull()->Put({}, "key2", DummyString(log::kBlockSize, 'b')));
+  ASSERT_OK(dbfull()->Put({}, "key3", DummyString(log::kBlockSize, 'c')));
+  std::atomic_bool hit_cache = false;
+  std::atomic_uint64_t sequence = 2;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "TransactionLogIteratorImpl:OpenLogReader:Skip", [&](void* arg) {
+        hit_cache = true;
+        std::unique_ptr<WalFile> wal_file;
+        EXPECT_OK(dbfull()->GetCurrentWalFile(&wal_file));
+        uint64_t offset = 0;
+        EXPECT_OK(GetLogOffset(options, dbname_ + "/" + wal_file->PathName(),
+                               wal_file->LogNumber(), sequence, &offset));
+        auto skipped_offset = *static_cast<uint64_t*>(arg);
+        EXPECT_EQ(skipped_offset, offset / log::kBlockSize * log::kBlockSize);
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  TransactionLogIterator::ReadOptions ro{};
+  ro.with_cache_ = true;
+  std::string batch_data;
+  {
+    auto iter = OpenTransactionLogIter(sequence, ro);
+    ASSERT_TRUE(!hit_cache);
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    batch_data = iter->GetBatch().writeBatchPtr->Data();
+  }
+  {
+    // cache should be hit at the start sequence
+    auto iter = OpenTransactionLogIter(sequence, ro);
+    ASSERT_TRUE(hit_cache);
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->GetBatch().writeBatchPtr->Data(), batch_data);
+    // move on iterator to the end sequence
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    auto batch = iter->GetBatch();
+    sequence = batch.sequence;
+    batch_data = batch.writeBatchPtr->Data();
+    hit_cache = false;
+  }
+  {
+    // cache should be hit at the end sequence
+    auto iter = OpenTransactionLogIter(sequence, ro);
+    ASSERT_TRUE(hit_cache);
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->GetBatch().writeBatchPtr->Data(), batch_data);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 
