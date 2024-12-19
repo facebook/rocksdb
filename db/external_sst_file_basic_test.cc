@@ -261,6 +261,23 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   ASSERT_NOK(s) << s.ToString();
 
   DestroyAndReopen(options);
+
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::IngestExternalFile:AfterIncIngestFileCounter",
+       "ExternalSSTFileBasicTest.LiveWriteStart"},
+      {"ExternalSSTFileBasicTest.LiveWriteStart",
+       "DBImpl::IngestExternalFiles:InstallSVForFirstCF:0"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  std::thread write_thread([&] {
+    TEST_SYNC_POINT("ExternalSSTFileBasicTest.LiveWriteStart");
+    SetPerfLevel(kEnableWait);
+    PerfContext* write_thread_perf_context = get_perf_context();
+    write_thread_perf_context->Reset();
+    ASSERT_OK(db_->Put(WriteOptions(), "bar", "v2"));
+    ASSERT_GT(write_thread_perf_context->write_thread_wait_nanos, 0);
+  });
+
   // Add file using file path
   SetPerfLevel(kEnableTimeExceptForMutex);
   PerfContext* perf_ctx = get_perf_context();
@@ -273,6 +290,8 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   for (int k = 0; k < 100; k++) {
     ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
   }
+  write_thread.join();
+  SyncPoint::GetInstance()->DisableProcessing();
 
   // Re-ingest the file just to check the perf context not enabled at and below
   // kEnableWait.
