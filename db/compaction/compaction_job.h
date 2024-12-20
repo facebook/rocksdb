@@ -176,12 +176,13 @@ class CompactionJob {
 
   // REQUIRED: mutex held
   // Prepare for the compaction by setting up boundaries for each subcompaction
-  // and organizing seqno <-> time info. `known_single_subcompact` is non-empty
-  // if we already have a known single subcompaction on a particular range
-  // (executing a remote compaction).
+  // and organizing seqno <-> time info. `known_single_subcompact` is non-null
+  // if we already have a known single subcompaction, with optional key bounds
+  // (currently for executing a remote compaction).
   void Prepare(
       std::optional<std::pair<std::optional<Slice>, std::optional<Slice>>>
           known_single_subcompact);
+
   // REQUIRED mutex not held
   // Launch threads for each subcompaction and wait for them to finish. After
   // that, verify table is usable and finally do bookkeeping to unify

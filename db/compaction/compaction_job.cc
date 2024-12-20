@@ -284,10 +284,15 @@ void CompactionJob::Prepare(
     RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                       compact_->sub_compact_states.size());
   } else {
-    auto single_subcompact = known_single_subcompact.value_or(
-        std::make_pair(std::optional<Slice>{}, std::optional<Slice>{}));
-    compact_->sub_compact_states.emplace_back(c, single_subcompact.first,
-                                              single_subcompact.second,
+    std::optional<Slice> start_key;
+    std::optional<Slice> end_key;
+    if (known_single_subcompact.has_value()) {
+      start_key = known_single_subcompact.value().first;
+      end_key = known_single_subcompact.value().second;
+    } else {
+      assert(!start_key.has_value() && !end_key.has_value());
+    }
+    compact_->sub_compact_states.emplace_back(c, start_key, end_key,
                                               /*sub_job_id*/ 0);
   }
 
