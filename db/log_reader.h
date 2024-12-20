@@ -10,6 +10,7 @@
 #pragma once
 #include <stdint.h>
 
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -171,7 +172,7 @@ class Reader {
   UnorderedMap<uint32_t, size_t> recorded_cf_to_ts_sz_;
 
   // Extend record types with the following special values
-  enum {
+  enum : uint8_t {
     kEof = kMaxRecordType + 1,
     // Returned whenever we find an invalid physical record.
     // Currently there are three situations in which this happens:
@@ -192,11 +193,11 @@ class Reader {
   // If WAL compressioned is enabled, fragment_checksum is the checksum of the
   // fragment computed from the orginal buffer containinng uncompressed
   // fragment.
-  unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size,
-                                  uint64_t* fragment_checksum = nullptr);
+  uint8_t ReadPhysicalRecord(Slice* result, size_t* drop_size,
+                             uint64_t* fragment_checksum = nullptr);
 
   // Read some more
-  bool ReadMore(size_t* drop_size, int* error);
+  bool ReadMore(size_t* drop_size, uint8_t* error);
 
   void UnmarkEOFInternal();
 
@@ -232,9 +233,9 @@ class FragmentBufferedReader : public Reader {
   bool in_fragmented_record_;
 
   bool TryReadFragment(Slice* result, size_t* drop_size,
-                       unsigned int* fragment_type_or_err);
+                       uint8_t* fragment_type_or_err);
 
-  bool TryReadMore(size_t* drop_size, int* error);
+  bool TryReadMore(size_t* drop_size, uint8_t* error);
 
   // No copy allowed
   FragmentBufferedReader(const FragmentBufferedReader&);
