@@ -245,7 +245,10 @@ void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
   compaction_job_stats_->is_full_compaction = compaction->is_full_compaction();
 }
 
-void CompactionJob::PrepareSubs() {
+void CompactionJob::Prepare(
+    std::optional<std::pair<std::optional<Slice>, std::optional<Slice>>>
+        known_single_subcompact) {
+  db_mutex_->AssertHeld();
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PREPARE);
 
@@ -260,11 +263,12 @@ void CompactionJob::PrepareSubs() {
   write_hint_ = storage_info->CalculateSSTWriteHint(c->output_level());
   bottommost_level_ = c->bottommost_level();
 
-  if (c->ShouldFormSubcompactions()) {
+  if (!known_single_subcompact.has_value() && c->ShouldFormSubcompactions()) {
     StopWatch sw(db_options_.clock, stats_, SUBCOMPACTION_SETUP_TIME);
     GenSubcompactionBoundaries();
   }
   if (boundaries_.size() >= 1) {
+    assert(!known_single_subcompact.has_value());
     for (size_t i = 0; i <= boundaries_.size(); i++) {
       compact_->sub_compact_states.emplace_back(
           c, (i != 0) ? std::optional<Slice>(boundaries_[i - 1]) : std::nullopt,
@@ -280,15 +284,15 @@ void CompactionJob::PrepareSubs() {
     RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                       compact_->sub_compact_states.size());
   } else {
-    compact_->sub_compact_states.emplace_back(c, std::nullopt, std::nullopt,
+    auto single_subcompact = known_single_subcompact.value_or(
+        std::make_pair(std::optional<Slice>{}, std::optional<Slice>{}));
+    compact_->sub_compact_states.emplace_back(c, single_subcompact.first,
+                                              single_subcompact.second,
                                               /*sub_job_id*/ 0);
   }
-}
 
-void CompactionJob::PrepareTimes() {
   // collect all seqno->time information from the input files which will be used
   // to encode seqno->time to the output files.
-  auto* c = compact_->compaction;
   uint64_t preserve_time_duration =
       std::max(c->mutable_cf_options()->preserve_internal_time_seconds,
                c->mutable_cf_options()->preclude_last_level_data_seconds);
