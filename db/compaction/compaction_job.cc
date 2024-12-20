@@ -245,7 +245,10 @@ void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
   compaction_job_stats_->is_full_compaction = compaction->is_full_compaction();
 }
 
-void CompactionJob::Prepare() {
+void CompactionJob::Prepare(
+    std::optional<std::pair<std::optional<Slice>, std::optional<Slice>>>
+        known_single_subcompact) {
+  db_mutex_->AssertHeld();
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PREPARE);
 
@@ -260,11 +263,12 @@ void CompactionJob::Prepare() {
   write_hint_ = storage_info->CalculateSSTWriteHint(c->output_level());
   bottommost_level_ = c->bottommost_level();
 
-  if (c->ShouldFormSubcompactions()) {
+  if (!known_single_subcompact.has_value() && c->ShouldFormSubcompactions()) {
     StopWatch sw(db_options_.clock, stats_, SUBCOMPACTION_SETUP_TIME);
     GenSubcompactionBoundaries();
   }
   if (boundaries_.size() >= 1) {
+    assert(!known_single_subcompact.has_value());
     for (size_t i = 0; i <= boundaries_.size(); i++) {
       compact_->sub_compact_states.emplace_back(
           c, (i != 0) ? std::optional<Slice>(boundaries_[i - 1]) : std::nullopt,
@@ -280,13 +284,20 @@ void CompactionJob::Prepare() {
     RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                       compact_->sub_compact_states.size());
   } else {
-    compact_->sub_compact_states.emplace_back(c, std::nullopt, std::nullopt,
+    std::optional<Slice> start_key;
+    std::optional<Slice> end_key;
+    if (known_single_subcompact.has_value()) {
+      start_key = known_single_subcompact.value().first;
+      end_key = known_single_subcompact.value().second;
+    } else {
+      assert(!start_key.has_value() && !end_key.has_value());
+    }
+    compact_->sub_compact_states.emplace_back(c, start_key, end_key,
                                               /*sub_job_id*/ 0);
   }
 
   // collect all seqno->time information from the input files which will be used
   // to encode seqno->time to the output files.
-
   uint64_t preserve_time_duration =
       std::max(c->mutable_cf_options()->preserve_internal_time_seconds,
                c->mutable_cf_options()->preclude_last_level_data_seconds);
@@ -341,6 +352,16 @@ void CompactionJob::Prepare() {
     // larger than kMaxSeqnoTimePairsPerSST.
     seqno_to_time_mapping_.SetCapacity(kMaxSeqnoToTimeEntries);
   }
+#ifndef NDEBUG
+  assert(preserve_time_min_seqno_ <= preclude_last_level_min_seqno_);
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
+      static_cast<void*>(&preclude_last_level_min_seqno_));
+  // Restore the invariant asserted above, in case it was broken under the
+  // callback
+  preserve_time_min_seqno_ =
+      std::min(preclude_last_level_min_seqno_, preserve_time_min_seqno_);
+#endif
 }
 
 uint64_t CompactionJob::GetSubcompactionsLimit() {
@@ -2118,7 +2139,6 @@ void CompactionJob::UpdateCompactionJobStats(
 void CompactionJob::LogCompaction() {
   Compaction* compaction = compact_->compaction;
   ColumnFamilyData* cfd = compaction->column_family_data();
-
   // Let's check if anything will get logged. Don't prepare all the info if
   // we're not logging
   if (db_options_.info_log_level <= InfoLogLevel::INFO_LEVEL) {

@@ -1554,7 +1554,7 @@ Status DBImpl::CompactFilesImpl(
   version->storage_info()->ComputeCompactionScore(*cfd->ioptions(),
                                                   *c->mutable_cf_options());
 
-  compaction_job.Prepare();
+  compaction_job.Prepare(std::nullopt /*subcompact to be computed*/);
 
   std::unique_ptr<std::list<uint64_t>::iterator> min_options_file_number_elem;
   if (immutable_db_options().compaction_service != nullptr) {
@@ -3936,7 +3936,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         db_id_, db_session_id_, c->column_family_data()->GetFullHistoryTsLow(),
         c->trim_ts(), &blob_callback_, &bg_compaction_scheduled_,
         &bg_bottom_compaction_scheduled_);
-    compaction_job.Prepare();
+    compaction_job.Prepare(std::nullopt /*subcompact to be computed*/);
 
     std::unique_ptr<std::list<uint64_t>::iterator> min_options_file_number_elem;
     if (immutable_db_options().compaction_service != nullptr) {

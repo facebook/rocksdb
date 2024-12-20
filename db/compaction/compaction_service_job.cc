@@ -189,6 +189,10 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
     FileMetaData meta;
     uint64_t file_size;
+    // FIXME: file_size should be part of CompactionServiceOutputFile so that
+    // we don't get DB corruption if the full file size has not been propagated
+    // back to the caller through the file system (which could have metadata
+    // lag or caching bugs).
     s = fs_->GetFileSize(tgt_file, IOOptions(), &file_size, nullptr);
     if (!s.ok()) {
       sub_compact->status = s;
@@ -280,28 +284,23 @@ CompactionServiceCompactionJob::CompactionServiceCompactionJob(
       compaction_input_(compaction_service_input),
       compaction_result_(compaction_service_result) {}
 
+void CompactionServiceCompactionJob::Prepare() {
+  std::optional<Slice> begin;
+  if (compaction_input_.has_begin) {
+    begin = compaction_input_.begin;
+  }
+  std::optional<Slice> end;
+  if (compaction_input_.has_end) {
+    end = compaction_input_.end;
+  }
+  CompactionJob::Prepare(std::make_pair(begin, end));
+}
+
 Status CompactionServiceCompactionJob::Run() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
 
   auto* c = compact_->compaction;
-  assert(c->column_family_data() != nullptr);
-  const VersionStorageInfo* storage_info = c->input_version()->storage_info();
-  assert(storage_info);
-  assert(storage_info->NumLevelFiles(compact_->compaction->level()) > 0);
-  write_hint_ = storage_info->CalculateSSTWriteHint(c->output_level());
-
-  bottommost_level_ = c->bottommost_level();
-
-  Slice begin = compaction_input_.begin;
-  Slice end = compaction_input_.end;
-  compact_->sub_compact_states.emplace_back(
-      c,
-      compaction_input_.has_begin ? std::optional<Slice>(begin)
-                                  : std::optional<Slice>(),
-      compaction_input_.has_end ? std::optional<Slice>(end)
-                                : std::optional<Slice>(),
-      /*sub_job_id*/ 0);
 
   log_buffer_->FlushBufferToLog();
   LogCompaction();
