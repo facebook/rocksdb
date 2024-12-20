@@ -1346,8 +1346,8 @@ IOStatus BackupEngineImpl::Initialize() {
           }
           work_item.result.set_value(std::move(result));
         } else {
-          ROCKS_LOG_INFO(options_.info_log, "Unknown work item type: %" PRIu64,
-                         work_item.type);
+          result.io_status = IOStatus::InvalidArgument(
+              "Unknown work item type: " + std::to_string(work_item.type));
         }
       }
     });
