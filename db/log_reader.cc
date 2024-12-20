@@ -43,7 +43,7 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       compression_type_record_read_(false),
       uncompress_(nullptr),
       hash_state_(nullptr),
-      uncompress_hash_state_(nullptr){}
+      uncompress_hash_state_(nullptr) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -88,7 +88,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
   while (true) {
     uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
     size_t drop_size = 0;
-    const unsigned int record_type =
+    const uint8_t record_type =
         ReadPhysicalRecord(&fragment, &drop_size, record_checksum);
     switch (record_type) {
       case kFullType:
@@ -313,11 +313,13 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       default: {
-        std::string reason =
-            "unknown record type " + std::to_string(record_type);
-        ReportCorruption(
-            (fragment.size() + (in_fragmented_record ? scratch->size() : 0)),
-            reason.c_str());
+        if ((record_type & kRecordTypeSafeIgnoreMask) == 0) {
+          std::string reason =
+              "unknown record type " + std::to_string(record_type);
+          ReportCorruption(
+              (fragment.size() + (in_fragmented_record ? scratch->size() : 0)),
+              reason.c_str());
+        }
         in_fragmented_record = false;
         scratch->clear();
         break;
@@ -419,7 +421,7 @@ void Reader::ReportOldLogRecord(size_t bytes) {
   }
 }
 
-bool Reader::ReadMore(size_t* drop_size, int* error) {
+bool Reader::ReadMore(size_t* drop_size, uint8_t* error) {
   if (!eof_ && !read_error_) {
     // Last read was a full read, so this is a trailer to skip
     buffer_.clear();
@@ -460,15 +462,15 @@ bool Reader::ReadMore(size_t* drop_size, int* error) {
   }
 }
 
-unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
-                                        uint64_t* fragment_checksum) {
+uint8_t Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
+                                   uint64_t* fragment_checksum) {
   while (true) {
     // We need at least the minimum header size
     if (buffer_.size() < static_cast<size_t>(kHeaderSize)) {
       // the default value of r is meaningless because ReadMore will overwrite
       // it if it returns false; in case it returns true, the return value will
       // not be used anyway
-      int r = kEof;
+      uint8_t r = kEof;
       if (!ReadMore(drop_size, &r)) {
         return r;
       }
@@ -479,7 +481,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
     const char* header = buffer_.data();
     const uint32_t a = static_cast<uint32_t>(header[4]) & 0xff;
     const uint32_t b = static_cast<uint32_t>(header[5]) & 0xff;
-    const unsigned int type = header[6];
+    const uint8_t type = static_cast<uint8_t>(header[6]);
     const uint32_t length = a | (b << 8);
     int header_size = kHeaderSize;
     const bool is_recyclable_type =
@@ -494,7 +496,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
       recycled_ = true;
       // We need enough for the larger header
       if (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
-        int r = kEof;
+        uint8_t r = kEof;
         if (!ReadMore(drop_size, &r)) {
           return r;
         }
@@ -651,7 +653,7 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
   uint64_t prospective_record_offset = 0;
   uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
   size_t drop_size = 0;
-  unsigned int fragment_type_or_err = 0;  // Initialize to make compiler happy
+  uint8_t fragment_type_or_err = 0;  // Initialize to make compiler happy
   Slice fragment;
   while (TryReadFragment(&fragment, &drop_size, &fragment_type_or_err)) {
     switch (fragment_type_or_err) {
@@ -781,11 +783,13 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       default: {
-        std::string reason =
-            "unknown record type " + std::to_string(fragment_type_or_err);
-        ReportCorruption(
-            fragment.size() + (in_fragmented_record_ ? fragments_.size() : 0),
-            reason.c_str());
+        if ((fragment_type_or_err & kRecordTypeSafeIgnoreMask) == 0) {
+          std::string reason =
+              "unknown record type " + std::to_string(fragment_type_or_err);
+          ReportCorruption(
+              fragment.size() + (in_fragmented_record_ ? fragments_.size() : 0),
+              reason.c_str());
+        }
         in_fragmented_record_ = false;
         fragments_.clear();
         break;
@@ -803,7 +807,7 @@ void FragmentBufferedReader::UnmarkEOF() {
   UnmarkEOFInternal();
 }
 
-bool FragmentBufferedReader::TryReadMore(size_t* drop_size, int* error) {
+bool FragmentBufferedReader::TryReadMore(size_t* drop_size, uint8_t* error) {
   if (!eof_ && !read_error_) {
     // Last read was a full read, so this is a trailer to skip
     buffer_.clear();
@@ -844,15 +848,15 @@ bool FragmentBufferedReader::TryReadMore(size_t* drop_size, int* error) {
 }
 
 // return true if the caller should process the fragment_type_or_err.
-bool FragmentBufferedReader::TryReadFragment(
-    Slice* fragment, size_t* drop_size, unsigned int* fragment_type_or_err) {
+bool FragmentBufferedReader::TryReadFragment(Slice* fragment, size_t* drop_size,
+                                             uint8_t* fragment_type_or_err) {
   assert(fragment != nullptr);
   assert(drop_size != nullptr);
   assert(fragment_type_or_err != nullptr);
 
   while (buffer_.size() < static_cast<size_t>(kHeaderSize)) {
     size_t old_size = buffer_.size();
-    int error = kEof;
+    uint8_t error = kEof;
     if (!TryReadMore(drop_size, &error)) {
       *fragment_type_or_err = error;
       return false;
@@ -863,7 +867,7 @@ bool FragmentBufferedReader::TryReadFragment(
   const char* header = buffer_.data();
   const uint32_t a = static_cast<uint32_t>(header[4]) & 0xff;
   const uint32_t b = static_cast<uint32_t>(header[5]) & 0xff;
-  const unsigned int type = header[6];
+  const uint8_t type = static_cast<uint8_t>(header[6]);
   const uint32_t length = a | (b << 8);
   int header_size = kHeaderSize;
   if ((type >= kRecyclableFullType && type <= kRecyclableLastType) ||
@@ -877,7 +881,7 @@ bool FragmentBufferedReader::TryReadFragment(
     header_size = kRecyclableHeaderSize;
     while (buffer_.size() < static_cast<size_t>(kRecyclableHeaderSize)) {
       size_t old_size = buffer_.size();
-      int error = kEof;
+      uint8_t error = kEof;
       if (!TryReadMore(drop_size, &error)) {
         *fragment_type_or_err = error;
         return false;
@@ -894,7 +898,7 @@ bool FragmentBufferedReader::TryReadFragment(
 
   while (header_size + length > buffer_.size()) {
     size_t old_size = buffer_.size();
-    int error = kEof;
+    uint8_t error = kEof;
     if (!TryReadMore(drop_size, &error)) {
       *fragment_type_or_err = error;
       return false;

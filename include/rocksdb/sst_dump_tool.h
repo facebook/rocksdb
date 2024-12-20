@@ -14,4 +14,3 @@ class SSTDumpTool {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

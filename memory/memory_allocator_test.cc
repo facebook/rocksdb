@@ -226,7 +226,6 @@ INSTANTIATE_TEST_CASE_P(
                                       JemallocNodumpAllocator::IsSupported())));
 #endif  // ROCKSDB_JEMALLOC
 
-
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

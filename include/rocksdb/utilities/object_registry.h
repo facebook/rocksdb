@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <functional>
 #include <map>
 #include <memory>
@@ -163,7 +162,7 @@ class ObjectLibrary {
     size_t slength_;  // The minimum required length to match the separators
     std::vector<std::pair<std::string, Quantifier>>
         separators_;  // What to match
-  };                  // End class Entry
+  };  // End class Entry
 
  private:
   // An Entry containing a FactoryFunc for creating new Objects

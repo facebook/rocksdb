@@ -88,7 +88,7 @@ struct HistogramStat {
 class Histogram {
  public:
   Histogram() {}
-  virtual ~Histogram(){}
+  virtual ~Histogram() {}
 
   virtual void Clear() = 0;
   virtual bool Empty() const = 0;

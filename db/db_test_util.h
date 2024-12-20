@@ -1367,7 +1367,8 @@ class DBTestBase : public testing::Test {
   void VerifyDBFromMap(
       std::map<std::string, std::string> true_data,
       size_t* total_reads_res = nullptr, bool tailing_iter = false,
-      std::map<std::string, Status> status = std::map<std::string, Status>());
+      ReadOptions* ro = nullptr, ColumnFamilyHandle* cf = nullptr,
+      std::unordered_set<std::string>* not_found = nullptr) const;
 
   void VerifyDBInternal(
       std::vector<std::pair<std::string, std::string>> true_data);

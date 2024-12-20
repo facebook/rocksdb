@@ -917,6 +917,8 @@ Status DBImplSecondary::CompactWithoutInstallation(
       options.canceled ? *options.canceled : kManualCompactionCanceledFalse_,
       input.db_id, db_session_id_, secondary_path_, input, result);
 
+  compaction_job.Prepare();
+
   mutex_.Unlock();
   s = compaction_job.Run();
   mutex_.Lock();
@@ -1056,6 +1058,5 @@ Status DB::OpenAndCompact(
   return OpenAndCompact(OpenAndCompactOptions(), name, output_directory, input,
                         output, override_options);
 }
-
 
 }  // namespace ROCKSDB_NAMESPACE

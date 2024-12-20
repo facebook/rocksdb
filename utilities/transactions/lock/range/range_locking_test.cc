@@ -445,4 +445,3 @@ int main(int /*argc*/, char** /*argv*/) {
 }
 
 #endif  // OS_WIN
-

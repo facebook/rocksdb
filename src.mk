@@ -75,6 +75,7 @@ LIB_SOURCES =                                                   \
   db/log_reader.cc                                              \
   db/log_writer.cc                                              \
   db/malloc_stats.cc                                            \
+  db/manifest_ops.cc                                            \
   db/memtable.cc                                                \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
@@ -339,6 +340,9 @@ else
 LIB_SOURCES_ASM =
 LIB_SOURCES_C =
 endif
+
+WITH_FAISS_LIB_SOURCES = \
+  utilities/secondary_index/faiss_ivf_index.cc                  \
 
 RANGE_TREE_SOURCES =\
   utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc \
@@ -649,6 +653,9 @@ TEST_MAIN_SOURCES =                                                     \
 
 TEST_MAIN_SOURCES_C = \
   db/c_test.c                                                           \
+
+WITH_FAISS_TEST_MAIN_SOURCES = \
+  utilities/secondary_index/faiss_ivf_index_test.cc                     \
 
 MICROBENCH_SOURCES =                                          \
   microbench/ribbon_bench.cc                                  \

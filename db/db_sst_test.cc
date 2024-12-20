@@ -1991,7 +1991,6 @@ TEST_F(DBSSTTest, DBWithSFMForBlobFilesAtomicFlush) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

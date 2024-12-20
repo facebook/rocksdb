@@ -74,6 +74,10 @@ class WBWIIterator {
   // WriteBatchWithIndex
   virtual WriteEntry Entry() const = 0;
 
+  // For this user key, there is a single delete in this write batch,
+  // and it was overwritten by another update.
+  virtual bool HasOverWrittenSingleDel() const { return false; }
+
   virtual Status status() const = 0;
 };
 
@@ -349,6 +353,17 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
   void SetMaxBytes(size_t max_bytes) override;
   size_t GetDataSize() const;
+
+  struct CFStat {
+    uint32_t entry_count = 0;
+    uint32_t overwritten_sd_count = 0;
+  };
+  // Will track CF ID, per CF entry count and overwritten sd count.
+  // Should be enabled when WBWI is empty for correct tracking.
+  void SetTrackPerCFStat(bool track);
+  const std::unordered_map<uint32_t, CFStat>& GetCFStats() const;
+
+  bool GetOverwriteKey() const;
 
  private:
   friend class PessimisticTransactionDB;

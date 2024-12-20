@@ -59,8 +59,6 @@
 //   Store per-table metadata (smallest, largest, largest-seq#, ...)
 //   in the table's meta section to speed up ScanTable.
 
-#include "db/version_builder.h"
-
 #include <cinttypes>
 
 #include "db/builder.h"
@@ -70,6 +68,7 @@
 #include "db/log_writer.h"
 #include "db/memtable.h"
 #include "db/table_cache.h"
+#include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
@@ -449,7 +448,7 @@ class Repairer {
       Arena arena;
       ScopedArenaPtr<InternalIterator> iter(
           mem->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
-                           /*prefix_extractor=*/nullptr));
+                           /*prefix_extractor=*/nullptr, /*for_flush=*/true));
       int64_t _current_time = 0;
       immutable_db_options_.clock->GetCurrentTime(&_current_time)
           .PermitUncheckedError();  // ignore error

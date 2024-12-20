@@ -91,12 +91,9 @@ class SubcompactionState {
   //  for user-defined timestamp).
   void AssignRangeDelAggregator(
       std::unique_ptr<CompactionRangeDelAggregator>&& range_del_agg) {
-    if (compaction->SupportsPerKeyPlacement()) {
-      penultimate_level_outputs_.AssignRangeDelAggregator(
-          std::move(range_del_agg));
-    } else {
-      compaction_outputs_.AssignRangeDelAggregator(std::move(range_del_agg));
-    }
+    assert(range_del_agg_ == nullptr);
+    assert(range_del_agg);
+    range_del_agg_ = std::move(range_del_agg);
   }
 
   void RemoveLastEmptyOutput() {
@@ -152,15 +149,15 @@ class SubcompactionState {
         compaction_outputs_(std::move(state.compaction_outputs_)),
         penultimate_level_outputs_(std::move(state.penultimate_level_outputs_)),
         is_current_penultimate_level_(state.is_current_penultimate_level_),
-        has_penultimate_level_outputs_(state.has_penultimate_level_outputs_) {
+        has_penultimate_level_outputs_(state.has_penultimate_level_outputs_),
+        range_del_agg_(std::move(state.range_del_agg_)) {
     current_outputs_ = is_current_penultimate_level_
                            ? &penultimate_level_outputs_
                            : &compaction_outputs_;
   }
 
   bool HasPenultimateLevelOutputs() const {
-    return has_penultimate_level_outputs_ ||
-           penultimate_level_outputs_.HasRangeDel();
+    return has_penultimate_level_outputs_ || HasRangeDel();
   }
 
   bool IsCurrentPenultimateLevel() const {
@@ -187,6 +184,15 @@ class SubcompactionState {
     return *current_outputs_;
   }
 
+  CompactionRangeDelAggregator* RangeDelAgg() const {
+    return range_del_agg_.get();
+  }
+
+  // if the outputs have range delete, range delete is also data
+  bool HasRangeDel() const {
+    return range_del_agg_ && !range_del_agg_->IsEmpty();
+  }
+
   // Add compaction_iterator key/value to the `Current` output group.
   Status AddToOutput(const CompactionIterator& iter,
                      const CompactionFileOpenFunc& open_file_func,
@@ -197,14 +203,18 @@ class SubcompactionState {
   Status CloseCompactionFiles(const Status& curr_status,
                               const CompactionFileOpenFunc& open_file_func,
                               const CompactionFileCloseFunc& close_file_func) {
+    auto per_key = compaction->SupportsPerKeyPlacement();
     // Call FinishCompactionOutputFile() even if status is not ok: it needs to
     // close the output file.
     // CloseOutput() may open new compaction output files.
     is_current_penultimate_level_ = true;
     Status s = penultimate_level_outputs_.CloseOutput(
-        curr_status, open_file_func, close_file_func);
+        curr_status, per_key ? range_del_agg_.get() : nullptr, open_file_func,
+        close_file_func);
     is_current_penultimate_level_ = false;
-    s = compaction_outputs_.CloseOutput(s, open_file_func, close_file_func);
+    s = compaction_outputs_.CloseOutput(
+        s, per_key ? nullptr : range_del_agg_.get(), open_file_func,
+        close_file_func);
     return s;
   }
 
@@ -215,6 +225,7 @@ class SubcompactionState {
   CompactionOutputs* current_outputs_ = &compaction_outputs_;
   bool is_current_penultimate_level_ = false;
   bool has_penultimate_level_outputs_ = false;
+  std::unique_ptr<CompactionRangeDelAggregator> range_del_agg_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

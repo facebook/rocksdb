@@ -32,6 +32,10 @@ class Mutex;
 class VersionSet;
 
 void MemTableListVersion::AddMemTable(ReadOnlyMemTable* m) {
+  if (!memlist_.empty()) {
+    // ID can be equal for MemPurge
+    assert(m->GetID() >= memlist_.front()->GetID());
+  }
   memlist_.push_front(m);
   *parent_memtable_list_memory_usage_ += m->ApproximateMemoryUsage();
 }
@@ -216,7 +220,8 @@ void MemTableListVersion::AddIterators(
     std::vector<InternalIterator*>* iterator_list, Arena* arena) {
   for (auto& m : memlist_) {
     iterator_list->push_back(m->NewIterator(options, seqno_to_time_mapping,
-                                            arena, prefix_extractor));
+                                            arena, prefix_extractor,
+                                            /*for_flush=*/false));
   }
 }
 
@@ -228,7 +233,8 @@ void MemTableListVersion::AddIterators(
   for (auto& m : memlist_) {
     auto mem_iter =
         m->NewIterator(options, seqno_to_time_mapping,
-                       merge_iter_builder->GetArena(), prefix_extractor);
+                       merge_iter_builder->GetArena(), prefix_extractor,
+                       /*for_flush=*/false);
     if (!add_range_tombstone_iter || options.ignore_range_deletions) {
       merge_iter_builder->AddIterator(mem_iter);
     } else {
@@ -410,7 +416,8 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
   // ret is filled with memtables already sorted in increasing MemTable ID.
   // However, when the mempurge feature is activated, new memtables with older
   // IDs will be added to the memlist.
-  for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+  auto it = memlist.rbegin();
+  for (; it != memlist.rend(); ++it) {
     ReadOnlyMemTable* m = *it;
     if (!atomic_flush && m->atomic_flush_seqno_ != kMaxSequenceNumber) {
       atomic_flush = true;
@@ -438,6 +445,12 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
       // are picked and the one flushing older memtables is rolled back.
       break;
     }
+  }
+  if (!ret->empty() && it != memlist.rend()) {
+    // checks that the first memtable not picked to flush is not ingested wbwi.
+    // Ingested memtable should be flushed together with the memtable before it
+    // since they map to the same WAL and have the same NextLogNumber().
+    assert(strcmp((*it)->Name(), "WBWIMemTable") != 0);
   }
   if (!atomic_flush || num_flush_not_started_ == 0) {
     flush_requested_ = false;  // start-flush request is complete

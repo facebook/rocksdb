@@ -5,7 +5,6 @@
 //
 #pragma once
 
-
 #include <atomic>
 
 #include "util/mutexlock.h"
@@ -169,4 +168,3 @@ class LRUList {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

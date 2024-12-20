@@ -3316,12 +3316,24 @@ class FSBufferPrefetchTest : public testing::Test,
                            IODebugContext* dbg) override {
           for (size_t i = 0; i < num_reqs; ++i) {
             FSReadRequest& req = reqs[i];
-            FSAllocationPtr buffer(new char[req.len], [](void* ptr) {
-              delete[] static_cast<char*>(ptr);
-            });
-            req.fs_scratch = std::move(buffer);
+
+            // We cannot assume that fs_scratch points to the start of
+            // the read data. We can have the FSAllocationPtr point to a
+            // wrapper around the result buffer in our test implementation so
+            // that we can catch whenever we incorrectly make this assumption.
+            // See https://github.com/facebook/rocksdb/pull/13189 for more
+            // context.
+            char* internalData = new char[req.len];
             req.status = Read(req.offset, req.len, options, &req.result,
-                              static_cast<char*>(req.fs_scratch.get()), dbg);
+                              internalData, dbg);
+
+            Slice* internalSlice = new Slice(internalData, req.len);
+            FSAllocationPtr internalPtr(internalSlice, [](void* ptr) {
+              delete[] static_cast<const char*>(
+                  static_cast<Slice*>(ptr)->data_);
+              delete static_cast<Slice*>(ptr);
+            });
+            req.fs_scratch = std::move(internalPtr);
           }
           return IOStatus::OK();
         }
@@ -3708,6 +3720,62 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
     ASSERT_EQ(std::get<0>(buffer_info[0]), 33);
     ASSERT_EQ(std::get<1>(buffer_info[0]), (50 - 33) + 20);
   }
+}
+
+TEST_P(FSBufferPrefetchTest, FSBufferPrefetchForCompaction) {
+  // Quick test to make sure file system buffer reuse is disabled for compaction
+  // reads. Will update once it is re-enabled
+  // Primarily making sure we do not hit unsigned integer overflow issues
+  std::string fname = "fs-buffer-prefetch-for-compaction";
+  Random rand(0);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 8192;
+  readahead_params.max_readahead_size = 8192;
+  bool use_async_prefetch = GetParam();
+  // Async IO is not enabled for compaction prefetching
+  if (use_async_prefetch) {
+    return;
+  }
+  readahead_params.num_buffers = 1;
+
+  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
+                         stats.get());
+
+  Slice result;
+  Status s;
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 0, 4096, &result, &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(0, 4096).c_str(), 4096), 0);
+
+  fpb.UpdateReadPattern(4096, 4096, false);
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 8192, 8192, &result,
+                                   &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(8192, 8192).c_str(), 8192),
+            0);
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 12288, 4096, &result,
+                                   &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(12288, 4096).c_str(), 4096),
+            0);
+
+  // Read from 16000-26000 (start and end do not meet normal alignment)
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 16000, 10000, &result,
+                                   &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(16000, 10000).c_str(), 10000),
+            0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

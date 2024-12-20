@@ -296,7 +296,6 @@ bool StartsWith(const std::string& string, const std::string& pattern) {
   return string.compare(0, pattern.size(), pattern) == 0;
 }
 
-
 bool ParseBoolean(const std::string& type, const std::string& value) {
   if (value == "true" || value == "1") {
     return true;
@@ -333,7 +332,6 @@ int32_t ParseInt32(const std::string& value) {
     throw std::out_of_range(value);
   }
 }
-
 
 uint64_t ParseUint64(const std::string& value) {
   size_t endchar;

@@ -191,8 +191,7 @@ namespace {
 class SharedState {
  public:
   explicit SharedState(CacheBench* cache_bench)
-      : cv_(&mu_),
-        cache_bench_(cache_bench) {}
+      : cv_(&mu_), cache_bench_(cache_bench) {}
 
   ~SharedState() = default;
 

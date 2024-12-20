@@ -48,6 +48,7 @@
 #include "db/write_controller.h"
 #include "db/write_thread.h"
 #include "logging/event_logger.h"
+#include "memtable/wbwi_memtable.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -60,6 +61,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/user_write_callback.h"
 #include "rocksdb/utilities/replayer.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
@@ -158,6 +160,17 @@ class Directories {
   std::unique_ptr<FSDirectory> db_dir_;
   std::vector<std::unique_ptr<FSDirectory>> data_dirs_;
   std::unique_ptr<FSDirectory> wal_dir_;
+};
+
+struct DBOpenLogReporter : public log::Reader::Reporter {
+  Env* env;
+  Logger* info_log;
+  const char* fname;
+  Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
+  bool* old_log_record;
+  void Corruption(size_t bytes, const Status& s) override;
+
+  void OldLogRecord(size_t bytes) override;
 };
 
 // While DB is the public interface of RocksDB, and DBImpl is the actual
@@ -1507,6 +1520,23 @@ class DBImpl : public DB {
 
   void EraseThreadStatusDbInfo() const;
 
+  // For CFs that has updates in `wbwi`, their memtable will be switched,
+  // and `wbwi` will be added as the latest immutable memtable.
+  //
+  // REQUIRES: this thread is currently at the front of the main writer queue.
+  // @param prep_log refers to the WAL that contains prepare record
+  // for the transaction based on wbwi.
+  // @param assigned_seqno Sequence numbers for the ingested memtable.
+  // @param last_seqno the value of versions_->LastSequence() after the write
+  // ingests `wbwi` is done.
+  // @param memtable_updated Whether the same write that ingests wbwi has
+  // updated memtable. This is useful for determining whether to set bg
+  // error when IngestWBWI fails.
+  Status IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
+                    const WBWIMemTable::SeqnoRange& assigned_seqno,
+                    uint64_t min_prep_log, SequenceNumber last_seqno,
+                    bool memtable_updated, bool ignore_missing_cf);
+
   // If disable_memtable is set the application logic must guarantee that the
   // batch will still be skipped from memtable during the recovery. An excption
   // to this is seq_per_batch_ mode, in which since each batch already takes one
@@ -1522,6 +1552,16 @@ class DBImpl : public DB {
   // batch_cnt is expected to be non-zero in seq_per_batch mode and
   // indicates the number of sub-patches. A sub-patch is a subset of the write
   // batch that does not have duplicate keys.
+  // `callback` is called before WAL write.
+  // See more in comment above WriteCallback::Callback().
+  // pre_release_callback is called after WAL write and before memtable write.
+  // See more in comment above PreReleaseCallback::Callback().
+  // post_memtable_callback is called after memtable write but before publishing
+  // the sequence number to readers.
+  //
+  // The main write queue. This is the only write queue that updates
+  // LastSequence. When using one write queue, the same sequence also indicates
+  // the last published sequence.
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
                    UserWriteCallback* user_write_cb = nullptr,
@@ -1529,7 +1569,9 @@ class DBImpl : public DB {
                    bool disable_memtable = false, uint64_t* seq_used = nullptr,
                    size_t batch_cnt = 0,
                    PreReleaseCallback* pre_release_callback = nullptr,
-                   PostMemTableCallback* post_memtable_callback = nullptr);
+                   PostMemTableCallback* post_memtable_callback = nullptr,
+                   std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr,
+                   uint64_t min_prep_log = 0);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
@@ -1879,8 +1921,8 @@ class DBImpl : public DB {
     const InternalKey* begin = nullptr;  // nullptr means beginning of key range
     const InternalKey* end = nullptr;    // nullptr means end of key range
     InternalKey* manual_end = nullptr;   // how far we are compacting
-    InternalKey tmp_storage;      // Used to keep track of compaction progress
-    InternalKey tmp_storage1;     // Used to keep track of compaction progress
+    InternalKey tmp_storage;   // Used to keep track of compaction progress
+    InternalKey tmp_storage1;  // Used to keep track of compaction progress
 
     // When the user provides a canceled pointer in CompactRangeOptions, the
     // above varaibe is the reference of the user-provided
@@ -2012,6 +2054,82 @@ class DBImpl : public DB {
                          bool is_retry, bool* corrupted_log_found,
                          RecoveryContext* recovery_ctx);
 
+  void SetupLogFilesRecovery(
+      const std::vector<uint64_t>& wal_numbers,
+      std::unordered_map<int, VersionEdit>* version_edits, int* job_id,
+      uint64_t* min_wal_number);
+
+  Status ProcessLogFiles(const std::vector<uint64_t>& wal_numbers,
+                         bool read_only, bool is_retry, uint64_t min_wal_number,
+                         int job_id, SequenceNumber* next_sequence,
+                         std::unordered_map<int, VersionEdit>* version_edits,
+                         bool* corrupted_wal_found,
+                         RecoveryContext* recovery_ctx);
+
+  Status ProcessLogFile(
+      uint64_t wal_number, uint64_t min_wal_number, bool is_retry,
+      bool read_only, int job_id, SequenceNumber* next_sequence,
+      bool* stop_replay_for_corruption, bool* stop_replay_by_wal_filter,
+      uint64_t* corrupted_wal_number, bool* corrupted_wal_found,
+      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed);
+
+  void SetupLogFileProcessing(uint64_t wal_number);
+
+  Status InitializeLogReader(uint64_t wal_number, bool is_retry,
+                             std::string& fname, bool* const old_log_record,
+                             Status* const reporter_status,
+                             DBOpenLogReporter* reporter,
+                             std::unique_ptr<log::Reader>& reader);
+  Status ProcessLogRecord(
+      Slice record, const std::unique_ptr<log::Reader>& reader,
+      const UnorderedMap<uint32_t, size_t>& running_ts_sz, uint64_t wal_number,
+      const std::string& fname, bool read_only, int job_id,
+      std::function<void()> logFileDropped, DBOpenLogReporter* reporter,
+      uint64_t* record_checksum, SequenceNumber* next_sequence,
+      bool* stop_replay_for_corruption, Status* status,
+      bool* stop_replay_by_wal_filter,
+      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed);
+
+  Status InitializeWriteBatchForLogRecord(
+      Slice record, const std::unique_ptr<log::Reader>& reader,
+      const UnorderedMap<uint32_t, size_t>& running_ts_sz, WriteBatch* batch,
+      std::unique_ptr<WriteBatch>& new_batch, WriteBatch*& batch_to_use,
+      uint64_t* record_checksum);
+
+  void MaybeReviseStopReplayForCorruption(
+      SequenceNumber sequence, SequenceNumber const* const next_sequence,
+      bool* stop_replay_for_corruption);
+
+  Status InsertLogRecordToMemtable(WriteBatch* batch_to_use,
+                                   uint64_t wal_number,
+                                   SequenceNumber* next_sequence,
+                                   bool* has_valid_writes);
+
+  Status MaybeWriteLevel0TableForRecovery(
+      bool has_valid_writes, bool read_only, uint64_t wal_number, int job_id,
+      SequenceNumber const* const next_sequence,
+      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed);
+
+  Status HandleNonOkStatusOrOldLogRecord(
+      uint64_t wal_number, SequenceNumber const* const next_sequence,
+      Status log_read_status, bool* old_log_record,
+      bool* stop_replay_for_corruption, uint64_t* corrupted_wal_number,
+      bool* corrupted_wal_found);
+
+  void FinishLogFileProcessing(SequenceNumber const* const next_sequence,
+                               const Status& status);
+
+  // Return `Status::Corruption()` when `stop_replay_for_corruption == true` and
+  // exits inconsistency between SST and WAL data
+  Status MaybeHandleStopReplayForCorruptionForInconsistency(
+      bool stop_replay_for_corruption, uint64_t corrupted_wal_number);
+
+  Status MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
+      const std::vector<uint64_t>& wal_numbers, bool read_only, int job_id,
+      bool flushed, std::unordered_map<int, VersionEdit>* version_edits,
+      RecoveryContext* recovery_ctx);
+
+  void FinishLogFilesRecovery(int job_id, const Status& status);
   // The following two methods are used to flush a memtable to
   // storage. The first one is used at database RecoveryTime (when the
   // database is opened) and is heavyweight because it holds the mutex
@@ -2053,7 +2171,19 @@ class DBImpl : public DB {
 
   // Switches the current live memtable to immutable/read-only memtable.
   // A new WAL is created if the current WAL is not empty.
-  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
+  // If `new_imm` is not nullptr, it will be added as the newest immutable
+  // memtable, if and only if OK status is returned.
+  // `last_seqno` needs to be provided if `new_imm` is not nullptr. It is
+  // the value of versions_->LastSequence() after the write that ingests new_imm
+  // is done.
+  //
+  // REQUIRES: mutex_ is held
+  // REQUIRES: this thread is currently at the front of the writer queue
+  // REQUIRES: this thread is currently at the front of the 2nd writer queue if
+  // two_write_queues_ is true (This is to simplify the reasoning.)
+  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
+                        ReadOnlyMemTable* new_imm = nullptr,
+                        SequenceNumber last_seqno = 0);
 
   // Select and output column families qualified for atomic flush in
   // `selected_cfds`. If `provided_candidate_cfds` is non-empty, it will be used

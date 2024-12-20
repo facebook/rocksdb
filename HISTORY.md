@@ -1,6 +1,24 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.10.0 (12/12/2024)
+### New Features
+* Introduce `TransactionOptions::commit_bypass_memtable` to enable transaction commit to bypass memtable insertions. This can be beneficial for transactions with many operations, as it reduces commit time that is mostly spent on memtable insertion.
+
+### Public API Changes
+* Deprecated Remote Compaction APIs (StartV2, WaitForCompleteV2) are completely removed from the codebase
+
+### Behavior Changes
+* DB::KeyMayExist() now follows its function comment, which means `value` parameter can be null, and it will be set only if `value_found` is passed in.
+
+### Bug Fixes
+* Fix the issue where compaction incorrectly drops a key when there is a snapshot with a sequence number of zero.
+* Honor ConfigOptions.ignore_unknown_options in ParseStruct()
+
+### Performance Improvements
+* Enable reuse of file system allocated buffer for synchronous prefetching.
+* In buffered IO mode, try to align writes on power of 2 if checksum handoff is not enabled for the file type being written.
+
 ## 9.9.0 (11/18/2024)
 ### New Features
 * Multi-Column-Family-Iterator (CoalescingIterator/AttributeGroupIterator) is no longer marked as experimental

@@ -455,6 +455,7 @@ void SetMaxSeqAndTs(InternalKey& internal_key, const Slice& user_key,
 }  // namespace
 
 Status CompactionOutputs::AddRangeDels(
+    CompactionRangeDelAggregator& range_del_agg,
     const Slice* comp_start_user_key, const Slice* comp_end_user_key,
     CompactionIterationStats& range_del_out_stats, bool bottommost_level,
     const InternalKeyComparator& icmp, SequenceNumber earliest_snapshot,
@@ -470,7 +471,7 @@ Status CompactionOutputs::AddRangeDels(
   // Then meta.smallest will be set to comp_start_user_key@seqno
   // and meta.largest will be set to comp_start_user_key@kMaxSequenceNumber
   // which violates the assumption that meta.smallest should be <= meta.largest.
-  assert(HasRangeDel());
+  assert(!range_del_agg.IsEmpty());
   FileMetaData& meta = current_output().meta;
   const Comparator* ucmp = icmp.user_comparator();
   InternalKey lower_bound_buf, upper_bound_buf;
@@ -579,7 +580,7 @@ Status CompactionOutputs::AddRangeDels(
   assert(comp_end_user_key == nullptr || upper_bound == nullptr ||
          ucmp->CompareWithoutTimestamp(ExtractUserKey(*upper_bound),
                                        *comp_end_user_key) <= 0);
-  auto it = range_del_agg_->NewIterator(lower_bound, upper_bound);
+  auto it = range_del_agg.NewIterator(lower_bound, upper_bound);
   Slice last_tombstone_start_user_key{};
   bool reached_lower_bound = false;
   const ReadOptions read_options(Env::IOActivity::kCompaction);

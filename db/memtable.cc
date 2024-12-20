@@ -599,7 +599,7 @@ class MemTableIterator : public InternalIterator {
 InternalIterator* MemTable::NewIterator(
     const ReadOptions& read_options,
     UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
-    const SliceTransform* prefix_extractor) {
+    const SliceTransform* prefix_extractor, bool /*for_flush*/) {
   assert(arena != nullptr);
   auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
   return new (mem)
@@ -618,8 +618,8 @@ class TimestampStrippingIterator : public InternalIterator {
       const SliceTransform* cf_prefix_extractor, size_t ts_sz)
       : arena_mode_(arena != nullptr), kind_(kind), ts_sz_(ts_sz) {
     assert(ts_sz_ != 0);
-    void* mem = arena ? arena->AllocateAligned(sizeof(MemTableIterator)) :
-                      operator new(sizeof(MemTableIterator));
+    void* mem = arena ? arena->AllocateAligned(sizeof(MemTableIterator))
+                      : operator new(sizeof(MemTableIterator));
     iter_ = new (mem)
         MemTableIterator(kind, memtable, read_options, seqno_to_time_mapping,
                          arena, cf_prefix_extractor);

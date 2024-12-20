@@ -578,7 +578,7 @@ void FaultInjectionTestFS::ReadUnsynced(const std::string& fname,
                                         uint64_t offset, size_t n,
                                         Slice* result, char* scratch,
                                         int64_t* pos_at_last_sync) {
-  *result = Slice(scratch, 0);  // default empty result
+  *result = Slice(scratch, 0);      // default empty result
   assert(*pos_at_last_sync == -1);  // default "unknown"
 
   MutexLock l(&mutex_);

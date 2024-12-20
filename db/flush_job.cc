@@ -345,8 +345,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
 
   // When measure_io_stats_ is true, the default 512 bytes is not enough.
   auto stream = event_logger_->LogToBuffer(log_buffer_, 1024);
-  stream << "job" << job_context_->job_id << "event"
-         << "flush_finished";
+  stream << "job" << job_context_->job_id << "event" << "flush_finished";
   stream << "output_compression"
          << CompressionTypeToString(output_compression_);
   stream << "lsm_state";
@@ -422,7 +421,8 @@ Status FlushJob::MemPurge() {
       range_del_iters;
   for (ReadOnlyMemTable* m : mems_) {
     memtables.push_back(m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr,
-                                       &arena, /*prefix_extractor=*/nullptr));
+                                       &arena, /*prefix_extractor=*/nullptr,
+                                       /*for_flush=*/true));
     auto* range_del_iter = m->NewRangeTombstoneIterator(
         ro, kMaxSequenceNumber, true /* immutable_memtable */);
     if (range_del_iter != nullptr) {
@@ -624,10 +624,13 @@ Status FlushJob::MemPurge() {
         // Construct fragmented memtable range tombstones without mutex
         new_mem->ConstructFragmentedRangeTombstones();
         db_mutex_->Lock();
-        uint64_t new_mem_id = mems_[0]->GetID();
+        // Take the newest id, so that memtables in MemtableList don't have
+        // out-of-order memtable ids.
+        uint64_t new_mem_id = mems_.back()->GetID();
 
         new_mem->SetID(new_mem_id);
-        new_mem->SetNextLogNumber(mems_[0]->GetNextLogNumber());
+        // Take the latest memtable's next log number.
+        new_mem->SetNextLogNumber(mems_.back()->GetNextLogNumber());
 
         // This addition will not trigger another flush, because
         // we do not call EnqueuePendingFlush().
@@ -907,7 +910,7 @@ Status FlushJob::WriteLevel0Table() {
       } else {
         memtables.push_back(
             m->NewIterator(ro, /*seqno_to_time_mapping=*/nullptr, &arena,
-                           /*prefix_extractor=*/nullptr));
+                           /*prefix_extractor=*/nullptr, /*for_flush=*/true));
       }
       auto* range_del_iter =
           logical_strip_timestamp
@@ -929,9 +932,8 @@ Status FlushJob::WriteLevel0Table() {
     //  hitting limit memtable_max_range_deletions, flush_reason_ is still
     //  "Write Buffer Full", should make update flush_reason_ accordingly.
     event_logger_->Log() << "job" << job_context_->job_id << "event"
-                         << "flush_started"
-                         << "num_memtables" << mems_.size() << "num_entries"
-                         << total_num_entries << "num_deletes"
+                         << "flush_started" << "num_memtables" << mems_.size()
+                         << "num_entries" << total_num_entries << "num_deletes"
                          << total_num_deletes << "total_data_size"
                          << total_data_size << "memory_usage"
                          << total_memory_usage << "num_range_deletes"

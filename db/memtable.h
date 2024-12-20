@@ -153,7 +153,7 @@ class ReadOnlyMemTable {
   virtual InternalIterator* NewIterator(
       const ReadOptions& read_options,
       UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
-      const SliceTransform* prefix_extractor) = 0;
+      const SliceTransform* prefix_extractor, bool for_flush) = 0;
 
   // Returns an iterator that wraps a MemTableIterator and logically strips the
   // user-defined timestamp of each key. This API is only used by flush when
@@ -541,7 +541,7 @@ class MemTable final : public ReadOnlyMemTable {
   InternalIterator* NewIterator(
       const ReadOptions& read_options,
       UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping, Arena* arena,
-      const SliceTransform* prefix_extractor) override;
+      const SliceTransform* prefix_extractor, bool for_flush) override;
 
   InternalIterator* NewTimestampStrippingIterator(
       const ReadOptions& read_options,

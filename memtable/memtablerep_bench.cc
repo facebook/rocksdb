@@ -352,7 +352,9 @@ class SeqReadBenchmarkThread : public BenchmarkThread {
 
   void operator()() override {
     for (unsigned int i = 0; i < num_ops_; ++i) {
-      { ReadOneSeq(); }
+      {
+        ReadOneSeq();
+      }
     }
   }
 };

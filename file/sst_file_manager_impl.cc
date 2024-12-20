@@ -531,5 +531,4 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<FileSystem> fs,
   return res;
 }
 
-
 }  // namespace ROCKSDB_NAMESPACE

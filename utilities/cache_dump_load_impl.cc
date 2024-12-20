@@ -230,8 +230,8 @@ IOStatus CacheDumperImpl::WriteHeader() {
   std::ostringstream s;
   s << kTraceMagic << "\t"
     << "Cache dump format version: " << kCacheDumpMajorVersion << "."
-    << kCacheDumpMinorVersion << "\t"
-    << "RocksDB Version: " << kMajorVersion << "." << kMinorVersion << "\t"
+    << kCacheDumpMinorVersion << "\t" << "RocksDB Version: " << kMajorVersion
+    << "." << kMinorVersion << "\t"
     << "Format: dump_unit_metadata <sequence_number, dump_unit_checksum, "
        "dump_unit_size>, dump_unit <timestamp, key, block_type, "
        "block_size, block_data, block_checksum> cache_value\n";
