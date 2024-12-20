@@ -2215,6 +2215,8 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
   }
 
   size_t buf_size = CalculateIOBufferSize(rate_limiter);
+  TEST_SYNC_POINT_CALLBACK(
+      "BackupEngineImpl::CopyOrCreateFile:CalculateIOBufferSize", &buf_size);
 
   // TODO: pass in Histograms if the destination file is sst or blob
   std::unique_ptr<WritableFileWriter> dest_writer(
@@ -2599,6 +2601,7 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
   }
 
   size_t buf_size = CalculateIOBufferSize(nullptr);
+
   std::unique_ptr<char[]> buf(new char[buf_size]);
   Slice data;
 
