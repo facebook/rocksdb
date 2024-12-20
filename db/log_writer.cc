@@ -22,7 +22,7 @@ namespace ROCKSDB_NAMESPACE::log {
 
 Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
                bool recycle_log_files, bool manual_flush,
-               CompressionType compression_type)
+               CompressionType compression_type, bool track_and_verify_wals)
     : dest_(std::move(dest)),
       block_offset_(0),
       log_number_(log_number),
@@ -31,7 +31,9 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
       header_size_(recycle_log_files ? kRecyclableHeaderSize : kHeaderSize),
       manual_flush_(manual_flush),
       compression_type_(compression_type),
-      compress_(nullptr) {
+      compress_(nullptr),
+      track_and_verify_wals_(track_and_verify_wals),
+      last_seqno_recorded_(0) {
   for (uint8_t i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);
@@ -52,19 +54,12 @@ Writer::~Writer() {
 }
 
 IOStatus Writer::WriteBuffer(const WriteOptions& write_options) {
-  if (dest_->seen_error()) {
-#ifndef NDEBUG
-    if (dest_->seen_injected_error()) {
-      std::stringstream msg;
-      msg << "Seen " << FaultInjectionTestFS::kInjected
-          << " error. Skip writing buffer.";
-      return IOStatus::IOError(msg.str());
-    }
-#endif  // NDEBUG
-    return IOStatus::IOError("Seen error. Skip writing buffer.");
+  IOStatus s = MaybeHandleSeenFileWriterError();
+  if (!s.ok()) {
+    return s;
   }
   IOOptions opts;
-  IOStatus s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+  s = WritableFileWriter::PrepareIOOptions(write_options, opts);
   if (!s.ok()) {
     return s;
   }
@@ -92,17 +87,10 @@ bool Writer::PublishIfClosed() {
 }
 
 IOStatus Writer::AddRecord(const WriteOptions& write_options,
-                           const Slice& slice) {
-  if (dest_->seen_error()) {
-#ifndef NDEBUG
-    if (dest_->seen_injected_error()) {
-      std::stringstream msg;
-      msg << "Seen " << FaultInjectionTestFS::kInjected
-          << " error. Skip writing buffer.";
-      return IOStatus::IOError(msg.str());
-    }
-#endif  // NDEBUG
-    return IOStatus::IOError("Seen error. Skip writing buffer.");
+                           const Slice& slice, const SequenceNumber& seqno) {
+  IOStatus s = MaybeHandleSeenFileWriterError();
+  if (!s.ok()) {
+    return s;
   }
   const char* ptr = slice.data();
   size_t left = slice.size();
@@ -118,7 +106,6 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
     compress_start = true;
   }
 
-  IOStatus s;
   IOOptions opts;
   s = WritableFileWriter::PrepareIOOptions(write_options, opts);
   if (s.ok()) {
@@ -196,6 +183,10 @@ IOStatus Writer::AddRecord(const WriteOptions& write_options,
     }
   }
 
+  if (s.ok()) {
+    last_seqno_recorded_ = std::max(last_seqno_recorded_, seqno);
+  }
+
   return s;
 }
 
@@ -208,23 +199,16 @@ IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
     return IOStatus::OK();
   }
 
-  if (dest_->seen_error()) {
-#ifndef NDEBUG
-    if (dest_->seen_injected_error()) {
-      std::stringstream msg;
-      msg << "Seen " << FaultInjectionTestFS::kInjected
-          << " error. Skip writing buffer.";
-      return IOStatus::IOError(msg.str());
-    }
-#endif  // NDEBUG
-    return IOStatus::IOError("Seen error. Skip writing buffer.");
+  IOStatus s = MaybeHandleSeenFileWriterError();
+  if (!s.ok()) {
+    return s;
   }
 
   CompressionTypeRecord record(compression_type_);
   std::string encode;
   record.EncodeTo(&encode);
-  IOStatus s = EmitPhysicalRecord(write_options, kSetCompressionType,
-                                  encode.data(), encode.size());
+  s = EmitPhysicalRecord(write_options, kSetCompressionType, encode.data(),
+                         encode.size());
   if (s.ok()) {
     if (!manual_flush_) {
       IOOptions io_opts;
@@ -247,6 +231,44 @@ IOStatus Writer::AddCompressionTypeRecord(const WriteOptions& write_options) {
   } else {
     // Disable compression if the record could not be added.
     compression_type_ = kNoCompression;
+  }
+  return s;
+}
+
+IOStatus Writer::MaybeAddPredecessorWALInfo(const WriteOptions& write_options,
+                                            const PredecessorWALInfo& info) {
+  IOStatus s = MaybeHandleSeenFileWriterError();
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!track_and_verify_wals_ || !info.IsInitialized()) {
+    return IOStatus::OK();
+  }
+
+  std::string encode;
+  info.EncodeTo(&encode);
+
+  s = MaybeSwitchToNewBlock(write_options, encode);
+  if (!s.ok()) {
+    return s;
+  }
+
+  RecordType type = recycle_log_files_ ? kRecyclePredecessorWALInfoType
+                                       : kPredecessorWALInfoType;
+  s = EmitPhysicalRecord(write_options, type, encode.data(), encode.size());
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!manual_flush_) {
+    IOOptions io_opts;
+    s = WritableFileWriter::PrepareIOOptions(write_options, io_opts);
+    if (s.ok()) {
+      s = dest_->Flush(io_opts);
+    }
   }
   return s;
 }
@@ -275,22 +297,9 @@ IOStatus Writer::MaybeAddUserDefinedTimestampSizeRecord(
   RecordType type = recycle_log_files_ ? kRecyclableUserDefinedTimestampSizeType
                                        : kUserDefinedTimestampSizeType;
 
-  // If there's not enough space for this record, switch to a new block.
-  const int64_t leftover = kBlockSize - block_offset_;
-  if (leftover < header_size_ + (int)encoded.size()) {
-    IOOptions opts;
-    IOStatus s = WritableFileWriter::PrepareIOOptions(write_options, opts);
-    if (!s.ok()) {
-      return s;
-    }
-
-    std::vector<char> trailer(leftover, '\x00');
-    s = dest_->Append(opts, Slice(trailer.data(), trailer.size()));
-    if (!s.ok()) {
-      return s;
-    }
-
-    block_offset_ = 0;
+  IOStatus s = MaybeSwitchToNewBlock(write_options, encoded);
+  if (!s.ok()) {
+    return s;
   }
 
   return EmitPhysicalRecord(write_options, type, encoded.data(),
@@ -313,7 +322,7 @@ IOStatus Writer::EmitPhysicalRecord(const WriteOptions& write_options,
 
   uint32_t crc = type_crc_[t];
   if (t < kRecyclableFullType || t == kSetCompressionType ||
-      t == kUserDefinedTimestampSizeType) {
+      t == kPredecessorWALInfoType || t == kUserDefinedTimestampSizeType) {
     // Legacy record format
     assert(block_offset_ + kHeaderSize + n <= kBlockSize);
     header_size = kHeaderSize;
@@ -349,6 +358,44 @@ IOStatus Writer::EmitPhysicalRecord(const WriteOptions& write_options,
     s = dest_->Append(opts, Slice(ptr, n), payload_crc);
   }
   block_offset_ += header_size + n;
+  return s;
+}
+
+IOStatus Writer::MaybeHandleSeenFileWriterError() {
+  if (dest_->seen_error()) {
+#ifndef NDEBUG
+    if (dest_->seen_injected_error()) {
+      std::stringstream msg;
+      msg << "Seen " << FaultInjectionTestFS::kInjected
+          << " error. Skip writing buffer.";
+      return IOStatus::IOError(msg.str());
+    }
+#endif  // NDEBUG
+    return IOStatus::IOError("Seen error. Skip writing buffer.");
+  }
+  return IOStatus::OK();
+}
+
+IOStatus Writer::MaybeSwitchToNewBlock(const WriteOptions& write_options,
+                                       const std::string& content_to_write) {
+  IOStatus s;
+  const int64_t leftover = kBlockSize - block_offset_;
+  // If there's not enough space for this record, switch to a new block.
+  if (leftover < header_size_ + (int)content_to_write.size()) {
+    IOOptions opts;
+    s = WritableFileWriter::PrepareIOOptions(write_options, opts);
+    if (!s.ok()) {
+      return s;
+    }
+
+    std::vector<char> trailer(leftover, '\x00');
+    s = dest_->Append(opts, Slice(trailer.data(), trailer.size()));
+    if (!s.ok()) {
+      return s;
+    }
+
+    block_offset_ = 0;
+  }
   return s;
 }
 
