@@ -32,7 +32,7 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
       manual_flush_(manual_flush),
       compression_type_(compression_type),
       compress_(nullptr) {
-  for (int i = 0; i <= kMaxRecordType; i++) {
+  for (uint8_t i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);
   }
