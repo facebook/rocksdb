@@ -1343,11 +1343,11 @@ IOStatus BackupEngineImpl::Initialize() {
                   work_item.dst_path.c_str(), checksum_function_info.c_str());
             }
           }
-          work_item.result.set_value(std::move(result));
         } else {
           result.io_status = IOStatus::InvalidArgument(
               "Unknown work item type: " + std::to_string(work_item.type));
         }
+        work_item.result.set_value(std::move(result));
       }
     });
   }

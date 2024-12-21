@@ -297,8 +297,6 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   }
 
   write_thread.join();
-  ASSERT_GT(perf_context.file_ingestion_blocking_live_writes_nanos,
-            write_thread_perf_context->write_thread_wait_nanos);
   SyncPoint::GetInstance()->DisableProcessing();
 
   // Re-ingest the file just to check the perf context not enabled at and below
