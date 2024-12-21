@@ -130,7 +130,8 @@ class BlobDBImpl : public BlobDB {
   using BlobDB::Write;
   Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
-  Status Close() override;
+  using BlobDB::Close;
+  Status Close(const CloseOptions& close_options) override;
 
   using BlobDB::PutWithTTL;
   Status PutWithTTL(const WriteOptions& options, const Slice& key,
@@ -406,7 +407,7 @@ class BlobDBImpl : public BlobDB {
                                     uint64_t blob_size,
                                     bool force_evict = false);
 
-  Status CloseImpl();
+  Status CloseImpl(const CloseOptions& close_options);
 
   // name of the database directory
   std::string dbname_;

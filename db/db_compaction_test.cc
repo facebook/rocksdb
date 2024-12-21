@@ -3622,7 +3622,18 @@ TEST_P(DBCompactionWaitForCompactTest,
   ASSERT_EQ(0, flush_finished);
   ASSERT_EQ("2", FilesPerLevel());
 
+  bool prepare_close_fn_called = false;
+  if (close_db_) {
+    CloseOptions close_options;
+    close_options.prepare_close_fn = [&prepare_close_fn_called]() {
+      prepare_close_fn_called = true;
+    };
+    wait_for_compact_options_.close_options = std::move(close_options);
+  }
   ASSERT_OK(dbfull()->WaitForCompact(wait_for_compact_options_));
+  if (close_db_) {
+    ASSERT_TRUE(prepare_close_fn_called);
+  }
 
   int expected_flush_count = flush_ || close_db_;
   ASSERT_EQ(expected_flush_count, flush_finished);

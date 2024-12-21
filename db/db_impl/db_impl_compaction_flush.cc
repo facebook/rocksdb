@@ -4429,7 +4429,7 @@ Status DBImpl::WaitForCompact(
     } else if (wait_for_compact_options.close_db) {
       reject_new_background_jobs_ = true;
       mutex_.Unlock();
-      Status s = Close();
+      Status s = Close(wait_for_compact_options.close_options);
       mutex_.Lock();
       if (!s.ok()) {
         reject_new_background_jobs_ = false;
