@@ -1838,9 +1838,130 @@ class RecoveryTestHelper {
   }
 };
 
-class DBWALTestWithParams : public DBWALTestBase,
-                            public ::testing::WithParamInterface<
-                                std::tuple<bool, int, int, CompressionType>> {
+TEST_F(DBWALTest, TrackAndVerifyWALsRecycleWAL) {
+  Options options = CurrentOptions();
+  options.avoid_flush_during_shutdown = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.recycle_log_file_num = 1;
+  options.track_and_verify_wals = true;
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("key_ignore", "wal_to_recycle"));
+  ASSERT_OK(Put("key_ignore1", "wal_to_recycle"));
+  ASSERT_OK(Put("key_ignore2", "wal_to_recycle"));
+  FlushOptions fo;
+  fo.wait = true;
+  ASSERT_OK(dbfull()->Flush(fo));
+
+  ASSERT_OK(Put("key_ignore", "wal_to_recycle"));
+  ASSERT_OK(Put("key_ignore1", "wal_to_recycle"));
+  ASSERT_OK(Put("key_ignore2", "wal_to_recycle"));
+  ASSERT_OK(dbfull()->Flush(fo));
+
+  // Stop background flush to avoid deleting any WAL
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  test::SleepingBackgroundTask sleeping_task;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                 Env::Priority::HIGH);
+
+  // Recycle the first WAL
+  ASSERT_OK(Put("key1", "old_value"));
+
+  // Create WAL hole
+  VectorWalPtr log_files;
+  ASSERT_OK(db_->GetSortedWalFiles(log_files));
+  ASSERT_GE(log_files.size(), 1);
+  ASSERT_OK(test::TruncateFile(
+      options.env, LogFileName(dbname_, log_files.back()->LogNumber()),
+      0 /* new_length */));
+
+  // Recycle the second WAL
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
+  ASSERT_OK(Put("key1", "new_value"));
+
+  Status s = TryReopen(options);
+
+  ASSERT_OK(s);
+
+  ASSERT_EQ("wal_to_recycle", Get("key_ignore2"));
+  ASSERT_EQ("NOT_FOUND", Get("key1"));
+
+  Close();
+}
+
+class DBWALTrackAndVerifyWALsWithParamsTest
+    : public DBWALTestBase,
+      public ::testing::WithParamInterface<WALRecoveryMode> {
+ public:
+  DBWALTrackAndVerifyWALsWithParamsTest()
+      : DBWALTestBase("/db_wal_track_and_verify_wals_with_params_test") {}
+};
+
+INSTANTIATE_TEST_CASE_P(
+    DBWALTrackAndVerifyWALsWithParamsTest,
+    DBWALTrackAndVerifyWALsWithParamsTest,
+    ::testing::Values(WALRecoveryMode::kTolerateCorruptedTailRecords,
+                      WALRecoveryMode::kAbsoluteConsistency,
+                      WALRecoveryMode::kPointInTimeRecovery,
+                      WALRecoveryMode::kSkipAnyCorruptedRecords));
+
+TEST_P(DBWALTrackAndVerifyWALsWithParamsTest, Basic) {
+  Options options = CurrentOptions();
+  options.avoid_flush_during_shutdown = true;
+  options.track_and_verify_wals = true;
+  options.wal_recovery_mode = GetParam();
+
+  DestroyAndReopen(options);
+
+  // Stop background flush to avoid deleting any WAL
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  test::SleepingBackgroundTask sleeping_task;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                 Env::Priority::HIGH);
+
+  ASSERT_OK(Put("key1", "old_value"));
+
+  // Create WAL hole
+  VectorWalPtr log_files;
+  ASSERT_OK(db_->GetSortedWalFiles(log_files));
+  ASSERT_EQ(log_files.size(), 1);
+  ASSERT_OK(test::TruncateFile(
+      options.env, LogFileName(dbname_, log_files.back()->LogNumber()),
+      0 /* new_length */));
+
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
+  ASSERT_OK(Put("key1", "new_value"));
+
+  Status s = TryReopen(options);
+  if (options.wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery) {
+    ASSERT_OK(s);
+    ASSERT_EQ("NOT_FOUND", Get("key1"));
+  } else if (options.wal_recovery_mode ==
+                 WALRecoveryMode::kAbsoluteConsistency ||
+             options.wal_recovery_mode ==
+                 WALRecoveryMode::kTolerateCorruptedTailRecords) {
+    ASSERT_TRUE(s.IsCorruption());
+    if (s.ToString().find(
+            "Mismatched last sequence number recorded in the WAL") ==
+        std::string::npos) {
+      std::cout << s.ToString() << std::endl;
+    }
+    ASSERT_TRUE(s.ToString().find(
+                    "Mismatched last sequence number recorded in the WAL") !=
+                std::string::npos);
+  } else {
+    ASSERT_OK(s);
+    ASSERT_EQ("new_value", Get("key1"));
+  }
+
+  Close();
+}
+
+class DBWALTestWithParams
+    : public DBWALTestBase,
+      public ::testing::WithParamInterface<
+          std::tuple<bool, int, int, CompressionType, bool>> {
  public:
   DBWALTestWithParams() : DBWALTestBase("/db_wal_test_with_params") {}
 };
@@ -1853,7 +1974,8 @@ INSTANTIATE_TEST_CASE_P(
                                             RecoveryTestHelper::kWALFilesCount,
                                         1),
                        ::testing::Values(CompressionType::kNoCompression,
-                                         CompressionType::kZSTD)));
+                                         CompressionType::kZSTD),
+                       ::testing::Bool()));
 
 class DBWALTestWithParamsVaryingRecoveryMode
     : public DBWALTestBase,
@@ -1891,6 +2013,7 @@ TEST_P(DBWALTestWithParams, kTolerateCorruptedTailRecords) {
 
   // Fill data for testing
   Options options = CurrentOptions();
+  options.track_and_verify_wals = std::get<4>(GetParam());
   const size_t row_count = RecoveryTestHelper::FillData(this, &options);
   // test checksum failure or parsing
   RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
@@ -1914,6 +2037,7 @@ TEST_P(DBWALTestWithParams, kTolerateCorruptedTailRecords) {
 TEST_P(DBWALTestWithParams, kAbsoluteConsistency) {
   // Verify clean slate behavior
   Options options = CurrentOptions();
+  options.track_and_verify_wals = std::get<4>(GetParam());
   const size_t row_count = RecoveryTestHelper::FillData(this, &options);
   options.create_if_missing = false;
   ASSERT_OK(TryReopen(options));
@@ -2164,6 +2288,7 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
 
   // Fill data for testing
   Options options = CurrentOptions();
+  options.track_and_verify_wals = std::get<4>(GetParam());
   options.wal_compression = compression_type;
   const size_t row_count = RecoveryTestHelper::FillData(this, &options);
 
@@ -2221,6 +2346,7 @@ TEST_P(DBWALTestWithParams, kSkipAnyCorruptedRecords) {
 
   // Fill data for testing
   Options options = CurrentOptions();
+  options.track_and_verify_wals = std::get<4>(GetParam());
   options.wal_compression = compression_type;
   const size_t row_count = RecoveryTestHelper::FillData(this, &options);
 
