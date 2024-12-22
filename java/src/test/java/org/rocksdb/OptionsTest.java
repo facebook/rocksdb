@@ -1454,6 +1454,16 @@ public class OptionsTest {
   }
 
   @Test
+  public void dailyOffpeakTimeUTC() {
+    try (final Options options = new Options()) {
+      assertThat(options.dailyOffpeakTimeUTC()).isEqualTo("");
+      final String offPeak = "03:45-20:15";
+      assertThat(options.setDailyOffpeakTimeUTC(offPeak)).isEqualTo(options);
+      assertThat(options.dailyOffpeakTimeUTC()).isEqualTo(offPeak);
+    }
+  }
+
+  @Test
   public void eventListeners() {
     final AtomicBoolean wasCalled1 = new AtomicBoolean();
     final AtomicBoolean wasCalled2 = new AtomicBoolean();
