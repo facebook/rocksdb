@@ -1377,7 +1377,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // and `close_file_func`.
     // TODO: it would be better to have the compaction file open/close moved
     // into `CompactionOutputs` which has the output file information.
-    status = sub_compact->AddToOutput(*c_iter, open_file_func, close_file_func);
+    status =
+        sub_compact->AddToOutput(*c_iter, c_iter->output_to_penultimate_level(),
+                                 open_file_func, close_file_func);
     if (!status.ok()) {
       break;
     }
@@ -1882,7 +1884,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   // enabled and applicable
   if (last_level_temp != Temperature::kUnknown &&
       sub_compact->compaction->is_last_level() &&
-      !sub_compact->IsCurrentPenultimateLevel()) {
+      !outputs.IsPenultimateLevel()) {
     temperature = last_level_temp;
   }
   fo_copy.temperature = temperature;
