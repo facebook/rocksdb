@@ -177,41 +177,6 @@ class TieredCompactionTest : public DBTestBase {
   }
 };
 
-TEST_F(TieredCompactionTest, BlahPrecludeLastLevel) {
-  const int kNumTrigger = 4;
-  const int kNumLevels = 7;
-  const int kNumKeys = 100;
-
-  Options options = CurrentOptions();
-  options.compaction_style = kCompactionStyleUniversal;
-  options.last_level_temperature = Temperature::kCold;
-  options.level0_file_num_compaction_trigger = 4;
-  options.max_subcompactions = 10;
-  options.num_levels = kNumLevels;
-  DestroyAndReopen(options);
-  // ReopenWithCompactionService(&options);
-
-  // This is simpler than setting up mock time to make the user option work.
-  SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
-      [&](void* arg) { *static_cast<SequenceNumber*>(arg) = 100; });
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  for (int i = 0; i < kNumTrigger - 1; i++) {
-    for (int j = 0; j < kNumKeys; j++) {
-      ASSERT_OK(Put(Key(i * 10 + j), "value" + std::to_string(i)));
-    }
-    ASSERT_OK(Flush());
-  }
-  // ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-
-  // Data split between penultimate (kUnknown) and last (kCold) levels
-  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
-  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
-  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
-}
-
 TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
@@ -1757,7 +1722,9 @@ TEST_P(PrecludeWithCompactStyleTest, RangeTombstoneSnapshotMigrateFromLast) {
   ASSERT_OK(Flush());
 
   // Send three files to next-to-last level (if explicitly needed)
-  if (!universal) {
+  if (universal) {
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  } else {
     MoveFilesToLevel(5);
   }
 
