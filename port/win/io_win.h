@@ -44,6 +44,7 @@ inline IOStatus IOError(const std::string& context, int err_number) {
              : IOStatus::IOError(context, errnoStr(err_number).c_str());
 }
 
+struct Win_IOHandle;
 class WinFileData;
 
 IOStatus pwrite(const WinFileData* file_data, const Slice& data,
@@ -250,7 +251,7 @@ class WinRandomAccessImpl {
   size_t alignment_;
 
   // Override for behavior change when creating a custom env
-  virtual IOStatus PositionedReadInternal(char* src, size_t numBytes,
+  virtual IOStatus PositionedReadInternal(char* src, size_t num_bytes,
                                           uint64_t offset,
                                           size_t& bytes_read) const;
 
@@ -279,7 +280,7 @@ class WinRandomAccessFile
   WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
                       const FileOptions& options);
 
-  ~WinRandomAccessFile();
+  virtual ~WinRandomAccessFile() = default;
 
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
@@ -292,6 +293,31 @@ class WinRandomAccessFile
   IOStatus InvalidateCache(size_t offset, size_t length) override;
 
   size_t GetRequiredBufferAlignment() const override;
+};
+
+// hFile opened with FILE_FLAG_OVERLAPPED
+class WinRandomAccessFileAsyncIo : public WinRandomAccessFile {
+ public:
+  static constexpr size_t kMaxConcurrentRequests = 32;
+  static constexpr DWORD kErrorCustomized = (DWORD)-1;
+
+  WinRandomAccessFileAsyncIo(const std::string& fname, HANDLE hFile,
+                             size_t alignment, const FileOptions& options);
+
+  virtual ~WinRandomAccessFileAsyncIo() = default;
+
+  virtual IOStatus PositionedReadInternal(char* src, size_t num_bytes,
+                                          uint64_t offset,
+                                          size_t& bytes_read) const override;
+
+  virtual IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                             const IOOptions& options,
+                             IODebugContext* dbg) override;
+  // EXPERIMENTAL
+  virtual IOStatus ReadAsync(
+      FSReadRequest& req, const IOOptions& opts,
+      std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+      void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) override;
 };
 
 // This is a sequential write class. It has been mimicked (as others) after
@@ -500,5 +526,22 @@ class WinFileLock : public FileLock {
  private:
   HANDLE hFile_;
 };
+
+struct Win_IOHandle {
+  std::function<void(const FSReadRequest&, void*)> cb;
+  void* cb_arg;
+  uint64_t offset;
+  size_t len;
+  char* scratch;
+  OVERLAPPED overlapped;
+  bool is_finished;
+  WinFileData* file_data;
+
+  Win_IOHandle(std::function<void(const FSReadRequest&, void*)> _cb,
+               void* _cb_arg, uint64_t _offset, size_t _len, char* _scratch,
+               WinFileData* _file_data);
+  ~Win_IOHandle();
+};
+
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
