@@ -12,14 +12,12 @@
 
 #pragma once
 
-#include <cstdint>
-
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace log {
 
-enum RecordType : uint8_t {
+enum RecordType {
   // Zero is reserved for preallocated files
   kZeroType = 0,
   kFullType = 1,
@@ -41,10 +39,12 @@ enum RecordType : uint8_t {
   // User-defined timestamp sizes
   kUserDefinedTimestampSizeType = 10,
   kRecyclableUserDefinedTimestampSizeType = 11,
+
+  // For WAL verification
+  kPredecessorWALInfoType = 12,
+  kRecyclePredecessorWALInfoType = 13,
 };
-// Unknown type of value with the 8-th bit set will be ignored
-constexpr uint8_t kRecordTypeSafeIgnoreMask = 1 << 7;
-constexpr uint8_t kMaxRecordType = kRecyclableUserDefinedTimestampSizeType;
+constexpr int kMaxRecordType = kRecyclePredecessorWALInfoType;
 
 constexpr unsigned int kBlockSize = 32768;
 
