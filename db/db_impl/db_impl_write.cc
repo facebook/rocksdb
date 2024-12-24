@@ -1558,7 +1558,8 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
                             const WriteOptions& write_options,
                             log::Writer* log_writer, uint64_t* log_used,
                             uint64_t* log_size,
-                            LogFileNumberSize& log_file_number_size) {
+                            LogFileNumberSize& log_file_number_size,
+                            SequenceNumber sequence) {
   assert(log_size != nullptr);
 
   Slice log_entry = WriteBatchInternal::Contents(&merged_batch);
@@ -1584,7 +1585,7 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   if (!io_s.ok()) {
     return io_s;
   }
-  io_s = log_writer->AddRecord(write_options, log_entry);
+  io_s = log_writer->AddRecord(write_options, log_entry, sequence);
 
   if (UNLIKELY(needs_locking)) {
     log_write_mutex_.Unlock();
@@ -1634,7 +1635,7 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   write_options.rate_limiter_priority =
       write_group.leader->rate_limiter_priority;
   io_s = WriteToWAL(*merged_batch, write_options, log_writer, log_used,
-                    &log_size, log_file_number_size);
+                    &log_size, log_file_number_size, sequence);
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
     cached_recoverable_state_empty_ = false;
@@ -1760,7 +1761,7 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
   write_options.rate_limiter_priority =
       write_group.leader->rate_limiter_priority;
   io_s = WriteToWAL(*merged_batch, write_options, log_writer, log_used,
-                    &log_size, log_file_number_size);
+                    &log_size, log_file_number_size, sequence);
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
     cached_recoverable_state_empty_ = false;
@@ -2443,10 +2444,19 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
       GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size);
   mutex_.Unlock();
   if (creating_new_log) {
+    PredecessorWALInfo info;
+    log_write_mutex_.Lock();
+    if (!logs_.empty()) {
+      log::Writer* cur_log_writer = logs_.back().writer;
+      info = PredecessorWALInfo(cur_log_writer->get_log_number(),
+                                cur_log_writer->file()->GetFileSize(),
+                                cur_log_writer->GetLastSeqnoRecorded());
+    }
+    log_write_mutex_.Unlock();
     // TODO: Write buffer size passed in should be max of all CF's instead
     // of mutable_cf_options.write_buffer_size.
     io_s = CreateWAL(write_options, new_log_number, recycle_log_number,
-                     preallocate_block_size, &new_log);
+                     preallocate_block_size, info, &new_log);
     if (s.ok()) {
       s = io_s;
     }
