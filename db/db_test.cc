@@ -3061,7 +3061,7 @@ class ModelDB : public DB {
   }
 
   using DB::Close;
-  Status Close() override { return Status::OK(); }
+  Status Close(const CloseOptions&) override { return Status::OK(); }
   using DB::Delete;
   Status Delete(const WriteOptions& o, ColumnFamilyHandle* cf,
                 const Slice& key) override {

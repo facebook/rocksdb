@@ -1336,8 +1336,15 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
-  s = db->Close();
+  bool prepare_close_fn_called = false;
+  CloseOptions close_options;
+  close_options.prepare_close_fn = [&prepare_close_fn_called]() {
+    prepare_close_fn_called = true;
+  };
+
+  s = db->Close(close_options);
   ASSERT_EQ(s, Status::OK());
+  ASSERT_TRUE(prepare_close_fn_called);
   delete db;
   ASSERT_EQ(env->GetCloseCount(), 3);
   options.info_log.reset();

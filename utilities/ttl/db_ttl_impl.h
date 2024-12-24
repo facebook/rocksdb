@@ -36,7 +36,8 @@ class DBWithTTLImpl : public DBWithTTL {
 
   virtual ~DBWithTTLImpl();
 
-  Status Close() override;
+  using StackableDB::Close;
+  Status Close(const CloseOptions& close_options) override;
 
   Status CreateColumnFamilyWithTtl(const ColumnFamilyOptions& options,
                                    const std::string& column_family_name,

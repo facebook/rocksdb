@@ -1,0 +1,1 @@
+Introduce `CloseOptions` for `Close()` API. `close_options.prepare_close_fn` allows users to inject a necessary external functions to be called before closing the DB. This option is also integrated with `WaitForCompact()` API when `WaitForCompactOptions::close_db=true`. `WaitForCompactOptions::close_options` can be specified, but is ignored if close_db is false.

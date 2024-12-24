@@ -224,7 +224,7 @@ void DBImplFollower::PeriodicRefresh() {
   }
 }
 
-Status DBImplFollower::Close() {
+Status DBImplFollower::Close(const CloseOptions& close_options) {
   if (catch_up_thread_) {
     stop_requested_.store(true);
     {
@@ -237,7 +237,7 @@ Status DBImplFollower::Close() {
 
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem_);
 
-  return DBImpl::Close();
+  return DBImpl::Close(close_options);
 }
 
 Status DB::OpenAsFollower(const Options& options, const std::string& dbname,
