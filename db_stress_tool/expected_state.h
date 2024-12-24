@@ -38,6 +38,18 @@ class ExpectedState {
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf);
 
+  // Requires external locking
+  void SetPersistedSeqno(SequenceNumber seqno) {
+    persisted_seqno_->store(
+        std::max(persisted_seqno_->load(std::memory_order_relaxed), seqno),
+        std::memory_order_relaxed);
+  }
+
+  // Requires external locking
+  SequenceNumber GetPersistedSeqno() {
+    return persisted_seqno_->load(std::memory_order_relaxed);
+  }
+
   // Prepare a Put that will be started but not finished yet
   // This is useful for crash-recovery testing when the process may crash
   // before updating the corresponding expected value
@@ -123,21 +135,50 @@ class ExpectedState {
   void Reset();
 
   std::atomic<uint32_t>* values_;
+  std::atomic<SequenceNumber>* persisted_seqno_;
 };
 
 // A `FileExpectedState` implements `ExpectedState` backed by a file.
 class FileExpectedState : public ExpectedState {
  public:
-  explicit FileExpectedState(std::string expected_state_file_path,
-                             size_t max_key, size_t num_column_families);
+  explicit FileExpectedState(
+      const std::string& expected_state_file_path,
+      const std::string& expected_persisted_seqno_file_path, size_t max_key,
+      size_t num_column_families);
 
   // Requires external locking preventing concurrent execution with any other
   // member function.
   Status Open(bool create) override;
 
  private:
+  static Status CreateFile(Env* env, const EnvOptions& options,
+                           const std::string& file_path,
+                           const std::string& content) {
+    std::unique_ptr<WritableFile> wfile;
+    Status status = env->NewWritableFile(file_path, &wfile, options);
+    if (status.ok()) {
+      status = wfile->Append(content);
+    }
+    return status;
+  }
+
+  static Status MemoryMappedFile(
+      Env* env, const std::string& file_path,
+      std::unique_ptr<MemoryMappedFileBuffer>& memory_mapped_file_buffer,
+      std::size_t size) {
+    Status status =
+        env->NewMemoryMappedFileBuffer(file_path, &memory_mapped_file_buffer);
+    if (status.ok()) {
+      assert(memory_mapped_file_buffer->GetLen() == size);
+    }
+    (void)size;
+    return status;
+  }
+
   const std::string expected_state_file_path_;
+  const std::string expected_persisted_seqno_file_path_;
   std::unique_ptr<MemoryMappedFileBuffer> expected_state_mmap_buffer_;
+  std::unique_ptr<MemoryMappedFileBuffer> expected_persisted_seqno_mmap_buffer_;
 };
 
 // An `AnonExpectedState` implements `ExpectedState` backed by a memory
@@ -194,6 +235,12 @@ class ExpectedStateManager {
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) { return latest_->ClearColumnFamily(cf); }
+
+  void SetPersistedSeqno(SequenceNumber seqno) {
+    return latest_->SetPersistedSeqno(seqno);
+  }
+
+  SequenceNumber GetPersistedSeqno() { return latest_->GetPersistedSeqno(); }
 
   // See ExpectedState::PreparePut()
   PendingExpectedValue PreparePut(int cf, int64_t key) {
@@ -289,6 +336,8 @@ class FileExpectedStateManager : public ExpectedStateManager {
   static const std::string kLatestBasename;
   static const std::string kStateFilenameSuffix;
   static const std::string kTraceFilenameSuffix;
+  static const std::string kPersistedSeqnoBasename;
+  static const std::string kPersistedSeqnoFilenameSuffix;
   static const std::string kTempFilenamePrefix;
   static const std::string kTempFilenameSuffix;
 
