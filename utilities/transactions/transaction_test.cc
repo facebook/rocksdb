@@ -6291,8 +6291,8 @@ TEST_P(TransactionTest, DuplicateKeys) {
         }
         delete cf_handle;
       }  // with_commit_batch
-    }    // do_rollback
-  }      // do_prepare
+    }  // do_rollback
+  }  // do_prepare
 
   if (!options.unordered_write) {
     // Also test with max_successive_merges > 0. max_successive_merges will not

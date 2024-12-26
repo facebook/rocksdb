@@ -659,7 +659,7 @@ ifneq ($(filter check-headers, $(MAKECMDGOALS)),)
 # TODO: add/support JNI headers
 	DEV_HEADER_DIRS := $(sort include/ $(dir $(ALL_SOURCES)))
 # Some headers like in port/ are platform-specific
-	DEV_HEADERS_TO_CHECK := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | grep -E -v 'port/|plugin/|lua/|range_tree/')
+	DEV_HEADERS_TO_CHECK := $(shell $(FIND) $(DEV_HEADER_DIRS) -type f -name '*.h' | grep -E -v 'port/|plugin/|lua/|range_tree/|secondary_index/')
 	PUBLIC_HEADERS_TO_CHECK := $(shell $(FIND) include/ -type f -name '*.h' | grep -E -v 'lua/')
 else
 	DEV_HEADERS_TO_CHECK :=
@@ -2489,7 +2489,7 @@ checkout_folly:
 	fi
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically
-	cd third-party/folly && git reset --hard 33f5b67fcaeb8705b04fd1b850873a180dc89aaa
+	cd third-party/folly && git reset --hard 62baa6ba07ff0a23ee4f2ea2f5207e4c88464deb
 	@# NOTE: this hack is required for clang in some cases
 	perl -pi -e 's/int rv = syscall/int rv = (int)syscall/' third-party/folly/folly/detail/Futex.cpp
 	@# NOTE: this hack is required for gcc in some cases

@@ -3,14 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "util/stop_watch.h"
+#include "tools/simulated_hybrid_file_system.h"
 
 #include <algorithm>
 #include <sstream>
 #include <string>
 
 #include "rocksdb/rate_limiter.h"
-#include "tools/simulated_hybrid_file_system.h"
+#include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
 

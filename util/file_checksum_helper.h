@@ -4,13 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <cassert>
+
 #include <unordered_map>
 
-#include "port/port.h"
-#include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
-#include "rocksdb/status.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/math.h"
@@ -91,11 +88,5 @@ class FileChecksumListImpl : public FileChecksumList {
   std::unordered_map<uint64_t, std::pair<std::string, std::string>>
       checksum_map_;
 };
-
-// If manifest_file_size < std::numeric_limits<uint64_t>::max(), only use
-// that length prefix of the manifest file.
-Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
-                                    uint64_t manifest_file_size,
-                                    FileChecksumList* checksum_list);
 
 }  // namespace ROCKSDB_NAMESPACE

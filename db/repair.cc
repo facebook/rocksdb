@@ -59,8 +59,6 @@
 //   Store per-table metadata (smallest, largest, largest-seq#, ...)
 //   in the table's meta section to speed up ScanTable.
 
-#include "db/version_builder.h"
-
 #include <cinttypes>
 
 #include "db/builder.h"
@@ -70,6 +68,7 @@
 #include "db/log_writer.h"
 #include "db/memtable.h"
 #include "db/table_cache.h"
+#include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"

@@ -612,12 +612,12 @@ TEST_P(SeqnoTimeTablePropTest, MultiCFs) {
   ASSERT_GE(seqs.size(), 99);
   ASSERT_LE(seqs.size(), 101);
 
-    for (int i = 0; i < 200; i++) {
-      ASSERT_OK(Put(0, Key(i), "value"));
-      dbfull()->TEST_WaitForPeriodicTaskRun(
-          [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
-    }
-    ASSERT_OK(Flush(0));
+  for (int i = 0; i < 200; i++) {
+    ASSERT_OK(Put(0, Key(i), "value"));
+    dbfull()->TEST_WaitForPeriodicTaskRun(
+        [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
+  }
+  ASSERT_OK(Flush(0));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   tables_props.clear();
   ASSERT_OK(dbfull()->GetPropertiesOfAllTables(handles_[0], &tables_props));
@@ -1642,7 +1642,6 @@ TEST(PackValueAndWriteTimeTest, Basic) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

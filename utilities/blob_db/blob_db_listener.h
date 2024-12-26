@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <atomic>
 
 #include "rocksdb/listener.h"

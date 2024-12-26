@@ -195,10 +195,9 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   std::vector<SequenceNumber> seq_history;
 
   SyncPoint::GetInstance()->SetCallBack(
-      "CompactionIterator::PrepareOutput.context", [&](void* arg) {
-        auto context = static_cast<PerKeyPlacementContext*>(arg);
-        context->output_to_penultimate_level =
-            context->seq_num > latest_cold_seq;
+      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
+      [&](void* arg) {
+        *static_cast<SequenceNumber*>(arg) = latest_cold_seq.load();
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -440,12 +439,12 @@ TEST_F(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
   {
     MutexLock l(&mutex);
     hot_start = Key(1);
-    hot_end = Key(1000);
+    hot_end = Key(300);
   }
 
   // generate files just enough to trigger compaction
   for (int i = 0; i < kNumTrigger - 1; i++) {
-    for (int j = 0; j < 1000; j++) {
+    for (int j = 0; j < 300; j++) {
       ASSERT_OK(Put(Key(j), "value" + std::to_string(j)));
     }
     ASSERT_OK(Flush());
@@ -527,13 +526,13 @@ TEST_F(TieredCompactionTest, LevelColdRangeDelete) {
   options.max_subcompactions = 10;
   DestroyAndReopen(options);
 
-  std::atomic_uint64_t latest_cold_seq = 0;
+  // Initially let everything into cold
+  std::atomic_uint64_t latest_cold_seq = kMaxSequenceNumber;
 
   SyncPoint::GetInstance()->SetCallBack(
-      "CompactionIterator::PrepareOutput.context", [&](void* arg) {
-        auto context = static_cast<PerKeyPlacementContext*>(arg);
-        context->output_to_penultimate_level =
-            context->seq_num > latest_cold_seq;
+      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
+      [&](void* arg) {
+        *static_cast<SequenceNumber*>(arg) = latest_cold_seq.load();
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -634,13 +633,13 @@ TEST_F(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
   options.max_subcompactions = 10;
   DestroyAndReopen(options);
 
-  std::atomic_uint64_t latest_cold_seq = 0;
+  // Initially let everything into cold
+  std::atomic_uint64_t latest_cold_seq = kMaxSequenceNumber;
 
   SyncPoint::GetInstance()->SetCallBack(
-      "CompactionIterator::PrepareOutput.context", [&](void* arg) {
-        auto context = static_cast<PerKeyPlacementContext*>(arg);
-        context->output_to_penultimate_level =
-            context->seq_num > latest_cold_seq;
+      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
+      [&](void* arg) {
+        *static_cast<SequenceNumber*>(arg) = latest_cold_seq.load();
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -654,6 +653,8 @@ TEST_F(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
   ASSERT_EQ("0,0,10", FilesPerLevel());
 
+  // Stop admitting to cold tier
+  latest_cold_seq = dbfull()->GetLatestSequenceNumber();
   auto snap = db_->GetSnapshot();
 
   // only range delete
@@ -767,10 +768,9 @@ TEST_F(TieredCompactionTest, UniversalRangeDelete) {
   std::atomic_uint64_t latest_cold_seq = 0;
 
   SyncPoint::GetInstance()->SetCallBack(
-      "CompactionIterator::PrepareOutput.context", [&](void* arg) {
-        auto context = static_cast<PerKeyPlacementContext*>(arg);
-        context->output_to_penultimate_level =
-            context->seq_num > latest_cold_seq;
+      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
+      [&](void* arg) {
+        *static_cast<SequenceNumber*>(arg) = latest_cold_seq.load();
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -894,14 +894,13 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   options.max_subcompactions = 10;
   DestroyAndReopen(options);
 
-  std::atomic_uint64_t latest_cold_seq = 0;
+  std::atomic_uint64_t latest_cold_seq = kMaxSequenceNumber;
   std::vector<SequenceNumber> seq_history;
 
   SyncPoint::GetInstance()->SetCallBack(
-      "CompactionIterator::PrepareOutput.context", [&](void* arg) {
-        auto context = static_cast<PerKeyPlacementContext*>(arg);
-        context->output_to_penultimate_level =
-            context->seq_num > latest_cold_seq;
+      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
+      [&](void* arg) {
+        *static_cast<SequenceNumber*>(arg) = latest_cold_seq.load();
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -952,6 +951,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   VerifyCompactionStats(expect_stats, expect_pl_stats);
 
   // Add new data, which is all hot and overriding all existing data
+  latest_cold_seq = dbfull()->GetLatestSequenceNumber();
   for (int i = 0; i < kNumTrigger; i++) {
     for (int j = 0; j < kNumKeys; j++) {
       ASSERT_OK(Put(Key(i * 10 + j), "value" + std::to_string(i)));
@@ -1616,7 +1616,8 @@ TEST_P(PrecludeLastLevelTest, CheckInternalKeyRange) {
 
   ASSERT_EQ("0,0,0,0,0,2,2", FilesPerLevel());
 
-  auto VerifyLogicalState = [&]() {
+  auto VerifyLogicalState = [&](int line) {
+    SCOPED_TRACE("Called from line " + std::to_string(line));
     // First with snapshot
     ASSERT_EQ("val2", Get(Key(2), snapshot));
     ASSERT_EQ("val3", Get(Key(3), snapshot));
@@ -1630,7 +1631,7 @@ TEST_P(PrecludeLastLevelTest, CheckInternalKeyRange) {
     ASSERT_EQ("val100", Get(Key(100)));
   };
 
-  VerifyLogicalState();
+  VerifyLogicalState(__LINE__);
 
   // Try to compact keys up
   CompactRangeOptions cro;
@@ -1641,24 +1642,40 @@ TEST_P(PrecludeLastLevelTest, CheckInternalKeyRange) {
   // type:1 vs. file #15 smallest key: '6B6579303030303033' seq:104, type:1
   ASSERT_OK(CompactRange(cro, Key(1), Key(2)));
 
-  VerifyLogicalState();
+  VerifyLogicalState(__LINE__);
 
   db_->ReleaseSnapshot(snapshot);
   Close();
 }
 
-TEST_P(PrecludeLastLevelTest, RangeTombstoneSnapshotMigrateFromLast) {
+INSTANTIATE_TEST_CASE_P(PrecludeLastLevelTest, PrecludeLastLevelTest,
+                        ::testing::Bool());
+
+class PrecludeWithCompactStyleTest : public PrecludeLastLevelTestBase,
+                                     public testing::WithParamInterface<bool> {
+ public:
+  void ApplyConfigChange(
+      Options* options,
+      const std::unordered_map<std::string, std::string>& config_change,
+      const std::unordered_map<std::string, std::string>& db_config_change =
+          {}) {
+    // Depends on dynamic config change while holding a snapshot
+    ApplyConfigChangeImpl(true /*dynamic*/, options, config_change,
+                          db_config_change);
+  }
+};
+
+TEST_P(PrecludeWithCompactStyleTest, RangeTombstoneSnapshotMigrateFromLast) {
   // Reproducer for issue originally described in
   // https://github.com/facebook/rocksdb/pull/9964/files#r1024449523
-  if (!UseDynamicConfig()) {
-    // Depends on config change while holding a snapshot
-    return;
-  }
+  const bool universal = GetParam();
   const int kNumLevels = 7;
   auto options = CurrentOptions();
   options.env = mock_env_.get();
   options.last_level_temperature = Temperature::kCold;
-  options.level_compaction_dynamic_level_bytes = true;
+  options.compaction_style =
+      universal ? kCompactionStyleUniversal : kCompactionStyleLevel;
+  options.compaction_options_universal.allow_trivial_move = true;
   options.num_levels = kNumLevels;
   options.statistics = CreateDBStatistics();
   options.max_subcompactions = 10;
@@ -1678,7 +1695,13 @@ TEST_P(PrecludeLastLevelTest, RangeTombstoneSnapshotMigrateFromLast) {
   ASSERT_OK(db_->DeleteRange({}, db_->DefaultColumnFamily(), Key(1), Key(5)));
   ASSERT_OK(Put(Key(1), "val1"));
   ASSERT_OK(Flush());
-  MoveFilesToLevel(6);
+
+  // Send to last level
+  if (universal) {
+    ASSERT_OK(CompactRange({}, {}, {}));
+  } else {
+    MoveFilesToLevel(6);
+  }
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
 
   ApplyConfigChange(&options, {{"preclude_last_level_data_seconds", "10000"}});
@@ -1697,10 +1720,18 @@ TEST_P(PrecludeLastLevelTest, RangeTombstoneSnapshotMigrateFromLast) {
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(1000)); });
 
   ASSERT_OK(Flush());
-  MoveFilesToLevel(5);
+
+  // Send three files to next-to-last level (if explicitly needed)
+  if (universal) {
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  } else {
+    MoveFilesToLevel(5);
+  }
+
   ASSERT_EQ("0,0,0,0,0,3,1", FilesPerLevel());
 
-  auto VerifyLogicalState = [&]() {
+  auto VerifyLogicalState = [&](int line) {
+    SCOPED_TRACE("Called from line " + std::to_string(line));
     // First with snapshot
     if (snapshot) {
       ASSERT_EQ("NOT_FOUND", Get(Key(0), snapshot));
@@ -1720,21 +1751,26 @@ TEST_P(PrecludeLastLevelTest, RangeTombstoneSnapshotMigrateFromLast) {
     ASSERT_EQ("val7", Get(Key(7)));
   };
 
-  VerifyLogicalState();
+  VerifyLogicalState(__LINE__);
 
   // Try a limited range compaction
-  // FIXME: this currently hits the "Unsafe to store Seq later than snapshot"
+  // FIXME: these currently hit the "Unsafe to store Seq later than snapshot"
   // error. Needs to work safely for preclude option to be user mutable.
-  // ASSERT_OK(CompactRange({}, Key(3), Key(4)));
+  if (universal) {
+    // uint64_t middle_l5 = GetLevelFileMetadatas(5)[1]->fd.GetNumber();
+    // ASSERT_OK(db_->CompactFiles({}, {MakeTableFileName(middle_l5)}, 6));
+  } else {
+    // ASSERT_OK(CompactRange({}, Key(3), Key(4)));
+  }
   EXPECT_EQ("0,0,0,0,0,3,1", FilesPerLevel());
-  VerifyLogicalState();
+  VerifyLogicalState(__LINE__);
 
   // Compact everything, but some data still goes to both penultimate and last
   // levels. A full-range compaction should be safe to "migrate" data from the
   // last level to penultimate (because of preclude setting change).
   ASSERT_OK(CompactRange({}, {}, {}));
   EXPECT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
-  VerifyLogicalState();
+  VerifyLogicalState(__LINE__);
   // Key1 should have been migrated out of the last level
   auto& meta = *GetLevelFileMetadatas(6)[0];
   ASSERT_LT(Key(1), meta.smallest.user_key().ToString());
@@ -1746,13 +1782,13 @@ TEST_P(PrecludeLastLevelTest, RangeTombstoneSnapshotMigrateFromLast) {
 
   ASSERT_OK(CompactRange({}, {}, {}));
   EXPECT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
-  VerifyLogicalState();
+  VerifyLogicalState(__LINE__);
 
   Close();
 }
 
-INSTANTIATE_TEST_CASE_P(PrecludeLastLevelTest, PrecludeLastLevelTest,
-                        ::testing::Bool());
+INSTANTIATE_TEST_CASE_P(PrecludeWithCompactStyleTest,
+                        PrecludeWithCompactStyleTest, ::testing::Bool());
 
 class TimedPutPrecludeLastLevelTest
     : public PrecludeLastLevelTestBase,

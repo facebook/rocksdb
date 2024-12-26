@@ -2476,8 +2476,8 @@ TEST_P(WriteBatchWithIndexTest, MultiGetTest2) {
         default:
           assert(false);
       }  // end switch
-    }    // End for each key
-  }      // end for passes
+    }  // End for each key
+  }  // end for passes
 }
 
 // This test has merges, but the merge does not play into the final result

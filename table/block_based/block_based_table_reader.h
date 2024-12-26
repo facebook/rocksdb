@@ -482,7 +482,8 @@ class BlockBasedTable : public TableReader {
   // If force_direct_prefetch is true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
   static Status PrefetchTail(
-      const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
+      const ReadOptions& ro, const ImmutableOptions& ioptions,
+      RandomAccessFileReader* file, uint64_t file_size,
       bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
       const bool prefetch_all, const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats,

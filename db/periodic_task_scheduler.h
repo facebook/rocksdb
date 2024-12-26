@@ -6,7 +6,6 @@
 
 #pragma once
 
-
 #include "util/timer.h"
 
 namespace ROCKSDB_NAMESPACE {

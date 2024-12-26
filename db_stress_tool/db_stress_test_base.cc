@@ -806,7 +806,8 @@ void StressTest::ProcessRecoveredPreparedTxnsHelper(Transaction* txn,
 }
 
 Status StressTest::NewTxn(WriteOptions& write_opts, ThreadState* thread,
-                          std::unique_ptr<Transaction>* out_txn) {
+                          std::unique_ptr<Transaction>* out_txn,
+                          bool* commit_bypass_memtable) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("NewTxn when FLAGS_use_txn is not set");
   }
@@ -826,6 +827,9 @@ Status StressTest::NewTxn(WriteOptions& write_opts, ThreadState* thread,
       assert(FLAGS_user_timestamp_size == 0);
       txn_options.commit_bypass_memtable =
           thread->rand.OneIn(FLAGS_commit_bypass_memtable_one_in);
+      if (commit_bypass_memtable) {
+        *commit_bypass_memtable = txn_options.commit_bypass_memtable;
+      }
     }
     out_txn->reset(txn_db_->BeginTransaction(write_opts, txn_options));
     auto istr = std::to_string(txn_id.fetch_add(1));
@@ -882,11 +886,12 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
   return s;
 }
 
-Status StressTest::ExecuteTransaction(
-    WriteOptions& write_opts, ThreadState* thread,
-    std::function<Status(Transaction&)>&& ops) {
+Status StressTest::ExecuteTransaction(WriteOptions& write_opts,
+                                      ThreadState* thread,
+                                      std::function<Status(Transaction&)>&& ops,
+                                      bool* commit_bypass_memtable) {
   std::unique_ptr<Transaction> txn;
-  Status s = NewTxn(write_opts, thread, &txn);
+  Status s = NewTxn(write_opts, thread, &txn, commit_bypass_memtable);
   std::string try_again_messages;
   if (s.ok()) {
     for (int tries = 1;; ++tries) {
@@ -3467,8 +3472,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     }
 
     options_.listeners.clear();
-    options_.listeners.emplace_back(new DbStressListener(
-        FLAGS_db, options_.db_paths, cf_descriptors, db_stress_listener_env));
+    options_.listeners.emplace_back(
+        new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors,
+                             db_stress_listener_env, shared));
     RegisterAdditionalListeners();
 
     // If this is for DB reopen,  error injection may have been enabled.
@@ -3707,6 +3713,15 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   if (!s.ok()) {
     fprintf(stderr, "open error: %s\n", s.ToString().c_str());
+    exit(1);
+  }
+
+  if (db_->GetLatestSequenceNumber() < shared->GetPersistedSeqno()) {
+    fprintf(stderr,
+            "DB of latest sequence number %" PRIu64
+            "did not recover to the persisted "
+            "sequence number %" PRIu64 " from last DB session\n",
+            db_->GetLatestSequenceNumber(), shared->GetPersistedSeqno());
     exit(1);
   }
 }
@@ -4112,6 +4127,7 @@ void InitializeOptionsFromFlags(
   options.level_compaction_dynamic_level_bytes =
       FLAGS_level_compaction_dynamic_level_bytes;
   options.track_and_verify_wals_in_manifest = true;
+  options.track_and_verify_wals = FLAGS_track_and_verify_wals;
   options.verify_sst_unique_id_in_manifest =
       FLAGS_verify_sst_unique_id_in_manifest;
   options.memtable_protection_bytes_per_key =

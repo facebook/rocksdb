@@ -1118,6 +1118,63 @@ TEST_F(CompactionServiceTest, Snapshot) {
   db_->ReleaseSnapshot(s1);
 }
 
+TEST_F(CompactionServiceTest, PrecludeLastLevel) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.last_level_temperature = Temperature::kCold;
+  options.level0_file_num_compaction_trigger = 4;
+  options.max_subcompactions = 10;
+  options.num_levels = kNumLevels;
+
+  ReopenWithCompactionService(&options);
+  // Alternate for comparison: DestroyAndReopen(options);
+
+  // This is simpler than setting up mock time to make the user option work,
+  // but is not as direct as testing with preclude option itself.
+  SyncPoint::GetInstance()->SetCallBack(
+      "Compaction::SupportsPerKeyPlacement:Enabled",
+      [&](void* arg) { *static_cast<bool*>(arg) = true; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
+      [&](void* arg) { *static_cast<SequenceNumber*>(arg) = 100; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 0; i < kNumTrigger; i++) {
+    for (int j = 0; j < kNumKeys; j++) {
+      // FIXME: need to assign outputs to levels to allow overlapping ranges:
+      // ASSERT_OK(Put(Key(j * kNumTrigger + i), "v" + std::to_string(i)));
+      // instead of this (too easy):
+      ASSERT_OK(Put(Key(i * kNumKeys + j), "v" + std::to_string(i)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Data split between penultimate (kUnknown) and last (kCold) levels
+  // FIXME: need to assign outputs to levels to get this:
+  // ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  // ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  // ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  // instead of this (WRONG but currently expected):
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+  // Check manifest temperatures
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  // TODO: Check FileSystem temperatures with FileTemperatureTestFS
+
+  for (int i = 0; i < kNumTrigger; i++) {
+    for (int j = 0; j < kNumKeys; j++) {
+      // FIXME
+      // ASSERT_EQ(Get(Key(j * kNumTrigger + i)), "v" + std::to_string(i));
+      ASSERT_EQ(Get(Key(i * kNumKeys + j)), "v" + std::to_string(i));
+    }
+  }
+}
+
 TEST_F(CompactionServiceTest, ConcurrentCompaction) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 100;

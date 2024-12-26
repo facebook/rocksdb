@@ -571,11 +571,19 @@ struct DBOptions {
   // Default: false
   bool error_if_exists = false;
 
-  // If true, RocksDB will aggressively check consistency of the data.
-  // Also, if any of the  writes to the database fails (Put, Delete, Merge,
-  // Write), the database will switch to read-only mode and fail all other
-  // Write operations.
-  // In most cases you want this to be set to true.
+  // If true, RocksDB does some pro-active and generally inexpensive checks
+  // for DB or data corruption, on top of usual protections such as block
+  // checksums. True also enters a read-only mode when a DB write fails;
+  // see DB::Resume().
+  //
+  // As most workloads value data correctness over availability, this option
+  // is on by default. Note that the name of this old option is potentially
+  // misleading, and other options and operations go further in proactive
+  // checking for corruption, including
+  // * paranoid_file_checks
+  // * paranoid_memory_checks
+  // * DB::VerifyChecksum()
+  //
   // Default: true
   bool paranoid_checks = true;
 
@@ -623,6 +631,26 @@ struct DBOptions {
   //
   // Default: false
   bool track_and_verify_wals_in_manifest = false;
+
+  // EXPERIMENTAL
+  //
+  // If true, each new WAL will record various information about its predecessor
+  // WAL for verification on the predecessor WAL during WAL recovery.
+  //
+  // It verifies the following:
+  // 1. There exists at least some WAL in the DB
+  // - It's not compatible with `RepairDB()` since this option imposes a
+  // stricter requirement on WAL than the DB went through `RepariDB()` can
+  // normally meet
+  // 2. There exists no WAL hole where new WAL data presents while some old WAL
+  // data not yet obsolete is missing. The DB manifest indicates which WALs are
+  // obsolete.
+  //
+  // This is intended to be a better replacement to
+  // `track_and_verify_wals_in_manifest`.
+  //
+  // Default: false
+  bool track_and_verify_wals = false;
 
   // If true, verifies the SST unique id between MANIFEST and actual file
   // each time an SST file is opened. This check ensures an SST file is not

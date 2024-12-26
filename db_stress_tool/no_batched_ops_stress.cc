@@ -1652,6 +1652,7 @@ class NonBatchedOpsStressTest : public StressTest {
     // To track whether WAL write may have succeeded during the initial failed
     // write
     bool initial_wal_write_may_succeed = true;
+    bool commit_bypass_memtable = false;
 
     PendingExpectedValue pending_expected_value =
         shared->PreparePut(rand_column_family, rand_key);
@@ -1713,9 +1714,10 @@ class NonBatchedOpsStressTest : public StressTest {
             s = db_->Put(write_opts, cfh, k, write_ts, v);
           }
         } else {
-          s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
-            return txn.Put(cfh, k, v);
-          });
+          s = ExecuteTransaction(
+              write_opts, thread,
+              [&](Transaction& txn) { return txn.Put(cfh, k, v); },
+              &commit_bypass_memtable);
         }
       }
       UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
@@ -1779,6 +1781,7 @@ class NonBatchedOpsStressTest : public StressTest {
     // To track whether WAL write may have succeeded during the initial failed
     // write
     bool initial_wal_write_may_succeed = true;
+    bool commit_bypass_memtable = false;
 
     // Use delete if the key may be overwritten and a single deletion
     // otherwise.
@@ -1803,13 +1806,14 @@ class NonBatchedOpsStressTest : public StressTest {
             s = db_->Delete(write_opts, cfh, key, write_ts);
           }
         } else {
-          s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
-            return txn.Delete(cfh, key);
-          });
+          s = ExecuteTransaction(
+              write_opts, thread,
+              [&](Transaction& txn) { return txn.Delete(cfh, key); },
+              &commit_bypass_memtable);
         }
-        UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
-                                  &initial_wal_write_may_succeed,
-                                  &wait_for_recover_start_time);
+        UpdateIfInitialWriteFails(
+            db_stress_env, s, &initial_write_s, &initial_wal_write_may_succeed,
+            &wait_for_recover_start_time, commit_bypass_memtable);
       } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
                initial_wal_write_may_succeed);
 
@@ -1859,13 +1863,14 @@ class NonBatchedOpsStressTest : public StressTest {
             s = db_->SingleDelete(write_opts, cfh, key, write_ts);
           }
         } else {
-          s = ExecuteTransaction(write_opts, thread, [&](Transaction& txn) {
-            return txn.SingleDelete(cfh, key);
-          });
+          s = ExecuteTransaction(
+              write_opts, thread,
+              [&](Transaction& txn) { return txn.SingleDelete(cfh, key); },
+              &commit_bypass_memtable);
         }
-        UpdateIfInitialWriteFails(db_stress_env, s, &initial_write_s,
-                                  &initial_wal_write_may_succeed,
-                                  &wait_for_recover_start_time);
+        UpdateIfInitialWriteFails(
+            db_stress_env, s, &initial_write_s, &initial_wal_write_may_succeed,
+            &wait_for_recover_start_time, commit_bypass_memtable);
       } while (!s.ok() && IsErrorInjectedAndRetryable(s) &&
                initial_wal_write_may_succeed);
 
@@ -2875,7 +2880,7 @@ class NonBatchedOpsStressTest : public StressTest {
           const size_t sz = GenerateValue(value_base, value, sizeof(value));
           const Slice v(value, sz);
 
-          if (op == Op::PutOrPutEntity) {
+          if (op == Op::PutOrPutEntity || !FLAGS_use_merge) {
             if (FLAGS_use_put_entity_one_in > 0 &&
                 (value_base % FLAGS_use_put_entity_one_in) == 0) {
               s = txn->PutEntity(cfh, k, GenerateWideColumns(value_base, v));

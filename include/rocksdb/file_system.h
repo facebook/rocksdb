@@ -821,54 +821,47 @@ struct FSReadRequest {
   // and will be passed to underlying FileSystem.
   char* scratch;
 
-  // Output parameter set by MultiRead() to point to the data buffer, and
-  // the number of valid bytes
+  // Output parameter set by MultiRead() to point to the start of the data
+  // buffer.
   //
-  // In case of asynchronous reads, this output parameter is set by Async Read
-  // APIs to point to the data buffer, and
-  // the number of valid bytes.
-  // Slice result should point to scratch i.e the data should
-  // always be read into scratch.
+  // When FSReadRequest::scratch is provided, this should point to
+  // FSReadRequest::scratch. When FSSupportedOps::kFSBuffer is enabled and
+  // FSReadRequest::scratch is nullptr, this points to the start of the
+  // data buffer allocated by the FileSystem.
+  //
+  // WARNING: Even with the FSSupportedOps::kFSBuffer optimization, you must
+  // still use result.data() to get the start of the actual data that was read.
+  // Do NOT treat FSReadRequest::fs_scratch as a char* to the start of a valid
+  // data buffer.
   Slice result;
 
   // Output parameter set by underlying FileSystem that represents status of
   // read request.
   IOStatus status;
 
-  // fs_scratch is a data buffer allocated and provided by underlying FileSystem
-  // to RocksDB during reads, when FS wants to provide its own buffer with data
-  // instead of using RocksDB provided FSReadRequest::scratch.
+  // fs_scratch is a unique pointer to an arbitrary object allocated by the
+  // underlying FileSystem.
   //
-  // FileSystem needs to provide a buffer and custom delete function. The
-  // lifecycle of fs_scratch until data is used by RocksDB. The buffer
-  // should be released by RocksDB using custom delete function provided in
-  // unique_ptr fs_scratch.
+  // Instead of having the FileSystem spend CPU cycles copying data into the
+  // FSReadRequest::scratch buffer provided by RocksDB, RocksDB can directly use
+  // a buffer allocated by the FileSystem.
   //
-  // Optimization benefits:
-  // This is helpful in cases where underlying FileSystem has to do additional
-  // copy of data to RocksDB provided buffer which can consume CPU cycles. It
-  // can be optimized by avoiding copying to RocksDB buffer and directly using
-  // FS provided buffer.
+  // This optimization is enabled for MultiReads (sync and async) with non
+  // direct io, when these conditions hold:
+  // 1. The FileSystem has overriden the SupportedOps() API and set
+  // FSSupportedOps::kFSBuffer.
+  // 2. FSReadRequest::scratch is set to nullptr.
   //
-  // How to enable:
-  // In order to enable this option, FS needs to override SupportedOps() API and
-  // set FSSupportedOps::kFSBuffer in SupportedOps() as:
-  //  {
-  //    supported_ops |= (1 << FSSupportedOps::kFSBuffer);
-  //  }
+  // RocksDB will:
+  // 1. Reuse the buffer allocated by the FileSystem.
+  // 2. Take ownership of the object managed by fs_scratch.
+  // 3. Handle invoking the custom deleter function from the FSAllocationPtr.
   //
-  // Work in progress:
-  // Right now it's only enabled for MultiReads (sync and async
-  // both) with non direct io.
-  // If RocksDB provide its own buffer (scratch) during reads, that's a
-  //  signal for FS to use RocksDB buffer.
-  // If FSSupportedOps::kFSBuffer is enabled and scratch == nullptr,
-  //   then FS have to provide its own buffer in fs_scratch.
-  //
-  // NOTE:
-  // - FSReadRequest::result should point to fs_scratch.
-  // - This is needed only if FSSupportedOps::kFSBuffer support is provided by
-  // underlying FS.
+  // WARNING: Do NOT assume that fs_scratch points to the start of the actual
+  // char* data returned by the read. As the type signature suggests, fs_scratch
+  // is a pointer to any arbitrary data type. Use result.data() to get a valid
+  // start to the real data. See https://github.com/facebook/rocksdb/pull/13189
+  // for more context.
   FSAllocationPtr fs_scratch;
 };
 

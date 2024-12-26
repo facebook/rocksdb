@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "db/compaction/compaction_job.h"
 
 #include <algorithm>
@@ -678,7 +677,7 @@ class CompactionJobTestBase : public testing::Test {
         full_history_ts_low_);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
-    compaction_job.Prepare();
+    compaction_job.Prepare(std::nullopt /*subcompact to be computed*/);
     mutex_.Unlock();
     Status s = compaction_job.Run();
     ASSERT_OK(s);
@@ -1900,8 +1899,8 @@ TEST_F(CompactionJobTest, CutToSkipGrandparentFile) {
   const std::vector<int> input_levels = {0, 1};
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
   auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
-    RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file1, expected_file2});
+  RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                {expected_file1, expected_file2});
 }
 
 TEST_F(CompactionJobTest, CutToAlignGrandparentBoundary) {
@@ -1975,8 +1974,8 @@ TEST_F(CompactionJobTest, CutToAlignGrandparentBoundary) {
   const std::vector<int> input_levels = {0, 1};
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
   auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
-    RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file1, expected_file2});
+  RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                {expected_file1, expected_file2});
 }
 
 TEST_F(CompactionJobTest, CutToAlignGrandparentBoundarySameKey) {
@@ -2037,8 +2036,8 @@ TEST_F(CompactionJobTest, CutToAlignGrandparentBoundarySameKey) {
   for (int i = 80; i <= 100; i++) {
     snapshots.emplace_back(i);
   }
-    RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file1, expected_file2}, snapshots);
+  RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                {expected_file1, expected_file2}, snapshots);
 }
 
 TEST_F(CompactionJobTest, CutForMaxCompactionBytesSameKey) {

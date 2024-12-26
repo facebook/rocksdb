@@ -4,8 +4,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/version_builder.h"
-
 #include "db/import_column_family_job.h"
 
 #include <algorithm>
@@ -13,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"

@@ -34,8 +34,8 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #include <cstring>
 
 #ifdef OS_OPENBSD
-#include <sys/wait.h>
 #include <sys/sysctl.h>
+#include <sys/wait.h>
 #endif  // OS_OPENBSD
 #ifdef OS_FREEBSD
 #include <sys/sysctl.h>
@@ -60,7 +60,8 @@ namespace ROCKSDB_NAMESPACE::port {
 
 namespace {
 
-#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_OPENBSD) || defined(OS_GNU_KFREEBSD)
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_OPENBSD) || \
+    defined(OS_GNU_KFREEBSD)
 const char* GetExecutableName() {
   static char name[1024];
 
@@ -296,7 +297,7 @@ void PrintStack(int first_frames_to_skip) {
   const int kMaxFrames = 100;
   void* frames[kMaxFrames];
 
-  int num_frames = (int) backtrace(frames, kMaxFrames);
+  int num_frames = (int)backtrace(frames, kMaxFrames);
   PrintStack(&frames[first_frames_to_skip], num_frames - first_frames_to_skip);
 }
 
@@ -309,7 +310,7 @@ void* SaveStack(int* num_frames, int first_frames_to_skip) {
   const int kMaxFrames = 100;
   void* frames[kMaxFrames];
 
-  int count = (int) backtrace(frames, kMaxFrames);
+  int count = (int)backtrace(frames, kMaxFrames);
   *num_frames = count - first_frames_to_skip;
   void* callstack = malloc(sizeof(void*) * *num_frames);
   memcpy(callstack, &frames[first_frames_to_skip], sizeof(void*) * *num_frames);

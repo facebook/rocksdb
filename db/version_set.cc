@@ -31,6 +31,7 @@
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+#include "db/manifest_ops.h"
 #include "db/memtable.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -3986,26 +3987,25 @@ void SortFileByOverlappingRatio(
                            ? VersionStorageInfo::kNumberFilesToSort
                            : temp->size();
 
-  std::partial_sort(temp->begin(), temp->begin() + num_to_sort, temp->end(),
-                    [&](const Fsize& f1, const Fsize& f2) -> bool {
-                      // If score is the same, pick file with smaller keys.
-                      // This makes the algorithm more deterministic, and also
-                      // help the trivial move case to have more files to
-                      // extend.
-                      if (f1.file->marked_for_compaction ==
-                          f2.file->marked_for_compaction) {
-                        if (file_to_order[f1.file->fd.GetNumber()] ==
-                            file_to_order[f2.file->fd.GetNumber()]) {
-                          return icmp.Compare(f1.file->smallest,
-                                              f2.file->smallest) < 0;
-                        }
-                        return file_to_order[f1.file->fd.GetNumber()] <
-                               file_to_order[f2.file->fd.GetNumber()];
-                      } else {
-                        return f1.file->marked_for_compaction >
-                               f2.file->marked_for_compaction;
-                      }
-                    });
+  std::partial_sort(
+      temp->begin(), temp->begin() + num_to_sort, temp->end(),
+      [&](const Fsize& f1, const Fsize& f2) -> bool {
+        // If score is the same, pick file with smaller keys.
+        // This makes the algorithm more deterministic, and also
+        // help the trivial move case to have more files to
+        // extend.
+        if (f1.file->marked_for_compaction == f2.file->marked_for_compaction) {
+          if (file_to_order[f1.file->fd.GetNumber()] ==
+              file_to_order[f2.file->fd.GetNumber()]) {
+            return icmp.Compare(f1.file->smallest, f2.file->smallest) < 0;
+          }
+          return file_to_order[f1.file->fd.GetNumber()] <
+                 file_to_order[f2.file->fd.GetNumber()];
+        } else {
+          return f1.file->marked_for_compaction >
+                 f2.file->marked_for_compaction;
+        }
+      });
 }
 
 void SortFileByRoundRobin(const InternalKeyComparator& icmp,
@@ -6009,41 +6009,6 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   // we return Status::OK() in this case.
   assert(builder || edit->IsWalManipulation());
   return builder ? builder->Apply(edit) : Status::OK();
-}
-
-Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
-                                          FileSystem* fs, bool is_retry,
-                                          std::string* manifest_path,
-                                          uint64_t* manifest_file_number) {
-  assert(fs != nullptr);
-  assert(manifest_path != nullptr);
-  assert(manifest_file_number != nullptr);
-
-  IOOptions opts;
-  std::string fname;
-  if (is_retry) {
-    opts.verify_and_reconstruct_read = true;
-  }
-  Status s = ReadFileToString(fs, CurrentFileName(dbname), opts, &fname);
-  if (!s.ok()) {
-    return s;
-  }
-  if (fname.empty() || fname.back() != '\n') {
-    return Status::Corruption("CURRENT file does not end with newline");
-  }
-  // remove the trailing '\n'
-  fname.resize(fname.size() - 1);
-  FileType type;
-  bool parse_ok = ParseFileName(fname, manifest_file_number, &type);
-  if (!parse_ok || type != kDescriptorFile) {
-    return Status::Corruption("CURRENT file corrupted");
-  }
-  *manifest_path = dbname;
-  if (dbname.back() != '/') {
-    manifest_path->push_back('/');
-  }
-  manifest_path->append(fname);
-  return Status::OK();
 }
 
 Status VersionSet::Recover(

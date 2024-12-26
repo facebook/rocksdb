@@ -162,6 +162,17 @@ class Directories {
   std::unique_ptr<FSDirectory> wal_dir_;
 };
 
+struct DBOpenLogReporter : public log::Reader::Reporter {
+  Env* env;
+  Logger* info_log;
+  const char* fname;
+  Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
+  bool* old_log_record;
+  void Corruption(size_t bytes, const Status& s) override;
+
+  void OldLogRecord(size_t bytes) override;
+};
+
 // While DB is the public interface of RocksDB, and DBImpl is the actual
 // class implementing it. It's the entrance of the core RocksdB engine.
 // All other DB implementations, e.g. TransactionDB, BlobDB, etc, wrap a
@@ -1910,8 +1921,8 @@ class DBImpl : public DB {
     const InternalKey* begin = nullptr;  // nullptr means beginning of key range
     const InternalKey* end = nullptr;    // nullptr means end of key range
     InternalKey* manual_end = nullptr;   // how far we are compacting
-    InternalKey tmp_storage;      // Used to keep track of compaction progress
-    InternalKey tmp_storage1;     // Used to keep track of compaction progress
+    InternalKey tmp_storage;   // Used to keep track of compaction progress
+    InternalKey tmp_storage1;  // Used to keep track of compaction progress
 
     // When the user provides a canceled pointer in CompactRangeOptions, the
     // above varaibe is the reference of the user-provided
@@ -2043,6 +2054,90 @@ class DBImpl : public DB {
                          bool is_retry, bool* corrupted_log_found,
                          RecoveryContext* recovery_ctx);
 
+  void SetupLogFilesRecovery(
+      const std::vector<uint64_t>& wal_numbers,
+      std::unordered_map<int, VersionEdit>* version_edits, int* job_id,
+      uint64_t* min_wal_number);
+
+  Status ProcessLogFiles(const std::vector<uint64_t>& wal_numbers,
+                         bool read_only, bool is_retry, uint64_t min_wal_number,
+                         int job_id, SequenceNumber* next_sequence,
+                         std::unordered_map<int, VersionEdit>* version_edits,
+                         bool* corrupted_wal_found,
+                         RecoveryContext* recovery_ctx);
+
+  Status ProcessLogFile(
+      uint64_t wal_number, uint64_t min_wal_number, bool is_retry,
+      bool read_only, int job_id, SequenceNumber* next_sequence,
+      bool* stop_replay_for_corruption, bool* stop_replay_by_wal_filter,
+      uint64_t* corrupted_wal_number, bool* corrupted_wal_found,
+      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed,
+      PredecessorWALInfo& predecessor_wal_info);
+
+  void SetupLogFileProcessing(uint64_t wal_number);
+
+  Status InitializeLogReader(
+      uint64_t wal_number, bool is_retry, std::string& fname,
+
+      bool stop_replay_for_corruption, uint64_t min_wal_number,
+      const PredecessorWALInfo& predecessor_wal_info,
+      bool* const old_log_record, Status* const reporter_status,
+      DBOpenLogReporter* reporter, std::unique_ptr<log::Reader>& reader);
+  Status ProcessLogRecord(
+      Slice record, const std::unique_ptr<log::Reader>& reader,
+      const UnorderedMap<uint32_t, size_t>& running_ts_sz, uint64_t wal_number,
+      const std::string& fname, bool read_only, int job_id,
+      std::function<void()> logFileDropped, DBOpenLogReporter* reporter,
+      uint64_t* record_checksum, SequenceNumber* last_seqno_observed,
+      SequenceNumber* next_sequence, bool* stop_replay_for_corruption,
+      Status* status, bool* stop_replay_by_wal_filter,
+      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed);
+
+  Status InitializeWriteBatchForLogRecord(
+      Slice record, const std::unique_ptr<log::Reader>& reader,
+      const UnorderedMap<uint32_t, size_t>& running_ts_sz, WriteBatch* batch,
+      std::unique_ptr<WriteBatch>& new_batch, WriteBatch*& batch_to_use,
+      uint64_t* record_checksum);
+
+  void MaybeReviseStopReplayForCorruption(
+      SequenceNumber sequence, SequenceNumber const* const next_sequence,
+      bool* stop_replay_for_corruption);
+
+  Status InsertLogRecordToMemtable(WriteBatch* batch_to_use,
+                                   uint64_t wal_number,
+                                   SequenceNumber* next_sequence,
+                                   bool* has_valid_writes);
+
+  Status MaybeWriteLevel0TableForRecovery(
+      bool has_valid_writes, bool read_only, uint64_t wal_number, int job_id,
+      SequenceNumber const* const next_sequence,
+      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed);
+
+  Status HandleNonOkStatusOrOldLogRecord(
+      uint64_t wal_number, SequenceNumber const* const next_sequence,
+      Status log_read_status, bool* old_log_record,
+      bool* stop_replay_for_corruption, uint64_t* corrupted_wal_number,
+      bool* corrupted_wal_found);
+
+  Status UpdatePredecessorWALInfo(uint64_t wal_number,
+                                  const SequenceNumber last_seqno_observed,
+                                  const std::string& fname,
+                                  PredecessorWALInfo& predecessor_wal_info);
+
+  void FinishLogFileProcessing(const Status& status,
+                               const SequenceNumber* next_sequence);
+
+  // Return `Status::Corruption()` when `stop_replay_for_corruption == true` and
+  // exits inconsistency between SST and WAL data
+  Status MaybeHandleStopReplayForCorruptionForInconsistency(
+      bool stop_replay_for_corruption, uint64_t corrupted_wal_number);
+
+  Status MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
+      const std::vector<uint64_t>& wal_numbers, bool read_only, int job_id,
+      bool flushed, std::unordered_map<int, VersionEdit>* version_edits,
+      RecoveryContext* recovery_ctx);
+
+  void FinishLogFilesRecovery(int job_id, const Status& status);
   // The following two methods are used to flush a memtable to
   // storage. The first one is used at database RecoveryTime (when the
   // database is opened) and is heavyweight because it holds the mutex
@@ -2222,7 +2317,8 @@ class DBImpl : public DB {
                       const WriteOptions& write_options,
                       log::Writer* log_writer, uint64_t* log_used,
                       uint64_t* log_size,
-                      LogFileNumberSize& log_file_number_size);
+                      LogFileNumberSize& log_file_number_size,
+                      SequenceNumber sequence);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,
@@ -2467,6 +2563,7 @@ class DBImpl : public DB {
 
   IOStatus CreateWAL(const WriteOptions& write_options, uint64_t log_file_num,
                      uint64_t recycle_log_number, size_t preallocate_block_size,
+                     const PredecessorWALInfo& predecessor_wal_info,
                      log::Writer** new_log);
 
   // Validate self-consistency of DB options

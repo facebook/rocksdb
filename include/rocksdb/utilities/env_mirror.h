@@ -18,7 +18,6 @@
 
 #pragma once
 
-
 #include <algorithm>
 #include <iostream>
 #include <vector>
@@ -176,4 +175,3 @@ class EnvMirror : public EnvWrapper {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

@@ -71,14 +71,19 @@ class StressTest {
   void UpdateIfInitialWriteFails(Env* db_stress_env, const Status& write_s,
                                  Status* initial_write_s,
                                  bool* initial_wal_write_may_succeed,
-                                 uint64_t* wait_for_recover_start_time) {
+                                 uint64_t* wait_for_recover_start_time,
+                                 bool commit_bypass_memtable = false) {
     assert(db_stress_env && initial_write_s && initial_wal_write_may_succeed &&
            wait_for_recover_start_time);
     // Only update `initial_write_s`, `initial_wal_write_may_succeed` when the
     // first write fails
     if (!write_s.ok() && (*initial_write_s).ok()) {
       *initial_write_s = write_s;
+      // With commit_bypass_memtable, we create a new WAL after WAL write
+      // succeeds, that wal creation may fail due to injected error. So the
+      // initial wal write may succeed even if status is failed to write to wal
       *initial_wal_write_may_succeed =
+          commit_bypass_memtable ||
           !FaultInjectionTestFS::IsFailedToWriteToWALError(*initial_write_s);
       *wait_for_recover_start_time = db_stress_env->NowMicros();
     }
@@ -138,13 +143,19 @@ class StressTest {
                                                   SharedState* shared);
 
   // ExecuteTransaction is recommended instead
+  // @param commit_bypass_memtable Whether commit_bypass_memtable is set to
+  // true in transaction options.
   Status NewTxn(WriteOptions& write_opts, ThreadState* thread,
-                std::unique_ptr<Transaction>* out_txn);
+                std::unique_ptr<Transaction>* out_txn,
+                bool* commit_bypass_memtable = nullptr);
   Status CommitTxn(Transaction& txn, ThreadState* thread = nullptr);
 
   // Creates a transaction, executes `ops`, and tries to commit
+  // @param commit_bypass_memtable Whether commit_bypass_memtable is set to
+  // true in transaction options.
   Status ExecuteTransaction(WriteOptions& write_opts, ThreadState* thread,
-                            std::function<Status(Transaction&)>&& ops);
+                            std::function<Status(Transaction&)>&& ops,
+                            bool* commit_bypass_memtable = nullptr);
 
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
 

@@ -305,7 +305,6 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
 }  // anonymous namespace
 #endif  // SNAPPY
 
-
 // Make sure that when options.block_cache is set, after a new table is
 // created its index/filter blocks are added to block cache.
 TEST_F(DBBlockCacheTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
@@ -1758,8 +1757,8 @@ class CacheKeyTest : public testing::Test {
     tp_.db_id = std::to_string(db_id_);
     tp_.orig_file_number = file_number;
     bool is_stable;
-    std::string cur_session_id;       // ignored
-    uint64_t cur_file_number = 42;    // ignored
+    std::string cur_session_id;     // ignored
+    uint64_t cur_file_number = 42;  // ignored
     OffsetableCacheKey rv;
     BlockBasedTable::SetupBaseCacheKey(&tp_, cur_session_id, cur_file_number,
                                        &rv, &is_stable);

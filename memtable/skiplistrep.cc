@@ -366,13 +366,11 @@ class SkipListRep : public MemTableRep {
     if (lookahead_ > 0) {
       void* mem =
           arena ? arena->AllocateAligned(sizeof(SkipListRep::LookaheadIterator))
-                :
-                operator new(sizeof(SkipListRep::LookaheadIterator));
+                : operator new(sizeof(SkipListRep::LookaheadIterator));
       return new (mem) SkipListRep::LookaheadIterator(*this);
     } else {
       void* mem = arena ? arena->AllocateAligned(sizeof(SkipListRep::Iterator))
-                        :
-                        operator new(sizeof(SkipListRep::Iterator));
+                        : operator new(sizeof(SkipListRep::Iterator));
       return new (mem) SkipListRep::Iterator(&skip_list_);
     }
   }
