@@ -16,7 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 void SubcompactionState::AggregateCompactionOutputStats(
     InternalStats::CompactionStatsFull& compaction_stats) const {
   compaction_stats.stats.Add(compaction_outputs_.stats_);
-  if (HasPenultimateLevelOutputs()) {
+  if (penultimate_level_outputs_.HasOutput() || HasRangeDel()) {
     compaction_stats.has_penultimate_level_output = true;
     compaction_stats.penultimate_level_stats.Add(
         penultimate_level_outputs_.stats_);
@@ -52,7 +52,7 @@ void SubcompactionState::Cleanup(Cache* cache) {
 }
 
 Slice SubcompactionState::SmallestUserKey() const {
-  if (has_penultimate_level_outputs_) {
+  if (penultimate_level_outputs_.HasOutput()) {
     Slice a = compaction_outputs_.SmallestUserKey();
     Slice b = penultimate_level_outputs_.SmallestUserKey();
     if (a.empty()) {
@@ -74,7 +74,7 @@ Slice SubcompactionState::SmallestUserKey() const {
 }
 
 Slice SubcompactionState::LargestUserKey() const {
-  if (has_penultimate_level_outputs_) {
+  if (penultimate_level_outputs_.HasOutput()) {
     Slice a = compaction_outputs_.LargestUserKey();
     Slice b = penultimate_level_outputs_.LargestUserKey();
     if (a.empty()) {
@@ -96,18 +96,13 @@ Slice SubcompactionState::LargestUserKey() const {
 }
 
 Status SubcompactionState::AddToOutput(
-    const CompactionIterator& iter,
+    const CompactionIterator& iter, bool use_penultimate_output,
     const CompactionFileOpenFunc& open_file_func,
     const CompactionFileCloseFunc& close_file_func) {
-  // update target output first
-  is_current_penultimate_level_ = iter.output_to_penultimate_level();
-  current_outputs_ = is_current_penultimate_level_ ? &penultimate_level_outputs_
-                                                   : &compaction_outputs_;
-  if (is_current_penultimate_level_) {
-    has_penultimate_level_outputs_ = true;
-  }
-
-  return Current().AddToOutput(iter, open_file_func, close_file_func);
+  // update target output
+  current_outputs_ = use_penultimate_output ? &penultimate_level_outputs_
+                                            : &compaction_outputs_;
+  return current_outputs_->AddToOutput(iter, open_file_func, close_file_func);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
