@@ -5939,6 +5939,8 @@ Status VersionSet::LogAndApply(
     }
     TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WakeUpAndDone", mu);
 #endif /* !NDEBUG */
+    // FIXME: One MANIFEST write failure can cause all writes to SetBGError,
+    // should only SetBGError once.
     return first_writer.status;
   }
 
