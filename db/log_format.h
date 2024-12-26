@@ -38,13 +38,18 @@ enum RecordType : uint8_t {
   // Compression Type
   kSetCompressionType = 9,
 
+  // For all the values >= 10, the 1 bit indicates whether it's recyclable
   // User-defined timestamp sizes
   kUserDefinedTimestampSizeType = 10,
   kRecyclableUserDefinedTimestampSizeType = 11,
+
+  // For WAL verification
+  kPredecessorWALInfoType = 130,
+  kRecyclePredecessorWALInfoType = 131,
 };
 // Unknown type of value with the 8-th bit set will be ignored
 constexpr uint8_t kRecordTypeSafeIgnoreMask = 1 << 7;
-constexpr uint8_t kMaxRecordType = kRecyclableUserDefinedTimestampSizeType;
+constexpr uint8_t kMaxRecordType = kRecyclePredecessorWALInfoType;
 
 constexpr unsigned int kBlockSize = 32768;
 

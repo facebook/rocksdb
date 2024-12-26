@@ -465,7 +465,7 @@ TEST_P(LogTest, TruncatedTrailingRecordIsNotIgnored) {
   Write("foo");
   ShrinkSize(4);  // Drop all payload as well as a header byte
   ASSERT_EQ("EOF", Read(WALRecoveryMode::kAbsoluteConsistency));
-  // Truncated last record is ignored, not treated as an error
+  // Truncated last record is not ignored, treated as an error
   ASSERT_GT(DroppedBytes(), 0U);
   ASSERT_EQ("OK", MatchError("Corruption: truncated header"));
 }
