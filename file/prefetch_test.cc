@@ -3308,30 +3308,31 @@ TEST_F(FilePrefetchBufferTest, ForCompaction) {
   readahead_params.max_readahead_size = 8192;
   readahead_params.num_buffers = 1;
 
-  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), nullptr,
+  FilePrefetchBuffer fpb(readahead_params, true /* enable */,
+                         false /* track_min_offset */, fs(), nullptr,
                          stats.get());
 
   Slice result;
   Status s;
-  ASSERT_TRUE(
-      fpb.TryReadFromCache(IOOptions(), r.get(), 0, 3000, &result, &s, true));
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 0 /* offset */,
+                                   3000 /* n */, &result, &s, true));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(0, 3000).c_str(), 3000), 0);
 
-  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 3000, 10000, &result,
-                                   &s, true));
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 3000 /* offset */,
+                                   10000 /* n */, &result, &s, true));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(3000, 10000).c_str(), 10000),
             0);
 
-  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 15000, 4096, &result,
-                                   &s, true));
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 15000 /* offset */,
+                                   4096 /* n */, &result, &s, true));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(15000, 4096).c_str(), 4096),
             0);
 
-  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 40000, 20000, &result,
-                                   &s, true));
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 40000 /* offset */,
+                                   20000 /* n */, &result, &s, true));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(40000, 20000).c_str(), 20000),
             0);
@@ -3475,14 +3476,15 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   bool use_async_prefetch = std::get<0>(GetParam());
   bool for_compaction = std::get<1>(GetParam());
   // We disallow async IO for compaction reads since they are background
-  // operations anyways and their latencies are not visible to the end user
+  // operations anyways and not as latency sensitive as user-initiated reads
   if (use_async_prefetch && for_compaction) {
     return;
   }
   size_t num_buffers = use_async_prefetch ? 2 : 1;
   readahead_params.num_buffers = num_buffers;
 
-  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
+  FilePrefetchBuffer fpb(readahead_params, true /* enable */,
+                         false /* track_min_offset */, fs(), clock(),
                          stats.get());
 
   int overlap_buffer_write_ct = 0;
@@ -3496,8 +3498,9 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   Status s;
   std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(num_buffers);
   std::pair<uint64_t, size_t> overlap_buffer_info;
-  bool could_read_from_cache = fpb.TryReadFromCache(
-      IOOptions(), r.get(), 0, 4096, &result, &s, for_compaction);
+  bool could_read_from_cache =
+      fpb.TryReadFromCache(IOOptions(), r.get(), 0 /* offset */, 4096 /* n */,
+                           &result, &s, for_compaction);
   // Platforms that don't have IO uring may not support async IO.
   if (use_async_prefetch && s.IsNotSupported()) {
     return;
@@ -3533,8 +3536,8 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
 
   // Simulate a block cache hit
   fpb.UpdateReadPattern(4096, 4096, false);
-  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 8192, 8192, &result,
-                                   &s, for_compaction));
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 8192 /* offset */,
+                                   8192 /* n */, &result, &s, for_compaction));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
   ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
@@ -3570,8 +3573,8 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
     ASSERT_EQ(std::get<1>(buffer_info[0]), 12288);
   }
 
-  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 12288, 4096, &result,
-                                   &s, for_compaction));
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 12288 /* offset */,
+                                   4096 /* n */, &result, &s, for_compaction));
   ASSERT_EQ(s, Status::OK());
 
   ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 1);
@@ -3604,8 +3607,8 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   }
 
   // Read from 16000-26000 (start and end do not meet normal alignment)
-  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 16000, 10000, &result,
-                                   &s, for_compaction));
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 16000 /* offset */,
+                                   10000 /* n */, &result, &s, for_compaction));
   ASSERT_EQ(s, Status::OK());
 
   ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
@@ -3670,7 +3673,8 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   }
   size_t num_buffers = use_async_prefetch ? 2 : 1;
   readahead_params.num_buffers = num_buffers;
-  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
+  FilePrefetchBuffer fpb(readahead_params, true /* enable */,
+                         false /* track_min_offset */, fs(), clock(),
                          stats.get());
 
   int overlap_buffer_write_ct = 0;
@@ -3684,8 +3688,9 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   Status s;
   std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(num_buffers);
   std::pair<uint64_t, size_t> overlap_buffer_info;
-  bool could_read_from_cache = fpb.TryReadFromCache(
-      IOOptions(), r.get(), 5, 3, &result, &s, for_compaction);
+  bool could_read_from_cache =
+      fpb.TryReadFromCache(IOOptions(), r.get(), 5 /* offset */, 3 /* n */,
+                           &result, &s, for_compaction);
   // Platforms that don't have IO uring may not support async IO.
   if (use_async_prefetch && s.IsNotSupported()) {
     return;
@@ -3717,8 +3722,8 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
     ASSERT_EQ(std::get<1>(buffer_info[0]), 3 + 5);
   }
 
-  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 16, 7, &result, &s,
-                                   for_compaction));
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 16 /* offset */,
+                                   7 /* n */, &result, &s, for_compaction));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(16, 7).c_str(), 7), 0);
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
@@ -3742,18 +3747,18 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
 
   // Go backwards
   if (use_async_prefetch) {
-    ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 10, 8, &result, &s,
-                                     for_compaction));
+    ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 10 /* offset */,
+                                     8 /* n */, &result, &s, for_compaction));
   } else {
     // TryReadFromCacheUntracked returns false since the offset
     // requested is less than the start of our buffer
-    ASSERT_FALSE(fpb.TryReadFromCache(IOOptions(), r.get(), 10, 8, &result, &s,
-                                      for_compaction));
+    ASSERT_FALSE(fpb.TryReadFromCache(IOOptions(), r.get(), 10 /* offset */,
+                                      8 /* n */, &result, &s, for_compaction));
   }
   ASSERT_EQ(s, Status::OK());
 
-  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 27, 6, &result, &s,
-                                   for_compaction));
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 27 /* offset */,
+                                   6 /* n */, &result, &s, for_compaction));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(27, 6).c_str(), 6), 0);
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
@@ -3774,8 +3779,8 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
     ASSERT_EQ(std::get<1>(buffer_info[0]), 7 + 10);
   }
 
-  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 30, 20, &result, &s,
-                                   for_compaction));
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 30 /* offset */,
+                                   20 /* n */, &result, &s, for_compaction));
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(30, 20).c_str(), 20), 0);
   fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
@@ -3817,13 +3822,15 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
   readahead_params.max_readahead_size = 2048;
   bool use_async_prefetch = std::get<0>(GetParam());
   bool for_compaction = std::get<1>(GetParam());
+  // Async IO is not enabled for compaction prefetching
   if (use_async_prefetch && for_compaction) {
     return;
   }
   size_t num_buffers = use_async_prefetch ? 2 : 1;
   readahead_params.num_buffers = num_buffers;
 
-  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
+  FilePrefetchBuffer fpb(readahead_params, true /* enable */,
+                         false /* track_min_offset */, fs(), clock(),
                          stats.get());
 
   Slice result;
