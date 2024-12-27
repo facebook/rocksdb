@@ -6417,10 +6417,9 @@ TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
   options.level0_file_num_compaction_trigger = 4;
   options.target_file_size_base = kKeysPerBuffer * 1024;
   options.compaction_pri = CompactionPri::kRoundRobin;
-  // Target size is chosen so that filling the level with `kFilesPerLevel` files
-  // will make it oversized by `kNumSubcompactions` files.
-  options.max_bytes_for_level_base =
-      (kFilesPerLevel - kNumSubcompactions) * kKeysPerBuffer * 1024;
+  // Pick a small target level size to pick more files to compact
+  // and trigger subcompaction.
+  options.max_bytes_for_level_base = kKeysPerBuffer * 1024;
   options.disable_auto_compactions = true;
   // Setup `kNumSubcompactions` threads but limited subcompactions so
   // that RoundRobin requires extra compactions from reserved threads
@@ -6445,6 +6444,17 @@ TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
     MoveFilesToLevel(lvl);
     ASSERT_EQ(kFilesPerLevel, NumTableFilesAtLevel(lvl, 0));
   }
+
+  bool compaction_num_verified = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        if (!compaction_num_verified) {
+          Compaction* compaction = static_cast<Compaction*>(arg);
+          // In Round-Robin, # of subcompactions needed is the # of input files
+          ASSERT_GT(compaction->num_input_files(0), 1);
+          compaction_num_verified = true;
+        }
+      });
 
   // This is a variable for making sure the following callback is called
   // and the assertions in it are indeed excuted.
