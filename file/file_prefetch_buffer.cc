@@ -771,6 +771,12 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
 bool FilePrefetchBuffer::TryReadFromCacheUntracked(
     const IOOptions& opts, RandomAccessFileReader* reader, uint64_t offset,
     size_t n, Slice* result, Status* status, bool for_compaction) {
+  // We disallow async IO for compaction reads since they are performed in
+  // the background anyways and are less latency sensitive compareed to
+  // user-initiated reads
+  (void)for_compaction;
+  assert(!for_compaction || num_buffers_ == 1);
+
   if (track_min_offset_ && offset < min_offset_read_) {
     min_offset_read_ = static_cast<size_t>(offset);
   }
@@ -819,39 +825,22 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
       assert(reader != nullptr);
       assert(max_readahead_size_ >= readahead_size_);
 
-      // We disallow async IO for compaction reads since their
-      // latencies are not user-visible
-      if (for_compaction) {
-        assert(num_buffers_ == 1);
-        // The readahead size for compaction reads is different and the
-        // historical reason is not clear at the moment. TODO: revisit whether
-        // we want to just use the "regular" logic and readahead by the full
-        // readahize_size_.
-        uint64_t trimmed_readahead_size = 0;
-        if (n < readahead_size_) {
-          trimmed_readahead_size = readahead_size_ - n;
+      if (implicit_auto_readahead_) {
+        if (!IsEligibleForPrefetch(offset, n)) {
+          // Ignore status as Prefetch is not called.
+          s.PermitUncheckedError();
+          return false;
         }
-        s = PrefetchInternal(opts, reader, offset, n, trimmed_readahead_size,
-                             copy_to_overlap_buffer);
-      } else {
-        if (implicit_auto_readahead_) {
-          if (!IsEligibleForPrefetch(offset, n)) {
-            // Ignore status as Prefetch is not called.
-            s.PermitUncheckedError();
-            return false;
-          }
-        }
-
-        // Prefetch n + readahead_size_/2 synchronously as remaining
-        // readahead_size_/2 will be prefetched asynchronously if num_buffers_
-        // > 1.
-        s = PrefetchInternal(
-            opts, reader, offset, n,
-            (num_buffers_ > 1 ? readahead_size_ / 2 : readahead_size_),
-            copy_to_overlap_buffer);
-        explicit_prefetch_submitted_ = false;
       }
 
+      // Prefetch n + readahead_size_/2 synchronously as remaining
+      // readahead_size_/2 will be prefetched asynchronously if num_buffers_
+      // > 1.
+      s = PrefetchInternal(
+          opts, reader, offset, n,
+          (num_buffers_ > 1 ? readahead_size_ / 2 : readahead_size_),
+          copy_to_overlap_buffer);
+      explicit_prefetch_submitted_ = false;
       if (!s.ok()) {
         if (status) {
           *status = s;
@@ -865,7 +854,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
     } else {
       return false;
     }
-  } else if (!for_compaction) {
+  } else {
     UpdateStats(/*found_in_buffer=*/true, n);
   }
 
