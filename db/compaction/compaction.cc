@@ -518,7 +518,10 @@ bool Compaction::OverlapPenultimateLevelOutputRange(
 // key includes timestamp if user-defined timestamp is enabled.
 void Compaction::TEST_AssertWithinPenultimateLevelOutputRange(
     const Slice& user_key, bool expect_failure) const {
-#ifndef NDEBUG
+#ifdef NDEBUG
+  (void)user_key;
+  (void)expect_failure;
+#else
   assert(SupportsPerKeyPlacement());
 
   assert(penultimate_level_smallest_.size() > 0);
