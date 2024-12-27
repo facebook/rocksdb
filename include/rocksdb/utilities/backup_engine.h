@@ -81,6 +81,8 @@ struct BackupEngineOptions {
   // Enables optimally configuring the IO size based on the storage backend.
   // If specified, takes precendence over the rate limiter burst size (if
   // specified) as well as kDefaultCopyFileBufferSize.
+  // If 0, the rate limiter burst size (if specified) or
+  // kDefaultCopyFileBufferSize will be used.
   // Default: 0
   uint64_t io_buffer_size;
 
