@@ -77,7 +77,7 @@ struct BackupEngineOptions {
   // Default: true
   bool backup_log_files;
 
-  // Size of the buffer used for reading files.
+  // Size of the buffer in bytes used for reading files.
   // Enables optimally configuring the IO size based on the storage backend.
   // If specified, takes precendence over the rate limiter burst size (if
   // specified) as well as kDefaultCopyFileBufferSize.

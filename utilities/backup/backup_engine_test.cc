@@ -4516,7 +4516,7 @@ TEST_F(BackupEngineTest, IOBufferSize) {
   ASSERT_TRUE(io_buffer_size_calculated);
   CloseDBAndBackupEngine();
 
-  // Override the default buffer size with 64 MB through BackupEngineOptions
+  // Override the default buffer size to 64 MB through BackupEngineOptions
   expected_buffer_size = 64 * 1024 * 1024;
   engine_options_->io_buffer_size = expected_buffer_size;
   io_buffer_size_calculated = false;
