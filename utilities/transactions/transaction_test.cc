@@ -8054,7 +8054,7 @@ TEST_P(TransactionTest, SecondaryIndex) {
     }
 
     Status GetSecondaryKeyPrefix(
-        const Slice& /* primary_key */, const Slice& primary_column_value,
+        const Slice& primary_column_value,
         std::variant<Slice, std::string>* secondary_key_prefix) const override {
       assert(secondary_key_prefix);
 
@@ -8068,8 +8068,7 @@ TEST_P(TransactionTest, SecondaryIndex) {
       return Status::OK();
     }
 
-    Status GetSecondaryValue(const Slice& /* primary_key */,
-                             const Slice& primary_column_value,
+    Status GetSecondaryValue(const Slice& primary_column_value,
                              const Slice& previous_column_value,
                              std::optional<std::variant<Slice, std::string>>*
                                  secondary_value) const override {
