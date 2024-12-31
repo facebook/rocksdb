@@ -17,6 +17,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     const std::string& dir, const ImmutableDBOptions* options,
     const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
+    WalManager* wal_manager,
     std::unique_ptr<VectorWalPtr> files, VersionSet const* const versions,
     const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer)
     : dir_(dir),
@@ -37,6 +38,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
   assert(versions_ != nullptr);
   assert(!seq_per_batch_);
   current_status_.PermitUncheckedError();  // Clear on start
+  get_live_wal_handle_.wm = wal_manager;
   reporter_.env = options_->env;
   reporter_.info_log = options_->info_log.get();
   SeekToStartSequence();  // Seek till starting sequence
@@ -221,6 +223,24 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
     if (no_new_entry) {
       current_status_ = Status::OK();
       return;
+    }
+
+    // in some case current_log_reader_->ReadRecord return kEof,
+    // but files_->at(current_file_index_) didn't reach the end
+    // which lead to severe delay of replication
+    if (current_log_reader_->IsEOF()) {
+      std::unique_ptr<VectorWalPtr> new_wal_files(new VectorWalPtr);
+      SequenceNumber start_seq = files_->at(current_file_index_).get()->StartSequence();
+      // only get live wal is enough in this case, GetLiveWalFiles will cost no more than 100us
+      if (get_live_wal_handle_.GetLiveWalFiles(start_seq, *new_wal_files).ok()) {
+        if (new_wal_files->size() == 1 &&
+            new_wal_files->begin()->get()->StartSequence() == start_seq) {
+          current_status_ = Status::OK();
+          return;
+        }
+
+        // if new_wal_files->size() >1, just set files as new_wal_files may be more efficiency
+      }
     }
 
     const char* msg = "Create a new iterator to fetch the new tail.";

@@ -16,6 +16,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
+#include "wal_manager.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -60,6 +61,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
       const std::string& dir, const ImmutableDBOptions* options,
       const TransactionLogIterator::ReadOptions& read_options,
       const EnvOptions& soptions, const SequenceNumber seqNum,
+      WalManager* wal_manager,
       std::unique_ptr<VectorWalPtr> files, VersionSet const* const versions,
       const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer);
 
@@ -94,6 +96,13 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   std::string scratch_;
   Status OpenLogFile(const WalFile* log_file,
                      std::unique_ptr<SequentialFileReader>* file);
+
+  struct GetLiveWalHandle{
+    WalManager* wm;
+    Status GetLiveWalFiles(SequenceNumber seq_start, VectorWalPtr& live_log_files) const {
+      return  wm->GetLiveWalFiles(seq_start, live_log_files);
+    }
+  } get_live_wal_handle_{};
 
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
