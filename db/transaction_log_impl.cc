@@ -83,9 +83,10 @@ Status TransactionLogIteratorImpl::status() { return current_status_; }
 
 bool TransactionLogIteratorImpl::Valid() { return started_ && is_valid_; }
 
-bool TransactionLogIteratorImpl::RestrictedRead(Slice* record) {
+bool TransactionLogIteratorImpl::RestrictedRead(Slice* record, bool& no_new_entry) {
   // Don't read if no more complete entries to read from logs
   if (current_last_seq_ >= versions_->LastSequence()) {
+    no_new_entry = true;
     return false;
   }
   return current_log_reader_->ReadRecord(record, &scratch_);
@@ -119,7 +120,8 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
     reporter_.Info(current_status_.ToString().c_str());
     return;
   }
-  while (RestrictedRead(&record)) {
+  bool no_new_entry;
+  while (RestrictedRead(&record, no_new_entry)) {
     if (record.size() < WriteBatchInternal::kHeader) {
       reporter_.Corruption(record.size(),
                            Status::Corruption("very small log record"));
@@ -185,22 +187,22 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
     if (current_log_reader_->IsEOF()) {
       current_log_reader_->UnmarkEOF();
     }
-    while (RestrictedRead(&record)) {
+    bool no_new_entry;
+    while (RestrictedRead(&record, no_new_entry)) {
       if (record.size() < WriteBatchInternal::kHeader) {
         reporter_.Corruption(record.size(),
                              Status::Corruption("very small log record"));
         continue;
-      } else {
-        // started_ should be true if called by application
-        assert(internal || started_);
-        // started_ should be false if called internally
-        assert(!internal || !started_);
-        UpdateCurrentWriteBatch(record);
-        if (internal && !started_) {
-          started_ = true;
-        }
-        return;
       }
+      // started_ should be true if called by application
+      assert(internal || started_);
+      // started_ should be false if called internally
+      assert(!internal || !started_);
+      UpdateCurrentWriteBatch(record);
+      if (internal && !started_) {
+        started_ = true;
+      }
+      return;
     }
 
     // Open the next file
@@ -212,16 +214,18 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
         current_status_ = s;
         return;
       }
-    } else {
-      is_valid_ = false;
-      if (current_last_seq_ == versions_->LastSequence()) {
-        current_status_ = Status::OK();
-      } else {
-        const char* msg = "Create a new iterator to fetch the new tail.";
-        current_status_ = Status::TryAgain(msg);
-      }
+      continue;
+    }
+
+    is_valid_ = false;
+    if (no_new_entry) {
+      current_status_ = Status::OK();
       return;
     }
+
+    const char* msg = "Create a new iterator to fetch the new tail.";
+    current_status_ = Status::TryAgain(msg);
+    return;
   }
 }
 
