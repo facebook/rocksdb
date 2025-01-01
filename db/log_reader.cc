@@ -24,7 +24,10 @@ Reader::Reporter::~Reporter() = default;
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
                std::unique_ptr<SequentialFileReader>&& _file,
-               Reporter* reporter, bool checksum, uint64_t log_num)
+               Reporter* reporter, bool checksum, uint64_t log_num,
+               bool track_and_verify_wals, bool stop_replay_for_corruption,
+               uint64_t min_wal_number_to_keep,
+               const PredecessorWALInfo& observed_predecessor_wal_info)
     : info_log_(info_log),
       file_(std::move(_file)),
       reporter_(reporter),
@@ -37,6 +40,10 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       last_record_offset_(0),
       end_of_buffer_offset_(0),
       log_number_(log_num),
+      track_and_verify_wals_(track_and_verify_wals),
+      stop_replay_for_corruption_(stop_replay_for_corruption),
+      min_wal_number_to_keep_(min_wal_number_to_keep),
+      observed_predecessor_wal_info_(observed_predecessor_wal_info),
       recycled_(false),
       first_record_read_(false),
       compression_type_(kNoCompression),
@@ -65,6 +72,9 @@ Reader::~Reader() {
 //
 // TODO krad: Evaluate if we need to move to a more strict mode where we
 // restrict the inconsistency to only the last log
+// TODO (hx235): move `wal_recovery_mode` to be a member data like other
+// information (e.g, `stop_replay_for_corruption`) to decide whether to
+// check for and surface corruption in `ReadRecord()`
 bool Reader::ReadRecord(Slice* record, std::string* scratch,
                         WALRecoveryMode wal_recovery_mode,
                         uint64_t* record_checksum) {
@@ -182,6 +192,23 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
                            "could not decode SetCompressionType record");
         } else {
           InitCompression(compression_record);
+        }
+        break;
+      }
+      case kPredecessorWALInfoType:
+      case kRecyclePredecessorWALInfoType: {
+        prospective_record_offset = physical_record_offset;
+        scratch->clear();
+        last_record_offset_ = prospective_record_offset;
+
+        PredecessorWALInfo recorded_predecessor_wal_info;
+        Status s = recorded_predecessor_wal_info.DecodeFrom(&fragment);
+        if (!s.ok()) {
+          ReportCorruption(fragment.size(),
+                           "could not decode PredecessorWALInfoType record");
+        } else {
+          MaybeVerifyPredecessorWALInfo(wal_recovery_mode, fragment,
+                                        recorded_predecessor_wal_info);
         }
         break;
       }
@@ -327,6 +354,57 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
     }
   }
   return false;
+}
+
+void Reader::MaybeVerifyPredecessorWALInfo(
+    WALRecoveryMode wal_recovery_mode, Slice fragment,
+    const PredecessorWALInfo& recorded_predecessor_wal_info) {
+  if (!track_and_verify_wals_ ||
+      wal_recovery_mode == WALRecoveryMode::kSkipAnyCorruptedRecords ||
+      stop_replay_for_corruption_) {
+    return;
+  }
+  assert(recorded_predecessor_wal_info.IsInitialized());
+  uint64_t recorded_predecessor_log_number =
+      recorded_predecessor_wal_info.GetLogNumber();
+
+  // This is the first WAL recovered thus with no predecessor WAL info has been
+  // initialized
+  if (!observed_predecessor_wal_info_.IsInitialized()) {
+    if (recorded_predecessor_log_number >= min_wal_number_to_keep_) {
+      std::string reason = "Missing WAL of log number " +
+                           std::to_string(recorded_predecessor_log_number);
+      ReportCorruption(fragment.size(), reason.c_str());
+    }
+  } else {
+    if (observed_predecessor_wal_info_.GetLogNumber() !=
+        recorded_predecessor_log_number) {
+      std::string reason = "Missing WAL of log number " +
+                           std::to_string(recorded_predecessor_log_number);
+      ReportCorruption(fragment.size(), reason.c_str());
+    } else if (observed_predecessor_wal_info_.GetLastSeqnoRecorded() !=
+               recorded_predecessor_wal_info.GetLastSeqnoRecorded()) {
+      std::string reason =
+          "Mismatched last sequence number recorded in the WAL of log number " +
+          std::to_string(recorded_predecessor_log_number) + ". Recorded " +
+          std::to_string(recorded_predecessor_wal_info.GetLastSeqnoRecorded()) +
+          ". Observed " +
+          std::to_string(
+              observed_predecessor_wal_info_.GetLastSeqnoRecorded()) +
+          ". (Last sequence number equal to 0 indicates no WAL records)";
+      ReportCorruption(fragment.size(), reason.c_str());
+    } else if (observed_predecessor_wal_info_.GetSizeBytes() !=
+               recorded_predecessor_wal_info.GetSizeBytes()) {
+      std::string reason =
+          "Mismatched size of the WAL of log number " +
+          std::to_string(recorded_predecessor_log_number) + ". Recorded " +
+          std::to_string(recorded_predecessor_wal_info.GetSizeBytes()) +
+          " bytes. Observed " +
+          std::to_string(observed_predecessor_wal_info_.GetSizeBytes()) +
+          " bytes.";
+      ReportCorruption(fragment.size(), reason.c_str());
+    }
+  }
 }
 
 uint64_t Reader::LastRecordOffset() { return last_record_offset_; }
@@ -486,7 +564,8 @@ uint8_t Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
     int header_size = kHeaderSize;
     const bool is_recyclable_type =
         ((type >= kRecyclableFullType && type <= kRecyclableLastType) ||
-         type == kRecyclableUserDefinedTimestampSizeType);
+         type == kRecyclableUserDefinedTimestampSizeType ||
+         type == kRecyclePredecessorWALInfoType);
     if (is_recyclable_type) {
       header_size = kRecyclableHeaderSize;
       if (first_record_read_ && !recycled_) {
@@ -551,6 +630,8 @@ uint8_t Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
     buffer_.remove_prefix(header_size + length);
 
     if (!uncompress_ || type == kSetCompressionType ||
+        type == kPredecessorWALInfoType ||
+        type == kRecyclePredecessorWALInfoType ||
         type == kUserDefinedTimestampSizeType ||
         type == kRecyclableUserDefinedTimestampSizeType) {
       *result = Slice(header + header_size, length);
@@ -640,7 +721,9 @@ Status Reader::UpdateRecordedTimestampSize(
 }
 
 bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
-                                        WALRecoveryMode /*unused*/,
+                                        WALRecoveryMode wal_recovery_mode
+
+                                        ,
                                         uint64_t* /* checksum */) {
   assert(record != nullptr);
   assert(scratch != nullptr);
@@ -730,7 +813,24 @@ bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
         }
         break;
       }
+      case kPredecessorWALInfoType:
+      case kRecyclePredecessorWALInfoType: {
+        fragments_.clear();
+        prospective_record_offset = physical_record_offset;
+        last_record_offset_ = prospective_record_offset;
+        in_fragmented_record_ = false;
 
+        PredecessorWALInfo recorded_predecessor_wal_info;
+        Status s = recorded_predecessor_wal_info.DecodeFrom(&fragment);
+        if (!s.ok()) {
+          ReportCorruption(fragment.size(),
+                           "could not decode PredecessorWALInfoType record");
+        } else {
+          MaybeVerifyPredecessorWALInfo(wal_recovery_mode, fragment,
+                                        recorded_predecessor_wal_info);
+        }
+        break;
+      }
       case kUserDefinedTimestampSizeType:
       case kRecyclableUserDefinedTimestampSizeType: {
         if (in_fragmented_record_ && !scratch->empty()) {
@@ -871,7 +971,8 @@ bool FragmentBufferedReader::TryReadFragment(Slice* fragment, size_t* drop_size,
   const uint32_t length = a | (b << 8);
   int header_size = kHeaderSize;
   if ((type >= kRecyclableFullType && type <= kRecyclableLastType) ||
-      type == kRecyclableUserDefinedTimestampSizeType) {
+      type == kRecyclableUserDefinedTimestampSizeType ||
+      type == kRecyclePredecessorWALInfoType) {
     if (first_record_read_ && !recycled_) {
       // A recycled log should have started with a recycled record
       *fragment_type_or_err = kBadRecord;
@@ -927,6 +1028,8 @@ bool FragmentBufferedReader::TryReadFragment(Slice* fragment, size_t* drop_size,
   buffer_.remove_prefix(header_size + length);
 
   if (!uncompress_ || type == kSetCompressionType ||
+      type == kPredecessorWALInfoType ||
+      type == kRecyclePredecessorWALInfoType ||
       type == kUserDefinedTimestampSizeType ||
       type == kRecyclableUserDefinedTimestampSizeType) {
     *fragment = Slice(header + header_size, length);

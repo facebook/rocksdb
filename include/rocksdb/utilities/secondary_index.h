@@ -82,7 +82,7 @@ class SecondaryIndex {
   // index id or length indicator). Returning a non-OK status rolls back all
   // operations in the transaction related to this primary key-value.
   virtual Status GetSecondaryKeyPrefix(
-      const Slice& primary_key, const Slice& primary_column_value,
+      const Slice& primary_column_value,
       std::variant<Slice, std::string>* secondary_key_prefix) const = 0;
 
   // Get the optional secondary value for a given primary key-value. This method
@@ -93,8 +93,7 @@ class SecondaryIndex {
   // Returning a non-OK status rolls back all operations in the transaction
   // related to this primary key-value.
   virtual Status GetSecondaryValue(
-      const Slice& primary_key, const Slice& primary_column_value,
-      const Slice& previous_column_value,
+      const Slice& primary_column_value, const Slice& previous_column_value,
       std::optional<std::variant<Slice, std::string>>* secondary_value)
       const = 0;
 };
