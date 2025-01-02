@@ -2600,7 +2600,7 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
     return io_s;
   }
 
-  size_t buf_size = CalculateIOBufferSize(nullptr);
+  size_t buf_size = CalculateIOBufferSize(rate_limiter);
   std::unique_ptr<char[]> buf(new char[buf_size]);
   Slice data;
 
