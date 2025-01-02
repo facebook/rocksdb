@@ -314,10 +314,11 @@ class WinRandomAccessFileAsyncIo : public WinRandomAccessFile {
                              const IOOptions& options,
                              IODebugContext* dbg) override;
   // EXPERIMENTAL
-  virtual IOStatus ReadAsync(
-      FSReadRequest& req, const IOOptions& opts,
-      std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
-      void** io_handle, IOHandleDeleter* del_fn, IODebugContext* dbg) override;
+  virtual IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                             std::function<void(FSReadRequest&, void*)> cb,
+                             void* cb_arg, void** io_handle,
+                             IOHandleDeleter* del_fn,
+                             IODebugContext* dbg) override;
 };
 
 // This is a sequential write class. It has been mimicked (as others) after

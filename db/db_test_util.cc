@@ -352,7 +352,7 @@ Options DBTestBase::GetOptions(
       "NewRandomAccessFile:O_DIRECT");
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "NewWritableFile:O_DIRECT");
-#else if defined(OS_WIN)
+#elif defined(OS_WIN)
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "NewRandomAccessFile:FILE_FLAG_NO_BUFFERING");
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
