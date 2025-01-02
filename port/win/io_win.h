@@ -529,7 +529,7 @@ class WinFileLock : public FileLock {
 };
 
 struct Win_IOHandle {
-  std::function<void(const FSReadRequest&, void*)> cb;
+  std::function<void(FSReadRequest&, void*)> cb;
   void* cb_arg;
   uint64_t offset;
   size_t len;
@@ -538,8 +538,8 @@ struct Win_IOHandle {
   bool is_finished;
   WinFileData* file_data;
 
-  Win_IOHandle(std::function<void(const FSReadRequest&, void*)> _cb,
-               void* _cb_arg, uint64_t _offset, size_t _len, char* _scratch,
+  Win_IOHandle(std::function<void(FSReadRequest&, void*)> _cb, void* _cb_arg,
+               uint64_t _offset, size_t _len, char* _scratch,
                WinFileData* _file_data);
   ~Win_IOHandle();
 };
