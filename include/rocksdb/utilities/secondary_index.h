@@ -6,10 +6,13 @@
 
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <variant>
 
+#include "rocksdb/iterator.h"
+#include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -96,6 +99,32 @@ class SecondaryIndex {
       const Slice& primary_column_value, const Slice& previous_column_value,
       std::optional<std::variant<Slice, std::string>>* secondary_value)
       const = 0;
+
+  // Create an iterator that can be used by applications to query the index.
+  // This method takes a ReadOptions structure, which can be used by
+  // applications to provide (implementation-specific) query parameters to the
+  // index as well as an underlying iterator over the index's secondary column
+  // family, which the returned iterator is expected to take ownership of and
+  // use to read the actual secondary index entries. (Providing the underlying
+  // iterator this way enables querying the index as of a specific point in time
+  // for example.)
+  //
+  // Querying the index can be performed by calling the returned iterator's
+  // Seek API with a search target, and then using Next (and potentially
+  // Prev) to iterate through the matching index entries. SeekToFirst,
+  // SeekToLast, and SeekForPrev are not expected to be supported by the
+  // iterator. The iterator should expose primary keys, that is, the secondary
+  // key prefix should be stripped from the index entries.
+  //
+  // The exact semantics of the returned iterator depend on the index and are
+  // implementation-specific. For simple indices, the search target might be a
+  // primary column value, and the iterator might return all primary keys that
+  // have the given column value; however, other semantics are also possible.
+  // For vector indices, the search target might be a vector, and the iterator
+  // might return similar vectors from the index.
+  virtual std::unique_ptr<Iterator> NewIterator(
+      const ReadOptions& read_options,
+      std::unique_ptr<Iterator>&& underlying_it) const = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

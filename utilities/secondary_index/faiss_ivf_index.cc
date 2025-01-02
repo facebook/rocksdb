@@ -210,4 +210,11 @@ Status FaissIVFIndex::GetSecondaryValue(
   return Status::OK();
 }
 
+std::unique_ptr<Iterator> FaissIVFIndex::NewIterator(
+    const ReadOptions& /* read_options */,
+    std::unique_ptr<Iterator>&& /* underlying_it */) const {
+  // TODO: implement this
+  return std::unique_ptr<Iterator>(NewErrorIterator(Status::NotSupported()));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
