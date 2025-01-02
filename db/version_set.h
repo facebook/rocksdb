@@ -703,13 +703,6 @@ class VersionStorageInfo {
   // file that is not yet compacted
   std::vector<int> next_file_to_compact_by_size_;
 
-  // Only the first few entries of files_by_compaction_pri_ are sorted.
-  // There is no need to sort all the files because it is likely
-  // that on a running system, we need to look at only the first
-  // few largest files because a new version is created every few
-  // seconds/minutes (because of concurrent compactions).
-  static const size_t number_of_files_to_sort_ = 50;
-
   // This vector contains list of files marked for compaction and also not
   // currently being compacted. It is protected by DB mutex. It is calculated in
   // ComputeCompactionScore(). Used by Leveled and Universal Compaction.
