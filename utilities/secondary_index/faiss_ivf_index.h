@@ -43,6 +43,10 @@ class FaissIVFIndex : public SecondaryIndex {
                            std::optional<std::variant<Slice, std::string>>*
                                secondary_value) const override;
 
+  std::unique_ptr<Iterator> NewIterator(
+      const ReadOptions& read_options,
+      std::unique_ptr<Iterator>&& underlying_it) const override;
+
  private:
   class Adapter;
 
