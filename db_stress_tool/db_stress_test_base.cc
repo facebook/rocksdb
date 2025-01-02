@@ -3697,6 +3697,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       const std::string& secondary_path = FLAGS_secondaries_base;
       s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
                               cf_descriptors, &cmp_cfhs_, &cmp_db_);
+      fprintf(stdout, "StressTest::Open, DB::OpenAsSecondary\n");
       assert(s.ok());
       assert(cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
     }

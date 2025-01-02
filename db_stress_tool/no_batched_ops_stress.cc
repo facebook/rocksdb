@@ -336,6 +336,7 @@ class NonBatchedOpsStressTest : public StressTest {
     if (!cmp_db_) {
       return;
     }
+    fprintf(stdout, "NonBatchedOpsStressTest::ContinuouslyVerifyDb\n");
     assert(cmp_db_);
     assert(!cmp_cfhs_.empty());
     Status s = cmp_db_->TryCatchUpWithPrimary();
