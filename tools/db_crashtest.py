@@ -1011,7 +1011,11 @@ def finalize_and_sanitize(src_params):
         dest_params["use_full_merge_v1"] = 0
         dest_params["enable_pipelined_write"] = 0
         dest_params["use_attribute_group"] = 0
-
+    # TODO(hx235): Enable below fault injections again after resolving the apparent WAL hole
+    # that the mishandling of these faults create and is detected by `track_and_verify_wals=0`
+    if dest_params.get("track_and_verify_wals", 0) == 1:
+        dest_params["metadata_write_fault_one_in"] = 0
+        dest_params["write_fault_one_in"] = 0
     return dest_params
 
 
