@@ -4496,7 +4496,7 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
 
 TEST_F(BackupEngineTest, IOBufferSize) {
   size_t expected_buffer_size = 5 * 1024 * 1024;
-  bool io_buffer_size_calculated = false;
+  std::atomic<bool> io_buffer_size_calculated{false};
   SyncPoint::GetInstance()->SetCallBack(
       "BackupEngineImpl::CopyOrCreateFile:CalculateIOBufferSize",
       [&](void* data) {
