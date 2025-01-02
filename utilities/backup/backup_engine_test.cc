@@ -4525,16 +4525,17 @@ TEST_F(BackupEngineTest, IOBufferSize) {
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   ASSERT_TRUE(io_buffer_size_calculated);
   CloseDBAndBackupEngine();
-  engine_options_->io_buffer_size = 0;
 
   // Without io_buffer_size specified, the rate limiter burst bytes value will
   // be used (16 MB in this example)
-  expected_buffer_size = 16 * 1024 * 1024;
+  engine_options_->io_buffer_size = 0;
+  size_t single_burst_bytes = 16 * 1024 * 1024;
+  expected_buffer_size = single_burst_bytes;
   std::shared_ptr<RateLimiter> backup_rate_limiter(NewGenericRateLimiter(
       5 * 1024 * 1024 /* rate_bytes_per_sec */,
       100 * 1000 /* refill_period_us */, 10 /* fairness */,
       RateLimiter::Mode::kWritesOnly /* mode */, false /* auto_tuned */,
-      expected_buffer_size /* single_burst_bytes */));
+      single_burst_bytes /* single_burst_bytes */));
   engine_options_->backup_rate_limiter = backup_rate_limiter;
   io_buffer_size_calculated = false;
   OpenDBAndBackupEngine(true /* destroy_old_data */);
