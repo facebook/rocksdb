@@ -6417,10 +6417,13 @@ TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
   options.level0_file_num_compaction_trigger = 4;
   options.target_file_size_base = kKeysPerBuffer * 1024;
   options.compaction_pri = CompactionPri::kRoundRobin;
-  // Target size is chosen so that filling the level with `kFilesPerLevel` files
-  // will make it oversized by `kNumSubcompactions` files.
+  // Pick a small target level size so that round-robin compaction will pick
+  // more files to compact and trigger subcompactions. Actual number of
+  // subcompactions will be limited by number of bg threads available.
+  // Cannot be too small to cause compaction pressure. See
+  // GetPendingCompactionBytesForCompactionSpeedup().
   options.max_bytes_for_level_base =
-      (kFilesPerLevel - kNumSubcompactions) * kKeysPerBuffer * 1024;
+      (kFilesPerLevel - 10) * kKeysPerBuffer * 1024;
   options.disable_auto_compactions = true;
   // Setup `kNumSubcompactions` threads but limited subcompactions so
   // that RoundRobin requires extra compactions from reserved threads
@@ -6446,21 +6449,34 @@ TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
     ASSERT_EQ(kFilesPerLevel, NumTableFilesAtLevel(lvl, 0));
   }
 
+  bool compaction_num_input_file_verified = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        if (!compaction_num_input_file_verified) {
+          Compaction* compaction = static_cast<Compaction*>(arg);
+          // In Round-Robin, # of subcompactions needed is the # of input files
+          ASSERT_GT(compaction->num_input_files(0), 1);
+          compaction_num_input_file_verified = true;
+        }
+      });
+
   // This is a variable for making sure the following callback is called
   // and the assertions in it are indeed excuted.
   bool num_planned_subcompactions_verified = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::GenSubcompactionBoundaries:0", [&](void* arg) {
-        uint64_t num_planned_subcompactions = *(static_cast<uint64_t*>(arg));
-        if (grab_pressure_token_) {
-          // `kNumSubcompactions` files are selected for round-robin under auto
-          // compaction. The number of planned subcompaction is restricted by
-          // the limited number of max_background_compactions
-          ASSERT_EQ(num_planned_subcompactions, kNumSubcompactions);
-        } else {
-          ASSERT_EQ(num_planned_subcompactions, 1);
+        if (!num_planned_subcompactions_verified) {
+          uint64_t num_planned_subcompactions = *(static_cast<uint64_t*>(arg));
+          if (grab_pressure_token_) {
+            // `kNumSubcompactions` files are selected for round-robin under
+            // auto compaction. The number of planned subcompaction is
+            // restricted by the limited number of max_background_compactions
+            ASSERT_EQ(num_planned_subcompactions, kNumSubcompactions);
+          } else {
+            ASSERT_EQ(num_planned_subcompactions, 1);
+          }
+          num_planned_subcompactions_verified = true;
         }
-        num_planned_subcompactions_verified = true;
       });
 
   // The following 3 dependencies have to be added to ensure the auto
