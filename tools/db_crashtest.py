@@ -344,6 +344,7 @@ default_params = {
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     "track_and_verify_wals": lambda: random.choice([0, 1]),
+    "test_secondary": lambda: random.choice([0, 1]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
@@ -999,7 +1000,10 @@ def finalize_and_sanitize(src_params):
         or dest_params.get("delrangepercent") == 0
     ):
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
-    if dest_params.get("use_txn", 0) == 1 and dest_params.get("commit_bypass_memtable_one_in", 0) > 0:
+    if (
+        dest_params.get("use_txn", 0) == 1
+        and dest_params.get("commit_bypass_memtable_one_in", 0) > 0
+    ):
         dest_params["enable_blob_files"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
         dest_params["atomic_flush"] = 0
