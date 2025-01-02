@@ -165,7 +165,7 @@ Status FaissIVFIndex::UpdatePrimaryColumnValue(
 }
 
 Status FaissIVFIndex::GetSecondaryKeyPrefix(
-    const Slice& /* primary_key */, const Slice& primary_column_value,
+    const Slice& primary_column_value,
     std::variant<Slice, std::string>* secondary_key_prefix) const {
   assert(secondary_key_prefix);
 
@@ -180,8 +180,7 @@ Status FaissIVFIndex::GetSecondaryKeyPrefix(
 }
 
 Status FaissIVFIndex::GetSecondaryValue(
-    const Slice& /* primary_key */, const Slice& primary_column_value,
-    const Slice& original_column_value,
+    const Slice& primary_column_value, const Slice& original_column_value,
     std::optional<std::variant<Slice, std::string>>* secondary_value) const {
   assert(secondary_value);
 
@@ -209,6 +208,13 @@ Status FaissIVFIndex::GetSecondaryValue(
   secondary_value->emplace(std::move(code_str));
 
   return Status::OK();
+}
+
+std::unique_ptr<Iterator> FaissIVFIndex::NewIterator(
+    const ReadOptions& /* read_options */,
+    std::unique_ptr<Iterator>&& /* underlying_it */) const {
+  // TODO: implement this
+  return std::unique_ptr<Iterator>(NewErrorIterator(Status::NotSupported()));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

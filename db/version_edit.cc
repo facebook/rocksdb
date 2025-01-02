@@ -193,11 +193,13 @@ bool VersionEdit::EncodeTo(std::string* dst,
     PutVarint64(&varint_epoch_number, f.epoch_number);
     PutLengthPrefixedSlice(dst, Slice(varint_epoch_number));
 
-    PutVarint32(dst, NewFileCustomTag::kFileChecksum);
-    PutLengthPrefixedSlice(dst, Slice(f.file_checksum));
+    if (f.file_checksum_func_name != kUnknownFileChecksumFuncName) {
+      PutVarint32(dst, NewFileCustomTag::kFileChecksum);
+      PutLengthPrefixedSlice(dst, Slice(f.file_checksum));
 
-    PutVarint32(dst, NewFileCustomTag::kFileChecksumFuncName);
-    PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
+      PutVarint32(dst, NewFileCustomTag::kFileChecksumFuncName);
+      PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
+    }
 
     if (f.fd.GetPathId() != 0) {
       PutVarint32(dst, NewFileCustomTag::kPathId);
