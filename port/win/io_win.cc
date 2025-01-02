@@ -1075,7 +1075,7 @@ WinRandomAccessFileAsyncIo::WinRandomAccessFileAsyncIo(
     const FileOptions& options)
     : WinRandomAccessFile(fname, hFile, alignment, options) {}
 
-Win_IOHandle::Win_IOHandle(std::function<void(const FSReadRequest&, void*)> _cb,
+Win_IOHandle::Win_IOHandle(std::function<void(FSReadRequest&, void*)> _cb,
                            void* _cb_arg, uint64_t _offset, size_t _len,
                            char* _scratch, WinFileData* _file_data)
     : cb(_cb),
