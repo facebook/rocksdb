@@ -1299,11 +1299,15 @@ Status DBImpl::SetOptions(
       VersionEdit dummy_edit;
       s = versions_->LogAndApply(cfd, new_options, read_options, write_options,
                                  &dummy_edit, &mutex_, directories_.GetDbDir());
+      if (!versions_->io_status().ok()) {
+        assert(!s.ok());
+        error_handler_.SetBGError(versions_->io_status(),
+                                  BackgroundErrorReason::kManifestWrite);
+      }
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
       InstallSuperVersionAndScheduleWork(cfd, &sv_context, new_options);
-
       persist_options_status =
           WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
       bg_cv_.SignalAll();
