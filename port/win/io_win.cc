@@ -1000,7 +1000,7 @@ IOStatus WinRandomAccessFileAsyncIo::MultiRead(FSReadRequest* reqs,
 
 IOStatus WinRandomAccessFileAsyncIo::ReadAsync(
     FSReadRequest& req, const IOOptions& /*opts*/,
-    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    std::function<void(FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
   // Check buffer alignment
   if (file_base_->use_direct_io()) {
