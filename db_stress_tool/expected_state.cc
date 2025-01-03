@@ -295,12 +295,15 @@ Status FileExpectedStateManager::Open() {
       GetPathForFilename(kLatestBasename + kStateFilenameSuffix);
   std::string expected_persisted_seqno_file_path = GetPathForFilename(
       kPersistedSeqnoBasename + kPersistedSeqnoFilenameSuffix);
+  fprintf(stdout, "expected_state_file_path: %s\n",
+          expected_state_file_path.c_str());
   bool found = false;
   if (s.ok()) {
     Status exists_status = Env::Default()->FileExists(expected_state_file_path);
     if (exists_status.ok()) {
       found = true;
     } else if (exists_status.IsNotFound()) {
+      fprintf(stdout, "IsNotFound\n");
       assert(Env::Default()
                  ->FileExists(expected_persisted_seqno_file_path)
                  .IsNotFound());
@@ -309,6 +312,7 @@ Status FileExpectedStateManager::Open() {
     }
   }
 
+  fprintf(stdout, "found: %d\n", found);
   if (!found) {
     // Initialize the file in a temp path and then rename it. That way, in case
     // this process is killed during setup, `Clean()` will take care of removing
