@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <iostream>
 #ifdef GFLAGS
 
 #include "db/wide/wide_column_serialization.h"
@@ -295,12 +296,16 @@ Status FileExpectedStateManager::Open() {
       GetPathForFilename(kLatestBasename + kStateFilenameSuffix);
   std::string expected_persisted_seqno_file_path = GetPathForFilename(
       kPersistedSeqnoBasename + kPersistedSeqnoFilenameSuffix);
+  std::cout << "Looking for expected state file path at "
+            << expected_state_file_path << std::endl;
   bool found = false;
   if (s.ok()) {
     Status exists_status = Env::Default()->FileExists(expected_state_file_path);
     if (exists_status.ok()) {
       found = true;
     } else if (exists_status.IsNotFound()) {
+      std::cout << "Could not find a file at expected state file path"
+                << std::endl;
       assert(Env::Default()
                  ->FileExists(expected_persisted_seqno_file_path)
                  .IsNotFound());
@@ -679,6 +684,61 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
 }  // anonymous namespace
 
+Status FileExpectedStateManager::GetExpectedState(
+    DB* db, std::unique_ptr<ExpectedState>& state) {
+  std::cout << "Enter FileExpectedStateManager::GetExpectedState" << std::endl;
+  if (!HasHistory()) {
+    fprintf(stderr, "No history to restore from\n");
+    exit(123);
+  }
+  std::cout << "History exists to restore from" << std::endl;
+  SequenceNumber seqno = db->GetLatestSequenceNumber();
+  std::cout << "saved_seqno_ = " << saved_seqno_ << std::endl;
+  std::cout << "seqno = " << seqno << std::endl;
+  if (seqno < saved_seqno_) {
+    return Status::Corruption("DB is older than any restorable expected state");
+  }
+
+  std::cout << "Above last sequence number" << std::endl;
+
+  std::string trace_filename =
+      std::to_string(saved_seqno_) + kTraceFilenameSuffix;
+  std::string trace_file_path = GetPathForFilename(trace_filename);
+  std::cout << "trace_file_path = " << trace_file_path << std::endl;
+  Status exists_status = Env::Default()->FileExists(trace_file_path);
+  if (exists_status.ok()) {
+    std::cout << "Trace file exists" << std::endl;
+  } else if (exists_status.IsNotFound()) {
+    std::cout << "Cannot find trace file" << std::endl;
+  }
+
+  std::unique_ptr<TraceReader> trace_reader;
+  Status s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_path,
+                                &trace_reader);
+  if (!s.ok()) {
+    std::cout << "Could not create file trace reader" << std::endl;
+    return s;
+  }
+
+  std::cout << "Attempting to define the AnonExpectedState" << std::endl;
+  std::unique_ptr<AnonExpectedState> replay_state(
+      new AnonExpectedState(max_key_, num_column_families_));
+  std::cout << "Attempting to open the AnonExpectedState" << std::endl;
+  s = replay_state->Open(true /* create */);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::cout << "Set up replay state" << std::endl;
+  s = ReplayTrace(db, std::move(trace_reader), seqno - saved_seqno_,
+                  replay_state.get());
+  if (s.ok()) {
+    state = std::move(replay_state);
+  }
+  std::cout << "Expected state should be all done" << std::endl;
+  return s;
+}
+
 Status FileExpectedStateManager::Restore(DB* db) {
   assert(HasHistory());
   SequenceNumber seqno = db->GetLatestSequenceNumber();
@@ -708,74 +768,45 @@ Status FileExpectedStateManager::Restore(DB* db) {
 
   if (s.ok()) {
     // We are going to replay on top of "`seqno`.state" to create a new
-    // "LATEST.state". Start off by creating a tempfile so we can later make the
-    // new "LATEST.state" appear atomically using `RenameFile()`.
+    // "LATEST.state". Start off by creating a tempfile so we can later make
+    // the new "LATEST.state" appear atomically using `RenameFile()`.
     s = CopyFile(FileSystem::Default(), state_file_path, Temperature::kUnknown,
                  latest_file_temp_path, Temperature::kUnknown, 0 /* size */,
                  false /* use_fsync */, nullptr /* io_tracer */);
   }
 
-  {
-    std::unique_ptr<Replayer> replayer;
-    std::unique_ptr<ExpectedState> state;
-    std::unique_ptr<ExpectedStateTraceRecordHandler> handler;
-    if (s.ok()) {
-      state.reset(new FileExpectedState(latest_file_temp_path,
-                                        persisted_seqno_file_path, max_key_,
-                                        num_column_families_));
-      s = state->Open(false /* create */);
-    }
-    if (s.ok()) {
-      handler.reset(new ExpectedStateTraceRecordHandler(seqno - saved_seqno_,
-                                                        state.get()));
-      // TODO(ajkr): An API limitation requires we provide `handles` although
-      // they will be unused since we only use the replayer for reading records.
-      // Just give a default CFH for now to satisfy the requirement.
-      s = db->NewDefaultReplayer({db->DefaultColumnFamily()} /* handles */,
-                                 std::move(trace_reader), &replayer);
-    }
-
-    if (s.ok()) {
-      s = replayer->Prepare();
-    }
-    for (; s.ok();) {
-      std::unique_ptr<TraceRecord> record;
-      s = replayer->Next(&record);
-      if (!s.ok()) {
-        if (s.IsCorruption() && handler->IsDone()) {
-          // There could be a corruption reading the tail record of the trace
-          // due to `db_stress` crashing while writing it. It shouldn't matter
-          // as long as we already found all the write ops we need to catch up
-          // the expected state.
-          s = Status::OK();
-        }
-        if (s.IsIncomplete()) {
-          // OK because `Status::Incomplete` is expected upon finishing all the
-          // trace records.
-          s = Status::OK();
-        }
-        break;
-      }
-      std::unique_ptr<TraceRecordResult> res;
-      s = record->Accept(handler.get(), &res);
-    }
+  if (!s.ok()) {
+    return s;
   }
 
-  if (s.ok()) {
-    s = FileSystem::Default()->RenameFile(latest_file_temp_path,
-                                          latest_file_path, IOOptions(),
-                                          nullptr /* dbg */);
+  std::unique_ptr<ExpectedState> state(
+      new FileExpectedState(latest_file_temp_path, persisted_seqno_file_path,
+                            max_key_, num_column_families_));
+  s = state->Open(false /* create */);
+  if (!s.ok()) {
+    return s;
   }
-  if (s.ok()) {
-    latest_.reset(new FileExpectedState(latest_file_path,
-                                        persisted_seqno_file_path, max_key_,
-                                        num_column_families_));
-    s = latest_->Open(false /* create */);
+
+  s = ReplayTrace(db, std::move(trace_reader), seqno - saved_seqno_,
+                  state.get());
+
+  if (!s.ok()) {
+    return s;
   }
+
+  s = FileSystem::Default()->RenameFile(latest_file_temp_path, latest_file_path,
+                                        IOOptions(), nullptr /* dbg */);
+  if (!s.ok()) {
+    return s;
+  }
+  latest_.reset(new FileExpectedState(latest_file_path,
+                                      persisted_seqno_file_path, max_key_,
+                                      num_column_families_));
+  s = latest_->Open(false /* create */);
 
   // Delete old state/trace files. We must delete the state file first.
-  // Otherwise, a crash-recovery immediately after deleting the trace file could
-  // lead to `Restore()` unable to replay to `seqno`.
+  // Otherwise, a crash-recovery immediately after deleting the trace file
+  // could lead to `Restore()` unable to replay to `seqno`.
   if (s.ok()) {
     s = Env::Default()->DeleteFile(state_file_path);
   }
@@ -806,6 +837,46 @@ Status FileExpectedStateManager::Restore(DB* db) {
       saved_seqno_ = kMaxSequenceNumber;
     }
   }
+
+  return s;
+}
+
+Status FileExpectedStateManager::ReplayTrace(
+    DB* db, std::unique_ptr<TraceReader> trace_reader, uint64_t max_write_ops,
+    ExpectedState* state) {
+  std::unique_ptr<ExpectedStateTraceRecordHandler> handler(
+      new ExpectedStateTraceRecordHandler(max_write_ops, state));
+  // TODO(ajkr): An API limitation requires we provide `handles` although
+  // they will be unused since we only use the replayer for reading records.
+  // Just give a default CFH for now to satisfy the requirement.
+  std::unique_ptr<Replayer> replayer;
+  Status s = db->NewDefaultReplayer({db->DefaultColumnFamily()} /* handles */,
+                                    std::move(trace_reader), &replayer);
+
+  if (s.ok()) {
+    s = replayer->Prepare();
+  }
+  for (; s.ok();) {
+    std::unique_ptr<TraceRecord> record;
+    s = replayer->Next(&record);
+    if (!s.ok()) {
+      if (s.IsCorruption() && handler->IsDone()) {
+        // There could be a corruption reading the tail record of the trace
+        // due to `db_stress` crashing while writing it. It shouldn't matter
+        // as long as we already found all the write ops we need to catch up
+        // the expected state.
+        s = Status::OK();
+      }
+      if (s.IsIncomplete()) {
+        // OK because `Status::Incomplete` is expected upon finishing all the
+        // trace records.
+        s = Status::OK();
+      }
+      break;
+    }
+    std::unique_ptr<TraceRecordResult> res;
+    s = record->Accept(handler.get(), &res);
+  }
   return s;
 }
 
@@ -814,9 +885,9 @@ Status FileExpectedStateManager::Clean() {
   Status s = Env::Default()->GetChildren(expected_state_dir_path_,
                                          &expected_state_dir_children);
   // An incomplete `Open()` or incomplete `SaveAtAndAfter()` could have left
-  // behind invalid temporary files. An incomplete `SaveAtAndAfter()` could have
-  // also left behind stale state/trace files. An incomplete `Restore()` could
-  // have left behind stale trace files.
+  // behind invalid temporary files. An incomplete `SaveAtAndAfter()` could
+  // have also left behind stale state/trace files. An incomplete `Restore()`
+  // could have left behind stale trace files.
   for (size_t i = 0; s.ok() && i < expected_state_dir_children.size(); ++i) {
     const auto& filename = expected_state_dir_children[i];
     if (filename.rfind(kTempFilenamePrefix, 0 /* pos */) == 0 &&

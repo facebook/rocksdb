@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <iostream>
+
 #include "db/dbformat.h"
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
@@ -336,6 +338,21 @@ class NonBatchedOpsStressTest : public StressTest {
     if (!cmp_db_) {
       return;
     }
+    std::cout << "NonBatchedOpsStressTest::ContinuouslyVerifyDb" << std::endl;
+
+    if (thread->shared->HasHistory()) {
+      std::unique_ptr<ExpectedState> state;
+      Status getExpectedStateStatus =
+          thread->shared->GetExpectedState(db_, state);
+      if (!getExpectedStateStatus.ok()) {
+        fprintf(stdout,
+                "[NonBatchedOpsStressTest::ContinuouslyVerifyDb]: Failed to "
+                "set expected state\n");
+        assert(false);
+        exit(1);
+      }
+    }
+
     assert(cmp_db_);
     assert(!cmp_cfhs_.empty());
     Status s = cmp_db_->TryCatchUpWithPrimary();
@@ -2718,6 +2735,14 @@ class NonBatchedOpsStressTest : public StressTest {
                          std::string msg_prefix, const Status& s) const {
     if (shared->HasVerificationFailedYet()) {
       return false;
+    }
+    if (shared->HasHistory()) {
+      std::unique_ptr<ExpectedState> state;
+      Status getExpectedStateStatus = shared->GetExpectedState(db_, state);
+      if (!getExpectedStateStatus.ok()) {
+        fprintf(stdout, "[VerifyOrSyncValue]: Failed to get expected state\n");
+        return false;
+      }
     }
     const ExpectedValue expected_value = shared->Get(cf, key);
 

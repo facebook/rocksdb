@@ -10,6 +10,8 @@
 #ifdef GFLAGS
 #pragma once
 
+#include <iostream>
+
 #include "db_stress_tool/db_stress_stat.h"
 #include "db_stress_tool/expected_state.h"
 // SyncPoint is not supported in Released Windows Mode.
@@ -108,9 +110,11 @@ class SharedState {
     }
     if (status.ok()) {
       if (FLAGS_expected_values_dir.empty()) {
+        std::cout << "Using AnonExpectedStateManager" << std::endl;
         expected_state_manager_.reset(
             new AnonExpectedStateManager(FLAGS_max_key, FLAGS_column_families));
       } else {
+        std::cout << "Using FileExpectedStateManager" << std::endl;
         expected_state_manager_.reset(new FileExpectedStateManager(
             FLAGS_max_key, FLAGS_column_families, FLAGS_expected_values_dir));
       }
@@ -260,6 +264,10 @@ class SharedState {
   bool HasHistory() { return expected_state_manager_->HasHistory(); }
 
   Status Restore(DB* db) { return expected_state_manager_->Restore(db); }
+
+  Status GetExpectedState(DB* db, std::unique_ptr<ExpectedState>& state) {
+    return expected_state_manager_->GetExpectedState(db, state);
+  }
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) {
