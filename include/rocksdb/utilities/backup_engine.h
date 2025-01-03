@@ -77,6 +77,15 @@ struct BackupEngineOptions {
   // Default: true
   bool backup_log_files;
 
+  // Size of the buffer in bytes used for reading files.
+  // Enables optimally configuring the IO size based on the storage backend.
+  // If specified, takes precendence over the rate limiter burst size (if
+  // specified) as well as kDefaultCopyFileBufferSize.
+  // If 0, the rate limiter burst size (if specified) or
+  // kDefaultCopyFileBufferSize will be used.
+  // Default: 0
+  uint64_t io_buffer_size;
+
   // Max bytes that can be transferred in a second during backup.
   // If 0, go as fast as you can
   // This limit only applies to writes. To also limit reads,
@@ -228,8 +237,9 @@ struct BackupEngineOptions {
       const std::string& _backup_dir, Env* _backup_env = nullptr,
       bool _share_table_files = true, Logger* _info_log = nullptr,
       bool _sync = true, bool _destroy_old_data = false,
-      bool _backup_log_files = true, uint64_t _backup_rate_limit = 0,
-      uint64_t _restore_rate_limit = 0, int _max_background_operations = 1,
+      bool _backup_log_files = true, uint64_t _io_buffer_size = 0,
+      uint64_t _backup_rate_limit = 0, uint64_t _restore_rate_limit = 0,
+      int _max_background_operations = 1,
       uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
       int _max_valid_backups_to_open = INT_MAX,
       ShareFilesNaming _share_files_with_checksum_naming =
@@ -241,6 +251,7 @@ struct BackupEngineOptions {
         sync(_sync),
         destroy_old_data(_destroy_old_data),
         backup_log_files(_backup_log_files),
+        io_buffer_size(_io_buffer_size),
         backup_rate_limit(_backup_rate_limit),
         restore_rate_limit(_restore_rate_limit),
         share_files_with_checksum(true),

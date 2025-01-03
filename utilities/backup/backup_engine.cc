@@ -581,6 +581,8 @@ class BackupEngineImpl {
                             uint64_t* bytes_toward_next_callback,
                             uint64_t* size, std::string* checksum_hex);
 
+  uint64_t CalculateIOBufferSize(RateLimiter* rate_limiter) const;
+
   IOStatus ReadFileAndComputeChecksum(const std::string& src,
                                       const std::shared_ptr<FileSystem>& src_fs,
                                       const EnvOptions& src_env_options,
@@ -2212,9 +2214,9 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     return io_s;
   }
 
-  size_t buf_size =
-      rate_limiter ? static_cast<size_t>(rate_limiter->GetSingleBurstBytes())
-                   : kDefaultCopyFileBufferSize;
+  size_t buf_size = CalculateIOBufferSize(rate_limiter);
+  TEST_SYNC_POINT_CALLBACK(
+      "BackupEngineImpl::CopyOrCreateFile:CalculateIOBufferSize", &buf_size);
 
   // TODO: pass in Histograms if the destination file is sst or blob
   std::unique_ptr<WritableFileWriter> dest_writer(
@@ -2305,6 +2307,16 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     io_s = dest_writer->Close(opts);
   }
   return io_s;
+}
+
+uint64_t BackupEngineImpl::CalculateIOBufferSize(
+    RateLimiter* rate_limiter) const {
+  if (options_.io_buffer_size > 0) {
+    return options_.io_buffer_size;
+  }
+  return rate_limiter != nullptr
+             ? static_cast<size_t>(rate_limiter->GetSingleBurstBytes())
+             : kDefaultCopyFileBufferSize;
 }
 
 // fname will always start with "/"
@@ -2588,7 +2600,7 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
     return io_s;
   }
 
-  size_t buf_size = kDefaultCopyFileBufferSize;
+  size_t buf_size = CalculateIOBufferSize(rate_limiter);
   std::unique_ptr<char[]> buf(new char[buf_size]);
   Slice data;
 

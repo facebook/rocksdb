@@ -4494,6 +4494,60 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
   delete alt_backup_engine;
 }
 
+TEST_F(BackupEngineTest, IOBufferSize) {
+  size_t expected_buffer_size = 5 * 1024 * 1024;
+  std::atomic<bool> io_buffer_size_calculated{false};
+  SyncPoint::GetInstance()->SetCallBack(
+      "BackupEngineImpl::CopyOrCreateFile:CalculateIOBufferSize",
+      [&](void* data) {
+        if (data != nullptr) {
+          EXPECT_EQ(expected_buffer_size, *static_cast<uint64_t*>(data));
+        }
+        io_buffer_size_calculated = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  const int keys_iteration = 5000;
+  Random rnd(6);
+  // With no overrides, fall back to the default buffer size of 5 MB
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
+  ASSERT_TRUE(io_buffer_size_calculated);
+  CloseDBAndBackupEngine();
+
+  // Override the default buffer size to 64 MB through BackupEngineOptions
+  expected_buffer_size = 64 * 1024 * 1024;
+  engine_options_->io_buffer_size = expected_buffer_size;
+  io_buffer_size_calculated = false;
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
+  ASSERT_TRUE(io_buffer_size_calculated);
+  CloseDBAndBackupEngine();
+
+  // Without io_buffer_size specified, the rate limiter burst bytes value will
+  // be used (16 MB in this example)
+  engine_options_->io_buffer_size = 0;
+  size_t single_burst_bytes = 16 * 1024 * 1024;
+  expected_buffer_size = single_burst_bytes;
+  std::shared_ptr<RateLimiter> backup_rate_limiter(NewGenericRateLimiter(
+      5 * 1024 * 1024 /* rate_bytes_per_sec */,
+      100 * 1000 /* refill_period_us */, 10 /* fairness */,
+      RateLimiter::Mode::kWritesOnly /* mode */, false /* auto_tuned */,
+      single_burst_bytes /* single_burst_bytes */));
+  engine_options_->backup_rate_limiter = backup_rate_limiter;
+  io_buffer_size_calculated = false;
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
+  ASSERT_TRUE(io_buffer_size_calculated);
+  CloseDBAndBackupEngine();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 }  // namespace
 
 }  // namespace ROCKSDB_NAMESPACE
