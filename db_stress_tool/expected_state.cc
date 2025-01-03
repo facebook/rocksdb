@@ -679,7 +679,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
 }  // anonymous namespace
 
-Status FileExpectedStateManager::Restore(DB* db) {
+Status FileExpectedStateManager::Restore(DB* db, DBType db_type) {
   assert(HasHistory());
   SequenceNumber seqno = db->GetLatestSequenceNumber();
   if (seqno < saved_seqno_) {
@@ -761,49 +761,66 @@ Status FileExpectedStateManager::Restore(DB* db) {
     }
   }
 
-  if (s.ok()) {
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (db_type == DBType::kPrimary) {
     s = FileSystem::Default()->RenameFile(latest_file_temp_path,
                                           latest_file_path, IOOptions(),
                                           nullptr /* dbg */);
-  }
-  if (s.ok()) {
+    if (!s.ok()) {
+      return s;
+    }
     latest_.reset(new FileExpectedState(latest_file_path,
                                         persisted_seqno_file_path, max_key_,
                                         num_column_families_));
     s = latest_->Open(false /* create */);
+  } else if (db_type == DBType::kSecondary) {
+    secondary_expected_state_.reset(
+        new FileExpectedState(latest_file_temp_path, persisted_seqno_file_path,
+                              max_key_, num_column_families_));
+    s = secondary_expected_state_->Open(false /* create */);
+  } else if (db_type == DBType::kFollower) {
+    follower_expected_state_.reset(
+        new FileExpectedState(latest_file_temp_path, persisted_seqno_file_path,
+                              max_key_, num_column_families_));
+    s = follower_expected_state_->Open(false /* create */);
   }
 
-  // Delete old state/trace files. We must delete the state file first.
-  // Otherwise, a crash-recovery immediately after deleting the trace file could
-  // lead to `Restore()` unable to replay to `seqno`.
-  if (s.ok()) {
-    s = Env::Default()->DeleteFile(state_file_path);
-  }
-  if (s.ok()) {
-    std::vector<std::string> expected_state_dir_children;
-    s = Env::Default()->GetChildren(expected_state_dir_path_,
-                                    &expected_state_dir_children);
+  if (db_type == DBType::kPrimary) {
+    // Delete old state/trace files. We must delete the state file first.
+    // Otherwise, a crash-recovery immediately after deleting the trace file
+    // could lead to `Restore()` unable to replay to `seqno`.
     if (s.ok()) {
-      for (size_t i = 0; i < expected_state_dir_children.size(); ++i) {
-        const auto& filename = expected_state_dir_children[i];
-        if (filename.size() >= kTraceFilenameSuffix.size() &&
-            filename.rfind(kTraceFilenameSuffix) ==
-                filename.size() - kTraceFilenameSuffix.size()) {
-          SequenceNumber found_seqno = ParseUint64(filename.substr(
-              0, filename.size() - kTraceFilenameSuffix.size()));
-          // Delete older trace files, but keep the one we just replayed for
-          // debugging purposes
-          if (found_seqno < saved_seqno_) {
-            s = Env::Default()->DeleteFile(GetPathForFilename(filename));
-          }
-        }
-        if (!s.ok()) {
-          break;
-        }
-      }
+      s = Env::Default()->DeleteFile(state_file_path);
     }
     if (s.ok()) {
-      saved_seqno_ = kMaxSequenceNumber;
+      std::vector<std::string> expected_state_dir_children;
+      s = Env::Default()->GetChildren(expected_state_dir_path_,
+                                      &expected_state_dir_children);
+      if (s.ok()) {
+        for (size_t i = 0; i < expected_state_dir_children.size(); ++i) {
+          const auto& filename = expected_state_dir_children[i];
+          if (filename.size() >= kTraceFilenameSuffix.size() &&
+              filename.rfind(kTraceFilenameSuffix) ==
+                  filename.size() - kTraceFilenameSuffix.size()) {
+            SequenceNumber found_seqno = ParseUint64(filename.substr(
+                0, filename.size() - kTraceFilenameSuffix.size()));
+            // Delete older trace files, but keep the one we just replayed for
+            // debugging purposes
+            if (found_seqno < saved_seqno_) {
+              s = Env::Default()->DeleteFile(GetPathForFilename(filename));
+            }
+          }
+          if (!s.ok()) {
+            break;
+          }
+        }
+      }
+      if (s.ok()) {
+        saved_seqno_ = kMaxSequenceNumber;
+      }
     }
   }
   return s;

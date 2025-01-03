@@ -259,7 +259,9 @@ class SharedState {
 
   bool HasHistory() { return expected_state_manager_->HasHistory(); }
 
-  Status Restore(DB* db) { return expected_state_manager_->Restore(db); }
+  Status Restore(DB* db, DBType db_type) {
+    return expected_state_manager_->Restore(db, db_type);
+  }
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) {
