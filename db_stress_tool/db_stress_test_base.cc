@@ -9,6 +9,7 @@
 //
 
 #include <ios>
+#include <iostream>
 #include <thread>
 
 #include "db_stress_tool/db_stress_listener.h"
@@ -3697,7 +3698,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       const std::string& secondary_path = FLAGS_secondaries_base;
       s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
                               cf_descriptors, &cmp_cfhs_, &cmp_db_);
-      fprintf(stdout, "StressTest::Open, DB::OpenAsSecondary\n");
+      std::cout << "Opening secondary db" << std::endl;
       assert(s.ok());
       assert(cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
     }

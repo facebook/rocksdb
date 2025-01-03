@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <iostream>
+
 #include "db/dbformat.h"
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
@@ -336,7 +338,7 @@ class NonBatchedOpsStressTest : public StressTest {
     if (!cmp_db_) {
       return;
     }
-    fprintf(stdout, "NonBatchedOpsStressTest::ContinuouslyVerifyDb\n");
+    std::cout << "NonBatchedOpsStressTest::ContinuouslyVerifyDb" << std::endl;
 
     if (thread->shared->HasHistory()) {
       std::unique_ptr<ExpectedState> state;
