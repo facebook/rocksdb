@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <iostream>
 #ifdef GFLAGS
 
 #include "db/wide/wide_column_serialization.h"
@@ -295,15 +296,16 @@ Status FileExpectedStateManager::Open() {
       GetPathForFilename(kLatestBasename + kStateFilenameSuffix);
   std::string expected_persisted_seqno_file_path = GetPathForFilename(
       kPersistedSeqnoBasename + kPersistedSeqnoFilenameSuffix);
-  fprintf(stdout, "expected_state_file_path: %s\n",
-          expected_state_file_path.c_str());
+  std::cout << "Looking for expected state file path at "
+            << expected_state_file_path << std::endl;
   bool found = false;
   if (s.ok()) {
     Status exists_status = Env::Default()->FileExists(expected_state_file_path);
     if (exists_status.ok()) {
       found = true;
     } else if (exists_status.IsNotFound()) {
-      fprintf(stdout, "IsNotFound\n");
+      std::cout << "Could not find a file at expected state file path"
+                << std::endl;
       assert(Env::Default()
                  ->FileExists(expected_persisted_seqno_file_path)
                  .IsNotFound());
@@ -312,7 +314,6 @@ Status FileExpectedStateManager::Open() {
     }
   }
 
-  fprintf(stdout, "found: %d\n", found);
   if (!found) {
     // Initialize the file in a temp path and then rename it. That way, in case
     // this process is killed during setup, `Clean()` will take care of removing
@@ -685,32 +686,56 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
 Status FileExpectedStateManager::GetExpectedState(
     DB* db, std::unique_ptr<ExpectedState>& state) {
-  assert(HasHistory());
+  std::cout << "Enter FileExpectedStateManager::GetExpectedState" << std::endl;
+  if (!HasHistory()) {
+    fprintf(stderr, "No history to restore from\n");
+    exit(123);
+  }
+  std::cout << "History exists to restore from" << std::endl;
   SequenceNumber seqno = db->GetLatestSequenceNumber();
+  std::cout << "saved_seqno_ = " << saved_seqno_ << std::endl;
+  std::cout << "seqno = " << seqno << std::endl;
   if (seqno < saved_seqno_) {
     return Status::Corruption("DB is older than any restorable expected state");
   }
 
+  std::cout << "Above last sequence number" << std::endl;
+
   std::string trace_filename =
       std::to_string(saved_seqno_) + kTraceFilenameSuffix;
   std::string trace_file_path = GetPathForFilename(trace_filename);
+  std::cout << "trace_file_path = " << trace_file_path << std::endl;
+  Status exists_status = Env::Default()->FileExists(trace_file_path);
+  if (exists_status.ok()) {
+    std::cout << "Trace file exists" << std::endl;
+  } else if (exists_status.IsNotFound()) {
+    std::cout << "Cannot find trace file" << std::endl;
+  }
 
   std::unique_ptr<TraceReader> trace_reader;
   Status s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_path,
                                 &trace_reader);
+  if (!s.ok()) {
+    std::cout << "Could not create file trace reader" << std::endl;
+    return s;
+  }
 
+  std::cout << "Attempting to define the AnonExpectedState" << std::endl;
   std::unique_ptr<AnonExpectedState> replay_state(
       new AnonExpectedState(max_key_, num_column_families_));
-  s = state->Open(true /* create */);
+  std::cout << "Attempting to open the AnonExpectedState" << std::endl;
+  s = replay_state->Open(true /* create */);
   if (!s.ok()) {
     return s;
   }
 
+  std::cout << "Set up replay state" << std::endl;
   s = ReplayTrace(db, std::move(trace_reader), seqno - saved_seqno_,
                   replay_state.get());
   if (s.ok()) {
     state = std::move(replay_state);
   }
+  std::cout << "Expected state should be all done" << std::endl;
   return s;
 }
 
@@ -743,8 +768,8 @@ Status FileExpectedStateManager::Restore(DB* db) {
 
   if (s.ok()) {
     // We are going to replay on top of "`seqno`.state" to create a new
-    // "LATEST.state". Start off by creating a tempfile so we can later make the
-    // new "LATEST.state" appear atomically using `RenameFile()`.
+    // "LATEST.state". Start off by creating a tempfile so we can later make
+    // the new "LATEST.state" appear atomically using `RenameFile()`.
     s = CopyFile(FileSystem::Default(), state_file_path, Temperature::kUnknown,
                  latest_file_temp_path, Temperature::kUnknown, 0 /* size */,
                  false /* use_fsync */, nullptr /* io_tracer */);
@@ -860,9 +885,9 @@ Status FileExpectedStateManager::Clean() {
   Status s = Env::Default()->GetChildren(expected_state_dir_path_,
                                          &expected_state_dir_children);
   // An incomplete `Open()` or incomplete `SaveAtAndAfter()` could have left
-  // behind invalid temporary files. An incomplete `SaveAtAndAfter()` could have
-  // also left behind stale state/trace files. An incomplete `Restore()` could
-  // have left behind stale trace files.
+  // behind invalid temporary files. An incomplete `SaveAtAndAfter()` could
+  // have also left behind stale state/trace files. An incomplete `Restore()`
+  // could have left behind stale trace files.
   for (size_t i = 0; s.ok() && i < expected_state_dir_children.size(); ++i) {
     const auto& filename = expected_state_dir_children[i];
     if (filename.rfind(kTempFilenamePrefix, 0 /* pos */) == 0 &&
