@@ -680,7 +680,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 }  // anonymous namespace
 
 Status FileExpectedStateManager::GetExpectedState(
-    DB* db, std::unique_ptr<AnonExpectedState>& state) {
+    DB* db, std::unique_ptr<ExpectedState>& state) {
   assert(HasHistory());
   SequenceNumber seqno = db->GetLatestSequenceNumber();
   if (seqno < saved_seqno_) {

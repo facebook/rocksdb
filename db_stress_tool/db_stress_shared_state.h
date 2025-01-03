@@ -108,9 +108,11 @@ class SharedState {
     }
     if (status.ok()) {
       if (FLAGS_expected_values_dir.empty()) {
+        fprintf(stdout, "Using AnonExpectedStateManager\n");
         expected_state_manager_.reset(
             new AnonExpectedStateManager(FLAGS_max_key, FLAGS_column_families));
       } else {
+        fprintf(stdout, "Using FileExpectedStateManager\n");
         expected_state_manager_.reset(new FileExpectedStateManager(
             FLAGS_max_key, FLAGS_column_families, FLAGS_expected_values_dir));
       }
@@ -260,6 +262,10 @@ class SharedState {
   bool HasHistory() { return expected_state_manager_->HasHistory(); }
 
   Status Restore(DB* db) { return expected_state_manager_->Restore(db); }
+
+  Status GetExpectedState(DB* db, std::unique_ptr<ExpectedState>& state) {
+    return expected_state_manager_->GetExpectedState(db, state);
+  }
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) {
