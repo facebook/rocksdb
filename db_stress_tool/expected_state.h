@@ -195,6 +195,12 @@ class AnonExpectedState : public ExpectedState {
   std::unique_ptr<std::atomic<uint32_t>[]> values_allocation_;
 };
 
+enum class DBType : uint8_t {
+  kPrimary,
+  kSecondary,
+  kFollower,
+};
+
 // An `ExpectedStateManager` manages data about the expected state of the
 // database. It exposes operations for reading and modifying the latest
 // expected state.
@@ -231,7 +237,7 @@ class ExpectedStateManager {
   // Requires external locking preventing concurrent execution with any other
   // member function. Furthermore, `db` must not be mutated while this function
   // is executing.
-  virtual Status Restore(DB* db) = 0;
+  virtual Status Restore(DB* db, DBType db_type) = 0;
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) { return latest_->ClearColumnFamily(cf); }
@@ -292,6 +298,8 @@ class ExpectedStateManager {
   const size_t max_key_;
   const size_t num_column_families_;
   std::unique_ptr<ExpectedState> latest_;
+  std::unique_ptr<ExpectedState> secondary_expected_state_;
+  std::unique_ptr<ExpectedState> follower_expected_state_;
 };
 
 // A `FileExpectedStateManager` implements an `ExpectedStateManager` backed by
@@ -323,7 +331,7 @@ class FileExpectedStateManager : public ExpectedStateManager {
   // was called and now it is `b`. Then this function replays `b - a` write
   // operations from "`a`.trace" onto "`a`.state", and then copies the resulting
   // file into "LATEST.state".
-  Status Restore(DB* db) override;
+  Status Restore(DB* db, DBType db_type) override;
 
  private:
   // Requires external locking preventing concurrent execution with any other
@@ -366,7 +374,9 @@ class AnonExpectedStateManager : public ExpectedStateManager {
   //
   // This implementation returns `Status::NotSupported` since we do not
   // currently have a need to keep history of expected state within a process.
-  Status Restore(DB* /* db */) override { return Status::NotSupported(); }
+  Status Restore(DB* /* db */, DBType /* db_type */) override {
+    return Status::NotSupported();
+  }
 
   // Requires external locking preventing concurrent execution with any other
   // member function.

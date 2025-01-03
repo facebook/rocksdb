@@ -462,7 +462,7 @@ void StressTest::FinishInitDb(SharedState* shared) {
     // previous run mutating the DB had all its operations traced, in which case
     // we should always be able to `Restore()` the expected values to match the
     // `db_`'s current seqno.
-    Status s = shared->Restore(db_);
+    Status s = shared->Restore(db_, DBType::kPrimary);
     if (!s.ok()) {
       fprintf(stderr, "Error restoring historical expected values: %s\n",
               s.ToString().c_str());
