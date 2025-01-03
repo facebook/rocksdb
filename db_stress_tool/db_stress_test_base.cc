@@ -423,6 +423,15 @@ bool StressTest::BuildOptionsTable() {
             "{{temperature=kCold;age=100}}", "{}"});
   }
 
+  // NOTE: allow -1 to mean starting disabled but dynamically changing
+  // But 0 means tiering is disabled for the entire run.
+  if (FLAGS_preclude_last_level_data_seconds != 0) {
+    options_tbl.emplace("preclude_last_level_data_seconds",
+                        std::vector<std::string>{"0", "5", "30", "5000"});
+  }
+  options_tbl.emplace("preserve_internal_time_seconds",
+                      std::vector<std::string>{"0", "5", "30", "5000"});
+
   options_table_ = std::move(options_tbl);
 
   for (const auto& iter : options_table_) {
@@ -4200,8 +4209,9 @@ void InitializeOptionsFromFlags(
       exit(1);
     }
   }
+  // NOTE: allow -1 to mean starting disabled but dynamically changing
   options.preclude_last_level_data_seconds =
-      FLAGS_preclude_last_level_data_seconds;
+      std::max(FLAGS_preclude_last_level_data_seconds, int64_t{0});
   options.preserve_internal_time_seconds = FLAGS_preserve_internal_time_seconds;
 
   switch (FLAGS_rep_factory) {

@@ -15,8 +15,19 @@
 namespace ROCKSDB_NAMESPACE {
 void SubcompactionState::AggregateCompactionOutputStats(
     InternalStats::CompactionStatsFull& compaction_stats) const {
+  // Outputs should be closed. By extension, any files created just for
+  // range deletes have already been written also.
+  assert(compaction_outputs_.HasBuilder() == false);
+  assert(penultimate_level_outputs_.HasBuilder() == false);
+
+  // FIXME: These stats currently include abandonned output files
+  // assert(compaction_outputs_.stats_.num_output_files ==
+  //        compaction_outputs_.outputs_.size());
+  // assert(penultimate_level_outputs_.stats_.num_output_files ==
+  //        penultimate_level_outputs_.outputs_.size());
+
   compaction_stats.stats.Add(compaction_outputs_.stats_);
-  if (penultimate_level_outputs_.HasOutput() || HasRangeDel()) {
+  if (penultimate_level_outputs_.HasOutput()) {
     compaction_stats.has_penultimate_level_output = true;
     compaction_stats.penultimate_level_stats.Add(
         penultimate_level_outputs_.stats_);

@@ -600,7 +600,10 @@ ts_params = {
 tiered_params = {
     # For Leveled/Universal compaction (ignored for FIFO)
     # Bias toward times that can elapse during a crash test run series
-    "preclude_last_level_data_seconds": lambda: random.choice([10, 60, 1200, 86400]),
+    # NOTE: -1 means starting disabled but dynamically changing
+    "preclude_last_level_data_seconds": lambda: random.choice(
+        [-1, -1, 10, 60, 1200, 86400]
+    ),
     "last_level_temperature": "kCold",
     # For FIFO compaction (ignored otherwise)
     "file_temperature_age_thresholds": lambda: random.choice(
@@ -999,7 +1002,10 @@ def finalize_and_sanitize(src_params):
         or dest_params.get("delrangepercent") == 0
     ):
         dest_params["test_ingest_standalone_range_deletion_one_in"] = 0
-    if dest_params.get("use_txn", 0) == 1 and dest_params.get("commit_bypass_memtable_one_in", 0) > 0:
+    if (
+        dest_params.get("use_txn", 0) == 1
+        and dest_params.get("commit_bypass_memtable_one_in", 0) > 0
+    ):
         dest_params["enable_blob_files"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
         dest_params["atomic_flush"] = 0
