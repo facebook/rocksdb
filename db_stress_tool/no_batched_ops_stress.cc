@@ -2720,6 +2720,16 @@ class NonBatchedOpsStressTest : public StressTest {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }
+    if (shared->HasHistory()) {
+      std::unique_ptr<ExpectedState> state;
+      Status getExpectedStateStatus = shared->GetExpectedState(db_, state);
+      if (getExpectedStateStatus.ok()) {
+        fprintf(stdout, "Successfully set expected state\n");
+      } else {
+        fprintf(stdout, "Failed to set expected state\n");
+        return false;
+      }
+    }
     const ExpectedValue expected_value = shared->Get(cf, key);
 
     if (expected_value.PendingWrite() || expected_value.PendingDelete()) {

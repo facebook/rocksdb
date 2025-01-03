@@ -233,8 +233,8 @@ class ExpectedStateManager {
   // is executing.
   virtual Status Restore(DB* db) = 0;
 
-  virtual Status GetExpectedState(
-      DB* db, std::unique_ptr<AnonExpectedState>& state) = 0;
+  virtual Status GetExpectedState(DB* db,
+                                  std::unique_ptr<ExpectedState>& state) = 0;
 
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) { return latest_->ClearColumnFamily(cf); }
@@ -331,7 +331,7 @@ class FileExpectedStateManager : public ExpectedStateManager {
   Status Restore(DB* db) override;
 
   Status GetExpectedState(DB* db,
-                          std::unique_ptr<AnonExpectedState>& state) override;
+                          std::unique_ptr<ExpectedState>& state) override;
 
  private:
   // Requires external locking preventing concurrent execution with any other
@@ -379,7 +379,7 @@ class AnonExpectedStateManager : public ExpectedStateManager {
   Status Restore(DB* /* db */) override { return Status::NotSupported(); }
 
   Status GetExpectedState(
-      DB* /* db */, std::unique_ptr<AnonExpectedState>& /* state */) override {
+      DB* /* db */, std::unique_ptr<ExpectedState>& /* state */) override {
     return Status::NotSupported();
   }
 
