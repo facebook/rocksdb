@@ -679,6 +679,37 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
 }  // anonymous namespace
 
+Status FileExpectedStateManager::GetExpectedState(
+    DB* db, std::unique_ptr<AnonExpectedState>& state) {
+  assert(HasHistory());
+  SequenceNumber seqno = db->GetLatestSequenceNumber();
+  if (seqno < saved_seqno_) {
+    return Status::Corruption("DB is older than any restorable expected state");
+  }
+
+  std::string trace_filename =
+      std::to_string(saved_seqno_) + kTraceFilenameSuffix;
+  std::string trace_file_path = GetPathForFilename(trace_filename);
+
+  std::unique_ptr<TraceReader> trace_reader;
+  Status s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_path,
+                                &trace_reader);
+
+  std::unique_ptr<AnonExpectedState> replay_state(
+      new AnonExpectedState(max_key_, num_column_families_));
+  s = state->Open(true /* create */);
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = ReplayTrace(db, std::move(trace_reader), seqno - saved_seqno_,
+                  replay_state.get());
+  if (s.ok()) {
+    state = std::move(replay_state);
+  }
+  return s;
+}
+
 Status FileExpectedStateManager::Restore(DB* db) {
   assert(HasHistory());
   SequenceNumber seqno = db->GetLatestSequenceNumber();
