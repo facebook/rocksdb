@@ -168,12 +168,6 @@ class InternalStats {
       this->num_output_files += stats.num_output_files;
       this->num_output_files_blob += stats.num_output_files_blob;
     }
-
-    bool IsEmpty() const {
-      return num_output_records == 0 && bytes_written == 0 &&
-             bytes_written_blob == 0 && num_output_files == 0 &&
-             num_output_files_blob == 0;
-    }
   };
 
   // Per level compaction stats.  comp_stats_[level] stores the stats for

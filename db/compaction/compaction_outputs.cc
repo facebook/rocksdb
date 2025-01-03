@@ -589,7 +589,6 @@ Status CompactionOutputs::AddRangeDels(
     auto tombstone = it->Tombstone();
     auto kv = tombstone.Serialize();
     // Filter out by seqno for per-key placement
-    // TODO: should this go lower down?
     if (tombstone.seq_ < keep_seqno_range.first ||
         tombstone.seq_ >= keep_seqno_range.second) {
       continue;
