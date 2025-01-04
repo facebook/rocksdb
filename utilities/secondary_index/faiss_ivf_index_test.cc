@@ -33,8 +33,6 @@ TEST(FaissIVFIndexTest, Basic) {
 
   index->train(num_vectors, embeddings.data());
 
-  index->nprobe = 2;
-
   const std::string db_name = test::PerThreadDBPath("faiss_ivf_index_test");
   EXPECT_OK(DestroyDB(db_name, Options()));
 
@@ -65,6 +63,8 @@ TEST(FaissIVFIndexTest, Basic) {
   secondary_index->SetPrimaryColumnFamily(cfh1);
   secondary_index->SetSecondaryColumnFamily(cfh2);
 
+  // Write the embeddings to the primary column family, indexing them in the
+  // process
   {
     std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
 
@@ -82,6 +82,7 @@ TEST(FaissIVFIndexTest, Basic) {
     ASSERT_OK(txn->Commit());
   }
 
+  // Verify the raw index data in the secondary column family
   {
     size_t num_found = 0;
 
@@ -112,6 +113,180 @@ TEST(FaissIVFIndexTest, Basic) {
 
     ASSERT_OK(it->status());
     ASSERT_EQ(num_found, num_vectors);
+  }
+
+  // Query the index with some of the original embeddings
+  std::unique_ptr<Iterator> underlying_it(db->NewIterator(ReadOptions(), cfh2));
+
+  SecondaryIndexReadOptions read_options;
+  read_options.similarity_search_neighbors = 8;
+  read_options.similarity_search_probes = num_lists;
+
+  std::unique_ptr<Iterator> it =
+      txn_db_options.secondary_indices.back()->NewIterator(
+          read_options, std::move(underlying_it));
+
+  auto get_id = [&]() -> faiss::idx_t {
+    Slice key = it->key();
+    faiss::idx_t id = -1;
+
+    if (std::from_chars(key.data(), key.data() + key.size(), id).ec !=
+        std::errc()) {
+      return -1;
+    }
+
+    return id;
+  };
+
+  auto get_distance = [&]() -> float {
+    std::string distance_str;
+    float distance = 0.0f;
+
+    if (!it->GetProperty("rocksdb.faiss.ivf.index.distance", &distance_str)
+             .ok()) {
+      return -1.0f;
+    }
+
+    if (std::from_chars(distance_str.data(),
+                        distance_str.data() + distance_str.size(), distance)
+            .ec != std::errc()) {
+      return -1.0f;
+    }
+
+    return distance;
+  };
+
+  auto verify = [&](faiss::idx_t id) {
+    // Search for a vector from the original set; we expect to find the vector
+    // itself as the closest match, since we're performing an exhaustive search
+    {
+      it->Seek(
+          Slice(reinterpret_cast<const char*>(embeddings.data() + id * dim),
+                dim * sizeof(float)));
+      ASSERT_TRUE(it->Valid());
+      ASSERT_OK(it->status());
+      ASSERT_EQ(get_id(), id);
+      ASSERT_TRUE(it->value().empty());
+      ASSERT_TRUE(it->columns().empty());
+      ASSERT_EQ(get_distance(), 0.0f);
+    }
+
+    // Take a step forward then a step back to get back to our original position
+    {
+      it->Next();
+      ASSERT_TRUE(it->Valid());
+      ASSERT_OK(it->status());
+
+      it->Prev();
+      ASSERT_TRUE(it->Valid());
+      ASSERT_OK(it->status());
+      ASSERT_EQ(get_id(), id);
+      ASSERT_TRUE(it->value().empty());
+      ASSERT_TRUE(it->columns().empty());
+      ASSERT_EQ(get_distance(), 0.0f);
+    }
+
+    // Iterate over the rest of the results
+    float prev_distance = 0.0f;
+    size_t num_found = 1;
+
+    for (it->Next(); it->Valid(); it->Next()) {
+      ASSERT_OK(it->status());
+
+      const faiss::idx_t other_id = get_id();
+      ASSERT_GE(other_id, 0);
+      ASSERT_LT(other_id, num_vectors);
+      ASSERT_NE(other_id, id);
+
+      ASSERT_TRUE(it->value().empty());
+      ASSERT_TRUE(it->columns().empty());
+
+      const float distance = get_distance();
+      ASSERT_GE(distance, prev_distance);
+
+      prev_distance = distance;
+      ++num_found;
+    }
+
+    ASSERT_OK(it->status());
+    ASSERT_EQ(num_found, *read_options.similarity_search_neighbors);
+  };
+
+  verify(0);
+  verify(16);
+  verify(32);
+  verify(64);
+
+  // Sanity check unsupported APIs
+  it->SeekToFirst();
+  ASSERT_FALSE(it->Valid());
+  ASSERT_TRUE(it->status().IsNotSupported());
+
+  it->SeekToLast();
+  ASSERT_FALSE(it->Valid());
+  ASSERT_TRUE(it->status().IsNotSupported());
+
+  it->SeekForPrev(Slice(reinterpret_cast<const char*>(embeddings.data()),
+                        dim * sizeof(float)));
+  ASSERT_FALSE(it->Valid());
+  ASSERT_TRUE(it->status().IsNotSupported());
+
+  it->Seek("foo");  // incorrect size
+  ASSERT_FALSE(it->Valid());
+  ASSERT_TRUE(it->status().IsInvalidArgument());
+
+  {
+    SecondaryIndexReadOptions bad_options;
+    bad_options.similarity_search_probes = 1;
+
+    // similarity_search_neighbors not set
+    {
+      std::unique_ptr<Iterator> bad_under_it(
+          db->NewIterator(ReadOptions(), cfh2));
+      std::unique_ptr<Iterator> bad_it =
+          txn_db_options.secondary_indices.back()->NewIterator(
+              bad_options, std::move(bad_under_it));
+      ASSERT_TRUE(bad_it->status().IsInvalidArgument());
+    }
+
+    // similarity_search_neighbors set to zero
+    bad_options.similarity_search_neighbors = 0;
+
+    {
+      std::unique_ptr<Iterator> bad_under_it(
+          db->NewIterator(ReadOptions(), cfh2));
+      std::unique_ptr<Iterator> bad_it =
+          txn_db_options.secondary_indices.back()->NewIterator(
+              bad_options, std::move(bad_under_it));
+      ASSERT_TRUE(bad_it->status().IsInvalidArgument());
+    }
+  }
+
+  {
+    SecondaryIndexReadOptions bad_options;
+    bad_options.similarity_search_neighbors = 1;
+
+    // similarity_search_probes not set
+    {
+      std::unique_ptr<Iterator> bad_under_it(
+          db->NewIterator(ReadOptions(), cfh2));
+      std::unique_ptr<Iterator> bad_it =
+          txn_db_options.secondary_indices.back()->NewIterator(
+              bad_options, std::move(bad_under_it));
+      ASSERT_TRUE(bad_it->status().IsInvalidArgument());
+    }
+
+    // similarity_search_probes set to zero
+    bad_options.similarity_search_probes = 0;
+
+    {
+      std::unique_ptr<Iterator> bad_under_it(
+          db->NewIterator(ReadOptions(), cfh2));
+      std::unique_ptr<Iterator> bad_it =
+          txn_db_options.secondary_indices.back()->NewIterator(
+              bad_options, std::move(bad_under_it));
+      ASSERT_TRUE(bad_it->status().IsInvalidArgument());
+    }
   }
 }
 

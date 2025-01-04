@@ -8084,7 +8084,7 @@ TEST_P(TransactionTest, SecondaryIndex) {
     }
 
     std::unique_ptr<Iterator> NewIterator(
-        const ReadOptions& /* read_options */,
+        const SecondaryIndexReadOptions& /* read_options */,
         std::unique_ptr<Iterator>&& underlying_it) const override {
       return std::make_unique<SecondaryIndexIterator>(this,
                                                       std::move(underlying_it));
@@ -8210,8 +8210,8 @@ TEST_P(TransactionTest, SecondaryIndex) {
     // Query the secondary index
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(
-        index->NewIterator(ReadOptions(), std::move(underlying_it)));
+    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
+                                                    std::move(underlying_it)));
 
     it->SeekToFirst();
     ASSERT_FALSE(it->Valid());
@@ -8338,8 +8338,8 @@ TEST_P(TransactionTest, SecondaryIndex) {
     // Query the secondary index
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(
-        index->NewIterator(ReadOptions(), std::move(underlying_it)));
+    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
+                                                    std::move(underlying_it)));
 
     it->SeekToFirst();
     ASSERT_FALSE(it->Valid());
