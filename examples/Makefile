@@ -16,7 +16,6 @@ CFLAGS += -Wstrict-prototypes
 STRIPFLAGS = -S -x
 
 ifeq ($(PLATFORM), OS_AIX)
-ARFLAGS = -X64 rs
 STRIPFLAGS = -X64 -x
 endif
 
