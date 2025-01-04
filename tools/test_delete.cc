@@ -300,9 +300,11 @@ void PrintSetting(){
   std::cout << "kv size : " << FLAGS_kvsize << " bytes" << std::endl;
   std::cout << "db_opts.buffer_cap : " << FLAGS_buffer_size << " MB" << std::endl;
   std::cout << "rep_opts.buffer_cap : " << FLAGS_rep_buffer_size << " KB" << std::endl;
+  std::cout << "LSM_Bloom bit_per_key : " << FLAGS_bpk_filter << std::endl;
   std::cout << "filter_opts.bit_per_key : " << FLAGS_bpk_rd_filter << std::endl;
+  std::cout << "level start to involve rd_rep in comp : " << FLAGS_level_comp << std::endl;
   std::cout << "workload: Write " << FLAGS_write_num << ", Point query " << FLAGS_read_num 
-            << ", Range query " << FLAGS_seek_num << ", Range delete " << FLAGS_rdelete_num << std::endl;
+            << ", Range query " << FLAGS_seek_num << ", Range delete " << FLAGS_rdelete_num << " Delete length: " << FLAGS_rdelete_len << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -348,6 +350,8 @@ int main(int argc, char** argv) {
   }
 
   db->PrintStatic();
+
+  std::cout << "statistics: " << options.db_conf.statistics->ToString() << std::endl;
 
   db->close();
   delete db;

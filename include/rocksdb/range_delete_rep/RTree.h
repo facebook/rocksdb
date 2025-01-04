@@ -12,6 +12,7 @@
 #include <functional>
 #include <vector>
 #include <queue>
+#include <iostream>
 
 
 namespace rangedelete_rep{
@@ -142,6 +143,8 @@ public:
 
   /// Query existence of target from file
   bool QueryFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], uint64_t & node_cnt, uint64_t & leaf_cnt, const char* a_fileName);
+  bool ExtractSubtreeFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], uint64_t & node_cnt, uint64_t & leaf_cnt, const char* a_fileName);
+  bool ExtractSubtreeFromFileBeforeUpper(const ELEMTYPE upper, ELEMTYPE& new_upper, std::vector<ELEMTYPE>& out_min, std::vector<ELEMTYPE>& out_max, const char* a_fileName);
 
   /// Save tree contents to file
   bool Save(const char* a_fileName);
@@ -333,6 +336,7 @@ protected:
   {
     bool IsInternalNode()                         { return (m_level > 0); } // Not a leaf, but a internal node
     bool IsLeaf()                                 { return (m_level == 0); } // A leaf, contains data
+    bool NotEmpty()                                { return (m_count > 0); } // A node/leaf contains no child
 
     int m_count;                                  ///< Count
     int m_level;                                  ///< Leaf is zero, others positive
@@ -402,6 +406,11 @@ protected:
   /// Query tree contents from stream
   bool QueryFromFile(Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream);
   bool QueryFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, bool & found);
+  bool ExtractSubtreeFromFile(Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream);
+  bool LoadSubtree(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt);
+
+  bool ExtractSubtreeFromFileBeforeUpper(const ELEMTYPE upper, ELEMTYPE& new_upper, std::vector<ELEMTYPE>& out_min, std::vector<ELEMTYPE>& out_max, RTFileStream& a_stream);
+  bool LoadSubtreeBeforeUpper(Node* a_node, RTFileStream& a_stream, const ELEMTYPE upper, ELEMTYPE& new_upper, std::vector<ELEMTYPE>& out_min, std::vector<ELEMTYPE>& out_max);
 
   bool SaveRec(Node* a_node, RTFileStream& a_stream);
   bool LoadRec(Node* a_node, RTFileStream& a_stream);
@@ -490,6 +499,13 @@ public:
   {
     RTREE_ASSERT(m_file);
     return fread((void*)a_array, sizeof(TYPE) * a_count, 1, m_file);
+  }
+
+  int MoveBackward(int& num)
+  {
+    RTREE_ASSERT(m_file);
+    int res = fseek(m_file, num, SEEK_CUR);
+    return res;
   }
 };
 
@@ -1041,6 +1057,274 @@ void RTREE_QUAL::CopyRec(Node* current, Node* other)
   }
 }
 
+RTREE_TEMPLATE
+bool RTREE_QUAL::ExtractSubtreeFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], uint64_t & node_cnt, uint64_t & leaf_cnt, const char* a_fileName)
+{
+  RemoveAll(); // Clear existing tree
+
+  Rect rect;
+  for(int axis=0; axis<NUMDIMS; ++axis)
+  {
+    rect.m_min[axis] = a_min[axis];
+    rect.m_max[axis] = a_max[axis];
+  }
+
+  RTFileStream stream;
+  if(!stream.OpenRead(a_fileName))
+  {
+    return false;
+  }
+
+  bool result = ExtractSubtreeFromFile(&rect, node_cnt, leaf_cnt, stream);
+
+  stream.Close();
+
+  return result;
+}
+
+RTREE_TEMPLATE
+bool RTREE_QUAL::ExtractSubtreeFromFile(Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream)
+{
+  // Write some kind of header
+  int _dataFileId = ('R'<<0)|('T'<<8)|('R'<<16)|('E'<<24);
+  int _dataSize = sizeof(DATATYPE);
+  int _dataNumDims = NUMDIMS;
+  int _dataElemSize = sizeof(ELEMTYPE);
+  int _dataElemRealSize = sizeof(ELEMTYPEREAL);
+  int _dataMaxNodes = TMAXNODES;
+  int _dataMinNodes = TMINNODES;
+
+  int dataFileId = 0;
+  int dataSize = 0;
+  int dataNumDims = 0;
+  int dataElemSize = 0;
+  int dataElemRealSize = 0;
+  int dataMaxNodes = 0;
+  int dataMinNodes = 0;
+
+  a_stream.Read(dataFileId);
+  a_stream.Read(dataSize);
+  a_stream.Read(dataNumDims);
+  a_stream.Read(dataElemSize);
+  a_stream.Read(dataElemRealSize);
+  a_stream.Read(dataMaxNodes);
+  a_stream.Read(dataMinNodes);
+
+  bool result = false;
+
+  // Test if header was valid and compatible
+  if(    (dataFileId == _dataFileId)
+      && (dataSize == _dataSize)
+      && (dataNumDims == _dataNumDims)
+      && (dataElemSize == _dataElemSize)
+      && (dataElemRealSize == _dataElemRealSize)
+      && (dataMaxNodes == _dataMaxNodes)
+      && (dataMinNodes == _dataMinNodes)
+    )
+  {
+    // Recursively load tree
+    result = LoadSubtree(m_root, a_stream, a_rect, node_cnt, leaf_cnt);
+  }
+
+  return result;
+}
+
+RTREE_TEMPLATE
+bool RTREE_QUAL::LoadSubtree(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt)
+{
+  a_stream.Read(a_node->m_level);
+  a_stream.Read(a_node->m_count);
+
+  if(a_node->IsInternalNode())  // not a leaf node
+  {
+    node_cnt++;
+
+    size_t load_idx = 0;  //WF: record the index of matched nodes
+    
+    for(int index = 0; index < a_node->m_count; ++index)
+    {
+      Branch* curBranch = &a_node->m_branch[load_idx];
+
+      a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+      a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+
+      if (a_node->m_level == 1){
+        if(! Overlap(a_rect, &a_node->m_branch[load_idx].m_rect)){
+          // count the size of one leaf node: level + count + rect + data
+          auto level = a_node->m_level;
+          auto count = a_node->m_count;
+          a_stream.Read(level);
+          a_stream.Read(count);
+          int num_bytes = sizeof(curBranch->m_data) + sizeof(curBranch->m_rect.m_min) + sizeof(curBranch->m_rect.m_max);
+          num_bytes *= count;
+          // num_bytes += NUMDIMS * (sizeof(curBranch->m_rect.m_min) + sizeof(curBranch->m_rect.m_max));
+          if (a_stream.MoveBackward(num_bytes)){
+            std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
+            exit(1);
+          }
+          continue;
+        }
+      }
+      //continue if target point is overlapped
+      curBranch->m_child = AllocNode();
+      LoadSubtree(curBranch->m_child, a_stream, a_rect, node_cnt, leaf_cnt);
+      if(curBranch->m_child->NotEmpty()){
+        load_idx++;
+      }
+    }
+    a_node->m_count = load_idx; //update m_count of current node
+  }
+  else // A leaf node
+  {
+    leaf_cnt++;
+    for(int index = 0; index < a_node->m_count; ++index)
+    {
+      Branch* curBranch = &a_node->m_branch[index];
+      a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+      a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+      a_stream.Read(curBranch->m_data);
+    }
+  }
+
+  return true; // Should do more error checking on I/O operations
+}
+
+
+RTREE_TEMPLATE
+bool RTREE_QUAL::ExtractSubtreeFromFileBeforeUpper(const ELEMTYPE upper, ELEMTYPE& new_upper, std::vector<ELEMTYPE>& out_min, std::vector<ELEMTYPE>& out_max, const char* a_fileName)
+{
+  assert(out_min.size() == NUMDIMS && out_max.size() == NUMDIMS);
+  
+  RemoveAll(); // Clear existing tree
+
+  RTFileStream stream;
+  if(!stream.OpenRead(a_fileName))
+  {
+    return false;
+  }
+
+  bool result = ExtractSubtreeFromFileBeforeUpper(upper, new_upper, out_min, out_max, stream);
+
+  stream.Close();
+
+  return result;
+}
+
+RTREE_TEMPLATE
+bool RTREE_QUAL::ExtractSubtreeFromFileBeforeUpper(const ELEMTYPE upper, ELEMTYPE& new_upper, std::vector<ELEMTYPE>& out_min, std::vector<ELEMTYPE>& out_max, RTFileStream& a_stream)
+{
+  // Write some kind of header
+  int _dataFileId = ('R'<<0)|('T'<<8)|('R'<<16)|('E'<<24);
+  int _dataSize = sizeof(DATATYPE);
+  int _dataNumDims = NUMDIMS;
+  int _dataElemSize = sizeof(ELEMTYPE);
+  int _dataElemRealSize = sizeof(ELEMTYPEREAL);
+  int _dataMaxNodes = TMAXNODES;
+  int _dataMinNodes = TMINNODES;
+
+  int dataFileId = 0;
+  int dataSize = 0;
+  int dataNumDims = 0;
+  int dataElemSize = 0;
+  int dataElemRealSize = 0;
+  int dataMaxNodes = 0;
+  int dataMinNodes = 0;
+
+  a_stream.Read(dataFileId);
+  a_stream.Read(dataSize);
+  a_stream.Read(dataNumDims);
+  a_stream.Read(dataElemSize);
+  a_stream.Read(dataElemRealSize);
+  a_stream.Read(dataMaxNodes);
+  a_stream.Read(dataMinNodes);
+
+  bool result = false;
+
+  // Test if header was valid and compatible
+  if(    (dataFileId == _dataFileId)
+      && (dataSize == _dataSize)
+      && (dataNumDims == _dataNumDims)
+      && (dataElemSize == _dataElemSize)
+      && (dataElemRealSize == _dataElemRealSize)
+      && (dataMaxNodes == _dataMaxNodes)
+      && (dataMinNodes == _dataMinNodes)
+    )
+  {
+    // Recursively load tree
+    result = LoadSubtreeBeforeUpper(m_root, a_stream, upper, new_upper, out_min, out_max);
+  }
+
+  return result;
+}
+
+RTREE_TEMPLATE
+bool RTREE_QUAL::LoadSubtreeBeforeUpper(Node* a_node, RTFileStream& a_stream, const ELEMTYPE upper, ELEMTYPE& new_upper, std::vector<ELEMTYPE>& out_min, std::vector<ELEMTYPE>& out_max)
+{
+  a_stream.Read(a_node->m_level);
+  a_stream.Read(a_node->m_count);
+
+  if(a_node->IsInternalNode())  // not a leaf node
+  {
+    size_t load_idx = 0;  //WF: record the index of matched nodes
+    
+    for(int index = 0; index < a_node->m_count; ++index)
+    {
+      Branch* curBranch = &a_node->m_branch[load_idx];
+
+      a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+      a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+
+      if (a_node->m_level == 1){
+        if(curBranch->m_rect.m_max[NUMDIMS - 1] < upper){
+          // count the size of one leaf node: level + count + rect + data
+          auto level = a_node->m_level;
+          auto count = a_node->m_count;
+          a_stream.Read(level);
+          a_stream.Read(count);
+          int num_bytes = sizeof(curBranch->m_data) + sizeof(curBranch->m_rect.m_min) + sizeof(curBranch->m_rect.m_max);
+          num_bytes *= count;
+          // num_bytes += NUMDIMS * (sizeof(curBranch->m_rect.m_min) + sizeof(curBranch->m_rect.m_max));
+          if (a_stream.MoveBackward(num_bytes)){
+            std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
+            exit(1);
+          }
+          continue;
+        }
+      }
+      //continue if target point is overlapped
+      curBranch->m_child = AllocNode();
+      LoadSubtreeBeforeUpper(curBranch->m_child, a_stream, upper, new_upper, out_min, out_max);
+      if(curBranch->m_child->NotEmpty()){
+        load_idx++;
+      }
+    }
+    a_node->m_count = load_idx; //update m_count of current node
+  }
+  else // A leaf node
+  {
+    for(int index = 0; index < a_node->m_count; ++index)
+    {
+      Branch* curBranch = &a_node->m_branch[index];
+      a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+      a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+      a_stream.Read(curBranch->m_data);
+
+      if(curBranch->m_rect.m_max[NUMDIMS - 1] < new_upper){
+        new_upper = curBranch->m_rect.m_max[NUMDIMS - 1];
+      }
+      for(size_t i = 0; i < NUMDIMS; i++){
+        if(curBranch->m_rect.m_min[i] < out_min[i]){
+          out_min[i] = curBranch->m_rect.m_min[i];
+        }
+        if(curBranch->m_rect.m_max[i] > out_max[i]){
+          out_max[i] = curBranch->m_rect.m_max[i];
+        }
+      }
+    }
+  }
+
+  return true; // Should do more error checking on I/O operations
+}
 
 RTREE_TEMPLATE
 bool RTREE_QUAL::Save(const char* a_fileName)
@@ -1223,7 +1507,7 @@ void RTREE_QUAL::InitNode(Node* a_node)
 RTREE_TEMPLATE
 bool RTREE_QUAL::IsEmpty(){
   // return (m_root->m_level == -1 && m_root->m_count == 0);
-  return (m_root->m_level == -1 && m_root->m_count == 0);
+  return (m_root->m_count == 0);
 }
 
 RTREE_TEMPLATE

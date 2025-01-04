@@ -101,3 +101,5 @@ cmake-build-*
 third-party/folly/
 .cache
 *.sublime-*
+
+/tools/test_delete.sh

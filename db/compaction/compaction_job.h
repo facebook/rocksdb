@@ -182,6 +182,7 @@ class CompactionJob {
   // that, verify table is usable and finally do bookkeeping to unify
   // subcompaction results
   Status Run();
+  Status Run(LSMR* global_range_delete_rep);
 
   // REQUIRED: mutex held
   // Add compaction input/output to the current version
@@ -217,6 +218,7 @@ class CompactionJob {
 
   // Iterate through input and compact the kv-pairs.
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
+  void ProcessKeyValueCompactionWithGRDR(SubcompactionState* sub_compact, LSMR* global_range_delete_rep);
 
   CompactionState* compact_;
   InternalStats::CompactionStatsFull compaction_stats_;

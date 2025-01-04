@@ -1,4 +1,7 @@
 #pragma once
+#include "RTree.h"
+
+typedef rangedelete_rep::RTree<bool, uint64_t, 2, float, 16> RTreeType;
 
 namespace rangedelete_rep{
 
@@ -41,6 +44,24 @@ struct Point {
     if (b.y < y){
       y = b.y;
     }
+  }
+
+  bool update(uint64_t &x_in, uint64_t &y_in){
+    if (x == x_in && y == y_in){
+      return false;
+    }
+    x = x_in;
+    y = y_in;
+    return true;
+  }
+
+  bool update(const uint64_t other[2]){
+    if (x == other[0] && y == other[1]){
+      return false;
+    }
+    x = other[0];
+    y = other[1];
+    return true;
   }
 
   bool operator==(const Point &other) const {

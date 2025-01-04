@@ -55,7 +55,7 @@ class BucketModel {
 uint64_t BucketModel::get_location(const uint64_t &key){
   uint64_t location = 0;
   if (key > max_key_){
-    location = std::numeric_limits<uint64_t>::max();
+    location = total_bit_size_;
   } else if (key > min_key_) {
     location = static_cast<uint64_t>(static_cast<long double>(key - min_key_)/(max_key_ - min_key_) * total_bit_size_);
   }

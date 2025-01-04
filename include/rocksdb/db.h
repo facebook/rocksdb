@@ -32,6 +32,8 @@
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
+#include "rocksdb/range_delete_rep/lsm.hpp"
+
 #ifdef _WIN32
 // Windows API macro interference
 #undef DeleteFile
@@ -42,6 +44,8 @@
 #elif _WIN32
 #define ROCKSDB_DEPRECATED_FUNC __declspec(deprecated)
 #endif
+
+typedef rangedelete_rep::LSM<rangedelete_rep::Rectangle, bool> LSMR;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -711,6 +715,30 @@ class DB {
   virtual Status GetWithSeq(const ReadOptions& options, const Slice& key,
                      std::string* value, SequenceNumber& sequence, std::string* timestamp) final {
     return GetWithSeq(options, DefaultColumnFamily(), key, value, sequence, timestamp);
+  }
+
+  // used for garbage collection detection for gloabal range deleter
+  virtual void UpdateGCInfo(const SequenceNumber & least_sequence);
+
+  virtual void GetGCInfo(bool & bottomost_trigger, SequenceNumber & least_sequence);
+  virtual void ResetGCInfo();
+
+  virtual void SetRangeDeleteRep(LSMR* rep);
+  virtual void ReSetRangeDeleteRep();
+
+  virtual void PrepareRangeDeleteRep(const uint64_t& key_min, const uint64_t& key_max, const SequenceNumber& seq_min, const SequenceNumber& seq_max);
+
+  virtual void SetGlobalRangeDeleteCompact();
+  virtual void ResetGlobalRangeDeleteCompact();
+
+  //apply garbage collection for global range delete and remove range deletes before sequence
+  virtual void ExcuteGRDGarbageCollection(SequenceNumber & sequence);
+
+  // get minimum sequence number (mem table is not checked since it stores the most recent entries)
+  virtual SequenceNumber GetLeastSequenceNumber(ColumnFamilyHandle* column_family);
+
+  virtual SequenceNumber GetLeastSequenceNumber() final {
+    return GetLeastSequenceNumber(DefaultColumnFamily());
   }
 
   // If the column family specified by "column_family" contains an entry for

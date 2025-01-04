@@ -1718,6 +1718,17 @@ Status Version::GetPropertiesOfAllTables(const ReadOptions& read_options,
   return Status::OK();
 }
 
+SequenceNumber Version::GetLeastSequenceNumber() const {
+  SequenceNumber seq = kMaxSequenceNumber;
+  for (int level = 0; level < storage_info_.num_levels_; level++) {
+    for (const FileMetaData * file_meta : storage_info_.files_[level]) {
+      const FileDescriptor& desc = file_meta->fd;
+      seq = std::min(seq, desc.smallest_seqno);
+    }
+  }
+  return seq;
+}
+
 Status Version::GetPropertiesOfTablesInRange(
     const ReadOptions& read_options, const autovector<UserKeyRange>& ranges,
     TablePropertiesCollection* props) const {

@@ -246,6 +246,9 @@ class DBImpl : public DB {
   Status GetWithSeq(const ReadOptions& _read_options,
              ColumnFamilyHandle* column_family, const Slice& key,
              PinnableSlice* value, SequenceNumber& sequence, std::string* timestamp) override;
+  
+  using DB::GetLeastSequenceNumber;
+  SequenceNumber GetLeastSequenceNumber(ColumnFamilyHandle* column_family) override;
 
   using DB::GetEntity;
   Status GetEntity(const ReadOptions& options,
@@ -268,6 +271,33 @@ class DBImpl : public DB {
     get_impl_options.get_value = false;
     return GetImpl(options, key, get_impl_options);
   }
+
+  using DB::UpdateGCInfo;
+  void UpdateGCInfo(const SequenceNumber & least_sequence) override;
+
+  using DB::GetGCInfo;
+  void GetGCInfo(bool & bottomost_trigger, SequenceNumber & least_sequence) override;
+
+  using DB::ResetGCInfo;
+  void ResetGCInfo() override;
+
+  using DB::SetRangeDeleteRep;
+  void SetRangeDeleteRep(LSMR* rep) override;
+
+  using DB::ReSetRangeDeleteRep;
+  void ReSetRangeDeleteRep() override;
+
+  using DB::PrepareRangeDeleteRep;
+  void PrepareRangeDeleteRep(const uint64_t& key_min, const uint64_t& key_max, const SequenceNumber& seq_min, const SequenceNumber& seq_max) override;
+
+  using DB::SetGlobalRangeDeleteCompact;
+  void SetGlobalRangeDeleteCompact() override;
+
+  using DB::ResetGlobalRangeDeleteCompact;
+  void ResetGlobalRangeDeleteCompact() override;
+
+  using DB::ExcuteGRDGarbageCollection;
+  void ExcuteGRDGarbageCollection(SequenceNumber & sequence) override;
 
   using DB::MultiGet;
   // This MultiGet is a batched version, which may be faster than calling Get
@@ -676,6 +706,9 @@ class DBImpl : public DB {
   Status GetWithSeqImpl(const ReadOptions& read_options,
                  ColumnFamilyHandle* column_family, const Slice& key,
                  PinnableSlice* value, SequenceNumber& sequence, std::string* timestamp);
+  
+  SequenceNumber GetLeastSequenceNumberImpl(ColumnFamilyHandle* column_family);
+
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
   // This function is also called by GetMergeOperands
@@ -1348,6 +1381,24 @@ class DBImpl : public DB {
   bool seq_per_batch() const { return seq_per_batch_; }
 
  protected:
+  //WF: used for garbage collection of range delete
+  SequenceNumber least_sequence_;
+  bool bottomost_compaction_trigger_;
+  //WF: mark to use global range delete
+  // bool enable_global_range_delete_ = false;
+  //WF: mark to use global range delete during compaction
+  bool use_global_range_delete_compact_;
+
+  void SetBottomostCompact(){
+    bottomost_compaction_trigger_ = true;
+  }
+
+  void ResetBottomostCompact(){
+    bottomost_compaction_trigger_ = false;
+  }
+
+  LSMR* global_range_delete_rep;
+
   const std::string dbname_;
   // TODO(peterd): unify with VersionSet::db_id_
   std::string db_id_;

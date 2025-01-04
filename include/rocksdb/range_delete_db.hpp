@@ -21,9 +21,11 @@ class RangeDeleteDB {
       if (!s.ok()) {
         std::cerr << "Failed to open db: " << s.ToString() << std::endl;
       }
+      stat = new RDDBStat();
       rd_filter_ = new rangedelete_filter::BucketWrapper();
       rd_filter_->Construct(options.filter_conf);
       rd_rep_ = new rangedelete_rep::LSM<rangedelete_rep::Rectangle, bool>(options.rep_conf);
+      db_->SetRangeDeleteRep(rd_rep_);
     }
 
     ~RangeDeleteDB() {
@@ -55,8 +57,12 @@ class RangeDeleteDB {
     }
     
     void close(){
+      db_->ReSetRangeDeleteRep();
       db_->Close();
     }
+
+    // void ExcuteGarbageCollection(const uint64_t & sequence);
+    // void ResetGarbageCollection();
 
     /* [left, right] */
     // bool query(const uint64_t left, const uint64_t right);
@@ -72,7 +78,8 @@ class RangeDeleteDB {
     rangedelete_filter::RangeDeleteFliterWrapper * rd_filter_ = nullptr;
     rangedelete_rep::LSM<rangedelete_rep::Rectangle, bool> * rd_rep_ = nullptr;   // <key_type, value_type(not used)>
     bool use_stat = false;
-    RDDBStat * stat = nullptr;
+    // RDDBStat * stat = nullptr;
+    RDDBStat * stat;
 
     rocksdb::Result IsRangeDeleted(const uint64_t &key, const uint64_t &sequence) const;
 };
@@ -191,18 +198,39 @@ rocksdb::Result RangeDeleteDB::RangeDelete(const uint64_t &key_left, const strin
     return ConvertStaToRes(s);
   }
   else{
-    uint64_t seq_curr = db_->GetLatestSequenceNumber();
-    rd_filter_->InsertRange(key_left, key_right);
-    // insert Rect
-    rangedelete_rep::Rectangle in_rect(key_left, 0, key_right, seq_curr);
+    // // check garbage collection
+    // uint64_t sequence = 0;
+    // bool gc_trigger = false;
+    // db_->GetGCInfo(gc_trigger, sequence);
+    // if(gc_trigger){
+    //   // garbage collection
+    //   size_t gcsz = sizeof(stat->gc_times);
+    //   RDTimer gc_timer;
+    //   gc_timer.Start();
+    //   ExcuteGarbageCollection(sequence);
+    //   gc_timer.Pause();
+    //   stat->gc_times.emplace_back(gc_timer.duration);
+    // }
+    // update range filter
+    if(use_stat){ stat->op_rdelete_filter.Start(); }
 
-    // std::cout << "   seq: " << seq_curr << std::endl;
+    rd_filter_->InsertRange(key_left, key_right);
+    
+    if(use_stat){ stat->op_rdelete_filter.Pause(); }
+
+    uint64_t seq_curr = db_->GetLatestSequenceNumber();
+    rangedelete_rep::Rectangle in_rect(key_left, rd_rep_->GetBase(), key_right, seq_curr);
+
+    if(use_stat){ stat->op_rdelete_rep.Start(); }
 
     rd_rep_->InsertRect(in_rect);
+    
     if(use_stat){ 
+      stat->op_rdelete_rep.Pause();
       stat->op_rdelete.Pause(); 
       stat->op_rdelete.AddCount();
     }
+
     return rocksdb::Result::kOk;
   }
 }
@@ -237,5 +265,15 @@ rocksdb::Result RangeDeleteDB::RangeLookup(const uint64_t &key_start, const stri
   }
   return rocksdb::Result::kOk;
 }
+
+// void RangeDeleteDB::ExcuteGarbageCollection(const uint64_t & sequence){
+//   rd_rep_->ExcuteGarbageCollection(sequence);
+//   rd_rep_->UpdateBase(sequence);
+//   ResetGarbageCollection();
+// }
+
+// void RangeDeleteDB::ResetGarbageCollection(){
+//   db_->ResetGCInfo();
+// }
 
 }  // namespace rocksdb

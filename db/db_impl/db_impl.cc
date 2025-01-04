@@ -258,7 +258,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
                      &error_handler_, &event_logger_,
                      immutable_db_options_.listeners, dbname_),
-      lock_wal_count_(0) {
+      lock_wal_count_(0),
+      least_sequence_(kMaxSequenceNumber),
+      bottomost_compaction_trigger_(false),
+      use_global_range_delete_compact_(false),
+      global_range_delete_rep(nullptr) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -541,6 +545,8 @@ Status DBImpl::CloseHelper() {
   // Guarantee that there is no background error recovery in progress before
   // continuing with the shutdown
   mutex_.Lock();
+  // WF: set external range delete to zero
+  global_range_delete_rep = nullptr;
   shutdown_initiated_ = true;
   error_handler_.CancelErrorRecovery();
   while (error_handler_.IsRecoveryInProgress()) {
@@ -2697,6 +2703,85 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   }
   return s;
 }
+
+SequenceNumber DBImpl::GetLeastSequenceNumberImpl(ColumnFamilyHandle* column_family) {
+  assert(column_family);
+  const Status s = FailIfCfHasTs(column_family);
+  if (!s.ok()) {
+    return kMaxSequenceNumber;
+  }
+
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto cfd = cfh->cfd();
+
+  // Acquire SuperVersion
+  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+
+  // First look in the immutable memtable, then the sst files
+  SequenceNumber least_seq = sv->imm->GetFirstSequenceNumber();
+
+  least_seq = std::min(least_seq, sv->current->GetLeastSequenceNumber());
+
+  return least_seq;
+}
+
+SequenceNumber DBImpl::GetLeastSequenceNumber(ColumnFamilyHandle* column_family){
+  return GetLeastSequenceNumberImpl(column_family);
+}
+SequenceNumber DB::GetLeastSequenceNumber(ColumnFamilyHandle* column_family){
+  return kMaxSequenceNumber;
+}
+
+void DBImpl::UpdateGCInfo(const SequenceNumber & least_sequence) {
+  SetBottomostCompact();
+  least_sequence_ = least_sequence;
+}
+void DB::UpdateGCInfo(const SequenceNumber & least_sequence){}
+
+void DBImpl::GetGCInfo(bool & bottomost_trigger, SequenceNumber & least_sequence) {
+  bottomost_trigger = bottomost_compaction_trigger_;
+  least_sequence = least_sequence_;
+}
+void DB::GetGCInfo(bool & bottomost_trigger, SequenceNumber & least_sequence){}
+
+void DBImpl::ResetGCInfo() {
+  ResetBottomostCompact();
+}
+void DB::ResetGCInfo() {}
+
+void DBImpl::SetRangeDeleteRep(LSMR* rep) {
+  global_range_delete_rep = rep;
+  // enable_global_range_delete_ = true;
+}
+void DB::SetRangeDeleteRep(LSMR* rep) {}
+
+void DBImpl::ReSetRangeDeleteRep() {
+  global_range_delete_rep = nullptr;
+}
+void DB::ReSetRangeDeleteRep() {}
+
+void DBImpl::PrepareRangeDeleteRep(const uint64_t& key_min, const uint64_t& key_max, const SequenceNumber& seq_min, const SequenceNumber& seq_max) {
+  //convert the info into rangedelete_rep::Rectangle
+  rangedelete_rep::Rectangle target_rect(key_min, seq_min, key_max, seq_max);
+  global_range_delete_rep->ExtractSubtree(target_rect);
+}
+void DB::PrepareRangeDeleteRep(const uint64_t& key_min, const uint64_t& key_max, const SequenceNumber& seq_min, const SequenceNumber& seq_max) {}
+
+void DBImpl::SetGlobalRangeDeleteCompact(){
+  use_global_range_delete_compact_ = true;
+}
+void DB::SetGlobalRangeDeleteCompact() {}
+
+void DBImpl::ResetGlobalRangeDeleteCompact(){
+  use_global_range_delete_compact_ = false;
+}
+void DB::ResetGlobalRangeDeleteCompact() {}
+
+void DBImpl::ExcuteGRDGarbageCollection(SequenceNumber & sequence) {
+  global_range_delete_rep->ExcuteGarbageCollection(sequence);
+  global_range_delete_rep->UpdateBase(sequence);
+}
+void DB::ExcuteGRDGarbageCollection(SequenceNumber & sequence) {}
 
 template <class T, typename IterDerefFuncType>
 Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,

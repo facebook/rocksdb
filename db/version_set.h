@@ -1012,6 +1012,8 @@ class Version {
   Status GetPropertiesOfTablesInRange(const ReadOptions& read_options,
                                       const autovector<UserKeyRange>& ranges,
                                       TablePropertiesCollection* props) const;
+  
+  SequenceNumber GetLeastSequenceNumber() const;
 
   // Print summary of range delete tombstones in SST files into out_str,
   // with maximum max_entries_to_print entries printed out.

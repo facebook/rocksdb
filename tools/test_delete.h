@@ -8,14 +8,14 @@ DEFINE_string(mode, "default", "methods: default or grd");
 //LSM
 DEFINE_int32(buffer_size, 64, "Buffer size in MB");
 DEFINE_int32(size_ratio, 10, "size_ratio");
-DEFINE_int32(bpk_filter, 5, "Bits per key for rocksdb bloom filter");
+DEFINE_int32(bpk_filter, 10, "Bits per key for rocksdb bloom filter");
+DEFINE_int32(ksize, 24, "Size of key-value pair");
+DEFINE_int32(kvsize, 128, "Size of key-value pair");
 //GRD
 DEFINE_uint64(max_key, 10000000, "the upper bound of key space");
 DEFINE_int32(bpk_rd_filter, 10, "Bits per key for range delete filter");
 DEFINE_int32(rep_buffer_size, 64, "LSM RTree Buffer size in KB");
 DEFINE_int32(rep_size_ratio, 10, "LSM RTree size_ratio");
-DEFINE_int32(ksize, 24, "Size of key-value pair");
-DEFINE_int32(kvsize, 128, "Size of key-value pair");
 //Workload
 DEFINE_string(workload, "prepare", "prepare or test");
 DEFINE_uint64(prep_num, 100000, "#entries to prepare");
@@ -25,6 +25,43 @@ DEFINE_uint64(seek_num, 100000, "#range query operations");
 DEFINE_uint64(seek_len, 10, "length of range query");
 DEFINE_uint64(rdelete_num, 100000, "#range delete operations");
 DEFINE_uint64(rdelete_len, 10, "length of delete range");
+
+DEFINE_int32(level_comp, 1, "level start to involve rd_rep in compaction");
+
+namespace ROCKSDB_NAMESPACE {
+class GlobalRangeDeleterGCListener : public EventListener {
+ public:
+  explicit GlobalRangeDeleterGCListener(Options* db_options)
+      : db_options_(db_options) {}
+
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override {
+    if(ci.bottommost_level && (ci.output_level > 1)){
+      SequenceNumber sequence = db->GetLeastSequenceNumber();
+      db->UpdateGCInfo(sequence);
+      std::cout << "Garbage collection: bottommost level " << ci.output_level << " least_input_seq: " << sequence << std::endl;
+      // check garbage collection
+      db->ExcuteGRDGarbageCollection(sequence);
+      db->ResetGCInfo();
+    }
+    db->ResetGlobalRangeDeleteCompact();
+  }
+
+  void OnCompactionBegin(DB* db, const CompactionJobInfo& ci) override{
+    if(ci.output_level > FLAGS_level_comp){
+      // prepare the LSM Rtree: loading overlapping elements from disk files
+      uint64_t key_min = std::stoull(ci.smallest_input_user_key.ToString());
+      uint64_t key_max = std::stoull(ci.largest_input_user_key.ToString());
+      SequenceNumber least_seq = ci.least_input_seq;
+      SequenceNumber largest_seq = ci.largest_input_seq;
+      db->PrepareRangeDeleteRep(key_min, key_max, least_seq, largest_seq);
+      db->SetGlobalRangeDeleteCompact();
+    }
+  }
+
+  int max_level_checked = 0;
+  const Options* db_options_;
+};
+}
 
 rocksdb::range_delete_db_opt get_default_options() {
   rocksdb::Options db_opts;
@@ -40,7 +77,14 @@ rocksdb::range_delete_db_opt get_default_options() {
   auto table_options =
       db_opts.table_factory->GetOptions<rocksdb::BlockBasedTableOptions>();
   table_options->no_block_cache = true;
-  // db_opts.statistics = rocksdb::CreateDBStatistics();
+  table_options->filter_policy.reset(rocksdb::NewBloomFilterPolicy(FLAGS_bpk_filter, false));
+
+  rocksdb::GlobalRangeDeleterGCListener* listener =
+      new rocksdb::GlobalRangeDeleterGCListener(&db_opts);
+  db_opts.listeners.emplace_back(listener);
+
+  
+  db_opts.statistics = rocksdb::CreateDBStatistics();
 
   rangedelete_filter::rd_filter_opt filter_opts;
   filter_opts.bit_per_key = FLAGS_bpk_rd_filter;

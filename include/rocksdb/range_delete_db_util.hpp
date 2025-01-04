@@ -76,6 +76,8 @@ struct RDDBStat
   RDTimer op_rdelete;
   RDTimer rd_filter;
   RDTimer rd_rep;
+  RDTimer op_rdelete_filter;
+  RDTimer op_rdelete_rep;
   // uint64_t break_filter = 0; //#operations filtered by filter
   // uint64_t break_rep = 0;    //#calls range delete rep
   uint64_t filter_tn = 0;
@@ -83,6 +85,7 @@ struct RDDBStat
   uint64_t filter_tp = 0;
   std::vector<uint64_t> rtree_node_cnt;
   std::vector<uint64_t> rtree_leaf_cnt;
+  // std::vector<uint64_t> gc_times; // garbage collection
 
   bool enable_global_rd = false;
 
@@ -113,27 +116,33 @@ uint64_t GetAvg(std::vector<uint64_t> &vec){
 
 void RDDBStat::Print(){
   std::cout << "Test Information: " << std::endl;
-  std::cout << "    write:  count: " << op_write.count << " , duration: " << op_write.duration 
-            << " , avg latency: " << op_write.duration/std::max(op_write.count, uint64_t(1)) << std::endl;
   std::cout << "    Point query:  count: " << op_read.count << " , duration: " << op_read.duration 
-            << " , avg latency: " << op_read.duration/std::max(op_read.count, uint64_t(1)) << std::endl;
+            << " us, avg latency: " << op_read.duration/std::max(op_read.count, uint64_t(1)) << std::endl;
   std::cout << "    Range query: count:  " << op_rread.count << " , duration: " << op_rread.duration
-            << " , avg latency: " << op_rread.duration/std::max(op_rread.count, uint64_t(1)) << std::endl;
+            << " us, avg latency: " << op_rread.duration/std::max(op_rread.count, uint64_t(1)) << std::endl;
   std::cout << "    Range delete: count:  " << op_rdelete.count << " , duration: " << op_rdelete.duration 
-            << " , avg latency: " << op_rdelete.duration/std::max(op_rdelete.count, uint64_t(1)) << std::endl;
+            << " us, avg latency: " << op_rdelete.duration/std::max(op_rdelete.count, uint64_t(1)) << std::endl;
+  std::cout << "    write:  count: " << op_write.count << " , duration: " << op_write.duration 
+            << " us, avg latency: " << op_write.duration/std::max(op_write.count, uint64_t(1)) << std::endl;
+  std::cout << "            write range delete filter: " << op_rdelete_filter.duration 
+            << " us, write range delete representation " << op_rdelete_rep.duration << " us." << std::endl;
 
   if(enable_global_rd){
     std::cout << "  GRD Information: " << std::endl;
-    std::cout << "    RD filter: count:  " << rd_filter.count << " , duration: " << rd_filter.duration 
-              << " , avg latency: " << rd_filter.duration/std::max(rd_filter.count, uint64_t(1)) << std::endl;
+    std::cout << "    Read RD filter: count:  " << rd_filter.count << " , duration: " << rd_filter.duration 
+              << " us, avg latency: " << rd_filter.duration/std::max(rd_filter.count, uint64_t(1)) << std::endl;
     std::cout << "              True negative: " << filter_tn << " True positive: " << filter_tp << " False positive: " << filter_fp << std::endl;
 
-    std::cout << "    RD rep: count:  " << rd_rep.count << " , duration: " << rd_rep.duration 
-              << " , avg latency: " << rd_rep.duration/std::max(rd_rep.count, uint64_t(1)) << std::endl;
+    std::cout << "    Read RD rep: count:  " << rd_rep.count << " , duration: " << rd_rep.duration 
+              << " us, avg latency: " << rd_rep.duration/std::max(rd_rep.count, uint64_t(1)) << std::endl;
     std::cout << "       number of accessed internal nodes (min - max): " <<  GetMin(rtree_node_cnt) << " - " << GetMax(rtree_node_cnt)
               << " average value: " << GetAvg(rtree_node_cnt) << std::endl;
     std::cout << "       number of accessed leaf nodes (min - max): " <<  GetMin(rtree_leaf_cnt) << " - " << GetMax(rtree_leaf_cnt)
               << " average value: " << GetAvg(rtree_leaf_cnt) << std::endl;
+    // std::cout << "  Garbage collection: " <<  gc_times.size() << " times, taking " << GetAvg(gc_times) << " us on average value: " << std::endl;
+    // for (size_t i = 0; i < gc_times.size(); i++){
+    //   std::cout << "       Garbage collection " <<  i << " takes " << gc_times[i] << " us; " << std::endl;
+    // }
     // std::cout << "       number of accessed leaf nodes (min - max): " << *std::min_element(rtree_leaf_cnt.begin(), rtree_leaf_cnt.end()) 
     //           << " - " << *std::max_element(rtree_leaf_cnt.begin(), rtree_leaf_cnt.end()) << std::endl;
   }

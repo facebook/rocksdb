@@ -37,6 +37,7 @@
 #include <sys/mman.h>
 #include <cassert>
 #include <algorithm>
+#include <iostream>
 
 // #define LEFTCHILD(x) 2 * x + 1
 // #define RIGHTCHILD(x) 2 * x + 2
@@ -48,8 +49,6 @@
 
 namespace rangedelete_rep{
 
-typedef RTree<bool, uint64_t, 2, float, 16> RTreeType;
-
 template <class K, class V>
 class DiskLevel {
  public:
@@ -58,24 +57,22 @@ class DiskLevel {
     size_t T_; // number of runs in a level
     // unsigned _numRuns; // index of active run
     // unsigned _numMerges; // number of merges in a level
+    mutex *curr_read_lock; //WF: Used to protect read RTree in each run during compaction TODO: try to use other methods
     
     DiskLevel<K,V>( std::string path, size_t page_size, int level, size_t T)
                     :T_(T), level_(level), page_size_(page_size), path_(path){
-        min_point_.init_min();
-        max_point_.init_max();
+        // min_point_.init_min();
+        // max_point_.init_max();
+        // min_upper_ = std::numeric_limits<uint64_t>::max();
         runs_.reserve(100); //temperaly set it to 100, while we expect at most T runs in this level
-        // std::cout << "Disk level " << level_ << " created ..." << std::endl;
-        // _numRuns = 0;        
-        // for (int i = 0; i < _T; i++){
-        //     DiskRun<K,V> * run = new DiskRun<K, V>(_runSize, pageSize, level, i, _bf_fp);
-        //     runs.push_back(run);
-        // }
+        curr_read_lock = new mutex();
     }
     
     ~DiskLevel<K,V>(){
         for (int i = 0; i< runs_.size(); i++){
             delete runs_[i];
         }
+        delete curr_read_lock;
     }
     
     void AddRun(vector<DiskRun<K, V> *> &runList) {
@@ -83,6 +80,7 @@ class DiskLevel {
         RTree_res = new RTree<bool, uint64_t, 2, float, 16>();
         Point minP;
         Point maxP;
+        uint64_t minU;
         // merge existing rtrees
         for (int i = 0; i < runList.size(); i++){
             if (i == 0)
@@ -90,11 +88,13 @@ class DiskLevel {
                 runList[i]->LoadTo(RTree_res);
                 minP = runList[i]->min_point_;
                 maxP = runList[i]->max_point_;
+                minU = runList[i]->min_upper_;
             }else {
                 runList[i]->PrepareRTree();
                 // update boundary
                 minP.set_min(runList[i]->min_point_);
                 maxP.set_max(runList[i]->max_point_);
+                minU = std::min(minU, runList[i]->min_upper_);
 
                 // insert entries in new RTree
                 RTree<bool, uint64_t, 2, float, 16>::Iterator it;
@@ -109,14 +109,14 @@ class DiskLevel {
         }
         // insert into target slot
         size_t runID = runs_.size();
-        runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, RTree_res));
+        runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, minU, RTree_res));
     }
 
 
-    void AddRunFromMem(RTree<bool, uint64_t, 2, float, 16> * mem, Point & minP, Point & maxP) {
+    void AddRunFromMem(RTree<bool, uint64_t, 2, float, 16> * mem, Point & minP, Point & maxP, uint64_t & minU) {
         // insert into level_ 1
         size_t runID = runs_.size();
-        runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, mem));
+        runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, minU, mem));
 
         // RTree<bool, uint64_t, 2, float, 16>::Iterator it;
         // uint64_t boundsMin[2] = {0, 0};
@@ -200,7 +200,7 @@ class DiskLevel {
             uint64_t node_cnt_ = 0;
             uint64_t leaf_cnt_ = 0;
             // bool res = runs_[i]->query(key, node_cnt_, leaf_cnt_);
-            bool res = runs_[i]->diskquery(key, node_cnt_, leaf_cnt_);
+            bool res = runs_[i]->QueryDisk(key, node_cnt_, leaf_cnt_);
             node_cnt += node_cnt_;
             leaf_cnt += leaf_cnt_;
             if (res) {return true;}
@@ -208,9 +208,81 @@ class DiskLevel {
         return false;
     }
 
+    // bool QueryRectCurr (const K &key) {
+    //     // curr_read_lock->lock();
+    //     int maxRunToSearch = runs_.size() - 1;
+    //     for (int i = maxRunToSearch; i >= 0; i--){
+    //         if (key.max < runs_[i]->min_point_ || key.min > runs_[i]->max_point_){
+    //             continue;
+    //         }
+    //         bool res = runs_[i]->QueryCurr(key);
+    //         if (res) {
+    //             // curr_read_lock->unlock();
+    //             return true;
+    //         }
+    //     }
+    //     // curr_read_lock->unlock();
+    //     return false;
+    // }
+
+    void ExcuteGarbageCollection(const uint64_t & sequence){
+        // return if all runs are created after sequence
+        if(runs_.size() < 1){
+            return;
+        }
+        // find out runs to delete / prune
+        vector<DiskRun<K, V> *> runs_to_delete;
+        vector<DiskRun<K, V> *> runs_to_prune;
+        for (int i = 0; i < runs_.size(); i++){
+            if (runs_[i]->max_point_.y < sequence){
+                runs_to_delete.push_back(runs_[i]);
+            } else if (runs_[i]->max_point_.y > sequence && runs_[i]->min_upper_ < sequence){
+                runs_to_prune.push_back(runs_[i]);
+            }
+        }
+        // we assume all runs to be deleted are before that to be pruned
+        assert((runs_to_delete.size() + runs_to_prune.size()) <= runs_.size());
+        if (runs_to_delete.size() > 0){
+            assert(runs_to_delete[runs_to_delete.size() - 1]->runID_ < runs_to_prune[0]->runID_);
+        }
+        // prune runs before deletion
+        // there could be optimized: if the run is too small after pruning, merge it to adjacent run
+        for (int i = 0; i < runs_to_prune.size(); i++)
+        {
+            assert(runs_to_prune[i]->level_ == level_);
+            runs_to_prune[i]->PruneBeforeUpper(sequence);
+        }
+        // delete obsolete runs
+        FreeMergedRuns(runs_to_delete);
+    }
+
+    bool ExtractSubtreeFromDisk (const K &key, uint64_t & node_cnt, uint64_t & leaf_cnt, std::vector<RTreeType *> & rtrees) {
+        int maxRunToAccess = runs_.size() - 1;
+        for (int i = maxRunToAccess; i >= 0; i--){
+            // std::cout << "ExtractSubtreeFromDisk Level " << level_ << " run " << i << std::endl;
+            if (key.max < runs_[i]->min_point_ || key.min > runs_[i]->max_point_){
+                continue;
+            }
+            uint64_t node_cnt_ = 0;
+            uint64_t leaf_cnt_ = 0;
+            // bool res = runs_[i]->query(key, node_cnt_, leaf_cnt_);
+            RTreeType * tree_tmp = new RTreeType();
+            bool res = runs_[i]->ExtractSubtreeFromDisk(key, node_cnt_, leaf_cnt_, tree_tmp);
+            if (tree_tmp != nullptr){
+                if (!tree_tmp->IsEmpty()){
+                    rtrees.emplace_back(tree_tmp);
+                }
+            }
+            node_cnt += node_cnt_;
+            leaf_cnt += leaf_cnt_;
+        }
+        return true;
+    }
+
  private:
-    Point min_point_;
-    Point max_point_;
+    // Point min_point_;
+    // Point max_point_;
+    // uint64_t min_upper_;
     std::string path_;
     std::vector<DiskRun<K,V> *> runs_;
 };

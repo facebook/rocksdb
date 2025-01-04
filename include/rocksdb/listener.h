@@ -443,8 +443,11 @@ struct CompactionJobInfo {
   // the output level of the compaction.
   int output_level;
 
-  // least sequence number in the input files
+  // least/largest sequence number and user key in the input files
   SequenceNumber least_input_seq;
+  SequenceNumber largest_input_seq;
+  Slice smallest_input_user_key;
+  Slice largest_input_user_key;
 
   // true: the output level is the bottommost level
   bool bottommost_level;

@@ -3951,7 +3951,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     TEST_SYNC_POINT_CALLBACK(
         "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", nullptr);
     // Should handle error?
-    compaction_job.Run().PermitUncheckedError();
+    //WF: whether to use global range delete
+    if(use_global_range_delete_compact_){
+      compaction_job.Run(global_range_delete_rep).PermitUncheckedError();
+    } else {
+      compaction_job.Run().PermitUncheckedError();
+    }
+    // compaction_job.Run().PermitUncheckedError();
+
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
 
@@ -4229,6 +4236,10 @@ void DBImpl::BuildCompactionJobInfo(
 
   // record the least sequence number in input files
   SequenceNumber least_input_seq = std::numeric_limits<uint64_t>::max();
+  SequenceNumber largest_input_seq = 0;
+  Slice smallest_input_user_key;
+  Slice largest_input_user_key;
+  bool record_user_key = true;
 
   for (size_t i = 0; i < c->num_input_levels(); ++i) {
     for (const auto fmd : *c->inputs(i)) {
@@ -4239,14 +4250,39 @@ void DBImpl::BuildCompactionJobInfo(
       compaction_job_info->input_files.push_back(fn);
       compaction_job_info->input_file_infos.push_back(CompactionFileInfo{
           static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
-      if (!(c->level(i) == c->output_level()) && (desc.smallest_seqno < least_input_seq))
+      // if (!(c->level(i) == c->output_level()) && (desc.smallest_seqno < least_input_seq))
+      // {
+      //   least_input_seq = desc.smallest_seqno;
+      // }
+      if (desc.smallest_seqno < least_input_seq)
       {
         least_input_seq = desc.smallest_seqno;
+      }
+      if (desc.largest_seqno > largest_input_seq)
+      {
+        largest_input_seq = desc.largest_seqno;
+      }
+      if (record_user_key){
+        smallest_input_user_key = fmd->smallest.user_key();
+        largest_input_user_key = fmd->largest.user_key();
+        record_user_key = false;
+      } else {
+        Slice smallest_input_user_key_ = fmd->smallest.user_key();
+        Slice largest_input_user_key_ = fmd->largest.user_key();
+        if(smallest_input_user_key.compare(smallest_input_user_key_)){
+          smallest_input_user_key = smallest_input_user_key_;
+        }
+        if(largest_input_user_key_.compare(largest_input_user_key)){
+          largest_input_user_key = largest_input_user_key_;
+        }
       }
     }
   }
 
   compaction_job_info->least_input_seq = least_input_seq;
+  compaction_job_info->largest_input_seq = largest_input_seq;
+  compaction_job_info->smallest_input_user_key = smallest_input_user_key;
+  compaction_job_info->largest_input_user_key = largest_input_user_key;
 
   for (const auto& newf : c->edit()->GetNewFiles()) {
     const FileMetaData& meta = newf.second;
