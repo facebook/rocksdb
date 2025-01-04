@@ -72,6 +72,7 @@ typedef struct rocksdb_t rocksdb_t;
 typedef struct rocksdb_backup_engine_t rocksdb_backup_engine_t;
 typedef struct rocksdb_backup_engine_info_t rocksdb_backup_engine_info_t;
 typedef struct rocksdb_backup_engine_options_t rocksdb_backup_engine_options_t;
+typedef struct rocksdb_create_backup_options_t rocksdb_create_backup_options_t;
 typedef struct rocksdb_restore_options_t rocksdb_restore_options_t;
 typedef struct rocksdb_memory_allocator_t rocksdb_memory_allocator_t;
 typedef struct rocksdb_lru_cache_options_t rocksdb_lru_cache_options_t;
@@ -172,8 +173,27 @@ extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_create_new_backup_flush(
     rocksdb_backup_engine_t* be, rocksdb_t* db,
     unsigned char flush_before_backup, char** errptr);
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_backup_engine_create_new_backup_with_options_with_metadata(
+    rocksdb_backup_engine_t* be, rocksdb_t* db,
+    rocksdb_create_backup_options_t* bo, const char* app_metadata,
+    uint32_t* new_backup_id, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_create_backup_options_t*
+rocksdb_create_backup_options_create(void);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_create_backup_options_destroy(
+    rocksdb_create_backup_options_t* opt);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_create_backup_options_set_flush_before_backup(
+    rocksdb_create_backup_options_t* opt, bool flush);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_purge_old_backups(
     rocksdb_backup_engine_t* be, uint32_t num_backups_to_keep, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_delete_backup(
+    rocksdb_backup_engine_t* be, uint32_t backup_id, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_restore_options_t*
 rocksdb_restore_options_create(void);
@@ -195,6 +215,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_restore_db_from_backup(
     const rocksdb_restore_options_t* restore_options, const uint32_t backup_id,
     char** errptr);
 
+extern ROCKSDB_LIBRARY_API int* rocksdb_backup_engine_get_corrupted_backups(
+    const rocksdb_backup_engine_t* be, size_t* num_corrupted_backups);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_garbage_collect(
+    rocksdb_backup_engine_t* be, char** errptr);
+
 extern ROCKSDB_LIBRARY_API const rocksdb_backup_engine_info_t*
 rocksdb_backup_engine_get_backup_info(rocksdb_backup_engine_t* be);
 
@@ -211,6 +237,9 @@ extern ROCKSDB_LIBRARY_API uint64_t rocksdb_backup_engine_info_size(
     const rocksdb_backup_engine_info_t* info, int index);
 
 extern ROCKSDB_LIBRARY_API uint32_t rocksdb_backup_engine_info_number_files(
+    const rocksdb_backup_engine_info_t* info, int index);
+
+extern ROCKSDB_LIBRARY_API char* rocksdb_backup_engine_info_app_metadata(
     const rocksdb_backup_engine_info_t* info, int index);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_info_destroy(
