@@ -573,6 +573,8 @@ Status ErrorHandler::ClearBGError() {
 
   // Signal that recovery succeeded
   if (recovery_error_.ok()) {
+    // If this assertion fails, it means likely bg error is not set after a
+    // file is quarantined during MANIFEST write.
     assert(files_to_quarantine_.empty());
     Status old_bg_error = bg_error_;
     // old_bg_error is only for notifying listeners, so may not be checked

@@ -81,14 +81,8 @@ class SubcompactionState {
   // it returns both the last level outputs and penultimate level outputs.
   OutputIterator GetOutputs() const;
 
-  // Assign range dels aggregator, for each range_del, it can only be assigned
-  // to one output level, for per_key_placement, it's going to be the
-  // penultimate level.
-  // TODO: This does not work for per_key_placement + user-defined timestamp +
-  //  DeleteRange() combo. If user-defined timestamp is enabled,
-  //  it is possible for a range tombstone to belong to bottommost level (
-  //  seqno < earliest snapshot) without being dropped (garbage collection
-  //  for user-defined timestamp).
+  // Assign range dels aggregator. The various tombstones will potentially
+  // be filtered to different outputs.
   void AssignRangeDelAggregator(
       std::unique_ptr<CompactionRangeDelAggregator>&& range_del_agg) {
     assert(range_del_agg_ == nullptr);
@@ -199,12 +193,16 @@ class SubcompactionState {
     // Call FinishCompactionOutputFile() even if status is not ok: it needs to
     // close the output file.
     // CloseOutput() may open new compaction output files.
-    Status s = penultimate_level_outputs_.CloseOutput(
-        curr_status, per_key ? range_del_agg_.get() : nullptr, open_file_func,
-        close_file_func);
-    s = compaction_outputs_.CloseOutput(
-        s, per_key ? nullptr : range_del_agg_.get(), open_file_func,
-        close_file_func);
+    Status s = curr_status;
+    if (per_key) {
+      s = penultimate_level_outputs_.CloseOutput(
+          s, range_del_agg_.get(), open_file_func, close_file_func);
+    } else {
+      assert(penultimate_level_outputs_.HasBuilder() == false);
+      assert(penultimate_level_outputs_.HasOutput() == false);
+    }
+    s = compaction_outputs_.CloseOutput(s, range_del_agg_.get(), open_file_func,
+                                        close_file_func);
     return s;
   }
 

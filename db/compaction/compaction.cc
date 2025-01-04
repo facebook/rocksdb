@@ -410,6 +410,7 @@ Compaction::Compaction(
 
 void Compaction::PopulatePenultimateLevelOutputRange() {
   if (!SupportsPerKeyPlacement()) {
+    assert(keep_in_last_level_through_seqno_ == kMaxSequenceNumber);
     return;
   }
 
@@ -452,6 +453,27 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
   GetBoundaryInternalKeys(input_vstorage_, inputs_,
                           &penultimate_level_smallest_,
                           &penultimate_level_largest_, exclude_level);
+
+  if (penultimate_output_range_type_ !=
+      PenultimateOutputRangeType::kFullRange) {
+    // If not full range in penultimate level, must keep everything already
+    // in the last level there, because moving it back up might cause
+    // overlap/placement issues that are difficult to resolve properly in the
+    // presence of range deletes
+    SequenceNumber max_last_level_seqno = 0;
+    for (const auto& input_lvl : inputs_) {
+      if (input_lvl.level == output_level_) {
+        for (const auto& file : input_lvl.files) {
+          max_last_level_seqno =
+              std::max(max_last_level_seqno, file->fd.largest_seqno);
+        }
+      }
+    }
+
+    keep_in_last_level_through_seqno_ = max_last_level_seqno;
+  } else {
+    keep_in_last_level_through_seqno_ = 0;
+  }
 }
 
 Compaction::~Compaction() {
@@ -494,22 +516,29 @@ bool Compaction::OverlapPenultimateLevelOutputRange(
 }
 
 // key includes timestamp if user-defined timestamp is enabled.
-bool Compaction::WithinPenultimateLevelOutputRange(
-    const ParsedInternalKey& ikey) const {
-  if (!SupportsPerKeyPlacement()) {
-    return false;
-  }
+void Compaction::TEST_AssertWithinPenultimateLevelOutputRange(
+    const Slice& user_key, bool expect_failure) const {
+#ifdef NDEBUG
+  (void)user_key;
+  (void)expect_failure;
+#else
+  assert(SupportsPerKeyPlacement());
 
-  if (penultimate_level_smallest_.size() == 0 ||
-      penultimate_level_largest_.size() == 0) {
-    return false;
-  }
+  assert(penultimate_level_smallest_.size() > 0);
+  assert(penultimate_level_largest_.size() > 0);
 
-  const InternalKeyComparator* icmp = input_vstorage_->InternalComparator();
+  auto* cmp = input_vstorage_->user_comparator();
 
   // op_type of a key can change during compaction, e.g. Merge -> Put.
-  return icmp->CompareKeySeq(ikey, penultimate_level_smallest_.Encode()) >= 0 &&
-         icmp->CompareKeySeq(ikey, penultimate_level_largest_.Encode()) <= 0;
+  if (!(cmp->Compare(user_key, penultimate_level_smallest_.user_key()) >= 0)) {
+    assert(expect_failure);
+  } else if (!(cmp->Compare(user_key, penultimate_level_largest_.user_key()) <=
+               0)) {
+    assert(expect_failure);
+  } else {
+    assert(!expect_failure);
+  }
+#endif
 }
 
 bool Compaction::InputCompressionMatchesOutput() const {

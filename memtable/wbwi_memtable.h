@@ -367,7 +367,7 @@ class WBWIMemTableIterator final : public InternalIterator {
       key_.clear();
       valid_ = false;
       s_ = Status::Corruption("Unexpected write_batch_with_index entry type " +
-                              std::to_string(t->second));
+                              std::to_string(it_->Entry().type));
       return;
     }
     key_buf_.SetInternalKey(it_->Entry().key, assigned_seqno_.upper_bound,
