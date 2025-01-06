@@ -1193,7 +1193,11 @@ void FlushJob::GetEffectiveCutoffUDTForPickedMemTables() {
 }
 
 void FlushJob::GetPrecludeLastLevelMinSeqno() {
-  if (mutable_cf_options_.preclude_last_level_data_seconds == 0) {
+  if (mutable_cf_options_.preclude_last_level_data_seconds == 0 ||
+      // FIXME: create FlushJob and build SuperVersions such that
+      // preclude_last_level_data_seconds > 0 implies
+      // seqno_to_time_mapping_ != nullptr
+      seqno_to_time_mapping_ == nullptr) {
     return;
   }
   int64_t current_time = 0;
