@@ -809,6 +809,9 @@ class BackupEngineImpl {
           file_path(_file_path),
           file_number(_file_number) {}
 
+    ComputeChecksumWorkItem(const ComputeChecksumWorkItem&) = delete;
+    ComputeChecksumWorkItem& operator=(const ComputeChecksumWorkItem&) = delete;
+
     ComputeChecksumWorkItem(ComputeChecksumWorkItem&& o) noexcept {
       *this = std::move(o);
     }
@@ -819,6 +822,8 @@ class BackupEngineImpl {
       file_number = o.file_number;
       return *this;
     }
+
+    ~ComputeChecksumWorkItem() = default;
   };
 
   struct RestoreAfterCopyOrCreateWorkItem {
