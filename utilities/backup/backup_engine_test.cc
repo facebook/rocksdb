@@ -1101,6 +1101,148 @@ class BackupEngineTestWithParam : public BackupEngineTest,
   }
 };
 
+TEST_F(BackupEngineTest, IncrementalRestore) {
+  const int keys_iteration = 100;
+
+  options_.disable_auto_compactions = true;
+  options_.level0_file_num_compaction_trigger = 1000;
+
+  std::vector<std::string> always_copyable_files = {
+      dbname_ + "/MANIFEST-000005", dbname_ + "/OPTIONS-000007",
+      dbname_ + "/CURRENT.tmp", dbname_ + "/000011.log"};
+  std::vector<std::string> all_backed_up_files = {
+      dbname_ + "/000012.sst",      dbname_ + "/000009.sst",
+      dbname_ + "/000010.blob",     dbname_ + "/000013.blob",
+      dbname_ + "/MANIFEST-000005", dbname_ + "/OPTIONS-000007",
+      dbname_ + "/CURRENT.tmp",     dbname_ + "/000011.log"};
+
+  for (const auto& mode : {kKeepLatestDbSessionIdFiles, kVerifyChecksum}) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                          kShareWithChecksum);
+
+    // 1. Populate db with seed data (2 SST files, 2 blob files).
+    FillDB(db_.get(), 0, keys_iteration);
+    FillDB(db_.get(), keys_iteration, keys_iteration * 2);
+
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+
+    CloseDBAndBackupEngine();
+    DestroyDBWithoutCheck(dbname_, options_);
+
+    // 2. Verify clean restore scenario.
+    test_db_fs_->ClearWrittenFiles();
+
+    RestoreOptions restore_options(false, mode);
+    OpenBackupEngine();
+    ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_,
+                                                        restore_options));
+    CloseBackupEngine();
+
+    // Since we started with a blank db, restore copied all the files.
+    test_db_fs_->AssertWrittenFiles(all_backed_up_files);
+
+    db_.reset();
+    db_.reset(OpenDB());
+
+    // Check DB contents.
+    AssertExists(db_.get(), 0, keys_iteration * 2);
+
+    // Create more data files. Those will be wiped out in consecutive restore.
+    FillDB(db_.get(), keys_iteration * 2, keys_iteration * 3);
+
+    db_.reset();  // CloseDB
+
+    // 3. Incremental restore - simple case.
+    //
+    // Create 'a hole' in a cleanly restored db by manually deleting data files.
+    // At this point new files were created and old files were deleted - which
+    // is representative of the users workloads.
+    IOOptions io_opts;
+    ASSERT_OK(test_db_fs_->DeleteFile(dbname_ + "/000012.sst", io_opts,
+                                      nullptr /* dbg */));
+    ASSERT_OK(test_db_fs_->DeleteFile(dbname_ + "/000010.blob", io_opts,
+                                      nullptr /* dbg */));
+
+    test_db_fs_->ClearWrittenFiles();
+
+    OpenBackupEngine();
+    ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_,
+                                                        restore_options));
+    CloseBackupEngine();
+
+    std::vector<std::string> should_have_written = always_copyable_files;
+    should_have_written.emplace_back(dbname_ + "/000012.sst");
+    should_have_written.emplace_back(dbname_ + "/000010.blob");
+    if (mode == kKeepLatestDbSessionIdFiles) {
+      // We only support incremental restore for blobs in kVerifyChecksum mode.
+      should_have_written.emplace_back(dbname_ + "/000013.blob");
+    }
+
+    // 'Hole' has been patched, 'in-policy' db files were retained.
+    test_db_fs_->AssertWrittenFiles(should_have_written);
+
+    // Check DB contents.
+    db_.reset(OpenDB());
+    AssertExists(db_.get(), 0, keys_iteration * 2);
+
+    db_.reset();  // Close DB.
+
+    // 4. Incremental restore - corrupted db files.
+    ASSERT_OK(db_file_manager_->CorruptFile(dbname_ + "/000010.blob", 3));
+
+    // First few bytes corruption will be detected by ReadTablePropertiesHelper
+    // at the time of reading the metadata footer. We must try a bit harder
+    // (by overriding bytes beyond the footer) to corrupt a file in a more
+    // harmful way...
+    ASSERT_OK(db_file_manager_->CorruptFileMiddle(dbname_ + "/000012.sst"));
+
+    test_db_fs_->ClearWrittenFiles();
+
+    OpenBackupEngine();
+    ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_,
+                                                        restore_options));
+    CloseBackupEngine();
+
+    should_have_written = always_copyable_files;
+    should_have_written.emplace_back(dbname_ + "/000010.blob");
+    if (mode == kVerifyChecksum) {
+      // Restore running in kVerifyChecksum mode would have caught the mismatch
+      // between crc32c and db file contents. Such file would have been deleted
+      // and restored from the backup.
+      should_have_written.emplace_back(dbname_ + "/000012.sst");
+    } else if (mode == kKeepLatestDbSessionIdFiles) {
+      // This mode is more prone to subtle db file corruptions as we do not run
+      // any CPU intensive computations (like checksum) and the match between
+      // existing db file and its' relevant backup counterpart is determined
+      // purely based on the metadata from the footer (size, db_session_id).
+      // Therefore, if corrupted portion of an existing db file does NOT
+      // directly affect those properties in the footer, it might slip through
+      // the cracks and only be detected at the time of running CRC32c.
+
+      // Separately, this mode does not support incremental restore for blobs.
+      should_have_written.emplace_back(dbname_ + "/000013.blob");
+    }
+
+    // 'Hole' has been patched, 'in-policy' db files were retained.
+    test_db_fs_->AssertWrittenFiles(should_have_written);
+
+    db_.reset(OpenDB());
+    Status s = db_->VerifyChecksum();
+
+    // Check DB contents.
+    if (mode == kVerifyChecksum) {
+      EXPECT_OK(s);
+      AssertExists(db_.get(), 0, keys_iteration * 2);
+    } else if (mode == kKeepLatestDbSessionIdFiles) {
+      ASSERT_TRUE(s.IsCorruption());
+    }
+
+    db_.reset();  // Close DB.
+
+    DestroyDBWithoutCheck(dbname_, options_);
+  }
+}
+
 TEST_F(BackupEngineTest, FileCollision) {
   const int keys_iteration = 100;
   for (const auto& sopt : kAllShareOptions) {
@@ -1544,7 +1686,7 @@ TEST_F(BackupEngineTest, CorruptFileMaintainSize) {
   // corrupt all the table files in shared_checksum but maintain their sizes
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                         kShareWithChecksum);
-  // creat two backups
+  // create two backups
   for (int i = 1; i < 3; ++i) {
     FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));

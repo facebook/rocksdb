@@ -627,7 +627,7 @@ class Env : public Customizable {
       const EnvOptions& env_options,
       const ImmutableDBOptions& immutable_ops) const;
 
-  // OptimizeForCompactionTableWrite will create a new EnvOptions object that
+  // OptimizeForCompactionTableRead will create a new EnvOptions object that
   // is a copy of the EnvOptions in the parameters, but is optimized for reading
   // table files.
   virtual EnvOptions OptimizeForCompactionTableRead(
