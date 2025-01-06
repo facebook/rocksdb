@@ -198,6 +198,33 @@ Status FileExpectedState::Open(bool create) {
   return status;
 }
 
+FileSnapshotExpectedState::FileSnapshotExpectedState(
+    const std::string& expected_state_file_path, size_t max_key,
+    size_t num_column_families)
+    : ExpectedState(max_key, num_column_families),
+      expected_state_file_path_(expected_state_file_path) {}
+
+Status FileSnapshotExpectedState::Open(bool create) {
+  if (create) {
+    return Status::NotSupported();
+  }
+  size_t expected_values_size = GetValuesLen();
+
+  Env* default_env = Env::Default();
+  Status status = default_env->NewMemoryMappedFileBuffer(
+      expected_state_file_path_, &expected_state_mmap_buffer_);
+  if (!status.ok()) {
+    return status;
+  }
+
+  assert(expected_state_mmap_buffer_->GetLen() == expected_values_size);
+
+  values_ = static_cast<std::atomic<uint32_t>*>(
+      expected_state_mmap_buffer_->GetBase());
+  assert(values_ != nullptr);
+  return status;
+}
+
 AnonExpectedState::AnonExpectedState(size_t max_key, size_t num_column_families)
     : ExpectedState(max_key, num_column_families) {}
 
@@ -687,31 +714,28 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 Status FileExpectedStateManager::GetExpectedState(
     DB* db, std::unique_ptr<ExpectedState>& state) {
   std::cout << "Enter FileExpectedStateManager::GetExpectedState" << std::endl;
-  if (!HasHistory()) {
-    fprintf(stderr, "No history to restore from\n");
-    exit(123);
-  }
-  std::cout << "History exists to restore from" << std::endl;
+  assert(HasHistory());
   SequenceNumber seqno = db->GetLatestSequenceNumber();
-  std::cout << "saved_seqno_ = " << saved_seqno_ << std::endl;
-  std::cout << "seqno = " << seqno << std::endl;
   if (seqno < saved_seqno_) {
+    std::cout << "seqno " << seqno << " is less than saved_seq_no_ "
+              << saved_seqno_ << std::endl;
     return Status::Corruption("DB is older than any restorable expected state");
   }
-
-  std::cout << "Above last sequence number" << std::endl;
 
   std::string trace_filename =
       std::to_string(saved_seqno_) + kTraceFilenameSuffix;
   std::string trace_file_path = GetPathForFilename(trace_filename);
   std::cout << "trace_file_path = " << trace_file_path << std::endl;
   Status exists_status = Env::Default()->FileExists(trace_file_path);
-  if (exists_status.ok()) {
-    std::cout << "Trace file exists" << std::endl;
-  } else if (exists_status.IsNotFound()) {
-    std::cout << "Cannot find trace file" << std::endl;
+  if (!exists_status.ok()) {
+    if (exists_status.IsNotFound()) {
+      std::cout << "Cannot find trace file" << std::endl;
+    } else {
+      std::cout << "Encountered error checking for trace file existence"
+                << std::endl;
+    }
+    return exists_status;
   }
-
   std::unique_ptr<TraceReader> trace_reader;
   Status s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_path,
                                 &trace_reader);
@@ -720,22 +744,26 @@ Status FileExpectedStateManager::GetExpectedState(
     return s;
   }
 
-  std::cout << "Attempting to define the AnonExpectedState" << std::endl;
-  std::unique_ptr<AnonExpectedState> replay_state(
-      new AnonExpectedState(max_key_, num_column_families_));
-  std::cout << "Attempting to open the AnonExpectedState" << std::endl;
-  s = replay_state->Open(true /* create */);
+  std::string state_filename =
+      std::to_string(saved_seqno_) + kStateFilenameSuffix;
+  std::string state_file_path = GetPathForFilename(state_filename);
+  std::unique_ptr<FileSnapshotExpectedState> replay_state(
+      new FileSnapshotExpectedState(state_file_path, max_key_,
+                                    num_column_families_));
+  s = replay_state->Open(false /* create */);
   if (!s.ok()) {
+    std::cout << "Error opening FileSnapshotExpectedState" << std::endl;
     return s;
   }
 
-  std::cout << "Set up replay state" << std::endl;
   s = ReplayTrace(db, std::move(trace_reader), seqno - saved_seqno_,
                   replay_state.get());
-  if (s.ok()) {
-    state = std::move(replay_state);
+  if (!s.ok()) {
+    std::cout << "Error replaying trace" << std::endl;
+    return s;
   }
-  std::cout << "Expected state should be all done" << std::endl;
+  state = std::move(replay_state);
+  std::cout << "Successful exit from GetExpectedState" << std::endl;
   return s;
 }
 

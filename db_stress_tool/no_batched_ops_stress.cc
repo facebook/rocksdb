@@ -338,18 +338,16 @@ class NonBatchedOpsStressTest : public StressTest {
     if (!cmp_db_) {
       return;
     }
-    std::cout << "NonBatchedOpsStressTest::ContinuouslyVerifyDb" << std::endl;
 
     if (thread->shared->HasHistory()) {
       std::unique_ptr<ExpectedState> state;
       Status getExpectedStateStatus =
           thread->shared->GetExpectedState(db_, state);
       if (!getExpectedStateStatus.ok()) {
-        fprintf(stdout,
-                "[NonBatchedOpsStressTest::ContinuouslyVerifyDb]: Failed to "
-                "set expected state\n");
+        std::cout << "[NonBatchedOpsStressTest::ContinuouslyVerifyDb]: Failed "
+                     "to get expected state"
+                  << std::endl;
         assert(false);
-        exit(1);
       }
     }
 
@@ -2740,7 +2738,8 @@ class NonBatchedOpsStressTest : public StressTest {
       std::unique_ptr<ExpectedState> state;
       Status getExpectedStateStatus = shared->GetExpectedState(db_, state);
       if (!getExpectedStateStatus.ok()) {
-        fprintf(stdout, "[VerifyOrSyncValue]: Failed to get expected state\n");
+        std::cout << "[VerifyOrSyncValue]: Failed to get expected state"
+                  << std::endl;
         return false;
       }
     }

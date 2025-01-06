@@ -181,6 +181,19 @@ class FileExpectedState : public ExpectedState {
   std::unique_ptr<MemoryMappedFileBuffer> expected_persisted_seqno_mmap_buffer_;
 };
 
+class FileSnapshotExpectedState : public ExpectedState {
+ public:
+  explicit FileSnapshotExpectedState(
+      const std::string& expected_state_file_path, size_t max_key,
+      size_t num_column_families);
+
+  Status Open(bool create) override;
+
+ private:
+  const std::string expected_state_file_path_;
+  std::unique_ptr<MemoryMappedFileBuffer> expected_state_mmap_buffer_;
+};
+
 // An `AnonExpectedState` implements `ExpectedState` backed by a memory
 // allocation.
 class AnonExpectedState : public ExpectedState {
