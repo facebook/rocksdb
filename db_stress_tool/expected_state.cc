@@ -208,7 +208,6 @@ Status FileSnapshotExpectedState::Open(bool create) {
   if (create) {
     return Status::NotSupported();
   }
-  size_t expected_values_size = GetValuesLen();
 
   Env* default_env = Env::Default();
   Status status = default_env->NewMemoryMappedFileBuffer(
@@ -217,7 +216,7 @@ Status FileSnapshotExpectedState::Open(bool create) {
     return status;
   }
 
-  assert(expected_state_mmap_buffer_->GetLen() == expected_values_size);
+  assert(expected_state_mmap_buffer_->GetLen() == GetValuesLen());
 
   values_ = static_cast<std::atomic<uint32_t>*>(
       expected_state_mmap_buffer_->GetBase());
@@ -711,9 +710,9 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
 
 }  // anonymous namespace
 
-Status FileExpectedStateManager::GetExpectedState(
-    DB* db, std::unique_ptr<ExpectedState>& state) {
-  std::cout << "Enter FileExpectedStateManager::GetExpectedState" << std::endl;
+Status FileExpectedStateManager::SetSecondaryExpectedState(DB* db) {
+  std::cout << "Enter FileExpectedStateManager::SetSecondaryExpectedState"
+            << std::endl;
   assert(HasHistory());
   SequenceNumber seqno = db->GetLatestSequenceNumber();
   if (seqno < saved_seqno_) {
@@ -722,6 +721,7 @@ Status FileExpectedStateManager::GetExpectedState(
     return Status::Corruption("DB is older than any restorable expected state");
   }
 
+  // Create the trace reader. The trace file must exist.
   std::string trace_filename =
       std::to_string(saved_seqno_) + kTraceFilenameSuffix;
   std::string trace_file_path = GetPathForFilename(trace_filename);
@@ -744,26 +744,45 @@ Status FileExpectedStateManager::GetExpectedState(
     return s;
   }
 
+  // Create an expected state by replaying the trace
   std::string state_filename =
       std::to_string(saved_seqno_) + kStateFilenameSuffix;
   std::string state_file_path = GetPathForFilename(state_filename);
+  std::cout << "state_file_path = " << state_file_path << std::endl;
+
+  std::string verification_file_temp_path = GetTempPathForFilename(
+      "verification_" + std::to_string(seqno) + kStateFilenameSuffix);
+  if (s.ok()) {
+    s = CopyFile(FileSystem::Default(), state_file_path, Temperature::kUnknown,
+                 verification_file_temp_path, Temperature::kUnknown,
+                 0 /* size */, false /* use_fsync */, nullptr /* io_tracer */);
+  }
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::cout << "verification_file_temp_path: " << verification_file_temp_path
+            << std::endl;
   std::unique_ptr<FileSnapshotExpectedState> replay_state(
-      new FileSnapshotExpectedState(state_file_path, max_key_,
+      new FileSnapshotExpectedState(verification_file_temp_path, max_key_,
                                     num_column_families_));
   s = replay_state->Open(false /* create */);
   if (!s.ok()) {
     std::cout << "Error opening FileSnapshotExpectedState" << std::endl;
     return s;
   }
-
-  s = ReplayTrace(db, std::move(trace_reader), seqno - saved_seqno_,
-                  replay_state.get());
+  uint64_t write_ops = seqno - saved_seqno_;
+  std::cout << "Replaying " << write_ops << " operations from trace from "
+            << saved_seqno_ << " to " << seqno << std::endl;
+  s = ReplayTrace(db, std::move(trace_reader), write_ops, replay_state.get());
   if (!s.ok()) {
     std::cout << "Error replaying trace" << std::endl;
     return s;
   }
-  state = std::move(replay_state);
-  std::cout << "Successful exit from GetExpectedState" << std::endl;
+  secondary_expected_state_ = std::move(replay_state);
+  assert(db->GetLatestSequenceNumber() == seqno);
+  std::cout << "Successful exit from SetSecondaryExpectedState" << std::endl;
   return s;
 }
 

@@ -128,7 +128,8 @@ class NonBatchedOpsStressTest : public StressTest {
             s = Status::NotFound();
           }
 
-          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared,
+                            shared->Get(static_cast<int>(cf), i), from_db,
                             /* msg_prefix */ "Iterator verification", s);
 
           if (!from_db.empty()) {
@@ -147,7 +148,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
           Status s = db_->Get(options, column_families_[cf], key, &from_db);
 
-          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared,
+                            shared->Get(static_cast<int>(cf), i), from_db,
                             /* msg_prefix */ "Get verification", s);
 
           if (!from_db.empty()) {
@@ -182,7 +184,8 @@ class NonBatchedOpsStressTest : public StressTest {
             }
           }
 
-          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared,
+                            shared->Get(static_cast<int>(cf), i), from_db,
                             /* msg_prefix */ "GetEntity verification", s);
 
           if (!from_db.empty()) {
@@ -217,7 +220,8 @@ class NonBatchedOpsStressTest : public StressTest {
             const std::string from_db = values[j].ToString();
 
             VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
-                              from_db, /* msg_prefix */ "MultiGet verification",
+                              shared->Get(static_cast<int>(cf), i + j), from_db,
+                              /* msg_prefix */ "MultiGet verification",
                               statuses[j]);
 
             if (!from_db.empty()) {
@@ -268,9 +272,10 @@ class NonBatchedOpsStressTest : public StressTest {
               }
             }
 
-            VerifyOrSyncValue(
-                static_cast<int>(cf), i + j, options, shared, from_db,
-                /* msg_prefix */ "MultiGetEntity verification", statuses[j]);
+            VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
+                              shared->Get(static_cast<int>(cf), i + j), from_db,
+                              /* msg_prefix */ "MultiGetEntity verification",
+                              statuses[j]);
 
             if (!from_db.empty()) {
               PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
@@ -321,7 +326,8 @@ class NonBatchedOpsStressTest : public StressTest {
             from_db = values[number_of_operands - 1].ToString();
           }
 
-          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared,
+                            shared->Get(static_cast<int>(cf), i), from_db,
                             /* msg_prefix */ "GetMergeOperands verification",
                             s);
 
@@ -339,24 +345,54 @@ class NonBatchedOpsStressTest : public StressTest {
       return;
     }
 
-    if (thread->shared->HasHistory()) {
-      std::unique_ptr<ExpectedState> state;
-      Status getExpectedStateStatus =
-          thread->shared->GetExpectedState(db_, state);
-      if (!getExpectedStateStatus.ok()) {
-        std::cout << "[NonBatchedOpsStressTest::ContinuouslyVerifyDb]: Failed "
-                     "to get expected state"
-                  << std::endl;
-        assert(false);
-      }
-    }
-
     assert(cmp_db_);
     assert(!cmp_cfhs_.empty());
     Status s = cmp_db_->TryCatchUpWithPrimary();
     if (!s.ok()) {
       assert(false);
       exit(1);
+    }
+
+    auto* shared = thread->shared;
+    assert(shared);
+    const int64_t max_key = shared->GetMaxKey();
+    ReadOptions read_opts(FLAGS_verify_checksum, true);
+
+    // If another thread calls SetSecondaryExpectedState while we are verifying
+    // the values, then that would mess up our verification if we are using Get
+    if (thread->shared->HasHistory() && thread->tid == 0) {
+      uint64_t start_get_expected_state = clock_->NowMicros();
+      Status setSecondaryExpectedStateStatus =
+          thread->shared->SetSecondaryExpectedState(cmp_db_);
+      if (!setSecondaryExpectedStateStatus.ok()) {
+        std::cout << "[NonBatchedOpsStressTest::ContinuouslyVerifyDb]: Failed "
+                     "to get expected state"
+                  << std::endl;
+        assert(false);
+      }
+      uint64_t end_get_expected_state = clock_->NowMicros();
+      std::cout << "Retrieved expected state in "
+                << end_get_expected_state - start_get_expected_state
+                << " microseconds" << std::endl;
+
+      uint64_t start_secondary_scan = clock_->NowMicros();
+      for (int64_t i = 0; i < max_key; ++i) {
+        if (thread->shared->HasVerificationFailedYet()) {
+          break;
+        }
+        const std::string key = Key(i);
+        std::string from_db;
+        s = cmp_db_->Get(read_opts, column_families_[0], key, &from_db);
+        if (!VerifyOrSyncValue(
+                0, i, read_opts, shared, shared->GetSecondary(0, i), from_db,
+                /* msg_prefix */ "Secondary get verification", s)) {
+          std::cout << "Failed on key i=" << i << std::endl;
+        }
+      }
+      uint64_t end_secondary_scan = clock_->NowMicros();
+      std::cout << "Scanned all of secondary db in "
+                << end_secondary_scan - start_secondary_scan << " microseconds"
+                << std::endl;
     }
 
     const auto checksum_column_family = [](Iterator* iter,
@@ -371,10 +407,6 @@ class NonBatchedOpsStressTest : public StressTest {
       return iter->status();
     };
 
-    auto* shared = thread->shared;
-    assert(shared);
-    const int64_t max_key = shared->GetMaxKey();
-    ReadOptions read_opts(FLAGS_verify_checksum, true);
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
@@ -1644,9 +1676,11 @@ class NonBatchedOpsStressTest : public StressTest {
 
       std::string from_db;
       Status s = db_->Get(read_opts, cfh, k, &from_db);
-      bool res = VerifyOrSyncValue(
-          rand_column_family, rand_key, read_opts, shared,
-          /* msg_prefix */ "Pre-Put Get verification", from_db, s);
+      // looks like these arguments for msg_prefix and from_db were swapped
+      bool res =
+          VerifyOrSyncValue(rand_column_family, rand_key, read_opts, shared,
+                            shared->Get(rand_column_family, rand_key), from_db,
+                            /* msg_prefix */ "Pre-Put Get verification", s);
 
       // Enable back error injection disabled for preparation
       if (fault_fs_guard) {
@@ -2729,21 +2763,13 @@ class NonBatchedOpsStressTest : public StressTest {
   }
 
   bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& opts,
-                         SharedState* shared, const std::string& value_from_db,
+                         SharedState* shared,
+                         const ExpectedValue& expected_value,
+                         const std::string& value_from_db,
                          std::string msg_prefix, const Status& s) const {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }
-    if (shared->HasHistory()) {
-      std::unique_ptr<ExpectedState> state;
-      Status getExpectedStateStatus = shared->GetExpectedState(db_, state);
-      if (!getExpectedStateStatus.ok()) {
-        std::cout << "[VerifyOrSyncValue]: Failed to get expected state"
-                  << std::endl;
-        return false;
-      }
-    }
-    const ExpectedValue expected_value = shared->Get(cf, key);
 
     if (expected_value.PendingWrite() || expected_value.PendingDelete()) {
       if (s.ok()) {

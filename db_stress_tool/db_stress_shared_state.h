@@ -265,8 +265,8 @@ class SharedState {
 
   Status Restore(DB* db) { return expected_state_manager_->Restore(db); }
 
-  Status GetExpectedState(DB* db, std::unique_ptr<ExpectedState>& state) {
-    return expected_state_manager_->GetExpectedState(db, state);
+  Status SetSecondaryExpectedState(DB* db) {
+    return expected_state_manager_->SetSecondaryExpectedState(db);
   }
 
   // Requires external locking covering all keys in `cf`.
@@ -297,6 +297,10 @@ class SharedState {
   // Does not requires external locking.
   ExpectedValue Get(int cf, int64_t key) {
     return expected_state_manager_->Get(cf, key);
+  }
+
+  ExpectedValue GetSecondary(int cf, int64_t key) {
+    return expected_state_manager_->GetSecondary(cf, key);
   }
 
   // Prepare a Delete that will be started but not finish yet
