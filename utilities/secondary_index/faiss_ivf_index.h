@@ -44,10 +44,11 @@ class FaissIVFIndex : public SecondaryIndex {
                                secondary_value) const override;
 
   std::unique_ptr<Iterator> NewIterator(
-      const ReadOptions& read_options,
+      const SecondaryIndexReadOptions& read_options,
       std::unique_ptr<Iterator>&& underlying_it) const override;
 
  private:
+  class KNNIterator;
   class Adapter;
 
   static std::string SerializeLabel(faiss::idx_t label);
