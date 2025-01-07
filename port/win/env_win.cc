@@ -1227,13 +1227,13 @@ IOStatus WinFileSystem::Poll(std::vector<void*>& io_handles,
       }
     }
 
+    win_handle->is_finished = true;
+    win_handle->cb(req, win_handle->cb_arg);
+
     if (win_handle->overlapped.hEvent != NULL) {
       CloseHandle(win_handle->overlapped.hEvent);
       win_handle->overlapped.hEvent = NULL;
     }
-
-    win_handle->is_finished = true;
-    win_handle->cb(req, win_handle->cb_arg);
   }
   return IOStatus::OK();
 }
@@ -1245,6 +1245,12 @@ IOStatus WinFileSystem::AbortIO(std::vector<void*>& io_handles) {
       continue;
     }
 
+    if (win_handle->overlapped.hEvent == NULL) {
+      return IOStatus::InvalidArgument(
+          "AbortIO: Overlapped event is NULL for: " +
+          win_handle->file_data->GetName());
+    }
+
     if (FALSE == CancelIoEx(win_handle->file_data->GetFileHandle(),
                             &win_handle->overlapped)) {
       auto err = GetLastError();
@@ -1254,17 +1260,27 @@ IOStatus WinFileSystem::AbortIO(std::vector<void*>& io_handles) {
         return IOErrorFromWindowsError(
             "CancelIoEx failed: " + win_handle->file_data->GetName(), err);
       }
-    }
-
-    if (win_handle->overlapped.hEvent != NULL) {
-      CloseHandle(win_handle->overlapped.hEvent);
-      win_handle->overlapped.hEvent = NULL;
+    } else {
+      // CancelIoEx succeeded
+      // Wait for the operation to complete
+      DWORD bytes_read = 0;
+      if (!GetOverlappedResult(win_handle->file_data->GetFileHandle(),
+                               &win_handle->overlapped, &bytes_read, TRUE)) {
+        if (GetLastError() != ERROR_OPERATION_ABORTED) {
+          return IOErrorFromWindowsError(
+              "AbortIO failed: " + win_handle->file_data->GetName(),
+              GetLastError());
+        }
+      }
     }
 
     win_handle->is_finished = true;
     FSReadRequest req;
     req.status = IOStatus::Aborted();
     win_handle->cb(req, win_handle->cb_arg);
+
+    CloseHandle(win_handle->overlapped.hEvent);
+    win_handle->overlapped.hEvent = NULL;
   }
   return IOStatus::OK();
 }
