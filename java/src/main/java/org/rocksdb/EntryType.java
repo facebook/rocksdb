@@ -17,7 +17,8 @@ public enum EntryType {
   kEntryBlobIndex((byte) 0x5),
   kEntryDeleteWithTimestamp((byte) 0x6),
   kEntryWideColumnEntity((byte) 0x7),
-  kEntryOther((byte) 0x8);
+  kEntryOther((byte) 0x8),
+  kInvalid((byte) 0x9);
   private final byte value;
 
   EntryType(final byte value) {
