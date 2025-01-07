@@ -921,6 +921,7 @@ Status FileExpectedStateManager::ReplayTrace(
     s = replayer->Prepare();
   }
   size_t replay_count = 0;
+  uint64_t last_timestamp = 0;
   for (; s.ok() && !handler->IsDone();) {
     std::unique_ptr<TraceRecord> record;
     s = replayer->Next(&record);
@@ -941,11 +942,12 @@ Status FileExpectedStateManager::ReplayTrace(
     }
     replay_count++;
     std::unique_ptr<TraceRecordResult> res;
+    last_timestamp = record->GetTimestamp();
     s = record->Accept(handler.get(), &res);
   }
 
-  std::cout << "ReplayTrace: Replayed " << replay_count << " records"
-            << std::endl;
+  std::cout << "ReplayTrace: Replayed " << replay_count
+            << " records until last_timestamp=" << last_timestamp << std::endl;
   return s;
 }
 
