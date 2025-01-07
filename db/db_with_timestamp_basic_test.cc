@@ -4795,6 +4795,64 @@ TEST_F(DBBasicTestWithTimestamp, TimestampFilterTableReadOnGet) {
   Close();
 }
 
+class DataBlockHashIndexTimestampTest : public DBBasicTestWithTimestampBase {
+ public:
+  DataBlockHashIndexTimestampTest()
+      : DBBasicTestWithTimestampBase("data_block_hash_index_timestamp_test") {}
+ protected:
+  class TestComparator : public DBBasicTestWithTimestampBase::TestComparator {
+   public:
+    explicit TestComparator(size_t ts_sz)
+      : DBBasicTestWithTimestampBase::TestComparator(ts_sz) {}
+    bool KeysAreBytewiseComparableOtherThanTimestamp() const override {
+      return true;
+    }
+    bool CanKeysWithDifferentByteContentsBeEqual() const override {
+      return false;
+    }
+  };
+};
+
+TEST_F(DataBlockHashIndexTimestampTest, HashIndexWithTimestamp) {
+  BlockBasedTableOptions table_options;
+  table_options.data_block_index_type =
+      BlockBasedTableOptions::kDataBlockBinaryAndHash;
+
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  DataBlockHashIndexTimestampTest::TestComparator comparator(kTimestampSize);
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.comparator = &comparator;
+  options.persist_user_defined_timestamps = true;
+  options.env = env_;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  DestroyAndReopen(options);
+
+  Status s;
+  WriteOptions wopts;
+
+  const uint32_t count = 10'000;
+  for (uint32_t i = 0; i < count; i++) {
+    s = db_->Put(wopts, "key", Timestamp(i, 0), std::to_string(i));
+    ASSERT_OK(s);
+  }
+
+  db_->Flush(FlushOptions());
+
+  ReadOptions ropts;
+  Slice ts = Timestamp(count, 0);
+  ropts.timestamp = &ts;
+  std::string value;
+  std::string expected_value = std::to_string(count - 1);
+
+  s = db_->Get(ropts, "key", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(expected_value, value);
+}
+
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

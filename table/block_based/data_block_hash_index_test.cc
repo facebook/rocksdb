@@ -10,7 +10,6 @@
 #include <unordered_map>
 
 #include "db/table_properties_collector.h"
-#include "db/db_with_timestamp_test_util.h"
 #include "rocksdb/slice.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -710,61 +709,6 @@ TEST(DataBlockHashIndex, BlockBoundary) {
     ASSERT_EQ(get_context.State(), GetContext::kNotFound);
     value.Reset();
   }
-}
-
-class DataBlockHashIndexTimestampTest : public DBBasicTestWithTimestampBase {
- public:
-  DataBlockHashIndexTimestampTest()
-      : DBBasicTestWithTimestampBase("data_block_hash_index_timestamp_test") {}
- protected:
-  class TestComparator : public DBBasicTestWithTimestampBase::TestComparator {
-   public:
-    bool KeysAreBytewiseComparableOtherThanTimestamp() const override {
-      return true;
-    }
-    bool CanKeysWithDifferentByteContentsBeEqual() const override {
-      return false;
-    }
-  };
-};
-
-TEST_F(DataBlockHashIndexTimestampTest, HashIndexWithTimestamp) {
-  BlockBasedTableOptions table_options;
-  table_options.data_block_index_type =
-      BlockBasedTableOptions::kDataBlockBinaryAndHash;
-  table_options.data_block_hash_table_util_ratio = -1.0;
-
-  const size_t kTimestampSize = Timestamp(0, 0).size();
-  DataBlockHashIndexTimestampTest::TestComparator comparator(kTimestampSize);
-
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.comparator = &comparator;
-  options.persist_user_defined_timestamps = true;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-
-  ColumnFamilyHandle* handle = nullptr;
-  Status s = db_->CreateColumnFamily(options, "newdata", &handle);
-  ASSERT_OK(s);
-
-  WriteOptions wopts;
-  const uint32_t count = 10'000;
-  for (uint32_t i = 0; i < count; i++) {
-    s = db_->Put(wopts, handle, "key", Timestamp(i, 0), std::to_string(i));
-    ASSERT_OK(s);
-  }
-
-  db_->Flush(FlushOptions());
-  ReadOptions ropts;
-  Slice ts = Timestamp(count, 0);
-  ropts.timestamp = &ts;
-  std::string value;
-  s = db_->Get(ropts, handle, "key", &value);
-  std::cerr << "expected: {" << std::to_string(count - 1) << "}\n";
-  std::cerr << "actual:   {" << value << "}\n";
-  ASSERT_OK(s);
-  ASSERT_EQ(std::to_string(count - 1), value);
-  delete handle;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
