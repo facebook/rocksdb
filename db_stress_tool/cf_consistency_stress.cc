@@ -1050,6 +1050,7 @@ class CfConsistencyStressTest : public StressTest {
     assert(shared);
 
     if (cmp_db_) {
+      assert(false);
       status = cmp_db_->TryCatchUpWithPrimary();
       if (!status.ok()) {
         fprintf(stderr, "TryCatchUpWithPrimary: %s\n",

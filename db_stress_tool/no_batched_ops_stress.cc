@@ -347,6 +347,9 @@ class NonBatchedOpsStressTest : public StressTest {
 
     assert(cmp_db_);
     assert(!cmp_cfhs_.empty());
+    if (thread->tid != 0) {
+      return;
+    }
     Status s = cmp_db_->TryCatchUpWithPrimary();
     if (!s.ok()) {
       assert(false);
@@ -376,17 +379,71 @@ class NonBatchedOpsStressTest : public StressTest {
                 << " microseconds" << std::endl;
 
       uint64_t start_secondary_scan = clock_->NowMicros();
+
+      uint64_t prefix_to_use =
+          (FLAGS_prefix_size < 0) ? 1 : static_cast<size_t>(FLAGS_prefix_size);
+
+      std::unique_ptr<Iterator> iter(
+          cmp_db_->NewIterator(read_opts, column_families_[0]));
+
+      std::string seek_key = Key(0);
+      iter->Seek(seek_key);
+
+      Slice prefix(seek_key.data(), prefix_to_use);
+
       for (int64_t i = 0; i < max_key; ++i) {
         if (thread->shared->HasVerificationFailedYet()) {
           break;
         }
+
         const std::string key = Key(i);
+        const Slice k(key);
+        const Slice pfx(key.data(), prefix_to_use);
+
+        // Reseek when the prefix changes
+        if (prefix_to_use > 0 && prefix.compare(pfx) != 0) {
+          iter->Seek(k);
+          seek_key = key;
+          prefix = Slice(seek_key.data(), prefix_to_use);
+        }
+
+        s = iter->status();
+
         std::string from_db;
-        s = cmp_db_->Get(read_opts, column_families_[0], key, &from_db);
+
+        if (iter->Valid()) {
+          const int diff = iter->key().compare(k);
+
+          if (diff > 0) {
+            s = Status::NotFound();
+          } else if (diff == 0) {
+            if (!VerifyWideColumns(iter->value(), iter->columns())) {
+              VerificationAbort(shared, static_cast<int>(0), i, iter->value(),
+                                iter->columns());
+            }
+
+            from_db = iter->value().ToString();
+            iter->Next();
+          } else {
+            assert(diff < 0);
+
+            VerificationAbort(shared, "An out of range key was found",
+                              static_cast<int>(0), i);
+          }
+        } else {
+          // The iterator found no value for the key in question, so do not
+          // move to the next item in the iterator
+          s = Status::NotFound();
+        }
+
         if (!VerifyOrSyncValue(
                 0, i, read_opts, shared, shared->GetSecondary(0, i), from_db,
                 /* msg_prefix */ "Secondary get verification", s)) {
           std::cout << "Failed on key i=" << i << std::endl;
+        }
+
+        if (!from_db.empty()) {
+          std::cout << "key i = " << i << " had data " << std::endl;
         }
       }
       uint64_t end_secondary_scan = clock_->NowMicros();
@@ -2810,15 +2867,19 @@ class NonBatchedOpsStressTest : public StressTest {
       const uint32_t value_base_from_db = GetValueBase(slice);
       if (ExpectedValueHelper::MustHaveNotExisted(expected_value,
                                                   expected_value)) {
-        VerificationAbort(
-            shared, msg_prefix + ": Unexpected value found" + read_u64ts.str(),
-            cf, key, value_from_db, "");
+        VerificationAbort(shared,
+                          msg_prefix +
+                              ": Unexpected value found (MustHaveNotExisted)" +
+                              read_u64ts.str(),
+                          cf, key, value_from_db, "");
         return false;
       }
       if (!ExpectedValueHelper::InExpectedValueBaseRange(
               value_base_from_db, expected_value, expected_value)) {
         VerificationAbort(
-            shared, msg_prefix + ": Unexpected value found" + read_u64ts.str(),
+            shared,
+            msg_prefix + ": Unexpected value found (InExpectedValueBaseRange)" +
+                read_u64ts.str(),
             cf, key, value_from_db,
             Slice(expected_value_data, expected_value_data_size));
         return false;
