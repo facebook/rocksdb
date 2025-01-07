@@ -1,5 +1,4 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 try:
     from builtins import object, str
@@ -9,17 +8,28 @@ import pprint
 
 import targets_cfg
 
+class LiteralValue:
+    def __init__(self, value):
+        self.value = value
+
+    def __str__(self):
+        return str(self.value)
+
+def smart_quote_value(val):
+    if isinstance(val, LiteralValue):
+        return str(val)
+    return '"%s"' % val
 
 def pretty_list(lst, indent=8):
     if lst is None or len(lst) == 0:
         return ""
 
     if len(lst) == 1:
-        return '"%s"' % lst[0]
+        return smart_quote_value(lst[0])
 
-    separator = '",\n%s"' % (" " * indent)
-    res = separator.join(sorted(lst))
-    res = "\n" + (" " * indent) + '"' + res + '",\n' + (" " * (indent - 4))
+    separator = ',\n%s' % (" " * indent)
+    res = separator.join(sorted(map(smart_quote_value, lst)))
+    res = "\n" + (" " * indent) + res + ',\n' + (" " * (indent - 4))
     return res
 
 
@@ -48,7 +58,12 @@ class TARGETSBuilder:
         extra_test_libs=False,
     ):
         if headers is not None:
-            headers = "[" + pretty_list(headers) + "]"
+            if isinstance(headers, LiteralValue):
+                headers = str(headers)
+            else:
+                headers = "[" + pretty_list(headers) + "]"
+        else:
+            headers = "[]"
         with open(self.path, "ab") as targets_file:
             targets_file.write(
                 targets_cfg.library_template.format(
@@ -65,8 +80,7 @@ class TARGETSBuilder:
         self.total_lib = self.total_lib + 1
 
     def add_rocksdb_library(self, name, srcs, headers=None, external_dependencies=None):
-        if headers is not None:
-            headers = "[" + pretty_list(headers) + "]"
+        headers = "[" + pretty_list(headers) + "]"
         with open(self.path, "ab") as targets_file:
             targets_file.write(
                 targets_cfg.rocksdb_library_template.format(

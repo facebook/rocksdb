@@ -178,11 +178,9 @@ std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex,
     result += "<redacted>";
   }
 
-  char buf[50];
-  snprintf(buf, sizeof(buf), "' seq:%" PRIu64 ", type:%d", sequence,
-           static_cast<int>(type));
+  result += "' seq:" + std::to_string(sequence);
+  result += ", type:" + std::to_string(type);
 
-  result += buf;
   return result;
 }
 
@@ -272,11 +270,23 @@ LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s,
 
 void IterKey::EnlargeBuffer(size_t key_size) {
   // If size is smaller than buffer size, continue using current buffer,
-  // or the static allocated one, as default
+  // or the inline one, as default
   assert(key_size > buf_size_);
   // Need to enlarge the buffer.
   ResetBuffer();
   buf_ = new char[key_size];
   buf_size_ = key_size;
+}
+
+void IterKey::EnlargeSecondaryBufferIfNeeded(size_t key_size) {
+  // If size is smaller than buffer size, continue using current buffer,
+  // or the inline one, as default
+  if (key_size <= secondary_buf_size_) {
+    return;
+  }
+  // Need to enlarge the secondary buffer.
+  ResetSecondaryBuffer();
+  secondary_buf_ = new char[key_size];
+  secondary_buf_size_ = key_size;
 }
 }  // namespace ROCKSDB_NAMESPACE

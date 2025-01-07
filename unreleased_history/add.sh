@@ -4,7 +4,20 @@
 set -e
 set -o pipefail
 
+cat << EOF
+Release note advice:
+* Speak to the RocksDB user and what is impacted in the public API
+
+Formatting with markdown:
+* This is an example list item referring to \`BlockBasedTableOptions\`.
+If not starting with "* " it will be inserted at release time. This is OK.
+*This asterisk begins italics, NOT a list item. PROBABLY WRONG
+
+EOF
+
 if [ "$1" ]; then
+  echo "Press return to continue"
+  read
   # Target file specified on command line
   TARGET="$1"
 else

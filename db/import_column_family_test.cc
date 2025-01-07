@@ -4,7 +4,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include <functional>
 
 #include "db/db_test_util.h"
@@ -951,6 +950,8 @@ TEST_F(ImportColumnFamilyTest, AssignEpochNumberToMultipleCF) {
   Options options = CurrentOptions();
   options.level_compaction_dynamic_level_bytes = true;
   options.max_background_jobs = 8;
+  // Always allow parallel compaction
+  options.soft_pending_compaction_bytes_limit = 10;
   env_->SetBackgroundThreads(2, Env::LOW);
   env_->SetBackgroundThreads(0, Env::BOTTOM);
   CreateAndReopenWithCF({"CF1", "CF2"}, options);
@@ -1055,4 +1056,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

@@ -19,7 +19,7 @@ class TestLogStatsParser(unittest.TestCase):
         stats_file = os.path.join(this_path, "input_files/log_stats_parser_keys_ts")
         # populate the keys_ts dictionary of LogStatsParser
         self.stats_dict = {NO_ENTITY: {}}
-        with open(stats_file, "r") as fp:
+        with open(stats_file) as fp:
             for line in fp:
                 stat_name = line.split(":")[0].strip()
                 self.stats_dict[NO_ENTITY][stat_name] = {}

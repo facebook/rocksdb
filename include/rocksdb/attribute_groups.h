@@ -35,6 +35,10 @@ inline bool operator==(const AttributeGroup& lhs, const AttributeGroup& rhs) {
          lhs.columns() == rhs.columns();
 }
 
+inline bool operator!=(const AttributeGroup& lhs, const AttributeGroup& rhs) {
+  return !(lhs == rhs);
+}
+
 // A collection of Attribute Groups.
 using AttributeGroups = std::vector<AttributeGroup>;
 
@@ -84,6 +88,11 @@ class IteratorAttributeGroup {
   explicit IteratorAttributeGroup(ColumnFamilyHandle* column_family,
                                   const WideColumns* columns)
       : column_family_(column_family), columns_(columns) {}
+
+  explicit IteratorAttributeGroup(const AttributeGroup& attribute_group)
+      : IteratorAttributeGroup(attribute_group.column_family(),
+                               &attribute_group.columns()) {}
+
   ColumnFamilyHandle* column_family() const { return column_family_; }
   const WideColumns& columns() const { return *columns_; }
 
@@ -92,11 +101,21 @@ class IteratorAttributeGroup {
   const WideColumns* columns_;
 };
 
+inline bool operator==(const IteratorAttributeGroup& lhs,
+                       const IteratorAttributeGroup& rhs) {
+  return lhs.column_family() == rhs.column_family() &&
+         lhs.columns() == rhs.columns();
+}
+
+inline bool operator!=(const IteratorAttributeGroup& lhs,
+                       const IteratorAttributeGroup& rhs) {
+  return !(lhs == rhs);
+}
+
 using IteratorAttributeGroups = std::vector<IteratorAttributeGroup>;
 
 extern const IteratorAttributeGroups kNoIteratorAttributeGroups;
 
-// EXPERIMENTAL
 // A cross-column-family iterator that collects and returns attribute groups for
 // each key in order provided by comparator
 class AttributeGroupIterator : public IteratorBase {

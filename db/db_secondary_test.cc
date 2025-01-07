@@ -244,7 +244,7 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
   ASSERT_EQ(largest.user_key().ToString(), "foo");
   ASSERT_EQ(result.output_level, 1);
   ASSERT_EQ(result.output_path, this->secondary_path_);
-  ASSERT_EQ(result.num_output_records, 2);
+  ASSERT_EQ(result.stats.num_output_records, 2);
   ASSERT_GT(result.bytes_written, 0);
   ASSERT_OK(result.status);
 }

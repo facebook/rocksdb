@@ -326,4 +326,3 @@ class TraceAnalyzer : private TraceRecord::Handler,
 int trace_analyzer_tool(int argc, char** argv);
 
 }  // namespace ROCKSDB_NAMESPACE
-

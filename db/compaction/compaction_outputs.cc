@@ -455,9 +455,11 @@ void SetMaxSeqAndTs(InternalKey& internal_key, const Slice& user_key,
 }  // namespace
 
 Status CompactionOutputs::AddRangeDels(
+    CompactionRangeDelAggregator& range_del_agg,
     const Slice* comp_start_user_key, const Slice* comp_end_user_key,
     CompactionIterationStats& range_del_out_stats, bool bottommost_level,
     const InternalKeyComparator& icmp, SequenceNumber earliest_snapshot,
+    std::pair<SequenceNumber, SequenceNumber> keep_seqno_range,
     const Slice& next_table_min_key, const std::string& full_history_ts_low) {
   // The following example does not happen since
   // CompactionOutput::ShouldStopBefore() always return false for the first
@@ -470,7 +472,7 @@ Status CompactionOutputs::AddRangeDels(
   // Then meta.smallest will be set to comp_start_user_key@seqno
   // and meta.largest will be set to comp_start_user_key@kMaxSequenceNumber
   // which violates the assumption that meta.smallest should be <= meta.largest.
-  assert(HasRangeDel());
+  assert(!range_del_agg.IsEmpty());
   FileMetaData& meta = current_output().meta;
   const Comparator* ucmp = icmp.user_comparator();
   InternalKey lower_bound_buf, upper_bound_buf;
@@ -579,13 +581,19 @@ Status CompactionOutputs::AddRangeDels(
   assert(comp_end_user_key == nullptr || upper_bound == nullptr ||
          ucmp->CompareWithoutTimestamp(ExtractUserKey(*upper_bound),
                                        *comp_end_user_key) <= 0);
-  auto it = range_del_agg_->NewIterator(lower_bound, upper_bound);
+  auto it = range_del_agg.NewIterator(lower_bound, upper_bound);
   Slice last_tombstone_start_user_key{};
   bool reached_lower_bound = false;
   const ReadOptions read_options(Env::IOActivity::kCompaction);
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     auto tombstone = it->Tombstone();
     auto kv = tombstone.Serialize();
+    // Filter out by seqno for per-key placement
+    if (tombstone.seq_ < keep_seqno_range.first ||
+        tombstone.seq_ >= keep_seqno_range.second) {
+      continue;
+    }
+
     InternalKey tombstone_end = tombstone.SerializeEndKey();
     // TODO: the underlying iterator should support clamping the bounds.
     // tombstone_end.Encode is of form user_key@kMaxSeqno

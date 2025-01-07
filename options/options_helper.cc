@@ -30,9 +30,7 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-ConfigOptions::ConfigOptions()
-    : registry(ObjectRegistry::NewInstance())
-{
+ConfigOptions::ConfigOptions() : registry(ObjectRegistry::NewInstance()) {
   env = Env::Default();
 }
 
@@ -55,7 +53,13 @@ Status ValidateOptions(const DBOptions& db_opts,
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options) {
   DBOptions options;
+  BuildDBOptions(immutable_db_options, mutable_db_options, options);
+  return options;
+}
 
+void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
+                    const MutableDBOptions& mutable_db_options,
+                    DBOptions& options) {
   options.create_if_missing = immutable_db_options.create_if_missing;
   options.create_missing_column_families =
       immutable_db_options.create_missing_column_families;
@@ -67,6 +71,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.compaction_verify_record_count;
   options.track_and_verify_wals_in_manifest =
       immutable_db_options.track_and_verify_wals_in_manifest;
+  options.track_and_verify_wals = immutable_db_options.track_and_verify_wals;
   options.verify_sst_unique_id_in_manifest =
       immutable_db_options.verify_sst_unique_id_in_manifest;
   options.env = immutable_db_options.env;
@@ -88,9 +93,6 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.max_background_jobs = mutable_db_options.max_background_jobs;
   options.max_background_compactions =
       mutable_db_options.max_background_compactions;
-  options.bytes_per_sync = mutable_db_options.bytes_per_sync;
-  options.wal_bytes_per_sync = mutable_db_options.wal_bytes_per_sync;
-  options.strict_bytes_per_sync = mutable_db_options.strict_bytes_per_sync;
   options.max_subcompactions = mutable_db_options.max_subcompactions;
   options.max_background_flushes = mutable_db_options.max_background_flushes;
   options.max_log_file_size = immutable_db_options.max_log_file_size;
@@ -127,6 +129,9 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.writable_file_max_buffer_size =
       mutable_db_options.writable_file_max_buffer_size;
   options.use_adaptive_mutex = immutable_db_options.use_adaptive_mutex;
+  options.bytes_per_sync = mutable_db_options.bytes_per_sync;
+  options.wal_bytes_per_sync = mutable_db_options.wal_bytes_per_sync;
+  options.strict_bytes_per_sync = mutable_db_options.strict_bytes_per_sync;
   options.listeners = immutable_db_options.listeners;
   options.enable_thread_tracking = immutable_db_options.enable_thread_tracking;
   options.delayed_write_rate = mutable_db_options.delayed_write_rate;
@@ -161,9 +166,15 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.two_write_queues = immutable_db_options.two_write_queues;
   options.manual_wal_flush = immutable_db_options.manual_wal_flush;
   options.wal_compression = immutable_db_options.wal_compression;
+  options.background_close_inactive_wals =
+      immutable_db_options.background_close_inactive_wals;
   options.atomic_flush = immutable_db_options.atomic_flush;
   options.avoid_unnecessary_blocking_io =
       immutable_db_options.avoid_unnecessary_blocking_io;
+  options.write_dbid_to_manifest = immutable_db_options.write_dbid_to_manifest;
+  options.write_identity_file = immutable_db_options.write_identity_file;
+  options.prefix_seek_opt_in_only =
+      immutable_db_options.prefix_seek_opt_in_only;
   options.log_readahead_size = immutable_db_options.log_readahead_size;
   options.file_checksum_gen_factory =
       immutable_db_options.file_checksum_gen_factory;
@@ -189,7 +200,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.metadata_write_temperature =
       immutable_db_options.metadata_write_temperature;
   options.wal_write_temperature = immutable_db_options.wal_write_temperature;
-  return options;
+  options.compaction_service = immutable_db_options.compaction_service;
 }
 
 ColumnFamilyOptions BuildColumnFamilyOptions(
@@ -228,6 +239,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
 
   // Compaction related options
   cf_opts->disable_auto_compactions = moptions.disable_auto_compactions;
+  cf_opts->table_factory = moptions.table_factory;
   cf_opts->soft_pending_compaction_bytes_limit =
       moptions.soft_pending_compaction_bytes_limit;
   cf_opts->hard_pending_compaction_bytes_limit =
@@ -245,6 +257,10 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.max_bytes_for_level_multiplier;
   cf_opts->ttl = moptions.ttl;
   cf_opts->periodic_compaction_seconds = moptions.periodic_compaction_seconds;
+  cf_opts->preclude_last_level_data_seconds =
+      moptions.preclude_last_level_data_seconds;
+  cf_opts->preserve_internal_time_seconds =
+      moptions.preserve_internal_time_seconds;
 
   cf_opts->max_bytes_for_level_multiplier_additional.clear();
   for (auto value : moptions.max_bytes_for_level_multiplier_additional) {
@@ -304,7 +320,6 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->inplace_update_support = ioptions.inplace_update_support;
   cf_opts->inplace_callback = ioptions.inplace_callback;
   cf_opts->memtable_factory = ioptions.memtable_factory;
-  cf_opts->table_factory = ioptions.table_factory;
   cf_opts->table_properties_collector_factories =
       ioptions.table_properties_collector_factories;
   cf_opts->bloom_locality = ioptions.bloom_locality;
@@ -319,10 +334,6 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->compaction_thread_limiter = ioptions.compaction_thread_limiter;
   cf_opts->sst_partitioner_factory = ioptions.sst_partitioner_factory;
   cf_opts->blob_cache = ioptions.blob_cache;
-  cf_opts->preclude_last_level_data_seconds =
-      ioptions.preclude_last_level_data_seconds;
-  cf_opts->preserve_internal_time_seconds =
-      ioptions.preserve_internal_time_seconds;
   cf_opts->persist_user_defined_timestamps =
       ioptions.persist_user_defined_timestamps;
   cf_opts->default_temperature = ioptions.default_temperature;
@@ -500,13 +511,11 @@ bool SerializeSingleOptionHelper(const void* opt_address,
     case OptionType::kInt32T:
       *value = std::to_string(*(static_cast<const int32_t*>(opt_address)));
       break;
-    case OptionType::kInt64T:
-      {
-        int64_t v;
-        GetUnaligned(static_cast<const int64_t*>(opt_address), &v);
-        *value = std::to_string(v);
-      }
-      break;
+    case OptionType::kInt64T: {
+      int64_t v;
+      GetUnaligned(static_cast<const int64_t*>(opt_address), &v);
+      *value = std::to_string(v);
+    } break;
     case OptionType::kUInt:
       *value = std::to_string(*(static_cast<const unsigned int*>(opt_address)));
       break;
@@ -516,20 +525,16 @@ bool SerializeSingleOptionHelper(const void* opt_address,
     case OptionType::kUInt32T:
       *value = std::to_string(*(static_cast<const uint32_t*>(opt_address)));
       break;
-    case OptionType::kUInt64T:
-      {
-        uint64_t v;
-        GetUnaligned(static_cast<const uint64_t*>(opt_address), &v);
-        *value = std::to_string(v);
-      }
-      break;
-    case OptionType::kSizeT:
-      {
-        size_t v;
-        GetUnaligned(static_cast<const size_t*>(opt_address), &v);
-        *value = std::to_string(v);
-      }
-      break;
+    case OptionType::kUInt64T: {
+      uint64_t v;
+      GetUnaligned(static_cast<const uint64_t*>(opt_address), &v);
+      *value = std::to_string(v);
+    } break;
+    case OptionType::kSizeT: {
+      size_t v;
+      GetUnaligned(static_cast<const size_t*>(opt_address), &v);
+      *value = std::to_string(v);
+    } break;
     case OptionType::kDouble:
       *value = std::to_string(*(static_cast<const double*>(opt_address)));
       break;
@@ -594,7 +599,6 @@ Status ConfigureFromMap(
   return s;
 }
 
-
 Status StringToMap(const std::string& opts_str,
                    std::unordered_map<std::string, std::string>* opts_map) {
   assert(opts_map);
@@ -638,7 +642,6 @@ Status StringToMap(const std::string& opts_str,
   return Status::OK();
 }
 
-
 Status GetStringFromDBOptions(std::string* opt_string,
                               const DBOptions& db_options,
                               const std::string& delimiter) {
@@ -655,7 +658,6 @@ Status GetStringFromDBOptions(const ConfigOptions& config_options,
   auto config = DBOptionsAsConfigurable(db_options);
   return config->GetOptionString(config_options, opt_string);
 }
-
 
 Status GetStringFromColumnFamilyOptions(std::string* opt_string,
                                         const ColumnFamilyOptions& cf_options,
@@ -983,7 +985,8 @@ Status OptionTypeInfo::ParseStruct(
     std::unordered_map<std::string, std::string> unused;
     status =
         ParseType(config_options, opt_value, *struct_map, opt_addr, &unused);
-    if (status.ok() && !unused.empty()) {
+    if (status.ok() && !unused.empty() &&
+        !config_options.ignore_unknown_options) {
       status = Status::InvalidArgument(
           "Unrecognized option", struct_name + "." + unused.begin()->first);
     }
@@ -994,7 +997,7 @@ Status OptionTypeInfo::ParseStruct(
         Find(opt_name.substr(struct_name.size() + 1), *struct_map, &elem_name);
     if (opt_info != nullptr) {
       status = opt_info->Parse(config_options, elem_name, opt_value, opt_addr);
-    } else {
+    } else if (!config_options.ignore_unknown_options) {
       status = Status::InvalidArgument("Unrecognized option", opt_name);
     }
   } else {
@@ -1003,7 +1006,7 @@ Status OptionTypeInfo::ParseStruct(
     const auto opt_info = Find(opt_name, *struct_map, &elem_name);
     if (opt_info != nullptr) {
       status = opt_info->Parse(config_options, elem_name, opt_value, opt_addr);
-    } else {
+    } else if (!config_options.ignore_unknown_options) {
       status = Status::InvalidArgument("Unrecognized option",
                                        struct_name + "." + opt_name);
     }

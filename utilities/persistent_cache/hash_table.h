@@ -5,7 +5,6 @@
 //
 #pragma once
 
-
 #include <assert.h>
 
 #include <list>
@@ -234,4 +233,3 @@ class HashTable {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

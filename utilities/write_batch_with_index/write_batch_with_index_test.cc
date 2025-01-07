@@ -9,11 +9,14 @@
 
 #include "rocksdb/utilities/write_batch_with_index.h"
 
+#include <db/db_test_util.h>
+
 #include <map>
 #include <memory>
 
 #include "db/column_family.h"
 #include "db/wide/wide_columns_helper.h"
+#include "memtable/wbwi_memtable.h"
 #include "port/stack_trace.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -81,73 +84,116 @@ using KVMap = std::map<std::string, std::string>;
 
 class KVIter : public Iterator {
  public:
-  explicit KVIter(const KVMap* map) : map_(map), iter_(map_->end()) {}
+  explicit KVIter(const KVMap* map, bool allow_unprepared_value = false,
+                  bool fail_prepare_value = false)
+      : map_(map),
+        iter_(map_->end()),
+        allow_unprepared_value_(allow_unprepared_value),
+        fail_prepare_value_(fail_prepare_value) {}
 
-  bool Valid() const override { return iter_ != map_->end(); }
+  bool Valid() const override { return status_.ok() && iter_ != map_->end(); }
 
   void SeekToFirst() override {
+    status_ = Status::OK();
+    Reset();
+
     iter_ = map_->begin();
 
-    if (Valid()) {
+    if (Valid() && !allow_unprepared_value_) {
       Update();
     }
   }
 
   void SeekToLast() override {
+    status_ = Status::OK();
+    Reset();
+
     if (map_->empty()) {
       iter_ = map_->end();
     } else {
       iter_ = map_->find(map_->rbegin()->first);
     }
 
-    if (Valid()) {
+    if (Valid() && !allow_unprepared_value_) {
       Update();
     }
   }
 
   void Seek(const Slice& k) override {
+    status_ = Status::OK();
+    Reset();
+
     iter_ = map_->lower_bound(k.ToString());
 
-    if (Valid()) {
+    if (Valid() && !allow_unprepared_value_) {
       Update();
     }
   }
 
   void SeekForPrev(const Slice& k) override {
+    status_ = Status::OK();
+    Reset();
+
     iter_ = map_->upper_bound(k.ToString());
     Prev();
 
-    if (Valid()) {
+    if (Valid() && !allow_unprepared_value_) {
       Update();
     }
   }
 
   void Next() override {
+    Reset();
+
     ++iter_;
 
-    if (Valid()) {
+    if (Valid() && !allow_unprepared_value_) {
       Update();
     }
   }
 
   void Prev() override {
+    Reset();
+
     if (iter_ == map_->begin()) {
       iter_ = map_->end();
       return;
     }
     --iter_;
 
-    if (Valid()) {
+    if (Valid() && !allow_unprepared_value_) {
       Update();
     }
+  }
+
+  bool PrepareValue() override {
+    assert(Valid());
+
+    if (!allow_unprepared_value_) {
+      return true;
+    }
+
+    if (fail_prepare_value_) {
+      status_ = Status::Corruption("PrepareValue() failed");
+      return false;
+    }
+
+    Update();
+
+    return true;
   }
 
   Slice key() const override { return iter_->first; }
   Slice value() const override { return value_; }
   const WideColumns& columns() const override { return columns_; }
-  Status status() const override { return Status::OK(); }
+  Status status() const override { return status_; }
 
  private:
+  void Reset() {
+    value_.clear();
+    columns_.clear();
+  }
+
   void Update() {
     assert(Valid());
 
@@ -157,8 +203,11 @@ class KVIter : public Iterator {
 
   const KVMap* const map_;
   KVMap::const_iterator iter_;
+  Status status_;
   Slice value_;
   WideColumns columns_;
+  bool allow_unprepared_value_;
+  bool fail_prepare_value_;
 };
 
 static std::string PrintContents(WriteBatchWithIndex* batch,
@@ -1693,6 +1742,279 @@ TEST_P(WriteBatchWithIndexTest, TestNewIteratorWithBaseFromWbwi) {
   ASSERT_OK(iter->status());
 }
 
+TEST_P(WriteBatchWithIndexTest, NewIteratorWithBasePrepareValue) {
+  // BaseDeltaIterator by default should call PrepareValue if it lands on the
+  // base iterator in case it was created with allow_unprepared_value=true.
+  ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
+  KVMap map{{"a", "aa"}, {"c", "cc"}, {"e", "ee"}};
+
+  ASSERT_OK(batch_->Put(&cf1, "c", "cc1"));
+
+  {
+    std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
+        &cf1, new KVIter(&map, /* allow_unprepared_value */ true)));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "a");
+    ASSERT_EQ(iter->value(), "aa");
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "c");
+    ASSERT_EQ(iter->value(), "cc1");
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "e");
+    ASSERT_EQ(iter->value(), "ee");
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "e");
+    ASSERT_EQ(iter->value(), "ee");
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "c");
+    ASSERT_EQ(iter->value(), "cc1");
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "a");
+    ASSERT_EQ(iter->value(), "aa");
+
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // PrepareValue failures from the base iterator should be propagated
+  {
+    std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
+        &cf1, new KVIter(&map, /* allow_unprepared_value */ true,
+                         /* fail_prepare_value */ true)));
+
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+
+    iter->SeekToLast();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+}
+
+TEST_P(WriteBatchWithIndexTest, NewIteratorWithBaseAllowUnpreparedValue) {
+  ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
+  KVMap map{{"a", "aa"}, {"c", "cc"}, {"e", "ee"}};
+
+  ASSERT_OK(batch_->Put(&cf1, "c", "cc1"));
+
+  ReadOptions read_options = read_opts_;
+  read_options.allow_unprepared_value = true;
+
+  {
+    std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
+        &cf1, new KVIter(&map, /* allow_unprepared_value */ true),
+        &read_options));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "a");
+    ASSERT_TRUE(iter->value().empty());
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "aa");
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "c");
+    ASSERT_EQ(iter->value(), "cc1");
+    // This key is served out of the delta iterator so this PrepareValue() is a
+    // no-op
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "cc1");
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "e");
+    ASSERT_TRUE(iter->value().empty());
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "ee");
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "e");
+    ASSERT_TRUE(iter->value().empty());
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "ee");
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "c");
+    ASSERT_EQ(iter->value(), "cc1");
+    // This key is served out of the delta iterator so this PrepareValue() is a
+    // no-op
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "cc1");
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "a");
+    ASSERT_TRUE(iter->value().empty());
+    ASSERT_TRUE(iter->PrepareValue());
+    ASSERT_EQ(iter->value(), "aa");
+
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  // PrepareValue failures from the base iterator should be propagated
+  {
+    std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
+        &cf1,
+        new KVIter(&map, /* allow_unprepared_value */ true,
+                   /* fail_prepare_value */ true),
+        &read_options));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_FALSE(iter->PrepareValue());
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_FALSE(iter->PrepareValue());
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+}
+
+TEST_P(WriteBatchWithIndexTest, NewIteratorWithBaseMergePrepareValue) {
+  // When performing a merge across the base and delta iterators,
+  // BaseDeltaIterator should call PrepareValue on the base iterator in case it
+  // was created with allow_unprepared_value=true. (Note: we use BlobDB here
+  // to ensure PrepareValue is not a no-op.)
+  options_.enable_blob_files = true;
+
+  ASSERT_OK(OpenDB());
+
+  ASSERT_OK(db_->Put(write_opts_, db_->DefaultColumnFamily(), "a", "aa"));
+  ASSERT_OK(db_->Put(write_opts_, db_->DefaultColumnFamily(), "c", "cc"));
+  ASSERT_OK(db_->Put(write_opts_, db_->DefaultColumnFamily(), "e", "ee"));
+  ASSERT_OK(db_->Flush(FlushOptions(), db_->DefaultColumnFamily()));
+
+  ASSERT_OK(batch_->Merge(db_->DefaultColumnFamily(), "a", "aa1"));
+  ASSERT_OK(batch_->Merge(db_->DefaultColumnFamily(), "c", "cc1"));
+  ASSERT_OK(batch_->Merge(db_->DefaultColumnFamily(), "e", "ee1"));
+
+  ReadOptions db_read_options = read_opts_;
+  db_read_options.allow_unprepared_value = true;
+
+  {
+    std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
+        db_->DefaultColumnFamily(),
+        db_->NewIterator(db_read_options, db_->DefaultColumnFamily()),
+        &read_opts_));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "a");
+    ASSERT_EQ(iter->value(), "aa,aa1");
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "c");
+    ASSERT_EQ(iter->value(), "cc,cc1");
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "e");
+    ASSERT_EQ(iter->value(), "ee,ee1");
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "e");
+    ASSERT_EQ(iter->value(), "ee,ee1");
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "c");
+    ASSERT_EQ(iter->value(), "cc,cc1");
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), "a");
+    ASSERT_EQ(iter->value(), "aa,aa1");
+
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileReader::GetBlob:TamperWithResult", [](void* arg) {
+        Slice* const blob_index = static_cast<Slice*>(arg);
+        assert(blob_index);
+        assert(!blob_index->empty());
+        blob_index->remove_prefix(1);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // PrepareValue failures from the base iterator should be propagated
+  {
+    std::unique_ptr<Iterator> iter(batch_->NewIteratorWithBase(
+        db_->DefaultColumnFamily(),
+        db_->NewIterator(db_read_options, db_->DefaultColumnFamily()),
+        &read_opts_));
+
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+
+    iter->SeekToLast();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsCorruption());
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_P(WriteBatchWithIndexTest, TestBoundsCheckingInDeltaIterator) {
   Status s = OpenDB();
   ASSERT_OK(s);
@@ -2154,8 +2476,8 @@ TEST_P(WriteBatchWithIndexTest, MultiGetTest2) {
         default:
           assert(false);
       }  // end switch
-    }    // End for each key
-  }      // end for passes
+    }  // End for each key
+  }  // end for passes
 }
 
 // This test has merges, but the merge does not play into the final result
@@ -3095,7 +3417,397 @@ TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
   }
 }
 
+TEST_P(WriteBatchWithIndexTest, TrackAndClearCFStats) {
+  std::string value;
+  batch_->SetTrackPerCFStat(true);
+  ASSERT_OK(batch_->Put("A", "val"));
+  ASSERT_OK(batch_->SingleDelete("B"));
+
+  ColumnFamilyHandleImplDummy cf1(/*id=*/1, BytewiseComparator());
+  ASSERT_OK(batch_->Put(&cf1, "bar", "foo"));
+
+  {
+    auto& cf_id_to_count = batch_->GetCFStats();
+    ASSERT_EQ(2, cf_id_to_count.size());
+    for (const auto [cf_id, stat] : cf_id_to_count) {
+      if (cf_id == 0) {
+        ASSERT_EQ(2, stat.entry_count);
+        ASSERT_EQ(0, stat.overwritten_sd_count);
+      } else {
+        ASSERT_EQ(cf_id, 1);
+        ASSERT_EQ(1, stat.entry_count);
+        ASSERT_EQ(0, stat.overwritten_sd_count);
+      }
+    }
+  }
+
+  batch_->Clear();
+  ASSERT_TRUE(batch_->GetCFStats().empty());
+
+  // Now do a version with overwritten SD
+  ASSERT_OK(batch_->Put("A", "val"));
+  ASSERT_OK(batch_->SingleDelete("A"));
+  bool overwrite = GetParam();
+  {
+    auto& cf_id_to_count = batch_->GetCFStats();
+    ASSERT_EQ(1, cf_id_to_count.size());
+    ASSERT_EQ(overwrite ? 1 : 2, cf_id_to_count.at(0).entry_count);
+    ASSERT_EQ(0, cf_id_to_count.at(0).overwritten_sd_count);
+  }
+  ASSERT_OK(batch_->Put("A", "new_val"));
+  {
+    auto& cf_id_to_count = batch_->GetCFStats();
+    ASSERT_EQ(1, cf_id_to_count.size());
+    ASSERT_EQ(overwrite ? 1 : 3, cf_id_to_count.at(0).entry_count);
+    ASSERT_EQ(overwrite ? 1 : 0, cf_id_to_count.at(0).overwritten_sd_count);
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(WBWI, WriteBatchWithIndexTest, testing::Bool());
+
+std::string Get(const std::string& k, std::unique_ptr<WBWIMemTable>& wbwi_mem,
+                SequenceNumber snapshot_seq, bool* found_final_value) {
+  LookupKey lkey(k, snapshot_seq);
+  std::string val;
+  SequenceNumber max_range_del_seqno = 0;
+  SequenceNumber out_seqno = 0;
+  bool is_blob_index = false;
+  Status s;
+  *found_final_value = wbwi_mem->Get(
+      lkey, &val, nullptr, nullptr, &s, nullptr, &max_range_del_seqno,
+      &out_seqno, ReadOptions(), true, nullptr, &is_blob_index, true);
+  if (s.ok()) {
+    if (*found_final_value) {
+      EXPECT_FALSE(val.empty());
+      return val;
+    }
+    return "NOT_FOUND";
+  }
+  EXPECT_TRUE(s.IsNotFound());
+  EXPECT_TRUE(*found_final_value);
+  return "NOT_FOUND";
+}
+
+class WBWIMemTableTest : public testing::Test {};
+
+TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
+  // Mini stress test for read.
+  // Do random 10000 put and delete operations then do some overwrite.
+  // Keep track of expected state, then verify with Get, MultiGet, and Iterator.
+  const Comparator* cmp = BytewiseComparator();
+  Options opts;
+  ImmutableOptions immutable_opts(opts);
+  MutableCFOptions mutable_cf_options(opts);
+
+  Random& rnd = *Random::GetTLSInstance();
+  auto wbwi = std::make_shared<WriteBatchWithIndex>(
+      cmp, 0, /*overwrite_key=*/true, 0, 0);
+  wbwi->SetTrackPerCFStat(true);
+  std::vector<std::pair<std::string, std::string>> expected;
+  expected.resize(10000);
+  for (int i = 0; i < 10000; ++i) {
+    // Leave a non-existing key 9999 in between existing keys to test read.
+    std::string key = i < 9999 ? DBTestBase::Key(i) : DBTestBase::Key(i + 1);
+    bool del = rnd.OneIn(2);
+    std::string val = del ? "NOT_FOUND" : rnd.RandomString(50);
+    expected[i] = std::make_pair(key, val);
+  }
+  // Random insertion order
+  RandomShuffle(expected.begin(), expected.end());
+  std::unique_ptr<WBWIMemTable> wbwi_mem{
+      new WBWIMemTable(wbwi, cmp,
+                       /*cf_id=*/0, &immutable_opts, &mutable_cf_options,
+                       // stats is inaccurate but read path should still work
+                       /*stat=*/{})};
+  ASSERT_TRUE(wbwi_mem->IsEmpty());
+  constexpr SequenceNumber visible_seq = 10002;
+  constexpr SequenceNumber non_visible_seq = 1;
+  constexpr WBWIMemTable::SeqnoRange assigned_seq = {2, 10001};
+  wbwi_mem->AssignSequenceNumbers(assigned_seq);
+
+  bool found_final_value = false;
+  for (const auto& [key, val] : expected) {
+    if (val == "NOT_FOUND") {
+      if (rnd.OneIn(2)) {
+        ASSERT_OK(wbwi->SingleDelete(key));
+      } else {
+        ASSERT_OK(wbwi->Delete(key));
+      }
+    } else {
+      ASSERT_OK(wbwi->Put(key, val));
+    }
+    found_final_value = false;
+    // We are writing to wbwi after WBWIMemtable is created. This won't
+    // happen with normal usage, but we just use the hack for testing here.
+    ASSERT_TRUE(val == Get(key, wbwi_mem, visible_seq, &found_final_value));
+    ASSERT_TRUE(found_final_value);
+  }
+  ASSERT_FALSE(wbwi_mem->IsEmpty());
+
+  // Some data with same key in another CF
+  ColumnFamilyHandleImplDummy meta_cf(/*id=*/1, BytewiseComparator());
+  ASSERT_OK(wbwi->Put(&meta_cf, DBTestBase::Key(0), "foo"));
+
+  RandomShuffle(expected.begin(), expected.end());
+  // overwrites
+  for (size_t i = 0; i < 2000; ++i) {
+    // We don't expect to mix SD and DEL, or issue multiple SD consecutively in
+    // a DB. Read from WBWI should still work so we do it here to keep the test
+    // simple.
+    if (rnd.OneIn(2)) {
+      std::string val = rnd.RandomString(100);
+      expected[i].second = val;
+      ASSERT_OK(wbwi->Put(expected[i].first, val));
+    } else {
+      expected[i].second = "NOT_FOUND";
+      if (rnd.OneIn(2)) {
+        ASSERT_OK(wbwi->SingleDelete(expected[i].first));
+      } else {
+        ASSERT_OK(wbwi->Delete(expected[i].first));
+      }
+    }
+    found_final_value = false;
+    ASSERT_TRUE(expected[i].second == Get(expected[i].first, wbwi_mem,
+                                          visible_seq, &found_final_value));
+    ASSERT_TRUE(found_final_value);
+  }
+  // Get a non-existing key
+  found_final_value = false;
+  ASSERT_EQ("NOT_FOUND", Get("foo", wbwi_mem, visible_seq, &found_final_value));
+  ASSERT_FALSE(found_final_value);
+  ASSERT_EQ("NOT_FOUND", Get(DBTestBase::Key(9999), wbwi_mem, visible_seq,
+                             &found_final_value));
+  ASSERT_FALSE(found_final_value);
+  // Get with a non-visible snapshot
+  found_final_value = false;
+  ASSERT_EQ("NOT_FOUND", Get(DBTestBase::Key(0), wbwi_mem, non_visible_seq,
+                             &found_final_value));
+  ASSERT_FALSE(found_final_value);
+  // Get existing keys
+  RandomShuffle(expected.begin(), expected.end());
+  for (const auto& [key, val] : expected) {
+    found_final_value = false;
+    ASSERT_TRUE(val == Get(key, wbwi_mem, visible_seq, &found_final_value));
+    ASSERT_TRUE(found_final_value);
+  }
+  // MultiGet
+  int batch_size = 30;
+  for (int i = 0; i < 10000; i += batch_size) {
+    for (uint64_t read_seq : {non_visible_seq, visible_seq}) {
+      autovector<KeyContext> key_context;
+      autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+      sorted_keys.resize(batch_size);
+      std::vector<PinnableSlice> values(batch_size);
+      std::vector<Status> statuses(batch_size);
+      std::vector<Slice> key_slice(batch_size);
+      std::vector<std::string> key_str(batch_size);
+      for (int j = 0; j < batch_size; ++j) {
+        if (i + j >= 10000) {
+          // read non-existing keys
+          // the last key in expected is 10000
+          key_str[i + j - 10000] = DBTestBase::Key(i + j + 1);
+          key_slice[j] = key_str[i + j - 10000];
+        } else {
+          key_slice[j] = expected[i + j].first;
+        }
+        key_context.emplace_back(/*col_family=*/nullptr, key_slice[j],
+                                 &values[j], /*cols=*/nullptr, /*ts=*/nullptr,
+                                 &statuses[j]);
+      }
+      for (int j = 0; j < batch_size; ++j) {
+        sorted_keys[j] = &key_context[j];
+      }
+      std::sort(sorted_keys.begin(), sorted_keys.begin() + batch_size,
+                [](const KeyContext* a, const KeyContext* b) {
+                  return a->key->compare(*b->key) < 0;
+                });
+
+      MultiGetContext ctx(&sorted_keys, 0, batch_size, read_seq, ReadOptions(),
+                          immutable_opts.fs.get(),
+                          immutable_opts.statistics.get());
+      MultiGetRange range = ctx.GetMultiGetRange();
+      wbwi_mem->MultiGet(ReadOptions(), &range, /*callback=*/nullptr,
+                         /*immutable_memtable=*/true);
+      for (int j = 0; j < batch_size; ++j) {
+        if (read_seq != visible_seq || i + j >= 10000) {
+          // Nothing is found in WBWIMemtable, status and value are not set.
+          ASSERT_OK(statuses[j]);
+          ASSERT_TRUE(values[j].empty());
+        } else if (expected[i + j].second == "NOT_FOUND") {
+          ASSERT_TRUE(statuses[j].IsNotFound());
+        } else {
+          ASSERT_OK(statuses[j]);
+          ASSERT_EQ(values[j], expected[i + j].second);
+        }
+      }
+    }
+  }
+
+  // Sort keys to compare with iterator
+  std::sort(expected.begin(), expected.end(),
+            [](const std::pair<std::string, std::string>& a,
+               const std::pair<std::string, std::string>& b) {
+              return a.first < b.first;
+            });
+  Arena arena;
+  InternalIterator* iter = wbwi_mem->NewIterator(
+      ReadOptions(), /*seqno_to_time_mapping=*/nullptr, &arena,
+      /*prefix_extractor=*/nullptr, /*for_flush=*/false);
+  ASSERT_OK(iter->status());
+
+  auto verify_iter_at = [&](size_t idx) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(ExtractUserKey(iter->key()), expected[idx].first);
+
+    SequenceNumber seq;
+    ValueType val_type;
+    UnPackSequenceAndType(ExtractInternalKeyFooter(iter->key()), &seq,
+                          &val_type);
+    ASSERT_EQ(seq, assigned_seq.upper_bound);
+    if (expected[idx].second == "NOT_FOUND") {
+      ASSERT_TRUE(val_type == kTypeDeletion || val_type == kTypeSingleDeletion);
+    } else {
+      ASSERT_EQ(val_type, kTypeValue);
+      ASSERT_EQ(iter->value(), expected[idx].second);
+    }
+  };
+
+  // Seek then next, prev
+  IterKey seek_key;
+  for (int i = 0; i < 1000; i++) {
+    uint32_t key_idx = rnd.Uniform(10000);
+    for (bool seek_for_prev : {false, true}) {
+      if (seek_for_prev) {
+        seek_key.SetInternalKey(expected[key_idx].first, 0,
+                                kValueTypeForSeekForPrev);
+        iter->SeekForPrev(seek_key.GetInternalKey());
+      } else {
+        seek_key.SetInternalKey(expected[key_idx].first, visible_seq,
+                                kValueTypeForSeek);
+        iter->Seek(seek_key.GetInternalKey());
+      }
+      verify_iter_at(key_idx);
+
+      // verify next/prev 5 times
+      for (int j = 0; j < 5; ++j) {
+        if (++key_idx >= 10000) {
+          --key_idx;
+          break;
+        }
+        iter->Next();
+        verify_iter_at(key_idx);
+      }
+      for (int j = 0; j < 5; ++j) {
+        iter->Prev();
+        assert(key_idx >= 1);
+        verify_iter_at(--key_idx);
+      }
+    }
+  }
+
+  iter->SeekToFirst();
+  for (size_t i = 0; i < expected.size(); ++i) {
+    verify_iter_at(i);
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+  iter->SeekToLast();
+  for (int i = static_cast<int>(expected.size() - 1); i >= 0; --i) {
+    verify_iter_at(i);
+    iter->Prev();
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+
+  // Read from another CF
+  std::unique_ptr<WBWIMemTable> meta_wbwi_mem{new WBWIMemTable(
+      wbwi, cmp, /*cf_id=*/1, &immutable_opts, &mutable_cf_options,
+      /*stat=*/{1, 0})};
+  meta_wbwi_mem->AssignSequenceNumbers(assigned_seq);
+  found_final_value = false;
+  ASSERT_TRUE("foo" == Get(DBTestBase::Key(0), meta_wbwi_mem, visible_seq,
+                           &found_final_value));
+  ASSERT_TRUE(found_final_value);
+  found_final_value = false;
+  ASSERT_TRUE("NOT_FOUND" == Get(DBTestBase::Key(1), meta_wbwi_mem, visible_seq,
+                                 &found_final_value));
+  ASSERT_FALSE(found_final_value);
+  // Deleting one memtable should not affect another memtable with the same wbwi
+  wbwi_mem.reset();
+  // allocated by arena
+  iter->~InternalIterator();
+  iter = meta_wbwi_mem->NewIterator(ReadOptions(), nullptr, &arena, nullptr,
+                                    /*for_flush=*/false);
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(ExtractUserKey(iter->key()), DBTestBase::Key(0));
+  ASSERT_EQ(iter->value(), "foo");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+  iter->~InternalIterator();
+}
+
+TEST_F(WBWIMemTableTest, IterEmitSingleDelete) {
+  const Comparator* cmp = BytewiseComparator();
+  Options opts;
+  ImmutableOptions immutable_opts(opts);
+  MutableCFOptions mutable_cf_options(opts);
+
+  auto wbwi = std::make_shared<WriteBatchWithIndex>(
+      cmp, 0, /*overwrite_key=*/true, 0, 0);
+  wbwi->SetTrackPerCFStat(true);
+
+  ASSERT_OK(wbwi->Put(DBTestBase::Key(0), "val0"));
+  ASSERT_OK(wbwi->SingleDelete(DBTestBase::Key(0)));
+  ASSERT_OK(wbwi->SingleDelete(DBTestBase::Key(1)));
+  ASSERT_OK(wbwi->SingleDelete(DBTestBase::Key(2)));
+  ASSERT_OK(wbwi->Put(DBTestBase::Key(3), "val3"));
+  // SD at key1 overwritten
+  ASSERT_OK(wbwi->Put(DBTestBase::Key(1), "val1"));
+
+  std::unique_ptr<WBWIMemTable> wbwi_mem{
+      new WBWIMemTable(wbwi, cmp,
+                       /*cf_id=*/0, &immutable_opts, &mutable_cf_options,
+                       /*stat=*/wbwi->GetCFStats().at(0))};
+  WBWIMemTable::SeqnoRange assigned_seqno = {
+      1, 1 + wbwi->GetWriteBatch()->Count()};
+  wbwi_mem->AssignSequenceNumbers(assigned_seqno);
+  Arena arena;
+  InternalIterator* iter_for_flush = wbwi_mem->NewIterator(
+      ReadOptions(), /*seqno_to_time_mapping=*/nullptr, &arena,
+      /*prefix_extractor=*/nullptr, /*for_flush=*/true);
+  InternalIterator* iter = wbwi_mem->NewIterator(
+      ReadOptions(), /*seqno_to_time_mapping=*/nullptr, &arena,
+      /*prefix_extractor=*/nullptr, /*for_flush=*/false);
+  iter->SeekToFirst();
+  iter_for_flush->SeekToFirst();
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_TRUE(iter_for_flush->Valid());
+    ASSERT_EQ(iter->key(), iter_for_flush->key());
+
+    iter->Next();
+    iter_for_flush->Next();
+    if (i == 1) {
+      // overwritten SD at key1
+      // See WBWIMemTableIterator::UpdateSingleDeleteKey() for seqno assignment
+      InternalKey ikey(DBTestBase::Key(1), assigned_seqno.upper_bound - 1,
+                       kTypeSingleDeletion);
+      ASSERT_EQ(ikey.Encode(), iter_for_flush->key());
+      iter_for_flush->Next();
+    }
+  }
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_FALSE(iter_for_flush->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_OK(iter_for_flush->status());
+  iter->~InternalIterator();
+  iter_for_flush->~InternalIteratorBase();
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

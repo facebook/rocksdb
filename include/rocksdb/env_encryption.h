@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <string>
 
 #include "rocksdb/customizable.h"
@@ -32,7 +31,7 @@ std::shared_ptr<FileSystem> NewEncryptedFS(
 // blocks). E.g. CTR (Counter operation mode) supports this requirement.
 class BlockAccessCipherStream {
  public:
-  virtual ~BlockAccessCipherStream(){}
+  virtual ~BlockAccessCipherStream() {}
 
   // BlockSize returns the size of each block supported by this cipher stream.
   virtual size_t BlockSize() = 0;
@@ -360,4 +359,3 @@ class EncryptedFileSystem : public FileSystemWrapper {
   }
 };
 }  // namespace ROCKSDB_NAMESPACE
-

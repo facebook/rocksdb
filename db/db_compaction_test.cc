@@ -6417,10 +6417,13 @@ TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
   options.level0_file_num_compaction_trigger = 4;
   options.target_file_size_base = kKeysPerBuffer * 1024;
   options.compaction_pri = CompactionPri::kRoundRobin;
-  // Target size is chosen so that filling the level with `kFilesPerLevel` files
-  // will make it oversized by `kNumSubcompactions` files.
+  // Pick a small target level size so that round-robin compaction will pick
+  // more files to compact and trigger subcompactions. Actual number of
+  // subcompactions will be limited by number of bg threads available.
+  // Cannot be too small to cause compaction pressure. See
+  // GetPendingCompactionBytesForCompactionSpeedup().
   options.max_bytes_for_level_base =
-      (kFilesPerLevel - kNumSubcompactions) * kKeysPerBuffer * 1024;
+      (kFilesPerLevel - 10) * kKeysPerBuffer * 1024;
   options.disable_auto_compactions = true;
   // Setup `kNumSubcompactions` threads but limited subcompactions so
   // that RoundRobin requires extra compactions from reserved threads
@@ -6446,21 +6449,34 @@ TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
     ASSERT_EQ(kFilesPerLevel, NumTableFilesAtLevel(lvl, 0));
   }
 
+  bool compaction_num_input_file_verified = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        if (!compaction_num_input_file_verified) {
+          Compaction* compaction = static_cast<Compaction*>(arg);
+          // In Round-Robin, # of subcompactions needed is the # of input files
+          ASSERT_GT(compaction->num_input_files(0), 1);
+          compaction_num_input_file_verified = true;
+        }
+      });
+
   // This is a variable for making sure the following callback is called
   // and the assertions in it are indeed excuted.
   bool num_planned_subcompactions_verified = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::GenSubcompactionBoundaries:0", [&](void* arg) {
-        uint64_t num_planned_subcompactions = *(static_cast<uint64_t*>(arg));
-        if (grab_pressure_token_) {
-          // `kNumSubcompactions` files are selected for round-robin under auto
-          // compaction. The number of planned subcompaction is restricted by
-          // the limited number of max_background_compactions
-          ASSERT_EQ(num_planned_subcompactions, kNumSubcompactions);
-        } else {
-          ASSERT_EQ(num_planned_subcompactions, 1);
+        if (!num_planned_subcompactions_verified) {
+          uint64_t num_planned_subcompactions = *(static_cast<uint64_t*>(arg));
+          if (grab_pressure_token_) {
+            // `kNumSubcompactions` files are selected for round-robin under
+            // auto compaction. The number of planned subcompaction is
+            // restricted by the limited number of max_background_compactions
+            ASSERT_EQ(num_planned_subcompactions, kNumSubcompactions);
+          } else {
+            ASSERT_EQ(num_planned_subcompactions, 1);
+          }
+          num_planned_subcompactions_verified = true;
         }
-        num_planned_subcompactions_verified = true;
       });
 
   // The following 3 dependencies have to be added to ensure the auto
@@ -9357,12 +9373,13 @@ TEST_F(DBCompactionTest, FIFOChangeTemperature) {
     ASSERT_OK(Flush());
 
     ASSERT_OK(Put(Key(0), "value1"));
-    env_->MockSleepForSeconds(800);
     ASSERT_OK(Put(Key(2), "value2"));
     ASSERT_OK(Flush());
 
+    // First two L0 files both become eligible for temperature change compaction
+    // They should be compacted one-by-one.
     ASSERT_OK(Put(Key(0), "value1"));
-    env_->MockSleepForSeconds(800);
+    env_->MockSleepForSeconds(1200);
     ASSERT_OK(Put(Key(2), "value2"));
     ASSERT_OK(Flush());
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -10622,6 +10639,97 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
+  Options options;
+  SetTimeElapseOnlySleepOnReopen(&options);
+  options.env = CurrentOptions().env;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.write_buffer_size = 10 << 10;  // 10KB
+  options.arena_block_size = 4096;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options.compaction_options_fifo.allow_compaction = false;
+  options.num_levels = 1;
+  env_->SetMockSleep();
+  options.env = env_;
+  options.ttl = 1 * 60 * 60;  // 1 hour
+  ASSERT_OK(TryReopen(options));
+
+  // Generate and flush 4 files, each about 10KB
+  // Compaction is manually disabled at this point so we can check
+  // each file's newest_key_time
+  Random rnd(301);
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 10; j++) {
+      ASSERT_OK(Put(std::to_string(i * 20 + j), rnd.RandomString(980)));
+    }
+    ASSERT_OK(Flush());
+    env_->MockSleepForSeconds(5);
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 4);
+
+  // Check that we are populating newest_key_time on flush
+  std::vector<FileMetaData*> file_metadatas = GetLevelFileMetadatas(0);
+  ASSERT_EQ(file_metadatas.size(), 4);
+  uint64_t first_newest_key_time =
+      file_metadatas[0]->fd.table_reader->GetTableProperties()->newest_key_time;
+  ASSERT_NE(first_newest_key_time, kUnknownNewestKeyTime);
+  // Check that the newest_key_times are in expected ordering
+  uint64_t prev_newest_key_time = first_newest_key_time;
+  for (size_t idx = 1; idx < file_metadatas.size(); idx++) {
+    uint64_t newest_key_time = file_metadatas[idx]
+                                   ->fd.table_reader->GetTableProperties()
+                                   ->newest_key_time;
+
+    ASSERT_LT(newest_key_time, prev_newest_key_time);
+    prev_newest_key_time = newest_key_time;
+    ASSERT_EQ(newest_key_time, file_metadatas[idx]
+                                   ->fd.table_reader->GetTableProperties()
+                                   ->creation_time);
+  }
+  // The delta between the first and last newest_key_times is 15s
+  uint64_t last_newest_key_time = prev_newest_key_time;
+  ASSERT_EQ(15, first_newest_key_time - last_newest_key_time);
+
+  // After compaction, the newest_key_time of the output file should be the max
+  // of the input files
+  options.compaction_options_fifo.allow_compaction = true;
+  ASSERT_OK(TryReopen(options));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  file_metadatas = GetLevelFileMetadatas(0);
+  ASSERT_EQ(file_metadatas.size(), 1);
+  ASSERT_EQ(
+      file_metadatas[0]->fd.table_reader->GetTableProperties()->newest_key_time,
+      first_newest_key_time);
+  // Contrast newest_key_time with creation_time, which records the oldest
+  // ancestor time (15s older than newest_key_time)
+  ASSERT_EQ(
+      file_metadatas[0]->fd.table_reader->GetTableProperties()->creation_time,
+      last_newest_key_time);
+  ASSERT_EQ(file_metadatas[0]->oldest_ancester_time, last_newest_key_time);
+
+  // Make sure TTL of 5s causes compaction
+  env_->MockSleepForSeconds(6);
+
+  // The oldest input file is older than 15s
+  // However the newest of the compaction input files is younger than 15s, so
+  // we don't compact
+  ASSERT_OK(dbfull()->SetOptions({{"ttl", "15"}}));
+  ASSERT_EQ(dbfull()->GetOptions().ttl, 15);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  // Now even the youngest input file is too old
+  ASSERT_OK(dbfull()->SetOptions({{"ttl", "5"}}));
+  ASSERT_EQ(dbfull()->GetOptions().ttl, 5);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

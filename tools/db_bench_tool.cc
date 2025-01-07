@@ -153,10 +153,11 @@ DEFINE_string(
     "randomtransaction,"
     "randomreplacekeys,"
     "timeseries,"
-    "getmergeoperands,",
+    "getmergeoperands,"
     "readrandomoperands,"
     "backup,"
-    "restore"
+    "restore,"
+    "approximatememtablestats",
 
     "Comma-separated list of operations to run in the specified"
     " order. Available benchmarks:\n"
@@ -243,9 +244,14 @@ DEFINE_string(
     "operation includes a rare but possible retry in case it got "
     "`Status::Incomplete()`. This happens upon encountering more keys than "
     "have ever been seen by the thread (or eight initially)\n"
-    "\tbackup --  Create a backup of the current DB and verify that a new backup is corrected. "
+    "\tbackup --  Create a backup of the current DB and verify that a new "
+    "backup is corrected. "
     "Rate limit can be specified through --backup_rate_limit\n"
-    "\trestore -- Restore the DB from the latest backup available, rate limit can be specified through --restore_rate_limit\n");
+    "\trestore -- Restore the DB from the latest backup available, rate limit "
+    "can be specified through --restore_rate_limit\n"
+    "\tapproximatememtablestats -- Tests accuracy of "
+    "GetApproximateMemTableStats, ideally\n"
+    "after fillrandom, where actual answer is batch_size");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -1069,7 +1075,6 @@ DEFINE_string(
 static enum ROCKSDB_NAMESPACE::CompressionType
     FLAGS_blob_db_compression_type_e = ROCKSDB_NAMESPACE::kSnappyCompression;
 
-
 // Integrated BlobDB options
 DEFINE_bool(
     enable_blob_files,
@@ -1104,7 +1109,7 @@ DEFINE_double(blob_garbage_collection_force_threshold,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
-              "the oldest blob files for forcing garbage collection.");
+              "the eligible blob files for forcing garbage collection.");
 
 DEFINE_uint64(blob_compaction_readahead_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
@@ -1140,7 +1145,6 @@ DEFINE_int32(prepopulate_blob_cache, 0,
              "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
              "to disable and 1 to insert during flush.");
 
-
 // Secondary DB instance Options
 DEFINE_bool(use_secondary_db, false,
             "Open a RocksDB secondary instance. A primary instance can be "
@@ -1165,7 +1169,6 @@ DEFINE_bool(report_bg_io_stats, false,
 
 DEFINE_bool(use_stderr_info_logger, false,
             "Write info logs to stderr instead of to LOG file. ");
-
 
 DEFINE_string(trace_file, "", "Trace workload to a file. ");
 
@@ -1753,6 +1756,7 @@ DEFINE_bool(read_with_latest_user_timestamp, true,
             "If true, always use the current latest timestamp for read. If "
             "false, choose a random timestamp from the past.");
 
+DEFINE_string(cache_uri, "", "Full URI for creating a custom cache object");
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
@@ -1803,6 +1807,8 @@ DEFINE_bool(build_info, false,
 
 DEFINE_bool(track_and_verify_wals_in_manifest, false,
             "If true, enable WAL tracking in the MANIFEST");
+
+DEFINE_bool(track_and_verify_wals, false, "See Options.track_and_verify_wals");
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -1994,11 +2000,7 @@ struct DBWithColumnFamilies {
   std::vector<int> cfh_idx_to_prob;  // ith index holds probability of operating
                                      // on cfh[i].
 
-  DBWithColumnFamilies()
-      : db(nullptr)
-        ,
-        opt_txn_db(nullptr)
-  {
+  DBWithColumnFamilies() : db(nullptr), opt_txn_db(nullptr) {
     cfh.clear();
     num_created = 0;
     num_hot = 0;
@@ -2010,8 +2012,7 @@ struct DBWithColumnFamilies {
         opt_txn_db(other.opt_txn_db),
         num_created(other.num_created.load()),
         num_hot(other.num_hot),
-        cfh_idx_to_prob(other.cfh_idx_to_prob) {
-  }
+        cfh_idx_to_prob(other.cfh_idx_to_prob) {}
 
   void DeleteDBs() {
     std::for_each(cfh.begin(), cfh.end(),
@@ -3138,7 +3139,15 @@ class Benchmark {
     }
 
     std::shared_ptr<Cache> block_cache;
-    if (FLAGS_cache_type == "clock_cache") {
+    if (!FLAGS_cache_uri.empty()) {
+      Status s = Cache::CreateFromString(ConfigOptions(), FLAGS_cache_uri,
+                                         &block_cache);
+      if (block_cache == nullptr) {
+        fprintf(stderr, "No  cache registered matching string: %s status=%s\n",
+                FLAGS_cache_uri.c_str(), s.ToString().c_str());
+        exit(1);
+      }
+    } else if (FLAGS_cache_type == "clock_cache") {
       fprintf(stderr, "Old clock cache implementation has been removed.\n");
       exit(1);
     } else if (EndsWith(FLAGS_cache_type, "hyper_clock_cache")) {
@@ -3612,6 +3621,8 @@ class Benchmark {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
         method = &Benchmark::ApproximateSizeRandom;
+      } else if (name == "approximatememtablestats") {
+        method = &Benchmark::ApproximateMemtableStats;
       } else if (name == "mixgraph") {
         method = &Benchmark::MixGraph;
       } else if (name == "readmissing") {
@@ -4712,6 +4723,7 @@ class Benchmark {
     options.allow_data_in_errors = FLAGS_allow_data_in_errors;
     options.track_and_verify_wals_in_manifest =
         FLAGS_track_and_verify_wals_in_manifest;
+    options.track_and_verify_wals = FLAGS_track_and_verify_wals;
 
     // Integrated BlobDB
     options.enable_blob_files = FLAGS_enable_blob_files;
@@ -6287,6 +6299,35 @@ class Benchmark {
              read);
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
+  }
+
+  void ApproximateMemtableStats(ThreadState* thread) {
+    const size_t batch_size = entries_per_batch_;
+    std::unique_ptr<const char[]> skey_guard;
+    Slice skey = AllocateKey(&skey_guard);
+    std::unique_ptr<const char[]> ekey_guard;
+    Slice ekey = AllocateKey(&ekey_guard);
+    Duration duration(FLAGS_duration, reads_);
+    if (FLAGS_num < static_cast<int64_t>(batch_size)) {
+      std::terminate();
+    }
+    uint64_t range = static_cast<uint64_t>(FLAGS_num) - batch_size;
+    auto count_hist = std::make_shared<HistogramImpl>();
+    while (!duration.Done(1)) {
+      DB* db = SelectDB(thread);
+      uint64_t start_key = thread->rand.Uniform(range);
+      GenerateKeyFromInt(start_key, FLAGS_num, &skey);
+      uint64_t end_key = start_key + batch_size;
+      GenerateKeyFromInt(end_key, FLAGS_num, &ekey);
+      uint64_t count = UINT64_MAX;
+      uint64_t size = UINT64_MAX;
+      db->GetApproximateMemTableStats({skey, ekey}, &count, &size);
+      count_hist->Add(count);
+      thread->stats.FinishedOps(nullptr, db, 1, kOthers);
+    }
+    thread->stats.AddMessage("\nReported entry count stats (expected " +
+                             std::to_string(batch_size) + "):");
+    thread->stats.AddMessage("\n" + count_hist->ToString());
   }
 
   // Calls ApproximateSize over random key ranges.
@@ -8497,7 +8538,6 @@ class Benchmark {
     }
   }
 
-
   void Replay(ThreadState* thread) {
     if (db_.db != nullptr) {
       Replay(thread, &db_);
@@ -8585,7 +8625,6 @@ class Benchmark {
     assert(s.ok());
     delete backup_engine;
   }
-
 };
 
 int db_bench_tool(int argc, char** argv) {

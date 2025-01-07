@@ -305,7 +305,6 @@ class ReadOnlyCacheWrapper : public CacheWrapper {
 }  // anonymous namespace
 #endif  // SNAPPY
 
-
 // Make sure that when options.block_cache is set, after a new table is
 // created its index/filter blocks are added to block cache.
 TEST_F(DBBlockCacheTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
@@ -563,7 +562,7 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   }
 }
 
-TEST_F(DBBlockCacheTest, DynamicallyWarmCacheDuringFlush) {
+TEST_F(DBBlockCacheTest, DynamicOptions) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -578,39 +577,74 @@ TEST_F(DBBlockCacheTest, DynamicallyWarmCacheDuringFlush) {
   DestroyAndReopen(options);
 
   std::string value(kValueSize, 'a');
+  auto st = options.statistics;
 
-  for (size_t i = 1; i <= 5; i++) {
-    ASSERT_OK(Put(std::to_string(i), value));
-    ASSERT_OK(Flush());
-    ASSERT_EQ(1,
-              options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+  size_t i = 1;
+  ASSERT_OK(Put(std::to_string(i), value));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
 
-    ASSERT_EQ(value, Get(std::to_string(i)));
-    ASSERT_EQ(0,
-              options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
-    ASSERT_EQ(
-        0, options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
-    ASSERT_EQ(1,
-              options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
-  }
+  ASSERT_EQ(value, Get(std::to_string(i)));
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
 
+  ++i;
   ASSERT_OK(dbfull()->SetOptions(
       {{"block_based_table_factory", "{prepopulate_block_cache=kDisable;}"}}));
 
-  for (size_t i = 6; i <= kNumBlocks; i++) {
-    ASSERT_OK(Put(std::to_string(i), value));
-    ASSERT_OK(Flush());
-    ASSERT_EQ(0,
-              options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+  ASSERT_OK(Put(std::to_string(i), value));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
 
-    ASSERT_EQ(value, Get(std::to_string(i)));
-    ASSERT_EQ(1,
-              options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
-    ASSERT_EQ(
-        1, options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
-    ASSERT_EQ(0,
-              options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
-  }
+  ASSERT_EQ(value, Get(std::to_string(i)));
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
+
+  ++i;
+  ASSERT_OK(dbfull()->SetOptions({{"block_based_table_factory",
+                                   "{prepopulate_block_cache=kFlushOnly;}"}}));
+
+  ASSERT_OK(Put(std::to_string(i), value));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+
+  ASSERT_EQ(value, Get(std::to_string(i)));
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+  ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
+  ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
+
+  ++i;
+  // NOT YET SUPPORTED
+  // FIXME: find a way to make this fail again (until well supported)
+  // ASSERT_NOK(dbfull()->SetOptions(
+  //    {{"block_based_table_factory", "{block_cache=null;}"}}));
+
+  // ASSERT_OK(Put(std::to_string(i), value));
+  // ASSERT_OK(Flush());
+  // ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+
+  // ASSERT_EQ(value, Get(std::to_string(i)));
+  // ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+  // ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
+  // ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
+
+  // ++i;
+
+  // NOT YET SUPPORTED
+  // FIXME: find a way to make this fail again (until well supported)
+  // ASSERT_NOK(dbfull()->SetOptions(
+  //    {{"block_based_table_factory", "{block_cache=1M;}"}}));
+
+  // ASSERT_OK(Put(std::to_string(i), value));
+  // ASSERT_OK(Flush());
+  // ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+
+  // ASSERT_EQ(value, Get(std::to_string(i)));
+  // ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
+  // ASSERT_EQ(0, st->getAndResetTickerCount(BLOCK_CACHE_DATA_MISS));
+  // ASSERT_EQ(1, st->getAndResetTickerCount(BLOCK_CACHE_DATA_HIT));
 }
 #endif
 
@@ -1723,8 +1757,8 @@ class CacheKeyTest : public testing::Test {
     tp_.db_id = std::to_string(db_id_);
     tp_.orig_file_number = file_number;
     bool is_stable;
-    std::string cur_session_id;       // ignored
-    uint64_t cur_file_number = 42;    // ignored
+    std::string cur_session_id;     // ignored
+    uint64_t cur_file_number = 42;  // ignored
     OffsetableCacheKey rv;
     BlockBasedTable::SetupBaseCacheKey(&tp_, cur_session_id, cur_file_number,
                                        &rv, &is_stable);

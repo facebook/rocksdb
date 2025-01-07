@@ -198,7 +198,6 @@ TEST_F(DBStatisticsTest, ExcludeTickers) {
   ASSERT_GT(options.statistics->getTickerCount(BYTES_READ), 0);
 }
 
-
 TEST_F(DBStatisticsTest, VerifyChecksumReadStat) {
   Options options = CurrentOptions();
   options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();

@@ -5,6 +5,7 @@
 
 #include "db/wide/wide_column_serialization.h"
 
+#include "db/wide/wide_columns_helper.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 
@@ -99,27 +100,28 @@ TEST(WideColumnSerializationTest, SerializeDeserialize) {
   ASSERT_EQ(columns, deserialized_columns);
 
   {
-    const auto it = WideColumnSerialization::Find(deserialized_columns, "foo");
+    const auto it = WideColumnsHelper::Find(deserialized_columns.cbegin(),
+                                            deserialized_columns.cend(), "foo");
     ASSERT_NE(it, deserialized_columns.cend());
     ASSERT_EQ(*it, deserialized_columns.front());
   }
 
   {
-    const auto it =
-        WideColumnSerialization::Find(deserialized_columns, "hello");
+    const auto it = WideColumnsHelper::Find(
+        deserialized_columns.cbegin(), deserialized_columns.cend(), "hello");
     ASSERT_NE(it, deserialized_columns.cend());
     ASSERT_EQ(*it, deserialized_columns.back());
   }
 
   {
-    const auto it =
-        WideColumnSerialization::Find(deserialized_columns, "fubar");
+    const auto it = WideColumnsHelper::Find(
+        deserialized_columns.cbegin(), deserialized_columns.cend(), "fubar");
     ASSERT_EQ(it, deserialized_columns.cend());
   }
 
   {
-    const auto it =
-        WideColumnSerialization::Find(deserialized_columns, "snafu");
+    const auto it = WideColumnsHelper::Find(
+        deserialized_columns.cbegin(), deserialized_columns.cend(), "snafu");
     ASSERT_EQ(it, deserialized_columns.cend());
   }
 }

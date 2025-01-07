@@ -58,7 +58,7 @@ void MakeBuilder(
       ioptions, moptions, read_options, write_options, internal_comparator,
       internal_tbl_prop_coll_factories, options.compression,
       options.compression_opts, kTestColumnFamilyId, kTestColumnFamilyName,
-      kTestLevel);
+      kTestLevel, kUnknownNewestKeyTime);
   builder->reset(NewTableBuilder(tboptions, writable->get()));
 }
 }  // namespace

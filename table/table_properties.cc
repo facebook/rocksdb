@@ -10,6 +10,7 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/unique_id.h"
+#include "rocksdb/utilities/options_type.h"
 #include "table/table_properties_internal.h"
 #include "table/unique_id_impl.h"
 #include "util/random.h"
@@ -139,6 +140,8 @@ std::string TableProperties::ToString(const std::string& prop_delim,
   AppendProperty(result, "creation time", creation_time, prop_delim, kv_delim);
 
   AppendProperty(result, "time stamp of earliest key", oldest_key_time,
+                 prop_delim, kv_delim);
+  AppendProperty(result, "time stamp of newest key", newest_key_time,
                  prop_delim, kv_delim);
 
   AppendProperty(result, "file creation time", file_creation_time, prop_delim,
@@ -301,6 +304,8 @@ const std::string TablePropertiesNames::kCompressionOptions =
 const std::string TablePropertiesNames::kCreationTime = "rocksdb.creation.time";
 const std::string TablePropertiesNames::kOldestKeyTime =
     "rocksdb.oldest.key.time";
+const std::string TablePropertiesNames::kNewestKeyTime =
+    "rocksdb.newest.key.time";
 const std::string TablePropertiesNames::kFileCreationTime =
     "rocksdb.file.creation.time";
 const std::string TablePropertiesNames::kSlowCompressionEstimatedDataSize =
@@ -315,6 +320,182 @@ const std::string TablePropertiesNames::kUserDefinedTimestampsPersisted =
     "rocksdb.user.defined.timestamps.persisted";
 const std::string TablePropertiesNames::kKeyLargestSeqno =
     "rocksdb.key.largest.seqno";
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    table_properties_type_info = {
+        {"orig_file_number",
+         {offsetof(struct TableProperties, orig_file_number),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"data_size",
+         {offsetof(struct TableProperties, data_size), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"index_size",
+         {offsetof(struct TableProperties, index_size), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"index_partitions",
+         {offsetof(struct TableProperties, index_partitions),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"top_level_index_size",
+         {offsetof(struct TableProperties, top_level_index_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"index_key_is_user_key",
+         {offsetof(struct TableProperties, index_key_is_user_key),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"index_value_is_delta_encoded",
+         {offsetof(struct TableProperties, index_value_is_delta_encoded),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"filter_size",
+         {offsetof(struct TableProperties, filter_size), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"raw_key_size",
+         {offsetof(struct TableProperties, raw_key_size), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"raw_value_size",
+         {offsetof(struct TableProperties, raw_value_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_data_blocks",
+         {offsetof(struct TableProperties, num_data_blocks),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_entries",
+         {offsetof(struct TableProperties, num_entries), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"num_filter_entries",
+         {offsetof(struct TableProperties, num_filter_entries),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_deletions",
+         {offsetof(struct TableProperties, num_deletions), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"num_merge_operands",
+         {offsetof(struct TableProperties, num_merge_operands),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_range_deletions",
+         {offsetof(struct TableProperties, num_range_deletions),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"format_version",
+         {offsetof(struct TableProperties, format_version),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"fixed_key_len",
+         {offsetof(struct TableProperties, fixed_key_len), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"column_family_id",
+         {offsetof(struct TableProperties, column_family_id),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"creation_time",
+         {offsetof(struct TableProperties, creation_time), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"oldest_key_time",
+         {offsetof(struct TableProperties, oldest_key_time),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"newest_key_time",
+         {offsetof(struct TableProperties, newest_key_time),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"file_creation_time",
+         {offsetof(struct TableProperties, file_creation_time),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"slow_compression_estimated_data_size",
+         {offsetof(struct TableProperties,
+                   slow_compression_estimated_data_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"fast_compression_estimated_data_size",
+         {offsetof(struct TableProperties,
+                   fast_compression_estimated_data_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"external_sst_file_global_seqno_offset",
+         {offsetof(struct TableProperties,
+                   external_sst_file_global_seqno_offset),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"tail_start_offset",
+         {offsetof(struct TableProperties, tail_start_offset),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"user_defined_timestamps_persisted",
+         {offsetof(struct TableProperties, user_defined_timestamps_persisted),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"key_largest_seqno",
+         {offsetof(struct TableProperties, key_largest_seqno),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"db_id",
+         {offsetof(struct TableProperties, db_id), OptionType::kEncodedString}},
+        {"db_session_id",
+         {offsetof(struct TableProperties, db_session_id),
+          OptionType::kEncodedString}},
+        {"db_host_id",
+         {offsetof(struct TableProperties, db_host_id),
+          OptionType::kEncodedString}},
+        {"column_family_name",
+         {offsetof(struct TableProperties, column_family_name),
+          OptionType::kEncodedString}},
+        {"filter_policy_name",
+         {offsetof(struct TableProperties, filter_policy_name),
+          OptionType::kEncodedString}},
+        {"comparator_name",
+         {offsetof(struct TableProperties, comparator_name),
+          OptionType::kEncodedString}},
+        {"merge_operator_name",
+         {offsetof(struct TableProperties, merge_operator_name),
+          OptionType::kEncodedString}},
+        {"prefix_extractor_name",
+         {offsetof(struct TableProperties, prefix_extractor_name),
+          OptionType::kEncodedString}},
+        {"property_collectors_names",
+         {offsetof(struct TableProperties, property_collectors_names),
+          OptionType::kEncodedString}},
+        {"compression_name",
+         {offsetof(struct TableProperties, compression_name),
+          OptionType::kEncodedString}},
+        {"compression_options",
+         {offsetof(struct TableProperties, compression_options),
+          OptionType::kEncodedString}},
+        {"seqno_to_time_mapping",
+         {offsetof(struct TableProperties, seqno_to_time_mapping),
+          OptionType::kEncodedString}},
+        {"user_collected_properties",
+         OptionTypeInfo::StringMap(
+             offsetof(struct TableProperties, user_collected_properties),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
+        {"readable_properties",
+         OptionTypeInfo::StringMap(
+             offsetof(struct TableProperties, readable_properties),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
+};
+
+Status TableProperties::Serialize(const ConfigOptions& opts,
+                                  std::string* output) const {
+  return OptionTypeInfo::SerializeType(opts, table_properties_type_info, this,
+                                       output);
+}
+Status TableProperties::Parse(const ConfigOptions& opts,
+                              const std::string& serialized,
+                              TableProperties* table_properties) {
+  return OptionTypeInfo::ParseType(opts, serialized, table_properties_type_info,
+                                   table_properties);
+}
+bool TableProperties::AreEqual(const ConfigOptions& opts,
+                               const TableProperties* other_table_properties,
+                               std::string* mismatch) const {
+  return OptionTypeInfo::TypesAreEqual(opts, table_properties_type_info, this,
+                                       other_table_properties, mismatch);
+}
 
 #ifndef NDEBUG
 // WARNING: TEST_SetRandomTableProperties assumes the following layout of

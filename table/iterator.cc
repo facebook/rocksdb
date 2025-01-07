@@ -74,6 +74,10 @@ class EmptyInternalIterator : public InternalIteratorBase<TValue> {
     assert(false);
     return TValue();
   }
+  uint64_t write_unix_time() const override {
+    assert(false);
+    return std::numeric_limits<uint64_t>::max();
+  }
   Status status() const override { return status_; }
 
  private:

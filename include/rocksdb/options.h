@@ -388,6 +388,8 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // block cache entries (shared among copies) are obsolete. Such a scenerio
   // is the best case for uncache_aggressiveness = 0.
   //
+  // When using allow_mmap_reads=true, this option is ignored (no un-caching).
+  //
   // Once validated in production, the default will likely change to something
   // around 300.
   uint32_t uncache_aggressiveness = 0;
@@ -466,14 +468,27 @@ struct CompactionServiceJobInfo {
 
   Env::Priority priority;
 
+  // Additional Compaction Details that can be useful in the CompactionService
+  CompactionReason compaction_reason;
+  bool is_full_compaction;
+  bool is_manual_compaction;
+  bool bottommost_level;
+
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
                            std::string db_session_id_, uint64_t job_id_,
-                           Env::Priority priority_)
+                           Env::Priority priority_,
+                           CompactionReason compaction_reason_,
+                           bool is_full_compaction_, bool is_manual_compaction_,
+                           bool bottommost_level_)
       : db_name(std::move(db_name_)),
         db_id(std::move(db_id_)),
         db_session_id(std::move(db_session_id_)),
         job_id(job_id_),
-        priority(priority_) {}
+        priority(priority_),
+        compaction_reason(compaction_reason_),
+        is_full_compaction(is_full_compaction_),
+        is_manual_compaction(is_manual_compaction_),
+        bottommost_level(bottommost_level_) {}
 };
 
 struct CompactionServiceScheduleResponse {
@@ -516,25 +531,6 @@ class CompactionService : public Customizable {
   virtual void OnInstallation(const std::string& /*scheduled_job_id*/,
                               CompactionServiceJobStatus /*status*/) {}
 
-  // Deprecated. Please implement Schedule() and Wait() API to handle remote
-  // compaction
-
-  // Start the remote compaction with `compaction_service_input`, which can be
-  // passed to `DB::OpenAndCompact()` on the remote side. `info` provides the
-  // information the user might want to know, which includes `job_id`.
-  virtual CompactionServiceJobStatus StartV2(
-      const CompactionServiceJobInfo& /*info*/,
-      const std::string& /*compaction_service_input*/) {
-    return CompactionServiceJobStatus::kUseLocal;
-  }
-
-  // Wait for remote compaction to finish.
-  virtual CompactionServiceJobStatus WaitForCompleteV2(
-      const CompactionServiceJobInfo& /*info*/,
-      std::string* /*compaction_service_result*/) {
-    return CompactionServiceJobStatus::kUseLocal;
-  }
-
   ~CompactionService() override = default;
 };
 
@@ -575,11 +571,19 @@ struct DBOptions {
   // Default: false
   bool error_if_exists = false;
 
-  // If true, RocksDB will aggressively check consistency of the data.
-  // Also, if any of the  writes to the database fails (Put, Delete, Merge,
-  // Write), the database will switch to read-only mode and fail all other
-  // Write operations.
-  // In most cases you want this to be set to true.
+  // If true, RocksDB does some pro-active and generally inexpensive checks
+  // for DB or data corruption, on top of usual protections such as block
+  // checksums. True also enters a read-only mode when a DB write fails;
+  // see DB::Resume().
+  //
+  // As most workloads value data correctness over availability, this option
+  // is on by default. Note that the name of this old option is potentially
+  // misleading, and other options and operations go further in proactive
+  // checking for corruption, including
+  // * paranoid_file_checks
+  // * paranoid_memory_checks
+  // * DB::VerifyChecksum()
+  //
   // Default: true
   bool paranoid_checks = true;
 
@@ -627,6 +631,26 @@ struct DBOptions {
   //
   // Default: false
   bool track_and_verify_wals_in_manifest = false;
+
+  // EXPERIMENTAL
+  //
+  // If true, each new WAL will record various information about its predecessor
+  // WAL for verification on the predecessor WAL during WAL recovery.
+  //
+  // It verifies the following:
+  // 1. There exists at least some WAL in the DB
+  // - It's not compatible with `RepairDB()` since this option imposes a
+  // stricter requirement on WAL than the DB went through `RepariDB()` can
+  // normally meet
+  // 2. There exists no WAL hole where new WAL data presents while some old WAL
+  // data not yet obsolete is missing. The DB manifest indicates which WALs are
+  // obsolete.
+  //
+  // This is intended to be a better replacement to
+  // `track_and_verify_wals_in_manifest`.
+  //
+  // Default: false
+  bool track_and_verify_wals = false;
 
   // If true, verifies the SST unique id between MANIFEST and actual file
   // each time an SST file is opened. This check ensures an SST file is not
@@ -1380,16 +1404,35 @@ struct DBOptions {
   // ReadOptions::background_purge_on_iterator_cleanup.
   bool avoid_unnecessary_blocking_io = false;
 
-  // Historically DB ID has always been stored in Identity File in DB folder.
-  // If this flag is true, the DB ID is written to Manifest file in addition
-  // to the Identity file. By doing this 2 problems are solved
-  // 1. We don't checksum the Identity file where as Manifest file is.
-  // 2. Since the source of truth for DB is Manifest file DB ID will sit with
-  //    the source of truth. Previously the Identity file could be copied
-  //    independent of Manifest and that can result in wrong DB ID.
-  // We recommend setting this flag to true.
-  // Default: false
-  bool write_dbid_to_manifest = false;
+  // The DB unique ID can be saved in the DB manifest (preferred, this option)
+  // or an IDENTITY file (historical, deprecated), or both. If this option is
+  // set to false (old behavior), then write_identity_file must be set to true.
+  // The manifest is preferred because
+  // 1. The IDENTITY file is not checksummed, so it is not as safe against
+  //    corruption.
+  // 2. The IDENTITY file may or may not be copied with the DB (e.g. not
+  //    copied by BackupEngine), so is not reliable for the provenance of a DB.
+  // This option might eventually be obsolete and removed as Identity files
+  // are phased out.
+  bool write_dbid_to_manifest = true;
+
+  // It is expected that the Identity file will be obsoleted by recording
+  // DB ID in the manifest (see write_dbid_to_manifest). Setting this to true
+  // maintains the historical behavior of writing an Identity file, while
+  // setting to false is expected to be the future default. This option might
+  // eventually be obsolete and removed as Identity files are phased out.
+  bool write_identity_file = true;
+
+  // Historically, when prefix_extractor != nullptr, iterators have an
+  // unfortunate default semantics of *possibly* only returning data
+  // within the same prefix. To avoid "spooky action at a distance," iterator
+  // bounds should come from the instantiation or seeking of the iterator,
+  // not from a mutable column family option.
+  //
+  // When set to true, it is as if every iterator is created with
+  // total_order_seek=true and only auto_prefix_mode=true and
+  // prefix_same_as_start=true can take advantage of prefix seek optimizations.
+  bool prefix_seek_opt_in_only = false;
 
   // The number of bytes to prefetch when reading the log. This is mostly useful
   // for reading a remotely located log, as it can save the number of
@@ -1840,10 +1883,10 @@ struct ReadOptions {
   bool auto_prefix_mode = false;
 
   // Enforce that the iterator only iterates over the same prefix as the seek.
-  // This option is effective only for prefix seeks, i.e. prefix_extractor is
-  // non-null for the column family and total_order_seek is false.  Unlike
-  // iterate_upper_bound, prefix_same_as_start only works within a prefix
-  // but in both directions.
+  // This makes the iterator bounds dependent on the column family's current
+  // prefix_extractor, which is mutable. When SST files have been built with
+  // the same prefix extractor, prefix filtering optimizations will be used
+  // for both Seek and SeekForPrev.
   bool prefix_same_as_start = false;
 
   // Keep the blocks loaded by the iterator pinned in memory as long as the
@@ -1878,16 +1921,44 @@ struct ReadOptions {
   std::function<bool(const TableProperties&)> table_filter;
 
   // If auto_readahead_size is set to true, it will auto tune the readahead_size
-  // during scans internally.
-  // For this feature to enabled, iterate_upper_bound must also be specified.
+  // during scans internally based on block cache data when block cache is
+  // enabled, iteration upper bound when `iterate_upper_bound != nullptr` and
+  // prefix when `prefix_same_as_start == true`
   //
-  // NOTE: - Recommended for forward Scans only.
+  // Besides enabling block cache, it
+  // also requires `iterate_upper_bound != nullptr` or  `prefix_same_as_start ==
+  // true` for this option to take effect
+  //
+  // To be specific, it does the following:
+  // (1) When `iterate_upper_bound`
+  // is specified, trim the readahead so the readahead does not exceed iteration
+  // upper bound
+  // (2) When `prefix_same_as_start` is set to true, trim the
+  // readahead so data blocks containing keys that are not in the same prefix as
+  // the seek key in `Seek()` are not prefetched
+  //  - Limition: `Seek(key)` instead of `SeekToFirst()` needs to be called in
+  //  order for this trimming to take effect
+  //
+  // NOTE: - Used for forward Scans only.
   //       - If there is a backward scans, this option will be
   //          disabled internally and won't be enabled again if the forward scan
   //          is issued again.
   //
   // Default: true
   bool auto_readahead_size = true;
+
+  // When set, the iterator may defer loading and/or preparing the value when
+  // moving to a different entry (i.e. during SeekToFirst/SeekToLast/Seek/
+  // SeekForPrev/Next/Prev operations). This can be used to save on I/O and/or
+  // CPU when the values associated with certain keys may not be used by the
+  // application. See also IteratorBase::PrepareValue().
+  //
+  // Note: this option currently only applies to 1) large values stored in blob
+  // files using BlobDB and 2) multi-column-family iterators (CoalescingIterator
+  // and AttributeGroupIterator). Otherwise, it has no effect.
+  //
+  // Default: false
+  bool allow_unprepared_value = false;
 
   // *** END options only relevant to iterators or scans ***
 
@@ -2005,6 +2076,7 @@ struct FlushOptions {
   // is performed by someone else (foreground call or background thread).
   // Default: false
   bool allow_write_stall;
+
   FlushOptions() : wait(true), allow_write_stall(false) {}
 };
 
@@ -2224,6 +2296,14 @@ struct IngestExternalFileOptions {
   // RepairDB() may not recover these files correctly, potentially leading to
   // data loss.
   bool allow_db_generated_files = false;
+
+  // Controls whether data and metadata blocks (e.g. index, filter) read during
+  // file ingestion will be added to block cache.
+  // Users may wish to set this to false when bulk loading into a CF that is not
+  // available for reads yet.
+  // When ingesting to multiple families, this option should be the same across
+  // ingestion options.
+  bool fill_cache = true;
 };
 
 enum TraceFilterType : uint64_t {
@@ -2287,9 +2367,6 @@ struct SizeApproximationOptions {
 };
 
 struct CompactionServiceOptionsOverride {
-  // Currently pointer configurations are not passed to compaction service
-  // compaction so the user needs to set it. It will be removed once pointer
-  // configuration passing is supported.
   Env* env = Env::Default();
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
 

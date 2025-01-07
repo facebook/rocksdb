@@ -30,7 +30,7 @@
 // For non linux platform, the following macros are used only as place
 // holder.
 #if !(defined OS_LINUX) && !(defined OS_FREEBSD) && !(defined CYGWIN) && \
-    !(defined OS_AIX)
+    !(defined OS_AIX) && !(defined OS_ANDROID)
 #define POSIX_FADV_NORMAL 0     /* [MC1] no further special treatment */
 #define POSIX_FADV_RANDOM 1     /* [MC1] expect random page refs */
 #define POSIX_FADV_SEQUENTIAL 2 /* [MC1] expect sequential page refs */
@@ -53,10 +53,39 @@ IOStatus IOError(const std::string& context, const std::string& file_name,
 
 class PosixHelper {
  public:
+  static const std::string& GetLogicalBlockSizeFileName() {
+    static const std::string kLogicalBlockSizeFileName = "logical_block_size";
+    return kLogicalBlockSizeFileName;
+  }
+  static const std::string& GetMaxSectorsKBFileName() {
+    static const std::string kMaxSectorsKBFileName = "max_sectors_kb";
+    return kMaxSectorsKBFileName;
+  }
   static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size);
   static size_t GetLogicalBlockSizeOfFd(int fd);
   static Status GetLogicalBlockSizeOfDirectory(const std::string& directory,
                                                size_t* size);
+
+  static Status GetMaxSectorsKBOfDirectory(const std::string& directory,
+                                           size_t* kb);
+
+ private:
+  static const size_t kDefaultMaxSectorsKB = 2 * 1024;
+
+  static size_t GetMaxSectorsKBOfFd(int fd);
+
+  // Return the value in the specified `file_name` under
+  // `/sys/block/xxx/queue/` for the device where the file of `fd` is on.
+  // If not found, then return the specified `default_return_value`
+  static size_t GetQueueSysfsFileValueOfFd(int fd, const std::string& file_name,
+                                           size_t default_return_value);
+
+  /// Return the value in the specified `file_name` under
+  // `/sys/block/xxx/queue/` for the device where `directory` is on.
+  // If not found, then return the specified `default_return_value`
+  static Status GetQueueSysfsFileValueofDirectory(const std::string& directory,
+                                                  const std::string& file_name,
+                                                  size_t* value);
 };
 
 /*

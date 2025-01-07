@@ -544,6 +544,11 @@ Status MultiOpsTxnsStressTest::TestCustomOperations(
     // Should never reach here.
     assert(false);
   }
+  if (!s.ok()) {
+    fprintf(stderr, "Transaction failed %s\n", s.ToString().c_str());
+    fflush(stderr);
+    thread->shared->SafeTerminate();
+  }
 
   return s;
 }
@@ -579,7 +584,7 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
   std::string new_pk = Record::EncodePrimaryKey(new_a);
   std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
-  Status s = NewTxn(wopts, &txn);
+  Status s = NewTxn(wopts, thread, &txn);
   if (!s.ok()) {
     assert(!txn);
     thread->stats.AddErrors(1);
@@ -611,7 +616,12 @@ Status MultiOpsTxnsStressTest::PrimaryKeyUpdateTxn(ThreadState* thread,
     }
     auto& key_gen = key_gen_for_a_[thread->tid];
     key_gen->UndoAllocation(new_a);
-    txn->Rollback().PermitUncheckedError();
+    s = txn->Rollback();
+    if (!s.ok()) {
+      fprintf(stderr, "Transaction rollback failed %s\n", s.ToString().c_str());
+      fflush(stderr);
+      assert(false);
+    }
   });
 
   ReadOptions ropts;
@@ -699,7 +709,7 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
                                                      uint32_t new_c) {
   std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
-  Status s = NewTxn(wopts, &txn);
+  Status s = NewTxn(wopts, thread, &txn);
   if (!s.ok()) {
     assert(!txn);
     thread->stats.AddErrors(1);
@@ -735,7 +745,12 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
     }
     auto& key_gen = key_gen_for_c_[thread->tid];
     key_gen->UndoAllocation(new_c);
-    txn->Rollback().PermitUncheckedError();
+    s = txn->Rollback();
+    if (!s.ok()) {
+      fprintf(stderr, "Transaction rollback failed %s\n", s.ToString().c_str());
+      fflush(stderr);
+      assert(false);
+    }
   });
 
   // TODO (yanqin) try SetSnapshotOnNextOperation(). We currently need to take
@@ -901,7 +916,7 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
   std::string pk_str = Record::EncodePrimaryKey(a);
   std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
-  Status s = NewTxn(wopts, &txn);
+  Status s = NewTxn(wopts, thread, &txn);
   if (!s.ok()) {
     assert(!txn);
     thread->stats.AddErrors(1);
@@ -927,7 +942,12 @@ Status MultiOpsTxnsStressTest::UpdatePrimaryIndexValueTxn(ThreadState* thread,
     } else {
       thread->stats.AddErrors(1);
     }
-    txn->Rollback().PermitUncheckedError();
+    s = txn->Rollback();
+    if (!s.ok()) {
+      fprintf(stderr, "Transaction rollback failed %s\n", s.ToString().c_str());
+      fflush(stderr);
+      assert(false);
+    }
   });
   ReadOptions ropts;
   ropts.rate_limiter_priority =
@@ -982,7 +1002,7 @@ Status MultiOpsTxnsStressTest::PointLookupTxn(ThreadState* thread,
 
   std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
-  Status s = NewTxn(wopts, &txn);
+  Status s = NewTxn(wopts, thread, &txn);
   if (!s.ok()) {
     assert(!txn);
     thread->stats.AddErrors(1);
@@ -1026,7 +1046,7 @@ Status MultiOpsTxnsStressTest::RangeScanTxn(ThreadState* thread,
 
   std::unique_ptr<Transaction> txn;
   WriteOptions wopts;
-  Status s = NewTxn(wopts, &txn);
+  Status s = NewTxn(wopts, thread, &txn);
   if (!s.ok()) {
     assert(!txn);
     thread->stats.AddErrors(1);
@@ -1384,6 +1404,12 @@ Status MultiOpsTxnsStressTest::CommitAndCreateTimestampedSnapshotIfNeeded(
   } else {
     s = txn.Commit();
   }
+  if (!s.ok()) {
+    fprintf(stderr, "Txn %s commit failed with %s\n", txn.GetName().c_str(),
+            s.ToString().c_str());
+    fflush(stderr);
+  }
+
   assert(txn_db_);
   if (FLAGS_create_timestamped_snapshot_one_in > 0 &&
       thread->rand.OneInOpt(50000)) {

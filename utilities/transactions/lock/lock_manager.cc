@@ -3,7 +3,6 @@
 // COPYING file in the root directory) and Apache 2.0 License
 // (found in the LICENSE.Apache file in the root directory).
 
-
 #include "utilities/transactions/lock/lock_manager.h"
 
 #include "utilities/transactions/lock/point/point_lock_manager.h"
@@ -24,4 +23,3 @@ std::shared_ptr<LockManager> NewLockManager(PessimisticTransactionDB* db,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

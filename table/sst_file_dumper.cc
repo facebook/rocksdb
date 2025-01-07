@@ -311,7 +311,7 @@ Status SstFileDumper::ShowCompressionSize(
       imoptions, moptions, read_options, write_options, ikc,
       &block_based_table_factories, compress_type, compress_opt,
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
-      column_family_name, unknown_level);
+      column_family_name, unknown_level, kUnknownNewestKeyTime);
   uint64_t num_data_blocks = 0;
   std::chrono::steady_clock::time_point start =
       std::chrono::steady_clock::now();

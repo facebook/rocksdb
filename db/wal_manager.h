@@ -29,7 +29,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-
 // WAL manager provides the abstraction for reading the WAL files as a single
 // unit. Internally, it opens and reads the files using Reader or Writer
 // abstraction.

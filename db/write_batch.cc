@@ -502,7 +502,9 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
       break;
     }
     default:
-      return Status::Corruption("unknown WriteBatch tag");
+      return Status::Corruption(
+          "unknown WriteBatch tag",
+          std::to_string(static_cast<unsigned int>(*tag)));
   }
   return Status::OK();
 }
@@ -750,7 +752,9 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         }
         break;
       default:
-        return Status::Corruption("unknown WriteBatch tag");
+        return Status::Corruption(
+            "unknown WriteBatch tag",
+            std::to_string(static_cast<unsigned int>(tag)));
     }
   }
   if (!s.ok()) {
@@ -1156,6 +1160,34 @@ Status WriteBatchInternal::InsertNoop(WriteBatch* b) {
   return Status::OK();
 }
 
+ValueType WriteBatchInternal::GetBeginPrepareType(bool write_after_commit,
+                                                  bool unprepared_batch) {
+  return write_after_commit
+             ? kTypeBeginPrepareXID
+             : (unprepared_batch ? kTypeBeginUnprepareXID
+                                 : kTypeBeginPersistedPrepareXID);
+}
+
+Status WriteBatchInternal::InsertBeginPrepare(WriteBatch* b,
+                                              bool write_after_commit,
+                                              bool unprepared_batch) {
+  b->rep_.push_back(static_cast<char>(
+      GetBeginPrepareType(write_after_commit, unprepared_batch)));
+  b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                              ContentFlags::HAS_BEGIN_PREPARE,
+                          std::memory_order_relaxed);
+  return Status::OK();
+}
+
+Status WriteBatchInternal::InsertEndPrepare(WriteBatch* b, const Slice& xid) {
+  b->rep_.push_back(static_cast<char>(kTypeEndPrepareXID));
+  PutLengthPrefixedSlice(&b->rep_, xid);
+  b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                              ContentFlags::HAS_END_PREPARE,
+                          std::memory_order_relaxed);
+  return Status::OK();
+}
+
 Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
                                           bool write_after_commit,
                                           bool unprepared_batch) {
@@ -1171,13 +1203,8 @@ Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
 
   // rewrite noop as begin marker
   b->rep_[12] = static_cast<char>(
-      write_after_commit ? kTypeBeginPrepareXID
-                         : (unprepared_batch ? kTypeBeginUnprepareXID
-                                             : kTypeBeginPersistedPrepareXID));
-  b->rep_.push_back(static_cast<char>(kTypeEndPrepareXID));
-  PutLengthPrefixedSlice(&b->rep_, xid);
+      GetBeginPrepareType(write_after_commit, unprepared_batch));
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
-                              ContentFlags::HAS_END_PREPARE |
                               ContentFlags::HAS_BEGIN_PREPARE,
                           std::memory_order_relaxed);
   if (unprepared_batch) {
@@ -1185,7 +1212,7 @@ Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
                                 ContentFlags::HAS_BEGIN_UNPREPARE,
                             std::memory_order_relaxed);
   }
-  return Status::OK();
+  return WriteBatchInternal::InsertEndPrepare(b, xid);
 }
 
 Status WriteBatchInternal::MarkCommit(WriteBatch* b, const Slice& xid) {
@@ -2620,9 +2647,8 @@ class MemTableInserter : public WriteBatch::Handler {
         // TODO(ajkr): refactor `SeekToColumnFamily()` so it returns a `Status`.
         ret_status.PermitUncheckedError();
         return Status::NotSupported(
-            std::string("DeleteRange not supported for table type ") +
-            cfd->ioptions()->table_factory->Name() + " in CF " +
-            cfd->GetName());
+            std::string("CF " + cfd->GetName() +
+                        " reports it does not support DeleteRange"));
       }
       int cmp =
           cfd->user_comparator()->CompareWithoutTimestamp(begin_key, end_key);

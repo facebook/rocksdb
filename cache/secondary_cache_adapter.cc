@@ -271,7 +271,8 @@ Status CacheWithSecondaryAdapter::Insert(const Slice& key, ObjectPtr value,
   // Warm up the secondary cache with the compressed block. The secondary
   // cache may choose to ignore it based on the admission policy.
   if (value != nullptr && !compressed_value.empty() &&
-      adm_policy_ == TieredAdmissionPolicy::kAdmPolicyThreeQueue) {
+      adm_policy_ == TieredAdmissionPolicy::kAdmPolicyThreeQueue &&
+      helper->IsSecondaryCacheCompatible()) {
     Status status = secondary_cache_->InsertSaved(key, compressed_value, type);
     assert(status.ok() || status.IsNotSupported());
   }

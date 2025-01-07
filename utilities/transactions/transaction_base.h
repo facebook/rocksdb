@@ -146,6 +146,14 @@ class TransactionBaseImpl : public Transaction {
   Iterator* GetIterator(const ReadOptions& read_options,
                         ColumnFamilyHandle* column_family) override;
 
+  std::unique_ptr<Iterator> GetCoalescingIterator(
+      const ReadOptions& read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
+
+  std::unique_ptr<AttributeGroupIterator> GetAttributeGroupIterator(
+      const ReadOptions& read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
+
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value, const bool assume_tracked = false) override;
   Status Put(const Slice& key, const Slice& value) override {
@@ -240,8 +248,7 @@ class TransactionBaseImpl : public Transaction {
 
   WriteBatchWithIndex* GetWriteBatch() override;
 
-  void SetLockTimeout(int64_t /*timeout*/) override { /* Do nothing */
-  }
+  void SetLockTimeout(int64_t /*timeout*/) override { /* Do nothing */ }
 
   const Snapshot* GetSnapshot() const override {
     // will return nullptr when there is no snapshot
@@ -304,6 +311,18 @@ class TransactionBaseImpl : public Transaction {
   LockTracker& GetTrackedLocks() { return *tracked_locks_; }
 
  protected:
+  ColumnFamilyHandle* DefaultColumnFamily() const {
+    assert(db_);
+    return db_->DefaultColumnFamily();
+  }
+
+  template <typename IterType, typename ImplType,
+            typename ErrorIteratorFuncType>
+  std::unique_ptr<IterType> NewMultiCfIterator(
+      const ReadOptions& read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      ErrorIteratorFuncType error_iterator_func);
+
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, std::string* value) override;
 

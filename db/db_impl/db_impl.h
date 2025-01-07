@@ -48,6 +48,7 @@
 #include "db/write_controller.h"
 #include "db/write_thread.h"
 #include "logging/event_logger.h"
+#include "memtable/wbwi_memtable.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -60,6 +61,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/user_write_callback.h"
 #include "rocksdb/utilities/replayer.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
@@ -158,6 +160,17 @@ class Directories {
   std::unique_ptr<FSDirectory> db_dir_;
   std::vector<std::unique_ptr<FSDirectory>> data_dirs_;
   std::unique_ptr<FSDirectory> wal_dir_;
+};
+
+struct DBOpenLogReporter : public log::Reader::Reporter {
+  Env* env;
+  Logger* info_log;
+  const char* fname;
+  Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
+  bool* old_log_record;
+  void Corruption(size_t bytes, const Status& s) override;
+
+  void OldLogRecord(size_t bytes) override;
 };
 
 // While DB is the public interface of RocksDB, and DBImpl is the actual
@@ -363,12 +376,10 @@ class DBImpl : public DB {
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
 
-  // EXPERIMENTAL
   std::unique_ptr<Iterator> NewCoalescingIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
 
-  // EXPERIMENTAL
   std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) override;
@@ -482,7 +493,8 @@ class DBImpl : public DB {
 
   Status GetDbIdentity(std::string& identity) const override;
 
-  virtual Status GetDbIdentityFromIdentityFile(std::string* identity) const;
+  virtual Status GetDbIdentityFromIdentityFile(const IOOptions& opts,
+                                               std::string* identity) const;
 
   Status GetDbSessionId(std::string& session_id) const override;
 
@@ -853,6 +865,8 @@ class DBImpl : public DB {
 
   uint64_t GetObsoleteSstFilesSize();
 
+  uint64_t MinOptionsFileNumberToKeep();
+
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
   // If force == false and the last call was less than
@@ -1151,6 +1165,8 @@ class DBImpl : public DB {
   // Get the background error status
   Status TEST_GetBGError();
 
+  bool TEST_IsRecoveryInProgress();
+
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
   uint64_t TEST_MaxNextLevelOverlappingBytes(
@@ -1195,9 +1211,7 @@ class DBImpl : public DB {
 
   uint64_t TEST_total_log_size() const { return total_log_size_; }
 
-  // Returns column family name to ImmutableCFOptions map.
-  Status TEST_GetAllImmutableCFOptions(
-      std::unordered_map<std::string, const ImmutableCFOptions*>* iopts_map);
+  void TEST_GetAllBlockCaches(std::unordered_set<const Cache*>* cache_set);
 
   // Return the lastest MutableCFOptions of a column family
   Status TEST_GetLatestMutableCFOptions(ColumnFamilyHandle* column_family,
@@ -1237,8 +1251,13 @@ class DBImpl : public DB {
   static Status TEST_ValidateOptions(const DBOptions& db_options) {
     return ValidateOptions(db_options);
   }
-
 #endif  // NDEBUG
+
+  // In certain configurations, verify that the table/blob file cache only
+  // contains entries for live files, to check for effective leaks of open
+  // files. This can only be called when purging of obsolete files has
+  // "settled," such as during parts of DB Close().
+  void TEST_VerifyNoObsoleteFilesCached(bool db_mutex_already_held) const;
 
   // persist stats to column family "_persistent_stats"
   void PersistStats();
@@ -1461,7 +1480,8 @@ class DBImpl : public DB {
   // The following two functions can only be called when:
   // 1. WriteThread::Writer::EnterUnbatched() is used.
   // 2. db_mutex is NOT held
-  Status RenameTempFileToOptionsFile(const std::string& file_name);
+  Status RenameTempFileToOptionsFile(const std::string& file_name,
+                                     bool is_remote_compaction_enabled);
   Status DeleteObsoleteOptionsFiles();
 
   void NotifyOnManualFlushScheduled(autovector<ColumnFamilyData*> cfds,
@@ -1500,6 +1520,23 @@ class DBImpl : public DB {
 
   void EraseThreadStatusDbInfo() const;
 
+  // For CFs that has updates in `wbwi`, their memtable will be switched,
+  // and `wbwi` will be added as the latest immutable memtable.
+  //
+  // REQUIRES: this thread is currently at the front of the main writer queue.
+  // @param prep_log refers to the WAL that contains prepare record
+  // for the transaction based on wbwi.
+  // @param assigned_seqno Sequence numbers for the ingested memtable.
+  // @param last_seqno the value of versions_->LastSequence() after the write
+  // ingests `wbwi` is done.
+  // @param memtable_updated Whether the same write that ingests wbwi has
+  // updated memtable. This is useful for determining whether to set bg
+  // error when IngestWBWI fails.
+  Status IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
+                    const WBWIMemTable::SeqnoRange& assigned_seqno,
+                    uint64_t min_prep_log, SequenceNumber last_seqno,
+                    bool memtable_updated, bool ignore_missing_cf);
+
   // If disable_memtable is set the application logic must guarantee that the
   // batch will still be skipped from memtable during the recovery. An excption
   // to this is seq_per_batch_ mode, in which since each batch already takes one
@@ -1515,6 +1552,16 @@ class DBImpl : public DB {
   // batch_cnt is expected to be non-zero in seq_per_batch mode and
   // indicates the number of sub-patches. A sub-patch is a subset of the write
   // batch that does not have duplicate keys.
+  // `callback` is called before WAL write.
+  // See more in comment above WriteCallback::Callback().
+  // pre_release_callback is called after WAL write and before memtable write.
+  // See more in comment above PreReleaseCallback::Callback().
+  // post_memtable_callback is called after memtable write but before publishing
+  // the sequence number to readers.
+  //
+  // The main write queue. This is the only write queue that updates
+  // LastSequence. When using one write queue, the same sequence also indicates
+  // the last published sequence.
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
                    UserWriteCallback* user_write_cb = nullptr,
@@ -1522,7 +1569,9 @@ class DBImpl : public DB {
                    bool disable_memtable = false, uint64_t* seq_used = nullptr,
                    size_t batch_cnt = 0,
                    PreReleaseCallback* pre_release_callback = nullptr,
-                   PostMemTableCallback* post_memtable_callback = nullptr);
+                   PostMemTableCallback* post_memtable_callback = nullptr,
+                   std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr,
+                   uint64_t min_prep_log = 0);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
@@ -1582,11 +1631,12 @@ class DBImpl : public DB {
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
-  // Setup DB identity file, and write DB ID to manifest if necessary.
+  // Read/create DB identity file (as appropriate), and write DB ID to
+  // version_edit if provided.
   Status SetupDBId(const WriteOptions& write_options, bool read_only,
-                   RecoveryContext* recovery_ctx);
-  // Assign db_id_ and write DB ID to manifest if necessary.
-  void SetDBId(std::string&& id, bool read_only, RecoveryContext* recovery_ctx);
+                   bool is_new_db, bool is_retry, VersionEdit* version_edit);
+  // Assign db_id_ and write DB ID to version_edit if provided.
+  void SetDBId(std::string&& id, bool read_only, VersionEdit* version_edit);
 
   // Collect a deduplicated collection of paths used by this DB, including
   // dbname_, DBOptions.db_paths, ColumnFamilyOptions.cf_paths.
@@ -1616,8 +1666,14 @@ class DBImpl : public DB {
   // vast majority of all files), since it already has the file size
   // on record, we don't need to query the file system. Otherwise, we query the
   // file system for the size of an unreferenced file.
+  // REQUIRES: mutex unlocked
   void TrackExistingDataFiles(
       const std::vector<std::string>& existing_data_files);
+
+  // Untrack data files in sst manager. This is only called during DB::Close on
+  // an unowned SstFileManager, to return it to a consistent state.
+  // REQUIRES: mutex unlocked
+  void UntrackDataFiles();
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened
@@ -1685,6 +1741,8 @@ class DBImpl : public DB {
   friend class XFTransactionWriteHandler;
   friend class DBBlobIndexTest;
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
+  friend class CompactionServiceTest_PreservedOptionsLocalCompaction_Test;
+  friend class CompactionServiceTest_PreservedOptionsRemoteCompaction_Test;
 #endif
 
   struct CompactionState;
@@ -1693,7 +1751,7 @@ class DBImpl : public DB {
 
   struct WriteContext {
     SuperVersionContext superversion_context;
-    autovector<MemTable*> memtables_to_free_;
+    autovector<ReadOnlyMemTable*> memtables_to_free_;
 
     explicit WriteContext(bool create_superversion = false)
         : superversion_context(create_superversion) {}
@@ -1863,8 +1921,8 @@ class DBImpl : public DB {
     const InternalKey* begin = nullptr;  // nullptr means beginning of key range
     const InternalKey* end = nullptr;    // nullptr means end of key range
     InternalKey* manual_end = nullptr;   // how far we are compacting
-    InternalKey tmp_storage;      // Used to keep track of compaction progress
-    InternalKey tmp_storage1;     // Used to keep track of compaction progress
+    InternalKey tmp_storage;   // Used to keep track of compaction progress
+    InternalKey tmp_storage1;  // Used to keep track of compaction progress
 
     // When the user provides a canceled pointer in CompactRangeOptions, the
     // above varaibe is the reference of the user-provided
@@ -1956,6 +2014,13 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
+  // Similar to pending_outputs, preserve OPTIONS file. Used for remote
+  // compaction.
+  std::list<uint64_t>::iterator CaptureOptionsFileNumber();
+  void ReleaseOptionsFileNumber(
+      std::unique_ptr<std::list<uint64_t>::iterator>& v);
+
+  // Sets bg error if there is an error writing to WAL.
   IOStatus SyncClosedWals(const WriteOptions& write_options,
                           JobContext* job_context, VersionEdit* synced_wals,
                           bool error_recovery_in_prog);
@@ -1989,6 +2054,90 @@ class DBImpl : public DB {
                          bool is_retry, bool* corrupted_log_found,
                          RecoveryContext* recovery_ctx);
 
+  void SetupLogFilesRecovery(
+      const std::vector<uint64_t>& wal_numbers,
+      std::unordered_map<int, VersionEdit>* version_edits, int* job_id,
+      uint64_t* min_wal_number);
+
+  Status ProcessLogFiles(const std::vector<uint64_t>& wal_numbers,
+                         bool read_only, bool is_retry, uint64_t min_wal_number,
+                         int job_id, SequenceNumber* next_sequence,
+                         std::unordered_map<int, VersionEdit>* version_edits,
+                         bool* corrupted_wal_found,
+                         RecoveryContext* recovery_ctx);
+
+  Status ProcessLogFile(
+      uint64_t wal_number, uint64_t min_wal_number, bool is_retry,
+      bool read_only, int job_id, SequenceNumber* next_sequence,
+      bool* stop_replay_for_corruption, bool* stop_replay_by_wal_filter,
+      uint64_t* corrupted_wal_number, bool* corrupted_wal_found,
+      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed,
+      PredecessorWALInfo& predecessor_wal_info);
+
+  void SetupLogFileProcessing(uint64_t wal_number);
+
+  Status InitializeLogReader(
+      uint64_t wal_number, bool is_retry, std::string& fname,
+
+      bool stop_replay_for_corruption, uint64_t min_wal_number,
+      const PredecessorWALInfo& predecessor_wal_info,
+      bool* const old_log_record, Status* const reporter_status,
+      DBOpenLogReporter* reporter, std::unique_ptr<log::Reader>& reader);
+  Status ProcessLogRecord(
+      Slice record, const std::unique_ptr<log::Reader>& reader,
+      const UnorderedMap<uint32_t, size_t>& running_ts_sz, uint64_t wal_number,
+      const std::string& fname, bool read_only, int job_id,
+      std::function<void()> logFileDropped, DBOpenLogReporter* reporter,
+      uint64_t* record_checksum, SequenceNumber* last_seqno_observed,
+      SequenceNumber* next_sequence, bool* stop_replay_for_corruption,
+      Status* status, bool* stop_replay_by_wal_filter,
+      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed);
+
+  Status InitializeWriteBatchForLogRecord(
+      Slice record, const std::unique_ptr<log::Reader>& reader,
+      const UnorderedMap<uint32_t, size_t>& running_ts_sz, WriteBatch* batch,
+      std::unique_ptr<WriteBatch>& new_batch, WriteBatch*& batch_to_use,
+      uint64_t* record_checksum);
+
+  void MaybeReviseStopReplayForCorruption(
+      SequenceNumber sequence, SequenceNumber const* const next_sequence,
+      bool* stop_replay_for_corruption);
+
+  Status InsertLogRecordToMemtable(WriteBatch* batch_to_use,
+                                   uint64_t wal_number,
+                                   SequenceNumber* next_sequence,
+                                   bool* has_valid_writes);
+
+  Status MaybeWriteLevel0TableForRecovery(
+      bool has_valid_writes, bool read_only, uint64_t wal_number, int job_id,
+      SequenceNumber const* const next_sequence,
+      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed);
+
+  Status HandleNonOkStatusOrOldLogRecord(
+      uint64_t wal_number, SequenceNumber const* const next_sequence,
+      Status log_read_status, bool* old_log_record,
+      bool* stop_replay_for_corruption, uint64_t* corrupted_wal_number,
+      bool* corrupted_wal_found);
+
+  Status UpdatePredecessorWALInfo(uint64_t wal_number,
+                                  const SequenceNumber last_seqno_observed,
+                                  const std::string& fname,
+                                  PredecessorWALInfo& predecessor_wal_info);
+
+  void FinishLogFileProcessing(const Status& status,
+                               const SequenceNumber* next_sequence);
+
+  // Return `Status::Corruption()` when `stop_replay_for_corruption == true` and
+  // exits inconsistency between SST and WAL data
+  Status MaybeHandleStopReplayForCorruptionForInconsistency(
+      bool stop_replay_for_corruption, uint64_t corrupted_wal_number);
+
+  Status MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
+      const std::vector<uint64_t>& wal_numbers, bool read_only, int job_id,
+      bool flushed, std::unordered_map<int, VersionEdit>* version_edits,
+      RecoveryContext* recovery_ctx);
+
+  void FinishLogFilesRecovery(int job_id, const Status& status);
   // The following two methods are used to flush a memtable to
   // storage. The first one is used at database RecoveryTime (when the
   // database is opened) and is heavyweight because it holds the mutex
@@ -2028,7 +2177,21 @@ class DBImpl : public DB {
 
   Status TrimMemtableHistory(WriteContext* context);
 
-  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
+  // Switches the current live memtable to immutable/read-only memtable.
+  // A new WAL is created if the current WAL is not empty.
+  // If `new_imm` is not nullptr, it will be added as the newest immutable
+  // memtable, if and only if OK status is returned.
+  // `last_seqno` needs to be provided if `new_imm` is not nullptr. It is
+  // the value of versions_->LastSequence() after the write that ingests new_imm
+  // is done.
+  //
+  // REQUIRES: mutex_ is held
+  // REQUIRES: this thread is currently at the front of the writer queue
+  // REQUIRES: this thread is currently at the front of the 2nd writer queue if
+  // two_write_queues_ is true (This is to simplify the reasoning.)
+  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
+                        ReadOnlyMemTable* new_imm = nullptr,
+                        SequenceNumber last_seqno = 0);
 
   // Select and output column families qualified for atomic flush in
   // `selected_cfds`. If `provided_candidate_cfds` is non-empty, it will be used
@@ -2066,17 +2229,18 @@ class DBImpl : public DB {
   // memtable pending flush.
   // resuming_from_bg_err indicates whether the caller is attempting to resume
   // from background error.
-  Status WaitForFlushMemTable(ColumnFamilyData* cfd,
-                              const uint64_t* flush_memtable_id = nullptr,
-                              bool resuming_from_bg_err = false) {
+  Status WaitForFlushMemTable(
+      ColumnFamilyData* cfd, const uint64_t* flush_memtable_id = nullptr,
+      bool resuming_from_bg_err = false,
+      std::optional<FlushReason> flush_reason = std::nullopt) {
     return WaitForFlushMemTables({cfd}, {flush_memtable_id},
-                                 resuming_from_bg_err);
+                                 resuming_from_bg_err, flush_reason);
   }
   // Wait for memtables to be flushed for multiple column families.
   Status WaitForFlushMemTables(
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const uint64_t*>& flush_memtable_ids,
-      bool resuming_from_bg_err);
+      bool resuming_from_bg_err, std::optional<FlushReason> flush_reason);
 
   inline void WaitForPendingWrites() {
     mutex_.AssertHeld();
@@ -2153,7 +2317,8 @@ class DBImpl : public DB {
                       const WriteOptions& write_options,
                       log::Writer* log_writer, uint64_t* log_used,
                       uint64_t* log_size,
-                      LogFileNumberSize& log_file_number_size);
+                      LogFileNumberSize& log_file_number_size,
+                      SequenceNumber sequence);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,
@@ -2174,7 +2339,7 @@ class DBImpl : public DB {
 
   // Used by WriteImpl to update bg_error_ when IO error happens, e.g., write
   // WAL, sync WAL fails, if paranoid check is enabled.
-  void IOStatusCheck(const IOStatus& status);
+  void WALIOStatusCheck(const IOStatus& status);
 
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);
@@ -2187,7 +2352,9 @@ class DBImpl : public DB {
                           JobContext* job_context, LogBuffer* log_buffer,
                           CompactionJobInfo* compaction_job_info);
 
-  ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
+  // REQUIRES: mutex unlocked
+  void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,
+                           bool track);
 
   void MaybeScheduleFlushOrCompaction();
 
@@ -2396,6 +2563,7 @@ class DBImpl : public DB {
 
   IOStatus CreateWAL(const WriteOptions& write_options, uint64_t log_file_num,
                      uint64_t recycle_log_number, size_t preallocate_block_size,
+                     const PredecessorWALInfo& predecessor_wal_info,
                      log::Writer** new_log);
 
   // Validate self-consistency of DB options
@@ -2741,6 +2909,11 @@ class DBImpl : public DB {
   // State is protected with db mutex.
   std::list<uint64_t> pending_outputs_;
 
+  // Similar to pending_outputs_, FindObsoleteFiles()/PurgeObsoleteFiles() never
+  // deletes any OPTIONS file that has number bigger than any of the file number
+  // in min_options_file_numbers_.
+  std::list<uint64_t> min_options_file_numbers_;
+
   // flush_queue_ and compaction_queue_ hold column families that we need to
   // flush and compact, respectively.
   // A column family is inserted into flush_queue_ when it satisfies condition
@@ -2863,6 +3036,11 @@ class DBImpl : public DB {
   // garbages, among all column families.
   SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
 
+  // The min threshold to trigger compactions for standalone range deletion
+  // files that are marked for compaction.
+  SequenceNumber standalone_range_deletion_files_mark_threshold_ =
+      kMaxSequenceNumber;
+
   LogsWithPrepTracker logs_with_prep_tracker_;
 
   // Callback for compaction to check if a key is visible to a snapshot.
@@ -2969,7 +3147,8 @@ CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions,
 VersionEdit GetDBRecoveryEditForObsoletingMemTables(
     VersionSet* vset, const ColumnFamilyData& cfd,
     const autovector<VersionEdit*>& edit_list,
-    const autovector<MemTable*>& memtables, LogsWithPrepTracker* prep_tracker);
+    const autovector<ReadOnlyMemTable*>& memtables,
+    LogsWithPrepTracker* prep_tracker);
 
 // Return the earliest log file to keep after the memtable flush is
 // finalized.
@@ -2980,13 +3159,13 @@ VersionEdit GetDBRecoveryEditForObsoletingMemTables(
 uint64_t PrecomputeMinLogNumberToKeep2PC(
     VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
     const autovector<VersionEdit*>& edit_list,
-    const autovector<MemTable*>& memtables_to_flush,
+    const autovector<ReadOnlyMemTable*>& memtables_to_flush,
     LogsWithPrepTracker* prep_tracker);
 // For atomic flush.
 uint64_t PrecomputeMinLogNumberToKeep2PC(
     VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
     const autovector<autovector<VersionEdit*>>& edit_lists,
-    const autovector<const autovector<MemTable*>*>& memtables_to_flush,
+    const autovector<const autovector<ReadOnlyMemTable*>*>& memtables_to_flush,
     LogsWithPrepTracker* prep_tracker);
 
 // In non-2PC mode, WALs with log number < the returned number can be
@@ -3003,11 +3182,11 @@ uint64_t PrecomputeMinLogNumberToKeepNon2PC(
 // will not depend on any WAL file. nullptr means no memtable is being flushed.
 // The function is only applicable to 2pc mode.
 uint64_t FindMinPrepLogReferencedByMemTable(
-    VersionSet* vset, const autovector<MemTable*>& memtables_to_flush);
+    VersionSet* vset, const autovector<ReadOnlyMemTable*>& memtables_to_flush);
 // For atomic flush.
 uint64_t FindMinPrepLogReferencedByMemTable(
     VersionSet* vset,
-    const autovector<const autovector<MemTable*>*>& memtables_to_flush);
+    const autovector<const autovector<ReadOnlyMemTable*>*>& memtables_to_flush);
 
 // Fix user-supplied options to be reasonable
 template <class T, class V>

@@ -148,6 +148,8 @@ class WriteThread {
     Writer* link_older;  // read/write only before linking, or as leader
     Writer* link_newer;  // lazy, read/write only before linking, or as leader
 
+    bool ingest_wbwi;
+
     Writer()
         : batch(nullptr),
           sync(false),
@@ -174,7 +176,8 @@ class WriteThread {
            WriteCallback* _callback, UserWriteCallback* _user_write_cb,
            uint64_t _log_ref, bool _disable_memtable, size_t _batch_cnt = 0,
            PreReleaseCallback* _pre_release_callback = nullptr,
-           PostMemTableCallback* _post_memtable_callback = nullptr)
+           PostMemTableCallback* _post_memtable_callback = nullptr,
+           bool _ingest_wbwi = false)
         : batch(_batch),
           // TODO: store a copy of WriteOptions instead of its seperated data
           // members
@@ -196,7 +199,8 @@ class WriteThread {
           write_group(nullptr),
           sequence(kMaxSequenceNumber),
           link_older(nullptr),
-          link_newer(nullptr) {}
+          link_newer(nullptr),
+          ingest_wbwi(_ingest_wbwi) {}
 
     ~Writer() {
       if (made_waitable) {

@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <functional>
 #include <limits>
 #include <string>

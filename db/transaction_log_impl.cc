@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "db/transaction_log_impl.h"
 
 #include <cinttypes>
@@ -231,13 +230,13 @@ bool TransactionLogIteratorImpl::IsBatchExpected(
   assert(batch);
   SequenceNumber batchSeq = WriteBatchInternal::Sequence(batch);
   if (batchSeq != expected_seq) {
-    char buf[200];
-    snprintf(buf, sizeof(buf),
-             "Discontinuity in log records. Got seq=%" PRIu64
-             ", Expected seq=%" PRIu64 ", Last flushed seq=%" PRIu64
-             ".Log iterator will reseek the correct batch.",
-             batchSeq, expected_seq, versions_->LastSequence());
-    reporter_.Info(buf);
+    std::ostringstream oss;
+    oss << "Discontinuity in log records. " << "Got seq=" << batchSeq << ", "
+        << "Expected seq=" << expected_seq << ", "
+        << "Last flushed seq=" << versions_->LastSequence() << ". "
+        << "Log iterator will reseek the correct batch.";
+
+    reporter_.Info(oss.str().c_str());
     return false;
   }
   return true;

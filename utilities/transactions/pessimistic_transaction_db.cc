@@ -20,6 +20,7 @@
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
+#include "utilities/secondary_index/secondary_index_mixin.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
@@ -183,7 +184,12 @@ Transaction* WriteCommittedTxnDB::BeginTransaction(
     ReinitializeTransaction(old_txn, write_options, txn_options);
     return old_txn;
   } else {
-    return new WriteCommittedTxn(this, write_options, txn_options);
+    if (!txn_db_options_.secondary_indices.empty()) {
+      return new SecondaryIndexMixin<WriteCommittedTxn>(
+          &txn_db_options_.secondary_indices, this, write_options, txn_options);
+    } else {
+      return new WriteCommittedTxn(this, write_options, txn_options);
+    }
   }
 }
 

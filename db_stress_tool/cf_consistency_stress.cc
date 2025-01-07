@@ -802,6 +802,13 @@ class CfConsistencyStressTest : public StressTest {
          iter->Next()) {
       ++count;
 
+      if (ro_copy.allow_unprepared_value) {
+        if (!iter->PrepareValue()) {
+          s = iter->status();
+          break;
+        }
+      }
+
       if (!VerifyWideColumns(iter->value(), iter->columns())) {
         s = Status::Corruption("Value and columns inconsistent",
                                DebugString(iter->value(), iter->columns()));

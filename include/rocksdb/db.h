@@ -29,6 +29,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/user_write_callback.h"
+#include "rocksdb/utilities/table_properties_collectors.h"
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
@@ -1007,7 +1008,6 @@ class DB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) = 0;
 
-  // EXPERIMENTAL
   // Return a cross-column-family iterator from a consistent database state.
   //
   // If a key exists in more than one column family, value() will be determined
@@ -1025,7 +1025,6 @@ class DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) = 0;
 
-  // EXPERIMENTAL
   // A cross-column-family iterator that collects and returns attribute groups
   // for each key in order provided by comparator
   virtual std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
@@ -2013,6 +2012,15 @@ class DB {
   virtual Status GetPropertiesOfTablesInRange(
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) = 0;
+
+  // Get the table properties of files per level.
+  virtual Status GetPropertiesOfTablesForLevels(
+      ColumnFamilyHandle* /* column_family */,
+      std::vector<
+          std::unique_ptr<TablePropertiesCollection>>* /* levels_props */) {
+    return Status::NotSupported(
+        "GetPropertiesOfTablesForLevels() is not implemented.");
+  }
 
   virtual Status SuggestCompactRange(ColumnFamilyHandle* /*column_family*/,
                                      const Slice* /*begin*/,

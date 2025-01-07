@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+
+#include "db/snapshot_checker.h"
 #include "db/version_set.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
@@ -90,6 +92,8 @@ class Compaction {
              CompressionOptions compression_opts,
              Temperature output_temperature, uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
+             std::optional<SequenceNumber> earliest_snapshot,
+             const SnapshotChecker* snapshot_checker,
              bool manual_compaction = false, const std::string& trim_ts = "",
              double score = -1, bool deletion_compaction = false,
              bool l0_files_might_overlap = true,
@@ -178,6 +182,16 @@ class Compaction {
   // Returns the LevelFilesBrief of the specified compaction input level.
   const LevelFilesBrief* input_levels(size_t compaction_input_level) const {
     return &input_levels_[compaction_input_level];
+  }
+
+  // Returns the filtered input files of the specified compaction input level.
+  // For now, only non start level is filtered.
+  const std::vector<FileMetaData*>& filtered_input_levels(
+      size_t compaction_input_level) const {
+    const std::vector<FileMetaData*>& filtered_input_level =
+        filtered_input_levels_[compaction_input_level];
+    assert(compaction_input_level != 0 || filtered_input_level.size() == 0);
+    return filtered_input_level;
   }
 
   // Maximum size of files to build during this compaction.
@@ -374,12 +388,12 @@ class Compaction {
   bool OverlapPenultimateLevelOutputRange(const Slice& smallest_key,
                                           const Slice& largest_key) const;
 
-  // Return true if the key is within penultimate level output range for
-  // per_key_placement feature, which is safe to place the key to the
-  // penultimate level. different compaction strategy has different rules.
-  // If per_key_placement is not supported, always return false.
-  //  key includes timestamp if user-defined timestamp is enabled.
-  bool WithinPenultimateLevelOutputRange(const ParsedInternalKey& ikey) const;
+  // For testing purposes, check that a key is within penultimate level
+  // output range for per_key_placement feature, which is safe to place the key
+  // to the penultimate level. Different compaction strategies have different
+  // rules. `user_key` includes timestamp if user-defined timestamp is enabled.
+  void TEST_AssertWithinPenultimateLevelOutputRange(
+      const Slice& user_key, bool expect_failure = false) const;
 
   CompactionReason compaction_reason() const { return compaction_reason_; }
 
@@ -400,6 +414,12 @@ class Compaction {
   double blob_garbage_collection_age_cutoff() const {
     return blob_garbage_collection_age_cutoff_;
   }
+
+  // start and end are sub compact range. Null if no boundary.
+  // This is used to calculate the newest_key_time table property after
+  // compaction.
+  uint64_t MaxInputFileNewestKeyTime(const InternalKey* start,
+                                     const InternalKey* end) const;
 
   // start and end are sub compact range. Null if no boundary.
   // This is used to filter out some input files' ancester's time range.
@@ -430,16 +450,23 @@ class Compaction {
   // penultimate level. The safe key range is populated by
   // `PopulatePenultimateLevelOutputRange()`.
   // Which could potentially disable all penultimate level output.
-  static int EvaluatePenultimateLevel(const VersionStorageInfo* vstorage,
-                                      const ImmutableOptions& immutable_options,
-                                      const int start_level,
-                                      const int output_level);
+  static int EvaluatePenultimateLevel(
+      const VersionStorageInfo* vstorage,
+      const MutableCFOptions& mutable_cf_options,
+      const ImmutableOptions& immutable_options, const int start_level,
+      const int output_level);
+
+  // If some data cannot be safely migrated "up" the LSM tree due to a change
+  // in the preclude_last_level_data_seconds setting, this indicates a sequence
+  // number for the newest data that must be kept in the last level.
+  SequenceNumber GetKeepInLastLevelThroughSeqno() const {
+    return keep_in_last_level_through_seqno_;
+  }
 
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool being_compacted) const;
 
  private:
-
   Status InitInputTableProperties();
 
   // get the smallest and largest key present in files to be compacted
@@ -459,6 +486,13 @@ class Compaction {
   // a key is safe to output to the penultimate level (details see
   // `Compaction::WithinPenultimateLevelOutputRange()`.
   void PopulatePenultimateLevelOutputRange();
+
+  // If oldest snapshot is specified at Compaction construction time, we have
+  // an opportunity to optimize inputs for compaction iterator for this case:
+  // When a standalone range deletion file on the start level is recognized and
+  // can be determined to completely shadow some input files on non-start level.
+  // These files will be filtered out and later not feed to compaction iterator.
+  void FilterInputsForCompactionIterator();
 
   // Get the atomic file boundaries for all files in the compaction. Necessary
   // in order to avoid the scenario described in
@@ -510,12 +544,30 @@ class Compaction {
   // Compaction input files organized by level. Constant after construction
   const std::vector<CompactionInputFiles> inputs_;
 
-  // A copy of inputs_, organized more closely in memory
+  // All files from inputs_ that are not filtered and will be fed to compaction
+  // iterator, organized more closely in memory.
   autovector<LevelFilesBrief, 2> input_levels_;
 
   // State used to check for number of overlapping grandparent files
   // (grandparent == "output_level_ + 1")
   std::vector<FileMetaData*> grandparents_;
+
+  // The earliest snapshot and snapshot checker at compaction picking time.
+  // These fields are only set for deletion triggered compactions picked in
+  // universal compaction. And when user-defined timestamp is not enabled.
+  // It will be used to possibly filter out some non start level input files.
+  std::optional<SequenceNumber> earliest_snapshot_;
+  const SnapshotChecker* snapshot_checker_;
+
+  // Markers for which non start level input files are filtered out if
+  // applicable. Only applicable if earliest_snapshot_ is provided and input
+  // start level has a standalone range deletion file. Filtered files are
+  // tracked in `filtered_input_levels_`.
+  std::vector<std::vector<bool>> non_start_level_input_files_filtered_;
+
+  // All files from inputs_ that are filtered.
+  std::vector<std::vector<FileMetaData*>> filtered_input_levels_;
+
   const double score_;  // score that was used to pick this compaction.
 
   // Is this compaction creating a file in the bottom most level?
@@ -559,6 +611,8 @@ class Compaction {
 
   // Blob garbage collection age cutoff.
   double blob_garbage_collection_age_cutoff_;
+
+  SequenceNumber keep_in_last_level_through_seqno_ = kMaxSequenceNumber;
 
   // only set when per_key_placement feature is enabled, -1 (kInvalidLevel)
   // means not supported.

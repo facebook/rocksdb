@@ -74,6 +74,10 @@ class WBWIIterator {
   // WriteBatchWithIndex
   virtual WriteEntry Entry() const = 0;
 
+  // For this user key, there is a single delete in this write batch,
+  // and it was overwritten by another update.
+  virtual bool HasOverWrittenSingleDel() const { return false; }
+
   virtual Status status() const = 0;
 };
 
@@ -188,8 +192,10 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // Create an iterator of a column family. User can call iterator.Seek() to
   // search to the next entry of or after a key. Keys will be iterated in the
   // order given by index_comparator. For multiple updates on the same key,
-  // each update will be returned as a separate entry, in the order of update
-  // time.
+  // if overwrite_key=false, then each update will be returned as a separate
+  // entry, in the order of update time.
+  // if overwrite_key=true, then one entry per key will be returned. Merge
+  // updates on the same key will be returned as separate entries.
   //
   // The returned iterator should be deleted by the caller.
   WBWIIterator* NewIterator(ColumnFamilyHandle* column_family);
@@ -348,12 +354,27 @@ class WriteBatchWithIndex : public WriteBatchBase {
   void SetMaxBytes(size_t max_bytes) override;
   size_t GetDataSize() const;
 
+  struct CFStat {
+    uint32_t entry_count = 0;
+    uint32_t overwritten_sd_count = 0;
+  };
+  // Will track CF ID, per CF entry count and overwritten sd count.
+  // Should be enabled when WBWI is empty for correct tracking.
+  void SetTrackPerCFStat(bool track);
+  const std::unordered_map<uint32_t, CFStat>& GetCFStats() const;
+
+  bool GetOverwriteKey() const;
+
  private:
   friend class PessimisticTransactionDB;
   friend class WritePreparedTxn;
   friend class WriteUnpreparedTxn;
   friend class WriteBatchWithIndex_SubBatchCnt_Test;
   friend class WriteBatchWithIndexInternal;
+  friend class WBWIMemTable;
+
+  WBWIIterator* NewIterator(uint32_t cf_id) const;
+
   // Returns the number of sub-batches inside the write batch. A sub-batch
   // starts right before inserting a key that is a duplicate of a key in the
   // last sub-batch.

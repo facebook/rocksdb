@@ -179,13 +179,18 @@ class Comparator : public Customizable, public CompareInterface {
   size_t timestamp_size_;
 };
 
-// Return a builtin comparator that uses lexicographic byte-wise
-// ordering.  The result remains the property of this module and
-// must not be deleted.
+// Return a builtin comparator that uses lexicographic ordering
+// on unsigned bytes, so the empty string is ordered before everything
+// else and a sufficiently long string of \xFF orders after anything.
+// CanKeysWithDifferentByteContentsBeEqual() == false
+// Returns an immortal pointer that must not be deleted by the caller.
 const Comparator* BytewiseComparator();
 
-// Return a builtin comparator that uses reverse lexicographic byte-wise
-// ordering.
+// Return a builtin comparator that is the reverse ordering of
+// BytewiseComparator(), so the empty string is ordered after everything
+// else and a sufficiently long string of \xFF orders before anything.
+// CanKeysWithDifferentByteContentsBeEqual() == false
+// Returns an immortal pointer that must not be deleted by the caller.
 const Comparator* ReverseBytewiseComparator();
 
 // Returns a builtin comparator that enables user-defined timestamps (formatted

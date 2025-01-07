@@ -4,8 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+
+#include <algorithm>
+#include <cassert>
 #include <ostream>
-#include <string>
 
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/wide_columns.h"
@@ -34,7 +36,31 @@ class WideColumnsHelper {
     return columns.front().value();
   }
 
-  static void SortColumns(WideColumns& columns);
+  static void SortColumns(WideColumns& columns) {
+    std::sort(columns.begin(), columns.end(),
+              [](const WideColumn& lhs, const WideColumn& rhs) {
+                return lhs.name().compare(rhs.name()) < 0;
+              });
+  }
+
+  template <typename Iterator>
+  static Iterator Find(Iterator begin, Iterator end, const Slice& column_name) {
+    assert(std::is_sorted(begin, end,
+                          [](const WideColumn& lhs, const WideColumn& rhs) {
+                            return lhs.name().compare(rhs.name()) < 0;
+                          }));
+
+    auto it = std::lower_bound(begin, end, column_name,
+                               [](const WideColumn& lhs, const Slice& rhs) {
+                                 return lhs.name().compare(rhs) < 0;
+                               });
+
+    if (it == end || it->name() != column_name) {
+      return end;
+    }
+
+    return it;
+  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

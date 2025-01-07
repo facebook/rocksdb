@@ -435,7 +435,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_drop_column_family(
     rocksdb_t* db, rocksdb_column_family_handle_t* handle, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t*
-    rocksdb_get_default_column_family_handle(rocksdb_t* db);
+rocksdb_get_default_column_family_handle(rocksdb_t* db);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_column_family_handle_destroy(
     rocksdb_column_family_handle_t*);
@@ -1643,6 +1643,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_plain_table_factory(
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_options_get_write_dbid_to_manifest(rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_dbid_to_manifest(
+    rocksdb_options_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_write_identity_file(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_identity_file(
     rocksdb_options_t*, unsigned char);
 
 extern ROCKSDB_LIBRARY_API unsigned char

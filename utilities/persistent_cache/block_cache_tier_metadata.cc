@@ -81,4 +81,3 @@ void BlockCacheTierMetadata::RemoveAllKeys(BlockCacheFile* f) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

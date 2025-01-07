@@ -162,4 +162,3 @@ bool PersistentTieredCache::IsCompressed() {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

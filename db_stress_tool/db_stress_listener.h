@@ -55,12 +55,13 @@ class DbStressListener : public EventListener {
   DbStressListener(const std::string& db_name,
                    const std::vector<DbPath>& db_paths,
                    const std::vector<ColumnFamilyDescriptor>& column_families,
-                   Env* env)
+                   Env* env, SharedState* shared)
       : db_name_(db_name),
         db_paths_(db_paths),
         column_families_(column_families),
         num_pending_file_creations_(0),
-        unique_ids_(db_name, env) {}
+        unique_ids_(db_name, env),
+        shared_(shared) {}
 
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "DBStressListener"; }
@@ -74,6 +75,7 @@ class DbStressListener : public EventListener {
     if (fault_fs_guard) {
       fault_fs_guard->DisableAllThreadLocalErrorInjection();
     }
+    shared_->SetPersistedSeqno(info.largest_seqno);
   }
 
   void OnFlushBegin(DB* /*db*/,
@@ -358,6 +360,7 @@ class DbStressListener : public EventListener {
   std::vector<ColumnFamilyDescriptor> column_families_;
   std::atomic<int> num_pending_file_creations_;
   UniqueIdVerifier unique_ids_;
+  SharedState* shared_;
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

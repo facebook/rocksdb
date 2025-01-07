@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-from __future__ import absolute_import, division, print_function, unicode_literals
 
 import glob
 
@@ -100,14 +99,14 @@ class LDBTestCase(unittest.TestCase):
         Uses the default test db.
         """
         self.assertRunOKFull(
-            "%s %s" % (self.dbParam(self.DB_NAME), params), expectedOutput, unexpected
+            "{} {}".format(self.dbParam(self.DB_NAME), params), expectedOutput, unexpected
         )
 
     def assertRunFAIL(self, params):
         """
         Uses the default test db.
         """
-        self.assertRunFAILFull("%s %s" % (self.dbParam(self.DB_NAME), params))
+        self.assertRunFAILFull("{} {}".format(self.dbParam(self.DB_NAME), params))
 
     def testSimpleStringPutGet(self):
         print("Running testSimpleStringPutGet...")
@@ -180,18 +179,18 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("checkconsistency", "OK")
 
     def dumpDb(self, params, dumpFile):
-        return 0 == run_err_null("./ldb dump %s > %s" % (params, dumpFile))
+        return 0 == run_err_null("./ldb dump {} > {}".format(params, dumpFile))
 
     def loadDb(self, params, dumpFile):
-        return 0 == run_err_null("cat %s | ./ldb load %s" % (dumpFile, params))
+        return 0 == run_err_null("cat {} | ./ldb load {}".format(dumpFile, params))
 
     def writeExternSst(self, params, inputDumpFile, outputSst):
         return 0 == run_err_null(
-            "cat %s | ./ldb write_extern_sst %s %s" % (inputDumpFile, outputSst, params)
+            "cat {} | ./ldb write_extern_sst {} {}".format(inputDumpFile, outputSst, params)
         )
 
     def ingestExternSst(self, params, inputSst):
-        return 0 == run_err_null("./ldb ingest_extern_sst %s %s" % (inputSst, params))
+        return 0 == run_err_null("./ldb ingest_extern_sst {} {}".format(inputSst, params))
 
     def testStringBatchPut(self):
         print("Running testStringBatchPut...")
@@ -444,11 +443,11 @@ class LDBTestCase(unittest.TestCase):
         dumpFilePath = os.path.join(self.TMP_DIR, "dump6")
         loadedDbPath = os.path.join(self.TMP_DIR, "loaded_from_dump6")
         self.assertTrue(
-            self.dumpDb("--db=%s %s" % (origDbPath, extraParams), dumpFilePath)
+            self.dumpDb("--db={} {}".format(origDbPath, extraParams), dumpFilePath)
         )
         self.assertTrue(
             self.loadDb(
-                "--db=%s %s --create_if_missing" % (loadedDbPath, extraParams),
+                "--db={} {} --create_if_missing".format(loadedDbPath, extraParams),
                 dumpFilePath,
             )
         )
@@ -503,7 +502,7 @@ class LDBTestCase(unittest.TestCase):
             "'b' seq:2, type:1 => val\nInternal keys in range: 2",
         )
         self.assertRunOK(
-            "idump --input_key_hex --from=%s --to=%s" % (hex(ord("a")), hex(ord("b"))),
+            "idump --input_key_hex --from={} --to={}".format(hex(ord("a")), hex(ord("b"))),
             "'a' seq:1, type:1 => val\nInternal keys in range: 1",
         )
 
@@ -513,7 +512,7 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("put b val --enable_blob_files", "OK")
 
         # Pattern to expect from dump with decode_blob_index flag enabled.
-        regex = ".*\[blob ref\].*"
+        regex = r".*\[blob ref\].*"
         expected_pattern = re.compile(regex)
         cmd = "idump %s --decode_blob_index"
         self.assertRunOKFull(
@@ -562,7 +561,7 @@ class LDBTestCase(unittest.TestCase):
             0
             == run_err_null(
                 "./ldb dump_wal --db=%s --walfile=%s --header"
-                % (origDbPath, os.path.join(origDbPath, "LOG"))
+                % (origDbPath, origDbPath)
             )
         )
         self.assertRunOK("scan", "x1 ==> y1\nx2 ==> y2\nx3 ==> y3\nx4 ==> y4")
@@ -589,7 +588,7 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunFAIL("checkconsistency")
 
     def dumpLiveFiles(self, params, dumpFile):
-        return 0 == run_err_null("./ldb dump_live_files %s > %s" % (params, dumpFile))
+        return 0 == run_err_null("./ldb dump_live_files {} > {}".format(params, dumpFile))
 
     def testDumpLiveFiles(self):
         print("Running testDumpLiveFiles...")
@@ -620,7 +619,7 @@ class LDBTestCase(unittest.TestCase):
         )
 
         # Investigate the output
-        with open(dumpFilePath, "r") as tmp:
+        with open(dumpFilePath) as tmp:
             data = tmp.read()
 
         # Check that all the SST filenames have a correct full path (no multiple '/').
@@ -651,7 +650,7 @@ class LDBTestCase(unittest.TestCase):
 
     def listLiveFilesMetadata(self, params, dumpFile):
         return 0 == run_err_null(
-            "./ldb list_live_files_metadata %s > %s" % (params, dumpFile)
+            "./ldb list_live_files_metadata {} > {}".format(params, dumpFile)
         )
 
     def testListLiveFilesMetadata(self):
@@ -673,13 +672,13 @@ class LDBTestCase(unittest.TestCase):
         )
 
         # Collect SST filename and level from dump_live_files
-        with open(dumpFilePath1, "r") as tmp:
+        with open(dumpFilePath1) as tmp:
             data = tmp.read()
             filename1 = re.findall(r".*\d+\.sst", data)[0]
             level1 = re.findall(r"level:\d+", data)[0].split(":")[1]
 
         # Collect SST filename and level from list_live_files_metadata
-        with open(dumpFilePath2, "r") as tmp:
+        with open(dumpFilePath2) as tmp:
             data = tmp.read()
             filename2 = re.findall(r".*\d+\.sst", data)[0]
             level2 = re.findall(r"level \d+", data)[0].split(" ")[1]
@@ -712,7 +711,7 @@ class LDBTestCase(unittest.TestCase):
         # parse the output and create a map:
         # [key: sstFilename]->[value:[LSM level, Column Family Name]]
         referenceMap = {}
-        with open(dumpFilePath3, "r") as tmp:
+        with open(dumpFilePath3) as tmp:
             data = tmp.read()
             # Note: the following regex are contingent on what the
             # dump_live_files outputs.
@@ -730,7 +729,7 @@ class LDBTestCase(unittest.TestCase):
         # parse the output and create a map:
         # [key: sstFilename]->[value:[LSM level, Column Family Name]]
         testMap = {}
-        with open(dumpFilePath4, "r") as tmp:
+        with open(dumpFilePath4) as tmp:
             data = tmp.read()
             # Since for each SST file, all the information is contained
             # on one line, the parsing is easy to perform and relies on
@@ -771,7 +770,7 @@ class LDBTestCase(unittest.TestCase):
         num = "[0-9]+"
         st = ".*"
         subpat = st + " seq:" + num + ", type:" + num
-        regex = num + ":" + num + "\[" + subpat + ".." + subpat + "\]"
+        regex = num + ":" + num + r"\[" + subpat + ".." + subpat + r"\]"
         expected_pattern = re.compile(regex)
         cmd = "manifest_dump --db=%s"
         manifest_files = self.getManifests(dbPath)
@@ -859,7 +858,7 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("get sst1", "sst1_val")
 
         # Pattern to expect from SST dump.
-        regex = ".*Sst file format:.*\n.*\[blob ref\].*"
+        regex = ".*Sst file format:.*\n.*\\[blob ref\\].*"
         expected_pattern = re.compile(regex)
 
         sst_files = self.getSSTFiles(dbPath)
@@ -878,7 +877,7 @@ class LDBTestCase(unittest.TestCase):
         )
 
         # Pattern to expect from blob file dump.
-        regex = ".*Blob log header[\s\S]*Blob log footer[\s\S]*Read record[\s\S]*Summary"  # noqa
+        regex = r".*Blob log header[\s\S]*Blob log footer[\s\S]*Read record[\s\S]*Summary"  # noqa
         expected_pattern = re.compile(regex)
         blob_files = self.getBlobFiles(dbPath)
         self.assertTrue(len(blob_files) >= 1)
@@ -896,7 +895,7 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("get wal1", "wal1_val")
 
         # Pattern to expect from WAL dump.
-        regex = "^Sequence,Count,ByteSize,Physical Offset,Key\(s\).*"
+        regex = r"^Sequence,Count,ByteSize,Physical Offset,Key\(s\).*"
         expected_pattern = re.compile(regex)
 
         wal_files = self.getWALFiles(dbPath)

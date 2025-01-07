@@ -11,6 +11,7 @@
 #ifdef GFLAGS
 #include "tools/io_tracer_parser_tool.h"
 #endif
+#include "rocksdb/flush_block_policy.h"
 #include "util/random.h"
 
 namespace {
@@ -120,6 +121,81 @@ class PrefetchTest
     table_options.metadata_block_size = 1024;
     table_options.index_type =
         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  }
+
+  void VerifyScan(ReadOptions& iter_ro, ReadOptions& cmp_iter_ro,
+                  const Slice* seek_key, const Slice* iterate_upper_bound,
+                  bool prefix_same_as_start) const {
+    assert(!(seek_key == nullptr));
+    iter_ro.iterate_upper_bound = cmp_iter_ro.iterate_upper_bound =
+        iterate_upper_bound;
+    iter_ro.prefix_same_as_start = cmp_iter_ro.prefix_same_as_start =
+        prefix_same_as_start;
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(iter_ro));
+    auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_iter_ro));
+
+    iter->Seek(*seek_key);
+    cmp_iter->Seek(*seek_key);
+
+    while (iter->Valid() && cmp_iter->Valid()) {
+      if (iter->key() != cmp_iter->key()) {
+        // Error
+        ASSERT_TRUE(false);
+      }
+      iter->Next();
+      cmp_iter->Next();
+    }
+
+    ASSERT_TRUE(!cmp_iter->Valid() && !iter->Valid());
+    ASSERT_TRUE(cmp_iter->status().ok() && iter->status().ok());
+  }
+
+  void VerifySeekPrevSeek(ReadOptions& iter_ro, ReadOptions& cmp_iter_ro,
+                          const Slice* seek_key,
+                          const Slice* iterate_upper_bound,
+                          bool prefix_same_as_start) {
+    assert(!(seek_key == nullptr));
+    iter_ro.iterate_upper_bound = cmp_iter_ro.iterate_upper_bound =
+        iterate_upper_bound;
+    iter_ro.prefix_same_as_start = cmp_iter_ro.prefix_same_as_start =
+        prefix_same_as_start;
+
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(iter_ro));
+    auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_iter_ro));
+
+    // Seek
+    cmp_iter->Seek(*seek_key);
+    ASSERT_TRUE(cmp_iter->Valid());
+    ASSERT_OK(cmp_iter->status());
+
+    iter->Seek(*seek_key);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    ASSERT_EQ(iter->key(), cmp_iter->key());
+
+    // Prev op should pass
+    cmp_iter->Prev();
+    ASSERT_TRUE(cmp_iter->Valid());
+    ASSERT_OK(cmp_iter->status());
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    ASSERT_EQ(iter->key(), cmp_iter->key());
+
+    // Reseek would follow as usual
+    cmp_iter->Seek(*seek_key);
+    ASSERT_TRUE(cmp_iter->Valid());
+    ASSERT_OK(cmp_iter->status());
+
+    iter->Seek(*seek_key);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+
+    ASSERT_EQ(iter->key(), cmp_iter->key());
   }
 };
 
@@ -599,6 +675,8 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
         default:
           assert(false);
       }
+      ASSERT_OK(iter->status());
+      ASSERT_OK(iter->Refresh());  // Update to latest mutable options
 
       for (int i = 0; i < num_keys_per_level; ++i) {
         iter->Seek(Key(key_count++));
@@ -726,6 +804,8 @@ TEST_P(PrefetchTest, ConfigureInternalAutoReadaheadSize) {
         default:
           assert(false);
       }
+      ASSERT_OK(iter->status());
+      ASSERT_OK(iter->Refresh());  // Update to latest mutable options
 
       for (int i = 0; i < num_keys_per_level; ++i) {
         iter->Seek(Key(key_count++));
@@ -1262,6 +1342,8 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
   Options options;
   SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
   options.statistics = CreateDBStatistics();
+  const std::string prefix = "my_key_";
+  options.prefix_extractor.reset(NewFixedPrefixTransform(prefix.size()));
   BlockBasedTableOptions table_options;
   SetBlockBasedTableOptions(table_options);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1272,8 +1354,9 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
   Random rnd(309);
   WriteBatch batch;
 
+  // Create the DB with keys from "my_key_aaaaaaaaaa" to "my_key_zzzzzzzzzz"
   for (int i = 0; i < 26; i++) {
-    std::string key = "my_key_";
+    std::string key = prefix;
 
     for (int j = 0; j < 10; j++) {
       key += char('a' + i);
@@ -1282,9 +1365,9 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
-  std::string start_key = "my_key_a";
+  std::string start_key = prefix + "a";
 
-  std::string end_key = "my_key_";
+  std::string end_key = prefix;
   for (int j = 0; j < 10; j++) {
     end_key += char('a' + 25);
   }
@@ -1309,32 +1392,30 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
     {
       auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
 
-      iter->Seek("my_key_bbb");
+      iter->Seek(prefix + "bbb");
       ASSERT_TRUE(iter->Valid());
 
-      iter->Seek("my_key_ccccccccc");
+      iter->Seek(prefix + "ccccccccc");
       ASSERT_TRUE(iter->Valid());
 
-      iter->Seek("my_key_ddd");
+      iter->Seek(prefix + "ddd");
       ASSERT_TRUE(iter->Valid());
 
-      iter->Seek("my_key_ddddddd");
+      iter->Seek(prefix + "ddddddd");
       ASSERT_TRUE(iter->Valid());
 
-      iter->Seek("my_key_e");
+      iter->Seek(prefix + "e");
       ASSERT_TRUE(iter->Valid());
 
-      iter->Seek("my_key_eeeee");
+      iter->Seek(prefix + "eeeee");
       ASSERT_TRUE(iter->Valid());
 
-      iter->Seek("my_key_eeeeeeeee");
+      iter->Seek(prefix + "eeeeeeeee");
       ASSERT_TRUE(iter->Valid());
     }
 
     ReadOptions ropts;
-    ropts.auto_readahead_size = true;
     ReadOptions cmp_ro;
-    cmp_ro.auto_readahead_size = false;
 
     if (std::get<0>(GetParam())) {
       ropts.readahead_size = cmp_ro.readahead_size = 32768;
@@ -1345,61 +1426,31 @@ TEST_P(PrefetchTest, PrefetchWithBlockLookupAutoTuneTest) {
     }
 
     // With and without tuning readahead_size.
-    {
-      ASSERT_OK(options.statistics->Reset());
-      // Seek.
-      {
-        Slice ub = Slice("my_key_uuu");
-        Slice* ub_ptr = &ub;
-        cmp_ro.iterate_upper_bound = ub_ptr;
-        ropts.iterate_upper_bound = ub_ptr;
+    ropts.auto_readahead_size = true;
+    cmp_ro.auto_readahead_size = false;
+    ASSERT_OK(options.statistics->Reset());
+    // Seek with a upper bound
+    const std::string seek_key_str = prefix + "aaa";
+    const Slice seek_key(seek_key_str);
+    const std::string ub_str = prefix + "uuu";
+    const Slice ub(ub_str);
+    VerifyScan(ropts /* iter_ro */, cmp_ro /* cmp_iter_ro */,
+               &seek_key /* seek_key */, &ub /* iterate_upper_bound */,
+               false /* prefix_same_as_start */);
 
-        auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
-        auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_ro));
+    // Seek with a new seek key and upper bound
+    const std::string seek_key_new_str = prefix + "v";
+    const Slice seek_key_new(seek_key_new_str);
+    const std::string ub_new_str = prefix + "y";
+    const Slice ub_new(ub_new_str);
+    VerifyScan(ropts /* iter_ro */, cmp_ro /* cmp_iter_ro */,
+               &seek_key_new /* seek_key */, &ub_new /* iterate_upper_bound */,
+               false /* prefix_same_as_start */);
 
-        Slice seek_key = Slice("my_key_aaa");
-        iter->Seek(seek_key);
-        cmp_iter->Seek(seek_key);
-
-        while (iter->Valid() && cmp_iter->Valid()) {
-          if (iter->key() != cmp_iter->key()) {
-            // Error
-            ASSERT_TRUE(false);
-          }
-          iter->Next();
-          cmp_iter->Next();
-        }
-
-        ASSERT_OK(cmp_iter->status());
-        ASSERT_OK(iter->status());
-      }
-
-      // Reseek with new upper_bound_iterator.
-      {
-        Slice ub = Slice("my_key_y");
-        ropts.iterate_upper_bound = &ub;
-        cmp_ro.iterate_upper_bound = &ub;
-
-        auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
-        auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_ro));
-
-        Slice reseek_key = Slice("my_key_v");
-        iter->Seek(reseek_key);
-        cmp_iter->Seek(reseek_key);
-
-        while (iter->Valid() && cmp_iter->Valid()) {
-          if (iter->key() != cmp_iter->key()) {
-            // Error
-            ASSERT_TRUE(false);
-          }
-          iter->Next();
-          cmp_iter->Next();
-        }
-
-        ASSERT_OK(cmp_iter->status());
-        ASSERT_OK(iter->status());
-      }
-    }
+    // Seek with no upper bound, prefix_same_as_start = true
+    VerifyScan(ropts /* iter_ro */, cmp_ro /* cmp_iter_ro */,
+               &seek_key /* seek_key */, nullptr /* iterate_upper_bound */,
+               true /* prefix_same_as_start */);
     Close();
   }
 }
@@ -1418,6 +1469,8 @@ TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
   Options options;
   SetGenericOptions(env.get(), /*use_direct_io=*/false, options);
   options.statistics = CreateDBStatistics();
+  const std::string prefix = "my_key_";
+  options.prefix_extractor.reset(NewFixedPrefixTransform(prefix.size()));
   BlockBasedTableOptions table_options;
   SetBlockBasedTableOptions(table_options);
   std::shared_ptr<Cache> cache = NewLRUCache(1024 * 1024, 2);
@@ -1432,7 +1485,7 @@ TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
   WriteBatch batch;
 
   for (int i = 0; i < 26; i++) {
-    std::string key = "my_key_";
+    std::string key = prefix;
 
     for (int j = 0; j < 10; j++) {
       key += char('a' + i);
@@ -1441,9 +1494,9 @@ TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
-  std::string start_key = "my_key_a";
+  std::string start_key = prefix + "a";
 
-  std::string end_key = "my_key_";
+  std::string end_key = prefix;
   for (int j = 0; j < 10; j++) {
     end_key += char('a' + 25);
   }
@@ -1455,57 +1508,146 @@ TEST_F(PrefetchTest, PrefetchWithBlockLookupAutoTuneWithPrev) {
 
   ReadOptions ropts;
   ropts.auto_readahead_size = true;
+  ReadOptions cmp_readopts = ropts;
+  cmp_readopts.auto_readahead_size = false;
 
+  const std::string seek_key_str = prefix + "bbb";
+  const Slice seek_key(seek_key_str);
+  const std::string ub_key = prefix + "uuu";
+  const Slice ub(ub_key);
+
+  VerifySeekPrevSeek(ropts /* iter_ro */, cmp_readopts /* cmp_iter_ro */,
+                     &seek_key /* seek_key */, &ub /* iterate_upper_bound */,
+                     false /* prefix_same_as_start */);
+
+  VerifySeekPrevSeek(ropts /* iter_ro */, cmp_readopts /* cmp_iter_ro */,
+                     &seek_key /* seek_key */,
+                     nullptr /* iterate_upper_bound */,
+                     true /* prefix_same_as_start */);
+  Close();
+}
+
+class PrefetchTrimReadaheadTestParam
+    : public DBTestBase,
+      public ::testing::WithParamInterface<
+          std::tuple<BlockBasedTableOptions::IndexShorteningMode, bool>> {
+ public:
+  const std::string kPrefix = "a_prefix_";
+  Random rnd = Random(309);
+
+  PrefetchTrimReadaheadTestParam()
+      : DBTestBase("prefetch_trim_readahead_test_param", true) {}
+  virtual void SetGenericOptions(Env* env, Options& options) {
+    options = CurrentOptions();
+    options.env = env;
+    options.create_if_missing = true;
+    options.disable_auto_compactions = true;
+    options.statistics = CreateDBStatistics();
+
+    // To make all the data bocks fit in one file for testing purpose
+    options.write_buffer_size = 1024 * 1024 * 1024;
+    options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefix.size()));
+  }
+
+  void SetBlockBasedTableOptions(BlockBasedTableOptions& table_options) {
+    table_options.no_block_cache = false;
+    table_options.index_shortening = std::get<0>(GetParam());
+
+    // To force keys with different prefixes are in different data blocks of the
+    // file for testing purpose
+    table_options.block_size = 1;
+    table_options.flush_block_policy_factory.reset(
+        new FlushBlockBySizePolicyFactory());
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(
+    PrefetchTrimReadaheadTestParam, PrefetchTrimReadaheadTestParam,
+    ::testing::Combine(
+        // Params are as follows -
+        // Param 0 - TableOptions::index_shortening
+        // Param 2 - ReadOptinos::auto_readahead_size
+        ::testing::Values(
+            BlockBasedTableOptions::IndexShorteningMode::kNoShortening,
+            BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators,
+            BlockBasedTableOptions::IndexShorteningMode::
+                kShortenSeparatorsAndSuccessor),
+        ::testing::Bool()));
+
+TEST_P(PrefetchTrimReadaheadTestParam, PrefixSameAsStart) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  const bool auto_readahead_size = std::get<1>(GetParam());
+
+  std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(
+      FileSystem::Default(), false /* support_prefetch */,
+      true /* small_buffer_alignment */);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+  Options options;
+  SetGenericOptions(env.get(), options);
+  BlockBasedTableOptions table_optoins;
+  SetBlockBasedTableOptions(table_optoins);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_optoins));
+
+  Status s = TryReopen(options);
+  ASSERT_OK(s);
+
+  // To create a DB with data block layout (denoted as "[...]" below ) as the
+  // following:
+  // ["a_prefix_0": random value]
+  // ["a_prefix_1": random value]
+  // ...
+  // ["a_prefix_9": random value]
+  // ["c_prefix_0": random value]
+  // ["d_prefix_1": random value]
+  // ...
+  // ["l_prefix_9": random value]
+  //
+  // We want to verify keys not with prefix "a_prefix_" are not prefetched due
+  // to trimming
+  WriteBatch prefix_batch;
+  for (int i = 0; i < 10; i++) {
+    std::string key = kPrefix + std::to_string(i);
+    ASSERT_OK(prefix_batch.Put(key, rnd.RandomString(100)));
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &prefix_batch));
+
+  WriteBatch diff_prefix_batch;
+  for (int i = 0; i < 10; i++) {
+    std::string diff_prefix = std::string(1, char('c' + i)) + kPrefix.substr(1);
+    std::string key = diff_prefix + std::to_string(i);
+    ASSERT_OK(diff_prefix_batch.Put(key, rnd.RandomString(100)));
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &diff_prefix_batch));
+
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // To verify readahead is trimmed based on prefix by checking the counter
+  // READAHEAD_TRIMMED
+  ReadOptions ro;
+  ro.prefix_same_as_start = true;
+  ro.auto_readahead_size = auto_readahead_size;
+  // Set a large readahead size to introduce readahead waste when without
+  // trimming based on prefix
+  ro.readahead_size = 1024 * 1024 * 1024;
+
+  ASSERT_OK(options.statistics->Reset());
   {
-    // Seek.
-    Slice ub = Slice("my_key_uuu");
-    Slice* ub_ptr = &ub;
-    ropts.iterate_upper_bound = ub_ptr;
-    ropts.auto_readahead_size = true;
-
-    ReadOptions cmp_readopts = ropts;
-    cmp_readopts.auto_readahead_size = false;
-
-    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ropts));
-    auto cmp_iter = std::unique_ptr<Iterator>(db_->NewIterator(cmp_readopts));
-
-    Slice seek_key = Slice("my_key_bbb");
-    {
-      cmp_iter->Seek(seek_key);
-      ASSERT_TRUE(cmp_iter->Valid());
-      ASSERT_OK(cmp_iter->status());
-
-      iter->Seek(seek_key);
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_OK(iter->status());
-
-      ASSERT_EQ(iter->key(), cmp_iter->key());
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
+    for (iter->Seek(kPrefix); iter->status().ok() && iter->Valid();
+         iter->Next()) {
     }
+  }
 
-    // Prev op should pass with auto tuning of readahead_size.
-    {
-      cmp_iter->Prev();
-      ASSERT_TRUE(cmp_iter->Valid());
-      ASSERT_OK(cmp_iter->status());
+  auto readahead_trimmed =
+      options.statistics->getTickerCount(READAHEAD_TRIMMED);
 
-      iter->Prev();
-      ASSERT_OK(iter->status());
-      ASSERT_TRUE(iter->Valid());
-
-      ASSERT_EQ(iter->key(), cmp_iter->key());
-    }
-
-    // Reseek would follow as usual.
-    {
-      cmp_iter->Seek(seek_key);
-      ASSERT_TRUE(cmp_iter->Valid());
-      ASSERT_OK(cmp_iter->status());
-
-      iter->Seek(seek_key);
-      ASSERT_OK(iter->status());
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ(iter->key(), cmp_iter->key());
-    }
+  if (auto_readahead_size) {
+    ASSERT_GT(readahead_trimmed, 0);
+  } else {
+    ASSERT_EQ(readahead_trimmed, 0);
   }
   Close();
 }
@@ -3146,6 +3288,494 @@ TEST_F(FilePrefetchBufferTest, SyncReadaheadStats) {
   ASSERT_EQ(
       stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
       /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
+}
+
+class FSBufferPrefetchTest : public testing::Test,
+                             public ::testing::WithParamInterface<bool> {
+ public:
+  // Mock file system supporting the kFSBuffer buffer reuse operation
+  class BufferReuseFS : public FileSystemWrapper {
+   public:
+    explicit BufferReuseFS(const std::shared_ptr<FileSystem>& _target)
+        : FileSystemWrapper(_target) {}
+    ~BufferReuseFS() override {}
+    const char* Name() const override { return "BufferReuseFS"; }
+
+    IOStatus NewRandomAccessFile(const std::string& fname,
+                                 const FileOptions& opts,
+                                 std::unique_ptr<FSRandomAccessFile>* result,
+                                 IODebugContext* dbg) override {
+      class WrappedRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
+       public:
+        explicit WrappedRandomAccessFile(
+            std::unique_ptr<FSRandomAccessFile>& file)
+            : FSRandomAccessFileOwnerWrapper(std::move(file)) {}
+
+        IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                           const IOOptions& options,
+                           IODebugContext* dbg) override {
+          for (size_t i = 0; i < num_reqs; ++i) {
+            FSReadRequest& req = reqs[i];
+
+            // We cannot assume that fs_scratch points to the start of
+            // the read data. We can have the FSAllocationPtr point to a
+            // wrapper around the result buffer in our test implementation so
+            // that we can catch whenever we incorrectly make this assumption.
+            // See https://github.com/facebook/rocksdb/pull/13189 for more
+            // context.
+            char* internalData = new char[req.len];
+            req.status = Read(req.offset, req.len, options, &req.result,
+                              internalData, dbg);
+
+            Slice* internalSlice = new Slice(internalData, req.len);
+            FSAllocationPtr internalPtr(internalSlice, [](void* ptr) {
+              delete[] static_cast<const char*>(
+                  static_cast<Slice*>(ptr)->data_);
+              delete static_cast<Slice*>(ptr);
+            });
+            req.fs_scratch = std::move(internalPtr);
+          }
+          return IOStatus::OK();
+        }
+      };
+
+      std::unique_ptr<FSRandomAccessFile> file;
+      IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+      EXPECT_OK(s);
+      result->reset(new WrappedRandomAccessFile(file));
+      return s;
+    }
+
+    void SupportedOps(int64_t& supported_ops) override {
+      supported_ops = 1 << FSSupportedOps::kAsyncIO;
+      supported_ops |= 1 << FSSupportedOps::kFSBuffer;
+    }
+  };
+
+  void SetUp() override {
+    SetupSyncPointsToMockDirectIO();
+    env_ = Env::Default();
+    bool use_async_prefetch = GetParam();
+    if (use_async_prefetch) {
+      fs_ = FileSystem::Default();
+    } else {
+      fs_ = std::make_shared<BufferReuseFS>(FileSystem::Default());
+    }
+
+    test_dir_ = test::PerThreadDBPath("fs_buffer_prefetch_test");
+    ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
+    stats_ = CreateDBStatistics();
+  }
+
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
+
+  void Write(const std::string& fname, const std::string& content) {
+    std::unique_ptr<FSWritableFile> f;
+    ASSERT_OK(fs_->NewWritableFile(Path(fname), FileOptions(), &f, nullptr));
+    ASSERT_OK(f->Append(content, IOOptions(), nullptr));
+    ASSERT_OK(f->Close(IOOptions(), nullptr));
+  }
+
+  void Read(const std::string& fname, const FileOptions& opts,
+            std::unique_ptr<RandomAccessFileReader>* reader) {
+    std::string fpath = Path(fname);
+    std::unique_ptr<FSRandomAccessFile> f;
+    ASSERT_OK(fs_->NewRandomAccessFile(fpath, opts, &f, nullptr));
+    reader->reset(new RandomAccessFileReader(
+        std::move(f), fpath, env_->GetSystemClock().get(),
+        /*io_tracer=*/nullptr, stats_.get()));
+  }
+
+  FileSystem* fs() { return fs_.get(); }
+  Statistics* stats() { return stats_.get(); }
+  SystemClock* clock() { return env_->GetSystemClock().get(); }
+
+ private:
+  Env* env_;
+  std::shared_ptr<FileSystem> fs_;
+  std::string test_dir_;
+  std::shared_ptr<Statistics> stats_;
+
+  std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
+};
+
+INSTANTIATE_TEST_CASE_P(FSBufferPrefetchTest, FSBufferPrefetchTest,
+                        ::testing::Bool());
+
+TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
+  // Check that the main buffer, the overlap_buf_, and the secondary buffer (in
+  // the case of num_buffers_ > 1) are populated correctly while reading a 32
+  // KiB file
+  std::string fname = "fs-buffer-prefetch-stats-internals";
+  Random rand(0);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 8192;
+  readahead_params.max_readahead_size = 8192;
+  bool use_async_prefetch = GetParam();
+  size_t num_buffers = use_async_prefetch ? 2 : 1;
+  readahead_params.num_buffers = num_buffers;
+
+  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
+                         stats.get());
+
+  int overlap_buffer_write_ct = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::CopyDataToOverlapBuffer:Complete",
+      [&](void* /*arg*/) { overlap_buffer_write_ct++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Slice result;
+  // Read 4096 bytes at offset 0.
+  Status s;
+  std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(num_buffers);
+  std::pair<uint64_t, size_t> overlap_buffer_info;
+  bool could_read_from_cache =
+      fpb.TryReadFromCache(IOOptions(), r.get(), 0, 4096, &result, &s);
+  // Platforms that don't have IO uring may not support async IO.
+  if (use_async_prefetch && s.IsNotSupported()) {
+    return;
+  }
+  ASSERT_TRUE(could_read_from_cache);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL), 0);
+  ASSERT_EQ(strncmp(result.data(), content.substr(0, 4096).c_str(), 4096), 0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  if (use_async_prefetch) {
+    // Cut the readahead of 8192 in half.
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Buffers: 0-8192, 8192-12288
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 4096 + 8192 / 2);
+    ASSERT_EQ(std::get<0>(buffer_info[1]), 4096 + 8192 / 2);
+    ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
+  } else {
+    // Read at offset 0 with length 4096 + 8192 = 12288.
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Main buffer contains the requested data + the 8192 of prefetched data
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 4096 + 8192);
+  }
+
+  // Simulate a block cache hit
+  fpb.UpdateReadPattern(4096, 4096, false);
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 8192, 8192, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+            4096);  // 8192-12288
+  ASSERT_EQ(strncmp(result.data(), content.substr(8192, 8192).c_str(), 8192),
+            0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+
+  if (use_async_prefetch) {
+    // Our buffers were 0-8192, 8192-12288 at the start so we had some
+    // overlapping data in the second buffer
+    // We clean up outdated buffers so 0-8192 gets freed for more prefetching.
+    // Our remaining buffer 8192-12288 has data that we want, so we can reuse it
+    // We end up with: 8192-20480, 20480-24576
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 8192);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 8192 + 8192 / 2);
+    ASSERT_EQ(std::get<0>(buffer_info[1]), 8192 + (8192 + 8192 / 2));
+    ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
+  } else {
+    // We only have 0-12288 cached, so reading from 8192-16384 will trigger a
+    // prefetch up through 16384 + 8192 = 24576.
+    // Overlap buffer reuses bytes 8192 to 12288
+    ASSERT_EQ(overlap_buffer_info.first, 8192);
+    ASSERT_EQ(overlap_buffer_info.second, 8192);
+    ASSERT_EQ(overlap_buffer_write_ct, 2);
+    // We spill to the overlap buffer so the remaining buffer only has the
+    // missing and prefetched part
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 12288);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 12288);
+  }
+
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 12288, 4096, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 1);
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+            4096);  // 12288-16384
+  ASSERT_EQ(strncmp(result.data(), content.substr(12288, 4096).c_str(), 4096),
+            0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+
+  if (use_async_prefetch) {
+    // Same as before: 8192-20480, 20480-24576 (cache hit in first buffer)
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 8192);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 8192 + 8192 / 2);
+    ASSERT_EQ(std::get<0>(buffer_info[1]), 8192 + (8192 + 8192 / 2));
+    ASSERT_EQ(std::get<1>(buffer_info[1]), 8192 / 2);
+  } else {
+    // The main buffer has 12288-24576, so 12288-16384 is a cache hit.
+    // Overlap buffer does not get used
+    fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+    ASSERT_EQ(overlap_buffer_info.first, 8192);
+    ASSERT_EQ(overlap_buffer_info.second, 8192);
+    ASSERT_EQ(overlap_buffer_write_ct, 2);
+    // Main buffer stays the same
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 12288);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 12288);
+  }
+
+  // Read from 16000-26000 (start and end do not meet normal alignment)
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 16000, 10000, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+  ASSERT_EQ(
+      stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+      /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
+  ASSERT_EQ(strncmp(result.data(), content.substr(16000, 10000).c_str(), 10000),
+            0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  if (use_async_prefetch) {
+    // Overlap buffer reuses bytes 16000 to 20480
+    ASSERT_EQ(overlap_buffer_info.first, 16000);
+    ASSERT_EQ(overlap_buffer_info.second, 10000);
+    // First 2 writes are reusing existing 2 buffers. Last write fills in
+    // what could not be found in either.
+    ASSERT_EQ(overlap_buffer_write_ct, 3);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 24576);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 32768 - 24576);
+    ASSERT_EQ(std::get<0>(buffer_info[1]), 32768);
+    ASSERT_EQ(std::get<1>(buffer_info[1]), 4096);
+    ASSERT_TRUE(std::get<2>(
+        buffer_info[1]));  // in progress async request (otherwise we should not
+                           // be getting 4096 for the size)
+  } else {
+    // Overlap buffer reuses bytes 16000 to 24576
+    ASSERT_EQ(overlap_buffer_info.first, 16000);
+    ASSERT_EQ(overlap_buffer_info.second, 10000);
+    ASSERT_EQ(overlap_buffer_write_ct, 4);
+    // Even if you try to readahead to offset 16000 + 10000 + 8192, there are
+    // only 32768 bytes in the original file
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 12288 + 12288);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
+  }
+}
+
+TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
+  // Check that the main buffer, the overlap_buf_, and the secondary buffer (in
+  // the case of num_buffers_ > 1) are populated correctly
+  // while reading with no regard to alignment
+  std::string fname = "fs-buffer-prefetch-unaligned-reads";
+  Random rand(0);
+  std::string content = rand.RandomString(1000);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  ReadaheadParams readahead_params;
+  // Readahead size will double each time
+  readahead_params.initial_readahead_size = 5;
+  readahead_params.max_readahead_size = 100;
+  bool use_async_prefetch = GetParam();
+  size_t num_buffers = use_async_prefetch ? 2 : 1;
+  readahead_params.num_buffers = num_buffers;
+  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
+                         stats.get());
+
+  int overlap_buffer_write_ct = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FilePrefetchBuffer::CopyDataToOverlapBuffer:Complete",
+      [&](void* /*arg*/) { overlap_buffer_write_ct++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Slice result;
+  // Read 3 bytes at offset 5
+  Status s;
+  std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(num_buffers);
+  std::pair<uint64_t, size_t> overlap_buffer_info;
+  bool could_read_from_cache =
+      fpb.TryReadFromCache(IOOptions(), r.get(), 5, 3, &result, &s);
+  // Platforms that don't have IO uring may not support async IO.
+  if (use_async_prefetch && s.IsNotSupported()) {
+    return;
+  }
+  ASSERT_TRUE(could_read_from_cache);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(5, 3).c_str(), 3), 0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  if (use_async_prefetch) {
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // With async prefetching, we still try to align to 4096 bytes, so
+    // our main buffer read and secondary buffer prefetch are rounded up
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 1000);
+    // This buffer won't actually get filled up with data since there is nothing
+    // after 1000
+    ASSERT_EQ(std::get<0>(buffer_info[1]), 4096);
+    ASSERT_EQ(std::get<1>(buffer_info[1]), 4096);
+    ASSERT_TRUE(std::get<2>(buffer_info[1]));  // in progress async request
+  } else {
+    // Overlap buffer is not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Main buffer contains the requested data + 5 of prefetched data (5 - 13)
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 5);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 3 + 5);
+  }
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 16, 7, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(16, 7).c_str(), 7), 0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  if (use_async_prefetch) {
+    // Complete hit since we have the entire file loaded in the main buffer
+    // The remaining requests will be the same when use_async_prefetch is true
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 1000);
+  } else {
+    // Complete miss: read 7 bytes at offset 16
+    // Overlap buffer is not used (no partial hit)
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Main buffer contains the requested data + 10 of prefetched data (16 - 33)
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 16);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 7 + 10);
+  }
+
+  // Go backwards
+  if (use_async_prefetch) {
+    ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 10, 8, &result, &s));
+  } else {
+    // TryReadFromCacheUntracked returns false since the offset
+    // requested is less than the start of our buffer
+    ASSERT_FALSE(
+        fpb.TryReadFromCache(IOOptions(), r.get(), 10, 8, &result, &s));
+  }
+  ASSERT_EQ(s, Status::OK());
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 27, 6, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(27, 6).c_str(), 6), 0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  if (use_async_prefetch) {
+    // Complete hit since we have the entire file loaded in the main buffer
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 1000);
+  } else {
+    // Complete hit
+    // Overlap buffer still not used
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    // Main buffer unchanged
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 16);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 7 + 10);
+  }
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 30, 20, &result, &s));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(30, 20).c_str(), 20), 0);
+  fpb.TEST_GetOverlapBufferOffsetandSize(overlap_buffer_info);
+  fpb.TEST_GetBufferOffsetandSize(buffer_info);
+  if (use_async_prefetch) {
+    // Complete hit since we have the entire file loaded in the main buffer
+    ASSERT_EQ(overlap_buffer_info.first, 0);
+    ASSERT_EQ(overlap_buffer_info.second, 0);
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 0);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), 1000);
+  } else {
+    // Partial hit (overlapping with end of main buffer)
+    // Overlap buffer is used because we already had 30-33
+    ASSERT_EQ(overlap_buffer_info.first, 30);
+    ASSERT_EQ(overlap_buffer_info.second, 20);
+    ASSERT_EQ(overlap_buffer_write_ct, 2);
+    // Main buffer has up to offset 50 + 20 of prefetched data
+    ASSERT_EQ(std::get<0>(buffer_info[0]), 33);
+    ASSERT_EQ(std::get<1>(buffer_info[0]), (50 - 33) + 20);
+  }
+}
+
+TEST_P(FSBufferPrefetchTest, FSBufferPrefetchForCompaction) {
+  // Quick test to make sure file system buffer reuse is disabled for compaction
+  // reads. Will update once it is re-enabled
+  // Primarily making sure we do not hit unsigned integer overflow issues
+  std::string fname = "fs-buffer-prefetch-for-compaction";
+  Random rand(0);
+  std::string content = rand.RandomString(32768);
+  Write(fname, content);
+
+  FileOptions opts;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+
+  std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  ReadaheadParams readahead_params;
+  readahead_params.initial_readahead_size = 8192;
+  readahead_params.max_readahead_size = 8192;
+  bool use_async_prefetch = GetParam();
+  // Async IO is not enabled for compaction prefetching
+  if (use_async_prefetch) {
+    return;
+  }
+  readahead_params.num_buffers = 1;
+
+  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), clock(),
+                         stats.get());
+
+  Slice result;
+  Status s;
+  ASSERT_TRUE(
+      fpb.TryReadFromCache(IOOptions(), r.get(), 0, 4096, &result, &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(0, 4096).c_str(), 4096), 0);
+
+  fpb.UpdateReadPattern(4096, 4096, false);
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 8192, 8192, &result,
+                                   &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(8192, 8192).c_str(), 8192),
+            0);
+
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 12288, 4096, &result,
+                                   &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(12288, 4096).c_str(), 4096),
+            0);
+
+  // Read from 16000-26000 (start and end do not meet normal alignment)
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 16000, 10000, &result,
+                                   &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(strncmp(result.data(), content.substr(16000, 10000).c_str(), 10000),
+            0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

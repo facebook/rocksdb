@@ -12,7 +12,7 @@
 #include <cassert>
 
 #include "port/port.h"
-
+#include "rocksdb/file_system.h"
 namespace ROCKSDB_NAMESPACE {
 
 // This file contains utilities to handle the alignment of pages and buffers.
@@ -56,7 +56,7 @@ inline size_t Rounddown(size_t x, size_t y) { return (x / y) * y; }
 //                         copy_offset, copy_len);
 class AlignedBuffer {
   size_t alignment_;
-  std::unique_ptr<char[]> buf_;
+  FSAllocationPtr buf_;
   size_t capacity_;
   size_t cursize_;
   char* bufstart_;
@@ -100,17 +100,32 @@ class AlignedBuffer {
 
   void Clear() { cursize_ = 0; }
 
-  char* Release() {
+  FSAllocationPtr Release() {
     cursize_ = 0;
     capacity_ = 0;
     bufstart_ = nullptr;
-    return buf_.release();
+    return std::move(buf_);
   }
 
   void Alignment(size_t alignment) {
     assert(alignment > 0);
     assert((alignment & (alignment - 1)) == 0);
     alignment_ = alignment;
+  }
+
+  // Points the buffer to the result without allocating extra
+  // memory or performing any data copies. Takes ownership of the
+  // FSAllocationPtr. This method is called when we want to reuse the buffer
+  // provided by the file system
+  void SetBuffer(Slice& result, FSAllocationPtr new_buf) {
+    alignment_ = 1;
+    capacity_ = result.size();
+    cursize_ = result.size();
+    buf_ = std::move(new_buf);
+    assert(buf_.get() != nullptr);
+    // Note: bufstart_ must point to result.data() and not new_buf, which can
+    // point to any arbitrary object
+    bufstart_ = const_cast<char*>(result.data());
   }
 
   // Allocates a new buffer and sets the start position to the first aligned
@@ -156,7 +171,11 @@ class AlignedBuffer {
 
     bufstart_ = new_bufstart;
     capacity_ = new_capacity;
-    buf_.reset(new_buf);
+    // buf_ is a FSAllocationPtr which takes in a deleter
+    // we can just wrap the regular default delete that would have been called
+    buf_ = std::unique_ptr<void, std::function<void(void*)>>(
+        static_cast<void*>(new_buf),
+        [](void* p) { delete[] static_cast<char*>(p); });
   }
 
   // Append to the buffer.

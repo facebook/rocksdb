@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "rocksdb/utilities/options_util.h"
 
 #include <cctype>
@@ -179,6 +178,8 @@ class DummyTableFactory : public TableFactory {
   }
 
   std::string GetPrintableOptions() const override { return ""; }
+
+  std::unique_ptr<TableFactory> Clone() const override { return nullptr; }
 };
 
 class DummyMergeOperator : public MergeOperator {

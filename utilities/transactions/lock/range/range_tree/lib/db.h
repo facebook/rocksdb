@@ -53,7 +53,7 @@ typedef struct __toku_engine_status_row {
     char datebuf[26];
     struct partitioned_counter *parcount;
   } value;
-} * TOKU_ENGINE_STATUS_ROW, TOKU_ENGINE_STATUS_ROW_S;
+} *TOKU_ENGINE_STATUS_ROW, TOKU_ENGINE_STATUS_ROW_S;
 
 #define DB_BUFFER_SMALL -30999
 #define DB_LOCK_DEADLOCK -30995

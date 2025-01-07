@@ -589,8 +589,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   bool filesystem_writable_;  // Bypass FaultInjectionTestFS and go directly
                               // to underlying FS for writable files
   bool inject_unsynced_data_loss_;  // See InjectUnsyncedDataLoss()
-  bool read_unsynced_data_;   // See SetReadUnsyncedData()
-  bool allow_link_open_file_;  // See SetAllowLinkOpenFile()
+  bool read_unsynced_data_;         // See SetReadUnsyncedData()
+  bool allow_link_open_file_;       // See SetAllowLinkOpenFile()
   IOStatus fs_error_;
 
   enum ErrorType : int {

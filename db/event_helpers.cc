@@ -81,9 +81,8 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
     JSONWriter jwriter;
     AppendCurrentTime(&jwriter);
     jwriter << "cf_name" << cf_name << "job" << job_id << "event"
-            << "table_file_creation"
-            << "file_number" << fd.GetNumber() << "file_size"
-            << fd.GetFileSize() << "file_checksum"
+            << "table_file_creation" << "file_number" << fd.GetNumber()
+            << "file_size" << fd.GetFileSize() << "file_checksum"
             << Slice(file_checksum).ToString(true) << "file_checksum_func_name"
             << file_checksum_func_name << "smallest_seqno" << fd.smallest_seqno
             << "largest_seqno" << fd.largest_seqno;
@@ -132,6 +131,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << table_properties.compression_name << "compression_options"
               << table_properties.compression_options << "creation_time"
               << table_properties.creation_time << "oldest_key_time"
+              << table_properties.newest_key_time << "newest_key_time"
               << table_properties.oldest_key_time << "file_creation_time"
               << table_properties.file_creation_time
               << "slow_compression_estimated_data_size"
@@ -198,8 +198,7 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
   JSONWriter jwriter;
   AppendCurrentTime(&jwriter);
 
-  jwriter << "job" << job_id << "event"
-          << "table_file_deletion"
+  jwriter << "job" << job_id << "event" << "table_file_deletion"
           << "file_number" << file_number;
   if (!status.ok()) {
     jwriter << "status" << status.ToString();
@@ -279,11 +278,11 @@ void EventHelpers::LogAndNotifyBlobFileCreationFinished(
     JSONWriter jwriter;
     AppendCurrentTime(&jwriter);
     jwriter << "cf_name" << cf_name << "job" << job_id << "event"
-            << "blob_file_creation"
-            << "file_number" << file_number << "total_blob_count"
-            << total_blob_count << "total_blob_bytes" << total_blob_bytes
-            << "file_checksum" << file_checksum << "file_checksum_func_name"
-            << file_checksum_func_name << "status" << s.ToString();
+            << "blob_file_creation" << "file_number" << file_number
+            << "total_blob_count" << total_blob_count << "total_blob_bytes"
+            << total_blob_bytes << "file_checksum" << file_checksum
+            << "file_checksum_func_name" << file_checksum_func_name << "status"
+            << s.ToString();
 
     jwriter.EndObject();
     event_logger->Log(jwriter);
@@ -310,8 +309,7 @@ void EventHelpers::LogAndNotifyBlobFileDeletion(
     JSONWriter jwriter;
     AppendCurrentTime(&jwriter);
 
-    jwriter << "job" << job_id << "event"
-            << "blob_file_deletion"
+    jwriter << "job" << job_id << "event" << "blob_file_deletion"
             << "file_number" << file_number;
     if (!status.ok()) {
       jwriter << "status" << status.ToString();

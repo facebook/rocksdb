@@ -16,6 +16,7 @@
 
 #include "cache/cache_reservation_manager.h"
 #include "db/memtable_list.h"
+#include "db/snapshot_checker.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/write_batch_internal.h"
@@ -206,7 +207,7 @@ struct SuperVersion {
   // Accessing members of this class is not thread-safe and requires external
   // synchronization (ie db mutex held or on write thread).
   ColumnFamilyData* cfd;
-  MemTable* mem;
+  ReadOnlyMemTable* mem;
   MemTableListVersion* imm;
   Version* current;
   MutableCFOptions mutable_cf_options;
@@ -268,7 +269,7 @@ struct SuperVersion {
   // We need to_delete because during Cleanup(), imm->Unref() returns
   // all memtables that we need to free through this vector. We then
   // delete all those memtables outside of mutex, during destruction
-  autovector<MemTable*> to_delete;
+  autovector<ReadOnlyMemTable*> to_delete;
 };
 
 Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
@@ -385,10 +386,14 @@ class ColumnFamilyData {
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
   uint64_t GetLiveSstFilesSize() const;   // REQUIRE: DB mutex held
   uint64_t GetTotalBlobFileSize() const;  // REQUIRE: DB mutex held
+  // REQUIRE: DB mutex held
   void SetMemtable(MemTable* new_mem) {
-    uint64_t memtable_id = last_memtable_id_.fetch_add(1) + 1;
-    new_mem->SetID(memtable_id);
+    AssignMemtableID(new_mem);
     mem_ = new_mem;
+  }
+
+  void AssignMemtableID(ReadOnlyMemTable* new_imm) {
+    new_imm->SetID(++last_memtable_id_);
   }
 
   // calculate the oldest log needed for the durability of this column family
@@ -401,15 +406,18 @@ class ColumnFamilyData {
                          SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
+  BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }
   BlobSource* blob_source() const { return blob_source_.get(); }
 
   // See documentation in compaction_picker.h
   // REQUIRES: DB mutex held
   bool NeedsCompaction() const;
   // REQUIRES: DB mutex held
-  Compaction* PickCompaction(const MutableCFOptions& mutable_options,
-                             const MutableDBOptions& mutable_db_options,
-                             LogBuffer* log_buffer);
+  Compaction* PickCompaction(
+      const MutableCFOptions& mutable_options,
+      const MutableDBOptions& mutable_db_options,
+      const std::vector<SequenceNumber>& existing_snapshots,
+      const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer);
 
   // Check if the passed range overlap with any running compactions.
   // REQUIRES: DB mutex held
@@ -669,7 +677,7 @@ class ColumnFamilyData {
   bool allow_2pc_;
 
   // Memtable id to track flush.
-  std::atomic<uint64_t> last_memtable_id_;
+  uint64_t last_memtable_id_;
 
   // Directories corresponding to cf_paths.
   std::vector<std::shared_ptr<FSDirectory>> data_dirs_;

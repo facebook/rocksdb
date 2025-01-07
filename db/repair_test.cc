@@ -60,19 +60,6 @@ class RepairTest : public DBTestBase {
     ASSERT_GT(verify_passed, 0);
     SyncPoint::GetInstance()->DisableProcessing();
   }
-
-  std::vector<FileMetaData*> GetLevelFileMetadatas(int level, int cf = 0) {
-    VersionSet* const versions = dbfull()->GetVersionSet();
-    assert(versions);
-    ColumnFamilyData* const cfd =
-        versions->GetColumnFamilySet()->GetColumnFamily(cf);
-    assert(cfd);
-    Version* const current = cfd->current();
-    assert(current);
-    VersionStorageInfo* const storage_info = current->storage_info();
-    assert(storage_info);
-    return storage_info->LevelFiles(level);
-  }
 };
 
 TEST_F(RepairTest, SortRepairedDBL0ByEpochNumber) {
@@ -621,4 +608,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

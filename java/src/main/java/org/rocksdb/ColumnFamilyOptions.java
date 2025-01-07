@@ -1204,11 +1204,10 @@ public class ColumnFamilyOptions
   }
 
   /**
-   *  If the ratio of garbage in the oldest blob files exceeds this threshold,
-   *  targeted compactions are scheduled in order to force garbage collecting
-   *  the blob files in question, assuming they are all eligible based on the
-   *  value of {@link #blobGarbageCollectionAgeCutoff} above. This option is
-   *  currently only supported with leveled compactions.
+   * If the ratio of garbage in the blob files currently eligible for garbage
+   * collection exceeds this threshold, targeted compactions are scheduled in
+   * order to force garbage collecting the oldest blob files. This option is
+   * currently only supported with leveled compactions.
    * <p>
    *  Note that {@link #enableBlobGarbageCollection} has to be set in order for this
    *  option to have any effect.

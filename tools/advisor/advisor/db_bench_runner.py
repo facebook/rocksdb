@@ -65,7 +65,7 @@ class DBBenchRunner(BenchmarkRunner):
         """
         output = {self.THROUGHPUT: None, self.DB_PATH: None, self.PERF_CON: None}
         perf_context_begins = False
-        with open(self.OUTPUT_FILE, "r") as fp:
+        with open(self.OUTPUT_FILE) as fp:
             for line in fp:
                 if line.startswith(self.benchmark):
                     # line from sample output:
@@ -159,7 +159,7 @@ class DBBenchRunner(BenchmarkRunner):
         except OSError as e:
             print("Error: rmdir " + e.filename + " " + e.strerror)
         # setup database with a million keys using the fillrandom benchmark
-        command = "%s --benchmarks=fillrandom --db=%s --num=1000000" % (
+        command = "{} --benchmarks=fillrandom --db={} --num=1000000".format(
             self.db_bench_binary,
             db_path,
         )
@@ -168,7 +168,7 @@ class DBBenchRunner(BenchmarkRunner):
         self._run_command(command)
 
     def _build_experiment_command(self, curr_options, db_path):
-        command = "%s --benchmarks=%s --statistics --perf_level=3 --db=%s" % (
+        command = "{} --benchmarks={} --statistics --perf_level=3 --db={}".format(
             self.db_bench_binary,
             self.benchmark,
             db_path,

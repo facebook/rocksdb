@@ -575,13 +575,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   void UpdateRawKeyAndMaybePadMinTimestamp(const Slice& key) {
     if (pad_min_timestamp_) {
-      std::string buf;
-      if (raw_key_.IsUserKey()) {
-        AppendKeyWithMinTimestamp(&buf, key, ts_sz_);
-      } else {
-        PadInternalKeyWithMinTimestamp(&buf, key, ts_sz_);
-      }
-      raw_key_.SetKey(buf, true /* copy */);
+      raw_key_.SetKeyWithPaddedMinTimestamp(key, ts_sz_);
     } else {
       raw_key_.SetKey(key, false /* copy */);
     }

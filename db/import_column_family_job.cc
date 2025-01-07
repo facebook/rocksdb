@@ -4,8 +4,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/version_builder.h"
-
 #include "db/import_column_family_job.h"
 
 #include <algorithm>
@@ -13,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
@@ -329,7 +328,7 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   // TODO(yuzhangyu): User-defined timestamps doesn't support importing column
   //  family. Pass in the correct `user_defined_timestamps_persisted` flag for
   //  creating `TableReaderOptions` when the support is there.
-  status = cfd_->ioptions()->table_factory->NewTableReader(
+  status = sv->mutable_cf_options.table_factory->NewTableReader(
       TableReaderOptions(
           *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
@@ -371,7 +370,8 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
     if (iter->Valid()) {
       file_to_import->smallest_internal_key.DecodeFrom(iter->key());
       Slice largest;
-      if (strcmp(cfd_->ioptions()->table_factory->Name(), "PlainTable") == 0) {
+      if (strcmp(sv->mutable_cf_options.table_factory->Name(), "PlainTable") ==
+          0) {
         // PlainTable iterator does not support SeekToLast().
         largest = iter->key();
         for (; iter->Valid(); iter->Next()) {

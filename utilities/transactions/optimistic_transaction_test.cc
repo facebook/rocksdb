@@ -2222,6 +2222,443 @@ TEST_P(OptimisticTransactionTest, EntityReadSanityChecks) {
   }
 }
 
+TEST_P(OptimisticTransactionTest, CoalescingIterator) {
+  ColumnFamilyOptions cf_opts;
+  cf_opts.enable_blob_files = true;
+
+  ColumnFamilyHandle* cfh1 = nullptr;
+  ASSERT_OK(txn_db->CreateColumnFamily(cf_opts, "cf1", &cfh1));
+  std::unique_ptr<ColumnFamilyHandle> cfh1_guard(cfh1);
+
+  ColumnFamilyHandle* cfh2 = nullptr;
+  ASSERT_OK(txn_db->CreateColumnFamily(cf_opts, "cf2", &cfh2));
+  std::unique_ptr<ColumnFamilyHandle> cfh2_guard(cfh2);
+
+  // Note: "cf1" keys are present only in CF1; "cf2" keys are only present in
+  // CF2; "cf12" keys are present in both CFs. "a" keys are present only in the
+  // database; "b" keys are present only in the transaction; "c" keys are
+  // present in both the database and the transaction. The values indicate the
+  // column family as well as whether the entry came from the database or the
+  // transaction.
+
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh1, "cf1_a", "cf1_a_db_cf1"));
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh1, "cf1_c", "cf1_c_db_cf1"));
+
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh2, "cf2_a", "cf2_a_db_cf2"));
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh2, "cf2_c", "cf2_c_db_cf2"));
+
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh1, "cf12_a", "cf12_a_db_cf1"));
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh2, "cf12_a", "cf12_a_db_cf2"));
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh1, "cf12_c", "cf12_c_db_cf1"));
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh2, "cf12_c", "cf12_c_db_cf2"));
+
+  ASSERT_OK(txn_db->Flush(FlushOptions(), cfh1));
+  ASSERT_OK(txn_db->Flush(FlushOptions(), cfh2));
+
+  std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
+
+  ASSERT_OK(txn->Put(cfh1, "cf1_b", "cf1_b_txn_cf1"));
+  ASSERT_OK(txn->Put(cfh1, "cf1_c", "cf1_c_txn_cf1"));
+
+  ASSERT_OK(txn->Put(cfh2, "cf2_b", "cf2_b_txn_cf2"));
+  ASSERT_OK(txn->Put(cfh2, "cf2_c", "cf2_c_txn_cf2"));
+
+  ASSERT_OK(txn->Put(cfh1, "cf12_b", "cf12_b_txn_cf1"));
+  ASSERT_OK(txn->Put(cfh2, "cf12_b", "cf12_b_txn_cf2"));
+  ASSERT_OK(txn->Put(cfh1, "cf12_c", "cf12_c_txn_cf1"));
+  ASSERT_OK(txn->Put(cfh2, "cf12_c", "cf12_c_txn_cf2"));
+
+  auto verify = [&](bool allow_unprepared_value, auto prepare_if_needed) {
+    ReadOptions read_options;
+    read_options.allow_unprepared_value = allow_unprepared_value;
+
+    std::unique_ptr<Iterator> iter(
+        txn->GetCoalescingIterator(read_options, {cfh1, cfh2}));
+
+    {
+      iter->SeekToFirst();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf12_a");
+
+      prepare_if_needed(iter.get());
+
+      ASSERT_EQ(iter->value(), "cf12_a_db_cf2");
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf12_b");
+
+      prepare_if_needed(iter.get());
+
+      ASSERT_EQ(iter->value(), "cf12_b_txn_cf2");
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf12_c");
+
+      prepare_if_needed(iter.get());
+
+      ASSERT_EQ(iter->value(), "cf12_c_txn_cf2");
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf1_a");
+
+      prepare_if_needed(iter.get());
+
+      ASSERT_EQ(iter->value(), "cf1_a_db_cf1");
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf1_b");
+
+      prepare_if_needed(iter.get());
+
+      ASSERT_EQ(iter->value(), "cf1_b_txn_cf1");
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf1_c");
+
+      prepare_if_needed(iter.get());
+
+      ASSERT_EQ(iter->value(), "cf1_c_txn_cf1");
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf2_a");
+
+      prepare_if_needed(iter.get());
+
+      ASSERT_EQ(iter->value(), "cf2_a_db_cf2");
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf2_b");
+
+      prepare_if_needed(iter.get());
+
+      ASSERT_EQ(iter->value(), "cf2_b_txn_cf2");
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf2_c");
+
+      prepare_if_needed(iter.get());
+
+      ASSERT_EQ(iter->value(), "cf2_c_txn_cf2");
+    }
+
+    {
+      iter->Next();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+    }
+  };
+
+  verify(/* allow_unprepared_value */ false, [](Iterator*) {});
+  verify(/* allow_unprepared_value */ true, [](Iterator* iter) {
+    ASSERT_TRUE(iter->value().empty());
+    ASSERT_TRUE(iter->PrepareValue());
+  });
+}
+
+TEST_P(OptimisticTransactionTest, CoalescingIteratorSanityChecks) {
+  ColumnFamilyOptions cf1_opts;
+  ColumnFamilyHandle* cfh1 = nullptr;
+  ASSERT_OK(txn_db->CreateColumnFamily(cf1_opts, "cf1", &cfh1));
+  std::unique_ptr<ColumnFamilyHandle> cfh1_guard(cfh1);
+
+  ColumnFamilyOptions cf2_opts;
+  cf2_opts.comparator = ReverseBytewiseComparator();
+  ColumnFamilyHandle* cfh2 = nullptr;
+  ASSERT_OK(txn_db->CreateColumnFamily(cf2_opts, "cf2", &cfh2));
+  std::unique_ptr<ColumnFamilyHandle> cfh2_guard(cfh2);
+
+  std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
+
+  {
+    std::unique_ptr<Iterator> iter(
+        txn->GetCoalescingIterator(ReadOptions(), {}));
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
+
+  {
+    std::unique_ptr<Iterator> iter(
+        txn->GetCoalescingIterator(ReadOptions(), {cfh1, cfh2}));
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kCompaction;
+
+    std::unique_ptr<Iterator> iter(
+        txn->GetCoalescingIterator(read_options, {cfh1}));
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
+}
+
+TEST_P(OptimisticTransactionTest, AttributeGroupIterator) {
+  ColumnFamilyOptions cf_opts;
+  cf_opts.enable_blob_files = true;
+
+  ColumnFamilyHandle* cfh1 = nullptr;
+  ASSERT_OK(txn_db->CreateColumnFamily(cf_opts, "cf1", &cfh1));
+  std::unique_ptr<ColumnFamilyHandle> cfh1_guard(cfh1);
+
+  ColumnFamilyHandle* cfh2 = nullptr;
+  ASSERT_OK(txn_db->CreateColumnFamily(cf_opts, "cf2", &cfh2));
+  std::unique_ptr<ColumnFamilyHandle> cfh2_guard(cfh2);
+
+  // Note: "cf1" keys are present only in CF1; "cf2" keys are only present in
+  // CF2; "cf12" keys are present in both CFs. "a" keys are present only in the
+  // database; "b" keys are present only in the transaction; "c" keys are
+  // present in both the database and the transaction. The values indicate the
+  // column family as well as whether the entry came from the database or the
+  // transaction.
+
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh1, "cf1_a", "cf1_a_db_cf1"));
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh1, "cf1_c", "cf1_c_db_cf1"));
+
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh2, "cf2_a", "cf2_a_db_cf2"));
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh2, "cf2_c", "cf2_c_db_cf2"));
+
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh1, "cf12_a", "cf12_a_db_cf1"));
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh2, "cf12_a", "cf12_a_db_cf2"));
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh1, "cf12_c", "cf12_c_db_cf1"));
+  ASSERT_OK(txn_db->Put(WriteOptions(), cfh2, "cf12_c", "cf12_c_db_cf2"));
+
+  ASSERT_OK(txn_db->Flush(FlushOptions(), cfh1));
+  ASSERT_OK(txn_db->Flush(FlushOptions(), cfh2));
+
+  std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
+
+  ASSERT_OK(txn->Put(cfh1, "cf1_b", "cf1_b_txn_cf1"));
+  ASSERT_OK(txn->Put(cfh1, "cf1_c", "cf1_c_txn_cf1"));
+
+  ASSERT_OK(txn->Put(cfh2, "cf2_b", "cf2_b_txn_cf2"));
+  ASSERT_OK(txn->Put(cfh2, "cf2_c", "cf2_c_txn_cf2"));
+
+  ASSERT_OK(txn->Put(cfh1, "cf12_b", "cf12_b_txn_cf1"));
+  ASSERT_OK(txn->Put(cfh2, "cf12_b", "cf12_b_txn_cf2"));
+  ASSERT_OK(txn->Put(cfh1, "cf12_c", "cf12_c_txn_cf1"));
+  ASSERT_OK(txn->Put(cfh2, "cf12_c", "cf12_c_txn_cf2"));
+
+  auto verify = [&](bool allow_unprepared_value, auto prepare_if_needed) {
+    ReadOptions read_options;
+    read_options.allow_unprepared_value = allow_unprepared_value;
+
+    std::unique_ptr<AttributeGroupIterator> iter(
+        txn->GetAttributeGroupIterator(read_options, {cfh1, cfh2}));
+
+    {
+      iter->SeekToFirst();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf12_a");
+
+      prepare_if_needed(iter.get());
+
+      WideColumns cf1_columns{{kDefaultWideColumnName, "cf12_a_db_cf1"}};
+      WideColumns cf2_columns{{kDefaultWideColumnName, "cf12_a_db_cf2"}};
+      IteratorAttributeGroups expected{
+          IteratorAttributeGroup{cfh1, &cf1_columns},
+          IteratorAttributeGroup{cfh2, &cf2_columns}};
+      ASSERT_EQ(iter->attribute_groups(), expected);
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf12_b");
+
+      prepare_if_needed(iter.get());
+
+      WideColumns cf1_columns{{kDefaultWideColumnName, "cf12_b_txn_cf1"}};
+      WideColumns cf2_columns{{kDefaultWideColumnName, "cf12_b_txn_cf2"}};
+      IteratorAttributeGroups expected{
+          IteratorAttributeGroup{cfh1, &cf1_columns},
+          IteratorAttributeGroup{cfh2, &cf2_columns}};
+      ASSERT_EQ(iter->attribute_groups(), expected);
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf12_c");
+
+      prepare_if_needed(iter.get());
+
+      WideColumns cf1_columns{{kDefaultWideColumnName, "cf12_c_txn_cf1"}};
+      WideColumns cf2_columns{{kDefaultWideColumnName, "cf12_c_txn_cf2"}};
+      IteratorAttributeGroups expected{
+          IteratorAttributeGroup{cfh1, &cf1_columns},
+          IteratorAttributeGroup{cfh2, &cf2_columns}};
+      ASSERT_EQ(iter->attribute_groups(), expected);
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf1_a");
+
+      prepare_if_needed(iter.get());
+
+      WideColumns cf1_columns{{kDefaultWideColumnName, "cf1_a_db_cf1"}};
+      IteratorAttributeGroups expected{
+          IteratorAttributeGroup{cfh1, &cf1_columns}};
+      ASSERT_EQ(iter->attribute_groups(), expected);
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf1_b");
+
+      prepare_if_needed(iter.get());
+
+      WideColumns cf1_columns{{kDefaultWideColumnName, "cf1_b_txn_cf1"}};
+      IteratorAttributeGroups expected{
+          IteratorAttributeGroup{cfh1, &cf1_columns}};
+      ASSERT_EQ(iter->attribute_groups(), expected);
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf1_c");
+
+      prepare_if_needed(iter.get());
+
+      WideColumns cf1_columns{{kDefaultWideColumnName, "cf1_c_txn_cf1"}};
+      IteratorAttributeGroups expected{
+          IteratorAttributeGroup{cfh1, &cf1_columns}};
+      ASSERT_EQ(iter->attribute_groups(), expected);
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf2_a");
+
+      prepare_if_needed(iter.get());
+
+      WideColumns cf2_columns{{kDefaultWideColumnName, "cf2_a_db_cf2"}};
+      IteratorAttributeGroups expected{
+          IteratorAttributeGroup{cfh2, &cf2_columns}};
+      ASSERT_EQ(iter->attribute_groups(), expected);
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf2_b");
+
+      prepare_if_needed(iter.get());
+
+      WideColumns cf2_columns{{kDefaultWideColumnName, "cf2_b_txn_cf2"}};
+      IteratorAttributeGroups expected{
+          IteratorAttributeGroup{cfh2, &cf2_columns}};
+      ASSERT_EQ(iter->attribute_groups(), expected);
+    }
+
+    {
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), "cf2_c");
+
+      prepare_if_needed(iter.get());
+
+      WideColumns cf2_columns{{kDefaultWideColumnName, "cf2_c_txn_cf2"}};
+      IteratorAttributeGroups expected{
+          IteratorAttributeGroup{cfh2, &cf2_columns}};
+      ASSERT_EQ(iter->attribute_groups(), expected);
+    }
+
+    {
+      iter->Next();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+    }
+  };
+
+  verify(/* allow_unprepared_value */ false, [](AttributeGroupIterator*) {});
+  verify(/* allow_unprepared_value */ true, [](AttributeGroupIterator* iter) {
+    ASSERT_TRUE(iter->attribute_groups().empty());
+    ASSERT_TRUE(iter->PrepareValue());
+  });
+}
+
+TEST_P(OptimisticTransactionTest, AttributeGroupIteratorSanityChecks) {
+  ColumnFamilyOptions cf1_opts;
+  ColumnFamilyHandle* cfh1 = nullptr;
+  ASSERT_OK(txn_db->CreateColumnFamily(cf1_opts, "cf1", &cfh1));
+  std::unique_ptr<ColumnFamilyHandle> cfh1_guard(cfh1);
+
+  ColumnFamilyOptions cf2_opts;
+  cf2_opts.comparator = ReverseBytewiseComparator();
+  ColumnFamilyHandle* cfh2 = nullptr;
+  ASSERT_OK(txn_db->CreateColumnFamily(cf2_opts, "cf2", &cfh2));
+  std::unique_ptr<ColumnFamilyHandle> cfh2_guard(cfh2);
+
+  std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
+
+  {
+    std::unique_ptr<AttributeGroupIterator> iter(
+        txn->GetAttributeGroupIterator(ReadOptions(), {}));
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
+
+  {
+    std::unique_ptr<AttributeGroupIterator> iter(
+        txn->GetAttributeGroupIterator(ReadOptions(), {cfh1, cfh2}));
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.io_activity = Env::IOActivity::kCompaction;
+
+    std::unique_ptr<AttributeGroupIterator> iter(
+        txn->GetAttributeGroupIterator(read_options, {cfh1}));
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(
     InstanceOccGroup, OptimisticTransactionTest,
     testing::Values(OccValidationPolicy::kValidateSerial,

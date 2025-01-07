@@ -209,6 +209,8 @@ class WriteBatch : public WriteBatchBase {
 
   using WriteBatchBase::Clear;
   // Clear all updates buffered in this batch.
+  // Internally, it calls resize() on the string buffer. So allocated memory
+  // capacity may not be freed.
   void Clear() override;
 
   // Records the state of the batch for future calls to RollbackToSavePoint().

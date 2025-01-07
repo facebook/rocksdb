@@ -83,7 +83,8 @@ class BlockFetcherTest : public testing::Test {
         TableBuilderOptions(ioptions, moptions, read_options, write_options,
                             comparator, &factories, compression_type,
                             CompressionOptions(), 0 /* column_family_id */,
-                            kDefaultColumnFamilyName, -1 /* level */),
+                            kDefaultColumnFamilyName, -1 /* level */,
+                            kUnknownNewestKeyTime),
         writer.get()));
 
     // Build table.
@@ -528,7 +529,6 @@ TEST_F(BlockFetcherTest, FetchAndUncompressCompressedDataBlock) {
   TestFetchDataBlock("FetchAndUncompressCompressedDataBlock", true, true,
                      expected_stats_by_mode);
 }
-
 
 }  // namespace
 }  // namespace ROCKSDB_NAMESPACE

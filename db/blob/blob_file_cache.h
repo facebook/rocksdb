@@ -36,6 +36,15 @@ class BlobFileCache {
                            uint64_t blob_file_number,
                            CacheHandleGuard<BlobFileReader>* blob_file_reader);
 
+  // Called when a blob file is obsolete to ensure it is removed from the cache
+  // to avoid effectively leaking the open file and assicated memory
+  void Evict(uint64_t blob_file_number);
+
+  // Used to identify cache entries for blob files (not normally useful)
+  static const Cache::CacheItemHelper* GetHelper() {
+    return CacheInterface::GetBasicHelper();
+  }
+
  private:
   using CacheInterface =
       BasicTypedCacheInterface<BlobFileReader, CacheEntryRole::kMisc>;

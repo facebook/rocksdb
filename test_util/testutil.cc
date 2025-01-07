@@ -308,6 +308,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->is_fd_close_on_exec = rnd->Uniform(2);
   db_opt->paranoid_checks = rnd->Uniform(2);
   db_opt->track_and_verify_wals_in_manifest = rnd->Uniform(2);
+  db_opt->track_and_verify_wals = rnd->Uniform(2);
   db_opt->verify_sst_unique_id_in_manifest = rnd->Uniform(2);
   db_opt->skip_stats_update_on_db_open = rnd->Uniform(2);
   db_opt->skip_checking_sst_file_sizes_on_db_open = rnd->Uniform(2);
@@ -765,7 +766,6 @@ int RegisterTestObjects(ObjectLibrary& library, const std::string& arg) {
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 
-
 void RegisterTestLibrary(const std::string& arg) {
   static bool registered = false;
   if (!registered) {
@@ -773,4 +773,6 @@ void RegisterTestLibrary(const std::string& arg) {
     ObjectRegistry::Default()->AddLibrary("test", RegisterTestObjects, arg);
   }
 }
+
+const std::string kUnitTestDbId = "UnitTest";
 }  // namespace ROCKSDB_NAMESPACE::test

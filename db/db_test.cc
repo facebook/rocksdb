@@ -1161,7 +1161,6 @@ class DelayFilterFactory : public CompactionFilterFactory {
 };
 }  // anonymous namespace
 
-
 static std::string CompressibleString(Random* rnd, int len) {
   std::string r;
   test::CompressibleString(rnd, 0.8, len, &r);
@@ -1826,21 +1825,30 @@ TEST_F(DBTest, GetApproximateMemTableStats) {
   uint64_t count;
   uint64_t size;
 
+  // Because Random::GetTLSInstance() seed is reset in DBTestBase,
+  // this test is deterministic.
+
   std::string start = Key(50);
   std::string end = Key(60);
   Range r(start, end);
   db_->GetApproximateMemTableStats(r, &count, &size);
-  ASSERT_GT(count, 0);
-  ASSERT_LE(count, N);
-  ASSERT_GT(size, 6000);
-  ASSERT_LT(size, 204800);
+  // When actual count is <= 10, it returns that as the minimum
+  EXPECT_EQ(count, 10);
+  EXPECT_EQ(size, 10440);
+
+  start = Key(20);
+  end = Key(100);
+  r = Range(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  EXPECT_EQ(count, 72);
+  EXPECT_EQ(size, 75168);
 
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
   db_->GetApproximateMemTableStats(r, &count, &size);
-  ASSERT_EQ(count, 0);
-  ASSERT_EQ(size, 0);
+  EXPECT_EQ(count, 0);
+  EXPECT_EQ(size, 0);
 
   ASSERT_OK(Flush());
 
@@ -1848,8 +1856,8 @@ TEST_F(DBTest, GetApproximateMemTableStats) {
   end = Key(60);
   r = Range(start, end);
   db_->GetApproximateMemTableStats(r, &count, &size);
-  ASSERT_EQ(count, 0);
-  ASSERT_EQ(size, 0);
+  EXPECT_EQ(count, 0);
+  EXPECT_EQ(size, 0);
 
   for (int i = 0; i < N; i++) {
     ASSERT_OK(Put(Key(1000 + i), rnd.RandomString(1024)));
@@ -1857,10 +1865,11 @@ TEST_F(DBTest, GetApproximateMemTableStats) {
 
   start = Key(100);
   end = Key(1020);
+  // Actually 20 keys in the range ^^
   r = Range(start, end);
   db_->GetApproximateMemTableStats(r, &count, &size);
-  ASSERT_GT(count, 20);
-  ASSERT_GT(size, 6000);
+  EXPECT_EQ(count, 20);
+  EXPECT_EQ(size, 20880);
 }
 
 TEST_F(DBTest, ApproximateSizes) {
@@ -4368,7 +4377,6 @@ TEST_F(DBTest, ConcurrentMemtableNotSupported) {
   ASSERT_NOK(db_->CreateColumnFamily(cf_options, "name", &handle));
 }
 
-
 TEST_F(DBTest, SanitizeNumThreads) {
   for (int attempt = 0; attempt < 2; attempt++) {
     const size_t kTotalTasks = 8;
@@ -5169,10 +5177,14 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   options.max_bytes_for_level_multiplier = 4;
   options.max_background_compactions = 1;
   options.num_levels = 5;
+  options.statistics = CreateDBStatistics();
 
   options.compression_per_level.resize(3);
+  // No compression for L0
   options.compression_per_level[0] = kNoCompression;
+  // No compression for the Ln whre L0 is compacted to
   options.compression_per_level[1] = kNoCompression;
+  // Snpapy compression for Ln+1
   options.compression_per_level[2] = kSnappyCompression;
 
   OnFileDeletionListener* listener = new OnFileDeletionListener();
@@ -5181,7 +5193,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   DestroyAndReopen(options);
 
   // Insert more than 80K. L4 should be base level. Neither L0 nor L4 should
-  // be compressed, so total data size should be more than 80K.
+  // be compressed, so there shouldn't be any compression.
   for (int i = 0; i < 20; i++) {
     ASSERT_OK(Put(Key(keys[i]), CompressibleString(&rnd, 4000)));
   }
@@ -5191,10 +5203,17 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
   ASSERT_EQ(NumTableFilesAtLevel(3), 0);
-  // Assuming each files' metadata is at least 50 bytes/
-  ASSERT_GT(SizeAtLevel(0) + SizeAtLevel(4), 20U * 4000U + 50U * 4);
+  ASSERT_TRUE(NumTableFilesAtLevel(0) > 0 || NumTableFilesAtLevel(4) > 0);
 
-  // Insert 400KB. Some data will be compressed
+  // Verify there was no compression
+  auto num_block_compressed =
+      options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
+  ASSERT_EQ(num_block_compressed, 0);
+
+  // Insert 400KB and there will be some files end up in L3. According to the
+  // above compression settings for each level, there will be some compression.
+  ASSERT_OK(options.statistics->Reset());
+  ASSERT_EQ(num_block_compressed, 0);
   for (int i = 21; i < 120; i++) {
     ASSERT_OK(Put(Key(keys[i]), CompressibleString(&rnd, 4000)));
   }
@@ -5202,9 +5221,14 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+  ASSERT_GE(NumTableFilesAtLevel(3), 1);
+  ASSERT_GE(NumTableFilesAtLevel(4), 1);
 
-  ASSERT_LT(SizeAtLevel(0) + SizeAtLevel(3) + SizeAtLevel(4),
-            120U * 4000U + 50U * 24);
+  // Verify there was compression
+  num_block_compressed =
+      options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
+  ASSERT_GT(num_block_compressed, 0);
+
   // Make sure data in files in L3 is not compacted by removing all files
   // in L4 and calculate number of rows
   ASSERT_OK(dbfull()->SetOptions({
@@ -5224,6 +5248,12 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
     num_keys++;
   }
   ASSERT_OK(iter->status());
+
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+  ASSERT_GE(NumTableFilesAtLevel(3), 1);
+  ASSERT_EQ(NumTableFilesAtLevel(4), 0);
+
   ASSERT_GT(SizeAtLevel(0) + SizeAtLevel(3), num_keys * 4000U + num_keys * 10U);
 }
 
@@ -5755,7 +5785,6 @@ TEST_F(DBTest, FileCreationRandomFailure) {
     ASSERT_EQ(v, values[k]);
   }
 }
-
 
 TEST_F(DBTest, DynamicMiscOptions) {
   // Test max_sequential_skip_in_iterations
@@ -7198,7 +7227,6 @@ TEST_F(DBTest, ReusePinnableSlice) {
             1);
 }
 
-
 TEST_F(DBTest, DeletingOldWalAfterDrop) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"Test:AllowFlushes", "DBImpl::BGWorkFlush"},
@@ -7322,7 +7350,6 @@ TEST_F(DBTest, LargeBlockSizeTest) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   ASSERT_NOK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
-
 
 TEST_F(DBTest, CreationTimeOfOldestFile) {
   const int kNumKeysPerFile = 32;

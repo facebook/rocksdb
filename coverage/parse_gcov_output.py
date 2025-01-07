@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
-from __future__ import print_function
 
 import optparse
 import re
@@ -109,11 +108,11 @@ def report_coverage():
 
     # Check if we need to display coverage info for interested files.
     if len(interested_files):
-        per_file_coverage = dict(
-            (fname, per_file_coverage[fname])
+        per_file_coverage = {
+            fname: per_file_coverage[fname]
             for fname in interested_files
             if fname in per_file_coverage
-        )
+        }
         # If we only interested in several files, it makes no sense to report
         # the total_coverage
         total_coverage = None

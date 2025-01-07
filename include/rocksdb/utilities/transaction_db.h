@@ -20,6 +20,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class SecondaryIndex;
 class TransactionDBMutexFactory;
 
 enum TxnDBWritePolicy {
@@ -240,6 +241,14 @@ struct TransactionDBOptions {
   // user-defined timestamps so this option only applies in this case.
   bool enable_udt_validation = true;
 
+  //       / \     UNDER CONSTRUCTION
+  //      / ! \    UNDER CONSTRUCTION
+  //     /-----\   UNDER CONSTRUCTION
+  //
+  // The secondary indices to be maintained. See the SecondaryIndex interface
+  // for more details.
+  std::vector<std::shared_ptr<SecondaryIndex>> secondary_indices;
+
  private:
   // 128 entries
   // Should the default value change, please also update wp_snapshot_cache_bits
@@ -339,6 +348,23 @@ struct TransactionOptions {
   // size in APIs that MyRocks currently are using, including Put, Merge, Delete
   // DeleteRange, SingleDelete.
   bool write_batch_track_timestamp_size = false;
+
+  // EXPERIMENTAL
+  // Only supports write-committed policy. If set to true, the transaction will
+  // skip memtable write and ingest into the DB directly during Commit(). This
+  // makes Commit() much faster for transactions with many operations.
+  // Transactions with Merge() or PutEntity() is not supported yet.
+  //
+  // Note that the transaction will be ingested as an immutable memtable for
+  // CFs it updates, and the current memtable will be switched to a new one.
+  // So ingesting many transactions in a short period of time may cause stall
+  // due to too many memtables.
+  // Note that the ingestion relies on the transaction's underlying index,
+  // (WriteBatchWithIndex), so updates that are added to the transaction
+  // without indexing (e.g. added directly to the transaction underlying
+  // write batch through Transaction::GetWriteBatch()->GetWriteBatch())
+  // are not supported. They will not be applied to the DB.
+  bool commit_bypass_memtable = false;
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB
@@ -460,7 +486,10 @@ class TransactionDB : public StackableDB {
   //
   // If old_txn is not null, BeginTransaction will reuse this Transaction
   // handle instead of allocating a new one.  This is an optimization to avoid
-  // extra allocations when repeatedly creating transactions.
+  // extra allocations when repeatedly creating transactions. **Note that this
+  // may not free all the allocated memory by the previous transaction (see
+  // WriteBatch::Clear()). To ensure that all allocated memory is freed, users
+  // must destruct the transaction object.
   virtual Transaction* BeginTransaction(
       const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions(),

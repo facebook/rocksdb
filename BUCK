@@ -83,6 +83,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/log_writer.cc",
         "db/logs_with_prep_tracker.cc",
         "db/malloc_stats.cc",
+        "db/manifest_ops.cc",
         "db/memtable.cc",
         "db/memtable_list.cc",
         "db/merge_helper.cc",
@@ -149,6 +150,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "memtable/hash_skiplist_rep.cc",
         "memtable/skiplistrep.cc",
         "memtable/vectorrep.cc",
+        "memtable/wbwi_memtable.cc",
         "memtable/write_buffer_manager.cc",
         "monitoring/histogram.cc",
         "monitoring/histogram_windowing.cc",
@@ -362,9 +364,14 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "//folly/experimental/coro:coroutine",
         "//folly/experimental/coro:task",
         "//folly/synchronization:distributed_mutex",
-    ], headers=None, link_whole=False, extra_test_libs=False)
+    ], headers=glob(["**/*.h"]), link_whole=False, extra_test_libs=False)
 
-cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[], deps=[":rocksdb_lib"], headers=None, link_whole=True, extra_test_libs=False)
+cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[], deps=[":rocksdb_lib"], headers=[], link_whole=True, extra_test_libs=False)
+
+cpp_library_wrapper(name="rocksdb_with_faiss_lib", srcs=["utilities/secondary_index/faiss_ivf_index.cc"], deps=[
+        "//faiss:faiss",
+        ":rocksdb_lib",
+    ], headers=[], link_whole=False, extra_test_libs=False)
 
 cpp_library_wrapper(name="rocksdb_test_lib", srcs=[
         "db/db_test_util.cc",
@@ -378,7 +385,21 @@ cpp_library_wrapper(name="rocksdb_test_lib", srcs=[
         "tools/trace_analyzer_tool.cc",
         "utilities/agg_merge/test_agg_merge.cc",
         "utilities/cassandra/test_utils.cc",
-    ], deps=[":rocksdb_lib"], headers=None, link_whole=False, extra_test_libs=True)
+    ], deps=[":rocksdb_lib"], headers=[], link_whole=False, extra_test_libs=True)
+
+cpp_library_wrapper(name="rocksdb_with_faiss_test_lib", srcs=[
+        "db/db_test_util.cc",
+        "db/db_with_timestamp_test_util.cc",
+        "table/mock_table.cc",
+        "test_util/mock_time_env.cc",
+        "test_util/secondary_cache_test_util.cc",
+        "test_util/testharness.cc",
+        "test_util/testutil.cc",
+        "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
+        "tools/trace_analyzer_tool.cc",
+        "utilities/agg_merge/test_agg_merge.cc",
+        "utilities/cassandra/test_utils.cc",
+    ], deps=[":rocksdb_with_faiss_lib"], headers=[], link_whole=False, extra_test_libs=True)
 
 cpp_library_wrapper(name="rocksdb_tools_lib", srcs=[
         "test_util/testutil.cc",
@@ -386,9 +407,9 @@ cpp_library_wrapper(name="rocksdb_tools_lib", srcs=[
         "tools/db_bench_tool.cc",
         "tools/simulated_hybrid_file_system.cc",
         "tools/trace_analyzer_tool.cc",
-    ], deps=[":rocksdb_lib"], headers=None, link_whole=False, extra_test_libs=False)
+    ], deps=[":rocksdb_lib"], headers=[], link_whole=False, extra_test_libs=False)
 
-cpp_library_wrapper(name="rocksdb_cache_bench_tools_lib", srcs=["cache/cache_bench_tool.cc"], deps=[":rocksdb_lib"], headers=None, link_whole=False, extra_test_libs=False)
+cpp_library_wrapper(name="rocksdb_cache_bench_tools_lib", srcs=["cache/cache_bench_tool.cc"], deps=[":rocksdb_lib"], headers=[], link_whole=False, extra_test_libs=False)
 
 rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
         "db_stress_tool/batched_ops_stress.cc",
@@ -410,7 +431,7 @@ rocks_cpp_library_wrapper(name="rocksdb_stress_lib", srcs=[
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/trace_analyzer_tool.cc",
-    ], headers=None)
+    ], headers=[])
 
 
 cpp_binary_wrapper(name="ldb", srcs=["tools/ldb.cc"], deps=[":rocksdb_tools_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
@@ -5026,7 +5047,7 @@ cpp_unittest_wrapper(name="dynamic_bloom_test",
             extra_compiler_flags=[])
 
 
-cpp_library_wrapper(name="env_basic_test_lib", srcs=["env/env_basic_test.cc"], deps=[":rocksdb_test_lib"], headers=None, link_whole=False, extra_test_libs=True)
+cpp_library_wrapper(name="env_basic_test_lib", srcs=["env/env_basic_test.cc"], deps=[":rocksdb_test_lib"], headers=[], link_whole=False, extra_test_libs=True)
 
 cpp_unittest_wrapper(name="env_basic_test",
             srcs=["env/env_basic_test.cc"],
@@ -5073,6 +5094,12 @@ cpp_unittest_wrapper(name="external_sst_file_basic_test",
 cpp_unittest_wrapper(name="external_sst_file_test",
             srcs=["db/external_sst_file_test.cc"],
             deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="faiss_ivf_index_test",
+            srcs=["utilities/secondary_index/faiss_ivf_index_test.cc"],
+            deps=[":rocksdb_with_faiss_test_lib"],
             extra_compiler_flags=[])
 
 

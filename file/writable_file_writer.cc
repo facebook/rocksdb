@@ -107,6 +107,14 @@ IOStatus WritableFileWriter::Append(const IOOptions& opts, const Slice& data,
   // Flush only when buffered I/O
   if (!use_direct_io() && (buf_.Capacity() - buf_.CurrentSize()) < left) {
     if (buf_.CurrentSize() > 0) {
+      if (!buffered_data_with_checksum_) {
+        // If we're not calculating checksum of buffered data, fill the
+        // buffer before flushing so that the writes are aligned. This will
+        // benefit file system performance.
+        size_t appended = buf_.Append(src, left);
+        left -= appended;
+        src += appended;
+      }
       s = Flush(io_options);
       if (!s.ok()) {
         set_seen_error(s);

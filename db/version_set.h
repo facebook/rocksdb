@@ -616,6 +616,10 @@ class VersionStorageInfo {
     return bottommost_files_mark_threshold_;
   }
 
+  SequenceNumber standalone_range_tombstone_files_mark_threshold() const {
+    return standalone_range_tombstone_files_mark_threshold_;
+  }
+
   // Returns whether any key in [`smallest_key`, `largest_key`] could appear in
   // an older L0 file than `last_l0_idx` or in a greater level than `last_level`
   //
@@ -627,6 +631,8 @@ class VersionStorageInfo {
                                      int last_level, int last_l0_idx);
 
   Env::WriteLifeTimeHint CalculateSSTWriteHint(int level) const;
+
+  const Comparator* user_comparator() const { return user_comparator_; }
 
  private:
   void ComputeCompensatedSizes();
@@ -697,13 +703,6 @@ class VersionStorageInfo {
   // file that is not yet compacted
   std::vector<int> next_file_to_compact_by_size_;
 
-  // Only the first few entries of files_by_compaction_pri_ are sorted.
-  // There is no need to sort all the files because it is likely
-  // that on a running system, we need to look at only the first
-  // few largest files because a new version is created every few
-  // seconds/minutes (because of concurrent compactions).
-  static const size_t number_of_files_to_sort_ = 50;
-
   // This vector contains list of files marked for compaction and also not
   // currently being compacted. It is protected by DB mutex. It is calculated in
   // ComputeCompactionScore(). Used by Leveled and Universal Compaction.
@@ -731,6 +730,12 @@ class VersionStorageInfo {
   // became eligible for compaction. It's defined as the min of the max nonzero
   // seqnums of unmarked bottommost files.
   SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+
+  // The minimum sequence number among all the standalone range tombstone files
+  // that are marked for compaction. A standalone range tombstone file is one
+  // with just one range tombstone.
+  SequenceNumber standalone_range_tombstone_files_mark_threshold_ =
+      kMaxSequenceNumber;
 
   // Monotonically increases as we release old snapshots. Zero indicates no
   // snapshots have been released yet. When no snapshots remain we set it to the
@@ -1265,10 +1270,6 @@ class VersionSet {
       const std::vector<std::function<void(const Status&)>>& manifest_wcbs =
           {});
 
-  static Status GetCurrentManifestPath(const std::string& dbname,
-                                       FileSystem* fs,
-                                       std::string* manifest_filename,
-                                       uint64_t* manifest_file_number);
   void WakeUpWaitingManifestWriters();
 
   // Recover the last saved descriptor (MANIFEST) from persistent storage.
@@ -1514,7 +1515,6 @@ class VersionSet {
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
 
   void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
-    // TODO: Erase file from BlobFileCache?
     obsolete_blob_files_.emplace_back(blob_file_number, std::move(path));
   }
 

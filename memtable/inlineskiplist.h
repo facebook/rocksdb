@@ -141,8 +141,9 @@ class InlineSkipList {
   // Returns true iff an entry that compares equal to key is in the list.
   bool Contains(const char* key) const;
 
-  // Return estimated number of entries smaller than `key`.
-  uint64_t EstimateCount(const char* key) const;
+  // Return estimated number of entries from `start_ikey` to `end_ikey`.
+  uint64_t ApproximateNumEntries(const Slice& start_ikey,
+                                 const Slice& end_ikey) const;
 
   // Validate correctness of the skip-list.
   void TEST_Validate() const;
@@ -673,31 +674,88 @@ InlineSkipList<Comparator>::FindRandomEntry() const {
 }
 
 template <class Comparator>
-uint64_t InlineSkipList<Comparator>::EstimateCount(const char* key) const {
-  uint64_t count = 0;
+uint64_t InlineSkipList<Comparator>::ApproximateNumEntries(
+    const Slice& start_ikey, const Slice& end_ikey) const {
+  // The number of entries at a given level for the given range, in terms of
+  // the actual number of entries in that range (level 0), follows a binomial
+  // distribution, which is very well approximated by the Poisson distribution.
+  // That has stddev sqrt(x) where x is the expected number of entries (mean)
+  // at this level, and the best predictor of x is the number of observed
+  // entries (at this level). To predict the number of entries on level 0 we use
+  // x * kBranchinng ^ level. From the standard deviation, the P99+ relative
+  // error is roughly 3 * sqrt(x) / x. Thus, a reasonable approach would be to
+  // find the smallest level with at least some moderate constant number entries
+  // in range. E.g. with at least ~40 entries, we expect P99+ relative error
+  // (approximation accuracy) of ~ 50% = 3 * sqrt(40) / 40; P95 error of
+  // ~30%; P75 error of < 20%.
+  //
+  // However, there are two issues with this approach, and an observation:
+  // * Pointer chasing on the larger (bottom) levels is much slower because of
+  // cache hierarchy effects, so when the result is smaller, getting the result
+  // will be substantially slower, despite traversing a similar number of
+  // entries. (We could be clever about pipelining our pointer chasing but
+  // that's complicated.)
+  // * The larger (bottom) levels also have lower variance because there's a
+  // chance (or certainty) that we reach level 0 and return the exact answer.
+  // * For applications in query planning, we can also tolerate more variance on
+  // small results because the impact of misestimating is likely smaller.
+  //
+  // These factors point us to an approach in which we have a higher minimum
+  // threshold number of samples for higher levels and lower for lower levels
+  // (see sufficient_samples below). This seems to yield roughly consistent
+  // relative error (stddev around 20%, less for large results) and roughly
+  // consistent query time around the time of two memtable point queries.
+  //
+  // Engineering observation: it is tempting to think that taking into account
+  // what we already found in how many entries occur on higher levels, not just
+  // the first iterated level with a sufficient number of samples, would yield
+  // a more accurate estimate. But that doesn't work because of the particular
+  // correlations and independences of the data: each level higher is just an
+  // independently probabilistic filtering of the level below it. That
+  // filtering from level l to l+1 has no more information about levels
+  // 0 .. l-1 than we can get from level l. The structure of RandomHeight() is
+  // a clue to these correlations and independences.
 
-  Node* x = head_;
-  int level = GetMaxHeight() - 1;
-  const DecodedKey key_decoded = compare_.decode_key(key);
-  while (true) {
-    assert(x == head_ || compare_(x->Key(), key_decoded) < 0);
-    Node* next = x->Next(level);
-    if (next != nullptr) {
-      PREFETCH(next->Next(level), 0, 1);
+  Node* lb = head_;
+  Node* ub = nullptr;
+  uint64_t count = 0;
+  for (int level = GetMaxHeight() - 1; level >= 0; level--) {
+    auto sufficient_samples = static_cast<uint64_t>(level) * kBranching_ + 10U;
+    if (count >= sufficient_samples) {
+      // No more counting; apply powers of kBranching and avoid floating point
+      count *= kBranching_;
+      continue;
     }
-    if (next == nullptr || compare_(next->Key(), key_decoded) >= 0) {
-      if (level == 0) {
-        return count;
-      } else {
-        // Switch to next list
-        count *= kBranching_;
-        level--;
+    count = 0;
+    Node* next;
+    // Get a more precise lower bound (for start key)
+    for (;;) {
+      next = lb->Next(level);
+      if (next == ub) {
+        break;
       }
-    } else {
-      x = next;
+      assert(next != nullptr);
+      if (compare_(next->Key(), start_ikey) >= 0) {
+        break;
+      }
+      lb = next;
+    }
+    // Count entries on this level until upper bound (for end key)
+    for (;;) {
+      if (next == ub) {
+        break;
+      }
+      assert(next != nullptr);
+      if (compare_(next->Key(), end_ikey) >= 0) {
+        // Save refined upper bound to potentially save key comparison
+        ub = next;
+        break;
+      }
       count++;
+      next = next->Next(level);
     }
   }
+  return count;
 }
 
 template <class Comparator>

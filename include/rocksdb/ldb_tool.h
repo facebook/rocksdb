@@ -39,4 +39,3 @@ class LDBTool {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

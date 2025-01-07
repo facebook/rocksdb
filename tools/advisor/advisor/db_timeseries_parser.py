@@ -51,7 +51,7 @@ class TimeSeriesData(DataSource):
         window_sec: float,
         threshold: bool,
         percent: bool,
-    ) -> Dict[str, Dict[int, float]]:
+    ) -> dict[str, dict[int, float]]:
         # this method calculates the (percent) rate change in the 'statistic'
         # for each entity (over 'window_sec' seconds) and returns the epochs
         # where this rate change is greater than or equal to the 'threshold'

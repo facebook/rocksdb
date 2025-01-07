@@ -41,7 +41,7 @@ class Statistics;
 //
 // INTERNAL: See typed_cache.h for convenient wrappers on top of this API.
 // New virtual functions must also be added to CacheWrapper below.
-class Cache {
+class Cache : public Customizable {
  public:  // types hidden from API client
   // Opaque handle to an entry stored in the cache.
   struct Handle {};
@@ -189,6 +189,8 @@ class Cache {
 
   // Destroys all remaining entries by calling the associated "deleter"
   virtual ~Cache() {}
+
+  static const char* Type() { return "Cache"; }
 
   // Creates a new Cache based on the input value string and returns the result.
   // Currently, this method can be used to create LRUCaches only

@@ -3,7 +3,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
 #include "table/plain/plain_table_reader.h"
 
 #include <string>
@@ -201,8 +200,10 @@ InternalIterator* PlainTableReader::NewIterator(
   assert(table_properties_);
 
   // Auto prefix mode is not implemented in PlainTable.
-  bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek &&
-                         !options.auto_prefix_mode;
+  bool use_prefix_seek =
+      !IsTotalOrderMode() &&
+      (options.prefix_same_as_start ||
+       (!options.total_order_seek && !options.auto_prefix_mode));
   if (arena == nullptr) {
     return new PlainTableIterator(this, use_prefix_seek);
   } else {

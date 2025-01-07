@@ -555,13 +555,13 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   std::string column_family_name;
   const ReadOptions read_options;
   const WriteOptions write_options;
-  builder.reset(ioptions.table_factory->NewTableBuilder(
+  builder.reset(moptions.table_factory->NewTableBuilder(
       TableBuilderOptions(
           ioptions, moptions, read_options, write_options, internal_comparator,
           &internal_tbl_prop_coll_factories, options.compression,
           CompressionOptions(),
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
-          column_family_name, level_),
+          column_family_name, level_, kUnknownNewestKeyTime),
       file_writer.get()));
 
   builder->Add(ik1.Encode().ToString(), v1);
@@ -581,7 +581,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   file_reader.reset(new RandomAccessFileReader(std::move(file), "test"));
   const bool kSkipFilters = true;
   const bool kImmortal = true;
-  ASSERT_OK(ioptions.table_factory->NewTableReader(
+  ASSERT_OK(moptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
                          internal_comparator,
                          0 /* block_protection_bytes_per_key */, !kSkipFilters,

@@ -16,6 +16,7 @@
 #include "db/db_test_util.h"
 #include "db/read_callback.h"
 #include "db/version_edit.h"
+#include "env/fs_readonly.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -36,18 +37,6 @@ namespace ROCKSDB_NAMESPACE {
 class DBTest2 : public DBTestBase {
  public:
   DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
-  std::vector<FileMetaData*> GetLevelFileMetadatas(int level, int cf = 0) {
-    VersionSet* const versions = dbfull()->GetVersionSet();
-    assert(versions);
-    ColumnFamilyData* const cfd =
-        versions->GetColumnFamilySet()->GetColumnFamily(cf);
-    assert(cfd);
-    Version* const current = cfd->current();
-    assert(current);
-    VersionStorageInfo* const storage_info = current->storage_info();
-    assert(storage_info);
-    return storage_info->LevelFiles(level);
-  }
 };
 
 TEST_F(DBTest2, OpenForReadOnly) {
@@ -145,7 +134,6 @@ TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
     db_->ReleaseSnapshot(s);
   }
 }
-
 
 class PrefixFullBloomWithReverseComparator
     : public DBTestBase,
@@ -1988,7 +1976,6 @@ TEST_F(DBTest2, CompactionStall) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-
 TEST_F(DBTest2, FirstSnapshotTest) {
   Options options;
   options.write_buffer_size = 100000;  // Small write buffer
@@ -2115,16 +2102,15 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
   ASSERT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_ADD));
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
 
-  std::string value;
   // Miss and hit count should remain the same, they're all pinned.
-  ASSERT_TRUE(db_->KeyMayExist(ReadOptions(), handles_[1], "key", &value));
+  ASSERT_TRUE(db_->KeyMayExist(ReadOptions(), handles_[1], "key", nullptr));
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
 
   // Miss and hit count should remain the same, they're all pinned.
-  value = Get(1, "key");
+  std::string value = Get(1, "key");
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
@@ -3612,7 +3598,6 @@ TEST_F(DBTest2, OptimizeForSmallDB) {
   value.Reset();
 }
 
-
 TEST_F(DBTest2, IterRaceFlush1) {
   ASSERT_OK(Put("foo", "v1"));
 
@@ -4116,7 +4101,6 @@ TEST_F(DBTest2, ReadCallbackTest) {
   }
 }
 
-
 TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
   // Regression test for race condition where an obsolete file is returned to
   // user as a "live file" but then deleted, all while file deletions are
@@ -4444,7 +4428,7 @@ TEST_F(DBTest2, TraceAndReplay) {
       db2->NewDefaultReplayer(handles, std::move(trace_reader), &replayer));
 
   TraceExecutionResultHandler res_handler;
-  std::function<void(Status, std::unique_ptr<TraceRecordResult> &&)> res_cb =
+  std::function<void(Status, std::unique_ptr<TraceRecordResult>&&)> res_cb =
       [&res_handler](Status exec_s, std::unique_ptr<TraceRecordResult>&& res) {
         ASSERT_TRUE(exec_s.ok() || exec_s.IsNotSupported());
         if (res != nullptr) {
@@ -5176,7 +5160,6 @@ TEST_F(DBTest2, TraceWithFilter) {
   ASSERT_EQ(count, 6);
 }
 
-
 TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -5597,32 +5580,45 @@ TEST_F(DBTest2, PrefixBloomFilteredOut) {
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.whole_key_filtering = false;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  DestroyAndReopen(options);
 
-  // Construct two L1 files with keys:
-  // f1:[aaa1 ccc1] f2:[ddd0]
-  ASSERT_OK(Put("aaa1", ""));
-  ASSERT_OK(Put("ccc1", ""));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("ddd0", ""));
-  ASSERT_OK(Flush());
-  CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kSkip;
-  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  // This test is also the primary test for prefix_seek_opt_in_only
+  for (bool opt_in : {false, true}) {
+    options.prefix_seek_opt_in_only = opt_in;
+    DestroyAndReopen(options);
 
-  Iterator* iter = db_->NewIterator(ReadOptions());
-  ASSERT_OK(iter->status());
+    // Construct two L1 files with keys:
+    // f1:[aaa1 ccc1] f2:[ddd0]
+    ASSERT_OK(Put("aaa1", ""));
+    ASSERT_OK(Put("ccc1", ""));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("ddd0", ""));
+    ASSERT_OK(Flush());
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kSkip;
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
-  // Bloom filter is filterd out by f1.
-  // This is just one of several valid position following the contract.
-  // Postioning to ccc1 or ddd0 is also valid. This is just to validate
-  // the behavior of the current implementation. If underlying implementation
-  // changes, the test might fail here.
-  iter->Seek("bbb1");
-  ASSERT_OK(iter->status());
-  ASSERT_FALSE(iter->Valid());
+    ReadOptions ropts;
+    for (bool same : {false, true}) {
+      ropts.prefix_same_as_start = same;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ropts));
+      ASSERT_OK(iter->status());
 
-  delete iter;
+      iter->Seek("bbb1");
+      ASSERT_OK(iter->status());
+      if (opt_in && !same) {
+        // Unbounded total order seek
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(iter->key(), "ccc1");
+      } else {
+        // Bloom filter is filterd out by f1. When same == false, this is just
+        // one valid position following the contract. Postioning to ccc1 or ddd0
+        // is also valid. This is just to validate the behavior of the current
+        // implementation. If underlying implementation changes, the test might
+        // fail here.
+        ASSERT_FALSE(iter->Valid());
+      }
+    }
+  }
 }
 
 TEST_F(DBTest2, RowCacheSnapshot) {
@@ -5987,6 +5983,7 @@ TEST_F(DBTest2, ChangePrefixExtractor) {
     // create a DB with block prefix index
     BlockBasedTableOptions table_options;
     Options options = CurrentOptions();
+    options.prefix_seek_opt_in_only = false;  // Use legacy prefix seek
 
     // Sometimes filter is checked based on upper bound. Assert counters
     // for that case. Otherwise, only check data correctness.
@@ -7691,7 +7688,6 @@ TEST_F(DBTest2, RecoverEpochNumber) {
   }
 }
 
-
 TEST_F(DBTest2, RenameDirectory) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
@@ -8058,6 +8054,63 @@ TEST_F(DBTest2, TableCacheMissDuringReadFromBlockCacheTier) {
   ASSERT_TRUE(db_->Get(non_blocking_opts, "foo", &value).IsIncomplete());
 
   ASSERT_EQ(orig_num_file_opens, TestGetTickerCount(options, NO_FILE_OPENS));
+}
+
+TEST_F(DBTest2, GetFileChecksumsFromCurrentManifest_CRC32) {
+  Options opts = CurrentOptions();
+  opts.create_if_missing = true;
+  opts.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  opts.level0_file_num_compaction_trigger = 10;
+
+  // Bootstrap the test database.
+  DB* db = nullptr;
+  std::string dbname = test::PerThreadDBPath("file_chksum");
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+
+  WriteOptions wopts;
+  FlushOptions fopts;
+  fopts.wait = true;
+  Random rnd(test::RandomSeed());
+  for (int i = 0; i < 4; i++) {
+    ASSERT_OK(db->Put(wopts, Key(i), rnd.RandomString(100)));
+    ASSERT_OK(db->Flush(fopts));
+  }
+
+  // Obtain rich files metadata for source of truth.
+  std::vector<LiveFileMetaData> live_files;
+  db->GetLiveFilesMetaData(&live_files);
+
+  ASSERT_OK(db->Close());
+  delete db;
+  db = nullptr;
+
+  // Process current MANIFEST file and build internal file checksum mappings.
+  std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
+  auto read_only_fs =
+      std::make_shared<ReadOnlyFileSystem>(env_->GetFileSystem());
+  ASSERT_OK(experimental::GetFileChecksumsFromCurrentManifest(
+      read_only_fs.get(), dbname, checksum_list.get()));
+
+  ASSERT_TRUE(checksum_list != nullptr);
+
+  // Retrieve files, related checksums and checksum functions.
+  std::vector<uint64_t> file_numbers;
+  std::vector<std::string> checksums;
+  std::vector<std::string> checksum_func_names;
+  ASSERT_OK(checksum_list->GetAllFileChecksums(&file_numbers, &checksums,
+                                               &checksum_func_names));
+
+  // Compare results.
+  ASSERT_EQ(live_files.size(), checksum_list->size());
+  for (size_t i = 0; i < live_files.size(); i++) {
+    std::string stored_checksum;
+    std::string stored_func_name;
+    ASSERT_OK(checksum_list->SearchOneFileChecksum(
+        live_files[i].file_number, &stored_checksum, &stored_func_name));
+
+    ASSERT_EQ(live_files[i].file_checksum, stored_checksum);
+    ASSERT_EQ(live_files[i].file_checksum_func_name, stored_func_name);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

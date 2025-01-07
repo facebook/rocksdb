@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <map>
 #include <optional>
 #include <queue>
@@ -197,4 +196,3 @@ class DeleteScheduler {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

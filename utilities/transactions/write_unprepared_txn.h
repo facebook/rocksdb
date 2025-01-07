@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <set>
 
 #include "utilities/transactions/write_prepared_txn.h"
@@ -272,7 +271,7 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
 
     SavePoint(const std::map<SequenceNumber, size_t>& seqs,
               ManagedSnapshot* snapshot)
-        : unprep_seqs_(seqs), snapshot_(snapshot){}
+        : unprep_seqs_(seqs), snapshot_(snapshot) {}
   };
 
   // We have 3 data structures holding savepoint information:

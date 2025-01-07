@@ -226,7 +226,6 @@ TEST_P(DBRateLimiterOnReadTest, Iterator) {
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
-
 TEST_P(DBRateLimiterOnReadTest, VerifyChecksum) {
   if (use_direct_io_ && !IsDirectIOSupported()) {
     return;
@@ -270,7 +269,6 @@ TEST_P(DBRateLimiterOnReadTest, VerifyFileChecksums) {
   int expected = kNumFiles;
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
-
 
 class DBRateLimiterOnWriteTest : public DBTestBase {
  public:

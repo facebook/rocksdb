@@ -51,6 +51,7 @@
 #include "env/io_posix.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
+#include "options/db_options.h"
 #include "port/lang.h"
 #include "port/port.h"
 #include "rocksdb/options.h"
@@ -930,6 +931,28 @@ class PosixFileSystem : public FileSystem {
     optimized.fallocate_with_keep_size = true;
     return optimized;
   }
+
+  FileOptions OptimizeForCompactionTableRead(
+      const FileOptions& file_options,
+      const ImmutableDBOptions& db_options) const override {
+    FileOptions fo = FileOptions(file_options);
+#ifdef OS_LINUX
+    // To fix https://github.com/facebook/rocksdb/issues/12038
+    if (!file_options.use_direct_reads &&
+        file_options.compaction_readahead_size > 0) {
+      size_t system_limit =
+          GetCompactionReadaheadSizeSystemLimit(db_options.db_paths);
+      if (system_limit > 0 &&
+          file_options.compaction_readahead_size > system_limit) {
+        fo.compaction_readahead_size = system_limit;
+      }
+    }
+#else
+    (void)db_options;
+#endif
+    return fo;
+  }
+
 #ifdef OS_LINUX
   Status RegisterDbPaths(const std::vector<std::string>& paths) override {
     return logical_block_size_cache_.RefAndCacheLogicalBlockSize(paths);
@@ -942,6 +965,36 @@ class PosixFileSystem : public FileSystem {
  private:
   bool forceMmapOff_ = false;  // do we override Env options?
 
+#ifdef OS_LINUX
+  // Get the minimum "linux system limit" (i.e, the largest I/O size that the OS
+  // can issue to block devices under a directory, also known as
+  // "max_sectors_kb" ) among `db_paths`.
+  // Return 0 if no limit can be found or there is an error in
+  // retrieving such limit.
+  static size_t GetCompactionReadaheadSizeSystemLimit(
+      const std::vector<DbPath>& db_paths) {
+    Status s;
+    size_t limit_kb = 0;
+
+    for (const auto& db_path : db_paths) {
+      size_t dir_max_sectors_kb = 0;
+      s = PosixHelper::GetMaxSectorsKBOfDirectory(db_path.path,
+                                                  &dir_max_sectors_kb);
+      if (!s.ok()) {
+        break;
+      }
+
+      limit_kb = (limit_kb == 0) ? dir_max_sectors_kb
+                                 : std::min(limit_kb, dir_max_sectors_kb);
+    }
+
+    if (s.ok()) {
+      return limit_kb * 1024;
+    } else {
+      return 0;
+    }
+  }
+#endif
   // Returns true iff the named directory exists and is a directory.
   virtual bool DirExists(const std::string& dname) {
     struct stat statbuf;

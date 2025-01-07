@@ -137,7 +137,13 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 
 BlockBasedTable::~BlockBasedTable() {
   auto ua = rep_->uncache_aggressiveness.LoadRelaxed();
-  if (ua > 0 && rep_->table_options.block_cache) {
+  // NOTE: there is an undiagnosed incompatibility with mmap reads,
+  // where attempting to read the index below can result in bus error.
+  // In theory the mmap should remain in place until destruction of
+  // rep_, so even a page fault should be satisfiable. But also, combining
+  // mmap reads with block cache is weird, so it's not a concerning loss.
+  if (ua > 0 && rep_->table_options.block_cache &&
+      !rep_->ioptions.allow_mmap_reads) {
     if (rep_->filter) {
       rep_->filter->EraseFromCacheBeforeDestruction(ua);
     }
@@ -647,13 +653,14 @@ Status BlockBasedTable::Open(
   ro.rate_limiter_priority = read_options.rate_limiter_priority;
   ro.verify_checksums = read_options.verify_checksums;
   ro.io_activity = read_options.io_activity;
+  ro.fill_cache = read_options.fill_cache;
 
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
   const bool preload_all = !table_options.cache_index_and_filter_blocks;
 
   if (!ioptions.allow_mmap_reads && !env_options.use_mmap_reads) {
-    s = PrefetchTail(ro, file.get(), file_size, force_direct_prefetch,
+    s = PrefetchTail(ro, ioptions, file.get(), file_size, force_direct_prefetch,
                      tail_prefetch_stats, prefetch_all, preload_all,
                      &prefetch_buffer, ioptions.stats, tail_size,
                      ioptions.logger);
@@ -870,7 +877,8 @@ Status BlockBasedTable::Open(
 }
 
 Status BlockBasedTable::PrefetchTail(
-    const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
+    const ReadOptions& ro, const ImmutableOptions& ioptions,
+    RandomAccessFileReader* file, uint64_t file_size,
     bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
     const bool prefetch_all, const bool preload_all,
     std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats,
@@ -941,7 +949,7 @@ Status BlockBasedTable::PrefetchTail(
   // Use `FilePrefetchBuffer`
   prefetch_buffer->reset(new FilePrefetchBuffer(
       ReadaheadParams(), true /* enable */, true /* track_min_offset */,
-      nullptr /* fs */, nullptr /* clock */, stats,
+      ioptions.fs.get() /* fs */, nullptr /* clock */, stats,
       /* readahead_cb */ nullptr,
       FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 
@@ -2063,7 +2071,9 @@ InternalIterator* BlockBasedTable::NewIterator(
   if (arena == nullptr) {
     return new BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
-        !skip_filters && !read_options.total_order_seek &&
+        !skip_filters &&
+            (!read_options.total_order_seek || read_options.auto_prefix_mode ||
+             read_options.prefix_same_as_start) &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, caller,
         compaction_readahead_size, allow_unprepared_value);
@@ -2071,7 +2081,9 @@ InternalIterator* BlockBasedTable::NewIterator(
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
-        !skip_filters && !read_options.total_order_seek &&
+        !skip_filters &&
+            (!read_options.total_order_seek || read_options.auto_prefix_mode ||
+             read_options.prefix_same_as_start) &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, caller,
         compaction_readahead_size, allow_unprepared_value);

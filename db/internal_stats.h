@@ -182,6 +182,14 @@ class InternalStats {
     // The number of bytes read from the compaction output level (table files)
     uint64_t bytes_read_output_level;
 
+    // The number of bytes skipped from all non-output levels because the input
+    // files are filtered by compaction optimizations.
+    uint64_t bytes_skipped_non_output_levels;
+
+    // The number of bytes skipped from the compaction output level because the
+    // input files are filtered by compaction optimizations.
+    uint64_t bytes_skipped_output_level;
+
     // The number of bytes read from blob files
     uint64_t bytes_read_blob;
 
@@ -200,6 +208,14 @@ class InternalStats {
 
     // The number of compaction input files in the output level (table files)
     int num_input_files_in_output_level;
+
+    // The number of non output level compaction input files that are filtered
+    // by compaction optimizations.
+    int num_filtered_input_files_in_non_output_levels;
+
+    // The number of output level compaction input files that are filtered by
+    // compaction optimizations.
+    int num_filtered_input_files_in_output_level;
 
     // The number of compaction output files (table files)
     int num_output_files;
@@ -228,12 +244,16 @@ class InternalStats {
           cpu_micros(0),
           bytes_read_non_output_levels(0),
           bytes_read_output_level(0),
+          bytes_skipped_non_output_levels(0),
+          bytes_skipped_output_level(0),
           bytes_read_blob(0),
           bytes_written(0),
           bytes_written_blob(0),
           bytes_moved(0),
           num_input_files_in_non_output_levels(0),
           num_input_files_in_output_level(0),
+          num_filtered_input_files_in_non_output_levels(0),
+          num_filtered_input_files_in_output_level(0),
           num_output_files(0),
           num_output_files_blob(0),
           num_input_records(0),
@@ -251,12 +271,16 @@ class InternalStats {
           cpu_micros(0),
           bytes_read_non_output_levels(0),
           bytes_read_output_level(0),
+          bytes_skipped_non_output_levels(0),
+          bytes_skipped_output_level(0),
           bytes_read_blob(0),
           bytes_written(0),
           bytes_written_blob(0),
           bytes_moved(0),
           num_input_files_in_non_output_levels(0),
           num_input_files_in_output_level(0),
+          num_filtered_input_files_in_non_output_levels(0),
+          num_filtered_input_files_in_output_level(0),
           num_output_files(0),
           num_output_files_blob(0),
           num_input_records(0),
@@ -280,6 +304,8 @@ class InternalStats {
           cpu_micros(c.cpu_micros),
           bytes_read_non_output_levels(c.bytes_read_non_output_levels),
           bytes_read_output_level(c.bytes_read_output_level),
+          bytes_skipped_non_output_levels(c.bytes_skipped_non_output_levels),
+          bytes_skipped_output_level(c.bytes_skipped_output_level),
           bytes_read_blob(c.bytes_read_blob),
           bytes_written(c.bytes_written),
           bytes_written_blob(c.bytes_written_blob),
@@ -287,6 +313,10 @@ class InternalStats {
           num_input_files_in_non_output_levels(
               c.num_input_files_in_non_output_levels),
           num_input_files_in_output_level(c.num_input_files_in_output_level),
+          num_filtered_input_files_in_non_output_levels(
+              c.num_filtered_input_files_in_non_output_levels),
+          num_filtered_input_files_in_output_level(
+              c.num_filtered_input_files_in_output_level),
           num_output_files(c.num_output_files),
           num_output_files_blob(c.num_output_files_blob),
           num_input_records(c.num_input_records),
@@ -304,6 +334,8 @@ class InternalStats {
       cpu_micros = c.cpu_micros;
       bytes_read_non_output_levels = c.bytes_read_non_output_levels;
       bytes_read_output_level = c.bytes_read_output_level;
+      bytes_skipped_non_output_levels = c.bytes_skipped_non_output_levels;
+      bytes_skipped_output_level = c.bytes_skipped_output_level;
       bytes_read_blob = c.bytes_read_blob;
       bytes_written = c.bytes_written;
       bytes_written_blob = c.bytes_written_blob;
@@ -311,6 +343,10 @@ class InternalStats {
       num_input_files_in_non_output_levels =
           c.num_input_files_in_non_output_levels;
       num_input_files_in_output_level = c.num_input_files_in_output_level;
+      num_filtered_input_files_in_non_output_levels =
+          c.num_filtered_input_files_in_non_output_levels;
+      num_filtered_input_files_in_output_level =
+          c.num_filtered_input_files_in_output_level;
       num_output_files = c.num_output_files;
       num_output_files_blob = c.num_output_files_blob;
       num_input_records = c.num_input_records;
@@ -330,12 +366,16 @@ class InternalStats {
       this->cpu_micros = 0;
       this->bytes_read_non_output_levels = 0;
       this->bytes_read_output_level = 0;
+      this->bytes_skipped_non_output_levels = 0;
+      this->bytes_skipped_output_level = 0;
       this->bytes_read_blob = 0;
       this->bytes_written = 0;
       this->bytes_written_blob = 0;
       this->bytes_moved = 0;
       this->num_input_files_in_non_output_levels = 0;
       this->num_input_files_in_output_level = 0;
+      this->num_filtered_input_files_in_non_output_levels = 0;
+      this->num_filtered_input_files_in_output_level = 0;
       this->num_output_files = 0;
       this->num_output_files_blob = 0;
       this->num_input_records = 0;
@@ -353,6 +393,9 @@ class InternalStats {
       this->cpu_micros += c.cpu_micros;
       this->bytes_read_non_output_levels += c.bytes_read_non_output_levels;
       this->bytes_read_output_level += c.bytes_read_output_level;
+      this->bytes_skipped_non_output_levels +=
+          c.bytes_skipped_non_output_levels;
+      this->bytes_skipped_output_level += c.bytes_skipped_output_level;
       this->bytes_read_blob += c.bytes_read_blob;
       this->bytes_written += c.bytes_written;
       this->bytes_written_blob += c.bytes_written_blob;
@@ -361,6 +404,10 @@ class InternalStats {
           c.num_input_files_in_non_output_levels;
       this->num_input_files_in_output_level +=
           c.num_input_files_in_output_level;
+      this->num_filtered_input_files_in_non_output_levels +=
+          c.num_filtered_input_files_in_non_output_levels;
+      this->num_filtered_input_files_in_output_level +=
+          c.num_filtered_input_files_in_output_level;
       this->num_output_files += c.num_output_files;
       this->num_output_files_blob += c.num_output_files_blob;
       this->num_input_records += c.num_input_records;
@@ -387,6 +434,9 @@ class InternalStats {
       this->cpu_micros -= c.cpu_micros;
       this->bytes_read_non_output_levels -= c.bytes_read_non_output_levels;
       this->bytes_read_output_level -= c.bytes_read_output_level;
+      this->bytes_skipped_non_output_levels -=
+          c.bytes_skipped_non_output_levels;
+      this->bytes_skipped_output_level -= c.bytes_skipped_output_level;
       this->bytes_read_blob -= c.bytes_read_blob;
       this->bytes_written -= c.bytes_written;
       this->bytes_written_blob -= c.bytes_written_blob;
@@ -395,6 +445,10 @@ class InternalStats {
           c.num_input_files_in_non_output_levels;
       this->num_input_files_in_output_level -=
           c.num_input_files_in_output_level;
+      this->num_filtered_input_files_in_non_output_levels -=
+          c.num_filtered_input_files_in_non_output_levels;
+      this->num_filtered_input_files_in_output_level -=
+          c.num_filtered_input_files_in_output_level;
       this->num_output_files -= c.num_output_files;
       this->num_output_files_blob -= c.num_output_files_blob;
       this->num_input_records -= c.num_input_records;

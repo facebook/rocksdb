@@ -64,6 +64,7 @@ struct ThreadStatus {
     OP_VERIFY_FILE_CHECKSUMS,
     OP_GETENTITY,
     OP_MULTIGETENTITY,
+    OP_READ_MANIFEST,
     NUM_OP_TYPES
   };
 

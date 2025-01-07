@@ -13,10 +13,21 @@
 #include "rocksdb/sst_partitioner.h"
 
 namespace ROCKSDB_NAMESPACE {
-void SubcompactionState::AggregateCompactionStats(
+void SubcompactionState::AggregateCompactionOutputStats(
     InternalStats::CompactionStatsFull& compaction_stats) const {
+  // Outputs should be closed. By extension, any files created just for
+  // range deletes have already been written also.
+  assert(compaction_outputs_.HasBuilder() == false);
+  assert(penultimate_level_outputs_.HasBuilder() == false);
+
+  // FIXME: These stats currently include abandonned output files
+  // assert(compaction_outputs_.stats_.num_output_files ==
+  //        compaction_outputs_.outputs_.size());
+  // assert(penultimate_level_outputs_.stats_.num_output_files ==
+  //        penultimate_level_outputs_.outputs_.size());
+
   compaction_stats.stats.Add(compaction_outputs_.stats_);
-  if (HasPenultimateLevelOutputs()) {
+  if (penultimate_level_outputs_.HasOutput()) {
     compaction_stats.has_penultimate_level_output = true;
     compaction_stats.penultimate_level_stats.Add(
         penultimate_level_outputs_.stats_);
@@ -34,9 +45,16 @@ void SubcompactionState::Cleanup(Cache* cache) {
 
   if (!status.ok()) {
     for (const auto& out : GetOutputs()) {
-      // If this file was inserted into the table cache then remove
-      // them here because this compaction was not committed.
-      TableCache::Evict(cache, out.meta.fd.GetNumber());
+      // If this file was inserted into the table cache then remove it here
+      // because this compaction was not committed. This is not strictly
+      // required because of a backstop TableCache::Evict() in
+      // PurgeObsoleteFiles() but is our opportunity to apply
+      // uncache_aggressiveness. TODO: instead, put these files into the
+      // VersionSet::obsolete_files_ pipeline so that they don't have to
+      // be picked up by scanning the DB directory.
+      TableCache::ReleaseObsolete(
+          cache, out.meta.fd.GetNumber(), nullptr /*handle*/,
+          compaction->mutable_cf_options()->uncache_aggressiveness);
     }
   }
   // TODO: sub_compact.io_status is not checked like status. Not sure if thats
@@ -45,7 +63,7 @@ void SubcompactionState::Cleanup(Cache* cache) {
 }
 
 Slice SubcompactionState::SmallestUserKey() const {
-  if (has_penultimate_level_outputs_) {
+  if (penultimate_level_outputs_.HasOutput()) {
     Slice a = compaction_outputs_.SmallestUserKey();
     Slice b = penultimate_level_outputs_.SmallestUserKey();
     if (a.empty()) {
@@ -67,7 +85,7 @@ Slice SubcompactionState::SmallestUserKey() const {
 }
 
 Slice SubcompactionState::LargestUserKey() const {
-  if (has_penultimate_level_outputs_) {
+  if (penultimate_level_outputs_.HasOutput()) {
     Slice a = compaction_outputs_.LargestUserKey();
     Slice b = penultimate_level_outputs_.LargestUserKey();
     if (a.empty()) {
@@ -89,18 +107,13 @@ Slice SubcompactionState::LargestUserKey() const {
 }
 
 Status SubcompactionState::AddToOutput(
-    const CompactionIterator& iter,
+    const CompactionIterator& iter, bool use_penultimate_output,
     const CompactionFileOpenFunc& open_file_func,
     const CompactionFileCloseFunc& close_file_func) {
-  // update target output first
-  is_current_penultimate_level_ = iter.output_to_penultimate_level();
-  current_outputs_ = is_current_penultimate_level_ ? &penultimate_level_outputs_
-                                                   : &compaction_outputs_;
-  if (is_current_penultimate_level_) {
-    has_penultimate_level_outputs_ = true;
-  }
-
-  return Current().AddToOutput(iter, open_file_func, close_file_func);
+  // update target output
+  current_outputs_ = use_penultimate_output ? &penultimate_level_outputs_
+                                            : &compaction_outputs_;
+  return current_outputs_->AddToOutput(iter, open_file_func, close_file_func);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

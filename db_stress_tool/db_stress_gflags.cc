@@ -497,7 +497,7 @@ DEFINE_double(blob_garbage_collection_force_threshold,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
-              "the oldest blob files for forcing garbage collection.");
+              "the eligible blob files for forcing garbage collection.");
 
 DEFINE_uint64(blob_compaction_readahead_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
@@ -545,6 +545,10 @@ DEFINE_int64(
 DEFINE_uint32(use_timed_put_one_in, 0,
               "If greater than zero, TimedPut is used per every N write ops on "
               "on average.");
+
+DEFINE_string(file_temperature_age_thresholds, "",
+              "See CompactionOptionsFIFO::file_temperature_age_thresholds. "
+              "empty == unset");
 
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
@@ -835,6 +839,18 @@ DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads");
 DEFINE_bool(use_multi_get_entity, false,
             "If set, use the MultiGetEntity API for reads");
 
+DEFINE_int32(test_ingest_standalone_range_deletion_one_in, 0,
+             "If non-zero, file ingestion flow will test standalone range "
+             "deletion file once every N file ingestion operations.");
+
+DEFINE_bool(allow_unprepared_value,
+            ROCKSDB_NAMESPACE::ReadOptions().allow_unprepared_value,
+            "Allow lazy loading of values for range scans");
+
+DEFINE_bool(track_and_verify_wals,
+            ROCKSDB_NAMESPACE::Options().track_and_verify_wals,
+            "See Options::track_and_verify_wals");
+
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value < 0 || value > 100) {
     fprintf(stderr, "Invalid value for --%s: %d, 0<= pct <=100 \n", flagname,
@@ -993,6 +1009,10 @@ DEFINE_bool(write_dbid_to_manifest,
             ROCKSDB_NAMESPACE::Options().write_dbid_to_manifest,
             "Write DB_ID to manifest");
 
+DEFINE_bool(write_identity_file,
+            ROCKSDB_NAMESPACE::Options().write_identity_file,
+            "Write DB_ID to IDENTITY file");
+
 DEFINE_bool(avoid_flush_during_recovery,
             ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
             "Avoid flush during recovery");
@@ -1027,8 +1047,9 @@ DEFINE_int32(continuous_verification_interval, 1000,
              "disables continuous verification.");
 
 DEFINE_int32(approximate_size_one_in, 64,
-             "If non-zero, DB::GetApproximateSizes() will be called against"
-             " random key ranges.");
+             "If non-zero, DB::GetApproximateSizes() and "
+             "DB::GetApproximateMemTableStats() will be called against "
+             "random key ranges.");
 
 DEFINE_int32(read_fault_one_in, 1000,
              "On non-zero, enables fault injection on read");
@@ -1452,4 +1473,7 @@ DEFINE_bool(paranoid_memory_checks,
             ROCKSDB_NAMESPACE::Options().paranoid_memory_checks,
             "Sets CF option paranoid_memory_checks.");
 
+DEFINE_uint32(commit_bypass_memtable_one_in, 0,
+              "If greater than zero, transaction option will set "
+              "commit_bypass_memtable to per every N transactions on average.");
 #endif  // GFLAGS

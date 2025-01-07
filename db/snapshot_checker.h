@@ -55,4 +55,11 @@ class WritePreparedSnapshotChecker : public SnapshotChecker {
   const WritePreparedTxnDB* const txn_db_;
 };
 
+bool DataIsDefinitelyInSnapshot(SequenceNumber seqno, SequenceNumber snapshot,
+                                const SnapshotChecker* snapshot_checker);
+
+bool DataIsDefinitelyNotInSnapshot(SequenceNumber seqno,
+                                   SequenceNumber snapshot,
+                                   const SnapshotChecker* snapshot_checker);
+
 }  // namespace ROCKSDB_NAMESPACE

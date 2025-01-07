@@ -1379,9 +1379,9 @@ public class OptionsTest {
   @Test
   public void writeDbidToManifest() {
     try (final Options options = new Options()) {
-      assertThat(options.writeDbidToManifest()).isEqualTo(false);
-      assertThat(options.setWriteDbidToManifest(true)).isEqualTo(options);
       assertThat(options.writeDbidToManifest()).isEqualTo(true);
+      assertThat(options.setWriteDbidToManifest(false)).isEqualTo(options);
+      assertThat(options.writeDbidToManifest()).isEqualTo(false);
     }
   }
 

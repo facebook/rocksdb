@@ -15,6 +15,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/log_writer.h"
+#include "db/manifest_ops.h"
 #include "db/version_edit.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/convenience.h"
@@ -727,20 +728,7 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
 
-  // Part of the oldest batch of blob files (specifically, #12 and #13) is
-  // ineligible for GC due to the age cutoff
-
-  {
-    constexpr double age_cutoff = 0.5;
-    constexpr double force_threshold = 0.0;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(
-        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
-
-    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
-  }
-
-  // Oldest batch is eligible based on age cutoff but its overall garbage ratio
-  // is below threshold
+  // Overall garbage ratio of eligible files is below threshold
 
   {
     constexpr double age_cutoff = 1.0;
@@ -751,8 +739,7 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
 
-  // Oldest batch is eligible based on age cutoff and its overall garbage ratio
-  // meets threshold
+  // Overall garbage ratio of eligible files meets threshold
 
   {
     constexpr double age_cutoff = 1.0;
@@ -878,20 +865,7 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
 
-  // Part of the oldest batch of blob files (specifically, the second file) is
-  // ineligible for GC due to the age cutoff
-
-  {
-    constexpr double age_cutoff = 0.25;
-    constexpr double force_threshold = 0.0;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(
-        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
-
-    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
-  }
-
-  // Oldest batch is eligible based on age cutoff but its overall garbage ratio
-  // is below threshold
+  // Overall garbage ratio of eligible files is below threshold
 
   {
     constexpr double age_cutoff = 0.5;
@@ -902,53 +876,10 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
 
-  // Oldest batch is eligible based on age cutoff and its overall garbage ratio
-  // meets threshold
+  // Overall garbage ratio of eligible files meets threshold
 
   {
     constexpr double age_cutoff = 0.5;
-    constexpr double force_threshold = 0.5;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(
-        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
-
-    auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
-    ASSERT_EQ(ssts_to_be_compacted.size(), 2);
-
-    std::sort(ssts_to_be_compacted.begin(), ssts_to_be_compacted.end(),
-              [](const std::pair<int, FileMetaData*>& lhs,
-                 const std::pair<int, FileMetaData*>& rhs) {
-                assert(lhs.second);
-                assert(rhs.second);
-                return lhs.second->fd.GetNumber() < rhs.second->fd.GetNumber();
-              });
-
-    const autovector<std::pair<int, FileMetaData*>>
-        expected_ssts_to_be_compacted{{level, level_files[0]},
-                                      {level, level_files[1]}};
-
-    ASSERT_EQ(ssts_to_be_compacted[0], expected_ssts_to_be_compacted[0]);
-    ASSERT_EQ(ssts_to_be_compacted[1], expected_ssts_to_be_compacted[1]);
-  }
-
-  // Now try the last two cases again with a greater than necessary age cutoff
-
-  // Oldest batch is eligible based on age cutoff but its overall garbage ratio
-  // is below threshold
-
-  {
-    constexpr double age_cutoff = 0.75;
-    constexpr double force_threshold = 0.6;
-    vstorage_.ComputeFilesMarkedForForcedBlobGC(
-        age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
-
-    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
-  }
-
-  // Oldest batch is eligible based on age cutoff and its overall garbage ratio
-  // meets threshold
-
-  {
-    constexpr double age_cutoff = 0.75;
     constexpr double force_threshold = 0.5;
     vstorage_.ComputeFilesMarkedForForcedBlobGC(
         age_cutoff, force_threshold, /*enable_blob_garbage_collection=*/true);
@@ -1252,6 +1183,9 @@ class VersionSetTestBase {
     immutable_options_.fs = fs_;
     immutable_options_.clock = env_->GetSystemClock().get();
 
+    cf_options_.table_factory = table_factory_;
+    mutable_cf_options_.table_factory = table_factory_;
+
     versions_.reset(new VersionSet(
         dbname_, &db_options_, env_options_, table_cache_.get(),
         &write_buffer_manager_, &write_controller_,
@@ -1282,13 +1216,15 @@ class VersionSetTestBase {
     assert(column_families != nullptr);
     assert(last_seqno != nullptr);
     assert(log_writer != nullptr);
+    ASSERT_OK(
+        SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
       DBOptions tmp_db_options;
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(&db_id));
+      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(IOOptions(), &db_id));
       new_db.SetDBId(db_id);
     }
     new_db.SetLogNumber(0);
@@ -1393,7 +1329,7 @@ class VersionSetTestBase {
               &internal_tbl_prop_coll_factories, kNoCompression,
               CompressionOptions(),
               TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
-              info.column_family, info.level),
+              info.column_family, info.level, kUnknownNewestKeyTime),
           fwriter.get()));
       InternalKey ikey(info.key, 0, ValueType::kTypeValue);
       builder->Add(ikey.Encode(), "value");
@@ -1426,8 +1362,6 @@ class VersionSetTestBase {
   void NewDB() {
     SequenceNumber last_seqno;
     std::unique_ptr<log::Writer> log_writer;
-    ASSERT_OK(
-        SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
     PrepareManifest(&column_families_, &last_seqno, &log_writer);
     log_writer.reset();
     CreateCurrentFile();
@@ -1457,16 +1391,16 @@ class VersionSetTestBase {
   void GetManifestPath(std::string* manifest_path) const {
     assert(manifest_path != nullptr);
     uint64_t manifest_file_number = 0;
-    Status s = versions_->GetCurrentManifestPath(
-        dbname_, fs_.get(), manifest_path, &manifest_file_number);
+    Status s = GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
+                                      manifest_path, &manifest_file_number);
     ASSERT_OK(s);
   }
 
   void VerifyManifest(std::string* manifest_path) const {
     assert(manifest_path != nullptr);
     uint64_t manifest_file_number = 0;
-    Status s = versions_->GetCurrentManifestPath(
-        dbname_, fs_.get(), manifest_path, &manifest_file_number);
+    Status s = GetCurrentManifestPath(dbname_, fs_.get(), /*is_retry=*/false,
+                                      manifest_path, &manifest_file_number);
     ASSERT_OK(s);
     ASSERT_EQ(1, manifest_file_number);
   }
@@ -3582,7 +3516,7 @@ class VersionSetTestEmptyDb
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(&db_id));
+      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(IOOptions(), &db_id));
       new_db.SetDBId(db_id);
     }
     const std::string manifest_path = DescriptorFileName(dbname_, 1);
@@ -3890,6 +3824,8 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     assert(column_families != nullptr);
     assert(last_seqno != nullptr);
     assert(log_writer != nullptr);
+    ASSERT_OK(
+        SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
     const std::string manifest = DescriptorFileName(dbname_, 1);
     const auto& fs = env_->GetFileSystem();
     std::unique_ptr<WritableFileWriter> file_writer;
@@ -3904,7 +3840,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       tmp_db_options.env = env_;
       std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
-      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(&db_id));
+      ASSERT_OK(impl->GetDbIdentityFromIdentityFile(IOOptions(), &db_id));
       new_db.SetDBId(db_id);
     }
     {

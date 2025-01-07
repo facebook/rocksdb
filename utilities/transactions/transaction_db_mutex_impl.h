@@ -21,4 +21,3 @@ class TransactionDBMutexFactoryImpl : public TransactionDBMutexFactory {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

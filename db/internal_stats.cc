@@ -1301,7 +1301,7 @@ bool InternalStats::HandleNumEntriesActiveMemTable(uint64_t* value,
                                                    DBImpl* /*db*/,
                                                    Version* /*version*/) {
   // Current number of entires in the active memtable
-  *value = cfd_->mem()->num_entries();
+  *value = cfd_->mem()->NumEntries();
   return true;
 }
 
@@ -1317,7 +1317,7 @@ bool InternalStats::HandleNumDeletesActiveMemTable(uint64_t* value,
                                                    DBImpl* /*db*/,
                                                    Version* /*version*/) {
   // Current number of entires in the active memtable
-  *value = cfd_->mem()->num_deletes();
+  *value = cfd_->mem()->NumDeletion();
   return true;
 }
 
@@ -1334,11 +1334,11 @@ bool InternalStats::HandleEstimateNumKeys(uint64_t* value, DBImpl* /*db*/,
   // Estimate number of entries in the column family:
   // Use estimated entries in tables + total entries in memtables.
   const auto* vstorage = cfd_->current()->storage_info();
-  uint64_t estimate_keys = cfd_->mem()->num_entries() +
+  uint64_t estimate_keys = cfd_->mem()->NumEntries() +
                            cfd_->imm()->current()->GetTotalNumEntries() +
                            vstorage->GetEstimatedActiveKeys();
   uint64_t estimate_deletes =
-      cfd_->mem()->num_deletes() + cfd_->imm()->current()->GetTotalNumDeletes();
+      cfd_->mem()->NumDeletion() + cfd_->imm()->current()->GetTotalNumDeletes();
   *value = estimate_keys > estimate_deletes * 2
                ? estimate_keys - (estimate_deletes * 2)
                : 0;
@@ -1495,8 +1495,10 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
 }
 
 Cache* InternalStats::GetBlockCacheForStats() {
-  auto* table_factory = cfd_->ioptions()->table_factory.get();
+  // NOTE: called in startup before GetCurrentMutableCFOptions() is ready
+  auto* table_factory = cfd_->GetLatestMutableCFOptions()->table_factory.get();
   assert(table_factory != nullptr);
+  // FIXME: need to a shared_ptr if/when block_cache is going to be mutable
   return table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
 }
 
@@ -2161,7 +2163,8 @@ class BlockCachePropertyAggregator : public IntPropertyAggregator {
   virtual ~BlockCachePropertyAggregator() override = default;
 
   void Add(ColumnFamilyData* cfd, uint64_t value) override {
-    auto* table_factory = cfd->ioptions()->table_factory.get();
+    auto* table_factory =
+        cfd->GetCurrentMutableCFOptions()->table_factory.get();
     assert(table_factory != nullptr);
     Cache* cache =
         table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());

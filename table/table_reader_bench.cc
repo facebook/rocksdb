@@ -100,11 +100,11 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     int unknown_level = -1;
     const WriteOptions write_options;
     tb = opts.table_factory->NewTableBuilder(
-        TableBuilderOptions(ioptions, moptions, read_options, write_options,
-                            ikc, &internal_tbl_prop_coll_factories,
-                            CompressionType::kNoCompression,
-                            CompressionOptions(), 0 /* column_family_id */,
-                            kDefaultColumnFamilyName, unknown_level),
+        TableBuilderOptions(
+            ioptions, moptions, read_options, write_options, ikc,
+            &internal_tbl_prop_coll_factories, CompressionType::kNoCompression,
+            CompressionOptions(), 0 /* column_family_id */,
+            kDefaultColumnFamilyName, unknown_level, kUnknownNewestKeyTime),
         file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);

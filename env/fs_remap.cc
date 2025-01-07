@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "env/fs_remap.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -75,6 +74,17 @@ IOStatus RemapFileSystem::NewWritableFile(
   }
   return FileSystemWrapper::NewWritableFile(status_and_enc_path.second, options,
                                             result, dbg);
+}
+
+IOStatus RemapFileSystem::ReopenWritableFile(
+    const std::string& fname, const FileOptions& options,
+    std::unique_ptr<FSWritableFile>* result, IODebugContext* dbg) {
+  auto status_and_enc_path = EncodePathWithNewBasename(fname);
+  if (!status_and_enc_path.first.ok()) {
+    return status_and_enc_path.first;
+  }
+  return FileSystemWrapper::ReopenWritableFile(status_and_enc_path.second,
+                                               options, result, dbg);
 }
 
 IOStatus RemapFileSystem::ReuseWritableFile(
@@ -338,4 +348,3 @@ IOStatus RemapFileSystem::GetAbsolutePath(const std::string& db_path,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

@@ -148,6 +148,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
+  MutableCFOptions mutable_cf_options(options_);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -193,8 +194,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
           backing_cache.get(), &immutable_options, &file_options,
           column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
 
-  BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
-                         blob_file_cache.get());
+  BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
+                         db_session_id_, blob_file_cache.get());
 
   ReadOptions read_options;
   read_options.verify_checksums = true;
@@ -464,6 +465,7 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
+  MutableCFOptions mutable_cf_options(options_);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -498,8 +500,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
           backing_cache.get(), &immutable_options, &file_options,
           column_family_id, nullptr /*HistogramImpl*/, nullptr /*IOTracer*/);
 
-  BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
-                         blob_file_cache.get());
+  BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
+                         db_session_id_, blob_file_cache.get());
 
   ReadOptions read_options;
   read_options.verify_checksums = true;
@@ -589,6 +591,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
+  MutableCFOptions mutable_cf_options(options_);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -644,8 +647,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
           backing_cache.get(), &immutable_options, &file_options,
           column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
 
-  BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
-                         blob_file_cache.get());
+  BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
+                         db_session_id_, blob_file_cache.get());
 
   ReadOptions read_options;
   read_options.verify_checksums = true;
@@ -782,6 +785,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
+  MutableCFOptions mutable_cf_options(options_);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -827,8 +831,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
           backing_cache.get(), &immutable_options, &file_options,
           column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
 
-  BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
-                         blob_file_cache.get());
+  BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
+                         db_session_id_, blob_file_cache.get());
 
   ReadOptions read_options;
   read_options.verify_checksums = true;
@@ -1105,6 +1109,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
+  MutableCFOptions mutable_cf_options(options_);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -1137,8 +1142,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       backing_cache.get(), &immutable_options, &file_options, column_family_id,
       blob_file_read_hist, nullptr /*IOTracer*/));
 
-  BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
-                         blob_file_cache.get());
+  BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
+                         db_session_id_, blob_file_cache.get());
 
   CacheHandleGuard<BlobFileReader> file_reader;
   ReadOptions read_options;
@@ -1405,6 +1410,7 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
+  MutableCFOptions mutable_cf_options(options_);
 
   constexpr ExpirationRange expiration_range;
 
@@ -1426,8 +1432,8 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
           backing_cache.get(), &immutable_options, &file_options,
           kColumnFamilyId, blob_file_read_hist, nullptr /*IOTracer*/);
 
-  BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
-                         blob_file_cache.get());
+  BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
+                         db_session_id_, blob_file_cache.get());
 
   ConcurrentCacheReservationManager* cache_res_mgr =
       static_cast<ChargedCache*>(blob_source.GetBlobCache())
@@ -1519,6 +1525,8 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservation) {
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
+  MutableCFOptions mutable_cf_options(options_);
+
   constexpr size_t blob_size = 24 << 10;  // 24KB
   for (size_t i = 0; i < kNumBlobs; ++i) {
     blob_file_size_ -= blobs_[i].size();  // old blob size
@@ -1546,8 +1554,8 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservation) {
           backing_cache.get(), &immutable_options, &file_options,
           kColumnFamilyId, blob_file_read_hist, nullptr /*IOTracer*/);
 
-  BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
-                         blob_file_cache.get());
+  BlobSource blob_source(immutable_options, mutable_cf_options, db_id_,
+                         db_session_id_, blob_file_cache.get());
 
   ConcurrentCacheReservationManager* cache_res_mgr =
       static_cast<ChargedCache*>(blob_source.GetBlobCache())

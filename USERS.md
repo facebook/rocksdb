@@ -38,12 +38,11 @@ Snowflake [uses](https://www.snowflake.com/blog/how-foundationdb-powers-snowflak
 The Bing search engine from Microsoft uses RocksDB as the storage engine for its web data platform: https://blogs.bing.com/Engineering-Blog/october-2021/RocksDB-in-Microsoft-Bing
 
 ## LinkedIn
-Two different use cases at Linkedin are using RocksDB as a storage engine:
+1. [Venice](https://venicedb.org/) is a derived data platform using RocksDB as its storage engine. It is LinkedIn's ML feature store, powering thousands of recommender use cases, including the Feed, Video recommendations, and People You May Know.
+2. LinkedIn's follow feed for storing user's activities. Check out the blog post: https://engineering.linkedin.com/blog/2016/03/followfeed--linkedin-s-feed-made-faster-and-smarter
+3. Apache Samza, open source framework for stream processing.
 
-1. LinkedIn's follow feed for storing user's activities. Check out the blog post: https://engineering.linkedin.com/blog/2016/03/followfeed--linkedin-s-feed-made-faster-and-smarter
-2. Apache Samza, open source framework for stream processing
-
-Learn more about those use cases in a Tech Talk by Ankit Gupta and Naveen Somasundaram: http://www.youtube.com/watch?v=plqVp_OnSzg
+Learn more about LinkedIn's follow feed and Apache Samza in a Tech Talk by Ankit Gupta and Naveen Somasundaram: http://www.youtube.com/watch?v=plqVp_OnSzg
 
 ## Yahoo
 Yahoo is using RocksDB as a storage engine for their biggest distributed data store Sherpa. Learn more about it here: http://yahooeng.tumblr.com/post/120730204806/sherpa-scales-new-heights

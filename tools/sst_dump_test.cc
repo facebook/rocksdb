@@ -132,7 +132,7 @@ class SSTDumpToolTest : public testing::Test {
             &internal_tbl_prop_coll_factories, CompressionType::kNoCompression,
             CompressionOptions(),
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
-            column_family_name, unknown_level),
+            column_family_name, unknown_level, kUnknownNewestKeyTime),
         file_writer.get()));
 
     // Populate slightly more than 1K keys

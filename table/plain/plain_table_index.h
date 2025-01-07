@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <string>
 #include <vector>
 
@@ -243,4 +242,3 @@ class PlainTableIndexBuilder {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

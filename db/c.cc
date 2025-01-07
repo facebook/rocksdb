@@ -231,7 +231,7 @@ struct rocksdb_livefiles_t {
 };
 struct rocksdb_column_family_handle_t {
   ColumnFamilyHandle* rep;
-  bool immortal;  /* only true for default cf */
+  bool immortal; /* only true for default cf */
 };
 struct rocksdb_column_family_metadata_t {
   ColumnFamilyMetaData rep;
@@ -4073,6 +4073,15 @@ unsigned char rocksdb_options_get_write_dbid_to_manifest(
 void rocksdb_options_set_write_dbid_to_manifest(
     rocksdb_options_t* opt, unsigned char write_dbid_to_manifest) {
   opt->rep.write_dbid_to_manifest = write_dbid_to_manifest;
+}
+
+unsigned char rocksdb_options_get_write_identity_file(rocksdb_options_t* opt) {
+  return opt->rep.write_identity_file;
+}
+
+void rocksdb_options_set_write_identity_file(
+    rocksdb_options_t* opt, unsigned char write_identity_file) {
+  opt->rep.write_identity_file = write_identity_file;
 }
 
 unsigned char rocksdb_options_get_track_and_verify_wals_in_manifest(

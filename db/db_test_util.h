@@ -1225,6 +1225,9 @@ class DBTestBase : public testing::Test {
                                     const Snapshot* snapshot = nullptr,
                                     const bool async = false);
 
+  Status CompactRange(const CompactRangeOptions& options,
+                      std::optional<Slice> begin, std::optional<Slice> end);
+
   uint64_t GetNumSnapshots();
 
   uint64_t GetTimeOldestSnapshots();
@@ -1272,6 +1275,8 @@ class DBTestBase : public testing::Test {
   size_t CountFiles();
 
   Status CountFiles(size_t* count);
+
+  std::vector<FileMetaData*> GetLevelFileMetadatas(int level, int cf = 0);
 
   Status Size(const Slice& start, const Slice& limit, uint64_t* size) {
     return Size(start, limit, 0, size);
@@ -1362,7 +1367,8 @@ class DBTestBase : public testing::Test {
   void VerifyDBFromMap(
       std::map<std::string, std::string> true_data,
       size_t* total_reads_res = nullptr, bool tailing_iter = false,
-      std::map<std::string, Status> status = std::map<std::string, Status>());
+      ReadOptions* ro = nullptr, ColumnFamilyHandle* cf = nullptr,
+      std::unordered_set<std::string>* not_found = nullptr) const;
 
   void VerifyDBInternal(
       std::vector<std::pair<std::string, std::string>> true_data);

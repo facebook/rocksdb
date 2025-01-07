@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "db/compaction/compaction_job.h"
 
 #include <algorithm>
@@ -50,7 +49,8 @@ void VerifyInitializationOfCompactionJobStats(
   ASSERT_EQ(compaction_job_stats.num_output_records, 0U);
   ASSERT_EQ(compaction_job_stats.num_output_files, 0U);
 
-  ASSERT_EQ(compaction_job_stats.is_manual_compaction, true);
+  ASSERT_TRUE(compaction_job_stats.is_manual_compaction);
+  ASSERT_FALSE(compaction_job_stats.is_remote_compaction);
 
   ASSERT_EQ(compaction_job_stats.total_input_bytes, 0U);
   ASSERT_EQ(compaction_job_stats.total_output_bytes, 0U);
@@ -249,6 +249,7 @@ class CompactionJobTestBase : public testing::Test {
     } else {
       assert(false);
     }
+    mutable_cf_options_.table_factory = cf_options_.table_factory;
   }
 
   std::string GenerateFileName(uint64_t file_number) {
@@ -299,13 +300,13 @@ class CompactionJobTestBase : public testing::Test {
     const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(
         cf_options_.table_factory->NewTableBuilder(
-            TableBuilderOptions(*cfd_->ioptions(), mutable_cf_options_,
-                                read_options, write_options,
-                                cfd_->internal_comparator(),
-                                cfd_->internal_tbl_prop_coll_factories(),
-                                CompressionType::kNoCompression,
-                                CompressionOptions(), 0 /* column_family_id */,
-                                kDefaultColumnFamilyName, -1 /* level */),
+            TableBuilderOptions(
+                *cfd_->ioptions(), mutable_cf_options_, read_options,
+                write_options, cfd_->internal_comparator(),
+                cfd_->internal_tbl_prop_coll_factories(),
+                CompressionType::kNoCompression, CompressionOptions(),
+                0 /* column_family_id */, kDefaultColumnFamilyName,
+                -1 /* level */, kUnknownNewestKeyTime),
             file_writer.get()));
     // Build table.
     for (const auto& kv : contents) {
@@ -545,15 +546,14 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_OK(s);
     db_options_.info_log = info_log;
 
-    versions_.reset(new VersionSet(
-        dbname_, &db_options_, env_options_, table_cache_.get(),
-        &write_buffer_manager_, &write_controller_,
-        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-        /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr, /*read_only=*/false));
+    versions_.reset(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       test::kUnitTestDbId, /*db_session_id=*/"",
+                       /*daily_offpeak_time_utc=*/"",
+                       /*error_handler=*/nullptr, /*read_only=*/false));
     compaction_job_stats_.Reset();
-    ASSERT_OK(
-        SetIdentityFile(WriteOptions(), env_, dbname_, Temperature::kUnknown));
 
     VersionEdit new_db;
     new_db.SetLogNumber(0);
@@ -651,7 +651,8 @@ class CompactionJobTestBase : public testing::Test {
         mutable_cf_options_.target_file_size_base,
         mutable_cf_options_.max_compaction_bytes, 0, kNoCompression,
         cfd->GetLatestMutableCFOptions()->compression_opts,
-        Temperature::kUnknown, max_subcompactions, grandparents, true);
+        Temperature::kUnknown, max_subcompactions, grandparents,
+        /*earliest_snapshot*/ std::nullopt, /*snapshot_checker*/ nullptr, true);
     compaction.FinalizeInputInfo(cfd->current());
 
     assert(db_options_.info_log);
@@ -676,7 +677,7 @@ class CompactionJobTestBase : public testing::Test {
         full_history_ts_low_);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
-    compaction_job.Prepare();
+    compaction_job.Prepare(std::nullopt /*subcompact to be computed*/);
     mutex_.Unlock();
     Status s = compaction_job.Run();
     ASSERT_OK(s);
@@ -1534,14 +1535,11 @@ TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
       /*verify_func=*/[&](Compaction& comp) {
         for (char c = 'a'; c <= 'z'; c++) {
           if (c == 'a') {
-            ParsedInternalKey pik("a", 0U, kTypeValue);
-            ASSERT_FALSE(comp.WithinPenultimateLevelOutputRange(pik));
+            comp.TEST_AssertWithinPenultimateLevelOutputRange(
+                "a", true /*expect_failure*/);
           } else {
             std::string c_str{c};
-            // WithinPenultimateLevelOutputRange checks internal key range.
-            // 'z' is the last key, so set seqno properly.
-            ParsedInternalKey pik(c_str, c == 'z' ? 12U : 0U, kTypeValue);
-            ASSERT_TRUE(comp.WithinPenultimateLevelOutputRange(pik));
+            comp.TEST_AssertWithinPenultimateLevelOutputRange(c_str);
           }
         }
       });
@@ -1569,17 +1567,7 @@ TEST_F(CompactionJobTest, InputSerialization) {
   const int kStrMaxLen = 1000;
   Random rnd(static_cast<uint32_t>(time(nullptr)));
   Random64 rnd64(time(nullptr));
-  input.column_family.name = rnd.RandomString(rnd.Uniform(kStrMaxLen));
-  input.column_family.options.comparator = ReverseBytewiseComparator();
-  input.column_family.options.max_bytes_for_level_base =
-      rnd64.Uniform(UINT64_MAX);
-  input.column_family.options.disable_auto_compactions = rnd.OneIn(2);
-  input.column_family.options.compression = kZSTD;
-  input.column_family.options.compression_opts.level = 4;
-  input.db_options.max_background_flushes = 10;
-  input.db_options.paranoid_checks = rnd.OneIn(2);
-  input.db_options.statistics = CreateDBStatistics();
-  input.db_options.env = env_;
+  input.cf_name = rnd.RandomString(rnd.Uniform(kStrMaxLen));
   while (!rnd.OneIn(10)) {
     input.snapshots.emplace_back(rnd64.Uniform(UINT64_MAX));
   }
@@ -1607,10 +1595,10 @@ TEST_F(CompactionJobTest, InputSerialization) {
   ASSERT_TRUE(deserialized1.TEST_Equals(&input));
 
   // Test mismatch
-  deserialized1.db_options.max_background_flushes += 10;
+  deserialized1.output_level += 10;
   std::string mismatch;
   ASSERT_FALSE(deserialized1.TEST_Equals(&input, &mismatch));
-  ASSERT_EQ(mismatch, "db_options.max_background_flushes");
+  ASSERT_EQ(mismatch, "output_level");
 
   // Test unknown field
   CompactionServiceInput deserialized2;
@@ -1666,20 +1654,40 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   };
   result.status =
       status_list.at(rnd.Uniform(static_cast<int>(status_list.size())));
+
+  std::string file_checksum = rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen));
+  std::string file_checksum_func_name = "MyAwesomeChecksumGenerator";
   while (!rnd.OneIn(10)) {
+    TableProperties tp;
+    tp.user_collected_properties.emplace(
+        "UCP_Key1", rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+    tp.user_collected_properties.emplace(
+        "UCP_Key2", rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+    tp.readable_properties.emplace("RP_Key1",
+                                   rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+    tp.readable_properties.emplace("RP_K2y2",
+                                   rnd.RandomString(rnd.Uniform(kStrMaxLen)));
+
     UniqueId64x2 id{rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX)};
     result.output_files.emplace_back(
-        rnd.RandomString(rnd.Uniform(kStrMaxLen)), rnd64.Uniform(UINT64_MAX),
-        rnd64.Uniform(UINT64_MAX),
-        rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen)),
-        rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen)),
-        rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX),
-        rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX), rnd.OneIn(2), id);
+        rnd.RandomString(rnd.Uniform(kStrMaxLen)) /* file_name */,
+        rnd64.Uniform(UINT64_MAX) /* smallest_seqno */,
+        rnd64.Uniform(UINT64_MAX) /* largest_seqno */,
+        rnd.RandomBinaryString(
+            rnd.Uniform(kStrMaxLen)) /* smallest_internal_key */,
+        rnd.RandomBinaryString(
+            rnd.Uniform(kStrMaxLen)) /* largest_internal_key */,
+        rnd64.Uniform(UINT64_MAX) /* oldest_ancester_time */,
+        rnd64.Uniform(UINT64_MAX) /* file_creation_time */,
+        rnd64.Uniform(UINT64_MAX) /* epoch_number */,
+        file_checksum /* file_checksum */,
+        file_checksum_func_name /* file_checksum_func_name */,
+        rnd64.Uniform(UINT64_MAX) /* paranoid_hash */,
+        rnd.OneIn(2) /* marked_for_compaction */, id /* unique_id */, tp);
   }
   result.output_level = rnd.Uniform(10);
   result.output_path = rnd.RandomString(rnd.Uniform(kStrMaxLen));
-  result.num_output_records = rnd64.Uniform(UINT64_MAX);
-  result.total_bytes = rnd64.Uniform(UINT64_MAX);
+  result.stats.num_output_records = rnd64.Uniform(UINT64_MAX);
   result.bytes_read = 123;
   result.bytes_written = rnd64.Uniform(UINT64_MAX);
   result.stats.elapsed_micros = rnd64.Uniform(UINT64_MAX);
@@ -1696,6 +1704,21 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   ASSERT_OK(CompactionServiceResult::Read(output, &deserialized1));
   ASSERT_TRUE(deserialized1.TEST_Equals(&result));
 
+  for (size_t i = 0; i < result.output_files.size(); i++) {
+    for (const auto& prop :
+         result.output_files[i].table_properties.user_collected_properties) {
+      ASSERT_EQ(deserialized1.output_files[i]
+                    .table_properties.user_collected_properties[prop.first],
+                prop.second);
+    }
+    for (const auto& prop :
+         result.output_files[i].table_properties.readable_properties) {
+      ASSERT_EQ(deserialized1.output_files[i]
+                    .table_properties.readable_properties[prop.first],
+                prop.second);
+    }
+  }
+
   // Test mismatch
   deserialized1.stats.num_input_files += 10;
   std::string mismatch;
@@ -1710,6 +1733,10 @@ TEST_F(CompactionJobTest, ResultSerialization) {
     ASSERT_FALSE(deserialized_tmp.TEST_Equals(&result, &mismatch));
     ASSERT_EQ(mismatch, "output_files.unique_id");
     deserialized_tmp.status.PermitUncheckedError();
+
+    ASSERT_EQ(deserialized_tmp.output_files[0].file_checksum, file_checksum);
+    ASSERT_EQ(deserialized_tmp.output_files[0].file_checksum_func_name,
+              file_checksum_func_name);
   }
 
   // Test unknown field
@@ -1869,8 +1896,8 @@ TEST_F(CompactionJobTest, CutToSkipGrandparentFile) {
   const std::vector<int> input_levels = {0, 1};
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
   auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
-    RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file1, expected_file2});
+  RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                {expected_file1, expected_file2});
 }
 
 TEST_F(CompactionJobTest, CutToAlignGrandparentBoundary) {
@@ -1944,8 +1971,8 @@ TEST_F(CompactionJobTest, CutToAlignGrandparentBoundary) {
   const std::vector<int> input_levels = {0, 1};
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
   auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
-    RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file1, expected_file2});
+  RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                {expected_file1, expected_file2});
 }
 
 TEST_F(CompactionJobTest, CutToAlignGrandparentBoundarySameKey) {
@@ -2006,8 +2033,8 @@ TEST_F(CompactionJobTest, CutToAlignGrandparentBoundarySameKey) {
   for (int i = 80; i <= 100; i++) {
     snapshots.emplace_back(i);
   }
-    RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file1, expected_file2}, snapshots);
+  RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                {expected_file1, expected_file2}, snapshots);
 }
 
 TEST_F(CompactionJobTest, CutForMaxCompactionBytesSameKey) {

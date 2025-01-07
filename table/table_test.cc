@@ -379,12 +379,12 @@ class TableConstructor : public Constructor {
     std::string column_family_name;
     const ReadOptions read_options;
     const WriteOptions write_options;
-    builder.reset(ioptions.table_factory->NewTableBuilder(
-        TableBuilderOptions(ioptions, moptions, read_options, write_options,
-                            internal_comparator,
-                            &internal_tbl_prop_coll_factories,
-                            options.compression, options.compression_opts,
-                            kUnknownColumnFamily, column_family_name, level_),
+    builder.reset(moptions.table_factory->NewTableBuilder(
+        TableBuilderOptions(
+            ioptions, moptions, read_options, write_options,
+            internal_comparator, &internal_tbl_prop_coll_factories,
+            options.compression, options.compression_opts, kUnknownColumnFamily,
+            column_family_name, level_, kUnknownNewestKeyTime),
         file_writer_.get()));
 
     for (const auto& kv : kv_map) {
@@ -440,7 +440,7 @@ class TableConstructor : public Constructor {
         TEST_GetSink()->contents(), file_num_, ioptions.allow_mmap_reads));
 
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
-    return ioptions.table_factory->NewTableReader(
+    return moptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
                            *last_internal_comparator_,
                            0 /* block_protection_bytes_per_key */,
@@ -534,7 +534,8 @@ class MemTableConstructor : public Constructor {
       const SliceTransform* /*prefix_extractor*/) const override {
     return new KeyConvertingIterator(
         memtable_->NewIterator(ReadOptions(), /*seqno_to_time_mapping=*/nullptr,
-                               &arena_),
+                               &arena_, /*prefix_extractor=*/nullptr,
+                               /*for_flush=*/false),
         true);
   }
 
@@ -3252,14 +3253,14 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
       FilePrefetchBuffer* prefetch_buffer =
           (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
-      std::vector<std::pair<uint64_t, size_t>> buffer_info(1);
+      std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(1);
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
 
       bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first, block_handle);
       // It won't prefetch the data of cache hit.
       // One block data.
-      ASSERT_EQ(buffer_info[0].second, 4096);
-      ASSERT_EQ(buffer_info[0].first, block_handle.offset());
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 4096);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
 
       ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                 1);
@@ -3290,14 +3291,14 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
       FilePrefetchBuffer* prefetch_buffer =
           (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
-      std::vector<std::pair<uint64_t, size_t>> buffer_info(1);
+      std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(1);
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
       bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first, block_handle);
 
       // It won't prefetch the data of cache hit.
       // 3 blocks data.
-      ASSERT_EQ(buffer_info[0].second, 12288);
-      ASSERT_EQ(buffer_info[0].first, block_handle.offset());
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 12288);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
 
       for (; kv_iter != kvmap.end() && iter->Valid(); kv_iter++) {
         ASSERT_EQ(iter->key(), kv_iter->first);
@@ -3313,8 +3314,8 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
       // Second Prefetch.
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
       bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first, block_handle);
-      ASSERT_EQ(buffer_info[0].second, 20480);
-      ASSERT_EQ(buffer_info[0].first, block_handle.offset());
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 20480);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
 
       ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                 1);
@@ -3401,13 +3402,13 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       FilePrefetchBuffer* prefetch_buffer =
           (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
-      std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
+      std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(2);
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
 
       bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first, block_handle);
-      ASSERT_EQ(buffer_info[0].first, block_handle.offset());
-      ASSERT_EQ(buffer_info[0].second, 4096);
-      ASSERT_EQ(buffer_info[1].second, 0);
+      ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
+      ASSERT_EQ(std::get<1>(buffer_info[0]), 4096);
+      ASSERT_EQ(std::get<1>(buffer_info[1]), 0);
 
       ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                 2);
@@ -3440,21 +3441,21 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       FilePrefetchBuffer* prefetch_buffer =
           (static_cast<BlockBasedTableIterator*>(iter.get()))
               ->prefetch_buffer();
-      std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
+      std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(2);
       prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
       {
         // 1st Buffer Verification.
         bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first,
                                      block_handle);
-        ASSERT_EQ(buffer_info[0].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[0].second, 8192);
+        ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
 
         // 2nd Buffer Verification.
         InternalKey ikey_tmp("00000360", 0, kTypeValue);
         bbt->TEST_GetDataBlockHandle(read_options, ikey_tmp.Encode().ToString(),
                                      block_handle);
-        ASSERT_EQ(buffer_info[1].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[1].second, 8192);
+        ASSERT_EQ(std::get<0>(buffer_info[1]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[1]), 8192);
 
         ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                   1);
@@ -3493,21 +3494,21 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
               ->prefetch_buffer();
 
       {
-        std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
+        std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(2);
         prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
 
         // 1st Buffer Verification.
         bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first,
                                      block_handle);
-        ASSERT_EQ(buffer_info[0].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[0].second, 8192);
+        ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
 
         // 2nd Buffer Verification.
         InternalKey ikey_tmp("00000540", 0, kTypeValue);
         bbt->TEST_GetDataBlockHandle(read_options, ikey_tmp.Encode().ToString(),
                                      block_handle);
-        ASSERT_EQ(buffer_info[1].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[1].second, 8192);
+        ASSERT_EQ(std::get<0>(buffer_info[1]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[1]), 8192);
 
         ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                   1);
@@ -3527,21 +3528,21 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       }
 
       {
-        std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
+        std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(2);
         prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
 
         // 1st Buffer Verification.
         bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first,
                                      block_handle);
-        ASSERT_EQ(buffer_info[0].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[0].second, 8192);
+        ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[0]), 8192);
 
         // 2nd Buffer Verification.
         InternalKey ikey_tmp("00000585", 0, kTypeValue);
         bbt->TEST_GetDataBlockHandle(read_options, ikey_tmp.Encode().ToString(),
                                      block_handle);
-        ASSERT_EQ(buffer_info[1].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[1].second, 4096);
+        ASSERT_EQ(std::get<0>(buffer_info[1]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[1]), 4096);
 
         ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                   1);
@@ -3561,21 +3562,21 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       }
 
       {
-        std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
+        std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(2);
         prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
 
         // 1st Buffer Verification.
         bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first,
                                      block_handle);
-        ASSERT_EQ(buffer_info[0].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[0].second, 4096);
+        ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[0]), 4096);
 
         // 2nd Buffer Verification.
         InternalKey ikey_tmp("00000615", 0, kTypeValue);
         bbt->TEST_GetDataBlockHandle(read_options, ikey_tmp.Encode().ToString(),
                                      block_handle);
-        ASSERT_EQ(buffer_info[1].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[1].second, 4096);
+        ASSERT_EQ(std::get<0>(buffer_info[1]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[1]), 4096);
 
         ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                   1);
@@ -3595,21 +3596,21 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       }
 
       {
-        std::vector<std::pair<uint64_t, size_t>> buffer_info(2);
+        std::vector<std::tuple<uint64_t, size_t, bool>> buffer_info(2);
         prefetch_buffer->TEST_GetBufferOffsetandSize(buffer_info);
 
         // 1st Buffer Verification.
         bbt->TEST_GetDataBlockHandle(read_options, kv_iter->first,
                                      block_handle);
-        ASSERT_EQ(buffer_info[0].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[0].second, 4096);
+        ASSERT_EQ(std::get<0>(buffer_info[0]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[0]), 4096);
 
         // 2nd Buffer Verification.
         InternalKey ikey_tmp("00000630", 0, kTypeValue);
         bbt->TEST_GetDataBlockHandle(read_options, ikey_tmp.Encode().ToString(),
                                      block_handle);
-        ASSERT_EQ(buffer_info[1].first, block_handle.offset());
-        ASSERT_EQ(buffer_info[1].second, 8192);
+        ASSERT_EQ(std::get<0>(buffer_info[1]), block_handle.offset());
+        ASSERT_EQ(std::get<1>(buffer_info[1]), 8192);
 
         ASSERT_EQ(options.statistics->getAndResetTickerCount(READAHEAD_TRIMMED),
                   0);
@@ -4460,11 +4461,12 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   std::unique_ptr<TableBuilder> builder;
   const ReadOptions read_options;
   const WriteOptions write_options;
-  builder.reset(ioptions.table_factory->NewTableBuilder(
+  builder.reset(moptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, read_options, write_options,
                           *comparator, &internal_tbl_prop_coll_factories,
                           options.compression, options.compression_opts,
-                          kUnknownColumnFamily, column_family_name, level),
+                          kUnknownColumnFamily, column_family_name, level,
+                          kUnknownNewestKeyTime),
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
@@ -4498,11 +4500,12 @@ TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
   std::unique_ptr<TableBuilder> builder;
   const ReadOptions read_options;
   const WriteOptions write_options;
-  builder.reset(ioptions.table_factory->NewTableBuilder(
+  builder.reset(moptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, read_options, write_options,
                           *comparator, &internal_tbl_prop_coll_factories,
                           options.compression, options.compression_opts,
-                          kUnknownColumnFamily, column_family_name, level),
+                          kUnknownColumnFamily, column_family_name, level,
+                          kUnknownNewestKeyTime),
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
@@ -4550,7 +4553,8 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
       TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
                           &internal_tbl_prop_coll_factories, kNoCompression,
                           CompressionOptions(), kUnknownColumnFamily,
-                          column_family_name, unknown_level),
+                          column_family_name, unknown_level,
+                          kUnknownNewestKeyTime),
       file_writer.get()));
 
   for (char c = 'a'; c <= 'z'; ++c) {
@@ -4605,7 +4609,8 @@ TEST_F(PlainTableTest, NoFileChecksum) {
       TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
                           &internal_tbl_prop_coll_factories, kNoCompression,
                           CompressionOptions(), kUnknownColumnFamily,
-                          column_family_name, unknown_level),
+                          column_family_name, unknown_level,
+                          kUnknownNewestKeyTime),
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
@@ -4646,7 +4651,8 @@ TEST_F(PlainTableTest, Crc32cFileChecksum) {
       TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
                           &internal_tbl_prop_coll_factories, kNoCompression,
                           CompressionOptions(), kUnknownColumnFamily,
-                          column_family_name, unknown_level),
+                          column_family_name, unknown_level,
+                          kUnknownNewestKeyTime),
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
@@ -4724,9 +4730,9 @@ static void DoCompressionTest(CompressionType comp) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"), 0, 0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3550));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3550));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7100));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3555));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3555));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7110));
   c.ResetTableReader();
 }
 
@@ -4904,8 +4910,10 @@ TEST_F(MemTableTest, Simple) {
     std::unique_ptr<InternalIterator> iter_guard;
     InternalIterator* iter;
     if (i == 0) {
-      iter = GetMemTable()->NewIterator(
-          ReadOptions(), /*seqno_to_time_mapping=*/nullptr, &arena);
+      iter = GetMemTable()->NewIterator(ReadOptions(),
+                                        /*seqno_to_time_mapping=*/nullptr,
+                                        &arena, /*prefix_extractor=*/nullptr,
+                                        /*for_flush=*/false);
       arena_iter_guard.reset(iter);
     } else {
       iter = GetMemTable()->NewRangeTombstoneIterator(
@@ -5260,7 +5268,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
       TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
                           &internal_tbl_prop_coll_factories, kNoCompression,
                           CompressionOptions(), kUnknownColumnFamily,
-                          column_family_name, -1),
+                          column_family_name, -1, kUnknownNewestKeyTime),
       file_writer.get()));
 
   for (char c = 'a'; c <= 'z'; ++c) {
@@ -5444,7 +5452,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
       TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
                           &internal_tbl_prop_coll_factories, kNoCompression,
                           CompressionOptions(), kUnknownColumnFamily,
-                          column_family_name, -1),
+                          column_family_name, -1, kUnknownNewestKeyTime),
       file_writer.get()));
 
   for (int i = 1; i <= 10000; ++i) {
@@ -5490,7 +5498,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   ImmutableOptions ioptions2(options2);
   const MutableCFOptions moptions2(options2);
 
-  ASSERT_OK(ioptions.table_factory->NewTableReader(
+  ASSERT_OK(moptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions2, moptions2.prefix_extractor, EnvOptions(),
                          GetPlainInternalComparator(options2.comparator),
                          0 /* block_protection_bytes_per_key */),
@@ -5630,7 +5638,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
       TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
                           &internal_tbl_prop_coll_factories, kNoCompression,
                           CompressionOptions(), kUnknownColumnFamily,
-                          column_family_name, -1),
+                          column_family_name, -1, kUnknownNewestKeyTime),
       file_writer.get()));
 
   for (int i = 1; i <= 10000; ++i) {
@@ -6239,8 +6247,8 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, Basic) {
             TableBuilderOptions(ioptions, moptions, read_options, write_options,
                                 ikc, &internal_tbl_prop_coll_factories,
                                 kSnappyCompression, options.compression_opts,
-                                kUnknownColumnFamily, "test_cf",
-                                -1 /* level */),
+                                kUnknownColumnFamily, "test_cf", -1 /* level */,
+                                kUnknownNewestKeyTime),
             file_writer.get()));
 
     std::string key1 = "key1";
@@ -6317,7 +6325,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest,
       TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
                           &internal_tbl_prop_coll_factories, kSnappyCompression,
                           options.compression_opts, kUnknownColumnFamily,
-                          "test_cf", -1 /* level */),
+                          "test_cf", -1 /* level */, kUnknownNewestKeyTime),
       file_writer.get()));
 
   std::string key1 = "key1";
@@ -6404,7 +6412,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, BasicWithCacheFull) {
       TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
                           &internal_tbl_prop_coll_factories, kSnappyCompression,
                           options.compression_opts, kUnknownColumnFamily,
-                          "test_cf", -1 /* level */),
+                          "test_cf", -1 /* level */, kUnknownNewestKeyTime),
       file_writer.get()));
 
   std::string key1 = "key1";

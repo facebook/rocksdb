@@ -133,4 +133,3 @@ class CuckooTableBuilder : public TableBuilder {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-
