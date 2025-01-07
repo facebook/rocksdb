@@ -728,19 +728,21 @@ Status FileExpectedStateManager::SetSecondaryExpectedState(DB* db) {
       std::to_string(saved_seqno_) + kTraceFilenameSuffix;
   std::string trace_file_path = GetPathForFilename(trace_filename);
   std::cout << "trace_file_path = " << trace_file_path << std::endl;
-  Status exists_status = Env::Default()->FileExists(trace_file_path);
-  if (!exists_status.ok()) {
-    if (exists_status.IsNotFound()) {
-      std::cout << "Cannot find trace file" << std::endl;
-    } else {
-      std::cout << "Encountered error checking for trace file existence"
-                << std::endl;
-    }
-    return exists_status;
+
+  // Try copying trace file first?
+  std::string trace_file_temp_path = GetTempPathForFilename(trace_filename);
+  Status s =
+      CopyFile(FileSystem::Default(), trace_file_path, Temperature::kUnknown,
+               trace_file_temp_path, Temperature::kUnknown, 0 /* size */,
+               false /* use_fsync */, nullptr /* io_tracer */);
+  if (!s.ok()) {
+    std::cout << "error copying over trace file" << std::endl;
+    return s;
   }
+
   std::unique_ptr<TraceReader> trace_reader;
-  Status s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_path,
-                                &trace_reader);
+  s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_temp_path,
+                         &trace_reader);
   if (!s.ok()) {
     std::cout << "Could not create file trace reader" << std::endl;
     return s;
@@ -918,7 +920,8 @@ Status FileExpectedStateManager::ReplayTrace(
   if (s.ok()) {
     s = replayer->Prepare();
   }
-  for (; s.ok();) {
+  size_t replay_count = 0;
+  for (; s.ok() && !handler->IsDone();) {
     std::unique_ptr<TraceRecord> record;
     s = replayer->Next(&record);
     if (!s.ok()) {
@@ -936,9 +939,13 @@ Status FileExpectedStateManager::ReplayTrace(
       }
       break;
     }
+    replay_count++;
     std::unique_ptr<TraceRecordResult> res;
     s = record->Accept(handler.get(), &res);
   }
+
+  std::cout << "ReplayTrace: Replayed " << replay_count << " records"
+            << std::endl;
   return s;
 }
 
