@@ -82,8 +82,8 @@ jint JNICALL Java_org_rocksdb_TypeUtil_getInternalKeyDirect1(
   ROCKSDB_NAMESPACE::JniUtil::k_op_direct(getInternalKeySeek, env, user_key,
                                           user_key_off, user_key_len);
   ROCKSDB_NAMESPACE::Slice key_slice = seek_key_buf;
-  return ROCKSDB_NAMESPACE::JniUtil::copyToByteArray(env, key_slice, int_key,
-                                                     int_key_off, int_key_len);
+  return ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, key_slice, int_key,
+                                               int_key_off, int_key_len);
 }
 
 /*
@@ -107,8 +107,8 @@ jint JNICALL Java_org_rocksdb_TypeUtil_getInternalKeyByteArray1(
   ROCKSDB_NAMESPACE::JniUtil::k_op_indirect(getInternalKeySeek, env, user_key,
                                             user_key_off, user_key_len);
   ROCKSDB_NAMESPACE::Slice key_slice = seek_key_buf;
-  return ROCKSDB_NAMESPACE::JniUtil::copyToByteArray(env, key_slice, int_key,
-                                                     int_key_off, int_key_len);
+  return ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, key_slice, int_key,
+                                               int_key_off, int_key_len);
 }
 
 /*
@@ -132,14 +132,7 @@ jbyteArray JNICALL Java_org_rocksdb_TypeUtil_getInternalKeyJni(
   ROCKSDB_NAMESPACE::GetInternalKeyForSeek(target_slice, options->comparator,
                                            &seek_key_buf);
   ROCKSDB_NAMESPACE::Slice key_slice = seek_key_buf;
-  jbyteArray jkey = env->NewByteArray(static_cast<jsize>(key_slice.size()));
-  if (jkey == nullptr) {
-    ROCKSDB_NAMESPACE::OutOfMemoryErrorJni::ThrowNew(env, "Memory allocation failed in RocksDB JNI function");
-    return nullptr;
-  }
-  ROCKSDB_NAMESPACE::JniUtil::copyToByteArray(
-      env, key_slice, jkey, 0, static_cast<jint>(key_slice.size()));
-  return jkey;
+  return ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, key_slice);
 }
 
 /*
@@ -211,8 +204,8 @@ jint JNICALL Java_org_rocksdb_TypeUtil_getInternalKeyDirectForPrev1(
   ROCKSDB_NAMESPACE::JniUtil::k_op_direct(getInternalKeySeek, env, user_key,
                                           user_key_off, user_key_len);
   ROCKSDB_NAMESPACE::Slice key_slice = seek_key_buf;
-  return ROCKSDB_NAMESPACE::JniUtil::copyToByteArray(env, key_slice, int_key,
-                                                     int_key_off, int_key_len);
+  return ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, key_slice, int_key,
+                                               int_key_off, int_key_len);
 }
 
 /*
@@ -235,8 +228,8 @@ jint JNICALL Java_org_rocksdb_TypeUtil_getInternalKeyByteArrayForPrev1(
   ROCKSDB_NAMESPACE::JniUtil::k_op_indirect(getInternalKeySeek, env, user_key,
                                             user_key_off, user_key_len);
   ROCKSDB_NAMESPACE::Slice key_slice = seek_key_buf;
-  return ROCKSDB_NAMESPACE::JniUtil::copyToByteArray(env, key_slice, int_key,
-                                                     int_key_off, int_key_len);
+  return ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, key_slice, int_key,
+                                               int_key_off, int_key_len);
 }
 
 /*
@@ -260,12 +253,5 @@ jbyteArray JNICALL Java_org_rocksdb_TypeUtil_getInternalKeyForPrevJni(
   ROCKSDB_NAMESPACE::GetInternalKeyForSeekForPrev(
       target_slice, options->comparator, &seek_key_buf);
   ROCKSDB_NAMESPACE::Slice key_slice = seek_key_buf;
-  jbyteArray jkey = env->NewByteArray(static_cast<jsize>(key_slice.size()));
-  if (jkey == nullptr) {
-    ROCKSDB_NAMESPACE::OutOfMemoryErrorJni::ThrowNew(env, "Memory allocation failed in RocksDB JNI function");
-    return nullptr;
-  }
-  ROCKSDB_NAMESPACE::JniUtil::copyToByteArray(
-      env, key_slice, jkey, 0, static_cast<jint>(key_slice.size()));
-  return jkey;
+  return ROCKSDB_NAMESPACE::JniUtil::copyBytes(env, key_slice);
 }

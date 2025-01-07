@@ -2501,6 +2501,12 @@ class JniUtil {
     }
     env->GetByteArrayRegion(jkey, jkey_off, jkey_len,
                             reinterpret_cast<jbyte*>(target.get()));
+    if (env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      ROCKSDB_NAMESPACE::IllegalArgumentExceptionJni::ThrowNew(env,
+           "Failed to get byte array region: Out of bounds or invalid array.");
+      return;
+    }
     ROCKSDB_NAMESPACE::Slice target_slice(target.get(), jkey_len);
     return op(target_slice);
   }
@@ -2530,8 +2536,8 @@ class JniUtil {
   /* Helper for copying value in source into a byte array.
    */
   template <class T>
-  static jint copyToByteArray(JNIEnv* env, T& source, jbyteArray jtarget,
-                             jint jtarget_off, jint jtarget_len) {
+  static jint copyBytes(JNIEnv* env, T& source, jbyteArray jtarget,
+                        jint jtarget_off, jint jtarget_len) {
     if (jtarget == nullptr ||
         env->GetArrayLength(jtarget) < (jtarget_off + jtarget_len)) {
       ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
@@ -2544,6 +2550,11 @@ class JniUtil {
     env->SetByteArrayRegion(
         jtarget, jtarget_off, length,
         const_cast<jbyte*>(reinterpret_cast<const jbyte*>(source.data())));
+    if (env->ExceptionCheck()) {
+      ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+          env, "Failed to copy data to byte array.");
+      return 0;
+    }
     return cvalue_len;
   }
 };
