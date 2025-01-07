@@ -1858,7 +1858,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_approximate_sizes_cf_with_flags(
   delete[] ranges;
 }
 
-void rocksdb_delete_file(rocksdb_t* db, const char* name) {
+void DEPRECATED_rocksdb_delete_file(rocksdb_t* db, const char* name) {
   db->rep->DEPRECATED_DeleteFile(name);
 }
 
