@@ -12,7 +12,6 @@
 #include <variant>
 
 #include "rocksdb/iterator.h"
-#include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -47,11 +46,34 @@ class ColumnFamilyHandle;
 // explicit or implicit one), RocksDB will invoke any applicable SecondaryIndex
 // objects based on primary column family and column name, and it will
 // automatically add or remove any secondary index entries as needed (using
-// the same transaction).
+// the same transaction). Secondary indices can also be queried using an
+// iterator API, which has implementation-specific semantics.
 //
 // Note: the methods of SecondaryIndex implementations are expected to be
 // thread-safe with the exception of Set{Primary,Secondary}ColumnFamily (which
 // are not expected to be called after initialization).
+
+// Read options for secondary index iterators
+struct SecondaryIndexReadOptions {
+  // The maximum number of neighbors K to return when performing a
+  // K-nearest-neighbors vector similarity search. The number of neighbors
+  // returned can be smaller if there are not enough vectors in the inverted
+  // lists probed. Only applicable to FAISS IVF secondary indices, where it must
+  // be specified and positive. See also `SecondaryIndex::NewIterator` and
+  // `similarity_search_probes` below.
+  //
+  // Default: none
+  std::optional<size_t> similarity_search_neighbors;
+
+  // The number of inverted lists to probe when performing a K-nearest-neighbors
+  // vector similarity search. Only applicable to FAISS IVF secondary indices,
+  // where it must be specified and positive. See also
+  // `SecondaryIndex::NewIterator` and `similarity_search_neighbors` above.
+  //
+  // Default: none
+  std::optional<size_t> similarity_search_probes;
+};
+
 class SecondaryIndex {
  public:
   virtual ~SecondaryIndex() = default;
@@ -101,13 +123,13 @@ class SecondaryIndex {
       const = 0;
 
   // Create an iterator that can be used by applications to query the index.
-  // This method takes a ReadOptions structure, which can be used by
-  // applications to provide (implementation-specific) query parameters to the
-  // index as well as an underlying iterator over the index's secondary column
-  // family, which the returned iterator is expected to take ownership of and
-  // use to read the actual secondary index entries. (Providing the underlying
-  // iterator this way enables querying the index as of a specific point in time
-  // for example.)
+  // This method takes a SecondaryIndexReadOptions structure, which can be used
+  // by applications to provide (implementation-specific) query parameters to
+  // the index as well as an underlying iterator over the index's secondary
+  // column family, which the returned iterator is expected to take ownership of
+  // and use to read the actual secondary index entries. (Providing the
+  // underlying iterator this way enables querying the index as of a specific
+  // point in time for example.)
   //
   // Querying the index can be performed by calling the returned iterator's
   // Seek API with a search target, and then using Next (and potentially
@@ -123,7 +145,7 @@ class SecondaryIndex {
   // For vector indices, the search target might be a vector, and the iterator
   // might return similar vectors from the index.
   virtual std::unique_ptr<Iterator> NewIterator(
-      const ReadOptions& read_options,
+      const SecondaryIndexReadOptions& read_options,
       std::unique_ptr<Iterator>&& underlying_it) const = 0;
 };
 
