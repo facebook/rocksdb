@@ -350,14 +350,16 @@ class NonBatchedOpsStressTest : public StressTest {
     if (thread->tid != 0) {
       return;
     }
+    auto* shared = thread->shared;
+    assert(shared);
+    MutexLock l(shared->GetSecondaryMutex());
+
     Status s = cmp_db_->TryCatchUpWithPrimary();
     if (!s.ok()) {
       assert(false);
       exit(1);
     }
 
-    auto* shared = thread->shared;
-    assert(shared);
     const int64_t max_key = shared->GetMaxKey();
     ReadOptions read_opts(FLAGS_verify_checksum, true);
 
@@ -383,6 +385,8 @@ class NonBatchedOpsStressTest : public StressTest {
       uint64_t prefix_to_use =
           (FLAGS_prefix_size < 0) ? 1 : static_cast<size_t>(FLAGS_prefix_size);
 
+      std::cout << "Creating cmp_db_ iterator at sequence number "
+                << cmp_db_->GetLatestSequenceNumber() << std::endl;
       std::unique_ptr<Iterator> iter(
           cmp_db_->NewIterator(read_opts, column_families_[0]));
 

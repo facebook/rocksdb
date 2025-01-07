@@ -170,6 +170,8 @@ class SharedState {
 
   port::Mutex* GetMutex() { return &mu_; }
 
+  port::Mutex* GetSecondaryMutex() { return &secondary_mu_; }
+
   port::CondVar* GetCondVar() { return &cv_; }
 
   StressTest* GetStressTest() const { return stress_test_; }
@@ -423,6 +425,7 @@ class SharedState {
   }
 
   port::Mutex mu_;
+  port::Mutex secondary_mu_;
   port::CondVar cv_;
   port::Mutex persist_seqno_mu_;
   const uint32_t seed_;
