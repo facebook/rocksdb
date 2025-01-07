@@ -114,7 +114,12 @@ class Comparator : public Customizable, public CompareInterface {
   // with the customized comparator.
   virtual bool CanKeysWithDifferentByteContentsBeEqual() const { return true; }
 
-  // return true if two keys
+  // return true if the user portion of the key is bytwise comparable other than
+  // any user defined timestamp.
+  // i.e. if the output of ExtractUserKeyAndStripTimestamp() on two keys results
+  // in distinct byte sequences, then this comparator considers them inequal.
+  // This is used to determine if DataBlockHashIndex is compatible
+  // with customized comparators that support user-defined timestamps.
   virtual bool KeysAreBytewiseComparableOtherThanTimestamp() const { return false; }
 
   // if it is a wrapped comparator, may return the root one.
