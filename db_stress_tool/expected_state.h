@@ -369,6 +369,7 @@ class FileExpectedStateManager : public ExpectedStateManager {
 
   const std::string expected_state_dir_path_;
   SequenceNumber saved_seqno_ = kMaxSequenceNumber;
+  SequenceNumber saved_verification_seqno_ = kMaxSequenceNumber;
 };
 
 // An `AnonExpectedStateManager` implements an `ExpectedStateManager` backed by

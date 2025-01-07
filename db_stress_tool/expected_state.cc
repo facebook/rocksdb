@@ -784,6 +784,19 @@ Status FileExpectedStateManager::SetSecondaryExpectedState(DB* db) {
   }
   secondary_expected_state_ = std::move(replay_state);
   assert(db->GetLatestSequenceNumber() == seqno);
+
+  if (saved_verification_seqno_ != kMaxSequenceNumber) {
+    std::string old_verification_file_path =
+        GetPathForFilename(std::to_string(saved_verification_seqno_) +
+                           kVerificationFilenameSuffix);
+    s = Env::Default()->DeleteFile(old_verification_file_path);
+
+    if (!s.ok()) {
+      std::cout << "Error deleting old verification file" << std::endl;
+      return s;
+    }
+  }
+  saved_verification_seqno_ = seqno;
   std::cout << "Successful exit from SetSecondaryExpectedState" << std::endl;
   return s;
 }
