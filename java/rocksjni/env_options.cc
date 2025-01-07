@@ -251,26 +251,6 @@ jlong Java_org_rocksdb_EnvOptions_compactionReadaheadSize(JNIEnv *, jclass,
 
 /*
  * Class:     org_rocksdb_EnvOptions
- * Method:    setRandomAccessMaxBufferSize
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_EnvOptions_setRandomAccessMaxBufferSize(
-    JNIEnv *, jclass, jlong jhandle, jlong random_access_max_buffer_size) {
-  ENV_OPTIONS_SET_SIZE_T(jhandle, random_access_max_buffer_size);
-}
-
-/*
- * Class:     org_rocksdb_EnvOptions
- * Method:    randomAccessMaxBufferSize
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_EnvOptions_randomAccessMaxBufferSize(JNIEnv *, jclass,
-                                                            jlong jhandle) {
-  return ENV_OPTIONS_GET(jhandle, random_access_max_buffer_size);
-}
-
-/*
- * Class:     org_rocksdb_EnvOptions
  * Method:    setWritableFileMaxBufferSize
  * Signature: (JJ)V
  */

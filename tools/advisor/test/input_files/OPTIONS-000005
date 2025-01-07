@@ -13,7 +13,6 @@
   allow_ingest_behind=false
   db_write_buffer_size=0
   db_log_dir=
-  random_access_max_buffer_size=1048576
 
 [CFOptions "default"]
   ttl=0
