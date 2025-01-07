@@ -1015,6 +1015,11 @@ IOStatus WinRandomAccessFileAsyncIo::ReadAsync(
         file_base_->GetName());
   }
 
+  HANDLE h_event = RX_CreateEvent(NULL, TRUE, FALSE, NULL);
+  if (h_event == NULL) {
+    return IOErrorFromWindowsError("CreateEvent failed", GetLastError());
+  }
+
   IOHandleDeleter deletefn = [](void* args) -> void {
     delete (static_cast<Win_IOHandle*>(args));
     args = nullptr;
@@ -1022,28 +1027,18 @@ IOStatus WinRandomAccessFileAsyncIo::ReadAsync(
 
   Win_IOHandle* win_handle = new Win_IOHandle(cb, cb_arg, req.offset, req.len,
                                               req.scratch, file_base_);
-
-  win_handle->overlapped.hEvent = RX_CreateEvent(NULL, TRUE, FALSE, NULL);
-  if (win_handle->overlapped.hEvent == NULL) {
-    return IOErrorFromWindowsError("CreateEvent failed", GetLastError());
-  }
+  win_handle->overlapped.hEvent = h_event;
 
   *io_handle = static_cast<void*>(win_handle);
   *del_fn = deletefn;
 
   IOStatus ios = IOStatus::OK();
   DWORD bytes_read = 0;
-  bool close_handle = true;
   if (FALSE == ReadFile(file_base_->GetFileHandle(), req.scratch,
                         static_cast<DWORD>(req.len), &bytes_read,
                         &win_handle->overlapped)) {
     DWORD last_error = GetLastError();
-    // Too many outstanding asynchronous I/O requests
-    if (last_error == ERROR_NOT_ENOUGH_MEMORY) {
-      CancelIoEx(file_base_->GetFileHandle(), &win_handle->overlapped);
-      ios = IOErrorFromWindowsError("ReadFile failed: " + file_base_->GetName(),
-                                    last_error);
-    } else if (last_error == ERROR_HANDLE_EOF) {
+    if (last_error == ERROR_HANDLE_EOF) {
       win_handle->is_finished = true;
       req.result = Slice(req.scratch, 0);
       req.status = IOStatus::OK();
@@ -1051,10 +1046,8 @@ IOStatus WinRandomAccessFileAsyncIo::ReadAsync(
     } else if (last_error != ERROR_IO_PENDING) {
       ios = IOErrorFromWindowsError("ReadFile failed: " + file_base_->GetName(),
                                     last_error);
-    } else {
-      close_handle = false;
     }
-
+    // else last_error is ERROR_IO_PENDING
   } else {
     win_handle->is_finished = true;
     req.result = Slice(req.scratch, bytes_read);
@@ -1062,7 +1055,7 @@ IOStatus WinRandomAccessFileAsyncIo::ReadAsync(
     cb(req, cb_arg);
   }
 
-  if (close_handle && win_handle->overlapped.hEvent != NULL) {
+  if (win_handle->is_finished && win_handle->overlapped.hEvent != NULL) {
     CloseHandle(win_handle->overlapped.hEvent);
     win_handle->overlapped.hEvent = NULL;
   }
