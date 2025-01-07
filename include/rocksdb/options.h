@@ -632,6 +632,26 @@ struct DBOptions {
   // Default: false
   bool track_and_verify_wals_in_manifest = false;
 
+  // EXPERIMENTAL
+  //
+  // If true, each new WAL will record various information about its predecessor
+  // WAL for verification on the predecessor WAL during WAL recovery.
+  //
+  // It verifies the following:
+  // 1. There exists at least some WAL in the DB
+  // - It's not compatible with `RepairDB()` since this option imposes a
+  // stricter requirement on WAL than the DB went through `RepariDB()` can
+  // normally meet
+  // 2. There exists no WAL hole where new WAL data presents while some old WAL
+  // data not yet obsolete is missing. The DB manifest indicates which WALs are
+  // obsolete.
+  //
+  // This is intended to be a better replacement to
+  // `track_and_verify_wals_in_manifest`.
+  //
+  // Default: false
+  bool track_and_verify_wals = false;
+
   // If true, verifies the SST unique id between MANIFEST and actual file
   // each time an SST file is opened. This check ensures an SST file is not
   // overwritten or misplaced. A corruption error will be reported if mismatch

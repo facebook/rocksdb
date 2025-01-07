@@ -1808,6 +1808,8 @@ DEFINE_bool(build_info, false,
 DEFINE_bool(track_and_verify_wals_in_manifest, false,
             "If true, enable WAL tracking in the MANIFEST");
 
+DEFINE_bool(track_and_verify_wals, false, "See Options.track_and_verify_wals");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -4721,6 +4723,7 @@ class Benchmark {
     options.allow_data_in_errors = FLAGS_allow_data_in_errors;
     options.track_and_verify_wals_in_manifest =
         FLAGS_track_and_verify_wals_in_manifest;
+    options.track_and_verify_wals = FLAGS_track_and_verify_wals;
 
     // Integrated BlobDB
     options.enable_blob_files = FLAGS_enable_blob_files;

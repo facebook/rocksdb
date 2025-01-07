@@ -146,6 +146,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
       {"track_and_verify_wals_in_manifest", "true"},
+      {"track_and_verify_wals", "true"},
       {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
@@ -329,6 +330,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
+  ASSERT_EQ(new_db_opt.track_and_verify_wals, true);
   ASSERT_EQ(new_db_opt.verify_sst_unique_id_in_manifest, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   ASSERT_EQ(new_db_opt.max_total_wal_size, static_cast<uint64_t>(33));
@@ -901,6 +903,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
       {"track_and_verify_wals_in_manifest", "true"},
+      {"track_and_verify_wals", "true"},
       {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
       {"daily_offpeak_time_utc", "06:30-23:30"},
@@ -916,6 +919,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
+  ASSERT_EQ(new_db_opt.track_and_verify_wals, true);
   ASSERT_EQ(new_db_opt.verify_sst_unique_id_in_manifest, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   db_options_map["unknown_option"] = "1";
@@ -2450,6 +2454,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
       {"track_and_verify_wals_in_manifest", "true"},
+      {"track_and_verify_wals", "true"},
       {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
@@ -2638,6 +2643,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
+  ASSERT_EQ(new_db_opt.track_and_verify_wals, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   ASSERT_EQ(new_db_opt.max_total_wal_size, static_cast<uint64_t>(33));
   ASSERT_EQ(new_db_opt.use_fsync, true);

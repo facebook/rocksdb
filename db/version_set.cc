@@ -4085,7 +4085,7 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
       temp[i].file = files[i];
     }
 
-    // sort the top number_of_files_to_sort_ based on file size
+    // sort the top kNumberFilesToSort based on file size
     size_t num = VersionStorageInfo::kNumberFilesToSort;
     if (num > temp.size()) {
       num = temp.size();
@@ -5939,6 +5939,8 @@ Status VersionSet::LogAndApply(
     }
     TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WakeUpAndDone", mu);
 #endif /* !NDEBUG */
+    // FIXME: One MANIFEST write failure can cause all writes to SetBGError,
+    // should only SetBGError once.
     return first_writer.status;
   }
 

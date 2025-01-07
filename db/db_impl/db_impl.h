@@ -2071,23 +2071,26 @@ class DBImpl : public DB {
       bool read_only, int job_id, SequenceNumber* next_sequence,
       bool* stop_replay_for_corruption, bool* stop_replay_by_wal_filter,
       uint64_t* corrupted_wal_number, bool* corrupted_wal_found,
-      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed);
+      std::unordered_map<int, VersionEdit>* version_edits, bool* flushed,
+      PredecessorWALInfo& predecessor_wal_info);
 
   void SetupLogFileProcessing(uint64_t wal_number);
 
-  Status InitializeLogReader(uint64_t wal_number, bool is_retry,
-                             std::string& fname, bool* const old_log_record,
-                             Status* const reporter_status,
-                             DBOpenLogReporter* reporter,
-                             std::unique_ptr<log::Reader>& reader);
+  Status InitializeLogReader(
+      uint64_t wal_number, bool is_retry, std::string& fname,
+
+      bool stop_replay_for_corruption, uint64_t min_wal_number,
+      const PredecessorWALInfo& predecessor_wal_info,
+      bool* const old_log_record, Status* const reporter_status,
+      DBOpenLogReporter* reporter, std::unique_ptr<log::Reader>& reader);
   Status ProcessLogRecord(
       Slice record, const std::unique_ptr<log::Reader>& reader,
       const UnorderedMap<uint32_t, size_t>& running_ts_sz, uint64_t wal_number,
       const std::string& fname, bool read_only, int job_id,
       std::function<void()> logFileDropped, DBOpenLogReporter* reporter,
-      uint64_t* record_checksum, SequenceNumber* next_sequence,
-      bool* stop_replay_for_corruption, Status* status,
-      bool* stop_replay_by_wal_filter,
+      uint64_t* record_checksum, SequenceNumber* last_seqno_observed,
+      SequenceNumber* next_sequence, bool* stop_replay_for_corruption,
+      Status* status, bool* stop_replay_by_wal_filter,
       std::unordered_map<int, VersionEdit>* version_edits, bool* flushed);
 
   Status InitializeWriteBatchForLogRecord(
@@ -2116,8 +2119,13 @@ class DBImpl : public DB {
       bool* stop_replay_for_corruption, uint64_t* corrupted_wal_number,
       bool* corrupted_wal_found);
 
-  void FinishLogFileProcessing(SequenceNumber const* const next_sequence,
-                               const Status& status);
+  Status UpdatePredecessorWALInfo(uint64_t wal_number,
+                                  const SequenceNumber last_seqno_observed,
+                                  const std::string& fname,
+                                  PredecessorWALInfo& predecessor_wal_info);
+
+  void FinishLogFileProcessing(const Status& status,
+                               const SequenceNumber* next_sequence);
 
   // Return `Status::Corruption()` when `stop_replay_for_corruption == true` and
   // exits inconsistency between SST and WAL data
@@ -2309,7 +2317,8 @@ class DBImpl : public DB {
                       const WriteOptions& write_options,
                       log::Writer* log_writer, uint64_t* log_used,
                       uint64_t* log_size,
-                      LogFileNumberSize& log_file_number_size);
+                      LogFileNumberSize& log_file_number_size,
+                      SequenceNumber sequence);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,
@@ -2554,6 +2563,7 @@ class DBImpl : public DB {
 
   IOStatus CreateWAL(const WriteOptions& write_options, uint64_t log_file_num,
                      uint64_t recycle_log_number, size_t preallocate_block_size,
+                     const PredecessorWALInfo& predecessor_wal_info,
                      log::Writer** new_log);
 
   // Validate self-consistency of DB options

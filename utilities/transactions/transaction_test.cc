@@ -29,7 +29,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
-#include "utilities/merge_operators/string_append/stringappend.h"
+#include "utilities/secondary_index/secondary_index_iterator.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -8054,7 +8054,7 @@ TEST_P(TransactionTest, SecondaryIndex) {
     }
 
     Status GetSecondaryKeyPrefix(
-        const Slice& /* primary_key */, const Slice& primary_column_value,
+        const Slice& primary_column_value,
         std::variant<Slice, std::string>* secondary_key_prefix) const override {
       assert(secondary_key_prefix);
 
@@ -8068,8 +8068,7 @@ TEST_P(TransactionTest, SecondaryIndex) {
       return Status::OK();
     }
 
-    Status GetSecondaryValue(const Slice& /* primary_key */,
-                             const Slice& primary_column_value,
+    Status GetSecondaryValue(const Slice& primary_column_value,
                              const Slice& previous_column_value,
                              std::optional<std::variant<Slice, std::string>>*
                                  secondary_value) const override {
@@ -8082,6 +8081,13 @@ TEST_P(TransactionTest, SecondaryIndex) {
       *secondary_value = value;
 
       return Status::OK();
+    }
+
+    std::unique_ptr<Iterator> NewIterator(
+        const SecondaryIndexReadOptions& /* read_options */,
+        std::unique_ptr<Iterator>&& underlying_it) const override {
+      return std::make_unique<SecondaryIndexIterator>(this,
+                                                      std::move(underlying_it));
     }
 
    private:
@@ -8182,6 +8188,7 @@ TEST_P(TransactionTest, SecondaryIndex) {
   }
 
   {
+    // Read the raw secondary index entries from CF2
     std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh2));
 
     it->SeekToFirst();
@@ -8195,6 +8202,58 @@ TEST_P(TransactionTest, SecondaryIndex) {
     ASSERT_EQ(it->value(), "xuuq");
 
     it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    // Query the secondary index
+    std::unique_ptr<Iterator> underlying_it(
+        db->NewIterator(ReadOptions(), cfh2));
+    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
+                                                    std::move(underlying_it)));
+
+    it->SeekToFirst();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsNotSupported());
+
+    it->SeekToLast();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsNotSupported());
+
+    it->SeekForPrev("box");
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsNotSupported());
+
+    it->Seek("box");  // last character used for indexing: x
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key3");
+    ASSERT_EQ(it->value(), "zab");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key4");
+    ASSERT_EQ(it->value(), "xuuq");
+
+    it->Prev();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key3");
+    ASSERT_EQ(it->value(), "zab");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key4");
+    ASSERT_EQ(it->value(), "xuuq");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+
+    it->Seek("toy");  // last character used for indexing: y
     ASSERT_FALSE(it->Valid());
     ASSERT_OK(it->status());
   }
@@ -8257,6 +8316,7 @@ TEST_P(TransactionTest, SecondaryIndex) {
   }
 
   {
+    // Read the raw secondary index entries from CF2
     std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh2));
 
     it->SeekToFirst();
@@ -8267,6 +8327,46 @@ TEST_P(TransactionTest, SecondaryIndex) {
     it->Next();
     ASSERT_TRUE(it->Valid());
     ASSERT_EQ(it->key(), "ykey3");
+    ASSERT_EQ(it->value(), "ylprag");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    // Query the secondary index
+    std::unique_ptr<Iterator> underlying_it(
+        db->NewIterator(ReadOptions(), cfh2));
+    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
+                                                    std::move(underlying_it)));
+
+    it->SeekToFirst();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsNotSupported());
+
+    it->SeekToLast();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsNotSupported());
+
+    it->SeekForPrev("bot");
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsNotSupported());
+
+    it->Seek("bot");  // last character used for indexing: t
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key1");
+    ASSERT_EQ(it->value(), "tluarg");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+
+    it->Seek("toy");  // last character used for indexing: y
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key3");
     ASSERT_EQ(it->value(), "ylprag");
 
     it->Next();

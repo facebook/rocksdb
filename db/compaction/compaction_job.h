@@ -359,15 +359,14 @@ class CompactionJob {
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.
   SeqnoToTimeMapping seqno_to_time_mapping_;
 
-  // Minimal sequence number for preserving the time information. The time info
-  // older than this sequence number won't be preserved after the compaction and
-  // if it's bottommost compaction, the seq num will be zeroed out.
-  SequenceNumber preserve_time_min_seqno_ = kMaxSequenceNumber;
+  // Max seqno that can be zeroed out in last level, including for preserving
+  // write times.
+  SequenceNumber preserve_seqno_after_ = kMaxSequenceNumber;
 
   // Minimal sequence number to preclude the data from the last level. If the
   // key has bigger (newer) sequence number than this, it will be precluded from
   // the last level (output to penultimate level).
-  SequenceNumber preclude_last_level_min_seqno_ = kMaxSequenceNumber;
+  SequenceNumber penultimate_after_seqno_ = kMaxSequenceNumber;
 
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.

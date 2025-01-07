@@ -459,6 +459,7 @@ Status CompactionOutputs::AddRangeDels(
     const Slice* comp_start_user_key, const Slice* comp_end_user_key,
     CompactionIterationStats& range_del_out_stats, bool bottommost_level,
     const InternalKeyComparator& icmp, SequenceNumber earliest_snapshot,
+    std::pair<SequenceNumber, SequenceNumber> keep_seqno_range,
     const Slice& next_table_min_key, const std::string& full_history_ts_low) {
   // The following example does not happen since
   // CompactionOutput::ShouldStopBefore() always return false for the first
@@ -587,6 +588,12 @@ Status CompactionOutputs::AddRangeDels(
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     auto tombstone = it->Tombstone();
     auto kv = tombstone.Serialize();
+    // Filter out by seqno for per-key placement
+    if (tombstone.seq_ < keep_seqno_range.first ||
+        tombstone.seq_ >= keep_seqno_range.second) {
+      continue;
+    }
+
     InternalKey tombstone_end = tombstone.SerializeEndKey();
     // TODO: the underlying iterator should support clamping the bounds.
     // tombstone_end.Encode is of form user_key@kMaxSeqno

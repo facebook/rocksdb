@@ -184,14 +184,13 @@ class CompactionOutputs {
   // @param next_table_min_key internal key lower bound for the next compaction
   // output.
   // @param full_history_ts_low used for range tombstone garbage collection.
-  Status AddRangeDels(CompactionRangeDelAggregator& range_del_agg,
-                      const Slice* comp_start_user_key,
-                      const Slice* comp_end_user_key,
-                      CompactionIterationStats& range_del_out_stats,
-                      bool bottommost_level, const InternalKeyComparator& icmp,
-                      SequenceNumber earliest_snapshot,
-                      const Slice& next_table_min_key,
-                      const std::string& full_history_ts_low);
+  Status AddRangeDels(
+      CompactionRangeDelAggregator& range_del_agg,
+      const Slice* comp_start_user_key, const Slice* comp_end_user_key,
+      CompactionIterationStats& range_del_out_stats, bool bottommost_level,
+      const InternalKeyComparator& icmp, SequenceNumber earliest_snapshot,
+      std::pair<SequenceNumber, SequenceNumber> keep_seqno_range,
+      const Slice& next_table_min_key, const std::string& full_history_ts_low);
 
  private:
   friend class SubcompactionState;
@@ -261,7 +260,9 @@ class CompactionOutputs {
                      const CompactionFileOpenFunc& open_file_func,
                      const CompactionFileCloseFunc& close_file_func) {
     Status status = curr_status;
-    // handle subcompaction containing only range deletions
+    // Handle subcompaction containing only range deletions. They could
+    // be dropped or sent to another output level, so this is only an
+    // over-approximate check for whether opening is needed.
     if (status.ok() && !HasBuilder() && !HasOutput() && range_del_agg &&
         !range_del_agg->IsEmpty()) {
       status = open_file_func(*this);
