@@ -361,6 +361,7 @@ class FileExpectedStateManager : public ExpectedStateManager {
   static const std::string kLatestBasename;
   static const std::string kStateFilenameSuffix;
   static const std::string kTraceFilenameSuffix;
+  static const std::string kVerificationFilenameSuffix;
   static const std::string kPersistedSeqnoBasename;
   static const std::string kPersistedSeqnoFilenameSuffix;
   static const std::string kTempFilenamePrefix;

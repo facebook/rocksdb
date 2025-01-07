@@ -391,6 +391,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
       Slice prefix(seek_key.data(), prefix_to_use);
 
+      uint64_t num_keys_with_data = 0;
+
       for (int64_t i = 0; i < max_key; ++i) {
         if (thread->shared->HasVerificationFailedYet()) {
           break;
@@ -443,12 +445,14 @@ class NonBatchedOpsStressTest : public StressTest {
         }
 
         if (!from_db.empty()) {
-          std::cout << "key i = " << i << " had data " << std::endl;
+          num_keys_with_data++;
         }
       }
       uint64_t end_secondary_scan = clock_->NowMicros();
       std::cout << "Scanned all of secondary db in "
                 << end_secondary_scan - start_secondary_scan << " microseconds"
+                << std::endl;
+      std::cout << "Encountered " << num_keys_with_data << " keys with data"
                 << std::endl;
     }
 

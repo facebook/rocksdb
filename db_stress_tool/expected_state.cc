@@ -253,6 +253,8 @@ ExpectedStateManager::~ExpectedStateManager() = default;
 const std::string FileExpectedStateManager::kLatestBasename = "LATEST";
 const std::string FileExpectedStateManager::kStateFilenameSuffix = ".state";
 const std::string FileExpectedStateManager::kTraceFilenameSuffix = ".trace";
+const std::string FileExpectedStateManager::kVerificationFilenameSuffix =
+    ".verification";
 const std::string FileExpectedStateManager::kPersistedSeqnoBasename = "PERSIST";
 const std::string FileExpectedStateManager::kPersistedSeqnoFilenameSuffix =
     ".seqno";
@@ -750,8 +752,8 @@ Status FileExpectedStateManager::SetSecondaryExpectedState(DB* db) {
   std::string state_file_path = GetPathForFilename(state_filename);
   std::cout << "state_file_path = " << state_file_path << std::endl;
 
-  std::string verification_file_temp_path = GetTempPathForFilename(
-      "verification_" + std::to_string(seqno) + kStateFilenameSuffix);
+  std::string verification_file_temp_path =
+      GetPathForFilename(std::to_string(seqno) + kVerificationFilenameSuffix);
   if (s.ok()) {
     s = CopyFile(FileSystem::Default(), state_file_path, Temperature::kUnknown,
                  verification_file_temp_path, Temperature::kUnknown,
