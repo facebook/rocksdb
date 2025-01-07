@@ -3409,7 +3409,9 @@ class ModelDB : public DB {
     return Status::NotSupported();
   }
 
-  Status DeleteFile(std::string /*name*/) override { return Status::OK(); }
+  Status DEPRECATED_DeleteFile(std::string /*name*/) override {
+    return Status::OK();
+  }
 
   Status GetUpdatesSince(
       ROCKSDB_NAMESPACE::SequenceNumber,
@@ -5238,7 +5240,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   db_->GetColumnFamilyMetaData(&cf_meta);
   for (const auto& file : cf_meta.levels[4].files) {
     listener->SetExpectedFileName(dbname_ + file.name);
-    ASSERT_OK(dbfull()->DeleteFile(file.name));
+    ASSERT_OK(dbfull()->DEPRECATED_DeleteFile(file.name));
   }
   listener->VerifyMatchedCount(cf_meta.levels[4].files.size());
 
