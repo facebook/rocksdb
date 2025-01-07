@@ -205,7 +205,7 @@ Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
   ColumnFamilySet* cf_set = versions_->GetColumnFamilySet();
 
   // Create WBWIMemTables
-  for (const auto [cf_id, stat] : wbwi->GetCFStats()) {
+  for (const auto& [cf_id, stat] : wbwi->GetCFStats()) {
     ColumnFamilyData* cfd = cf_set->GetColumnFamily(cf_id);
     if (!cfd) {
       if (ignore_missing_cf) {
