@@ -528,6 +528,7 @@ class WinFileLock : public FileLock {
   HANDLE hFile_;
 };
 
+// This class auto closes overlapped.hEvent during destruction if it is not NULL
 struct Win_IOHandle {
   std::function<void(FSReadRequest&, void*)> cb;
   void* cb_arg;
