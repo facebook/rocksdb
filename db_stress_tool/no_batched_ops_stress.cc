@@ -339,10 +339,26 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     assert(cmp_db_);
     assert(!cmp_cfhs_.empty());
+
     auto* shared = thread->shared;
     assert(shared);
+
+    const int64_t max_key = shared->GetMaxKey();
+    const int64_t keys_per_thread = max_key / shared->GetNumThreads();
+    int64_t start = keys_per_thread * thread->tid;
+    int64_t end = thread->tid == shared->GetNumThreads() - 1
+                      ? max_key
+                      : start + keys_per_thread;
+
+    // We are going to read in the expected values before catching up to the
+    // primary to determine the lower bound of the acceptable values that can be
+    // returned from the secondary. After each Get() to the secondary, we are
+    // going to read in the expected value again to determine the upper bound.
+    // As long as the returned value from Get() is within these bounds, we
+    // consider that okay. The lower bound will always be moving forwards
+    // anyways as TryCatchUpWithPrimary() gets called.
     std::vector<ExpectedValue> pre_read_expected_values;
-    for (int64_t i = 0; i < 1000; ++i) {
+    for (int64_t i = start; i < end; ++i) {
       pre_read_expected_values.push_back(shared->Get(0, i));
     }
 
@@ -354,10 +370,14 @@ class NonBatchedOpsStressTest : public StressTest {
 
     ReadOptions read_opts(FLAGS_verify_checksum, true);
 
-    for (int64_t i = 0; i < 1000; ++i) {
-      const ExpectedValue pre_read_expected_value = pre_read_expected_values[i];
+    for (int64_t i = start; i < end; ++i) {
+      if (shared->HasVerificationFailedYet()) {
+        break;
+      }
+      const ExpectedValue pre_read_expected_value =
+          pre_read_expected_values[i - start];
       std::string from_db;
-      std::string key_str = Key(rand_keys[0]);
+      std::string key_str = Key(i);
       Slice key = key_str;
       s = db_->Get(read_opts, column_families_[0], key_str, &from_db);
       const ExpectedValue post_read_expected_value = shared->Get(0, i);
@@ -369,7 +389,7 @@ class NonBatchedOpsStressTest : public StressTest {
                 post_read_expected_value)) {
           std::cout << "Secondary verification failed for i=" << i
                     << ", key=" << key.ToString(true)
-                    << ". The value_base from the db was " << value_base_from_db
+                    << ". Get() returned a value base " << value_base_from_db
                     << " which was outside of the value base range of"
                     << pre_read_expected_value.GetValueBase() << " to"
                     << post_read_expected_value.GetFinalValueBase()
@@ -403,7 +423,6 @@ class NonBatchedOpsStressTest : public StressTest {
       return iter->status();
     };
 
-    const int64_t max_key = shared->GetMaxKey();
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
@@ -413,17 +432,6 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     static Random64 rand64(shared->GetSeed());
-
-    {
-      uint32_t crc = 0;
-      std::unique_ptr<Iterator> it(cmp_db_->NewIterator(read_opts));
-      s = checksum_column_family(it.get(), &crc);
-      if (!s.ok()) {
-        fprintf(stderr, "Computing checksum of default cf: %s\n",
-                s.ToString().c_str());
-        assert(false);
-      }
-    }
 
     for (auto* handle : cmp_cfhs_) {
       if (thread->rand.OneInOpt(3)) {
@@ -435,7 +443,10 @@ class NonBatchedOpsStressTest : public StressTest {
         s = cmp_db_->Get(read_opts, handle, key_str, &value,
                          FLAGS_user_timestamp_size > 0 ? &key_ts : nullptr);
         s.PermitUncheckedError();
-      } else {
+      } else if (!FLAGS_inplace_update_support) {
+        // The combination of inplace_update_support=true and backward iteration
+        // is not allowed
+
         // Use range scan
         std::unique_ptr<Iterator> iter(cmp_db_->NewIterator(read_opts, handle));
         uint32_t rnd = (thread->rand.Next()) % 4;
@@ -458,6 +469,7 @@ class NonBatchedOpsStressTest : public StressTest {
           iter->Seek(key_str);
           for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Next()) {
           }
+
         } else {
           // SeekForPrev() + Prev()*5
           uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
@@ -465,6 +477,15 @@ class NonBatchedOpsStressTest : public StressTest {
           iter->SeekForPrev(key_str);
           for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Prev()) {
           }
+        }
+      } else {
+        uint32_t crc = 0;
+        std::unique_ptr<Iterator> it(cmp_db_->NewIterator(read_opts, handle));
+        s = checksum_column_family(it.get(), &crc);
+        if (!s.ok()) {
+          fprintf(stderr, "Computing checksum of default cf: %s\n",
+                  s.ToString().c_str());
+          assert(false);
         }
       }
     }
