@@ -334,11 +334,11 @@ class NonBatchedOpsStressTest : public StressTest {
   }
 
   void ContinuouslyVerifyDb(ThreadState* thread) const override {
-    if (!cmp_db_) {
+    if (!secondary_db_) {
       return;
     }
-    assert(cmp_db_);
-    assert(!cmp_cfhs_.empty());
+    assert(secondary_db_);
+    assert(!secondary_cfhs_.empty());
 
     auto* shared = thread->shared;
     assert(shared);
@@ -362,7 +362,7 @@ class NonBatchedOpsStressTest : public StressTest {
       pre_read_expected_values.push_back(shared->Get(0, i));
     }
 
-    Status s = cmp_db_->TryCatchUpWithPrimary();
+    Status s = secondary_db_->TryCatchUpWithPrimary();
     if (!s.ok()) {
       assert(false);
       exit(1);
@@ -433,22 +433,24 @@ class NonBatchedOpsStressTest : public StressTest {
 
     static Random64 rand64(shared->GetSeed());
 
-    for (auto* handle : cmp_cfhs_) {
+    for (auto* handle : secondary_cfhs_) {
       if (thread->rand.OneInOpt(3)) {
         // Use Get()
         uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
         std::string key_str = Key(key);
         std::string value;
         std::string key_ts;
-        s = cmp_db_->Get(read_opts, handle, key_str, &value,
-                         FLAGS_user_timestamp_size > 0 ? &key_ts : nullptr);
+        s = secondary_db_->Get(
+            read_opts, handle, key_str, &value,
+            FLAGS_user_timestamp_size > 0 ? &key_ts : nullptr);
         s.PermitUncheckedError();
       } else if (!FLAGS_inplace_update_support) {
         // The combination of inplace_update_support=true and backward iteration
         // is not allowed
 
         // Use range scan
-        std::unique_ptr<Iterator> iter(cmp_db_->NewIterator(read_opts, handle));
+        std::unique_ptr<Iterator> iter(
+            secondary_db_->NewIterator(read_opts, handle));
         uint32_t rnd = (thread->rand.Next()) % 4;
         if (0 == rnd) {
           // SeekToFirst() + Next()*5
@@ -480,7 +482,8 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       } else {
         uint32_t crc = 0;
-        std::unique_ptr<Iterator> it(cmp_db_->NewIterator(read_opts, handle));
+        std::unique_ptr<Iterator> it(
+            secondary_db_->NewIterator(read_opts, handle));
         s = checksum_column_family(it.get(), &crc);
         if (!s.ok()) {
           fprintf(stderr, "Computing checksum of default cf: %s\n",
