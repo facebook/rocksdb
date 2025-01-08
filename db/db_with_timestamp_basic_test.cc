@@ -4814,44 +4814,41 @@ class DataBlockHashIndexTimestampTest : public DBBasicTestWithTimestampBase {
 };
 
 TEST_F(DataBlockHashIndexTimestampTest, HashIndexWithTimestamp) {
-  BlockBasedTableOptions table_options;
-  table_options.data_block_index_type =
-      BlockBasedTableOptions::kDataBlockBinaryAndHash;
+
+  Options options = CurrentOptions();
 
   const size_t kTimestampSize = Timestamp(0, 0).size();
   DataBlockHashIndexTimestampTest::TestComparator comparator(kTimestampSize);
-
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
   options.comparator = &comparator;
-  options.persist_user_defined_timestamps = true;
-  options.env = env_;
+
+  BlockBasedTableOptions table_options;
+  table_options.data_block_index_type =
+      BlockBasedTableOptions::kDataBlockBinaryAndHash;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  DestroyAndReopen(options);
+  for (uint32_t iteration = 0; iteration < 5; iteration++) {
+    DestroyAndReopen(options);
 
-  Status s;
-  WriteOptions wopts;
+    WriteOptions wopts;
 
-  const uint32_t count = 10'000;
-  for (uint32_t i = 0; i < count; i++) {
-    s = db_->Put(wopts, "key", Timestamp(i, 0), std::to_string(i));
-    ASSERT_OK(s);
+    const uint32_t count = 124;
+    for (uint32_t i = 0; i < count; i++) {
+      ASSERT_OK(db_->Put(wopts, "key", Timestamp(i, 0), std::to_string(i)));
+    }
+
+    ASSERT_OK(Flush());
+
+    ReadOptions ropts;
+    Slice ts = Timestamp(count, 0);
+    ropts.timestamp = &ts;
+
+    std::string value;
+    std::string expected_value = std::to_string(count - 1);
+
+    ASSERT_OK(db_->Get(ropts, "key", &value));
+    ASSERT_EQ(expected_value, value);
   }
-
-  db_->Flush(FlushOptions());
-
-  ReadOptions ropts;
-  Slice ts = Timestamp(count, 0);
-  ropts.timestamp = &ts;
-  std::string value;
-  std::string expected_value = std::to_string(count - 1);
-
-  s = db_->Get(ropts, "key", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ(expected_value, value);
 }
-
 
 }  // namespace ROCKSDB_NAMESPACE
 
