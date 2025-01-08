@@ -486,7 +486,6 @@ simple_default_params = {
     "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "test_secondary": lambda: random.choice([0, 1]),
-    "continuous_verification_interval": lambda: random.choice([0, 1000]),
 }
 
 blackbox_simple_default_params = {
