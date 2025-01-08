@@ -6,6 +6,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#include <iostream>
 
 #include "db/dbformat.h"
 #include "db_stress_tool/db_stress_listener.h"
@@ -338,10 +339,56 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     assert(cmp_db_);
     assert(!cmp_cfhs_.empty());
+    auto* shared = thread->shared;
+    assert(shared);
+    std::vector<ExpectedValue> pre_read_expected_values;
+    for (int64_t i = 0; i < 1000; ++i) {
+      pre_read_expected_values.push_back(shared->Get(0, i));
+    }
+
     Status s = cmp_db_->TryCatchUpWithPrimary();
     if (!s.ok()) {
       assert(false);
       exit(1);
+    }
+
+    ReadOptions read_opts(FLAGS_verify_checksum, true);
+
+    for (int64_t i = 0; i < 1000; ++i) {
+      const ExpectedValue pre_read_expected_value = pre_read_expected_values[i];
+      std::string from_db;
+      std::string key_str = Key(rand_keys[0]);
+      Slice key = key_str;
+      s = db_->Get(read_opts, column_families_[0], key_str, &from_db);
+      const ExpectedValue post_read_expected_value = shared->Get(0, i);
+      if (s.ok()) {
+        const Slice slice(from_db);
+        const uint32_t value_base_from_db = GetValueBase(slice);
+        if (!ExpectedValueHelper::InExpectedValueBaseRange(
+                value_base_from_db, pre_read_expected_value,
+                post_read_expected_value)) {
+          std::cout << "Secondary verification failed for i=" << i
+                    << ", key=" << key.ToString(true)
+                    << ". The value_base from the db was " << value_base_from_db
+                    << " which was outside of the value base range of"
+                    << pre_read_expected_value.GetValueBase() << " to"
+                    << post_read_expected_value.GetFinalValueBase()
+                    << std::endl;
+          thread->shared->SetVerificationFailure();
+          break;
+        }
+      } else if (s.IsNotFound()) {
+        if (ExpectedValueHelper::MustHaveExisted(pre_read_expected_value,
+                                                 post_read_expected_value)) {
+          std::cout
+              << "Secondary verification failed for i=" << i
+              << ", key=" << key.ToString(true)
+              << ". Get() returned NotFound when the key should have existed."
+              << std::endl;
+          thread->shared->SetVerificationFailure();
+          break;
+        }
+      }
     }
 
     const auto checksum_column_family = [](Iterator* iter,
@@ -356,10 +403,7 @@ class NonBatchedOpsStressTest : public StressTest {
       return iter->status();
     };
 
-    auto* shared = thread->shared;
-    assert(shared);
     const int64_t max_key = shared->GetMaxKey();
-    ReadOptions read_opts(FLAGS_verify_checksum, true);
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
