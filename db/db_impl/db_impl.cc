@@ -6812,17 +6812,24 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
   // for SeqnoToTimeMapping. We don't know how long it has been since the last
   // sequence number was written, so we at least have a one-sided bound by
   // sampling in this order.
-  SequenceNumber seqno = GetLatestSequenceNumber();
-  int64_t unix_time_signed = 0;
-  immutable_db_options_.clock->GetCurrentTime(&unix_time_signed)
-      .PermitUncheckedError();  // Ignore error
-  uint64_t unix_time = static_cast<uint64_t>(unix_time_signed);
-
+  // ALSO, to avoid out-of-order mappings, we need to get the seqno and times
+  // while holding the DB mutex. (This is really to make testing happy because
+  // it's fine to throw out extra close-but-not-quite-consistent mappings in
+  // production.)
   std::vector<SuperVersionContext> sv_contexts;
-  if (populate_historical_seconds > 0) {
-    bool success = true;
-    {
-      InstrumentedMutexLock l(&mutex_);
+  bool success = true;
+  SequenceNumber seqno;
+  uint64_t unix_time;
+  {
+    InstrumentedMutexLock l(&mutex_);
+
+    seqno = GetLatestSequenceNumber();
+    int64_t unix_time_signed = 0;
+    immutable_db_options_.clock->GetCurrentTime(&unix_time_signed)
+        .PermitUncheckedError();  // Ignore error
+    unix_time = static_cast<uint64_t>(unix_time_signed);
+
+    if (populate_historical_seconds > 0) {
       if (seqno > 1 && unix_time > populate_historical_seconds) {
         // seqno=0 is reserved
         SequenceNumber from_seqno = 1;
@@ -6836,7 +6843,20 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
         assert(unix_time > populate_historical_seconds);
         success = false;
       }
+    } else {
+      // FIXME: assert(seqno > 0);
+      // Always successful assuming seqno never go backwards
+      seqno_to_time_mapping_.Append(seqno, unix_time);
+      InstallSeqnoToTimeMappingInSV(&sv_contexts);
     }
+  }
+
+  // clean up & report outside db mutex
+  for (SuperVersionContext& sv_context : sv_contexts) {
+    sv_context.Clean();
+  }
+
+  if (populate_historical_seconds > 0) {
     if (success) {
       ROCKS_LOG_INFO(
           immutable_db_options_.info_log,
@@ -6851,16 +6871,7 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
           seqno, unix_time - populate_historical_seconds, unix_time);
     }
   } else {
-    InstrumentedMutexLock l(&mutex_);
-    // FIXME: assert(seqno > 0);
-    // Always successful assuming seqno never go backwards
-    seqno_to_time_mapping_.Append(seqno, unix_time);
-    InstallSeqnoToTimeMappingInSV(&sv_contexts);
-  }
-
-  // clean up outside db mutex
-  for (SuperVersionContext& sv_context : sv_contexts) {
-    sv_context.Clean();
+    assert(success);
   }
 }
 
