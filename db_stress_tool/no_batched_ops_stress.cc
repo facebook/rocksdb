@@ -398,7 +398,7 @@ class NonBatchedOpsStressTest : public StressTest {
                     << pre_read_expected_value.GetValueBase() << " to"
                     << post_read_expected_value.GetFinalValueBase()
                     << std::endl;
-          thread->shared->SetVerificationFailure();
+          shared->SetVerificationFailure();
           break;
         }
       } else if (s.IsNotFound()) {
@@ -409,7 +409,7 @@ class NonBatchedOpsStressTest : public StressTest {
               << ", key=" << key.ToString(true)
               << ". Get() returned NotFound when the key should have existed."
               << std::endl;
-          thread->shared->SetVerificationFailure();
+          shared->SetVerificationFailure();
           break;
         }
       }
@@ -449,8 +449,9 @@ class NonBatchedOpsStressTest : public StressTest {
             FLAGS_user_timestamp_size > 0 ? &key_ts : nullptr);
         s.PermitUncheckedError();
       } else if (!FLAGS_inplace_update_support) {
-        // The combination of inplace_update_support=true and backward iteration
-        // is not allowed
+        // I think this portion of the verification failed because the
+        // combination of inplace_update_support=true and backward iteration is
+        // not allowed.
 
         // Use range scan
         std::unique_ptr<Iterator> iter(
@@ -492,7 +493,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (!s.ok()) {
           std::string checksum_err_msg =
               "Failed to compute checksum for secondary cf " +
-              std::to_string(cf) + ". Status " + s.ToString();
+              std::to_string(cf) + ". Status: " + s.ToString();
           VerificationAbort(shared, checksum_err_msg);
           assert(false);
         }
