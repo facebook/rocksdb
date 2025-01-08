@@ -4795,37 +4795,48 @@ TEST_F(DBBasicTestWithTimestamp, TimestampFilterTableReadOnGet) {
   Close();
 }
 
-class DataBlockHashIndexTimestampTest : public DBBasicTestWithTimestampBase {
+class DBBasicTestWithTimestampDataBlockHashIndex
+    : public DBBasicTestWithTimestampBase {
  public:
-  DataBlockHashIndexTimestampTest()
+  DBBasicTestWithTimestampDataBlockHashIndex()
       : DBBasicTestWithTimestampBase("data_block_hash_index_timestamp_test") {}
  protected:
   class TestComparator : public DBBasicTestWithTimestampBase::TestComparator {
    public:
     explicit TestComparator(size_t ts_sz)
       : DBBasicTestWithTimestampBase::TestComparator(ts_sz) {}
+
+    // Override this method to allow data block hash index to be used
     bool KeysAreBytewiseComparableOtherThanTimestamp() const override {
       return true;
-    }
-    bool CanKeysWithDifferentByteContentsBeEqual() const override {
-      return false;
     }
   };
 };
 
-TEST_F(DataBlockHashIndexTimestampTest, HashIndexWithTimestamp) {
+TEST_F(DBBasicTestWithTimestampDataBlockHashIndex, HashIndexWithTimestamp) {
 
   Options options = CurrentOptions();
 
+  // Use a bytewise comparable, timestamp-aware comparator that overrides
+  // KeysAreBytewiseComparableOtherThanTimestamp() to return true,
+  // enabling use of data block hash index
   const size_t kTimestampSize = Timestamp(0, 0).size();
-  DataBlockHashIndexTimestampTest::TestComparator comparator(kTimestampSize);
+  DBBasicTestWithTimestampDataBlockHashIndex::TestComparator
+      comparator(kTimestampSize);
   options.comparator = &comparator;
 
+  // Enable use of data block hash index
   BlockBasedTableOptions table_options;
   table_options.data_block_index_type =
       BlockBasedTableOptions::kDataBlockBinaryAndHash;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
+
+  // Run sequence of $count Put()s and one Get() multiple times
+  // Original incompatibility between UDTs and Data Block Hash Index
+  // led to inconsistent behavior that would _usually_ cause this test to fail,
+  // so multiple iterations significantly reduces misleading passes.
+  // This test always passes when UDT and Data Block Hash Index are compatible.
   for (uint32_t iteration = 0; iteration < 5; iteration++) {
     DestroyAndReopen(options);
 
@@ -4846,6 +4857,8 @@ TEST_F(DataBlockHashIndexTimestampTest, HashIndexWithTimestamp) {
     std::string expected_value = std::to_string(count - 1);
 
     ASSERT_OK(db_->Get(ropts, "key", &value));
+
+    // When UDTs and hash index are incompatible, these values can mismatch
     ASSERT_EQ(expected_value, value);
   }
 }
