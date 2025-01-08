@@ -94,6 +94,12 @@ struct Rectangle {
     return min == other.min && max == other.max;
   }
 
+  // return whether overlaps with the rectangle determined by the two points in X axis
+  bool OverlapInX(Point point_min, Point point_max) const{
+    bool result = (max.x < point_min.x || min.x > point_max.x);
+    return !result;
+  }
+
   Point min;
   Point max;
 };

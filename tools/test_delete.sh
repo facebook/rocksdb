@@ -48,25 +48,77 @@
 
 
 
+# rm -rf ./testdb
+# ./tools/test_delete --mode=default --workload=test --ksize=32 --kvsize=512 --level_comp=1 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=grd --workload=test --ksize=32 --kvsize=512 --level_comp=1 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=grd --workload=test --ksize=32 --kvsize=512 --level_comp=10 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+
+
+# rm -rf ./testdb
+# ./tools/test_delete --mode=default --workload=test --ksize=128 --kvsize=512 --level_comp=1 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=grd --workload=test --ksize=128 --kvsize=512 --level_comp=1 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=grd --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+
+
+# rm -rf ./testdb
+# ./tools/test_delete --mode=default --workload=test --ksize=256 --kvsize=512 --level_comp=1 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=grd --workload=test --ksize=256 --kvsize=512 --level_comp=1 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=grd --workload=test --ksize=256 --kvsize=512 --level_comp=10 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+
+
+
+# rm -rf ./testdb
+# ./tools/test_delete --mode=default --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/log_1.txt
+# # rm -rf ./testdb
+# # ./tools/test_delete --mode=grd --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/log_1.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=grd --enable_crosscheck=true --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/log_1.txt
+
+
+
+# rm -rf ./testdb
+# ./tools/test_delete --mode=default --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=2500000 --write_num=500000 --read_num=500000 --seek_num=0 --rdelete_num=50000 >> ./res/tmplog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=grd --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=2500000 --write_num=500000 --read_num=500000 --seek_num=0 --rdelete_num=50000 >> ./res/tmplog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=scan --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=2500000 --write_num=500000 --read_num=500000 --seek_num=0 --rdelete_num=50000 >> ./res/tmplog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=decom --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=2500000 --write_num=500000 --read_num=500000 --seek_num=0 --rdelete_num=50000 >> ./res/tmplog.txt
+
 rm -rf ./testdb
-./tools/test_delete --mode=default --workload=test --ksize=32 --kvsize=512 --level_comp=1 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+./tools/test_delete --mode=default --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=2500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=10 >> ./res/temlog.txt
 rm -rf ./testdb
-./tools/test_delete --mode=grd --workload=test --ksize=32 --kvsize=512 --level_comp=1 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+./tools/test_delete --mode=grd --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=2500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=10 >> ./res/temlog.txt
 rm -rf ./testdb
-./tools/test_delete --mode=grd --workload=test --ksize=32 --kvsize=512 --level_comp=10 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+./tools/test_delete --mode=scan --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=2500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=10 >> ./res/temlog.txt
+rm -rf ./testdb
+./tools/test_delete --mode=decom --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=2500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=10 >> ./res/temlog.txt
 
 
 rm -rf ./testdb
-./tools/test_delete --mode=default --workload=test --ksize=128 --kvsize=512 --level_comp=1 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+./tools/test_delete --mode=default --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=10 >> ./res/temlog.txt
 rm -rf ./testdb
-./tools/test_delete --mode=grd --workload=test --ksize=128 --kvsize=512 --level_comp=1 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+./tools/test_delete --mode=grd --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=10 >> ./res/temlog.txt
 rm -rf ./testdb
-./tools/test_delete --mode=grd --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+./tools/test_delete --mode=scan --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=10 >> ./res/temlog.txt
+rm -rf ./testdb
+./tools/test_delete --mode=decom --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=10 >> ./res/temlog.txt
 
 
-rm -rf ./testdb
-./tools/test_delete --mode=default --workload=test --ksize=256 --kvsize=512 --level_comp=1 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
-rm -rf ./testdb
-./tools/test_delete --mode=grd --workload=test --ksize=256 --kvsize=512 --level_comp=1 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
-rm -rf ./testdb
-./tools/test_delete --mode=grd --workload=test --ksize=256 --kvsize=512 --level_comp=10 --buffer_size=64 --rep_buffer_size=655 --prep_num=1500000 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 >> ./res/Testlog.txt
+
+# rm -rf ./testdb
+# ./tools/test_delete --mode=default --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=10000000 --write_num=2000000 --read_num=2000000 --seek_num=0 --rdelete_num=200000 >> ./res/tmplog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=grd --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=16 --rep_buffer_size=164 --max_key=20000000 --prep_num=10000000 --write_num=2000000 --read_num=2000000 --seek_num=0 --rdelete_num=200000 >> ./res/tmplog.txt
+
+
+# rm -rf ./testdb
+# ./tools/test_delete --mode=default --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=64 --rep_buffer_size=655 --max_key=20000000 --prep_num=10000000 --write_num=2000000 --read_num=2000000 --seek_num=0 --rdelete_num=200000 >> ./res/tmplog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=grd --workload=test --ksize=128 --kvsize=512 --level_comp=10 --buffer_size=64 --rep_buffer_size=655 --max_key=20000000 --prep_num=10000000 --write_num=2000000 --read_num=2000000 --seek_num=0 --rdelete_num=200000 >> ./res/tmplog.txt

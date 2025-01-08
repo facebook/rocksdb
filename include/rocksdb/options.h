@@ -1958,6 +1958,9 @@ struct ReadOptions {
   // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
 
+  // Dtermine whether to use cross check strategy (LSM-tree and LSM R-tree)
+  bool use_cross_check = false;
+
   // *** END options for RocksDB internal use only ***
 
   ReadOptions() {}

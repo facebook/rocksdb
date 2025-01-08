@@ -4,7 +4,11 @@
 #include <boost/dynamic_bitset.hpp>
 
 DEFINE_string(db_path, "/home/wangfan/delete/global-range-delete/build/testdb", "dbpath");
-DEFINE_string(mode, "default", "methods: default or grd");
+// default: default RocksDB
+// grd:     global range delete LSM R-tree
+// scan:    scan and delete
+// decom:   decompose
+DEFINE_string(mode, "default", "methods: default, grd, scan, decom");
 //LSM
 DEFINE_int32(buffer_size, 64, "Buffer size in MB");
 DEFINE_int32(size_ratio, 10, "size_ratio");
@@ -12,6 +16,7 @@ DEFINE_int32(bpk_filter, 10, "Bits per key for rocksdb bloom filter");
 DEFINE_int32(ksize, 24, "Size of key-value pair");
 DEFINE_int32(kvsize, 128, "Size of key-value pair");
 //GRD
+DEFINE_bool(enable_rdfilter, true, "whether to use range delete filter");
 DEFINE_uint64(max_key, 10000000, "the upper bound of key space");
 DEFINE_int32(bpk_rd_filter, 10, "Bits per key for range delete filter");
 DEFINE_int32(rep_buffer_size, 64, "LSM RTree Buffer size in KB");
@@ -27,6 +32,7 @@ DEFINE_uint64(rdelete_num, 100000, "#range delete operations");
 DEFINE_uint64(rdelete_len, 10, "length of delete range");
 
 DEFINE_int32(level_comp, 1, "level start to involve rd_rep in compaction");
+DEFINE_bool(enable_crosscheck, false, "whether to use cross check between lsm and lsm rtree");
 
 namespace ROCKSDB_NAMESPACE {
 class GlobalRangeDeleterGCListener : public EventListener {
@@ -38,7 +44,7 @@ class GlobalRangeDeleterGCListener : public EventListener {
     if(ci.bottommost_level && (ci.output_level > 1)){
       SequenceNumber sequence = db->GetLeastSequenceNumber();
       db->UpdateGCInfo(sequence);
-      std::cout << "Garbage collection: bottommost level " << ci.output_level << " least_input_seq: " << sequence << std::endl;
+      // std::cout << "Garbage collection: bottommost level " << ci.output_level << " least_input_seq: " << sequence << std::endl;
       // check garbage collection
       db->ExcuteGRDGarbageCollection(sequence);
       db->ResetGCInfo();
@@ -63,7 +69,7 @@ class GlobalRangeDeleterGCListener : public EventListener {
 };
 }
 
-rocksdb::range_delete_db_opt get_default_options() {
+bool get_default_options(rocksdb::range_delete_db_opt& options) {
   rocksdb::Options db_opts;
   db_opts.create_if_missing = true;
   db_opts.write_buffer_size = FLAGS_buffer_size << 20;  // MB
@@ -98,12 +104,41 @@ rocksdb::range_delete_db_opt get_default_options() {
   rep_opts.T = FLAGS_rep_size_ratio;
   rep_opts.path = FLAGS_db_path + "/";
 
-  rocksdb::range_delete_db_opt options;
+  // rocksdb::range_delete_db_opt options;
   options.enable_global_rd = false;
+  options.enable_rdfilter = FLAGS_enable_rdfilter;
+  options.enable_crosscheck = FLAGS_enable_crosscheck;
   options.db_path = FLAGS_db_path;
   options.db_conf = db_opts;
   options.filter_conf = filter_opts;
   options.rep_conf = rep_opts;
 
-  return options;
+  if (FLAGS_mode == "default") {
+    std::cout << "Default setting initializing ..." << std::endl;
+    options.method = rocksdb::Method::mDefault;
+  } else if (FLAGS_mode == "scan") {
+    std::cout << "Scan-and-delete setting initializing ..." << std::endl;
+    options.method = rocksdb::Method::mScanAndDelete;
+  } else if (FLAGS_mode == "decom") {
+    std::cout << "Decomposition setting initializing ..." << std::endl;
+    options.method = rocksdb::Method::mDecomposition;
+  } else if (FLAGS_mode == "grd") {
+    std::cout << "GRD setting initializing ..." << std::endl;
+    options.enable_global_rd = true;
+    options.method = rocksdb::Method::mGlobalRangeDelete;
+  } else if (FLAGS_mode == "filter") {
+    std::cout << "Filter test setting initializing ..." << std::endl;
+    options.enable_global_rd = true;
+    options.method = rocksdb::Method::mGlobalRangeDelete;
+    options.filter_conf.min_key = 0;
+    options.filter_conf.max_key = 10000;
+    options.filter_conf.num_keys = 100;
+    options.filter_conf.bit_per_key = 1;
+    options.filter_conf.num_blocks = 10;
+  } else {
+    std::cerr << "Unknown compaction style: " << FLAGS_mode << std::endl;
+    return false;
+  }
+
+  return true;
 }

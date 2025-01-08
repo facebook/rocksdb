@@ -261,8 +261,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       lock_wal_count_(0),
       least_sequence_(kMaxSequenceNumber),
       bottomost_compaction_trigger_(false),
-      use_global_range_delete_compact_(false),
-      global_range_delete_rep(nullptr) {
+      use_global_range_delete_compact_(false) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -547,6 +546,7 @@ Status DBImpl::CloseHelper() {
   mutex_.Lock();
   // WF: set external range delete to zero
   global_range_delete_rep = nullptr;
+  // gloabl_range_delete_bucket_filter = nullptr;
   shutdown_initiated_ = true;
   error_handler_.CancelErrorRecovery();
   while (error_handler_.IsRecoveryInProgress()) {
@@ -2594,20 +2594,60 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:0");
   TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:1");
   PinnedIteratorsManager pinned_iters_mgr;
-  if (!done) {
-    PERF_TIMER_GUARD(get_from_output_files_time);
-    sv->current->Get(
-        read_options, lkey, get_impl_options.value, get_impl_options.columns,
-        timestamp, &s, &merge_context, &max_covering_tombstone_seq,
-        &pinned_iters_mgr,
-        get_impl_options.get_value ? get_impl_options.value_found : nullptr,
-        nullptr, 
-        get_impl_options.target_seq_num,
-        get_impl_options.get_value ? get_impl_options.callback : nullptr,
-        get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
-        get_impl_options.get_value);
-    RecordTick(stats_, MEMTABLE_MISS);
-    // std::cout << "  Sequence at current : " << *get_impl_options.target_seq_num << std::endl;
+
+  if(read_options.use_cross_check){
+    uint64_t node_cnt = 0;
+    uint64_t leaf_cnt = 0;
+    if (!done) {
+      // cross check
+      // WF: record the smallest sequence in the searched mem/imm/current
+      SequenceNumber lsm_smallest_searched_seq = sv->imm->GetEarliestSequenceNumber();
+      if(sv->mem->GetEarliestSequenceNumber() < lsm_smallest_searched_seq){
+        lsm_smallest_searched_seq = sv->mem->GetEarliestSequenceNumber();
+      }
+      PERF_TIMER_GUARD(get_from_output_files_time);
+      sv->current->Get(
+          read_options, lkey, get_impl_options.value, 
+          global_range_delete_rep, lsm_smallest_searched_seq,
+          node_cnt, leaf_cnt, 
+          get_impl_options.columns,
+          timestamp, &s, &merge_context, &max_covering_tombstone_seq,
+          &pinned_iters_mgr,
+          get_impl_options.get_value ? get_impl_options.value_found : nullptr,
+          nullptr, 
+          get_impl_options.target_seq_num,
+          get_impl_options.get_value ? get_impl_options.callback : nullptr,
+          get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
+          get_impl_options.get_value);
+      RecordTick(stats_, MEMTABLE_MISS);
+    } else {
+      // WF: Check the global range delete
+      if(!(global_range_delete_rep == nullptr)){
+        uint64_t query_key = std::stoull(key.ToString());
+        uint64_t query_seq = *get_impl_options.target_seq_num;
+        rangedelete_rep::Rectangle query_rect(query_key, query_seq, query_key, query_seq);
+        bool query_res = global_range_delete_rep->QueryRect(query_rect, true, node_cnt, leaf_cnt);
+        if (query_res)
+        {
+          s = Status::NotFound();
+        }
+      }
+    }
+  } else {
+    if (!done) {
+      PERF_TIMER_GUARD(get_from_output_files_time);
+      sv->current->Get(
+          read_options, lkey, get_impl_options.value, get_impl_options.columns,
+          timestamp, &s, &merge_context, &max_covering_tombstone_seq,
+          &pinned_iters_mgr,
+          get_impl_options.get_value ? get_impl_options.value_found : nullptr,
+          nullptr, 
+          get_impl_options.target_seq_num,
+          get_impl_options.get_value ? get_impl_options.callback : nullptr,
+          get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
+          get_impl_options.get_value);
+      RecordTick(stats_, MEMTABLE_MISS);
+    }
   }
 
   {
@@ -2751,7 +2791,6 @@ void DB::ResetGCInfo() {}
 
 void DBImpl::SetRangeDeleteRep(LSMR* rep) {
   global_range_delete_rep = rep;
-  // enable_global_range_delete_ = true;
 }
 void DB::SetRangeDeleteRep(LSMR* rep) {}
 
@@ -2759,6 +2798,16 @@ void DBImpl::ReSetRangeDeleteRep() {
   global_range_delete_rep = nullptr;
 }
 void DB::ReSetRangeDeleteRep() {}
+
+// void DBImpl::SetRangeDeleteFilter(BucketFilter* bucket_filter) {
+//   gloabl_range_delete_bucket_filter = bucket_filter;
+// }
+// void DB::SetRangeDeleteFilter(BucketFilter* bucket_filter) {}
+
+// void DBImpl::ReSetRangeDeleteFilter() {
+//   gloabl_range_delete_bucket_filter = nullptr;
+// }
+// void DB::ReSetRangeDeleteFilter() {}
 
 void DBImpl::PrepareRangeDeleteRep(const uint64_t& key_min, const uint64_t& key_max, const SequenceNumber& seq_min, const SequenceNumber& seq_max) {
   //convert the info into rangedelete_rep::Rectangle

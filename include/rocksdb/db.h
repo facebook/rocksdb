@@ -33,6 +33,7 @@
 #include "rocksdb/wide_columns.h"
 
 #include "rocksdb/range_delete_rep/lsm.hpp"
+// #include "rocksdb/range_delete_filter/bucket_wrapper.hpp"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -46,6 +47,7 @@
 #endif
 
 typedef rangedelete_rep::LSM<rangedelete_rep::Rectangle, bool> LSMR;
+// typedef rangedelete_filter::BucketWrapper BucketFilter;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -725,6 +727,9 @@ class DB {
 
   virtual void SetRangeDeleteRep(LSMR* rep);
   virtual void ReSetRangeDeleteRep();
+
+  // virtual void SetRangeDeleteFilter(BucketFilter* bucket_filter);
+  // virtual void ReSetRangeDeleteFilter();
 
   virtual void PrepareRangeDeleteRep(const uint64_t& key_min, const uint64_t& key_max, const SequenceNumber& seq_min, const SequenceNumber& seq_max);
 

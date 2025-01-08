@@ -73,8 +73,25 @@ public:
             exit(EXIT_FAILURE);
         }
         RectForRTree rectr(key);
+        bool res = false;
         RTree<bool, uint64_t, 2, float, 16>* tree = new RTree<bool, uint64_t, 2, float, 16>();
-        bool res = tree->QueryFromFile(rectr.min, rectr.max, node_cnt, leaf_cnt, filename_.c_str()); //search r-tree
+        res = tree->QueryFromFile(rectr.min, rectr.max, node_cnt, leaf_cnt, filename_.c_str()); //search r-tree
+        // delete tree;
+        return res;
+    }
+
+    // return whether the key is covered and record the max sequence if the cover rects exists
+    bool QueryDiskMaxSequence(const K &key, uint64_t &sequence, uint64_t &node_cnt, uint64_t &leaf_cnt){ 
+        struct stat buffer;
+        if (stat(filename_.c_str(), &buffer) != 0){
+            perror(("Loading RTree Error: No file " + string(filename_)).c_str());
+            exit(EXIT_FAILURE);
+        }
+        RectForRTree rectr(key);
+        bool res = false;
+        RTree<bool, uint64_t, 2, float, 16>* tree = new RTree<bool, uint64_t, 2, float, 16>();
+        res = tree->QueryMaxSequenceFromFile(rectr.min, rectr.max, sequence, node_cnt, leaf_cnt, filename_.c_str()); //search r-tree
+        tree->RemoveRootNode();
         return res;
     }
 

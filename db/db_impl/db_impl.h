@@ -287,6 +287,12 @@ class DBImpl : public DB {
   using DB::ReSetRangeDeleteRep;
   void ReSetRangeDeleteRep() override;
 
+  // using DB::SetRangeDeleteFilter;
+  // void SetRangeDeleteFilter(BucketFilter* bucket_filter) override;
+
+  // using DB::ReSetRangeDeleteFilter;
+  // void ReSetRangeDeleteFilter() override;
+
   using DB::PrepareRangeDeleteRep;
   void PrepareRangeDeleteRep(const uint64_t& key_min, const uint64_t& key_max, const SequenceNumber& seq_min, const SequenceNumber& seq_max) override;
 
@@ -1397,7 +1403,8 @@ class DBImpl : public DB {
     bottomost_compaction_trigger_ = false;
   }
 
-  LSMR* global_range_delete_rep;
+  LSMR* global_range_delete_rep = nullptr;
+  // BucketFilter* gloabl_range_delete_bucket_filter;
 
   const std::string dbname_;
   // TODO(peterd): unify with VersionSet::db_id_

@@ -28,6 +28,14 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+enum Method : unsigned char {
+  mDefault = 0,
+  mScanAndDelete = 1,
+  mDecomposition = 2,
+  mGlobalRangeDelete = 3,
+  mNone
+};
+
 enum Result : unsigned char {
   kOk = 0,
   kNotFound = 1,
@@ -46,6 +54,132 @@ rocksdb::Result ConvertStaToRes(rocksdb::Status &s){
   }
   return kMaxCode;
 }
+
+inline std::string ItoSWithPadding(const uint64_t key, uint64_t size) {
+  std::string key_str = std::to_string(key);
+  std::string padding_str(size - key_str.size(), '0');
+  key_str = padding_str + key_str;
+  return key_str;
+}
+
+class OperationGenerator {
+ public:
+  OperationGenerator(uint64_t key_size, uint64_t value_size, uint64_t max_key,
+                      bool shuffle = true) {
+    idx_ = 0;
+    key_size_ = key_size;
+    value_size_ = value_size;
+    max_key_ = max_key;
+    shuffle_ = shuffle;
+  }
+
+  uint64_t Key() const { return keys_[idx_]; }
+
+  std::string KeyString() const { return ItoSWithPadding(keys_[idx_], key_size_); }
+  std::string ToKeyString(uint64_t other) const { return ItoSWithPadding(other, key_size_); }
+
+  std::string Value() const {
+    return ItoSWithPadding(keys_[idx_], value_size_);
+  }
+
+  char Operation() const {return ops_[idx_]; }
+
+  void Next() {
+    idx_++;
+  }
+
+  bool Valid() const {
+    return idx_ < keys_.size();
+  }
+
+  void InitForWrite(const uint64_t &start, const uint64_t &end) {
+    srand(100);
+    // for (uint64_t i = start; i < end; i++) {
+    //   keys_.push_back(i);
+    //   ops_.push_back('w');
+    // }
+    // if (shuffle_) {
+    //   auto rng = std::default_random_engine{};
+    //   std::shuffle(std::begin(keys_), std::end(keys_), rng);
+    // }
+    for (uint64_t i = start; i < end; i++) {
+      uint64_t key = shuffle_ ? (rand() % max_key_) : i;
+      keys_.push_back(key);
+      ops_.push_back('w');
+    }
+    assert(keys_.size() == ops_.size());
+    idx_ = 0;
+  }
+
+  void InitForMix(const uint64_t &start, const uint64_t &write, const uint64_t &read, 
+                  const uint64_t &seek, const uint64_t &rdelete) {
+    std::vector<uint64_t> key_w;
+    srand(100);
+    for (uint64_t i = 0; i < write; i++) {
+      ops_.push_back('w');
+      // key_w.push_back(i + start);
+    }
+    for (uint64_t i = 0; i < read; i++) {
+      ops_.push_back('r');
+    }
+    for (uint64_t i = 0; i < seek; i++) {
+      ops_.push_back('s');
+    }
+    for (uint64_t i = 0; i < rdelete; i++) {
+      ops_.push_back('g');
+    }
+
+    if (shuffle_) {
+      auto rng = std::default_random_engine{};
+      // std::shuffle(std::begin(key_w), std::end(key_w), rng);
+      std::shuffle(std::begin(ops_), std::end(ops_), rng);
+    }
+
+    uint64_t j = 0;
+    for (uint64_t i = 0; i < ops_.size(); i++) {
+      uint64_t key = rand() % max_key_;
+      keys_.push_back(key);
+      // if(ops_[i] == 'w'){
+      //   keys_.push_back(key_w[j++]);
+      // } else {
+      //   uint64_t key = rand() % start;
+      //   keys_.push_back(key);
+      // }
+    }
+    assert(keys_.size() == ops_.size());
+    idx_ = 0;
+  }
+
+  void InitForFilterTest() {
+    uint64_t rd_keys[10] = {11, 562, 1093, 2024, 3345, 4766, 5782, 6628, 7129, 9811};
+    uint64_t r_keys[10] = {8, 552, 995, 2031, 3349, 4444, 5735, 6655, 7132, 9818};
+    for (size_t i = 0; i < 10; i++)
+    {
+      ops_.push_back('g');
+      keys_.push_back(rd_keys[i]);
+    }
+    for (size_t i = 0; i < 10; i++)
+    {
+      ops_.push_back('r');
+      keys_.push_back(r_keys[i]);
+    }
+    assert(keys_.size() == ops_.size());
+    idx_ = 0;
+  }
+
+  uint64_t size() const {
+    return keys_.size();
+  }
+
+ private:
+  uint64_t idx_;
+  std::vector<uint64_t> keys_;
+  std::vector<char> ops_;
+  uint64_t key_size_;
+  uint64_t value_size_;
+  uint64_t max_key_;
+  bool shuffle_;
+};
 
 struct RDTimer {
   uint64_t duration = 0;

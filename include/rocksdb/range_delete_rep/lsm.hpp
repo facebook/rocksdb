@@ -86,6 +86,10 @@ class LSM {
             base_ = base;
         }  
     }
+
+    bool IsValidLevel(size_t level){
+        return (level <= diskLevels.size() && level >= 0);
+    }
     
     void InsertRect(K &key);
     
@@ -96,7 +100,10 @@ class LSM {
 
     bool QueryRect(K &key, bool is_point, uint64_t & node_cnt, uint64_t & leaf_cnt);
 
-    // Query the in memory parts of the LSM tree, say, the RTree_ of each diskrun
+    // check the lsm file defined by &level and &run
+    bool QueryNextFile(K &key, bool is_point, size_t &level, size_t &run, uint64_t &sequence, uint64_t &node_cnt, uint64_t &leaf_cnt);
+
+    // Query the in memory parts of the LSM tree, which is loaded from the RTree_ of each diskrun
     bool QueryRectCurr(K &key, bool is_point);
 
     bool ExtractSubtree(K &key);
@@ -228,6 +235,8 @@ bool LSM<K, V>::QueryRect(K &key, bool is_point, uint64_t & node_cnt, uint64_t &
     if (!(key.max < mem_min_point_ || key.min > mem_max_point_)){
         is_in_mem = mem_->Cover(rectr.min, rectr.max, node_cnt_, leaf_cnt_);
     }
+    node_cnt_ = 0;
+    leaf_cnt_ = 0;
 
     if (! is_in_mem){
         if (mergeThread.joinable()){
@@ -253,6 +262,37 @@ bool LSM<K, V>::QueryRect(K &key, bool is_point, uint64_t & node_cnt, uint64_t &
     }
     
     return true;
+}
+
+template <class K, class V>
+bool LSM<K, V>::QueryNextFile(K &key, bool is_point, size_t &level, size_t &run, uint64_t &sequence, uint64_t &node_cnt, uint64_t &leaf_cnt){
+    if (is_point){
+        assert(key.min == key.max);
+    }
+    RectForRTree rectr(key);
+    uint64_t node_cnt_ = 0;
+    uint64_t leaf_cnt_ = 0;
+
+    bool result = false;
+    if (level == 0 && run == 0)
+    {
+        sequence = mem_min_upper_;
+        Point bound_min = mem_min_point_;
+        Point bound_max = mem_max_point_;
+        if (key.OverlapInX(bound_min, bound_max)){
+            result = mem_->QueryMaxSequence(rectr.min, rectr.max, sequence);
+        }
+        level++;
+    } else if(level <= diskLevels.size()){
+        if (mergeThread.joinable()){
+            mergeThread.join();
+        }
+        result = diskLevels[level - 1]->QueryRectAtRun(key, level, run, sequence, node_cnt_, leaf_cnt_);
+    }
+    node_cnt += node_cnt_;
+    leaf_cnt += leaf_cnt_;
+    
+    return result;
 }
 
 template <class K, class V>

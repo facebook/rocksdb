@@ -115,7 +115,6 @@ public:
   /// \param a_max Max of search bounding rect
   /// \param a_searchResult Search result array.  Caller should set grow size. Function will reset, not append to array.
   /// \param a_resultCallback Callback function to return result.  Callback should return 'true' to continue searching
-  /// \return Returns weather matched entries found
   bool Cover(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS]) const;
   bool Cover(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], uint64_t & node_cnt, uint64_t & leaf_cnt) const;
   
@@ -136,10 +135,21 @@ public:
   /// Return whether the RTree is empty
   bool IsEmpty();
 
+  /// remove root node
+  void RemoveRootNode();
+
   /// Load tree contents from file
   bool Load(const char* a_fileName);
   /// Load tree contents from stream
   bool Load(RTFileStream& a_stream);
+
+  /// @brief Attention: the last dimension will not be checked
+  /// @param a_min Min of search bounding rect
+  /// @param a_max Max of search bounding rect
+  /// @param sequence Max sequence of accessed rect
+  /// @return whether the target rect are overlapped by the R-tree
+  bool QueryMaxSequence(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], ELEMTYPE & sequence) const;
+  bool QueryMaxSequenceFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, const char* a_fileName);
 
   /// Query existence of target from file
   bool QueryFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], uint64_t & node_cnt, uint64_t & leaf_cnt, const char* a_fileName);
@@ -394,6 +404,7 @@ protected:
   ListNode* AllocListNode();
   void FreeListNode(ListNode* a_listNode);
   bool Overlap(Rect* a_rectA, Rect* a_rectB) const;
+  bool OverlapBelowLastDim(Rect* a_rectA, Rect* a_rectB) const;
   ELEMTYPE SquareDistance(Rect const& a_rectA, Rect const& a_rectB) const;
   void ReInsert(Node* a_node, ListNode** a_listNode);
   bool Search(Node* a_node, Rect* a_rect, int& a_foundCount, std::function<bool (const DATATYPE&)> callback) const;
@@ -402,6 +413,11 @@ protected:
   void RemoveAllRec(Node* a_node);
   void Reset();
   void CountRec(Node* a_node, int& a_count);
+
+  void QueryMaxSequence(Node* a_node, Rect* a_rect, bool& found, ELEMTYPE & sequence) const;
+
+  bool QueryMaxSequenceFromFile(Rect* a_rect, ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream);
+  bool QueryMaxSequenceFromFileImpl(Node* a_node, RTFileStream& a_stream, Rect* a_rect, bool& found, ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt);
 
   /// Query tree contents from stream
   bool QueryFromFile(Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream);
@@ -676,6 +692,274 @@ bool RTREE_QUAL::Cover(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDI
   Cover(m_root, &rect, foundCount, node_cnt, leaf_cnt);
 
   return (foundCount > 0);
+}
+
+RTREE_TEMPLATE
+bool RTREE_QUAL::QueryMaxSequence(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], ELEMTYPE & sequence) const
+{
+#ifdef _DEBUG
+  for(int index=0; index<NUMDIMS; ++index)
+  {
+    RTREE_ASSERT(a_min[index] <= a_max[index]);
+  }
+#endif //_DEBUG
+
+  Rect rect;
+
+  for(int axis=0; axis<NUMDIMS; ++axis)
+  {
+    rect.m_min[axis] = a_min[axis];
+    rect.m_max[axis] = a_max[axis];
+  }
+
+  bool found = false;
+  QueryMaxSequence(m_root, &rect, found, sequence);
+
+  return found;
+}
+
+// Check whether a point/rectangle is covered by the index tree or subtree
+// and record the max sequence of the matched rects
+RTREE_TEMPLATE
+void RTREE_QUAL::QueryMaxSequence(Node* a_node, Rect* a_rect, bool& found, ELEMTYPE & sequence) const
+{
+  RTREE_ASSERT(a_node);
+  RTREE_ASSERT(a_node->m_level >= 0);
+  RTREE_ASSERT(a_rect);
+
+  if(a_node->IsInternalNode())
+  {
+    // This is an internal node in the tree
+    for(int index=0; index < a_node->m_count; ++index)
+    {
+      if(OverlapBelowLastDim(a_rect, &a_node->m_branch[index].m_rect))
+      {
+        QueryMaxSequence(a_node->m_branch[index].m_child, a_rect, found, sequence);
+      }
+    }
+  }
+  else
+  {
+    // This is a leaf node
+    for(int index=0; index < a_node->m_count; ++index)
+    {
+      if(OverlapBelowLastDim(a_rect, &a_node->m_branch[index].m_rect))
+      {
+        found = true;
+        ELEMTYPE rect_seq = a_node->m_branch[index].m_rect.m_max[NUMDIMS - 1];
+        if(sequence < rect_seq){
+          sequence = rect_seq;
+        }
+      }
+    }
+  }
+}
+
+
+RTREE_TEMPLATE
+bool RTREE_QUAL::QueryMaxSequenceFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, const char* a_fileName)
+{
+  RemoveAll(); // Clear existing tree
+
+  Rect rect;
+  for(int axis=0; axis<NUMDIMS; ++axis)
+  {
+    rect.m_min[axis] = a_min[axis];
+    rect.m_max[axis] = a_max[axis];
+  }
+
+  RTFileStream stream;
+  if(!stream.OpenRead(a_fileName))
+  {
+    return false;
+  }
+
+  bool result = false;
+  result = QueryMaxSequenceFromFile(&rect, sequence, node_cnt, leaf_cnt, stream);
+
+  stream.Close();
+
+  return result;
+}
+
+RTREE_TEMPLATE
+bool RTREE_QUAL::QueryMaxSequenceFromFile(Rect* a_rect, ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream)
+{
+  bool found = false;
+
+  // Write some kind of header
+  int _dataFileId = ('R'<<0)|('T'<<8)|('R'<<16)|('E'<<24);
+  int _dataSize = sizeof(DATATYPE);
+  int _dataNumDims = NUMDIMS;
+  int _dataElemSize = sizeof(ELEMTYPE);
+  int _dataElemRealSize = sizeof(ELEMTYPEREAL);
+  int _dataMaxNodes = TMAXNODES;
+  int _dataMinNodes = TMINNODES;
+
+  int dataFileId = 0;
+  int dataSize = 0;
+  int dataNumDims = 0;
+  int dataElemSize = 0;
+  int dataElemRealSize = 0;
+  int dataMaxNodes = 0;
+  int dataMinNodes = 0;
+
+  a_stream.Read(dataFileId);
+  a_stream.Read(dataSize);
+  a_stream.Read(dataNumDims);
+  a_stream.Read(dataElemSize);
+  a_stream.Read(dataElemRealSize);
+  a_stream.Read(dataMaxNodes);
+  a_stream.Read(dataMinNodes);
+
+  // Test if header was valid and compatible
+  if(    (dataFileId == _dataFileId)
+      && (dataSize == _dataSize)
+      && (dataNumDims == _dataNumDims)
+      && (dataElemSize == _dataElemSize)
+      && (dataElemRealSize == _dataElemRealSize)
+      && (dataMaxNodes == _dataMaxNodes)
+      && (dataMinNodes == _dataMinNodes)
+    )
+  {
+    // Recursively load tree
+    bool result = QueryMaxSequenceFromFileImpl(m_root, a_stream, a_rect, found, sequence, node_cnt, leaf_cnt);
+  }
+
+  return found;
+}
+
+// RTREE_TEMPLATE
+// bool RTREE_QUAL::QueryMaxSequenceFromFileImpl(Node* a_node, RTFileStream& a_stream, Rect* a_rect, bool& found, ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt)
+// {
+//   a_stream.Read(a_node->m_level);
+//   a_stream.Read(a_node->m_count);
+
+//   if(a_node->IsInternalNode())  // not a leaf node
+//   {
+//     node_cnt++;
+//     size_t load_idx = 0;
+    
+//     for(int index = 0; index < a_node->m_count; ++index)
+//     {
+//       Branch* curBranch = &a_node->m_branch[load_idx];
+
+//       a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+//       a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+
+//       if (a_node->m_level == 1){
+//         if(!OverlapBelowLastDim(a_rect, &(curBranch->m_rect))){
+//           // count the size of one leaf node: level + count + rect + data
+//           auto level = a_node->m_level;
+//           auto count = a_node->m_count;
+//           a_stream.Read(level);
+//           a_stream.Read(count);
+//           int num_bytes = sizeof(curBranch->m_data) + sizeof(curBranch->m_rect.m_min) + sizeof(curBranch->m_rect.m_max);
+//           num_bytes *= count;
+//           // num_bytes += NUMDIMS * (sizeof(curBranch->m_rect.m_min) + sizeof(curBranch->m_rect.m_max));
+//           if (a_stream.MoveBackward(num_bytes)){
+//             std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
+//             exit(1);
+//           }
+//           continue;
+//         }
+//       }
+//       //continue if target point is overlapped
+//       curBranch->m_child = AllocNode();
+//       QueryMaxSequenceFromFileImpl(curBranch->m_child, a_stream, a_rect, found, sequence, node_cnt, leaf_cnt);
+//       if(curBranch->m_child->NotEmpty()){
+//         load_idx++;
+//       }
+//     }
+//     a_node->m_count = load_idx; //update m_count of current node
+//   }
+//   else // A leaf node
+//   {
+//     leaf_cnt++;
+//     for(int index = 0; index < a_node->m_count; ++index)
+//     {
+//       Branch* curBranch = &a_node->m_branch[index];
+//       a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+//       a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+//       a_stream.Read(curBranch->m_data);
+//       if(OverlapBelowLastDim(a_rect, &(curBranch->m_rect)))
+//       { 
+//         found = true;
+//         ELEMTYPE rect_seq = curBranch->m_rect.m_max[NUMDIMS - 1];
+//         if(sequence < rect_seq){
+//           sequence = rect_seq;
+//         }
+//       }
+//     }
+//   }
+//   return true;
+// }
+RTREE_TEMPLATE
+bool RTREE_QUAL::QueryMaxSequenceFromFileImpl(Node* a_node, RTFileStream& a_stream, Rect* a_rect, bool& found, ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt)
+{
+  a_stream.Read(a_node->m_level);
+  a_stream.Read(a_node->m_count);
+
+  if(a_node->IsInternalNode())  // not a leaf node
+  {
+    node_cnt++;
+    for(int index = 0; index < a_node->m_count; ++index)
+    {
+      Branch* curBranch = new Branch;
+
+      a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+      a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+
+      if (a_node->m_level == 1){
+        if(!OverlapBelowLastDim(a_rect, &(curBranch->m_rect))){
+          // count the size of one leaf node: level + count + rect + data
+          auto level = a_node->m_level;
+          auto count = a_node->m_count;
+          a_stream.Read(level);
+          a_stream.Read(count);
+          int num_bytes = sizeof(curBranch->m_data) + sizeof(curBranch->m_rect.m_min) + sizeof(curBranch->m_rect.m_max);
+          num_bytes *= count;
+          // num_bytes += NUMDIMS * (sizeof(curBranch->m_rect.m_min) + sizeof(curBranch->m_rect.m_max));
+          if (a_stream.MoveBackward(num_bytes)){
+            std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
+            exit(1);
+          }
+          delete curBranch;
+          continue;
+        }
+      }
+      //continue if target point is overlapped
+      curBranch->m_child = AllocNode();
+      QueryMaxSequenceFromFileImpl(curBranch->m_child, a_stream, a_rect, found, sequence, node_cnt, leaf_cnt);
+      delete curBranch->m_child;
+      delete curBranch;
+      //
+      // if(found){
+      //   return true;
+      // }
+    }
+  }
+  else // A leaf node
+  {
+    leaf_cnt++;
+    for(int index = 0; index < a_node->m_count; ++index)
+    {
+      Branch* curBranch = new Branch;
+      a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+      a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+      a_stream.Read(curBranch->m_data);
+      if(OverlapBelowLastDim(a_rect, &(curBranch->m_rect)))
+      { 
+        found = true;
+        ELEMTYPE rect_seq = curBranch->m_rect.m_max[NUMDIMS - 1];
+        if(sequence < rect_seq){
+          sequence = rect_seq;
+        }
+      }
+      delete curBranch;
+    }
+  }
+  return false;
 }
 
 RTREE_TEMPLATE
@@ -998,12 +1282,6 @@ bool RTREE_QUAL::QueryFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rec
       a_stream.Read(curBranch->m_data);
       if(Overlap(a_rect, &a_node->m_branch[index].m_rect))
       {
-        // std::cout << "Find rect: " << std::endl;
-        // for (int i = 0; i < NUMDIMS; i++){
-        //   std::cout << "    dimension " << i << " min - max : " << a_node->m_branch[index].m_rect.m_min[i] 
-        //             << " - " << a_node->m_branch[index].m_rect.m_max[i] << std::endl;
-        // }
-        
         found = true;
         return true;
       }
@@ -1422,6 +1700,18 @@ void RTREE_QUAL::Reset()
 #ifdef RTREE_DONT_USE_MEMPOOLS
   // Delete all existing nodes
   RemoveAllRec(m_root);
+#else // RTREE_DONT_USE_MEMPOOLS
+  // Just reset memory pools.  We are not using complex types
+  // EXAMPLE
+#endif // RTREE_DONT_USE_MEMPOOLS
+}
+
+RTREE_TEMPLATE
+void RTREE_QUAL::RemoveRootNode()
+{
+#ifdef RTREE_DONT_USE_MEMPOOLS
+  // Delete all existing nodes
+  FreeNode(m_root);
 #else // RTREE_DONT_USE_MEMPOOLS
   // Just reset memory pools.  We are not using complex types
   // EXAMPLE
@@ -2177,6 +2467,23 @@ bool RTREE_QUAL::Overlap(Rect* a_rectA, Rect* a_rectB) const
   RTREE_ASSERT(a_rectA && a_rectB);
 
   for(int index=0; index < NUMDIMS; ++index)
+  {
+    if (a_rectA->m_min[index] > a_rectB->m_max[index] ||
+        a_rectB->m_min[index] > a_rectA->m_max[index])
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Decide whether two rectangles overlap while the last dimension is ignored.
+RTREE_TEMPLATE
+bool RTREE_QUAL::OverlapBelowLastDim(Rect* a_rectA, Rect* a_rectB) const
+{
+  RTREE_ASSERT(a_rectA && a_rectB);
+
+  for(int index=0; index < (NUMDIMS - 1); ++index)
   {
     if (a_rectA->m_min[index] > a_rectB->m_max[index] ||
         a_rectB->m_min[index] > a_rectA->m_max[index])
