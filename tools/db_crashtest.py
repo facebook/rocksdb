@@ -1023,6 +1023,9 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("track_and_verify_wals", 0) == 1:
         dest_params["metadata_write_fault_one_in"] = 0
         dest_params["write_fault_one_in"] = 0
+    # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
+    if dest_params.get("test_secondary") == 1:
+        dest_params["continuous_verification_interval"] = 0
     return dest_params
 
 

@@ -373,7 +373,15 @@ class NonBatchedOpsStressTest : public StressTest {
   }
 
   void ContinuouslyVerifyDb(ThreadState* thread) const override {
-    if (!secondary_db_) {
+    // Currently this method gets calleds even when
+    // FLAGS_continuous_verification_interval == 0 as long as
+    // FLAGS_verify_db_one_in > 0. Previously, this was not causing a problem in
+    // the crash tests since test_secondary was always equal to 0, and thus we
+    // returned early from this method. When test_secondary is set and we have a
+    // secondary_db_, the crash test fails during this iterator scan. The stack
+    // trace mentions BlobReader/BlobSource but it may not necessarily be
+    // related to BlobDB
+    if (!secondary_db_ || !FLAGS_continuous_verification_interval) {
       return;
     }
     assert(secondary_db_);
