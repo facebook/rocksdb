@@ -3539,9 +3539,11 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 8192 /* offset */,
                                    8192 /* n */, &result, &s, for_compaction));
   ASSERT_EQ(s, Status::OK());
-  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
-  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
-            4096);  // 8192-12288
+  if (!for_compaction) {
+    ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+    ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+              4096);  // 8192-12288
+  }
 
   ASSERT_EQ(strncmp(result.data(), content.substr(8192, 8192).c_str(), 8192),
             0);
@@ -3577,9 +3579,11 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
                                    4096 /* n */, &result, &s, for_compaction));
   ASSERT_EQ(s, Status::OK());
 
-  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 1);
-  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
-            4096);  // 12288-16384
+  if (!for_compaction) {
+    ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 1);
+    ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+              4096);  // 12288-16384
+  }
 
   ASSERT_EQ(strncmp(result.data(), content.substr(12288, 4096).c_str(), 4096),
             0);
@@ -3611,10 +3615,12 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
                                    10000 /* n */, &result, &s, for_compaction));
   ASSERT_EQ(s, Status::OK());
 
-  ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
-  ASSERT_EQ(
-      stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
-      /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
+  if (!for_compaction) {
+    ASSERT_EQ(stats->getAndResetTickerCount(PREFETCH_HITS), 0);
+    ASSERT_EQ(
+        stats->getAndResetTickerCount(PREFETCH_BYTES_USEFUL),
+        /* 24576(end offset of the buffer) - 16000(requested offset) =*/8576);
+  }
 
   ASSERT_EQ(strncmp(result.data(), content.substr(16000, 10000).c_str(), 10000),
             0);

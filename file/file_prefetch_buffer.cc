@@ -772,7 +772,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
     const IOOptions& opts, RandomAccessFileReader* reader, uint64_t offset,
     size_t n, Slice* result, Status* status, bool for_compaction) {
   // We disallow async IO for compaction reads since they are performed in
-  // the background anyways and are less latency sensitive compareed to
+  // the background anyways and are less latency sensitive compared to
   // user-initiated reads
   (void)for_compaction;
   assert(!for_compaction || num_buffers_ == 1);
@@ -854,7 +854,8 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
     } else {
       return false;
     }
-  } else {
+  } else if (!for_compaction) {
+    // These stats are meant to track prefetch effectiveness for user reads only
     UpdateStats(/*found_in_buffer=*/true, n);
   }
 
