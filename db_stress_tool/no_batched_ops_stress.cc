@@ -343,6 +343,7 @@ class NonBatchedOpsStressTest : public StressTest {
     auto* shared = thread->shared;
     assert(shared);
 
+    // Each thread is going to verify a different portion of the key space
     const int64_t max_key = shared->GetMaxKey();
     const int64_t keys_per_thread = max_key / shared->GetNumThreads();
     int64_t start = keys_per_thread * thread->tid;
@@ -350,13 +351,13 @@ class NonBatchedOpsStressTest : public StressTest {
                       ? max_key
                       : start + keys_per_thread;
 
-    // We are going to read in the expected values before catching up to the
-    // primary to determine the lower bound of the acceptable values that can be
-    // returned from the secondary. After each Get() to the secondary, we are
-    // going to read in the expected value again to determine the upper bound.
-    // As long as the returned value from Get() is within these bounds, we
-    // consider that okay. The lower bound will always be moving forwards
-    // anyways as TryCatchUpWithPrimary() gets called.
+    // We are going to read in the expected values before catching the secondary
+    // up to the primary. This sets the lower bound of the acceptable values
+    // that can be returned from the secondary. After each Get() to the
+    // secondary, we are going to read in the expected value again to determine
+    // the upper bound. As long as the returned value from Get() is within these
+    // bounds, we consider that okay. The lower bound will always be moving
+    // forwards anyways as TryCatchUpWithPrimary() gets called.
     std::vector<ExpectedValue> pre_read_expected_values;
     for (int64_t i = start; i < end; ++i) {
       pre_read_expected_values.push_back(shared->Get(0, i));
@@ -364,12 +365,15 @@ class NonBatchedOpsStressTest : public StressTest {
 
     Status s = secondary_db_->TryCatchUpWithPrimary();
     if (!s.ok()) {
+      VerificationAbort(shared, "Secondary failed to catch up to the primary");
       assert(false);
       exit(1);
     }
 
     ReadOptions read_opts(FLAGS_verify_checksum, true);
-
+    // Check that there are no keys in the secondary that should not exist, and
+    // that the values fall into the acceptable range for those that should
+    // exist
     for (int64_t i = start; i < end; ++i) {
       if (shared->HasVerificationFailedYet()) {
         break;
@@ -432,8 +436,8 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     static Random64 rand64(shared->GetSeed());
-
-    for (auto* handle : secondary_cfhs_) {
+    for (size_t cf = 0; cf < secondary_cfhs_.size(); cf++) {
+      ColumnFamilyHandle* handle = secondary_cfhs_[cf];
       if (thread->rand.OneInOpt(3)) {
         // Use Get()
         uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
@@ -486,8 +490,10 @@ class NonBatchedOpsStressTest : public StressTest {
             secondary_db_->NewIterator(read_opts, handle));
         s = checksum_column_family(it.get(), &crc);
         if (!s.ok()) {
-          fprintf(stderr, "Computing checksum of default cf: %s\n",
-                  s.ToString().c_str());
+          std::string checksum_err_msg =
+              "Failed to compute checksum for secondary cf " +
+              std::to_string(cf) + ". Status " + s.ToString();
+          VerificationAbort(shared, checksum_err_msg);
           assert(false);
         }
       }
