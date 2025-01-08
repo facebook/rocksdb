@@ -650,6 +650,10 @@ void StressTest::PrintStatistics() {
     fprintf(stdout, "Secondary instances STATISTICS:\n%s\n",
             dbstats_secondaries->ToString().c_str());
   }
+  if (dbstats_followers) {
+    fprintf(stdout, "Follower instances STATISTICS:\n%s\n",
+            dbstats_followers->ToString().c_str());
+  }
 }
 
 // Currently PreloadDb has to be single-threaded.

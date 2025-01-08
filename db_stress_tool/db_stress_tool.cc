@@ -58,6 +58,9 @@ int db_stress_tool(int argc, char** argv) {
     if (FLAGS_test_secondary) {
       dbstats_secondaries = ROCKSDB_NAMESPACE::CreateDBStatistics();
     }
+    if (FLAGS_test_follower) {
+      dbstats_followers = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    }
   }
   compression_type_e = StringToCompressionType(FLAGS_compression_type.c_str());
   bottommost_compression_type_e =
@@ -229,6 +232,19 @@ int db_stress_tool(int argc, char** argv) {
       exit(1);
     }
     FLAGS_secondaries_base = default_secondaries_path;
+  }
+
+  if (FLAGS_test_follower && FLAGS_followers_base.empty()) {
+    std::string default_followers_path;
+    db_stress_env->GetTestDirectory(&default_followers_path);
+    default_followers_path += "/dbstress_followers";
+    s = db_stress_env->CreateDirIfMissing(default_followers_path);
+    if (!s.ok()) {
+      fprintf(stderr, "Failed to create directory %s: %s\n",
+              default_followers_path.c_str(), s.ToString().c_str());
+      exit(1);
+    }
+    FLAGS_followers_base = default_followers_path;
   }
 
   if (FLAGS_best_efforts_recovery &&
