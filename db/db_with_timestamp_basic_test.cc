@@ -4825,7 +4825,7 @@ TEST_F(DBBasicTestWithTimestampDataBlockHashIndex, HashIndexWithTimestamp) {
       comparator(kTimestampSize);
   options.comparator = &comparator;
 
-  // Enable use of data block hash index
+  // Select data block hash index as this CF's data block index type
   BlockBasedTableOptions table_options;
   table_options.data_block_index_type =
       BlockBasedTableOptions::kDataBlockBinaryAndHash;
