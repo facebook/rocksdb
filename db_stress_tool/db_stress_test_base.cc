@@ -3713,10 +3713,15 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       Options tmp_opts;
       tmp_opts.max_open_files = -1;
       tmp_opts.env = db_stress_env;
-      // Need to use the leader path not the follower path
+      // Equivalent to "name" argument in OpenAsSecondary
       const std::string& leader_path = FLAGS_db;
-      s = DB::OpenAsFollower(tmp_opts, FLAGS_db /* name */, leader_path,
-                             cf_descriptors, &follower_cfhs_, &follower_db_);
+      // Equivalent to "secondary_path" in OpenAsSecondary
+      const std::string& name = FLAGS_followers_base;
+      s = DB::OpenAsFollower(tmp_opts, name, leader_path, cf_descriptors,
+                             &follower_cfhs_, &follower_db_);
+      if (!s.ok()) {
+        fprintf(stderr, "Error opening follower: %s\n", s.ToString().c_str());
+      }
       assert(s.ok());
       assert(follower_cfhs_.size() ==
              static_cast<size_t>(FLAGS_column_families));
