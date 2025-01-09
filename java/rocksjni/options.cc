@@ -1579,29 +1579,6 @@ jlong Java_org_rocksdb_Options_compactionReadaheadSize(JNIEnv*, jclass,
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setRandomAccessMaxBufferSize
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_Options_setRandomAccessMaxBufferSize(
-    JNIEnv*, jclass, jlong jhandle, jlong jrandom_access_max_buffer_size) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opt->random_access_max_buffer_size =
-      static_cast<size_t>(jrandom_access_max_buffer_size);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    randomAccessMaxBufferSize
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_Options_randomAccessMaxBufferSize(JNIEnv*, jclass,
-                                                         jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  return static_cast<jlong>(opt->random_access_max_buffer_size);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    setWritableFileMaxBufferSize
  * Signature: (JJ)V
  */
@@ -2300,6 +2277,35 @@ jlong Java_org_rocksdb_Options_bgerrorResumeRetryInterval(JNIEnv*, jclass,
                                                           jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
   return static_cast<jlong>(opt->bgerror_resume_retry_interval);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setDailyOffpeakTimeUTC
+ * Signature: (JLjava/lang/String;)V
+ */
+void Java_org_rocksdb_Options_setDailyOffpeakTimeUTC(JNIEnv* env, jclass,
+                                                     jlong jhandle,
+                                                     jstring jtimeutc) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  jboolean has_exception;
+  auto timeutc =
+      ROCKSDB_NAMESPACE::JniUtil::copyStdString(env, jtimeutc, &has_exception);
+  if (has_exception == JNI_TRUE) {
+    return;
+  }
+  opt->daily_offpeak_time_utc = timeutc;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    dailyOffpeakTimeUTC
+ * Signature: (J)Ljava/lang/String;
+ */
+jstring Java_org_rocksdb_Options_dailyOffpeakTimeUTC(JNIEnv* env, jclass,
+                                                     jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return env->NewStringUTF(opt->daily_offpeak_time_utc.c_str());
 }
 
 /*
@@ -7085,29 +7091,6 @@ jlong Java_org_rocksdb_DBOptions_compactionReadaheadSize(JNIEnv*, jclass,
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    setRandomAccessMaxBufferSize
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_DBOptions_setRandomAccessMaxBufferSize(
-    JNIEnv*, jclass, jlong jhandle, jlong jrandom_access_max_buffer_size) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  opt->random_access_max_buffer_size =
-      static_cast<size_t>(jrandom_access_max_buffer_size);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    randomAccessMaxBufferSize
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_DBOptions_randomAccessMaxBufferSize(JNIEnv*, jclass,
-                                                           jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  return static_cast<jlong>(opt->random_access_max_buffer_size);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
  * Method:    setWritableFileMaxBufferSize
  * Signature: (JJ)V
  */
@@ -7876,6 +7859,35 @@ jlong Java_org_rocksdb_DBOptions_bgerrorResumeRetryInterval(JNIEnv*, jclass,
                                                             jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   return static_cast<jlong>(opt->bgerror_resume_retry_interval);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setDailyOffpeakTimeUTC
+ * Signature: (JLjava/lang/String;)V
+ */
+void Java_org_rocksdb_DBOptions_setDailyOffpeakTimeUTC(JNIEnv* env, jclass,
+                                                       jlong jhandle,
+                                                       jstring jtimeutc) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
+  const jsize jtimesz = env->GetStringUTFLength(jtimeutc);
+  const char* timeutc = env->GetStringUTFChars(jtimeutc, nullptr);
+  if (env->ExceptionCheck()) {
+    return;
+  }
+  opt->daily_offpeak_time_utc = std::string(timeutc, jtimesz);
+  env->ReleaseStringUTFChars(jtimeutc, timeutc);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    dailyOffpeakTimeUTC
+ * Signature: (J)Ljava/lang/String;
+ */
+jstring Java_org_rocksdb_DBOptions_dailyOffpeakTimeUTC(JNIEnv* env, jclass,
+                                                       jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
+  return env->NewStringUTF(opt->daily_offpeak_time_utc.c_str());
 }
 
 //////////////////////////////////////////////////////////////////////////////

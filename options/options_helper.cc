@@ -124,8 +124,6 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.write_buffer_manager = immutable_db_options.write_buffer_manager;
   options.compaction_readahead_size =
       mutable_db_options.compaction_readahead_size;
-  options.random_access_max_buffer_size =
-      immutable_db_options.random_access_max_buffer_size;
   options.writable_file_max_buffer_size =
       mutable_db_options.writable_file_max_buffer_size;
   options.use_adaptive_mutex = immutable_db_options.use_adaptive_mutex;

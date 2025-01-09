@@ -222,7 +222,6 @@ const std::string options_file_content = R"OPTIONS_FILE(
   stats_dump_period_sec=600
   allow_fallocate=true
   max_log_file_size=83886080
-  random_access_max_buffer_size=1048576
   advise_random_on_open=true
   dump_malloc_stats=true
 

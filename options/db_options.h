@@ -62,7 +62,6 @@ struct ImmutableDBOptions {
   bool advise_random_on_open;
   size_t db_write_buffer_size;
   std::shared_ptr<WriteBufferManager> write_buffer_manager;
-  size_t random_access_max_buffer_size;
   bool use_adaptive_mutex;
   std::vector<std::shared_ptr<EventListener>> listeners;
   bool enable_thread_tracking;

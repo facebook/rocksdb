@@ -1410,10 +1410,6 @@ bool BuiltinFilterPolicy::IsInstanceOf(const std::string& name) const {
 
 static const char* kBuiltinFilterMetadataName = "rocksdb.BuiltinBloomFilter";
 
-const char* BuiltinFilterPolicy::kCompatibilityName() {
-  return kBuiltinFilterMetadataName;
-}
-
 const char* BuiltinFilterPolicy::CompatibilityName() const {
   return kBuiltinFilterMetadataName;
 }
