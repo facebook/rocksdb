@@ -102,4 +102,4 @@ third-party/folly/
 .cache
 *.sublime-*
 
-/tools/test_delete.sh
+tools/test_delete.sh
