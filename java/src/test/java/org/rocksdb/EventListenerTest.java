@@ -86,7 +86,7 @@ public class EventListenerTest {
       assertThat(liveFiles).isNotNull();
       assertThat(liveFiles.files).isNotNull();
       assertThat(liveFiles.files.isEmpty()).isFalse();
-      db.deleteFile(liveFiles.files.get(0));
+      db.deprecated_deleteFile(liveFiles.files.get(0));
       assertThat(wasCbCalled.get()).isTrue();
     }
   }
