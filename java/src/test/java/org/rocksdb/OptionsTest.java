@@ -709,6 +709,15 @@ public class OptionsTest {
   }
 
   @Test
+  public void randomAccessMaxBufferSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setRandomAccessMaxBufferSize(longValue);
+      assertThat(opt.randomAccessMaxBufferSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
   public void writableFileMaxBufferSize() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();

@@ -939,6 +939,54 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   long dbWriteBufferSize();
 
   /**
+   * This is a maximum buffer size that is used by WinMmapReadableFile in
+   * unbuffered disk I/O mode. We need to maintain an aligned buffer for
+   * reads. We allow the buffer to grow until the specified value and then
+   * for bigger requests allocate one shot buffers. In unbuffered mode we
+   * always bypass read-ahead buffer at ReadaheadRandomAccessFile
+   * When read-ahead is required we then make use of
+   * {@link MutableDBOptionsInterface#compactionReadaheadSize()} value and
+   * always try to read ahead.
+   * With read-ahead we always pre-allocate buffer to the size instead of
+   * growing it up to a limit.
+   *
+   * This option is currently honored only on Windows
+   *
+   * Default: 1 Mb
+   *
+   * Special value: 0 - means do not maintain per instance buffer. Allocate
+   *                per request buffer and avoid locking.
+   *
+   * @param randomAccessMaxBufferSize the maximum size of the random access
+   *     buffer
+   *
+   * @return the reference to the current options.
+   */
+  T setRandomAccessMaxBufferSize(long randomAccessMaxBufferSize);
+
+  /**
+   * This is a maximum buffer size that is used by WinMmapReadableFile in
+   * unbuffered disk I/O mode. We need to maintain an aligned buffer for
+   * reads. We allow the buffer to grow until the specified value and then
+   * for bigger requests allocate one shot buffers. In unbuffered mode we
+   * always bypass read-ahead buffer at ReadaheadRandomAccessFile
+   * When read-ahead is required we then make use of
+   * {@link MutableDBOptionsInterface#compactionReadaheadSize()} value and
+   * always try to read ahead. With read-ahead we always pre-allocate buffer
+   * to the size instead of growing it up to a limit.
+   *
+   * This option is currently honored only on Windows
+   *
+   * Default: 1 Mb
+   *
+   * Special value: 0 - means do not maintain per instance buffer. Allocate
+   *                per request buffer and avoid locking.
+   *
+   * @return the maximum size of the random access buffer
+   */
+  long randomAccessMaxBufferSize();
+
+  /**
    * Use adaptive mutex, which spins in the user space before resorting
    * to kernel. This could reduce context switch when the mutex is not
    * heavily contended. However, if the mutex is hot, we could end up

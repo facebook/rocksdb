@@ -773,6 +773,19 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  public DBOptions setRandomAccessMaxBufferSize(final long randomAccessMaxBufferSize) {
+    assert (isOwningHandle());
+    setRandomAccessMaxBufferSize(nativeHandle_, randomAccessMaxBufferSize);
+    return this;
+  }
+
+  @Override
+  public long randomAccessMaxBufferSize() {
+    assert (isOwningHandle());
+    return randomAccessMaxBufferSize(nativeHandle_);
+  }
+
+  @Override
   public DBOptions setWritableFileMaxBufferSize(final long writableFileMaxBufferSize) {
     assert(isOwningHandle());
     setWritableFileMaxBufferSize(nativeHandle_, writableFileMaxBufferSize);
@@ -1351,6 +1364,9 @@ public class DBOptions extends RocksObject
   private static native void setDailyOffpeakTimeUTC(
       final long handle, final String dailyOffpeakTimeUTC);
   private static native String dailyOffpeakTimeUTC(final long handle);
+  private static native void setRandomAccessMaxBufferSize(
+      final long handle, final long randomAccessMaxBufferSize);
+  private static native long randomAccessMaxBufferSize(final long handle);
   private static native void setWritableFileMaxBufferSize(
       final long handle, final long writableFileMaxBufferSize);
   private static native long writableFileMaxBufferSize(final long handle);
