@@ -1579,6 +1579,29 @@ jlong Java_org_rocksdb_Options_compactionReadaheadSize(JNIEnv*, jclass,
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setRandomAccessMaxBufferSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setRandomAccessMaxBufferSize(
+    JNIEnv*, jclass, jlong jhandle, jlong jrandom_access_max_buffer_size) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opt->random_access_max_buffer_size =
+      static_cast<size_t>(jrandom_access_max_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    randomAccessMaxBufferSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_randomAccessMaxBufferSize(JNIEnv*, jclass,
+                                                         jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return static_cast<jlong>(opt->random_access_max_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setWritableFileMaxBufferSize
  * Signature: (JJ)V
  */
@@ -7087,6 +7110,29 @@ jlong Java_org_rocksdb_DBOptions_compactionReadaheadSize(JNIEnv*, jclass,
                                                          jlong jhandle) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
   return static_cast<jlong>(opt->compaction_readahead_size);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setRandomAccessMaxBufferSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setRandomAccessMaxBufferSize(
+    JNIEnv*, jclass, jlong jhandle, jlong jrandom_access_max_buffer_size) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
+  opt->random_access_max_buffer_size =
+      static_cast<size_t>(jrandom_access_max_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    randomAccessMaxBufferSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_randomAccessMaxBufferSize(JNIEnv*, jclass,
+                                                           jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
+  return static_cast<jlong>(opt->random_access_max_buffer_size);
 }
 
 /*
