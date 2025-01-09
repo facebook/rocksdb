@@ -33,6 +33,7 @@ DEFINE_uint64(rdelete_len, 10, "length of delete range");
 
 DEFINE_int32(level_comp, 1, "level start to involve rd_rep in compaction");
 DEFINE_bool(enable_crosscheck, false, "whether to use cross check between lsm and lsm rtree");
+DEFINE_bool(full_rtree, false, "whether to use full rtree in lsm rtree");
 
 namespace ROCKSDB_NAMESPACE {
 class GlobalRangeDeleterGCListener : public EventListener {
@@ -100,6 +101,7 @@ bool get_default_options(rocksdb::range_delete_db_opt& options) {
   filter_opts.max_key = FLAGS_max_key;
 
   rangedelete_rep::rd_rep_opt rep_opts;
+  rep_opts.use_full_rtree = FLAGS_full_rtree;
   rep_opts.buffer_cap = (FLAGS_rep_buffer_size << 10) / sizeof(rangedelete_rep::Rectangle); //size is 32
   rep_opts.T = FLAGS_rep_size_ratio;
   rep_opts.path = FLAGS_db_path + "/";

@@ -25,11 +25,13 @@ class DiskRun {
     friend class DiskLevel<K,V>;
 public:
     DiskRun<K,V> (std::string path, size_t page_size, int level, size_t runID, 
-                    Point min_point, Point max_point, uint64_t min_upper, RTree<bool, uint64_t, 2, float, 16> * Tree)
-                  :level_(level), page_size_(page_size), runID_(runID), 
-                  min_point_(min_point), max_point_(max_point), min_upper_(min_upper){
+                    Point min_point, Point max_point, uint64_t min_upper, bool use_full_rtree, 
+                    RTree<bool, uint64_t, 2, float, 16> * Tree)
+                  :level_(level), page_size_(page_size), runID_(runID), min_point_(min_point), 
+                  max_point_(max_point), min_upper_(min_upper), use_full_rtree_(use_full_rtree)
+    {
         filename_ = path + "C_" + to_string(level_) + "_" + to_string(runID_) + ".dat";
-        Tree->Save(filename_.c_str());
+        Tree->Save(filename_.c_str(), use_full_rtree_);
         RTree_ = new RTree<bool, uint64_t, 2, float, 16>();
     }
 
@@ -75,8 +77,7 @@ public:
         RectForRTree rectr(key);
         bool res = false;
         RTree<bool, uint64_t, 2, float, 16>* tree = new RTree<bool, uint64_t, 2, float, 16>();
-        res = tree->QueryFromFile(rectr.min, rectr.max, node_cnt, leaf_cnt, filename_.c_str()); //search r-tree
-        // delete tree;
+        res = tree->QueryFromFile(rectr.min, rectr.max, node_cnt, leaf_cnt, filename_.c_str(), use_full_rtree_); //search r-tree
         return res;
     }
 
@@ -90,8 +91,8 @@ public:
         RectForRTree rectr(key);
         bool res = false;
         RTree<bool, uint64_t, 2, float, 16>* tree = new RTree<bool, uint64_t, 2, float, 16>();
+        // need to add full version
         res = tree->QueryMaxSequenceFromFile(rectr.min, rectr.max, sequence, node_cnt, leaf_cnt, filename_.c_str()); //search r-tree
-        tree->RemoveRootNode();
         return res;
     }
 
@@ -112,7 +113,7 @@ public:
         std::vector<uint64_t> bounds_min(2, std::numeric_limits<uint64_t>::max());
         std::vector<uint64_t> bounds_max(2, 0);
         uint64_t new_upper = std::numeric_limits<uint64_t>::max();
-        bool res = tree->ExtractSubtreeFromFileBeforeUpper(upper, new_upper, bounds_min, bounds_max, filename_.c_str());
+        bool res = tree->ExtractSubtreeFromFileBeforeUpper(upper, new_upper, bounds_min, bounds_max, filename_.c_str(), use_full_rtree_);
         
         if (!res){
             return;
@@ -124,7 +125,7 @@ public:
             min_upper_ = new_upper;
             // save rtree
             string newName = filename_.substr(0, filename_.length() - 4) + "_tmp.dat";
-            tree->Save(newName.c_str());
+            tree->Save(newName.c_str(), use_full_rtree_);
             // rename
             if (rename(newName.c_str(), filename_.c_str())){
                 perror(("Error renaming file " + filename_ + " to " + newName).c_str());
@@ -142,7 +143,7 @@ public:
         RectForRTree rectr(key);
         tree->RemoveAll();
         //reload RTree_ with elements overlapping with rectr in file
-        bool res = tree->ExtractSubtreeFromFile(rectr.min, rectr.max, node_cnt, leaf_cnt, filename_.c_str()); 
+        bool res = tree->ExtractSubtreeFromFile(rectr.min, rectr.max, node_cnt, leaf_cnt, filename_.c_str(), use_full_rtree_); 
         return res;
     }
     
@@ -152,6 +153,7 @@ private:
     int level_;
     size_t runID_;
 
+    bool use_full_rtree_ = false;
     bool loaded_ = false;
 
     RTree<bool, uint64_t, 2, float, 16> * RTree_ = nullptr;
@@ -162,7 +164,7 @@ private:
     uint64_t min_upper_;
                             
     void Save(){
-        RTree_->Save(filename_.c_str());
+        RTree_->Save(filename_.c_str(), use_full_rtree_);
     }
     
     void Load(){
@@ -173,7 +175,7 @@ private:
             perror(("Loading RTree Error: No file " + string(filename_)).c_str());
             exit(EXIT_FAILURE);
         }
-        RTree_->Load(filename_.c_str());
+        RTree_->Load(filename_.c_str(), use_full_rtree_);
     }
 
     void LoadTo(RTree<bool, uint64_t, 2, float, 16> *tree){
@@ -184,7 +186,7 @@ private:
             perror(("Loading RTree Error: No file " + string(filename_)).c_str());
             exit(EXIT_FAILURE);
         }
-        tree->Load(filename_.c_str());
+        tree->Load(filename_.c_str(), use_full_rtree_);
     }
     
 };

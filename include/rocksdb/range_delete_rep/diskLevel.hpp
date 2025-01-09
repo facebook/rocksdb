@@ -59,8 +59,9 @@ class DiskLevel {
     // unsigned _numMerges; // number of merges in a level
     mutex *curr_read_lock; //WF: Used to protect read RTree in each run during compaction TODO: try to use other methods
     
-    DiskLevel<K,V>( std::string path, size_t page_size, int level, size_t T)
-                    :T_(T), level_(level), page_size_(page_size), path_(path){
+    DiskLevel<K,V>( std::string path, size_t page_size, int level, size_t T, bool use_full_rtree)
+                    :T_(T), level_(level), page_size_(page_size), path_(path), use_full_rtree_(use_full_rtree)
+    {
         // min_point_.init_min();
         // max_point_.init_max();
         // min_upper_ = std::numeric_limits<uint64_t>::max();
@@ -76,100 +77,12 @@ class DiskLevel {
     }
     
     void AddRun(vector<DiskRun<K, V> *> &runList);
-    //  {
-    //     RTree<bool, uint64_t, 2, float, 16> * RTree_res;
-    //     RTree_res = new RTree<bool, uint64_t, 2, float, 16>();
-    //     Point minP;
-    //     Point maxP;
-    //     uint64_t minU;
-    //     // merge existing rtrees
-    //     for (int i = 0; i < runList.size(); i++){
-    //         if (i == 0)
-    //         {
-    //             runList[i]->LoadTo(RTree_res);
-    //             minP = runList[i]->min_point_;
-    //             maxP = runList[i]->max_point_;
-    //             minU = runList[i]->min_upper_;
-    //         }else {
-    //             runList[i]->PrepareRTree();
-    //             // update boundary
-    //             minP.set_min(runList[i]->min_point_);
-    //             maxP.set_max(runList[i]->max_point_);
-    //             minU = std::min(minU, runList[i]->min_upper_);
-
-    //             // insert entries in new RTree
-    //             RTree<bool, uint64_t, 2, float, 16>::Iterator it;
-    //             uint64_t boundsMin[2] = {0, 0};
-    //             uint64_t boundsMax[2] = {0, 0};
-
-    //             for (runList[i]->RTree_->GetFirst(it); !runList[i]->RTree_->IsNull(it); runList[i]->RTree_->GetNext(it)) {
-    //                 it.GetBounds(boundsMin, boundsMax);
-    //                 RTree_res->Insert(boundsMin, boundsMax, *it);
-    //             }
-    //         }
-    //     }
-    //     // insert into target slot
-    //     size_t runID = runs_.size();
-    //     runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, minU, RTree_res));
-    // }
-
 
     void AddRunFromMem(RTree<bool, uint64_t, 2, float, 16> * mem, Point & minP, Point & maxP, uint64_t & minU);
-    //  {
-    //     // insert into level_ 1
-    //     size_t runID = runs_.size();
-    //     runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, minU, mem));
-
-    //     // RTree<bool, uint64_t, 2, float, 16>::Iterator it;
-    //     // uint64_t boundsMin[2] = {0, 0};
-    //     // uint64_t boundsMax[2] = {0, 0};
-    //     // for (mem.GetFirst(it); !mem.IsNull(it); mem.GetNext(it)) {
-    //     //     it.GetBounds(boundsMin, boundsMax);
-    //     //     if (boundsMin[0] < minP.data[0]){
-    //     //         minP.data[0] = boundsMin[0];
-    //     //     }
-    //     //     if (boundsMin[1] < minP.data[1]){
-    //     //         minP.data[1] = boundsMin[1];
-    //     //     }
-    //     //     if (boundsMax[0] > maxP.data[0]){
-    //     //         maxP.data[0] = boundsMax[0];
-    //     //     }
-    //     //     if (boundsMax[1] > maxP.data[1]){
-    //     //         maxP.data[1] = boundsMax[1];
-    //     //     }
-    //     // }        
-    // }
-    
     
     vector<DiskRun<K,V> *> GetRunsToMerge();
-    // {
-    //     vector<DiskRun<K, V> *> toMerge;
-    //     for (int i = 0; i < runs_.size(); i++){
-    //         toMerge.push_back(runs_[i]);
-    //     }
-    //     return toMerge;
-    // }
     
     void FreeMergedRuns(vector<DiskRun<K,V> *> &toFree);
-    // {
-    //     for (int i = 0; i < toFree.size(); i++){
-    //         assert(toFree[i]->level_ == level_);
-    //         delete toFree[i];
-    //     }
-    //     assert(toFree.size() <= runs_.size());
-    //     size_t numRuns = runs_.size() - toFree.size();
-    //     runs_.erase(runs_.begin(), runs_.begin() + toFree.size());
-    //     for (int i = 0; i < numRuns; i++){
-    //         runs_[i]->runID_ = i;
-    //         string newName = (path_ + "C_" + to_string(runs_[i]->level_) + "_" + to_string(runs_[i]->runID_) + ".dat");
-            
-    //         if (rename(runs_[i]->filename_.c_str(), newName.c_str())){
-    //             perror(("Error renaming file " + runs_[i]->filename_ + " to " + newName).c_str());
-    //             exit(EXIT_FAILURE);
-    //         }
-    //         runs_[i]->filename_ = newName;
-    //     }
-    // }
 
     bool to_merge(){
         return (runs_.size() >= T_);
@@ -180,119 +93,20 @@ class DiskLevel {
     }
 
     bool QueryRect (const K &key);
-    //  {
-    //     int maxRunToSearch = runs_.size() - 1;
-    //     for (int i = maxRunToSearch; i >= 0; i--){
-    //         if (key.max < runs_[i]->min_point_ || key.min > runs_[i]->max_point_){
-    //             continue;
-    //         }
-    //         if (runs_[i]->query(key)) {
-    //             return true;
-    //         }
-    //     }
-    //     return false;
-    // }
 
     bool QueryRect (const K &key, uint64_t & node_cnt, uint64_t & leaf_cnt);
-    //  {
-    //     int maxRunToSearch = runs_.size() - 1;
-    //     for (int i = maxRunToSearch; i >= 0; i--){
-    //         if (key.max < runs_[i]->min_point_ || key.min > runs_[i]->max_point_){
-    //             continue;
-    //         }
-    //         // if (runs_[i]->query(key, node_cnt, leaf_cnt)) {
-    //         //     return true;
-    //         // }
-    //         uint64_t node_cnt_ = 0;
-    //         uint64_t leaf_cnt_ = 0;
-    //         // bool res = runs_[i]->query(key, node_cnt_, leaf_cnt_);
-    //         bool res = runs_[i]->QueryDisk(key, node_cnt_, leaf_cnt_);
-    //         node_cnt += node_cnt_;
-    //         leaf_cnt += leaf_cnt_;
-    //         if (res) {return true;}
-    //     }
-    //     return false;
-    // }
 
     bool QueryRectAtRun(const K &key, size_t &level, size_t &run, uint64_t &sequence, uint64_t & node_cnt, uint64_t & leaf_cnt);
 
-    // bool QueryRectCurr (const K &key) {
-    //     // curr_read_lock->lock();
-    //     int maxRunToSearch = runs_.size() - 1;
-    //     for (int i = maxRunToSearch; i >= 0; i--){
-    //         if (key.max < runs_[i]->min_point_ || key.min > runs_[i]->max_point_){
-    //             continue;
-    //         }
-    //         bool res = runs_[i]->QueryCurr(key);
-    //         if (res) {
-    //             // curr_read_lock->unlock();
-    //             return true;
-    //         }
-    //     }
-    //     // curr_read_lock->unlock();
-    //     return false;
-    // }
-
     void ExcuteGarbageCollection(const uint64_t & sequence);
-    // {
-    //     // return if all runs are created after sequence
-    //     if(runs_.size() < 1){
-    //         return;
-    //     }
-    //     // find out runs to delete / prune
-    //     vector<DiskRun<K, V> *> runs_to_delete;
-    //     vector<DiskRun<K, V> *> runs_to_prune;
-    //     for (int i = 0; i < runs_.size(); i++){
-    //         if (runs_[i]->max_point_.y < sequence){
-    //             runs_to_delete.push_back(runs_[i]);
-    //         } else if (runs_[i]->max_point_.y > sequence && runs_[i]->min_upper_ < sequence){
-    //             runs_to_prune.push_back(runs_[i]);
-    //         }
-    //     }
-    //     // we assume all runs to be deleted are before that to be pruned
-    //     assert((runs_to_delete.size() + runs_to_prune.size()) <= runs_.size());
-    //     if (runs_to_delete.size() > 0){
-    //         assert(runs_to_delete[runs_to_delete.size() - 1]->runID_ < runs_to_prune[0]->runID_);
-    //     }
-    //     // prune runs before deletion
-    //     // there could be optimized: if the run is too small after pruning, merge it to adjacent run
-    //     for (int i = 0; i < runs_to_prune.size(); i++)
-    //     {
-    //         assert(runs_to_prune[i]->level_ == level_);
-    //         runs_to_prune[i]->PruneBeforeUpper(sequence);
-    //     }
-    //     // delete obsolete runs
-    //     FreeMergedRuns(runs_to_delete);
-    // }
 
     bool ExtractSubtreeFromDisk (const K &key, uint64_t & node_cnt, uint64_t & leaf_cnt, std::vector<RTreeType *> & rtrees);
-    //  {
-    //     int maxRunToAccess = runs_.size() - 1;
-    //     for (int i = maxRunToAccess; i >= 0; i--){
-    //         // std::cout << "ExtractSubtreeFromDisk Level " << level_ << " run " << i << std::endl;
-    //         if (key.max < runs_[i]->min_point_ || key.min > runs_[i]->max_point_){
-    //             continue;
-    //         }
-    //         uint64_t node_cnt_ = 0;
-    //         uint64_t leaf_cnt_ = 0;
-    //         // bool res = runs_[i]->query(key, node_cnt_, leaf_cnt_);
-    //         RTreeType * tree_tmp = new RTreeType();
-    //         bool res = runs_[i]->ExtractSubtreeFromDisk(key, node_cnt_, leaf_cnt_, tree_tmp);
-    //         if (tree_tmp != nullptr){
-    //             if (!tree_tmp->IsEmpty()){
-    //                 rtrees.emplace_back(tree_tmp);
-    //             }
-    //         }
-    //         node_cnt += node_cnt_;
-    //         leaf_cnt += leaf_cnt_;
-    //     }
-    //     return true;
-    // }
 
  private:
     // Point min_point_;
     // Point max_point_;
     // uint64_t min_upper_;
+    bool use_full_rtree_;
     std::string path_;
     std::vector<DiskRun<K,V> *> runs_;
 };
@@ -332,14 +146,14 @@ void DiskLevel<K, V>::AddRun(vector<DiskRun<K, V> *> &runList) {
     }
     // insert into target slot
     size_t runID = runs_.size();
-    runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, minU, RTree_res));
+    runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, minU, use_full_rtree_, RTree_res));
 }
 
 template <class K, class V>
 void DiskLevel<K, V>::AddRunFromMem(RTree<bool, uint64_t, 2, float, 16> * mem, Point & minP, Point & maxP, uint64_t & minU) {
     // insert into level_ 1
     size_t runID = runs_.size();
-    runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, minU, mem));
+    runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, minU, use_full_rtree_, mem));
 
     // RTree<bool, uint64_t, 2, float, 16>::Iterator it;
     // uint64_t boundsMin[2] = {0, 0};

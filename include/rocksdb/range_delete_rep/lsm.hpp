@@ -17,6 +17,7 @@
 namespace rangedelete_rep{
 
 struct rd_rep_opt {
+    bool use_full_rtree;
     uint64_t buffer_cap; // num entry fits in mem
     size_t T; // size ratio
     size_t page_size = 100;
@@ -40,9 +41,8 @@ class LSM {
     LSM<K,V>(LSM<K,V> &&other) = default;
     
     LSM<K,V>(const rd_rep_opt opt)
-            : buffer_cap(opt.buffer_cap), T(opt.T), 
-            page_size(opt.page_size), path(opt.path),
-            base_(0){
+            : buffer_cap(opt.buffer_cap), T(opt.T), use_full_rtree_(opt.use_full_rtree),
+            page_size(opt.page_size), path(opt.path), base_(0){
 
         buffer_size = 0;
         mem_ = new RTreeType();
@@ -53,7 +53,7 @@ class LSM {
 
         mergeLock = new mutex();
 
-        DiskLevel<K,V> * diskLevel = new DiskLevel<K, V>(path, page_size, 1, T);
+        DiskLevel<K,V> * diskLevel = new DiskLevel<K, V>(path, page_size, 1, T, use_full_rtree_);
         diskLevels.emplace_back(diskLevel);
         // num_disk_levels = 1;
         curr_rtrees_.reserve(1000);
@@ -114,6 +114,7 @@ class LSM {
 
  private:
     // RTree in memory
+    bool use_full_rtree_ = false;
     RTreeType * mem_ = nullptr;
     Point mem_min_point_;
     Point mem_max_point_;
@@ -149,7 +150,7 @@ void LSM<K, V>::CompactRunsToLevel(size_t src_level, size_t tar_level) {
 
     if (tar_level > diskLevels.size()){
         for (size_t idx = diskLevels.size() + 1 ; idx <= tar_level; idx++){
-            DiskLevel<K,V> * newLevel = new DiskLevel<K, V>(path, page_size, idx, T);
+            DiskLevel<K,V> * newLevel = new DiskLevel<K, V>(path, page_size, idx, T, use_full_rtree_);
             diskLevels.push_back(newLevel);
             // num_disk_levels++;
         }
