@@ -1107,71 +1107,24 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // Find filter handle and filter type
   if (rep_->filter_policy) {
     auto name = rep_->filter_policy->CompatibilityName();
-    bool builtin_compatible =
-        strcmp(name, BuiltinFilterPolicy::kCompatibilityName()) == 0;
-
     for (const auto& [filter_type, prefix] :
          {std::make_pair(Rep::FilterType::kFullFilter, kFullFilterBlockPrefix),
           std::make_pair(Rep::FilterType::kPartitionedFilter,
                          kPartitionedFilterBlockPrefix),
           std::make_pair(Rep::FilterType::kNoFilter,
                          kObsoleteFilterBlockPrefix)}) {
-      if (builtin_compatible) {
-        // This code is only here to deal with a hiccup in early 7.0.x where
-        // there was an unintentional name change in the SST files metadata.
-        // It should be OK to remove this in the future (late 2022) and just
-        // have the 'else' code.
-        // NOTE: the test:: names below are likely not needed but included
-        // out of caution
-        static const std::unordered_set<std::string> kBuiltinNameAndAliases = {
-            BuiltinFilterPolicy::kCompatibilityName(),
-            test::LegacyBloomFilterPolicy::kClassName(),
-            test::FastLocalBloomFilterPolicy::kClassName(),
-            test::Standard128RibbonFilterPolicy::kClassName(),
-            "rocksdb.internal.DeprecatedBlockBasedBloomFilter",
-            BloomFilterPolicy::kClassName(),
-            RibbonFilterPolicy::kClassName(),
-        };
-
-        // For efficiency, do a prefix seek and see if the first match is
-        // good.
-        meta_iter->Seek(prefix);
-        if (meta_iter->status().ok() && meta_iter->Valid()) {
-          Slice key = meta_iter->key();
-          if (key.starts_with(prefix)) {
-            key.remove_prefix(prefix.size());
-            if (kBuiltinNameAndAliases.find(key.ToString()) !=
-                kBuiltinNameAndAliases.end()) {
-              Slice v = meta_iter->value();
-              Status s = rep_->filter_handle.DecodeFrom(&v);
-              if (s.ok()) {
-                rep_->filter_type = filter_type;
-                if (filter_type == Rep::FilterType::kNoFilter) {
-                  ROCKS_LOG_WARN(rep_->ioptions.logger,
-                                 "Detected obsolete filter type in %s. Read "
-                                 "performance might suffer until DB is fully "
-                                 "re-compacted.",
-                                 rep_->file->file_name().c_str());
-                }
-                break;
-              }
-            }
-          }
+      std::string filter_block_key = prefix + name;
+      if (FindMetaBlock(meta_iter, filter_block_key, &rep_->filter_handle)
+              .ok()) {
+        rep_->filter_type = filter_type;
+        if (filter_type == Rep::FilterType::kNoFilter) {
+          ROCKS_LOG_WARN(
+              rep_->ioptions.logger,
+              "Detected obsolete filter type in %s. Read performance might "
+              "suffer until DB is fully re-compacted.",
+              rep_->file->file_name().c_str());
         }
-      } else {
-        std::string filter_block_key = prefix + name;
-        if (FindMetaBlock(meta_iter, filter_block_key, &rep_->filter_handle)
-                .ok()) {
-          rep_->filter_type = filter_type;
-          if (filter_type == Rep::FilterType::kNoFilter) {
-            ROCKS_LOG_WARN(
-                rep_->ioptions.logger,
-                "Detected obsolete filter type in %s. Read performance might "
-                "suffer until DB is fully re-compacted.",
-                rep_->file->file_name().c_str());
-          }
-          break;
-        }
+        break;
       }
     }
   }

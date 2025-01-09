@@ -149,7 +149,6 @@ class BuiltinFilterPolicy : public FilterPolicy {
   bool IsInstanceOf(const std::string& id) const override;
   // All variants of BuiltinFilterPolicy can read each others filters.
   const char* CompatibilityName() const override;
-  static const char* kCompatibilityName();
 
  public:  // new
   // An internal function for the implementation of
