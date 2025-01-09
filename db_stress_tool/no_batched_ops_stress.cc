@@ -187,6 +187,9 @@ class NonBatchedOpsStressTest : public StressTest {
             s = secondary_db_->Get(options, column_families_[cf], key,
                                    &from_db);
 
+            assert(!pre_read_expected_values.empty() &&
+                   static_cast<size_t>(i - start) <
+                       pre_read_expected_values.size());
             VerifyValueRange(static_cast<int>(cf), i, options, shared, from_db,
                              /* msg_prefix */ "Secondary get verification", s,
                              pre_read_expected_values[i - start]);
@@ -373,7 +376,7 @@ class NonBatchedOpsStressTest : public StressTest {
   }
 
   void ContinuouslyVerifyDb(ThreadState* thread) const override {
-    // Currently this method gets calleds even when
+    // Currently this method gets called even when
     // FLAGS_continuous_verification_interval == 0 as long as
     // FLAGS_verify_db_one_in > 0. Previously, this was not causing a problem in
     // the crash tests since test_secondary was always equal to 0, and thus we
