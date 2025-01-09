@@ -709,15 +709,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void randomAccessMaxBufferSize() {
-    try (final Options opt = new Options()) {
-      final long longValue = rand.nextLong();
-      opt.setRandomAccessMaxBufferSize(longValue);
-      assertThat(opt.randomAccessMaxBufferSize()).isEqualTo(longValue);
-    }
-  }
-
-  @Test
   public void writableFileMaxBufferSize() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
@@ -1450,6 +1441,16 @@ public class OptionsTest {
       final int val = 32;
       assertThat(options.setMemtableMaxRangeDeletions(val)).isEqualTo(options);
       assertThat(options.memtableMaxRangeDeletions()).isEqualTo(val);
+    }
+  }
+
+  @Test
+  public void dailyOffpeakTimeUTC() {
+    try (final Options options = new Options()) {
+      assertThat(options.dailyOffpeakTimeUTC()).isEqualTo("");
+      final String offPeak = "03:45-20:15";
+      assertThat(options.setDailyOffpeakTimeUTC(offPeak)).isEqualTo(options);
+      assertThat(options.dailyOffpeakTimeUTC()).isEqualTo(offPeak);
     }
   }
 

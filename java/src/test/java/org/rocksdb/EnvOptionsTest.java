@@ -112,15 +112,6 @@ public class EnvOptionsTest {
   }
 
   @Test
-  public void randomAccessMaxBufferSize() {
-    try (final EnvOptions envOptions = new EnvOptions()) {
-      final int intValue = rand.nextInt(2147483647);
-      envOptions.setRandomAccessMaxBufferSize(intValue);
-      assertThat(envOptions.randomAccessMaxBufferSize()).isEqualTo(intValue);
-    }
-  }
-
-  @Test
   public void writableFileMaxBufferSize() {
     try (final EnvOptions envOptions = new EnvOptions()) {
       final int intValue = rand.nextInt(2147483647);

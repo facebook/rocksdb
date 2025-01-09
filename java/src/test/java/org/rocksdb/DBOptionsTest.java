@@ -463,15 +463,6 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void randomAccessMaxBufferSize() {
-    try(final DBOptions opt = new DBOptions()) {
-      final long longValue = rand.nextLong();
-      opt.setRandomAccessMaxBufferSize(longValue);
-      assertThat(opt.randomAccessMaxBufferSize()).isEqualTo(longValue);
-    }
-  }
-
-  @Test
   public void writableFileMaxBufferSize() {
     try(final DBOptions opt = new DBOptions()) {
       final long longValue = rand.nextLong();
