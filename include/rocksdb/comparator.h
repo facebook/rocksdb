@@ -120,7 +120,9 @@ class Comparator : public Customizable, public CompareInterface {
   // in distinct byte sequences, then this comparator considers them inequal.
   // This is used to determine if DataBlockHashIndex is compatible
   // with customized comparators that support user-defined timestamps.
-  virtual bool KeysAreBytewiseComparableOtherThanTimestamp() const { return false; }
+  virtual bool KeysAreBytewiseComparableOtherThanTimestamp() const {
+    return false;
+  }
 
   // if it is a wrapped comparator, may return the root one.
   // return itself it is not wrapped.
