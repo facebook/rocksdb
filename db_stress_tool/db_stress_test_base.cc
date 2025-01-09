@@ -3693,9 +3693,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     assert(column_families_.size() ==
            static_cast<size_t>(FLAGS_column_families));
 
-    // Secondary instance does not support write-prepared/write-unprepared
-    // transactions, thus just disable secondary instance if we use
-    // transaction.
+    // Secondary and follower instances do not support
+    // write-prepared/write-unprepared transactions, thus just disable secondary
+    // instance if we use transaction.
     if (s.ok() && FLAGS_test_secondary && !FLAGS_use_txn) {
       Options tmp_opts;
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
@@ -3706,6 +3706,19 @@ void StressTest::Open(SharedState* shared, bool reopen) {
                               cf_descriptors, &secondary_cfhs_, &secondary_db_);
       assert(s.ok());
       assert(secondary_cfhs_.size() ==
+             static_cast<size_t>(FLAGS_column_families));
+    }
+
+    if (s.ok() && FLAGS_test_follower && !FLAGS_use_txn) {
+      Options tmp_opts;
+      tmp_opts.max_open_files = -1;
+      tmp_opts.env = db_stress_env;
+      // Need to use the leader path not the follower path
+      const std::string& leader_path = FLAGS_db;
+      s = DB::OpenAsFollower(tmp_opts, FLAGS_db /* name */, leader_path,
+                             cf_descriptors, &follower_cfhs_, &follower_db_);
+      assert(s.ok());
+      assert(follower_cfhs_.size() ==
              static_cast<size_t>(FLAGS_column_families));
     }
   } else {
