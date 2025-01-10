@@ -861,19 +861,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setRandomAccessMaxBufferSize(final long randomAccessMaxBufferSize) {
-    assert (isOwningHandle());
-    setRandomAccessMaxBufferSize(nativeHandle_, randomAccessMaxBufferSize);
-    return this;
-  }
-
-  @Override
-  public long randomAccessMaxBufferSize() {
-    assert (isOwningHandle());
-    return randomAccessMaxBufferSize(nativeHandle_);
-  }
-
-  @Override
   public Options setWritableFileMaxBufferSize(final long writableFileMaxBufferSize) {
     assert(isOwningHandle());
     setWritableFileMaxBufferSize(nativeHandle_, writableFileMaxBufferSize);
@@ -2271,9 +2258,6 @@ public class Options extends RocksObject
   private static native long compactionReadaheadSize(final long handle);
   private static native void setDailyOffpeakTimeUTC(final long handle, final String offpeakTimeUTC);
   private static native String dailyOffpeakTimeUTC(final long handle);
-  private static native void setRandomAccessMaxBufferSize(
-      final long handle, final long randomAccessMaxBufferSize);
-  private static native long randomAccessMaxBufferSize(final long handle);
   private static native void setWritableFileMaxBufferSize(
       final long handle, final long writableFileMaxBufferSize);
   private static native long writableFileMaxBufferSize(final long handle);

@@ -254,8 +254,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"random_access_max_buffer_size",
-         {offsetof(struct ImmutableDBOptions, random_access_max_buffer_size),
-          OptionType::kSizeT, OptionVerificationType::kNormal,
+         {0, OptionType::kSizeT, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"use_adaptive_mutex",
          {offsetof(struct ImmutableDBOptions, use_adaptive_mutex),
@@ -755,7 +754,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       advise_random_on_open(options.advise_random_on_open),
       db_write_buffer_size(options.db_write_buffer_size),
       write_buffer_manager(options.write_buffer_manager),
-      random_access_max_buffer_size(options.random_access_max_buffer_size),
       use_adaptive_mutex(options.use_adaptive_mutex),
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
@@ -905,9 +903,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
       db_write_buffer_size);
   ROCKS_LOG_HEADER(log, "                   Options.write_buffer_manager: %p",
                    write_buffer_manager.get());
-  ROCKS_LOG_HEADER(
-      log, "          Options.random_access_max_buffer_size: %" ROCKSDB_PRIszt,
-      random_access_max_buffer_size);
   ROCKS_LOG_HEADER(log, "                     Options.use_adaptive_mutex: %d",
                    use_adaptive_mutex);
   ROCKS_LOG_HEADER(log, "                           Options.rate_limiter: %p",
