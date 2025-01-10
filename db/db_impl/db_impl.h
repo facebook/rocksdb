@@ -174,7 +174,7 @@ struct DBOpenLogReporter : public log::Reader::Reporter {
 };
 
 // While DB is the public interface of RocksDB, and DBImpl is the actual
-// class implementing it. It's the entrance of the core RocksdB engine.
+// class implementing it. It's the entrance of the core RocksDB engine.
 // All other DB implementations, e.g. TransactionDB, BlobDB, etc, wrap a
 // DBImpl internally.
 // Other than functions implementing the DB interface, some public
@@ -1542,7 +1542,7 @@ class DBImpl : public DB {
   // to this is seq_per_batch_ mode, in which since each batch already takes one
   // seq, it is ok for the batch to write to memtable during recovery as long as
   // it only takes one sequence number: i.e., no duplicate keys.
-  // In WriteCommitted it is guarnateed since disable_memtable is used for
+  // In WriteCommitted it is guaranteed since disable_memtable is used for
   // prepare batch which will be written to memtable later during the commit,
   // and in WritePrepared it is guaranteed since it will be used only for WAL
   // markers which will never be written to memtable. If the commit marker is
@@ -2302,7 +2302,6 @@ class DBImpl : public DB {
   // REQUIRES: mutex locked and in write thread.
   Status HandleWriteBufferManagerFlush(WriteContext* write_context);
 
-  // REQUIRES: mutex locked
   Status PreprocessWrite(const WriteOptions& write_options,
                          LogContext* log_context, WriteContext* write_context);
 
