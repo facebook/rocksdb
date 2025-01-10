@@ -178,7 +178,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"advise_random_on_open", "true"},
       {"use_adaptive_mutex", "false"},
       {"compaction_readahead_size", "100"},
-      {"random_access_max_buffer_size", "3145728"},
       {"writable_file_max_buffer_size", "314159"},
       {"bytes_per_sync", "47"},
       {"wal_bytes_per_sync", "48"},
@@ -362,7 +361,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
-  ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
   ASSERT_EQ(new_db_opt.writable_file_max_buffer_size, 314159);
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
   ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
@@ -2486,7 +2484,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"advise_random_on_open", "true"},
       {"use_adaptive_mutex", "false"},
       {"compaction_readahead_size", "100"},
-      {"random_access_max_buffer_size", "3145728"},
       {"writable_file_max_buffer_size", "314159"},
       {"bytes_per_sync", "47"},
       {"wal_bytes_per_sync", "48"},
@@ -2674,7 +2671,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
-  ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
   ASSERT_EQ(new_db_opt.writable_file_max_buffer_size, 314159);
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
   ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
