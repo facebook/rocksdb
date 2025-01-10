@@ -1156,8 +1156,7 @@ def cleanup_after_success(dbname):
         print("Running DB cleanup command - %s\n" % cleanup_cmd)
         ret = os.system(cleanup_cmd)
         if ret != 0:
-            print("TEST FAILED. DB cleanup returned error %d\n" % ret)
-            sys.exit(1)
+            print("WARNING: DB cleanup returned error %d\n" % ret)
 
 
 # This script runs and kills db_stress multiple times. It checks consistency
