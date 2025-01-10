@@ -174,6 +174,7 @@ void ExcuteTestWithChecker(rocksdb::RangeDeleteDB* db, ResultChecker* checker) {
 }
 
 void PrintSetting(){
+  std::cout << "Use Full R-tree : " << FLAGS_full_rtree << std::endl;
   std::cout << "kv size : " << FLAGS_kvsize << " bytes" << std::endl;
   std::cout << "db_opts.buffer_cap : " << FLAGS_buffer_size << " MB" << std::endl;
   std::cout << "rep_opts.buffer_cap : " << FLAGS_rep_buffer_size << " KB" << std::endl;

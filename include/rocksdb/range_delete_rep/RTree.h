@@ -421,9 +421,11 @@ protected:
 
   /// Query tree contents from stream
   bool QueryFromFile(Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream, bool isfull = false);
-  bool QueryFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt);
+  // bool QueryFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt);
+  bool QueryFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, bool & found);
   // the number of branches in a rtree is equal to MAXNODES, thus invalid nodes/leaves should be skipped
-  bool QueryFullFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt);
+  // bool QueryFullFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt);
+  bool QueryFullFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, bool & found);
 
   bool ExtractSubtreeFromFile(Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream, bool isfull = false);
   bool LoadSubtree(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt);
@@ -1207,9 +1209,11 @@ bool RTREE_QUAL::QueryFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_m
   return result;
 }
 
+///////////////////////////////////////////////
 RTREE_TEMPLATE
 bool RTREE_QUAL::QueryFromFile(Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream, bool isfull)
 {
+  bool found = false;
   // Write some kind of header
   int _dataFileId = ('R'<<0)|('T'<<8)|('R'<<16)|('E'<<24);
   int _dataSize = sizeof(DATATYPE);
@@ -1249,18 +1253,18 @@ bool RTREE_QUAL::QueryFromFile(Rect* a_rect, uint64_t & node_cnt, uint64_t & lea
   {
     // Recursively load tree
     if(isfull){
-      result = QueryFullFromFile(m_root, a_stream, a_rect, node_cnt, leaf_cnt);
+      result = QueryFullFromFile(m_root, a_stream, a_rect, node_cnt, leaf_cnt, found);
     }else{
-      result = QueryFromFile(m_root, a_stream, a_rect, node_cnt, leaf_cnt);
+      result = QueryFromFile(m_root, a_stream, a_rect, node_cnt, leaf_cnt, found);
     }
     
   }
 
-  return result;
+  return found;
 }
 
 RTREE_TEMPLATE
-bool RTREE_QUAL::QueryFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt)
+bool RTREE_QUAL::QueryFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, bool & found)
 {
   a_stream.Read(a_node->m_level);
   a_stream.Read(a_node->m_count);
@@ -1276,31 +1280,15 @@ bool RTREE_QUAL::QueryFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rec
       a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
       a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
 
-      if (a_node->m_level == 1){
-        if(!Overlap(a_rect, &(curBranch->m_rect))){
-          // count the size of one leaf node: level + count + rect + data
-          auto level = a_node->m_level;
-          auto count = a_node->m_count;
-          a_stream.Read(level);
-          a_stream.Read(count);
-          int num_bytes = sizeof(DATATYPE) + 2 * sizeof(ELEMTYPE) * NUMDIMS;
-          num_bytes *= count;
-          // num_bytes += NUMDIMS * (sizeof(curBranch->m_rect.m_min) + sizeof(curBranch->m_rect.m_max));
-          if (a_stream.MoveBackward(num_bytes)){
-            std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
-            exit(1);
-          }
-          continue;
+      //continue if target point is overlapped
+      // if(Overlap(a_rect, &a_node->m_branch[index].m_rect)){
+      if(Overlap(a_rect, &(curBranch->m_rect))){
+        curBranch->m_child = AllocNode();
+        QueryFromFile(curBranch->m_child, a_stream, a_rect, node_cnt, leaf_cnt, found); 
+        delete curBranch->m_child;
+        if (found){
+          return true;
         }
-      }
-
-      curBranch->m_child = AllocNode();
-      bool res = QueryFromFile(curBranch->m_child, a_stream, a_rect, node_cnt, leaf_cnt);
-
-      delete curBranch->m_child;
-      if (res){
-        delete curBranch;
-        return true;
       }
       delete curBranch;
     }
@@ -1315,20 +1303,20 @@ bool RTREE_QUAL::QueryFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rec
       a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
       a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
       a_stream.Read(curBranch->m_data);
-      if(Overlap(a_rect, &(curBranch->m_rect)))
+      if(Overlap(a_rect, &a_node->m_branch[index].m_rect))
       {
+        found = true;
         delete curBranch;
         return true;
       }
       delete curBranch;
     }
   }
-  return false; // Should do more error checking on I/O operations
+  return true; // Should do more error checking on I/O operations
 }
 
-
 RTREE_TEMPLATE
-bool RTREE_QUAL::QueryFullFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt)
+bool RTREE_QUAL::QueryFullFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, bool & found)
 {
   a_stream.Read(a_node->m_level);
   a_stream.Read(a_node->m_count);
@@ -1338,27 +1326,29 @@ bool RTREE_QUAL::QueryFullFromFile(Node* a_node, RTFileStream& a_stream, Rect* a
     node_cnt++;
     for(int index = 0; index < a_node->m_count; ++index)
     {
+      // Branch* curBranch = &a_node->m_branch[index];
       Branch* curBranch = new Branch;
 
       a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
       a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
 
       //continue if target point is overlapped
+      // if(Overlap(a_rect, &a_node->m_branch[index].m_rect)){
       if(Overlap(a_rect, &(curBranch->m_rect))){
         curBranch->m_child = AllocNode();
-        bool res = QueryFullFromFile(curBranch->m_child, a_stream, a_rect, node_cnt, leaf_cnt); 
-        delete curBranch->m_child;
-        if (res){
-          delete curBranch;
+        QueryFromFile(curBranch->m_child, a_stream, a_rect, node_cnt, leaf_cnt, found); 
+        delete curBranch->m_child;     
+        if (found){
           return true;
         }
-      } else {
-        int skip_bytes = CalculateNodeSizeBytes(a_node->m_level, false);
-        if (a_stream.MoveBackward(skip_bytes)){
-          std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
-          exit(1);
-        }
-      }
+      } 
+      // else {
+      //   int skip_bytes = CalculateNodeSizeBytes(a_node->m_level, false);
+      //   if (a_stream.MoveBackward(skip_bytes)){
+      //     std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
+      //     exit(1);
+      //   }
+      // }
       delete curBranch;
     }
     if (a_node->m_count < MAXNODES){
@@ -1376,12 +1366,14 @@ bool RTREE_QUAL::QueryFullFromFile(Node* a_node, RTFileStream& a_stream, Rect* a
     leaf_cnt++;
     for(int index = 0; index < a_node->m_count; ++index)
     {
+      // Branch* curBranch = &a_node->m_branch[index];
       Branch* curBranch = new Branch;
       a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
       a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
       a_stream.Read(curBranch->m_data);
-      if(Overlap(a_rect, &(curBranch->m_rect)))
+      if(Overlap(a_rect, &a_node->m_branch[index].m_rect))
       {
+        found = true;
         delete curBranch;
         return true;
       }
@@ -1396,9 +1388,203 @@ bool RTREE_QUAL::QueryFullFromFile(Node* a_node, RTFileStream& a_stream, Rect* a
         exit(1);
       }
     }
+    
   }
-  return false; // Should do more error checking on I/O operations
+  return true; // Should do more error checking on I/O operations
 }
+
+
+// RTREE_TEMPLATE
+// bool RTREE_QUAL::QueryFromFile(Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream, bool isfull)
+// {
+//   // Write some kind of header
+//   int _dataFileId = ('R'<<0)|('T'<<8)|('R'<<16)|('E'<<24);
+//   int _dataSize = sizeof(DATATYPE);
+//   int _dataNumDims = NUMDIMS;
+//   int _dataElemSize = sizeof(ELEMTYPE);
+//   int _dataElemRealSize = sizeof(ELEMTYPEREAL);
+//   int _dataMaxNodes = TMAXNODES;
+//   int _dataMinNodes = TMINNODES;
+
+//   int dataFileId = 0;
+//   int dataSize = 0;
+//   int dataNumDims = 0;
+//   int dataElemSize = 0;
+//   int dataElemRealSize = 0;
+//   int dataMaxNodes = 0;
+//   int dataMinNodes = 0;
+
+//   a_stream.Read(dataFileId);
+//   a_stream.Read(dataSize);
+//   a_stream.Read(dataNumDims);
+//   a_stream.Read(dataElemSize);
+//   a_stream.Read(dataElemRealSize);
+//   a_stream.Read(dataMaxNodes);
+//   a_stream.Read(dataMinNodes);
+
+//   bool result = false;
+
+//   // Test if header was valid and compatible
+//   if(    (dataFileId == _dataFileId)
+//       && (dataSize == _dataSize)
+//       && (dataNumDims == _dataNumDims)
+//       && (dataElemSize == _dataElemSize)
+//       && (dataElemRealSize == _dataElemRealSize)
+//       && (dataMaxNodes == _dataMaxNodes)
+//       && (dataMinNodes == _dataMinNodes)
+//     )
+//   {
+//     // Recursively load tree
+//     if(isfull){
+//       result = QueryFullFromFile(m_root, a_stream, a_rect, node_cnt, leaf_cnt);
+//     }else{
+//       result = QueryFromFile(m_root, a_stream, a_rect, node_cnt, leaf_cnt);
+//     }
+    
+//   }
+
+//   return result;
+// }
+
+// RTREE_TEMPLATE
+// bool RTREE_QUAL::QueryFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt)
+// {
+//   a_stream.Read(a_node->m_level);
+//   a_stream.Read(a_node->m_count);
+
+//   if(a_node->IsInternalNode())  // not a leaf node
+//   {
+//     node_cnt++;
+//     for(int index = 0; index < a_node->m_count; ++index)
+//     {
+//       // Branch* curBranch = &a_node->m_branch[index];
+//       Branch* curBranch = new Branch;
+
+//       a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+//       a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+
+//       if (a_node->m_level == 1){
+//         if(!Overlap(a_rect, &(curBranch->m_rect))){
+//           // count the size of one leaf node: level + count + rect + data
+//           auto level = a_node->m_level;
+//           auto count = a_node->m_count;
+//           a_stream.Read(level);
+//           a_stream.Read(count);
+//           int num_bytes = sizeof(DATATYPE) + 2 * sizeof(ELEMTYPE) * NUMDIMS;
+//           num_bytes *= count;
+//           // num_bytes += NUMDIMS * (sizeof(curBranch->m_rect.m_min) + sizeof(curBranch->m_rect.m_max));
+//           if (a_stream.MoveBackward(num_bytes)){
+//             std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
+//             exit(1);
+//           }
+//           continue;
+//         }
+//       }
+
+//       curBranch->m_child = AllocNode();
+//       bool res = QueryFromFile(curBranch->m_child, a_stream, a_rect, node_cnt, leaf_cnt);
+
+//       delete curBranch->m_child;
+//       if (res){
+//         delete curBranch;
+//         return true;
+//       }
+//       delete curBranch;
+//     }
+//   }
+//   else // A leaf node
+//   {
+//     leaf_cnt++;
+//     for(int index = 0; index < a_node->m_count; ++index)
+//     {
+//       // Branch* curBranch = &a_node->m_branch[index];
+//       Branch* curBranch = new Branch;
+//       a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+//       a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+//       a_stream.Read(curBranch->m_data);
+//       if(Overlap(a_rect, &(curBranch->m_rect)))
+//       {
+//         delete curBranch;
+//         return true;
+//       }
+//       delete curBranch;
+//     }
+//   }
+//   return false; // Should do more error checking on I/O operations
+// }
+
+// RTREE_TEMPLATE
+// bool RTREE_QUAL::QueryFullFromFile(Node* a_node, RTFileStream& a_stream, Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt)
+// {
+//   a_stream.Read(a_node->m_level);
+//   a_stream.Read(a_node->m_count);
+
+//   if(a_node->IsInternalNode())  // not a leaf node
+//   {
+//     node_cnt++;
+//     for(int index = 0; index < a_node->m_count; ++index)
+//     {
+//       Branch* curBranch = new Branch;
+
+//       a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+//       a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+
+//       //continue if target point is overlapped
+//       if(Overlap(a_rect, &(curBranch->m_rect))){
+//         curBranch->m_child = AllocNode();
+//         bool res = QueryFullFromFile(curBranch->m_child, a_stream, a_rect, node_cnt, leaf_cnt); 
+//         delete curBranch->m_child;
+//         if (res){
+//           delete curBranch;
+//           return true;
+//         }
+//       } else {
+//         int skip_bytes = CalculateNodeSizeBytes(a_node->m_level, false);
+//         if (a_stream.MoveBackward(skip_bytes)){
+//           std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
+//           exit(1);
+//         }
+//       }
+//       delete curBranch;
+//     }
+//     if (a_node->m_count < MAXNODES){
+//       int invalid_nodes = MAXNODES - a_node->m_count;
+//       int total_bytes = CalculateNodeSizeBytes(a_node->m_level, true);
+//       total_bytes *= invalid_nodes;
+//       if (a_stream.MoveBackward(total_bytes)){
+//         std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
+//         exit(1);
+//       }
+//     }
+//   }
+//   else // A leaf node
+//   {
+//     leaf_cnt++;
+//     for(int index = 0; index < a_node->m_count; ++index)
+//     {
+//       Branch* curBranch = new Branch;
+//       a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+//       a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+//       a_stream.Read(curBranch->m_data);
+//       if(Overlap(a_rect, &(curBranch->m_rect)))
+//       {
+//         delete curBranch;
+//         return true;
+//       }
+//       delete curBranch;
+//     }
+//     if (a_node->m_count < MAXNODES){
+//       int invalid_nodes = MAXNODES - a_node->m_count;
+//       int total_bytes = CalculateNodeSizeBytes(0, true);
+//       total_bytes *= invalid_nodes;
+//       if (a_stream.MoveBackward(total_bytes)){
+//         std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
+//         exit(1);
+//       }
+//     }
+//   }
+//   return false; // Should do more error checking on I/O operations
+// }
 
 // return the size of node pointed by the branch at level $level$ in byte
 // includ_branch indicates whether to calculate the size of rect stored in the current branch
