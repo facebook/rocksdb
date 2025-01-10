@@ -184,7 +184,7 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
   // other DB instances
   if (bg_error.IsNoSpace() && CheckFreeSpace()) {
     auto fn =
-        TableFileName(cfd->ioptions()->cf_paths, inputs[0][0]->fd.GetNumber(),
+        TableFileName(cfd->ioptions().cf_paths, inputs[0][0]->fd.GetNumber(),
                       inputs[0][0]->fd.GetPathId());
     uint64_t free_space = 0;
     Status s = fs_->GetFreeSpace(fn, IOOptions(), &free_space, nullptr);

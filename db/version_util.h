@@ -43,7 +43,7 @@ class OfflineManifestWriter {
     // Use `mutex` to imitate a locked DB mutex when calling `LogAndApply()`.
     InstrumentedMutex mutex;
     mutex.Lock();
-    Status s = versions_.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+    Status s = versions_.LogAndApply(cfd, cfd->GetLatestMutableCFOptions(),
                                      read_options, write_options, edit, &mutex,
                                      dir_contains_current_file,
                                      false /* new_descriptor_log */);

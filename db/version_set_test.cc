@@ -2425,7 +2425,6 @@ class VersionSetWithTimestampTest : public VersionSetTest {
     options.comparator = test::BytewiseComparatorWithU64TsWrapper();
     cfd_ = CreateColumnFamily(kNewCfName, options);
     EXPECT_NE(nullptr, cfd_);
-    EXPECT_NE(nullptr, cfd_->GetLatestMutableCFOptions());
     column_families_.emplace_back(kNewCfName, options);
   }
 
@@ -2475,7 +2474,7 @@ class VersionSetWithTimestampTest : public VersionSetTest {
 
     Status s;
     mutex_.Lock();
-    s = versions_->LogAndApply(cfd_, *(cfd_->GetLatestMutableCFOptions()),
+    s = versions_->LogAndApply(cfd_, cfd_->GetLatestMutableCFOptions(),
                                read_options_, write_options_, edits_, &mutex_,
                                nullptr);
     mutex_.Unlock();
@@ -3371,7 +3370,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   drop_cf_edit.SetColumnFamily(cfd_to_drop->GetID());
   mutex_.Lock();
   Status s = versions_->LogAndApply(
-      cfd_to_drop, *cfd_to_drop->GetLatestMutableCFOptions(), read_options,
+      cfd_to_drop, cfd_to_drop->GetLatestMutableCFOptions(), read_options,
       write_options, &drop_cf_edit, &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
@@ -3388,7 +3387,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
                    : cfd_to_drop;
     ASSERT_NE(nullptr, cfd);
     cfds.push_back(cfd);
-    mutable_cf_options_list.emplace_back(cfd->GetLatestMutableCFOptions());
+    mutable_cf_options_list.emplace_back(&cfd->GetLatestMutableCFOptions());
     edits[i].SetColumnFamily(cfd->GetID());
     edits[i].SetLogNumber(0);
     edits[i].SetNextFile(2);

@@ -288,14 +288,14 @@ class Compaction {
 
   // Return the ImmutableOptions that should be used throughout the compaction
   // procedure
-  const ImmutableOptions* immutable_options() const {
-    return &immutable_options_;
+  const ImmutableOptions& immutable_options() const {
+    return immutable_options_;
   }
 
   // Return the MutableCFOptions that should be used throughout the compaction
   // procedure
-  const MutableCFOptions* mutable_cf_options() const {
-    return &mutable_cf_options_;
+  const MutableCFOptions& mutable_cf_options() const {
+    return mutable_cf_options_;
   }
 
   // Returns the size in bytes that the output file should be preallocated to.

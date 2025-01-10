@@ -97,7 +97,7 @@ Status ArenaWrappedDBIter::Refresh(const Snapshot* snapshot) {
     if (read_callback_) {
       read_callback_->Refresh(read_seq);
     }
-    Init(env, read_options_, *(cfd->ioptions()), sv->mutable_cf_options,
+    Init(env, read_options_, cfd->ioptions(), sv->mutable_cf_options,
          sv->current, read_seq,
          sv->mutable_cf_options.max_sequential_skip_in_iterations,
          sv->version_number, read_callback_, cfh_, expose_blob_index_,

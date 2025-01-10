@@ -1040,7 +1040,7 @@ std::set<std::string> DBImpl::CollectAllDBPaths() {
     all_db_paths.insert(NormalizePath(db_path.path));
   }
   for (const auto* cfd : *versions_->GetColumnFamilySet()) {
-    for (const auto& cf_path : cfd->ioptions()->cf_paths) {
+    for (const auto& cf_path : cfd->ioptions().cf_paths) {
       all_db_paths.insert(NormalizePath(cf_path.path));
     }
   }

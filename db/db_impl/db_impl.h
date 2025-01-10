@@ -1451,7 +1451,7 @@ class DBImpl : public DB {
         uint32_t size = static_cast<uint32_t>(map_.size());
         map_.emplace(cfd->GetID(), size);
         cfds_.emplace_back(cfd);
-        mutable_cf_opts_.emplace_back(cfd->GetLatestMutableCFOptions());
+        mutable_cf_opts_.emplace_back(&cfd->GetLatestMutableCFOptions());
         edit_lists_.emplace_back(autovector<VersionEdit*>());
       }
       uint32_t i = map_[cfd->GetID()];
@@ -2522,9 +2522,8 @@ class DBImpl : public DB {
   // All ColumnFamily state changes go through this function. Here we analyze
   // the new state and we schedule background work if we detect that the new
   // state needs flush or compaction.
-  void InstallSuperVersionAndScheduleWork(
-      ColumnFamilyData* cfd, SuperVersionContext* sv_context,
-      const MutableCFOptions& mutable_cf_options);
+  void InstallSuperVersionAndScheduleWork(ColumnFamilyData* cfd,
+                                          SuperVersionContext* sv_context);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,
