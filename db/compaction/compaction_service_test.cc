@@ -197,12 +197,15 @@ class CompactionServiceTest : public DBTestBase {
     options->statistics = primary_statistics_;
     compactor_statistics_ = CreateDBStatistics();
 
-    compaction_service_ = std::make_shared<MyTestCompactionService>(
+    auto my_cs = std::make_shared<MyTestCompactionService>(
         dbname_, *options, compactor_statistics_, remote_listeners,
         remote_table_properties_collector_factories);
+
+    compaction_service_ = my_cs;
     options->compaction_service = compaction_service_;
     DestroyAndReopen(*options);
     CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, *options);
+    my_cs->SetCanceled(false);
   }
 
   Statistics* GetCompactorStatistics() { return compactor_statistics_.get(); }
@@ -342,6 +345,8 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
         assert(*id != kNullUniqueId64x2);
         verify_passed++;
       });
+  Close();
+  my_cs->SetCanceled(false);
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "cf_1", "cf_2", "cf_3"},
                            options);
   ASSERT_GT(verify_passed, 0);
