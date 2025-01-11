@@ -1087,8 +1087,6 @@ void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
   env_options->set_fd_cloexec = options.is_fd_close_on_exec;
   env_options->bytes_per_sync = options.bytes_per_sync;
   env_options->compaction_readahead_size = options.compaction_readahead_size;
-  env_options->random_access_max_buffer_size =
-      options.random_access_max_buffer_size;
   env_options->rate_limiter = options.rate_limiter.get();
   env_options->writable_file_max_buffer_size =
       options.writable_file_max_buffer_size;

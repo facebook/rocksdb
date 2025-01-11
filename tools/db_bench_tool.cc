@@ -761,9 +761,6 @@ DEFINE_uint64(compaction_readahead_size,
 
 DEFINE_int32(log_readahead_size, 0, "WAL and manifest readahead size");
 
-DEFINE_int32(random_access_max_buffer_size, 1024 * 1024,
-             "Maximum windows randomaccess buffer size");
-
 DEFINE_int32(writable_file_max_buffer_size, 1024 * 1024,
              "Maximum write buffer for Writable File");
 
@@ -4307,7 +4304,6 @@ class Benchmark {
     options.max_file_opening_threads = FLAGS_file_opening_threads;
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options.log_readahead_size = FLAGS_log_readahead_size;
-    options.random_access_max_buffer_size = FLAGS_random_access_max_buffer_size;
     options.writable_file_max_buffer_size = FLAGS_writable_file_max_buffer_size;
     options.use_fsync = FLAGS_use_fsync;
     options.num_levels = FLAGS_num_levels;

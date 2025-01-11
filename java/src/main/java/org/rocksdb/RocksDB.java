@@ -4428,8 +4428,9 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException if an error occurs whilst deleting the file
    */
-  public void deleteFile(final String name) throws RocksDBException {
-    deleteFile(nativeHandle_, name);
+  @Deprecated
+  public void deprecated_deleteFile(final String name) throws RocksDBException {
+    deprecated_deleteFile(nativeHandle_, name);
   }
 
   /**
@@ -5054,7 +5055,8 @@ public class RocksDB extends RocksObject {
   private static native LogFile[] getSortedWalFiles(final long handle) throws RocksDBException;
   private static native long getUpdatesSince(final long handle, final long sequenceNumber)
       throws RocksDBException;
-  private static native void deleteFile(final long handle, final String name)
+  @Deprecated
+  private static native void deprecated_deleteFile(final long handle, final String name)
       throws RocksDBException;
   private static native LiveFileMetaData[] getLiveFilesMetaData(final long handle);
   private static native ColumnFamilyMetaData getColumnFamilyMetaData(

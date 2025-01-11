@@ -125,7 +125,7 @@ class TestConditionsConjunctions(unittest.TestCase):
 
         # Check for the conditions
         conds_triggered = ["log-1-true", "log-2-true", "log-3-true"]
-        conds_not_triggered = ["log-4-false", "options-1-false"]
+        conds_not_triggered = ["log-4-false"]
         for cond in conds_triggered:
             self.assertTrue(conditions_dict[cond].is_triggered(), repr(cond))
         for cond in conds_not_triggered:
@@ -136,7 +136,6 @@ class TestConditionsConjunctions(unittest.TestCase):
         rules_not_triggered = [
             "single-condition-false",
             "multiple-conds-one-false",
-            "multiple-conds-all-false",
         ]
         for rule_name in rules_triggered:
             rule = rules_dict[rule_name]

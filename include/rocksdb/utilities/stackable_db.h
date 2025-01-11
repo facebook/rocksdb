@@ -521,7 +521,9 @@ class StackableDB : public DB {
   // do not plan to maintain it, the contract will likely remain underspecified
   // until its removal. Any user is encouraged to read the implementation
   // carefully and migrate away from it when possible.
-  Status DeleteFile(std::string name) override { return db_->DeleteFile(name); }
+  Status DEPRECATED_DeleteFile(std::string name) override {
+    return db_->DEPRECATED_DeleteFile(name);
+  }
 
   Status GetDbIdentity(std::string& identity) const override {
     return db_->GetDbIdentity(identity);
