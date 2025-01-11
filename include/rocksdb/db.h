@@ -33,11 +33,6 @@
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
-#ifdef _WIN32
-// Windows API macro interference
-#undef DeleteFile
-#endif
-
 #if defined(__GNUC__) || defined(__clang__)
 #define ROCKSDB_DEPRECATED_FUNC __attribute__((__deprecated__))
 #elif _WIN32
