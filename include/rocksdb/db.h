@@ -33,11 +33,6 @@
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
-#ifdef _WIN32
-// Windows API macro interference
-#undef DeleteFile
-#endif
-
 #if defined(__GNUC__) || defined(__clang__)
 #define ROCKSDB_DEPRECATED_FUNC __attribute__((__deprecated__))
 #elif _WIN32
@@ -1768,8 +1763,6 @@ class DB {
       const TransactionLogIterator::ReadOptions& read_options =
           TransactionLogIterator::ReadOptions()) = 0;
 
-// Windows API macro interference
-#undef DeleteFile
   // WARNING: This API is planned for removal in RocksDB 7.0 since it does not
   // operate at the proper level of abstraction for a key-value store, and its
   // contract/restrictions are poorly documented. For example, it returns non-OK
@@ -1781,7 +1774,7 @@ class DB {
   // Delete the file name from the db directory and update the internal state to
   // reflect that. Supports deletion of sst and log files only. 'name' must be
   // path relative to the db directory. eg. 000001.sst, /archive/000003.log
-  virtual Status DeleteFile(std::string name) = 0;
+  virtual Status DEPRECATED_DeleteFile(std::string name) = 0;
 
   // Obtains a list of all live table (SST) files and how they fit into the
   // LSM-trees, such as column family, level, key range, etc.
