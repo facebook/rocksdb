@@ -120,6 +120,7 @@ public class SharedTempFile {
 
         try (FileChannel fc = FileChannel.open(directoryLock, StandardOpenOption.WRITE)) {
             try (FileLock ignored = fc.lock()) {
+                instanceLock = Files.createTempFile(directory, instance.prefix, "." + INSTANCE_LOCK);
                 if (!Files.exists(content)) {
                     Files.createFile(content);
                     try {
@@ -129,7 +130,6 @@ public class SharedTempFile {
                         throw new RuntimeException("Unable to create content for SharedTempFile " + instance.prefix, e);
                     }
                 }
-                instanceLock = Files.createTempFile(directory, instance.prefix, INSTANCE_LOCK);
             }
         }
 
@@ -149,11 +149,14 @@ public class SharedTempFile {
                 try (Stream<Path> children = Files.walk(directory, 1)) {
                     children.forEach(path -> {
                         Path fileName = path.getFileName();
-                        if (fileName.toString().startsWith(instance.prefix) && fileName.endsWith(INSTANCE_LOCK)) {
+                        System.err.println(fileName);
+                        String name = fileName.toString();
+                        if (name.startsWith(instance.prefix) && name.endsWith("." + INSTANCE_LOCK)) {
                             lockFiles.add(fileName);
                         }
                     });
                 }
+                System.err.println("SharedTempFile " + lockFiles.size() + " lock files");
                 if (lockFiles.isEmpty()) {
                     // No VMs are locking this SharedTempFile, so we can delete it
                     if (!Files.exists(content)) {
