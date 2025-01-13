@@ -160,6 +160,7 @@ public class NativeLibraryLoader {
     try (InputStream is = getClass().getClassLoader().getResourceAsStream(jniLibraryFileName)) {
       if (is != null) {
         final File temp = createTemp(tmpDir, jniLibraryFileName);
+        System.err.println("Temporary JNI lib copy: " + temp.toPath());
         Files.copy(is, temp.toPath(), StandardCopyOption.REPLACE_EXISTING);
         return temp;
       } else {
