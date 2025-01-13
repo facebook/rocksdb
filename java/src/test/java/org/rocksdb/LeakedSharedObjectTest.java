@@ -104,41 +104,58 @@ public class LeakedSharedObjectTest {
         final int DB_COUNT = 50;
         List<Process> processes = new ArrayList<>();
         List<BufferedReader> readers = new ArrayList<>();
+        List<List<String>> lines = new ArrayList<>();
 
         for (int i = 0; i < DB_COUNT; i++) {
 
             Process process = Runtime.getRuntime()
-                .exec("java -cp target/classes:target/test-classes:target/* " + mainClass);
+                .exec("java -cp target/classes:target/test-classes:target/*:test-libs/assertj-core-2.9.0.jar " + mainClass);
             processes.add(process);
             BufferedReader err = new BufferedReader( new InputStreamReader(process.getErrorStream()));
             readers.add(err);
+            lines.add(new ArrayList<>());
+        }
+
+        for (int i = 0; i < DB_COUNT; i++) {
+            lines.get(i).add("|--------|" + i + "|--------|");
         }
 
         try {
-            Thread.sleep(1000);
+            Thread.sleep(5000);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
 
-        int i = 0;
-        for (BufferedReader reader : readers) {
-            i++;
-            String line = reader.readLine();
-            System.err.println(i + ":" + line);
+        boolean finished = false;
+        while (!finished) {
+            finished = true;
+            for (int i = 0; i < DB_COUNT; i++) {
+                if (readers.get(i).ready()) {
+                    finished = false;
+                    lines.get(i).add(readers.get(i).readLine());
+                }
+            }
         }
 
         for (Process process : processes) {
             process.destroyForcibly();
         }
 
-        for (Process process : processes) {
+        for (int i = 0; i < DB_COUNT; i++) {
             try {
-                process.waitFor();
-                System.err.println("Exit value " + process.exitValue());
+                processes.get(i).waitFor();
+                lines.get(i).add("Exit value " + processes.get(i).exitValue());
             } catch (InterruptedException ie) {
                 throw new RuntimeException("Process interrupted");
             }
         }
+
+        for (List<String> linei : lines) {
+            for (String line : linei) {
+                System.err.println(line);
+            }
+        }
+
     }
 
 }

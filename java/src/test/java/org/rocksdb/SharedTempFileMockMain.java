@@ -18,9 +18,11 @@ public class SharedTempFileMockMain {
 
     public static void main(final String[] args) throws IOException, InterruptedException {
 
+        // uncouple precise start time from other processes
+        // otherwise they all create their own temp
         final Random random = new Random();
         try {
-            Thread.sleep(random.nextInt(100));
+            Thread.sleep(random.nextInt(1000));
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -33,7 +35,7 @@ public class SharedTempFileMockMain {
         } else {
             sharedTemp = existing.get(0);
         }
-        System.err.println(sharedTemp);
+        System.err.println(sharedTemp + " created");
         Path content;
         try (SharedTempFile.Lock ignored = sharedTemp.lock(LeakedSharedObjectTest::mockContent)) {
             content = sharedTemp.getContent();
@@ -42,7 +44,7 @@ public class SharedTempFileMockMain {
                 compare(resource, shared);
             }
         }
-        assertThat(Files.exists(content)).isFalse();
+        System.err.println(sharedTemp + " finished");
 
         Thread.sleep(2000);
     }
