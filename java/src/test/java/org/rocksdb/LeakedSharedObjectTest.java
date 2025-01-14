@@ -105,6 +105,7 @@ public class LeakedSharedObjectTest {
         List<Process> processes = new ArrayList<>();
         List<BufferedReader> readers = new ArrayList<>();
         List<List<String>> lines = new ArrayList<>();
+        List<Integer> exitCodes = new ArrayList<>();
 
         for (int i = 0; i < DB_COUNT; i++) {
 
@@ -144,18 +145,25 @@ public class LeakedSharedObjectTest {
         for (int i = 0; i < DB_COUNT; i++) {
             try {
                 processes.get(i).waitFor();
-                lines.get(i).add("Exit value " + processes.get(i).exitValue());
+                int exitCode = processes.get(i).exitValue();
+                lines.get(i).add("Exit value " + exitCode);
+                exitCodes.add(exitCode);
             } catch (InterruptedException ie) {
                 throw new RuntimeException("Process interrupted");
             }
         }
 
-        for (List<String> linei : lines) {
-            for (String line : linei) {
-                System.err.println(line);
+        boolean ok = true;
+        for (int i = 0; i < DB_COUNT; i++) {
+            if (exitCodes.get(i) != 0) {
+                ok = false;
+                System.err.println("Process " + i + " failed: " + exitCodes.get(i));
+                for (String line : lines.get(i)) {
+                    System.err.println(line);
+                }
             }
         }
-
+        assertThat(ok).as("all subprocesses return success").isTrue();
     }
 
 }
