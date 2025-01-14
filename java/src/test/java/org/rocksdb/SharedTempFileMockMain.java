@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,7 +21,9 @@ public class SharedTempFileMockMain {
         final Random random = new Random();
         Thread.sleep(random.nextInt(1000));
 
-        SharedTempFile.Instance instance = new SharedTempFile.Instance("rocksdbmock", "jnilib");
+        String tmpDir = System.getProperty("java.io.tmpdir");
+
+        SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir, "rocksdbmock", "jnilib");
         SharedTempFile sharedTemp = instance.searchOrCreate();
         System.err.println(sharedTemp + " created/found");
         Path content;
