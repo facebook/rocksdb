@@ -1116,7 +1116,8 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
       dbname_ + "/MANIFEST-000005", dbname_ + "/OPTIONS-000007",
       dbname_ + "/CURRENT.tmp",     dbname_ + "/000011.log"};
 
-  for (const auto& mode : {kKeepLatestDbSessionIdFiles, kVerifyChecksum}) {
+  for (const auto& mode : {RestoreOptions::Mode::kKeepLatestDbSessionIdFiles,
+                           RestoreOptions::Mode::kVerifyChecksum}) {
     OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                           kShareWithChecksum);
 
@@ -1173,7 +1174,7 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     std::vector<std::string> should_have_written = always_copyable_files;
     should_have_written.emplace_back(dbname_ + "/000012.sst");
     should_have_written.emplace_back(dbname_ + "/000010.blob");
-    if (mode == kKeepLatestDbSessionIdFiles) {
+    if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
       // We only support incremental restore for blobs in kVerifyChecksum mode.
       should_have_written.emplace_back(dbname_ + "/000013.blob");
     }
@@ -1205,12 +1206,12 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
 
     should_have_written = always_copyable_files;
     should_have_written.emplace_back(dbname_ + "/000010.blob");
-    if (mode == kVerifyChecksum) {
+    if (mode == RestoreOptions::Mode::kVerifyChecksum) {
       // Restore running in kVerifyChecksum mode would have caught the mismatch
       // between crc32c and db file contents. Such file would have been deleted
       // and restored from the backup.
       should_have_written.emplace_back(dbname_ + "/000012.sst");
-    } else if (mode == kKeepLatestDbSessionIdFiles) {
+    } else if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
       // This mode is more prone to subtle db file corruptions as we do not run
       // any CPU intensive computations (like checksum) and the match between
       // existing db file and its' relevant backup counterpart is determined
@@ -1230,10 +1231,10 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     Status s = db_->VerifyChecksum();
 
     // Check DB contents.
-    if (mode == kVerifyChecksum) {
+    if (mode == RestoreOptions::Mode::kVerifyChecksum) {
       EXPECT_OK(s);
       AssertExists(db_.get(), 0, keys_iteration * 2);
-    } else if (mode == kKeepLatestDbSessionIdFiles) {
+    } else if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
       ASSERT_TRUE(s.IsCorruption());
     }
 

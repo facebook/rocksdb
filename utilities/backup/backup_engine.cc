@@ -510,7 +510,8 @@ class BackupEngineImpl {
   // deemed to exist in the referenced backup set.
   void InferDBFilesToRetainInRestore(
       const std::unique_ptr<BackupMeta>& backup, const std::string& dir,
-      RestoreMode mode, std::unordered_set<uint64_t>& files_to_keep) const;
+      RestoreOptions::Mode mode,
+      std::unordered_set<uint64_t>& files_to_keep) const;
 
   inline std::string GetAbsolutePath(
       const std::string& relative_path = "") const {
@@ -2054,8 +2055,11 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
                                   dst);
     }
 
+    // `files_to_keep` identifies non-excluded backup files with contents
+    // identical to existing database files, as determined by a user-selected
+    // policy.
     if (files_to_keep.find(number) != files_to_keep.end()) {
-      // This file is already in the destination directory.
+      // This file is already in the destination directory. Skip restore.
       continue;
     }
 
@@ -2772,8 +2776,9 @@ void BackupEngineImpl::LoopRateLimitRequestHelper(
 
 void BackupEngineImpl::InferDBFilesToRetainInRestore(
     const std::unique_ptr<BackupMeta>& backup, const std::string& dir,
-    RestoreMode mode, std::unordered_set<uint64_t>& files_to_keep) const {
-  if (mode == RestoreMode::kPurgeAllFiles) {
+    RestoreOptions::Mode mode,
+    std::unordered_set<uint64_t>& files_to_keep) const {
+  if (mode == RestoreOptions::Mode::kPurgeAllFiles) {
     return;
   }
 
@@ -2783,7 +2788,7 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
 
   ROCKS_LOG_INFO(options_.info_log, "Constructing backup files map...");
   std::unordered_map<uint64_t, std::pair<std::shared_ptr<FileInfo>, FileType>>
-      file_id_to_backup_file_info_and_type;
+      file_num_to_backup_file_info_and_type;
   for (const auto& file_info_shared : backup->GetFiles()) {
     uint64_t number;
     FileType type;
@@ -2797,14 +2802,16 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
     // Blobs are only supported in kVerifyChecksum mode - as db session id
     // metadata is not captured / persisted.
     if (type == kTableFile ||
-        (type == kBlobFile && mode == RestoreMode::kVerifyChecksum)) {
-      file_id_to_backup_file_info_and_type.insert(
+        (type == kBlobFile && mode == RestoreOptions::Mode::kVerifyChecksum)) {
+      file_num_to_backup_file_info_and_type.insert(
           {number, std::make_pair(file_info_shared, type)});
     }
   }
 
-  ROCKS_LOG_INFO(options_.info_log,
-                 "Evaluating existing files restore retention eligibility...");
+  ROCKS_LOG_INFO(
+      options_.info_log,
+      "Evaluating existing .sst%s files restore retention eligibility...",
+      mode == RestoreOptions::Mode::kVerifyChecksum ? " and .blob files" : "");
 
   std::vector<std::string> children;
   db_fs_->GetChildren(dir, io_options_, &children, nullptr)
@@ -2818,29 +2825,23 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
     FileType type;
     bool ok = ParseFileName(f, &number, &type);
     if (!ok) {
-      Log(options_.info_log, "Couldn't parse existing file name: '%s'",
-          f.c_str());
+      // Couldn't parse existing file name. We deliberately choose to sliently
+      // skip here to avoid noisy & excessive logging in user controlled envs.
       continue;
     }
 
     if (type != kTableFile && type != kBlobFile) {
       // We only care to optimize restore for large files - like SSTs / blobs.
-      Log(options_.info_log,
-          "Existing file '%s' is neither a table nor a blob file. Type: %d.",
-          f.c_str(), type);
       continue;
     }
 
-    if (type == kBlobFile && mode != RestoreMode::kVerifyChecksum) {
-      Log(options_.info_log,
-          "Existing file '%s' is a blob file. Those are only supported in "
-          "kVerifyChecksum mode.",
-          f.c_str());
+    if (type == kBlobFile && mode != RestoreOptions::Mode::kVerifyChecksum) {
+      // Blob files are only supported in kVerifyChecksum mode.
       continue;
     }
 
-    auto it = file_id_to_backup_file_info_and_type.find(number);
-    if (it == file_id_to_backup_file_info_and_type.end()) {
+    auto it = file_num_to_backup_file_info_and_type.find(number);
+    if (it == file_num_to_backup_file_info_and_type.end()) {
       Log(options_.info_log, "Existing file '%s' is not present in the backup.",
           f.c_str());
       continue;
@@ -2850,16 +2851,11 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
     FileType backup_file_type = (it->second).second;
     if (type != backup_file_type) {
       Log(options_.info_log,
-          "File type mismatch between backup and dest file system!"
+          "Existing db file with the very same number can only be retained "
+          "if it has same type as it's corresponding backup counterpart. "
           "Backup file '%s' type: %d, existing file '%s' type: %d",
           backup_file_info->filename.c_str(), backup_file_type, f.c_str(),
           type);
-      continue;
-    }
-
-    if (backup_file_info->size == 0) {
-      Log(options_.info_log, "Backup file '%s' size is 0!",
-          backup_file_info->filename.c_str());
       continue;
     }
 
@@ -2886,7 +2882,7 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
     }
 
     std::string backup_file_path = GetAbsolutePath(backup_file_info->filename);
-    if (mode == RestoreMode::kKeepLatestDbSessionIdFiles) {
+    if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
       // Backup file does not need to be restored if it's corresponding
       // matching ID file has the exact same session ID and size.
 
@@ -2941,7 +2937,7 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
 
       ROCKS_LOG_INFO(options_.info_log,
                      "Existing file '%s' is retained for restore.", f.c_str());
-    } else if (mode == RestoreMode::kVerifyChecksum) {
+    } else if (mode == RestoreOptions::Mode::kVerifyChecksum) {
       DBOptions db_options;
       std::string backup_file_checksum = backup_file_info->checksum_hex;
       if (!backup_file_checksum.empty()) {
@@ -3014,7 +3010,7 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
     }
   }
 
-  if (mode == RestoreMode::kVerifyChecksum) {
+  if (mode == RestoreOptions::Mode::kVerifyChecksum) {
     // First loop through checksum computation results for backup files.
     for (auto& item : backup_files_compute_checksum_work_items) {
       item.result.wait();
@@ -3073,8 +3069,8 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
 
   ROCKS_LOG_INFO(options_.info_log,
                  "Done with incremental restore evaluation. "
-                 "Retained %lu files.",
-                 static_cast<unsigned long>(files_to_keep.size()));
+                 "Retained %zu files.",
+                 files_to_keep.size());
 }
 
 void BackupEngineImpl::DeleteChildren(

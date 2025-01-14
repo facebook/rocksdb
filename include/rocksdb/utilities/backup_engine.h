@@ -348,47 +348,50 @@ struct CreateBackupOptions {
   CpuPriority background_thread_cpu_priority = CpuPriority::kNormal;
 };
 
-// Enum reflecting tiered approach to incremental restores.
-// Options `kKeepLatestDbSessionIdFiles`, `kVerifyChecksum` are intended
-// to be used separately and NOT to be combined with one another.
-enum RestoreMode : uint32_t {
-  // Instructs restore engine to consider existing destination file and its'
-  // backup counterpart as 'equal' IF the db session id AND size values read
-  // from the backup file footer match the corresponding values in existing
-  // destination file metadata block.
-  //
-  // NOTE:
-  // =====
-  //
-  // Only applicable to backup files that preserve the notion of 'session'
-  // in the footer. Good approximation to tell if that's the case is to verify
-  // that backup files do follow the `kUseDbSessionId` naming scheme, ex:
-  //
-  //  <file_number>_s<db_session_id>[_<file_size>].sst
-  //
-  // RISK WARNING:
-  // =============
-  //
-  // Determination is made solely based on the backup & db file footer metadata.
-  // Technically speaking, it is possible that backup or db file with the very
-  // same db session id and size hold different data (think file corruption,
-  // blocks filled with zeros [trash], etc.). If you need stronger guarantees
-  // with no 'session' constraints, use `kVerifyChecksum` restore mode instead.
-  kKeepLatestDbSessionIdFiles = 1U,
-
-  // When opted-in, restore engine will scan the db file, evaluate the checksum
-  // and compare it against the checksum hardened in the backup file metadata.
-  // If checksums match, existing file will be retained as-is. Otherwise, it
-  // will be deleted and replaced it with its' restored backup counterpart.
-  // If backup file doesn't have a checksum hardened in the metadata,
-  // we'll schedule an async task to compute it.
-  kVerifyChecksum = 2U,
-
-  // Zero trust. Purge all the destination files and restore all the files.
-  kPurgeAllFiles = 0xffffU,
-};
-
 struct RestoreOptions {
+  // Enum reflecting tiered approach to incremental restores.
+  // Options `kKeepLatestDbSessionIdFiles`, `kVerifyChecksum` are intended
+  // to be used separately and NOT to be combined with one another.
+  enum Mode : uint32_t {
+    // Instructs restore engine to consider existing destination file and its'
+    // backup counterpart as 'equal' IF the db session id AND size values read
+    // from the backup file footer match the corresponding values in existing
+    // destination file metadata block.
+    //
+    // NOTE:
+    // =====
+    //
+    // Only applicable to backup files that preserve the notion of 'session'
+    // in the footer. Good approximation to tell if that's the case is to verify
+    // that backup files do follow the `kUseDbSessionId` naming scheme, ex:
+    //
+    //  <file_number>_s<db_session_id>[_<file_size>].sst
+    //
+    // RISK WARNING:
+    // =============
+    //
+    // Determination is made solely based on the backup & db file footer
+    // metadata.
+    // Technically speaking, it is possible that backup or db file with the very
+    // same db session id and size hold different data (think file corruption,
+    // blocks filled with zeros [trash], etc.). If you need stronger guarantees
+    // with no 'session' constraints, use `kVerifyChecksum` restore mode
+    // instead.
+    kKeepLatestDbSessionIdFiles = 1U,
+
+    // When opted-in, restore engine will scan the db file, evaluate the
+    // checksum
+    // and compare it against the checksum hardened in the backup file metadata.
+    // If checksums match, existing file will be retained as-is. Otherwise, it
+    // will be deleted and replaced it with its' restored backup counterpart.
+    // If backup file doesn't have a checksum hardened in the metadata,
+    // we'll schedule an async task to compute it.
+    kVerifyChecksum = 2U,
+
+    // Zero trust. Purge all the destination files and restore all the files.
+    kPurgeAllFiles = 0xffffU,
+  };
+
   // If true, restore won't overwrite the existing log files in wal_dir. It will
   // also move all log files from archive directory to wal_dir. Use this option
   // in combination with BackupEngineOptions::backup_log_files = false for
@@ -402,10 +405,11 @@ struct RestoreOptions {
   std::forward_list<BackupEngineReadOnlyBase*> alternate_dirs;
 
   // Specifies the level of incremental restore. 'kPurgeAllFiles' by default.
-  RestoreMode mode;
+  Mode mode;
 
+  // FIXME(https://github.com/facebook/rocksdb/issues/13293)
   explicit RestoreOptions(bool _keep_log_files = false,
-                          RestoreMode _mode = RestoreMode::kPurgeAllFiles)
+                          Mode _mode = Mode::kPurgeAllFiles)
       : keep_log_files(_keep_log_files), mode(_mode) {}
 };
 
