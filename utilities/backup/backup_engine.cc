@@ -509,8 +509,9 @@ class BackupEngineImpl {
   // selected strategy (RestoreMode). File can be retained only if it's
   // deemed to exist in the referenced backup set.
   void InferDBFilesToRetainInRestore(
-      const std::unique_ptr<BackupMeta>& backup, const std::string& dir,
-      RestoreOptions::Mode mode,
+      const std::vector<std::pair<const BackupEngineImpl*, const FileInfo*>>&
+          restore_file_infos,
+      const std::string& dir, RestoreOptions::Mode mode,
       std::unordered_set<uint64_t>& files_to_keep) const;
 
   inline std::string GetAbsolutePath(
@@ -560,6 +561,23 @@ class BackupEngineImpl {
     }
     return file_copy;
   }
+
+  static std::string GetDbSessionIdFromFile(const std::string& file) {
+    size_t start_pos = 0;
+    size_t slash = file.find_last_of('/');
+    if (slash != std::string::npos) {
+      start_pos = slash + 1;
+    }
+
+    // Valid format: <file_number>_s<db_session_id>[_<file_size>].sst
+    // where <db_session_id is always 20 character long string.
+    size_t first_s_underscore = file.find("_s", start_pos);
+    if (first_s_underscore != std::string::npos) {
+      return file.substr(first_s_underscore + 2, 20U);
+    }
+    return "";
+  }
+
   static inline std::string GetFileFromChecksumFile(const std::string& file) {
     assert(file.size() == 0 || file[0] != '/');
     std::string file_copy = file;
@@ -1964,8 +1982,39 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
   db_fs_->CreateDirIfMissing(wal_dir, io_options_, nullptr)
       .PermitUncheckedError();
 
+  // Files to restore, and from where (taking into account excluded files)
+  std::vector<std::pair<const BackupEngineImpl*, const FileInfo*>>
+      restore_file_infos;
+  restore_file_infos.reserve(backup->GetFiles().size() +
+                             backup->GetExcludedFiles().size());
+  for (const auto& ef : backup->GetExcludedFiles()) {
+    const std::string& file = ef.relative_file;
+
+    bool found = false;
+    for (auto be : locked_restore_from_dirs) {
+      auto it = be->backuped_file_infos_.find(file);
+      if (it != backuped_file_infos_.end()) {
+        restore_file_infos.emplace_back(be, &*it->second);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      return IOStatus::InvalidArgument(
+          "Excluded file " + file + " not found in other backups nor in " +
+          std::to_string(locked_restore_from_dirs.size() - 1) +
+          " alternate backup directories");
+    }
+  }
+
+  // Non-excluded files
+  for (const auto& file_info_shared : backup->GetFiles()) {
+    restore_file_infos.emplace_back(this, &*file_info_shared);
+  }
+
   std::unordered_set<uint64_t> files_to_keep;
-  InferDBFilesToRetainInRestore(backup, db_dir, options.mode, files_to_keep);
+  InferDBFilesToRetainInRestore(restore_file_infos, db_dir, options.mode,
+                                files_to_keep);
 
   if (options.keep_log_files) {
     // delete non-matching files in db_dir, but keep all the log files
@@ -1998,37 +2047,6 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
     DeleteChildren(db_dir, files_to_keep);
   }
 
-  // Files to restore, and from where (taking into account excluded files)
-  std::vector<std::pair<const BackupEngineImpl*, const FileInfo*>>
-      restore_file_infos;
-  restore_file_infos.reserve(backup->GetFiles().size() +
-                             backup->GetExcludedFiles().size());
-
-  for (const auto& ef : backup->GetExcludedFiles()) {
-    const std::string& file = ef.relative_file;
-
-    bool found = false;
-    for (auto be : locked_restore_from_dirs) {
-      auto it = be->backuped_file_infos_.find(file);
-      if (it != backuped_file_infos_.end()) {
-        restore_file_infos.emplace_back(be, &*it->second);
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      return IOStatus::InvalidArgument(
-          "Excluded file " + file + " not found in other backups nor in " +
-          std::to_string(locked_restore_from_dirs.size() - 1) +
-          " alternate backup directories");
-    }
-  }
-
-  // Non-excluded files
-  for (const auto& file_info_shared : backup->GetFiles()) {
-    restore_file_infos.emplace_back(this, &*file_info_shared);
-  }
-
   IOStatus io_s;
   std::vector<RestoreAfterCopyOrCreateWorkItem> restore_items_to_finish;
   std::string temporary_current_file;
@@ -2055,9 +2073,9 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
                                   dst);
     }
 
-    // `files_to_keep` identifies non-excluded backup files with contents
-    // identical to existing database files, as determined by a user-selected
-    // policy.
+    // `files_to_keep` identifies existing database files with contents
+    // 'identical' to their respective backup files (standard or excluded)
+    // as per user-selected RestoreOptions::Mode.
     if (files_to_keep.find(number) != files_to_keep.end()) {
       // This file is already in the destination directory. Skip restore.
       continue;
@@ -2775,8 +2793,9 @@ void BackupEngineImpl::LoopRateLimitRequestHelper(
 }
 
 void BackupEngineImpl::InferDBFilesToRetainInRestore(
-    const std::unique_ptr<BackupMeta>& backup, const std::string& dir,
-    RestoreOptions::Mode mode,
+    const std::vector<std::pair<const BackupEngineImpl*, const FileInfo*>>&
+        restore_file_infos,
+    const std::string& dir, RestoreOptions::Mode mode,
     std::unordered_set<uint64_t>& files_to_keep) const {
   if (mode == RestoreOptions::Mode::kPurgeAllFiles) {
     return;
@@ -2787,13 +2806,15 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
                  mode);
 
   ROCKS_LOG_INFO(options_.info_log, "Constructing backup files map...");
-  std::unordered_map<uint64_t, std::pair<std::shared_ptr<FileInfo>, FileType>>
+  std::unordered_map<
+      uint64_t,
+      std::pair<std::pair<const BackupEngineImpl*, const FileInfo*>, FileType>>
       file_num_to_backup_file_info_and_type;
-  for (const auto& file_info_shared : backup->GetFiles()) {
+  for (const auto& engine_and_file_info : restore_file_infos) {
     uint64_t number;
     FileType type;
 
-    std::string filename = file_info_shared->GetDbFileName();
+    std::string filename = engine_and_file_info.second->GetDbFileName();
     if (!ParseFileName(filename, &number, &type)) {
       continue;
     }
@@ -2804,7 +2825,7 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
     if (type == kTableFile ||
         (type == kBlobFile && mode == RestoreOptions::Mode::kVerifyChecksum)) {
       file_num_to_backup_file_info_and_type.insert(
-          {number, std::make_pair(file_info_shared, type)});
+          {number, std::make_pair(engine_and_file_info, type)});
     }
   }
 
@@ -2847,12 +2868,14 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
       continue;
     }
 
-    auto backup_file_info = (it->second).first;
-    FileType backup_file_type = (it->second).second;
+    auto backup_engine_impl = (it->second).first.first;
+    auto backup_file_info = (it->second).first.second;
+    auto backup_file_type = (it->second).second;
+
     if (type != backup_file_type) {
       Log(options_.info_log,
           "Existing db file with the very same number can only be retained "
-          "if it has same type as it's corresponding backup counterpart. "
+          "if it has the same type as it's corresponding backup counterpart. "
           "Backup file '%s' type: %d, existing file '%s' type: %d",
           backup_file_info->filename.c_str(), backup_file_type, f.c_str(),
           type);
@@ -2881,40 +2904,41 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
       continue;
     }
 
-    std::string backup_file_path = GetAbsolutePath(backup_file_info->filename);
+    std::string backup_file_path =
+        backup_engine_impl->GetAbsolutePath(backup_file_info->filename);
     if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
       // Backup file does not need to be restored if it's corresponding
       // matching ID file has the exact same session ID and size.
 
       // Unlike checksum_hex and size, backup db_session_id and db_id values
       // are usually not derived at the time of backup engine initialization /
-      // loading metadata from file. Read directly from the footer.
-      std::string backup_db_id;
-      std::string backup_db_session_id;
-      Status s = GetFileDbIdentities(
-          backup_env_, EnvOptions() /* src_env_options */, backup_file_path,
-          backup_file_info->temp /* src_temp */, rate_limiter, &backup_db_id,
-          &backup_db_session_id);
-      if (!s.ok()) {
-        Log(options_.info_log,
-            "Encountered IO error while obtaining db session id metadata for "
-            "backup file '%s'.",
-            backup_file_info->filename.c_str());
-        continue;
-      }
-
+      // loading metadata from file. At which point, we have two options:
+      //
+      // 1) Querying backup metadata footer (read I/O [potentially remote]) OR
+      // 2) Parsing db session id from backup file name (by convention)
+      //
+      // Given that we already rely on the naming convention in incremental
+      // backup as well as it's simplicity and efficiency, we settled on 2).
+      assert(type == kTableFile);
+      std::string backup_db_session_id =
+          GetDbSessionIdFromFile(backup_file_info->filename);
       if (backup_db_session_id.empty()) {
-        Log(options_.info_log, "Empty db_session_id for backup file '%s'",
-            backup_file_info->filename.c_str());
+        Log(options_.info_log,
+            "Existing db file '%s' will be purged during restore as it's "
+            "respective backup file '%s' does not follow kUseDbSessionId "
+            "naming convention.",
+            f.c_str(), backup_file_info->filename.c_str());
         continue;
       }
 
+      // On-disk existing db file names require direct file footer query
+      // as they don't follow same naming convention as backups.
       std::string db_id;
       std::string db_session_id;
-      s = GetFileDbIdentities(db_env_, EnvOptions() /* src_env_options */,
-                              db_file_path /* file_path */,
-                              Temperature::kUnknown /* src_temp */,
-                              rate_limiter, &db_id, &db_session_id);
+      Status s = GetFileDbIdentities(
+          db_env_, EnvOptions() /* src_env_options */,
+          db_file_path /* file_path */, Temperature::kUnknown /* src_temp */,
+          rate_limiter, &db_id, &db_session_id);
       if (!s.ok()) {
         Log(options_.info_log,
             "Encountered IO error while obtaining db session id metadata for "
@@ -2925,8 +2949,8 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
 
       if (backup_db_session_id != db_session_id) {
         Log(options_.info_log,
-            "File db session id mismatch between backup and file system!"
-            "Backup file '%s' db session id: '%s'"
+            "`db_session_id` mismatch between backup and file system!"
+            "Backup file '%s' db session id: '%s', "
             "Existing file '%s' db session id: '%s'",
             backup_file_info->filename.c_str(), backup_db_session_id.c_str(),
             f.c_str(), db_session_id.c_str());
@@ -2948,19 +2972,20 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
         // Given explicit requirement, compute it asynchronously.
         EnvOptions backup_env_options;
         if (type == kBlobFile) {
-          backup_env_->OptimizeForBlobFileRead(backup_env_options,
-                                               ImmutableDBOptions(db_options));
+          backup_engine_impl->backup_env_->OptimizeForBlobFileRead(
+              backup_env_options, ImmutableDBOptions(db_options));
         } else if (type == kTableFile) {
-          backup_env_->OptimizeForCompactionTableRead(
+          backup_engine_impl->backup_env_->OptimizeForCompactionTableRead(
               backup_env_options, ImmutableDBOptions(db_options));
         }
 
         WorkItem backup_file_work_item(
             backup_file_path, "" /* dst_path */, backup_file_info->temp,
             Temperature::kUnknown /* dst_temperature */, "" /* contents */,
-            backup_env_, nullptr /* dst_env */, backup_env_options,
-            false /* sync */, options_.restore_rate_limiter.get(),
-            0 /* size_limit */, nullptr /* stats */, {} /* progress_callback */,
+            backup_engine_impl->backup_env_, nullptr /* dst_env */,
+            backup_env_options, false /* sync */,
+            options_.restore_rate_limiter.get(), 0 /* size_limit */,
+            nullptr /* stats */, {} /* progress_callback */,
             kUnknownFileChecksumFuncName /* src_checksum_func_name */,
             "" /* src_checksum_hex */, "" /* db_id */, "" /* db_session_id*/,
             WorkItemType::ComputeChecksum);
@@ -2975,7 +3000,7 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
 
         Log(options_.info_log,
             "Checksum is missing in '%s' backup file metadata."
-            "Schedule async computation",
+            "Scheduled async computation...",
             backup_file_info->filename.c_str());
       }
 

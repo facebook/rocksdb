@@ -349,43 +349,43 @@ struct CreateBackupOptions {
 };
 
 struct RestoreOptions {
-  // Enum reflecting tiered approach to incremental restores.
-  // Options `kKeepLatestDbSessionIdFiles`, `kVerifyChecksum` are intended
-  // to be used separately and NOT to be combined with one another.
+  // Enum reflecting tiered approach to restores.
+  //
+  // Options `kKeepLatestDbSessionIdFiles`, `kVerifyChecksum` introduce
+  // incremental restore capability to the service and are intended to
+  // be used separately.
   enum Mode : uint32_t {
-    // Instructs restore engine to consider existing destination file and its'
-    // backup counterpart as 'equal' IF the db session id AND size values read
-    // from the backup file footer match the corresponding values in existing
-    // destination file metadata block.
+    // SEMANTICS:
+    // ==========
     //
-    // NOTE:
-    // =====
-    //
-    // Only applicable to backup files that preserve the notion of 'session'
-    // in the footer. Good approximation to tell if that's the case is to verify
-    // that backup files do follow the `kUseDbSessionId` naming scheme, ex:
+    // This mode will be only effective on backed up SST files that follow
+    // the `kUseDbSessionId` naming convention:
     //
     //  <file_number>_s<db_session_id>[_<file_size>].sst
     //
-    // RISK WARNING:
-    // =============
+    // Instructs restore engine to consider existing destination file and its'
+    // backup counterpart file as 'equal' IF the `db_session_id` (indicative of
+    // db instance runtime that created this SST file) parsed out from the
+    // backup file name AND its respective size MATCH the corresponding values
+    // in the existing destination file metadata block.
     //
-    // Determination is made solely based on the backup & db file footer
-    // metadata.
-    // Technically speaking, it is possible that backup or db file with the very
-    // same db session id and size hold different data (think file corruption,
-    // blocks filled with zeros [trash], etc.). If you need stronger guarantees
-    // with no 'session' constraints, use `kVerifyChecksum` restore mode
-    // instead.
+    // WARNING:
+    // ========
+    //
+    // Determination is made solely based on the backup file naming convention
+    // and db file footer metadata. Technically speaking, it is possible that
+    // backup or db file with the very same db session id and size hold
+    // different data - think file corruption, blocks filled with zeros [trash].
+    // If you need stronger integrity guarantees, use `kVerifyChecksum` restore
+    // mode instead.
     kKeepLatestDbSessionIdFiles = 1U,
 
-    // When opted-in, restore engine will scan the db file, evaluate the
-    // checksum
-    // and compare it against the checksum hardened in the backup file metadata.
-    // If checksums match, existing file will be retained as-is. Otherwise, it
-    // will be deleted and replaced it with its' restored backup counterpart.
-    // If backup file doesn't have a checksum hardened in the metadata,
-    // we'll schedule an async task to compute it.
+    // When opted-in, restore engine will scan the db file, compute the
+    // checksum and compare it against the checksum hardened in the backup file
+    // metadata. If checksums match, existing file will be retained as-is.
+    // Otherwise, it will be deleted and replaced it with its' restored backup
+    // counterpart. If backup file doesn't have a checksum hardened in the
+    // metadata, we'll schedule an async task to compute it.
     kVerifyChecksum = 2U,
 
     // Zero trust. Purge all the destination files and restore all the files.
