@@ -73,30 +73,35 @@ class SecondaryIndexMixin : public Txn {
   }
 
   using Txn::Delete;
-  Status Delete(ColumnFamilyHandle* /* column_family */, const Slice& /* key */,
-                const bool /* assume_tracked */ = false) override {
-    return Status::NotSupported(
-        "Delete with secondary indices not yet supported");
+  Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                const bool assume_tracked = false) override {
+    return PerformWithSavePoint([&]() {
+      const bool do_validate = !assume_tracked;
+      return DeleteWithSecondaryIndices(column_family, key, do_validate);
+    });
   }
-  Status Delete(ColumnFamilyHandle* /* column_family */,
-                const SliceParts& /* key */,
-                const bool /* assume_tracked */ = false) override {
-    return Status::NotSupported(
-        "Delete with secondary indices not yet supported");
+  Status Delete(ColumnFamilyHandle* column_family, const SliceParts& key,
+                const bool assume_tracked = false) override {
+    std::string key_str;
+    const Slice key_slice(key, &key_str);
+
+    return Delete(column_family, key_slice, assume_tracked);
   }
 
   using Txn::SingleDelete;
-  Status SingleDelete(ColumnFamilyHandle* /* column_family */,
-                      const Slice& /* key */,
-                      const bool /* assume_tracked */ = false) override {
-    return Status::NotSupported(
-        "SingleDelete with secondary indices not yet supported");
+  Status SingleDelete(ColumnFamilyHandle* column_family, const Slice& key,
+                      const bool assume_tracked = false) override {
+    return PerformWithSavePoint([&]() {
+      const bool do_validate = !assume_tracked;
+      return SingleDeleteWithSecondaryIndices(column_family, key, do_validate);
+    });
   }
-  Status SingleDelete(ColumnFamilyHandle* /* column_family */,
-                      const SliceParts& /* key */,
-                      const bool /* assume_tracked */ = false) override {
-    return Status::NotSupported(
-        "SingleDelete with secondary indices not yet supported");
+  Status SingleDelete(ColumnFamilyHandle* column_family, const SliceParts& key,
+                      const bool assume_tracked = false) override {
+    std::string key_str;
+    const Slice key_slice(key, &key_str);
+
+    return SingleDelete(column_family, key_slice, assume_tracked);
   }
 
   using Txn::PutUntracked;
@@ -136,22 +141,28 @@ class SecondaryIndexMixin : public Txn {
   }
 
   using Txn::DeleteUntracked;
-  Status DeleteUntracked(ColumnFamilyHandle* /* column_family */,
-                         const Slice& /* key */) override {
-    return Status::NotSupported(
-        "DeleteUntracked with secondary indices not yet supported");
+  Status DeleteUntracked(ColumnFamilyHandle* column_family,
+                         const Slice& key) override {
+    return PerformWithSavePoint([&]() {
+      constexpr bool do_validate = false;
+      return DeleteWithSecondaryIndices(column_family, key, do_validate);
+    });
   }
-  Status DeleteUntracked(ColumnFamilyHandle* /* column_family */,
-                         const SliceParts& /* key */) override {
-    return Status::NotSupported(
-        "DeleteUntracked with secondary indices not yet supported");
+  Status DeleteUntracked(ColumnFamilyHandle* column_family,
+                         const SliceParts& key) override {
+    std::string key_str;
+    const Slice key_slice(key, &key_str);
+
+    return DeleteUntracked(column_family, key_slice);
   }
 
   using Txn::SingleDeleteUntracked;
-  Status SingleDeleteUntracked(ColumnFamilyHandle* /* column_family */,
-                               const Slice& /* key */) override {
-    return Status::NotSupported(
-        "SingleDeleteUntracked with secondary indices not yet supported");
+  Status SingleDeleteUntracked(ColumnFamilyHandle* column_family,
+                               const Slice& key) override {
+    return PerformWithSavePoint([&]() {
+      constexpr bool do_validate = false;
+      return SingleDeleteWithSecondaryIndices(column_family, key, do_validate);
+    });
   }
 
  private:
@@ -307,21 +318,9 @@ class SecondaryIndexMixin : public Txn {
   }
 
   Status RemoveSecondaryEntries(ColumnFamilyHandle* column_family,
-                                const Slice& primary_key, bool do_validate) {
+                                const Slice& primary_key,
+                                const WideColumns& existing_columns) {
     assert(column_family);
-
-    PinnableWideColumns existing_primary_columns;
-
-    const Status s = GetPrimaryEntryForUpdate(
-        column_family, primary_key, &existing_primary_columns, do_validate);
-    if (s.IsNotFound()) {
-      return Status::OK();
-    }
-    if (!s.ok()) {
-      return s;
-    }
-
-    const auto& existing_columns = existing_primary_columns.columns();
 
     for (const auto& secondary_index : *secondary_indices_) {
       assert(secondary_index);
@@ -459,10 +458,20 @@ class SecondaryIndexMixin : public Txn {
     const Slice& primary_key = key;
 
     {
-      const Status s =
-          RemoveSecondaryEntries(column_family, primary_key, do_validate);
+      PinnableWideColumns existing_primary_columns;
+
+      const Status s = GetPrimaryEntryForUpdate(
+          column_family, primary_key, &existing_primary_columns, do_validate);
       if (!s.ok()) {
-        return s;
+        if (!s.IsNotFound()) {
+          return s;
+        }
+      } else {
+        const Status st = RemoveSecondaryEntries(
+            column_family, primary_key, existing_primary_columns.columns());
+        if (!st.ok()) {
+          return st;
+        }
       }
     }
 
@@ -508,6 +517,70 @@ class SecondaryIndexMixin : public Txn {
                                        bool do_validate) {
     return PutWithSecondaryIndicesImpl(column_family, key, columns,
                                        do_validate);
+  }
+
+  template <typename Operation>
+  Status DeleteWithSecondaryIndicesImpl(ColumnFamilyHandle* column_family,
+                                        const Slice& key, bool do_validate,
+                                        Operation&& operation) {
+    if (!column_family) {
+      column_family = Txn::DefaultColumnFamily();
+    }
+
+    {
+      PinnableWideColumns existing_primary_columns;
+
+      const Status s = GetPrimaryEntryForUpdate(
+          column_family, key, &existing_primary_columns, do_validate);
+      if (!s.ok()) {
+        if (!s.IsNotFound()) {
+          return s;
+        }
+
+        return Status::OK();
+      } else {
+        const Status st = RemoveSecondaryEntries(
+            column_family, key, existing_primary_columns.columns());
+        if (!st.ok()) {
+          return st;
+        }
+      }
+    }
+
+    {
+      const Status s = operation(column_family, key);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
+    return Status::OK();
+  }
+
+  Status DeleteWithSecondaryIndices(ColumnFamilyHandle* column_family,
+                                    const Slice& key, bool do_validate) {
+    return DeleteWithSecondaryIndicesImpl(
+        column_family, key, do_validate,
+        [&](ColumnFamilyHandle* cfh, const Slice& primary_key) {
+          assert(cfh);
+
+          constexpr bool assume_tracked = true;
+
+          return Txn::Delete(cfh, primary_key, assume_tracked);
+        });
+  }
+
+  Status SingleDeleteWithSecondaryIndices(ColumnFamilyHandle* column_family,
+                                          const Slice& key, bool do_validate) {
+    return DeleteWithSecondaryIndicesImpl(
+        column_family, key, do_validate,
+        [&](ColumnFamilyHandle* cfh, const Slice& primary_key) {
+          assert(cfh);
+
+          constexpr bool assume_tracked = true;
+
+          return Txn::SingleDelete(cfh, primary_key, assume_tracked);
+        });
   }
 
   const std::vector<std::shared_ptr<SecondaryIndex>>* secondary_indices_;

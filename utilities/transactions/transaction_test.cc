@@ -8008,7 +8008,7 @@ TEST_P(TransactionTest, AttributeGroupIteratorSanityChecks) {
   }
 }
 
-TEST_P(TransactionTest, SecondaryIndexPut) {
+TEST_P(TransactionTest, SecondaryIndexPutDelete) {
   const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
@@ -8320,6 +8320,38 @@ TEST_P(TransactionTest, SecondaryIndexPut) {
     ASSERT_TRUE(it->value().empty());
 
     it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  // Delete/SingleDelete "key1" and "key3" via an explicit transaction and
+  // "key2" and a non-existing "key4" via the DB interface (i.e. an implicit
+  // transaction)
+  {
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+
+    ASSERT_OK(txn->Delete(cfh1, "key1"));
+    ASSERT_OK(txn->SingleDelete(cfh1, "key3"));
+
+    ASSERT_OK(txn->Commit());
+  }
+
+  ASSERT_OK(db->SingleDelete(WriteOptions(), cfh1, "key2"));
+  ASSERT_OK(db->Delete(WriteOptions(), cfh1, "key4"));
+
+  // cfh1 and cfh2 are expected to be empty
+  {
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh1));
+
+    it->SeekToFirst();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh2));
+
+    it->SeekToFirst();
     ASSERT_FALSE(it->Valid());
     ASSERT_OK(it->status());
   }
