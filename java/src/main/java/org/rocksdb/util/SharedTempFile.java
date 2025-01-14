@@ -149,16 +149,15 @@ public class SharedTempFile {
                 try (Stream<Path> children = Files.walk(directory, 1)) {
                     children.forEach(path -> {
                         Path fileName = path.getFileName();
-                        System.err.println(fileName);
                         String name = fileName.toString();
                         if (name.startsWith(instance.prefix) && name.endsWith("." + INSTANCE_LOCK)) {
                             lockFiles.add(fileName);
                         }
                     });
                 }
-                System.err.println("SharedTempFile " + lockFiles.size() + " lock files");
                 if (lockFiles.isEmpty()) {
                     // No VMs are locking this SharedTempFile, so we can delete it
+                    System.err.println("SharedTempFile last lock file - delete content");
                     if (!Files.exists(content)) {
                         throw new RuntimeException("SharedTempFile " + instance.prefix + " contents not found for deletion");
                     }

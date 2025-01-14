@@ -15,17 +15,12 @@ import static org.rocksdb.LeakedSharedObjectTest.compare;
 
 public class SharedTempFileMockMain {
 
-
     public static void main(final String[] args) throws IOException, InterruptedException {
 
         // uncouple precise start time from other processes
         // otherwise they all create their own temp
         final Random random = new Random();
-        try {
-            Thread.sleep(random.nextInt(1000));
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
+        Thread.sleep(random.nextInt(1000));
 
         SharedTempFile.Instance instance = new SharedTempFile.Instance("rocksdbmock", "jnilib");
         final List<SharedTempFile> existing = instance.search();
@@ -43,6 +38,7 @@ public class SharedTempFileMockMain {
             try (BufferedReader shared = new BufferedReader(new InputStreamReader(Files.newInputStream(content))); BufferedReader resource = LeakedSharedObjectTest.mockContentReader()) {
                 compare(resource, shared);
             }
+            Thread.sleep(random.nextInt(1000));
         }
         System.err.println(sharedTemp + " finished");
 
