@@ -140,8 +140,11 @@ Status DBImplFollower::TryCatchUpWithLeader() {
           // to super versions in a lock free manner, it checks the earliest
           // sequence number to detect if there was a change in version in
           // the meantime.
+          // FIXME: unnecessary copy
+          const MutableCFOptions mutable_cf_options =
+              cfd->GetLatestMutableCFOptions();
           MemTable* new_mem = cfd->ConstructNewMemtable(
-              cfd->GetLatestMutableCFOptions(), versions_->LastSequence());
+              mutable_cf_options, versions_->LastSequence());
           cfd->mem()->SetNextLogNumber(cfd->GetLogNumber());
           cfd->mem()->ConstructFragmentedRangeTombstones();
           cfd->imm()->Add(cfd->mem(), &job_context.memtables_to_free);

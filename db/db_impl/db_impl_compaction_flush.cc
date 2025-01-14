@@ -1771,7 +1771,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   }
   refitting_level_ = true;
 
-  const auto& mutable_cf_options = cfd->GetLatestMutableCFOptions();
+  // FIXME: unnecessary copy
+  const MutableCFOptions mutable_cf_options = cfd->GetLatestMutableCFOptions();
   // move to a smaller level
   int to_level = target_level;
   if (target_level < 0) {
