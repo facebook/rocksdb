@@ -44,10 +44,12 @@ public class LeakedSharedObjectTest {
         assertThat(actualLine).isNull();
     }
 
+    private final String tmpDir = System.getProperty("java.io.tmpdir");
+
     @Test
     public void sharedTempFresh() throws IOException {
         String prefix = "rocksdbjnitest__" + random.nextLong() + "__";
-        SharedTempFile.Instance instance = new SharedTempFile.Instance(prefix, "jnilib");
+        SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir, prefix, "jnilib");
         assertThat(instance.search()).isEmpty();
         SharedTempFile sharedTemp = instance.create();
         System.err.println(sharedTemp);
@@ -66,7 +68,7 @@ public class LeakedSharedObjectTest {
     public void sharedTempExists() throws IOException {
 
         String prefix = "rocksdbjnitest__" + random.nextLong() + "__";
-        SharedTempFile.Instance instance = new SharedTempFile.Instance(prefix, "jnilib");
+        SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir, prefix, "jnilib");
         assertThat(instance.search()).isEmpty();
         SharedTempFile sharedTemp = instance.create();
         System.err.println("Created: " + sharedTemp);

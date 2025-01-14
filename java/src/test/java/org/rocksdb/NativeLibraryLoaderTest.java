@@ -12,6 +12,8 @@ import org.rocksdb.util.Environment;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -24,16 +26,25 @@ public class NativeLibraryLoaderTest {
   public void tempFolder() throws IOException {
     NativeLibraryLoader.getInstance().loadLibraryFromJarToTemp(
         temporaryFolder.getRoot().getAbsolutePath());
-    final Path path = Paths.get(temporaryFolder.getRoot().getAbsolutePath(),
-        Environment.getJniLibraryFileName("rocksdb"));
-    assertThat(Files.exists(path)).isTrue();
-    assertThat(Files.isReadable(path)).isTrue();
+    final Path path = Paths.get(temporaryFolder.getRoot().getAbsolutePath());
+    final String libname = Environment.getJniLibraryFileName("rocksdb");
+    AtomicBoolean found = new AtomicBoolean(false);
+    try (Stream<Path> children = Files.walk(path, 2)) {
+      children.forEach(child -> {
+        Path fileName = child.getFileName();
+        String name = fileName.toString();
+        if (libname.equals(name)) {
+          found.set(true);
+        }
+      });
+    }
+    assertThat(found).as("Expected to find " + libname + " within " + path).isTrue();
   }
 
   @Test
   public void overridesExistingLibrary() throws IOException {
     final File first = NativeLibraryLoader.getInstance().loadLibraryFromJarToTemp(
-        temporaryFolder.getRoot().getAbsolutePath());
+        temporaryFolder.getRoot().getAbsolutePath()).toFile();
     NativeLibraryLoader.getInstance().loadLibraryFromJarToTemp(
         temporaryFolder.getRoot().getAbsolutePath());
     assertThat(first.exists()).isTrue();
