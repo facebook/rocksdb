@@ -12,6 +12,7 @@
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
+#include "rocksdb/compressor.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
@@ -3963,13 +3964,13 @@ class DBBasicTestMultiGet : public DBTestBase {
     BlockBasedTableOptions table_options;
 
     if (compression_enabled_) {
-      std::vector<CompressionType> compression_types;
-      compression_types = GetSupportedCompressions();
       // Not every platform may have compression libraries available, so
       // dynamically pick based on what's available
       CompressionType tmp_type = kNoCompression;
-      for (auto c_type : compression_types) {
-        if (c_type != kNoCompression) {
+      for (auto c : Compressor::GetSupported()) {
+        CompressionType c_type;
+        if (BuiltinCompressor::StringToType(c, &c_type) &&
+            c_type != kNoCompression) {
           tmp_type = c_type;
           break;
         }

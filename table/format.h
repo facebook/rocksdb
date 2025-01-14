@@ -19,13 +19,15 @@
 #include "options/cf_options.h"
 #include "port/malloc.h"
 #include "port/port.h"  // noexcept
+#include "rocksdb/compressor.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+class Compressor;
+class UncompressionInfo;
 class RandomAccessFile;
 struct ReadOptions;
 
@@ -419,20 +421,18 @@ struct BlockContents {
 // contents are returned in `out_contents`.
 // format_version is as defined in include/rocksdb/table.h, which is
 // used to determine compression format version.
-Status UncompressSerializedBlock(const UncompressionInfo& info,
+Status UncompressSerializedBlock(Compressor* uncompressor,
+                                 const UncompressionInfo& info,
                                  const char* data, size_t size,
                                  BlockContents* out_contents,
-                                 uint32_t format_version,
-                                 const ImmutableOptions& ioptions,
-                                 MemoryAllocator* allocator = nullptr);
+                                 const ImmutableOptions& ioptions);
 
 // This is a variant of UncompressSerializedBlock that does not expect a
 // block trailer beyond `size`. (CompressionType is taken from `info`.)
-Status UncompressBlockData(const UncompressionInfo& info, const char* data,
+Status UncompressBlockData(Compressor* uncompressor,
+                           const UncompressionInfo& info, const char* data,
                            size_t size, BlockContents* out_contents,
-                           uint32_t format_version,
-                           const ImmutableOptions& ioptions,
-                           MemoryAllocator* allocator = nullptr);
+                           const ImmutableOptions& ioptions);
 
 // Replace db_host_id contents with the real hostname if necessary
 Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);

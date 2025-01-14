@@ -23,12 +23,14 @@
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "port/port.h"
+#include "rocksdb/compressor.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
+#include "util/string_util.h"
 
 #ifndef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
@@ -220,7 +222,7 @@ std::string RandomName(Random* rnd, const size_t len) {
 
 CompressionType RandomCompressionType(Random* rnd) {
   auto ret = static_cast<CompressionType>(rnd->Uniform(6));
-  while (!CompressionTypeSupported(ret)) {
+  while (!BuiltinCompressor::TypeSupported(ret)) {
     ret = static_cast<CompressionType>((static_cast<int>(ret) + 1) % 6);
   }
   return ret;

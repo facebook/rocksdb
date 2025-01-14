@@ -312,14 +312,9 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
                            uint64_t max_compaction_bytes,
                            CompactionInputFiles* comp_inputs);
 
-CompressionType GetCompressionType(const VersionStorageInfo* vstorage,
-                                   const MutableCFOptions& mutable_cf_options,
-                                   int level, int base_level,
-                                   const bool enable_compression = true);
-
-CompressionOptions GetCompressionOptions(
-    const MutableCFOptions& mutable_cf_options,
-    const VersionStorageInfo* vstorage, int level,
+std::shared_ptr<Compressor> GetCompressor(
+    const VersionStorageInfo* vstorage,
+    const MutableCFOptions& mutable_cf_options, int level, int base_level,
     const bool enable_compression = true);
 
 }  // namespace ROCKSDB_NAMESPACE

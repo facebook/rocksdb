@@ -44,10 +44,6 @@
 #include "utilities/blob_db/blob_db_iterator.h"
 #include "utilities/blob_db/blob_db_listener.h"
 
-namespace {
-int kBlockBasedTableVersionFormat = 2;
-}  // end namespace
-
 namespace ROCKSDB_NAMESPACE::blob_db {
 
 bool BlobFileComparator::operator()(
@@ -1163,12 +1159,14 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   }
   StopWatch compression_sw(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
   CompressionType type = bdb_options_.compression;
-  CompressionOptions opts;
-  CompressionContext context(type, opts);
-  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(), type,
-                       0 /* sample_for_compression */);
-  CompressBlock(raw, info, &type, kBlockBasedTableVersionFormat, false,
-                compression_output, nullptr, nullptr);
+  auto compressor =
+      BuiltinCompressor::GetCompressor(type, CompressionOptions());
+  if (!compressor) {
+    ROCKS_LOG_ERROR(db_options_.info_log, "Failed to create compressor.");
+  }
+  CompressionInfo info;
+  CompressBlock(compressor.get(), raw, info, &type, false, compression_output,
+                nullptr, nullptr);
   return *compression_output;
 }
 
@@ -1183,12 +1181,11 @@ Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
   {
     StopWatch decompression_sw(clock_, statistics_,
                                BLOB_DB_DECOMPRESSION_MICROS);
-    UncompressionContext context(compression_type);
-    UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
-                           compression_type);
+    auto compressor = BuiltinCompressor::GetCompressor(compression_type);
+    UncompressionInfo info;
     Status s = UncompressBlockData(
-        info, compressed_value.data(), compressed_value.size(), &contents,
-        kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
+        compressor.get(), info, compressed_value.data(),
+        compressed_value.size(), &contents, *(cfh->cfd()->ioptions()));
     if (!s.ok()) {
       return Status::Corruption("Unable to decompress blob.");
     }

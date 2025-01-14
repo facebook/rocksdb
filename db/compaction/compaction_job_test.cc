@@ -304,7 +304,8 @@ class CompactionJobTestBase : public testing::Test {
                 *cfd_->ioptions(), mutable_cf_options_, read_options,
                 write_options, cfd_->internal_comparator(),
                 cfd_->internal_tbl_prop_coll_factories(),
-                CompressionType::kNoCompression, CompressionOptions(),
+                BuiltinCompressor::GetCompressor(
+                    CompressionType::kNoCompression),
                 0 /* column_family_id */, kDefaultColumnFamilyName,
                 -1 /* level */, kUnknownNewestKeyTime),
             file_writer.get()));
@@ -649,9 +650,9 @@ class CompactionJobTestBase : public testing::Test {
         *cfd->GetLatestMutableCFOptions(), mutable_db_options_,
         compaction_input_files, output_level,
         mutable_cf_options_.target_file_size_base,
-        mutable_cf_options_.max_compaction_bytes, 0, kNoCompression,
-        cfd->GetLatestMutableCFOptions()->compression_opts,
-        Temperature::kUnknown, max_subcompactions, grandparents,
+        mutable_cf_options_.max_compaction_bytes, 0,
+        BuiltinCompressor::GetCompressor(kNoCompression), Temperature::kUnknown,
+        max_subcompactions, grandparents,
         /*earliest_snapshot*/ std::nullopt, /*snapshot_checker*/ nullptr, true);
     compaction.FinalizeInputInfo(cfd->current());
 

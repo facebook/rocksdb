@@ -10,6 +10,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "port/port.h"
+#include "rocksdb/compressor.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
@@ -389,11 +390,11 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
 }
 
 TEST_F(CompactFilesTest, SentinelCompressionType) {
-  if (!Zlib_Supported()) {
+  if (!BuiltinCompressor::TypeSupported(kZlibCompression)) {
     fprintf(stderr, "zlib compression not supported, skip this test\n");
     return;
   }
-  if (!Snappy_Supported()) {
+  if (!BuiltinCompressor::TypeSupported(kSnappyCompression)) {
     fprintf(stderr, "snappy compression not supported, skip this test\n");
     return;
   }
@@ -432,9 +433,10 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
 
     ROCKSDB_NAMESPACE::TablePropertiesCollection all_tables_props;
     ASSERT_OK(db->GetPropertiesOfAllTables(&all_tables_props));
+    std::string zlib =
+        BuiltinCompressor::TypeToString(CompressionType::kZlibCompression);
     for (const auto& name_and_table_props : all_tables_props) {
-      ASSERT_EQ(CompressionTypeToString(CompressionType::kZlibCompression),
-                name_and_table_props.second->compression_name);
+      ASSERT_EQ(zlib, name_and_table_props.second->compression_name);
     }
     delete db;
   }

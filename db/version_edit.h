@@ -25,6 +25,7 @@
 #include "rocksdb/advanced_options.h"
 #include "table/table_reader.h"
 #include "table/unique_id_impl.h"
+#include "test_util/sync_point.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -273,6 +273,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->min_blob_size = moptions.min_blob_size;
   cf_opts->blob_file_size = moptions.blob_file_size;
   cf_opts->blob_compression_type = moptions.blob_compression_type;
+  cf_opts->blob_compressor = moptions.blob_compressor;
   cf_opts->enable_blob_garbage_collection =
       moptions.enable_blob_garbage_collection;
   cf_opts->blob_garbage_collection_age_cutoff =
@@ -290,11 +291,14 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->paranoid_file_checks = moptions.paranoid_file_checks;
   cf_opts->report_bg_io_stats = moptions.report_bg_io_stats;
   cf_opts->compression = moptions.compression;
+  cf_opts->compressor = moptions.compressor;
   cf_opts->compression_opts = moptions.compression_opts;
   cf_opts->bottommost_compression = moptions.bottommost_compression;
+  cf_opts->bottommost_compressor = moptions.bottommost_compressor;
   cf_opts->bottommost_compression_opts = moptions.bottommost_compression_opts;
   cf_opts->sample_for_compression = moptions.sample_for_compression;
   cf_opts->compression_per_level = moptions.compression_per_level;
+  cf_opts->compressor_per_level = moptions.compressor_per_level;
   cf_opts->last_level_temperature = moptions.last_level_temperature;
   cf_opts->default_write_temperature = moptions.default_write_temperature;
   cf_opts->memtable_max_range_deletions = moptions.memtable_max_range_deletions;
@@ -384,31 +388,6 @@ std::unordered_map<std::string, CompressionType>
         {"kZSTD", kZSTD},
         {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
         {"kDisableCompressionOption", kDisableCompressionOption}};
-
-std::vector<CompressionType> GetSupportedCompressions() {
-  // std::set internally to deduplicate potential name aliases
-  std::set<CompressionType> supported_compressions;
-  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
-    CompressionType t = comp_to_name.second;
-    if (t != kDisableCompressionOption && CompressionTypeSupported(t)) {
-      supported_compressions.insert(t);
-    }
-  }
-  return std::vector<CompressionType>(supported_compressions.begin(),
-                                      supported_compressions.end());
-}
-
-std::vector<CompressionType> GetSupportedDictCompressions() {
-  std::set<CompressionType> dict_compression_types;
-  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
-    CompressionType t = comp_to_name.second;
-    if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
-      dict_compression_types.insert(t);
-    }
-  }
-  return std::vector<CompressionType>(dict_compression_types.begin(),
-                                      dict_compression_types.end());
-}
 
 std::vector<ChecksumType> GetSupportedChecksums() {
   std::set<ChecksumType> checksum_types;

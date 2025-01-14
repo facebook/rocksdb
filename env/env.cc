@@ -26,6 +26,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/autovector.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {

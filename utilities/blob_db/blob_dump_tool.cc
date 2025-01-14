@@ -54,8 +54,8 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
   reader_.reset(new RandomAccessFileReader(std::move(file), filename));
   uint64_t offset = 0;
   uint64_t footer_offset = 0;
-  CompressionType compression = kNoCompression;
-  s = DumpBlobLogHeader(&offset, &compression);
+  std::shared_ptr<Compressor> compressor;
+  s = DumpBlobLogHeader(&offset, &compressor);
   if (!s.ok()) {
     return s;
   }
@@ -70,7 +70,7 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
   if (show_key != DisplayType::kNone || show_summary) {
     while (offset < footer_offset) {
       s = DumpRecord(show_key, show_blob, show_uncompressed_blob, show_summary,
-                     compression, &offset, &total_records, &total_key_size,
+                     compressor.get(), &offset, &total_records, &total_key_size,
                      &total_blob_size, &total_uncompressed_blob_size);
       if (!s.ok()) {
         break;
@@ -82,7 +82,7 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
     fprintf(stdout, "  total records: %" PRIu64 "\n", total_records);
     fprintf(stdout, "  total key size: %" PRIu64 "\n", total_key_size);
     fprintf(stdout, "  total blob size: %" PRIu64 "\n", total_blob_size);
-    if (compression != kNoCompression) {
+    if (compressor->GetCompressionType() != kNoCompression) {
       fprintf(stdout, "  total raw blob size: %" PRIu64 "\n",
               total_uncompressed_blob_size);
     }
@@ -111,8 +111,8 @@ Status BlobDumpTool::Read(uint64_t offset, size_t size, Slice* result) {
   return s;
 }
 
-Status BlobDumpTool::DumpBlobLogHeader(uint64_t* offset,
-                                       CompressionType* compression) {
+Status BlobDumpTool::DumpBlobLogHeader(
+    uint64_t* offset, std::shared_ptr<Compressor>* compressor) {
   Slice slice;
   Status s = Read(0, BlobLogHeader::kSize, &slice);
   if (!s.ok()) {
@@ -137,7 +137,7 @@ Status BlobDumpTool::DumpBlobLogHeader(uint64_t* offset,
   fprintf(stdout, "  Expiration range : %s\n",
           GetString(header.expiration_range).c_str());
   *offset = BlobLogHeader::kSize;
-  *compression = header.compression;
+  *compressor = BuiltinCompressor::GetCompressor(header.compression);
   return s;
 }
 
@@ -171,7 +171,7 @@ Status BlobDumpTool::DumpBlobLogFooter(uint64_t file_size,
 
 Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
                                 DisplayType show_uncompressed_blob,
-                                bool show_summary, CompressionType compression,
+                                bool show_summary, Compressor* compressor,
                                 uint64_t* offset, uint64_t* total_records,
                                 uint64_t* total_key_size,
                                 uint64_t* total_blob_size,
@@ -204,15 +204,13 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
   }
   // Decompress value
   std::string uncompressed_value;
-  if (compression != kNoCompression &&
+  if (compressor->GetCompressionType() != kNoCompression &&
       (show_uncompressed_blob != DisplayType::kNone || show_summary)) {
     BlockContents contents;
-    UncompressionContext context(compression);
-    UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
-                           compression);
-    s = UncompressBlockData(
-        info, slice.data() + key_size, static_cast<size_t>(value_size),
-        &contents, 2 /*compress_format_version*/, ImmutableOptions(Options()));
+    UncompressionInfo info;
+    s = UncompressBlockData(compressor, info, slice.data() + key_size,
+                            static_cast<size_t>(value_size), &contents,
+                            ImmutableOptions(Options()));
     if (!s.ok()) {
       return s;
     }

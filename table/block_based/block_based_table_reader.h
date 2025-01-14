@@ -589,7 +589,11 @@ struct BlockBasedTable::Rep {
         file_size(_file_size),
         level(_level),
         immortal_table(_immortal_table),
-        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {}
+        user_defined_timestamps_persisted(_user_defined_timestamps_persisted) {
+    // Initialize as no compression. The actual compressor is determined when
+    // reading table properties.
+    compressor = BuiltinCompressor::GetCompressor(kNoCompression);
+  }
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableOptions& ioptions;
   const EnvOptions& env_options;
@@ -653,6 +657,9 @@ struct BlockBasedTable::Rep {
   // If false, blocks in this file are definitely all uncompressed. Knowing this
   // before reading individual blocks enables certain optimizations.
   bool blocks_maybe_compressed = true;
+
+  // Compressor used for this table (obtained from SST properties block)
+  std::shared_ptr<Compressor> compressor;
 
   // These describe how index is encoded.
   bool index_has_first_key = false;
@@ -739,6 +746,14 @@ struct BlockBasedTable::Rep {
     usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     return usage;
+  }
+
+  std::shared_ptr<Compressor> GetCompressor(CompressionType compression_type) {
+    if (compression_type == compressor->GetCompressionType()) {
+      return compressor;
+    } else {
+      return BuiltinCompressor::GetCompressor(compression_type);
+    }
   }
 };
 

@@ -48,6 +48,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/compressor.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -605,9 +606,8 @@ DEFINE_double(compressed_secondary_cache_low_pri_pool_ratio, 0.0,
 DEFINE_string(compressed_secondary_cache_compression_type, "lz4",
               "The compression algorithm to use for large "
               "values stored in CompressedSecondaryCache.");
-static enum ROCKSDB_NAMESPACE::CompressionType
-    FLAGS_compressed_secondary_cache_compression_type_e =
-        ROCKSDB_NAMESPACE::kLZ4Compression;
+static std::shared_ptr<ROCKSDB_NAMESPACE::Compressor>
+    FLAGS_compressed_secondary_cache_compressor;
 
 DEFINE_int32(compressed_secondary_cache_compression_level,
              ROCKSDB_NAMESPACE::CompressionOptions().level,
@@ -1069,8 +1069,7 @@ DEFINE_uint64(blob_db_file_size,
 DEFINE_string(
     blob_db_compression_type, "snappy",
     "[Stacked BlobDB] Algorithm to use to compress blobs in blob files.");
-static enum ROCKSDB_NAMESPACE::CompressionType
-    FLAGS_blob_db_compression_type_e = ROCKSDB_NAMESPACE::kSnappyCompression;
+static std::shared_ptr<ROCKSDB_NAMESPACE::Compressor> FLAGS_blob_db_compressor;
 
 // Integrated BlobDB options
 DEFINE_bool(
@@ -1283,30 +1282,49 @@ DEFINE_bool(
 DEFINE_bool(paranoid_memory_checks, false,
             "Sets CF option paranoid_memory_checks");
 
-static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
-    const char* ctype) {
+static std::shared_ptr<ROCKSDB_NAMESPACE::Compressor> StringToCompressor(
+    const char* ctype, const std::string& opts = "") {
   assert(ctype);
 
+  std::string compressor_name = std::string(ctype);
   if (!strcasecmp(ctype, "none")) {
-    return ROCKSDB_NAMESPACE::kNoCompression;
+    compressor_name = ROCKSDB_NAMESPACE::NoCompressor::kClassName();
   } else if (!strcasecmp(ctype, "snappy")) {
-    return ROCKSDB_NAMESPACE::kSnappyCompression;
+    compressor_name = ROCKSDB_NAMESPACE::SnappyCompressor::kClassName();
   } else if (!strcasecmp(ctype, "zlib")) {
-    return ROCKSDB_NAMESPACE::kZlibCompression;
+    compressor_name = ROCKSDB_NAMESPACE::ZlibCompressor::kClassName();
   } else if (!strcasecmp(ctype, "bzip2")) {
-    return ROCKSDB_NAMESPACE::kBZip2Compression;
+    compressor_name = ROCKSDB_NAMESPACE::BZip2Compressor::kClassName();
   } else if (!strcasecmp(ctype, "lz4")) {
-    return ROCKSDB_NAMESPACE::kLZ4Compression;
+    compressor_name = ROCKSDB_NAMESPACE::LZ4Compressor::kClassName();
   } else if (!strcasecmp(ctype, "lz4hc")) {
-    return ROCKSDB_NAMESPACE::kLZ4HCCompression;
+    compressor_name = ROCKSDB_NAMESPACE::LZ4HCCompressor::kClassName();
   } else if (!strcasecmp(ctype, "xpress")) {
-    return ROCKSDB_NAMESPACE::kXpressCompression;
+    compressor_name = ROCKSDB_NAMESPACE::XpressCompressor::kClassName();
   } else if (!strcasecmp(ctype, "zstd")) {
-    return ROCKSDB_NAMESPACE::kZSTD;
-  } else {
-    fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
-    exit(1);
+    compressor_name = ROCKSDB_NAMESPACE::ZSTDCompressor::kClassName();
   }
+
+  ROCKSDB_NAMESPACE::ConfigOptions config_options;
+  config_options.ignore_unknown_options = true;
+  std::shared_ptr<ROCKSDB_NAMESPACE::Compressor> compressor;
+  ROCKSDB_NAMESPACE::Status s;
+  if (opts.empty()) {
+    s = ROCKSDB_NAMESPACE::Compressor::CreateFromString(
+        config_options, compressor_name, &compressor);
+  } else {
+    s = ROCKSDB_NAMESPACE::Compressor::CreateFromString(
+        config_options,
+        ROCKSDB_NAMESPACE::OptionTypeInfo::kIdPropName() + std::string("=") +
+            compressor_name + config_options.delimiter + opts,
+        &compressor);
+  }
+  if (s.ok() && compressor != nullptr) {
+    return compressor;
+  }
+
+  fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
+  exit(1);
 }
 
 static enum ROCKSDB_NAMESPACE::TieredAdmissionPolicy StringToAdmissionPolicy(
@@ -1340,9 +1358,10 @@ static std::string ColumnFamilyName(size_t i) {
 }
 
 DEFINE_string(compression_type, "snappy",
-              "Algorithm to use to compress the database");
-static enum ROCKSDB_NAMESPACE::CompressionType FLAGS_compression_type_e =
-    ROCKSDB_NAMESPACE::kSnappyCompression;
+              "Algorithm to use to compress the database. Built-in "
+              "compressors: none, snappy, zlib, bzip2, lz4, lz4hc, xpress, "
+              "zstd.  Plugin compressors: use the compressor name.");
+static std::shared_ptr<ROCKSDB_NAMESPACE::Compressor> FLAGS_compressor;
 
 DEFINE_int64(sample_for_compression, 0, "Sample every N block for compression");
 
@@ -1378,6 +1397,27 @@ DEFINE_bool(compression_use_zstd_dict_trainer,
             ROCKSDB_NAMESPACE::CompressionOptions().use_zstd_dict_trainer,
             "If true, use ZSTD_TrainDictionary() to create dictionary, else"
             "use ZSTD_FinalizeDictionary() to create dictionary");
+
+DEFINE_string(compressor_options, "", "Options for specific compressor.");
+
+static std::string GetCompressorOptions() {
+  // If compressor_options is empty, use the individual options
+  if (FLAGS_compressor_options.empty()) {
+    ROCKSDB_NAMESPACE::CompressionOptions compression_opts;
+    compression_opts.level = FLAGS_compression_level;
+    compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
+    compression_opts.zstd_max_train_bytes =
+        FLAGS_compression_zstd_max_train_bytes;
+    compression_opts.parallel_threads = FLAGS_compression_parallel_threads;
+    compression_opts.max_dict_buffer_bytes =
+        FLAGS_compression_max_dict_buffer_bytes;
+    compression_opts.use_zstd_dict_trainer =
+        FLAGS_compression_use_zstd_dict_trainer;
+    return ROCKSDB_NAMESPACE::CompressionOptionsToString(compression_opts);
+  } else {
+    return FLAGS_compressor_options;
+  }
+}
 
 static bool ValidateTableCacheNumshardbits(const char* flagname,
                                            int32_t value) {
@@ -2825,12 +2865,9 @@ class Benchmark {
     return true;
   }
 
-  inline bool CompressSlice(const CompressionInfo& compression_info,
+  inline bool CompressSlice(Compressor* compressor, const CompressionInfo& info,
                             const Slice& input, std::string* compressed) {
-    constexpr uint32_t compress_format_version = 2;
-
-    return CompressData(input, compression_info, compress_format_version,
-                        compressed);
+    return info.CompressData(compressor, input, compressed);
   }
 
   void PrintHeader(const Options& options) {
@@ -2881,7 +2918,7 @@ class Benchmark {
 #endif
     }
 
-    auto compression = CompressionTypeToString(FLAGS_compression_type_e);
+    auto compression = FLAGS_compressor->GetId();
     fprintf(stdout, "Compression: %s\n", compression.c_str());
     fprintf(stdout, "Compression sampling rate: %" PRId64 "\n",
             FLAGS_sample_for_compression);
@@ -2905,17 +2942,15 @@ class Benchmark {
     fprintf(stdout,
             "WARNING: Assertions are enabled; benchmarks unnecessarily slow\n");
 #endif
-    if (FLAGS_compression_type_e != ROCKSDB_NAMESPACE::kNoCompression) {
+    if (FLAGS_compressor->GetCompressionType() !=
+        ROCKSDB_NAMESPACE::kNoCompression) {
       // The test string should not be too small.
       const int len = FLAGS_block_size;
       std::string input_str(len, 'y');
       std::string compressed;
-      CompressionOptions opts;
-      CompressionContext context(FLAGS_compression_type_e, opts);
-      CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                           FLAGS_compression_type_e,
-                           FLAGS_sample_for_compression);
-      bool result = CompressSlice(info, Slice(input_str), &compressed);
+      CompressionInfo info(FLAGS_sample_for_compression);
+      bool result = info.CompressData(FLAGS_compressor.get(), Slice(input_str),
+                                      &compressed);
 
       if (!result) {
         fprintf(stdout, "WARNING: %s compression is not enabled\n",
@@ -3107,7 +3142,7 @@ class Benchmark {
       secondary_cache_opts.low_pri_pool_ratio =
           FLAGS_compressed_secondary_cache_low_pri_pool_ratio;
       secondary_cache_opts.compression_type =
-          FLAGS_compressed_secondary_cache_compression_type_e;
+          FLAGS_compressed_secondary_cache_compressor->GetCompressionType();
       secondary_cache_opts.compression_opts.level =
           FLAGS_compressed_secondary_cache_compression_level;
       secondary_cache_opts.compress_format_version =
@@ -4126,24 +4161,21 @@ class Benchmark {
     Slice input = gen.Generate(FLAGS_block_size);
     int64_t bytes = 0;
     int64_t produced = 0;
-    bool ok = true;
+    Status s;
     std::string compressed;
-    CompressionOptions opts;
-    opts.level = FLAGS_compression_level;
-    CompressionContext context(FLAGS_compression_type_e, opts);
-    CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                         FLAGS_compression_type_e,
-                         FLAGS_sample_for_compression);
+    auto raw_compressor = FLAGS_compressor.get();
+    CompressionInfo info(FLAGS_sample_for_compression);
+
     // Compress 1G
-    while (ok && bytes < int64_t(1) << 30) {
+    while (s.ok() && bytes < int64_t(1) << 30) {
       compressed.clear();
-      ok = CompressSlice(info, input, &compressed);
+      s = raw_compressor->Compress(info, input, &compressed);
       produced += compressed.size();
       bytes += input.size();
       thread->stats.FinishedOps(nullptr, nullptr, 1, kCompress);
     }
 
-    if (!ok) {
+    if (!s.ok()) {
       thread->stats.AddMessage("(compression failure)");
     } else {
       char buf[340];
@@ -4159,27 +4191,17 @@ class Benchmark {
     Slice input = gen.Generate(FLAGS_block_size);
     std::string compressed;
 
-    CompressionOptions compression_opts;
-    compression_opts.level = FLAGS_compression_level;
-    CompressionContext compression_ctx(FLAGS_compression_type_e,
-                                       compression_opts);
-    CompressionInfo compression_info(
-        compression_opts, compression_ctx, CompressionDict::GetEmptyDict(),
-        FLAGS_compression_type_e, FLAGS_sample_for_compression);
-    UncompressionContext uncompression_ctx(FLAGS_compression_type_e);
-    UncompressionInfo uncompression_info(uncompression_ctx,
-                                         UncompressionDict::GetEmptyDict(),
-                                         FLAGS_compression_type_e);
+    CompressionInfo compression_info(FLAGS_sample_for_compression);
+    UncompressionInfo uncompression_info;
 
-    bool ok = CompressSlice(compression_info, input, &compressed);
+    bool ok = compression_info.CompressData(FLAGS_compressor.get(), input,
+                                            &compressed);
     int64_t bytes = 0;
     size_t uncompressed_size = 0;
     while (ok && bytes < 1024 * 1048576) {
-      constexpr uint32_t compress_format_version = 2;
-
-      CacheAllocationPtr uncompressed = UncompressData(
-          uncompression_info, compressed.data(), compressed.size(),
-          &uncompressed_size, compress_format_version);
+      CacheAllocationPtr uncompressed = uncompression_info.UncompressData(
+          FLAGS_compressor.get(), compressed.data(), compressed.size(),
+          &uncompressed_size);
 
       ok = uncompressed.get() != nullptr;
       bytes += input.size();
@@ -4607,7 +4629,7 @@ class Benchmark {
         FLAGS_level0_file_num_compaction_trigger;
     options.level0_slowdown_writes_trigger =
         FLAGS_level0_slowdown_writes_trigger;
-    options.compression = FLAGS_compression_type_e;
+    options.compressor = FLAGS_compressor;
     if (FLAGS_simulate_hybrid_fs_file != "") {
       options.last_level_temperature = Temperature::kWarm;
     }
@@ -4622,12 +4644,13 @@ class Benchmark {
 
     if (FLAGS_min_level_to_compress >= 0) {
       assert(FLAGS_min_level_to_compress <= FLAGS_num_levels);
-      options.compression_per_level.resize(FLAGS_num_levels);
+      options.compressor_per_level.resize(FLAGS_num_levels);
       for (int i = 0; i < FLAGS_min_level_to_compress; i++) {
-        options.compression_per_level[i] = kNoCompression;
+        options.compressor_per_level[i] =
+            BuiltinCompressor::GetCompressor(kNoCompression);
       }
       for (int i = FLAGS_min_level_to_compress; i < FLAGS_num_levels; i++) {
-        options.compression_per_level[i] = FLAGS_compression_type_e;
+        options.compressor_per_level[i] = FLAGS_compressor;
       }
     }
     options.soft_pending_compaction_bytes_limit =
@@ -4725,8 +4748,8 @@ class Benchmark {
     options.enable_blob_files = FLAGS_enable_blob_files;
     options.min_blob_size = FLAGS_min_blob_size;
     options.blob_file_size = FLAGS_blob_file_size;
-    options.blob_compression_type =
-        StringToCompressionType(FLAGS_blob_compression_type.c_str());
+    options.blob_compressor =
+        StringToCompressor(FLAGS_blob_compression_type.c_str());
     options.enable_blob_garbage_collection =
         FLAGS_enable_blob_garbage_collection;
     options.blob_garbage_collection_age_cutoff =
@@ -4992,7 +5015,8 @@ class Benchmark {
       blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
       blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
       blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
-      blob_db_options.compression = FLAGS_blob_db_compression_type_e;
+      blob_db_options.compression =
+          FLAGS_blob_db_compressor->GetCompressionType();
       blob_db::BlobDB* ptr = nullptr;
       s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
       if (s.ok()) {
@@ -5645,7 +5669,7 @@ class Benchmark {
       for (size_t i = 0; i < num_db; i++) {
         auto db = db_list[i];
         auto compactionOptions = CompactionOptions();
-        compactionOptions.compression = FLAGS_compression_type_e;
+        compactionOptions.compressor = FLAGS_compressor;
         auto options = db->GetOptions();
         MutableCFOptions mutable_cf_options(options);
         for (size_t j = 0; j < sorted_runs[i].size(); j++) {
@@ -5700,7 +5724,7 @@ class Benchmark {
       for (size_t i = 0; i < num_db; i++) {
         auto db = db_list[i];
         auto compactionOptions = CompactionOptions();
-        compactionOptions.compression = FLAGS_compression_type_e;
+        compactionOptions.compressor = FLAGS_compressor;
         auto options = db->GetOptions();
         MutableCFOptions mutable_cf_options(options);
         for (size_t j = 0; j < sorted_runs[i].size(); j++) {
@@ -8671,18 +8695,19 @@ int db_bench_tool(int argc, char** argv) {
 #endif
   }
 
-  FLAGS_compression_type_e =
-      StringToCompressionType(FLAGS_compression_type.c_str());
+  FLAGS_compressor = StringToCompressor(FLAGS_compression_type.c_str(),
+                                        GetCompressorOptions());
 
   FLAGS_wal_compression_e =
-      StringToCompressionType(FLAGS_wal_compression.c_str());
+      StringToCompressor(FLAGS_wal_compression.c_str())->GetCompressionType();
 
-  FLAGS_compressed_secondary_cache_compression_type_e = StringToCompressionType(
-      FLAGS_compressed_secondary_cache_compression_type.c_str());
+  FLAGS_compressed_secondary_cache_compressor = StringToCompressor(
+      FLAGS_compressed_secondary_cache_compression_type.c_str(),
+      GetCompressorOptions());
 
   // Stacked BlobDB
-  FLAGS_blob_db_compression_type_e =
-      StringToCompressionType(FLAGS_blob_db_compression_type.c_str());
+  FLAGS_blob_db_compressor =
+      StringToCompressor(FLAGS_blob_db_compression_type.c_str());
 
   int env_opts = !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
   if (env_opts > 1) {

@@ -12,6 +12,7 @@
 
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/compressor.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -90,7 +91,7 @@ class BlobFileBuilder {
   const ImmutableOptions* immutable_options_;
   uint64_t min_blob_size_;
   uint64_t blob_file_size_;
-  CompressionType blob_compression_type_;
+  std::shared_ptr<Compressor> blob_compressor_;
   PrepopulateBlobCache prepopulate_blob_cache_;
   const FileOptions* file_options_;
   const WriteOptions* write_options_;

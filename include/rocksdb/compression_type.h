@@ -34,12 +34,18 @@ enum CompressionType : unsigned char {
   // eventually remove the option from the public API.
   kZSTDNotFinalCompression = 0x40,
 
+  // Used as block compression type identifier when using a non built-in
+  // compressor.
+  kPluginCompression = 0x41,
+
   // kDisableCompressionOption is used to disable some compression options.
   kDisableCompressionOption = 0xff,
 };
 
 // Compression options for different compression algorithms like Zlib
 struct CompressionOptions {
+  static const char* kName() { return "CompressionOptions"; }
+
   // ==> BEGIN options that can be set by deprecated configuration syntax, <==
   // ==> e.g. compression_opts=5:6:7:8:9:10:true:11:false                  <==
   // ==> Please use compression_opts={level=6;strategy=7;} form instead.   <==

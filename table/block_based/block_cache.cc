@@ -54,8 +54,13 @@ void BlockCreateContext::Create(
 
 void BlockCreateContext::Create(std::unique_ptr<UncompressionDict>* parsed_out,
                                 BlockContents&& block) {
-  parsed_out->reset(new UncompressionDict(
-      block.data, std::move(block.allocation), using_zstd));
+  if (compressor != nullptr) {
+    parsed_out->reset(compressor->NewUncompressionDict(
+        block.data, std::move(block.allocation)));
+  } else {
+    parsed_out->reset(
+        new UncompressionDict(block.data, std::move(block.allocation)));
+  }
 }
 
 namespace {
