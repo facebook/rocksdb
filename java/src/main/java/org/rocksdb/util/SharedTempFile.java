@@ -46,6 +46,7 @@ public class SharedTempFile {
      */
     public static class Instance {
 
+        private final String tmpDir;
         private final String prefix;
         private final String suffix;
 
@@ -54,9 +55,10 @@ public class SharedTempFile {
          * @return a list of these files.
          */
         public List<SharedTempFile> search() throws IOException {
-            Path tmpDir = Paths.get(System.getProperty("java.io.tmpdir"));
+
+            Path tmpDirPath = Paths.get(tmpDir);
             List<SharedTempFile> existing = new ArrayList<>();
-            try (Stream<Path> children = Files.walk(tmpDir, 1)) {
+            try (Stream<Path> children = Files.walk(tmpDirPath, 1)) {
                 children.forEach(path -> {
                     if (path.getFileName().toString().startsWith(prefix) && Files.isDirectory(path)) {
                         existing.add(new SharedTempFile(this, path));
@@ -78,7 +80,7 @@ public class SharedTempFile {
          */
         public SharedTempFile create() throws IOException {
 
-            return new SharedTempFile(this, Files.createTempDirectory(prefix)).ensureCreated();
+            return new SharedTempFile(this, Files.createTempDirectory(Paths.get(tmpDir), prefix)).ensureCreated();
         }
 
         public SharedTempFile searchOrCreate() throws IOException {
@@ -90,7 +92,8 @@ public class SharedTempFile {
             }
         }
 
-        public Instance(final String prefix, final String suffix) {
+        public Instance(final String tmpDir, final String prefix, final String suffix) {
+            this.tmpDir = tmpDir != null ? tmpDir : System.getProperty("java.io.tmpdir");
             this.prefix = prefix;
             this.suffix = suffix;
         }
@@ -166,7 +169,6 @@ public class SharedTempFile {
                 }
                 if (lockFiles.isEmpty()) {
                     // No VMs are locking this SharedTempFile, so we can delete it
-                    System.err.println("SharedTempFile last lock file - delete content");
                     if (!Files.exists(content)) {
                         throw new RuntimeException("SharedTempFile " + instance.prefix + " contents not found for deletion");
                     }

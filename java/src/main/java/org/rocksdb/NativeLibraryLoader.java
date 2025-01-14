@@ -3,9 +3,11 @@ package org.rocksdb;
 
 import java.io.*;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.Path;
 
+import java.nio.file.StandardCopyOption;
 import org.rocksdb.util.Environment;
+import org.rocksdb.util.SharedTempFile;
 
 /**
  * This class is used to load the RocksDB shared library from within the jar.
@@ -122,37 +124,20 @@ public class NativeLibraryLoader {
   void loadLibraryFromJar(final String tmpDir)
       throws IOException {
     if (!initialized) {
-      System.load(loadLibraryFromJarToTemp(tmpDir).getAbsolutePath());
+      System.load(loadLibraryFromJarToTemp(tmpDir).toString());
       initialized = true;
     }
   }
 
-  private File createTemp(final String tmpDir, final String libraryFileName) throws IOException {
-    // create a temporary file to copy the library to
-    final File temp;
-    if (tmpDir == null || tmpDir.isEmpty()) {
-      temp = File.createTempFile(tempFilePrefix, tempFileSuffix);
-    } else {
-      final File parentDir = new File(tmpDir);
-      if (!parentDir.exists()) {
-        throw new RuntimeException(
-            "Directory: " + parentDir.getAbsolutePath() + " does not exist!");
-      }
-      temp = new File(parentDir, libraryFileName);
-      if (temp.exists() && !temp.delete()) {
-        throw new RuntimeException(
-            "File: " + temp.getAbsolutePath() + " already exists and cannot be removed.");
-      }
-      if (!temp.createNewFile()) {
-        throw new RuntimeException("File: " + temp.getAbsolutePath() + " could not be created.");
-      }
+  private InputStream libraryFromJar() {
+    InputStream is = getClass().getClassLoader().getResourceAsStream(jniLibraryFileName);
+    if (is == null) {
+      is = getClass().getClassLoader().getResourceAsStream(fallbackJniLibraryFileName);
     }
-    if (temp.exists()) {
-      temp.deleteOnExit();
-      return temp;
-    } else {
-      throw new RuntimeException("File " + temp.getAbsolutePath() + " does not exist.");
+    if (is == null) {
+      throw new RuntimeException(jniLibraryFileName + " was not found inside JAR.");
     }
+    return is;
   }
 
   @SuppressWarnings({"PMD.UseProperClassLoader", "PMD.UseTryWithResources", "PMD.SystemPrintln"})
@@ -190,7 +175,24 @@ public class NativeLibraryLoader {
     }
 
     throw new RuntimeException("Neither " + jniLibraryFileName + " or " + fallbackJniLibraryFileName
-        + " were found inside the JAR, and there is no fallback.");
+                                   + " were found inside the JAR, and there is no fallback.");
+  }
+
+  @SuppressWarnings({"PMD.UseProperClassLoader", "PMD.UseTryWithResources"})
+  Path loadLibraryFromJarToTemp(final String tmpDir) throws IOException {
+
+    String[] split = jniLibraryFileName.split("\\.");
+    String prefix = "librocksdbjni";
+    String suffix = "jnilib";
+    if (split.length == 2) {
+      prefix = split[0];
+      suffix = split[1];
+    }
+    SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir,prefix, suffix);
+    SharedTempFile sharedTemp = instance.searchOrCreate();
+    SharedTempFile.Lock lock = sharedTemp.lock(this::libraryFromJar);
+    Runtime.getRuntime().addShutdownHook(new Thread(lock::close));
+    return sharedTemp.getContent();
   }
 
   /**
