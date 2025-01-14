@@ -23,14 +23,8 @@ public class SharedTempFileMockMain {
         Thread.sleep(random.nextInt(1000));
 
         SharedTempFile.Instance instance = new SharedTempFile.Instance("rocksdbmock", "jnilib");
-        final List<SharedTempFile> existing = instance.search();
-        SharedTempFile sharedTemp;
-        if (existing.isEmpty()) {
-            sharedTemp = instance.create();
-        } else {
-            sharedTemp = existing.get(0);
-        }
-        System.err.println(sharedTemp + " created");
+        SharedTempFile sharedTemp = instance.searchOrCreate();
+        System.err.println(sharedTemp + " created/found");
         Path content;
         try (SharedTempFile.Lock ignored = sharedTemp.lock(LeakedSharedObjectTest::mockContent)) {
             content = sharedTemp.getContent();
