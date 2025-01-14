@@ -8008,7 +8008,324 @@ TEST_P(TransactionTest, AttributeGroupIteratorSanityChecks) {
   }
 }
 
-TEST_P(TransactionTest, SecondaryIndex) {
+TEST_P(TransactionTest, SecondaryIndexPut) {
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
+  if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
+    ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
+    return;
+  }
+
+  // A basic secondary index that indexes the default column.
+  class DefaultSecondaryIndex : public SecondaryIndex {
+   public:
+    void SetPrimaryColumnFamily(ColumnFamilyHandle* cfh) override {
+      primary_cfh_ = cfh;
+    }
+
+    void SetSecondaryColumnFamily(ColumnFamilyHandle* cfh) override {
+      secondary_cfh_ = cfh;
+    }
+
+    ColumnFamilyHandle* GetPrimaryColumnFamily() const override {
+      return primary_cfh_;
+    }
+
+    ColumnFamilyHandle* GetSecondaryColumnFamily() const override {
+      return secondary_cfh_;
+    }
+
+    Slice GetPrimaryColumnName() const override {
+      return kDefaultWideColumnName;
+    }
+
+    Status UpdatePrimaryColumnValue(
+        const Slice& /* primary_key */, const Slice& /* primary_column_value */,
+        std::optional<
+            std::variant<Slice, std::string>>* /* updated_column_value */)
+        const override {
+      return Status::OK();
+    }
+
+    Status GetSecondaryKeyPrefix(
+        const Slice& primary_column_value,
+        std::variant<Slice, std::string>* secondary_key_prefix) const override {
+      assert(secondary_key_prefix);
+
+      std::string prefix;
+      PutLengthPrefixedSlice(&prefix, primary_column_value);
+
+      *secondary_key_prefix = std::move(prefix);
+
+      return Status::OK();
+    }
+
+    Status GetSecondaryValue(const Slice& /* primary_column_value */,
+                             const Slice& /* previous_column_value */,
+                             std::optional<std::variant<Slice, std::string>>*
+                             /* secondary_value */) const override {
+      return Status::OK();
+    }
+
+    std::unique_ptr<Iterator> NewIterator(
+        const SecondaryIndexReadOptions& /* read_options */,
+        std::unique_ptr<Iterator>&& underlying_it) const override {
+      return std::make_unique<SecondaryIndexIterator>(this,
+                                                      std::move(underlying_it));
+    }
+
+   private:
+    ColumnFamilyHandle* primary_cfh_{};
+    ColumnFamilyHandle* secondary_cfh_{};
+  };
+
+  txn_db_options.secondary_indices.emplace_back(
+      std::make_shared<DefaultSecondaryIndex>());
+
+  ASSERT_OK(ReOpen());
+
+  ColumnFamilyOptions cf1_opts;
+  ColumnFamilyHandle* cfh1 = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(cf1_opts, "cf1", &cfh1));
+  std::unique_ptr<ColumnFamilyHandle> cfh1_guard(cfh1);
+
+  ColumnFamilyOptions cf2_opts;
+  ColumnFamilyHandle* cfh2 = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(cf2_opts, "cf2", &cfh2));
+  std::unique_ptr<ColumnFamilyHandle> cfh2_guard(cfh2);
+
+  auto& index = txn_db_options.secondary_indices.back();
+  index->SetPrimaryColumnFamily(cfh1);
+  index->SetSecondaryColumnFamily(cfh2);
+
+  {
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+
+    // Default CF => OK but not indexed
+    ASSERT_OK(txn->Put(db->DefaultColumnFamily(), "key0", "foo"));
+
+    // CF1 but no default column => OK but not indexed
+    ASSERT_OK(txn->PutEntity(cfh1, "key1", {{"hello", "world"}}));
+
+    // CF1, "bar" in the default column => OK and indexed
+    ASSERT_OK(txn->Put(cfh1, "key2", "bar"));
+
+    // CF1, "baz" in the default column => OK and indexed
+    ASSERT_OK(txn->Put(cfh1, "key3", "baz"));
+
+    ASSERT_OK(txn->Commit());
+  }
+
+  // Expected keys: "key0" in the default CF; "key1", "key2", "key3" in CF1;
+  // secondary index entries for "key2" and "key3" in CF2
+  {
+    std::unique_ptr<Iterator> it(
+        db->NewIterator(ReadOptions(), db->DefaultColumnFamily()));
+
+    it->SeekToFirst();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key0");
+    ASSERT_EQ(it->value(), "foo");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh1));
+
+    it->SeekToFirst();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key1");
+    WideColumns expected1{{"hello", "world"}};
+    ASSERT_EQ(it->columns(), expected1);
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key2");
+    ASSERT_EQ(it->value(), "bar");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key3");
+    ASSERT_EQ(it->value(), "baz");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    // Read the raw secondary index entries from CF2
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh2));
+
+    it->SeekToFirst();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "\3barkey2");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "\3bazkey3");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    // Query the secondary index
+    std::unique_ptr<Iterator> underlying_it(
+        db->NewIterator(ReadOptions(), cfh2));
+    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
+                                                    std::move(underlying_it)));
+
+    it->SeekToFirst();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsNotSupported());
+
+    it->SeekToLast();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsNotSupported());
+
+    it->SeekForPrev("bar");
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsNotSupported());
+
+    it->Seek("bar");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key2");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+
+    it->Seek("baz");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key3");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  // Make some updates to the key-values indexed above through the database
+  // interface (i.e. using implicit transactions)
+
+  // Add a default column to "key1" which previously had none
+  ASSERT_OK(
+      db->PutEntity(WriteOptions(), cfh1, "key1",
+                    {{"hello", "world"}, {kDefaultWideColumnName, "quux"}}));
+
+  // Change the value of the default column in "key2"
+  ASSERT_OK(db->Put(WriteOptions(), cfh1, "key2", "quux"));
+
+  // Remove the default column from "key3"
+  ASSERT_OK(db->PutEntity(WriteOptions(), cfh1, "key3", {{"1", "2"}}));
+
+  // Expected keys: "key0" in the default CF; "key1", "key2", "key3" in CF1;
+  // secondary index entries for "key1" and "key2" in CF2
+  {
+    std::unique_ptr<Iterator> it(
+        db->NewIterator(ReadOptions(), db->DefaultColumnFamily()));
+
+    it->SeekToFirst();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key0");
+    ASSERT_EQ(it->value(), "foo");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh1));
+
+    it->SeekToFirst();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key1");
+    WideColumns expected1{{kDefaultWideColumnName, "quux"}, {"hello", "world"}};
+    ASSERT_EQ(it->columns(), expected1);
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key2");
+    ASSERT_EQ(it->value(), "quux");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key3");
+    WideColumns expected3{{"1", "2"}};
+    ASSERT_EQ(it->columns(), expected3);
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    // Read the raw secondary index entries from CF2
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh2));
+
+    it->SeekToFirst();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "\4quuxkey1");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "\4quuxkey2");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    // Query the secondary index
+    std::unique_ptr<Iterator> underlying_it(
+        db->NewIterator(ReadOptions(), cfh2));
+    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
+                                                    std::move(underlying_it)));
+
+    it->SeekToFirst();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsNotSupported());
+
+    it->SeekToLast();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsNotSupported());
+
+    it->SeekForPrev("quux");
+    ASSERT_FALSE(it->Valid());
+    ASSERT_TRUE(it->status().IsNotSupported());
+
+    it->Seek("quux");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key1");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key2");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+}
+
+TEST_P(TransactionTest, SecondaryIndexPutEntity) {
   const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
