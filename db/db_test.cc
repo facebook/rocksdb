@@ -3792,7 +3792,7 @@ TEST_F(DBTest, SetOptionsEffectiveInSuperVersions) {
       VerifyTransform5(__LINE__);
 
       // Refresh updates the SuperVersion
-      iter->Refresh();
+      ASSERT_OK(iter->Refresh());
     } else if (i == 1) {
       // Test a setting change in parallel with flush
       iter = nullptr;
