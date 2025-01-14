@@ -43,8 +43,7 @@ static const std::string kTestColumnFamilyName = "test_column_fam";
 static const int kTestLevel = 1;
 
 void MakeBuilder(
-    const Options& options, const ImmutableOptions& ioptions,
-    const MutableCFOptions& moptions,
+    const ImmutableOptions& ioptions, const MutableCFOptions& moptions,
     const InternalKeyComparator& internal_comparator,
     const InternalTblPropCollFactories* internal_tbl_prop_coll_factories,
     std::unique_ptr<WritableFileWriter>* writable,
@@ -52,13 +51,14 @@ void MakeBuilder(
   std::unique_ptr<FSWritableFile> wf(new test::StringSink);
   writable->reset(
       new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
+
   const ReadOptions read_options;
   const WriteOptions write_options;
   TableBuilderOptions tboptions(
       ioptions, moptions, read_options, write_options, internal_comparator,
-      internal_tbl_prop_coll_factories, options.compression,
-      options.compression_opts, kTestColumnFamilyId, kTestColumnFamilyName,
-      kTestLevel, kUnknownNewestKeyTime);
+      internal_tbl_prop_coll_factories, moptions.compressor,
+      kTestColumnFamilyId, kTestColumnFamilyName, kTestLevel,
+      kUnknownNewestKeyTime);
   builder->reset(NewTableBuilder(tboptions, writable->get()));
 }
 }  // namespace
@@ -274,7 +274,7 @@ void TestCustomizedTablePropertiesCollector(
   } else {
     GetInternalTblPropCollFactory(ioptions, &internal_tbl_prop_coll_factories);
   }
-  MakeBuilder(options, ioptions, moptions, internal_comparator,
+  MakeBuilder(ioptions, moptions, internal_comparator,
               &internal_tbl_prop_coll_factories, &writer, &builder);
 
   SequenceNumber seqNum = 0U;
@@ -415,8 +415,8 @@ void TestInternalKeyPropertiesCollector(
   MutableCFOptions moptions(options);
 
   for (int iter = 0; iter < 2; ++iter) {
-    MakeBuilder(options, ioptions, moptions, pikc,
-                &internal_tbl_prop_coll_factories, &writable, &builder);
+    MakeBuilder(ioptions, moptions, pikc, &internal_tbl_prop_coll_factories,
+                &writable, &builder);
     for (const auto& k : keys) {
       builder->Add(k.Encode(), "val");
     }

@@ -1326,8 +1326,8 @@ class VersionSetTestBase {
           TableBuilderOptions(
               immutable_options_, mutable_cf_options_, read_options,
               write_options, InternalKeyComparator(options_.comparator),
-              &internal_tbl_prop_coll_factories, kNoCompression,
-              CompressionOptions(),
+              &internal_tbl_prop_coll_factories,
+              BuiltinCompressor::GetCompressor(kNoCompression),
               TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
               info.column_family, info.level, kUnknownNewestKeyTime),
           fwriter.get()));

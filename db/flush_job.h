@@ -68,8 +68,8 @@ class FlushJob {
            SnapshotChecker* snapshot_checker, JobContext* job_context,
            FlushReason flush_reason, LogBuffer* log_buffer,
            FSDirectory* db_directory, FSDirectory* output_file_directory,
-           CompressionType output_compression, Statistics* stats,
-           EventLogger* event_logger, bool measure_io_stats,
+           const std::shared_ptr<Compressor>& output_compressor,
+           Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
            Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
            std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping,
@@ -176,7 +176,7 @@ class FlushJob {
   LogBuffer* log_buffer_;
   FSDirectory* db_directory_;
   FSDirectory* output_file_directory_;
-  CompressionType output_compression_;
+  std::shared_ptr<Compressor> output_compressor_;
   Statistics* stats_;
   EventLogger* event_logger_;
   TableProperties table_properties_;

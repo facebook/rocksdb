@@ -12,6 +12,7 @@
 #include "file/random_access_file_reader.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "util/compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
@@ -37,11 +38,12 @@ class BlobDumpTool {
   size_t buffer_size_;
 
   Status Read(uint64_t offset, size_t size, Slice* result);
-  Status DumpBlobLogHeader(uint64_t* offset, CompressionType* compression);
+  Status DumpBlobLogHeader(uint64_t* offset,
+                           std::shared_ptr<Compressor>* compressor);
   Status DumpBlobLogFooter(uint64_t file_size, uint64_t* footer_offset);
   Status DumpRecord(DisplayType show_key, DisplayType show_blob,
                     DisplayType show_uncompressed_blob, bool show_summary,
-                    CompressionType compression, uint64_t* offset,
+                    Compressor* compressor, uint64_t* offset,
                     uint64_t* total_records, uint64_t* total_key_size,
                     uint64_t* total_blob_size,
                     uint64_t* total_uncompressed_blob_size);

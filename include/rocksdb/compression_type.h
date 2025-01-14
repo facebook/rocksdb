@@ -40,6 +40,8 @@ enum CompressionType : unsigned char {
 
 // Compression options for different compression algorithms like Zlib
 struct CompressionOptions {
+  static const char* kName() { return "CompressionOptions"; }
+
   // ==> BEGIN options that can be set by deprecated configuration syntax, <==
   // ==> e.g. compression_opts=5:6:7:8:9:10:true:11:false                  <==
   // ==> Please use compression_opts={level=6;strategy=7;} form instead.   <==

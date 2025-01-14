@@ -75,55 +75,48 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
 // If enable_compression is false, then compression is always disabled no
 // matter what the values of the other two parameters are.
 // Otherwise, the compression type is determined based on options and level.
-CompressionType GetCompressionType(const VersionStorageInfo* vstorage,
-                                   const MutableCFOptions& mutable_cf_options,
-                                   int level, int base_level,
-                                   const bool enable_compression) {
+std::shared_ptr<Compressor> GetCompressor(const VersionStorageInfo* vstorage,
+                                          const MutableCFOptions& moptions,
+                                          int level, int base_level,
+                                          const bool enable_compression) {
   if (!enable_compression) {
     // disable compression
-    return kNoCompression;
+    return BuiltinCompressor::GetCompressor(kNoCompression);
   }
 
   // If bottommost_compression is set and we are compacting to the
   // bottommost level then we should use it.
-  if (mutable_cf_options.bottommost_compression != kDisableCompressionOption &&
-      level >= (vstorage->num_non_empty_levels() - 1)) {
-    return mutable_cf_options.bottommost_compression;
+  bool bottom_level = (level >= (vstorage->num_non_empty_levels() - 1));
+  if (moptions.bottommost_compressor != nullptr && bottom_level) {
+    return moptions.bottommost_compressor;
   }
   // If the user has specified a different compression level for each level,
   // then pick the compression for that level.
-  if (!mutable_cf_options.compression_per_level.empty()) {
-    assert(level == 0 || level >= base_level);
-    int idx = (level == 0) ? 0 : level - base_level + 1;
-
-    const int n =
-        static_cast<int>(mutable_cf_options.compression_per_level.size()) - 1;
+  if (!moptions.compressor_per_level.empty()) {
     // It is possible for level_ to be -1; in that case, we use level
     // 0's compression.  This occurs mostly in backwards compatibility
     // situations when the builder doesn't know what level the file
     // belongs to.  Likewise, if level is beyond the end of the
     // specified compression levels, use the last value.
-    return mutable_cf_options
-        .compression_per_level[std::max(0, std::min(idx, n))];
+    assert(level == 0 || level >= base_level);
+    int lvl = std::max(0, level - base_level + 1);
+    int idx = std::min(
+        static_cast<int>(moptions.compressor_per_level.size()) - 1, lvl);
+    // If not specified directly by the user, compressors in
+    // compressor_per_level are instantiated using compression_opts. If the user
+    // enabled bottommost_compression_opts, we need to create a new compressor
+    // with those options.
+    if (bottom_level && moptions.bottommost_compression_opts.enabled &&
+        static_cast<int>(moptions.compression_per_level.size()) > idx) {
+      return BuiltinCompressor::GetCompressor(
+          moptions.compression_per_level[idx],
+          moptions.bottommost_compression_opts);
+    } else {
+      return moptions.compressor_per_level[idx];
+    }
   } else {
-    return mutable_cf_options.compression;
+    return moptions.compressor;
   }
-}
-
-CompressionOptions GetCompressionOptions(const MutableCFOptions& cf_options,
-                                         const VersionStorageInfo* vstorage,
-                                         int level,
-                                         const bool enable_compression) {
-  if (!enable_compression) {
-    return cf_options.compression_opts;
-  }
-  // If bottommost_compression_opts is enabled and we are compacting to the
-  // bottommost level then we should use the specified compression options.
-  if (level >= (vstorage->num_non_empty_levels() - 1) &&
-      cf_options.bottommost_compression_opts.enabled) {
-    return cf_options.bottommost_compression_opts;
-  }
-  return cf_options.compression_opts;
 }
 
 CompactionPicker::CompactionPicker(const ImmutableOptions& ioptions,
@@ -358,26 +351,34 @@ Compaction* CompactionPicker::CompactFiles(
                                       start_level, output_level)));
 #endif /* !NDEBUG */
 
-  CompressionType compression_type;
-  if (compact_options.compression == kDisableCompressionOption) {
+  std::shared_ptr<Compressor> compressor;
+  if (compact_options.compression != kDisableCompressionOption) {
+    bool bottom_level =
+        (output_level >= (vstorage->num_non_empty_levels() - 1));
+    if (bottom_level &&
+        mutable_cf_options.bottommost_compression_opts.enabled) {
+      compressor = BuiltinCompressor::GetCompressor(
+          compact_options.compression,
+          mutable_cf_options.bottommost_compression_opts);
+    } else {
+      compressor = BuiltinCompressor::GetCompressor(
+          compact_options.compression, mutable_cf_options.compression_opts);
+    }
+  } else {
     int base_level;
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       base_level = vstorage->base_level();
     } else {
       base_level = 1;
     }
-    compression_type = GetCompressionType(vstorage, mutable_cf_options,
-                                          output_level, base_level);
-  } else {
-    // TODO(ajkr): `CompactionOptions` offers configurable `CompressionType`
-    // without configurable `CompressionOptions`, which is inconsistent.
-    compression_type = compact_options.compression;
+    compressor =
+        GetCompressor(vstorage, mutable_cf_options, output_level, base_level);
   }
+
   auto c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options, input_files,
       output_level, compact_options.output_file_size_limit,
-      mutable_cf_options.max_compaction_bytes, output_path_id, compression_type,
-      GetCompressionOptions(mutable_cf_options, vstorage, output_level),
+      mutable_cf_options.max_compaction_bytes, output_path_id, compressor,
       mutable_cf_options.default_write_temperature,
       compact_options.max_subcompactions,
       /* grandparents */ {}, /* earliest_snapshot */ std::nullopt,
@@ -675,8 +676,7 @@ Compaction* CompactionPicker::CompactRange(
                             ioptions_.compaction_style),
         /* max_compaction_bytes */ LLONG_MAX,
         compact_range_options.target_path_id,
-        GetCompressionType(vstorage, mutable_cf_options, output_level, 1),
-        GetCompressionOptions(mutable_cf_options, vstorage, output_level),
+        GetCompressor(vstorage, mutable_cf_options, output_level, 1),
         mutable_cf_options.default_write_temperature,
         compact_range_options.max_subcompactions,
         /* grandparents */ {}, /* earliest_snapshot */ std::nullopt,
@@ -866,9 +866,8 @@ Compaction* CompactionPicker::CompactRange(
                           ioptions_.level_compaction_dynamic_level_bytes),
       mutable_cf_options.max_compaction_bytes,
       compact_range_options.target_path_id,
-      GetCompressionType(vstorage, mutable_cf_options, output_level,
-                         vstorage->base_level()),
-      GetCompressionOptions(mutable_cf_options, vstorage, output_level),
+      GetCompressor(vstorage, mutable_cf_options, output_level,
+                    vstorage->base_level()),
       mutable_cf_options.default_write_temperature,
       compact_range_options.max_subcompactions, std::move(grandparents),
       /* earliest_snapshot */ std::nullopt, /* snapshot_checker */ nullptr,

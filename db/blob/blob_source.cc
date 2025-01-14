@@ -159,7 +159,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
                            const Slice& user_key, uint64_t file_number,
                            uint64_t offset, uint64_t file_size,
                            uint64_t value_size,
-                           CompressionType compression_type,
+                           const std::shared_ptr<Compressor>& compressor,
                            FilePrefetchBuffer* prefetch_buffer,
                            PinnableSlice* value, uint64_t* bytes_read) {
   assert(value);
@@ -218,7 +218,8 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
     assert(blob_file_reader.GetValue());
 
-    if (compression_type != blob_file_reader.GetValue()->GetCompressionType()) {
+    if (compressor->GetCompressionType() !=
+        blob_file_reader.GetValue()->GetCompressor()->GetCompressionType()) {
       return Status::Corruption("Compression type mismatch when reading blob");
     }
 
@@ -229,8 +230,8 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
     uint64_t read_size = 0;
     s = blob_file_reader.GetValue()->GetBlob(
-        read_options, user_key, offset, value_size, compression_type,
-        prefetch_buffer, allocator, &blob_contents, &read_size);
+        read_options, user_key, offset, value_size, compressor, prefetch_buffer,
+        allocator, &blob_contents, &read_size);
     if (!s.ok()) {
       return s;
     }

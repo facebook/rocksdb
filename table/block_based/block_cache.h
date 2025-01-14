@@ -16,6 +16,7 @@
 #include "table/block_based/block_type.h"
 #include "table/block_based/parsed_full_filter_block.h"
 #include "table/format.h"
+#include "util/compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -71,7 +72,8 @@ struct BlockCreateContext : public Cache::CreateContext {
   BlockCreateContext() {}
   BlockCreateContext(const BlockBasedTableOptions* _table_options,
                      const ImmutableOptions* _ioptions, Statistics* _statistics,
-                     bool _using_zstd, uint8_t _protection_bytes_per_key,
+                     const std::shared_ptr<Compressor>& _compressor,
+                     uint8_t _protection_bytes_per_key,
                      const Comparator* _raw_ucmp,
                      bool _index_value_is_full = false,
                      bool _index_has_first_key = false)
@@ -79,7 +81,7 @@ struct BlockCreateContext : public Cache::CreateContext {
         ioptions(_ioptions),
         statistics(_statistics),
         raw_ucmp(_raw_ucmp),
-        using_zstd(_using_zstd),
+        compressor(_compressor),
         protection_bytes_per_key(_protection_bytes_per_key),
         index_value_is_full(_index_value_is_full),
         index_has_first_key(_index_has_first_key) {}
@@ -89,8 +91,7 @@ struct BlockCreateContext : public Cache::CreateContext {
   Statistics* statistics = nullptr;
   const Comparator* raw_ucmp = nullptr;
   const UncompressionDict* dict = nullptr;
-  uint32_t format_version;
-  bool using_zstd = false;
+  std::shared_ptr<Compressor> compressor;
   uint8_t protection_bytes_per_key = 0;
   bool index_value_is_full;
   bool index_has_first_key;
@@ -103,11 +104,14 @@ struct BlockCreateContext : public Cache::CreateContext {
     BlockContents uncompressed_block_contents;
     if (type != CompressionType::kNoCompression) {
       assert(dict != nullptr);
-      UncompressionContext context(type);
-      UncompressionInfo info(context, *dict, type);
-      Status s = UncompressBlockData(
-          info, data.data(), data.size(), &uncompressed_block_contents,
-          table_options->format_version, *ioptions, alloc);
+      std::shared_ptr<Compressor> uncompressor =
+          BuiltinCompressor::GetCompressor(type);
+      UncompressionInfo info(
+          *dict, GetCompressFormatForVersion(table_options->format_version),
+          alloc);
+      Status s = UncompressBlockData(uncompressor.get(), info, data.data(),
+                                     data.size(), &uncompressed_block_contents,
+                                     *ioptions);
       if (!s.ok()) {
         parsed_out->reset();
         return;

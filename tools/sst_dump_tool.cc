@@ -14,6 +14,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "table/sst_file_dumper.h"
+#include "util/compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -248,12 +249,24 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
             [&compression_type](std::pair<CompressionType, const char*> curr) {
               return curr.second == compression_type;
             });
-        if (iter == kCompressions.end()) {
-          fprintf(stderr, "%s is not a valid CompressionType\n",
-                  compression_type.c_str());
-          exit(1);
+        if (iter != kCompressions.end()) {
+          compression_types.emplace_back(*iter);
+        } else {
+          ConfigOptions config_options;
+          std::shared_ptr<Compressor> compressor;
+          Compressor::CreateFromString(config_options, compression_type,
+                                       &compressor);
+          if (compressor == nullptr) {
+            fprintf(stderr, "%s is not a valid CompressionType\n",
+                    compression_type.c_str());
+            exit(1);
+          }
+          compression_types.emplace_back(
+              std::pair<CompressionType, const char*>(
+                  static_cast<CompressionType>(
+                      compressor->GetCompressionType()),
+                  compression_type.c_str()));
         }
-        compression_types.emplace_back(*iter);
       }
     } else if (strncmp(argv[i], "--parse_internal_key=", 21) == 0) {
       std::string in_key(argv[i] + 21);

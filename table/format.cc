@@ -29,7 +29,7 @@
 #include "unique_id_impl.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
-#include "util/compression.h"
+#include "util/compressor.h"
 #include "util/crc32c.h"
 #include "util/hash.h"
 #include "util/stop_watch.h"
@@ -653,36 +653,38 @@ uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
   }
 }
 
-Status UncompressBlockData(const UncompressionInfo& uncompression_info,
+Status UncompressBlockData(Compressor* uncompressor,
+                           const UncompressionInfo& uncompression_info,
                            const char* data, size_t size,
-                           BlockContents* out_contents, uint32_t format_version,
-                           const ImmutableOptions& ioptions,
-                           MemoryAllocator* allocator) {
+                           BlockContents* out_contents,
+                           const ImmutableOptions& ioptions) {
   Status ret = Status::OK();
 
-  assert(uncompression_info.type() != kNoCompression &&
+  assert((uncompressor == nullptr ||
+          uncompressor->GetCompressionType() != kNoCompression) &&
          "Invalid compression type");
 
   StopWatchNano timer(ioptions.clock,
                       ShouldReportDetailedTime(ioptions.env, ioptions.stats));
   size_t uncompressed_size = 0;
-  const char* error_msg = nullptr;
-  CacheAllocationPtr ubuf = UncompressData(
-      uncompression_info, data, size, &uncompressed_size,
-      GetCompressFormatForVersion(format_version), allocator, &error_msg);
-  if (!ubuf) {
-    if (!CompressionTypeSupported(uncompression_info.type())) {
+  Status uncompress_status;
+  CacheAllocationPtr ubuf = uncompression_info.UncompressData(
+      uncompressor, data, size, &uncompressed_size, &uncompress_status);
+  if (!ubuf || !uncompress_status.ok()) {
+    if (uncompressor == nullptr) {
       ret = Status::NotSupported(
-          "Unsupported compression method for this build",
-          CompressionTypeToString(uncompression_info.type()));
+          "Unsupported compression method for this build ");
+    } else if (!uncompressor->Supported()) {
+      ret =
+          Status::NotSupported("Unsupported compression method for this build ",
+                               uncompressor->GetId());
     } else {
       std::ostringstream oss;
       oss << "Corrupted compressed block contents";
-      if (error_msg) {
-        oss << ": " << error_msg;
+      if (uncompress_status.getState()) {
+        oss << ": " << uncompress_status.getState();
       }
-      ret = Status::Corruption(
-          oss.str(), CompressionTypeToString(uncompression_info.type()));
+      ret = Status::Corruption(oss.str(), uncompressor->GetId());
     }
     return ret;
   }
@@ -707,16 +709,15 @@ Status UncompressBlockData(const UncompressionInfo& uncompression_info,
   return ret;
 }
 
-Status UncompressSerializedBlock(const UncompressionInfo& uncompression_info,
+Status UncompressSerializedBlock(Compressor* uncompressor,
+                                 const UncompressionInfo& uncompression_info,
                                  const char* data, size_t size,
                                  BlockContents* out_contents,
-                                 uint32_t format_version,
-                                 const ImmutableOptions& ioptions,
-                                 MemoryAllocator* allocator) {
+                                 const ImmutableOptions& ioptions) {
   assert(data[size] != kNoCompression);
-  assert(data[size] == static_cast<char>(uncompression_info.type()));
-  return UncompressBlockData(uncompression_info, data, size, out_contents,
-                             format_version, ioptions, allocator);
+  assert(data[size] == static_cast<char>(uncompressor->GetCompressionType()));
+  return UncompressBlockData(uncompressor, uncompression_info, data, size,
+                             out_contents, ioptions);
 }
 
 // Replace the contents of db_host_id with the actual hostname, if db_host_id

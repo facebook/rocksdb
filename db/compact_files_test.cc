@@ -15,6 +15,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
+#include "util/compressor.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -389,11 +390,11 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
 }
 
 TEST_F(CompactFilesTest, SentinelCompressionType) {
-  if (!Zlib_Supported()) {
+  if (!BuiltinCompressor::TypeSupported(kZlibCompression)) {
     fprintf(stderr, "zlib compression not supported, skip this test\n");
     return;
   }
-  if (!Snappy_Supported()) {
+  if (!BuiltinCompressor::TypeSupported(kSnappyCompression)) {
     fprintf(stderr, "snappy compression not supported, skip this test\n");
     return;
   }
@@ -432,9 +433,10 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
 
     ROCKSDB_NAMESPACE::TablePropertiesCollection all_tables_props;
     ASSERT_OK(db->GetPropertiesOfAllTables(&all_tables_props));
+    std::string zlib =
+        BuiltinCompressor::TypeToString(CompressionType::kZlibCompression);
     for (const auto& name_and_table_props : all_tables_props) {
-      ASSERT_EQ(CompressionTypeToString(CompressionType::kZlibCompression),
-                name_and_table_props.second->compression_name);
+      ASSERT_EQ(zlib, name_and_table_props.second->compression_name);
     }
     delete db;
   }

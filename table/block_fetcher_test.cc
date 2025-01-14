@@ -10,6 +10,7 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
 #include "table/block_based/binary_search_index_reader.h"
@@ -18,6 +19,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
+#include "util/compressor.h"
 #include "utilities/memory_allocators.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -81,10 +83,10 @@ class BlockFetcherTest : public testing::Test {
     const WriteOptions write_options;
     std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, read_options, write_options,
-                            comparator, &factories, compression_type,
-                            CompressionOptions(), 0 /* column_family_id */,
-                            kDefaultColumnFamilyName, -1 /* level */,
-                            kUnknownNewestKeyTime),
+                            comparator, &factories,
+                            BuiltinCompressor::GetCompressor(compression_type),
+                            0 /* column_family_id */, kDefaultColumnFamilyName,
+                            -1 /* level */, kUnknownNewestKeyTime),
         writer.get()));
 
     // Build table.
@@ -140,7 +142,12 @@ class BlockFetcherTest : public testing::Test {
   void TestFetchDataBlock(
       const std::string& table_name_prefix, bool compressed, bool do_uncompress,
       std::array<TestStats, NumModes> expected_stats_by_mode) {
-    for (CompressionType compression_type : GetSupportedCompressions()) {
+    for (const auto& compression_str : Compressor::GetSupported()) {
+      CompressionType compression_type;
+      if (!BuiltinCompressor::StringToType(compression_str,
+                                           &compression_type)) {
+        continue;
+      }
       bool do_compress = compression_type != kNoCompression;
       if (compressed != do_compress) {
         continue;
@@ -390,22 +397,24 @@ class BlockFetcherTest : public testing::Test {
 // Expects:
 // the index block contents are the same for both read modes.
 TEST_F(BlockFetcherTest, FetchIndexBlock) {
-  for (CompressionType compression : GetSupportedCompressions()) {
-    std::string table_name =
-        "FetchIndexBlock" + CompressionTypeToString(compression);
-    CreateTable(table_name, compression);
+  for (const auto& compression : Compressor::GetSupported()) {
+    CompressionType type;
+    if (BuiltinCompressor::StringToType(compression, &type)) {
+      std::string table_name = "FetchIndexBlock" + compression;
+      CreateTable(table_name, type);
 
-    CountedMemoryAllocator allocator;
-    MemcpyStats memcpy_stats;
-    BlockContents indexes[NumModes];
-    std::string index_datas[NumModes];
-    for (int i = 0; i < NumModes; ++i) {
-      SetMode(static_cast<Mode>(i));
-      FetchIndexBlock(table_name, &allocator, &allocator, &memcpy_stats,
-                      &indexes[i], &index_datas[i]);
-    }
-    for (int i = 0; i < NumModes - 1; ++i) {
-      AssertSameBlock(index_datas[i], index_datas[i + 1]);
+      CountedMemoryAllocator allocator;
+      MemcpyStats memcpy_stats;
+      BlockContents indexes[NumModes];
+      std::string index_datas[NumModes];
+      for (int i = 0; i < NumModes; ++i) {
+        SetMode(static_cast<Mode>(i));
+        FetchIndexBlock(table_name, &allocator, &allocator, &memcpy_stats,
+                        &indexes[i], &index_datas[i]);
+      }
+      for (int i = 0; i < NumModes - 1; ++i) {
+        AssertSameBlock(index_datas[i], index_datas[i + 1]);
+      }
     }
   }
 }

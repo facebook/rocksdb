@@ -320,11 +320,15 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
           GetBlockCompressionType(serialized_block);
       BlockContents contents;
       if (compression_type != kNoCompression) {
-        UncompressionContext context(compression_type);
-        UncompressionInfo info(context, uncompression_dict, compression_type);
-        s = UncompressSerializedBlock(
-            info, req.result.data() + req_offset, handle.size(), &contents,
-            footer.format_version(), rep_->ioptions, memory_allocator);
+        std::shared_ptr<Compressor> compressor =
+            rep_->GetCompressor(compression_type);
+        UncompressionInfo info(
+            uncompression_dict,
+            GetCompressFormatForVersion(footer.format_version()),
+            memory_allocator);
+        s = UncompressSerializedBlock(compressor.get(), info,
+                                      req.result.data() + req_offset,
+                                      handle.size(), &contents, rep_->ioptions);
       } else {
         // There are two cases here:
         // 1) caller uses the shared buffer (scratch or direct io buffer);
