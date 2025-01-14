@@ -14,9 +14,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class LeakedSharedObjectTest {
 
+    private final static int SIGKILL_CODE = 128 + 9;
+    private final static int SIGTERM_CODE = 128 + 15;
+
     final static Random random = new Random();
 
-    static InputStream mockContent() throws IOException {
+    static InputStream mockContent() {
 
         ClassLoader classloader = Thread.currentThread().getContextClassLoader();
         InputStream is = classloader.getResourceAsStream("shared-temp-file.txt");
@@ -31,11 +34,9 @@ public class LeakedSharedObjectTest {
     }
 
     static void compare(BufferedReader expected, BufferedReader actual) throws IOException {
-        int lines = 0;
         String expectedLine = expected.readLine();
         String actualLine = actual.readLine();
         while (expectedLine != null) {
-            lines++;
             assertThat(actualLine).isEqualTo(expectedLine);
             expectedLine = expected.readLine();
             actualLine = actual.readLine();
@@ -83,23 +84,38 @@ public class LeakedSharedObjectTest {
         assertThat(Files.exists(content)).isFalse();
     }
 
-
-    @Test
-    public void openJar() {
-        RocksDB.loadLibrary();
-    }
-
     @Test
     public void openManySharedTemp() throws IOException {
-        openMany("org.rocksdb.SharedTempFileMockMain");
+        openMany("org.rocksdb.SharedTempFileMockMain", Kill.None);
     }
 
     @Test
-    public void openManyRocksDB() throws IOException {
-        openMany("org.rocksdb.SharedTempFileRocksDBMain");
+    public void openManyRocksDBKill() throws IOException {
+        // Do this to make processes wait a long time, and we will kill them exp;icitly before they exit
+        openMany("org.rocksdb.SharedTempFileRocksDBMain", Kill.Term, "--waitkill");
     }
 
-    public void openMany(final String mainClass) throws IOException {
+    @Test
+    public void openManyRocksDBWait() throws IOException {
+        //Do this to (1) not kill the process and let them exit by themselves
+        openMany("org.rocksdb.SharedTempFileRocksDBMain", Kill.None);
+    }
+
+    enum Kill {
+        None,
+        Term,
+        Kill
+    };
+
+    /**
+     * Helper to create multiples subprocesses and have them run a java class main
+     *
+     * @param mainClass java class to run main of
+     * @param kill should we kill the processes after a short delay ?
+     * @param args to pass to the main() method
+     * @throws IOException if there is a problem creating/communication with the processes
+     */
+    private void openMany(final String mainClass, final Kill kill, final String... args) throws IOException {
 
         final int DB_COUNT = 50;
         List<Process> processes = new ArrayList<>();
@@ -109,8 +125,12 @@ public class LeakedSharedObjectTest {
 
         for (int i = 0; i < DB_COUNT; i++) {
 
+            StringBuilder sb = new StringBuilder();
+            for (String arg : args) {
+                sb.append(" ").append(arg);
+            }
             Process process = Runtime.getRuntime()
-                .exec("java -cp target/classes:target/test-classes:target/*:test-libs/assertj-core-2.9.0.jar " + mainClass);
+                .exec("java -cp target/classes:target/test-classes:target/*:test-libs/assertj-core-2.9.0.jar " + mainClass + sb);
             processes.add(process);
             BufferedReader err = new BufferedReader( new InputStreamReader(process.getErrorStream()));
             readers.add(err);
@@ -138,24 +158,49 @@ public class LeakedSharedObjectTest {
             }
         }
 
+        int expectedExitCode;
+        switch (kill) {
+            case Kill:
+                expectedExitCode = SIGKILL_CODE;
+                break;
+            case Term:
+                expectedExitCode = SIGTERM_CODE;
+                break;
+            case None:
+            default:
+                expectedExitCode = 0;
+        }
         for (Process process : processes) {
-            process.destroyForcibly();
+            switch (kill) {
+                case Kill:
+                    process.destroyForcibly();
+                    break;
+                case Term:
+                    process.destroy();
+                    break;
+                case None:
+                default:
+                    break;
+            }
         }
 
         for (int i = 0; i < DB_COUNT; i++) {
             try {
                 processes.get(i).waitFor();
                 int exitCode = processes.get(i).exitValue();
-                lines.get(i).add("Exit value " + exitCode);
                 exitCodes.add(exitCode);
             } catch (InterruptedException ie) {
                 throw new RuntimeException("Process interrupted");
             }
         }
 
+        for (int i = 0; i < DB_COUNT; i++) {
+            lines.get(i).add("|------------------|");
+        }
+
         boolean ok = true;
         for (int i = 0; i < DB_COUNT; i++) {
-            if (exitCodes.get(i) != 0) {
+            if (exitCodes.get(i) != expectedExitCode) {
                 ok = false;
                 System.err.println("Process " + i + " failed: " + exitCodes.get(i));
                 for (String line : lines.get(i)) {
