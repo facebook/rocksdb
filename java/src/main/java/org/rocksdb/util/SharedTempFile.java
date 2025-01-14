@@ -81,6 +81,15 @@ public class SharedTempFile {
             return new SharedTempFile(this, Files.createTempDirectory(prefix)).ensureCreated();
         }
 
+        public SharedTempFile searchOrCreate() throws IOException {
+            final List<SharedTempFile> existing = search();
+            if (existing.isEmpty()) {
+                return create();
+            } else {
+                return existing.get(0);
+            }
+        }
+
         public Instance(final String prefix, final String suffix) {
             this.prefix = prefix;
             this.suffix = suffix;
