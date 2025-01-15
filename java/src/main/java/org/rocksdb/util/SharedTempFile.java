@@ -4,9 +4,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
@@ -48,30 +50,13 @@ public class SharedTempFile {
 
         private final String tmpDir;
         private final String prefix;
+        private final String digest;
         private final String suffix;
 
         /**
          * Look for existing shared temp files
          * @return a list of these files.
          */
-        public List<SharedTempFile> search() throws IOException {
-
-            Path tmpDirPath = Paths.get(tmpDir);
-            List<SharedTempFile> existing = new ArrayList<>();
-            try (Stream<Path> children = Files.walk(tmpDirPath, 1)) {
-                children.forEach(path -> {
-                    if (path.getFileName().toString().startsWith(prefix) && Files.isDirectory(path)) {
-                        existing.add(new SharedTempFile(this, path));
-                    }
-                });
-            }
-            existing.sort(Comparator.comparing(o -> o.directory));
-            if (!existing.isEmpty()) {
-                existing.get(0).ensureCreated();
-            }
-            return existing;
-        }
-
         /**
          * Create the shared temp file
          * Ensure that the contained lock file is also created
@@ -80,21 +65,19 @@ public class SharedTempFile {
          */
         public SharedTempFile create() throws IOException {
 
-            return new SharedTempFile(this, Files.createTempDirectory(Paths.get(tmpDir), prefix)).ensureCreated();
-        }
-
-        public SharedTempFile searchOrCreate() throws IOException {
-            final List<SharedTempFile> existing = search();
-            if (existing.isEmpty()) {
-                return create();
-            } else {
-                return existing.get(0);
+            final Path directory =  Paths.get(tmpDir).resolve(prefix + digest);
+            try {
+                Files.createDirectory(directory);
+            } catch (FileAlreadyExistsException e) {
+                //Already created
             }
+            return new SharedTempFile(this, directory).ensureCreated();
         }
 
-        public Instance(final String tmpDir, final String prefix, final String suffix) {
+        public Instance(final String tmpDir, final String prefix, final String uniquifier, final String suffix) {
             this.tmpDir = tmpDir != null ? tmpDir : System.getProperty("java.io.tmpdir");
             this.prefix = prefix;
+            this.digest = digestUniquifier(uniquifier);
             this.suffix = suffix;
         }
     }
@@ -118,6 +101,18 @@ public class SharedTempFile {
         return this;
     }
 
+    private static String digestUniquifier(final String uniquifier) {
+        try {
+            byte[] digest = MessageDigest.getInstance("MD5").digest(uniquifier.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest) {
+                sb.append(String.format("%02X", b));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("Could not digest library resource name", e);
+        }
+    }
 
     /**
      * Lock the content as in use by the current SharedTempFile instance,

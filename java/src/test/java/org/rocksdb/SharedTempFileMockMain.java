@@ -29,8 +29,8 @@ public class SharedTempFileMockMain {
             tmpDir = argMap.get("tmpdir");
         }
 
-        SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir, "rocksdbmock", "jnilib");
-        SharedTempFile sharedTemp = instance.searchOrCreate();
+        SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir, "rocksdbmock", "789","jnilib");
+        SharedTempFile sharedTemp = instance.create();
         System.err.println(sharedTemp + " created/found");
         Path content;
         try (SharedTempFile.Lock ignored = sharedTemp.lock(SharedTempFileLoaderTest::mockContent)) {
