@@ -56,8 +56,7 @@ public class SharedTempFileLoaderTest {
     @Test
     public void sharedTempFresh() throws IOException {
         String prefix = "rocksdbjnitest__" + random.nextLong() + "__";
-        SharedTempFile.Instance instance = new SharedTempFile.Instance(getTmpDir(), prefix, "jnilib");
-        assertThat(instance.search()).isEmpty();
+        SharedTempFile.Instance instance = new SharedTempFile.Instance(getTmpDir(), prefix, "123","jnilib");
         SharedTempFile sharedTemp = instance.create();
         System.err.println("sharedTempFresh() created: " + sharedTemp);
         Path content;
@@ -75,22 +74,32 @@ public class SharedTempFileLoaderTest {
     public void sharedTempExists() throws IOException {
 
         String prefix = "rocksdbjnitest__" + random.nextLong() + "__";
-        SharedTempFile.Instance instance = new SharedTempFile.Instance(getTmpDir(), prefix, "jnilib");
-        assertThat(instance.search()).isEmpty();
+        SharedTempFile.Instance instance = new SharedTempFile.Instance(getTmpDir(), prefix, "456","jnilib");
         SharedTempFile sharedTemp = instance.create();
         System.err.println("sharedTempExists() created: " + sharedTemp);
-        List<SharedTempFile> existing = instance.search();
-        assertThat(existing).isNotEmpty();
-        sharedTemp = existing.get(0);
         Path content;
+
         try (SharedTempFile.Lock ignored = sharedTemp.lock(SharedTempFileLoaderTest::mockContent)) {
             content = sharedTemp.getContent();
             assertThat(Files.exists(content)).isTrue();
             try (BufferedReader shared = new BufferedReader(new InputStreamReader(Files.newInputStream(content))); BufferedReader resource = mockContentReader()) {
                 compare(resource, shared);
             }
+
+            Path content2;
+            SharedTempFile sharedTemp2 = instance.create();
+            try (SharedTempFile.Lock ignored2 = sharedTemp2.lock(SharedTempFileLoaderTest::mockContent)) {
+                content2 = sharedTemp2.getContent();
+                assertThat(content2).isEqualTo(content);
+                assertThat(Files.exists(content2)).isTrue();
+                try (BufferedReader shared = new BufferedReader(new InputStreamReader(Files.newInputStream(content))); BufferedReader resource = mockContentReader()) {
+                    compare(resource, shared);
+                }
+            }
+
+            assertThat(Files.exists(content)).as("Content remains after unlock of 1/2 resources").isTrue();
         }
-        assertThat(Files.exists(content)).isFalse();
+        assertThat(Files.exists(content)).as("Content deleted after unlock of 2/2 resources").isFalse();
     }
 
     @Test

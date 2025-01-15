@@ -1,11 +1,13 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb;
 
-import java.io.*;
-import java.nio.file.Path;
-
 import org.rocksdb.util.Environment;
 import org.rocksdb.util.SharedTempFile;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.nio.file.Path;
 
 /**
  * This class is used to load the RocksDB shared library from within the jar.
@@ -121,18 +123,31 @@ public class NativeLibraryLoader {
     return is;
   }
 
+  private String libraryResourcePath() {
+    URL resource = getClass().getClassLoader().getResource(jniLibraryFileName);
+    if (resource == null) {
+      resource = getClass().getClassLoader().getResource(fallbackJniLibraryFileName);
+    }
+    if (resource == null) {
+      throw new RuntimeException(jniLibraryFileName + " was not found inside JAR.");
+    }
+    return resource.getFile();
+  }
+
   @SuppressWarnings({"PMD.UseProperClassLoader", "PMD.UseTryWithResources"})
   Path loadLibraryFromJarToTemp(final String tmpDir) throws IOException {
 
-    String[] split = jniLibraryFileName.split("\\.");
     String prefix = "librocksdbjni";
     String suffix = "jnilib";
-    if (split.length == 2) {
-      prefix = split[0];
-      suffix = split[1];
+    if (jniLibraryFileName != null) {
+      String[] split = jniLibraryFileName.split("\\.");
+      if (split.length == 2) {
+        prefix = split[0];
+        suffix = split[1];
+      }
     }
-    SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir,prefix, suffix);
-    SharedTempFile sharedTemp = instance.searchOrCreate();
+    SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir,prefix, libraryResourcePath(), suffix);
+    SharedTempFile sharedTemp = instance.create();
     SharedTempFile.Lock lock = sharedTemp.lock(this::libraryFromJar);
     Runtime.getRuntime().addShutdownHook(new Thread(lock::close));
     return sharedTemp.getContent();
