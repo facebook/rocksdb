@@ -20,10 +20,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class ColumnFamilyHandle;
 
-//       / \     UNDER CONSTRUCTION
-//      / ! \    UNDER CONSTRUCTION
-//     /-----\   UNDER CONSTRUCTION
-
+// EXPERIMENTAL
+//
 // A secondary index is an additional data structure built over a set of primary
 // key-values that enables efficiently querying key-values by value instead of
 // key. Both plain and wide-column key-values can be indexed, the latter on a
