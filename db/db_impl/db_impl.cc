@@ -508,6 +508,11 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
     s.PermitUncheckedError();  //**TODO: What to do on error?
   }
 
+  // Cancel awaiting remote compactions
+  if (immutable_db_options_.compaction_service) {
+    immutable_db_options_.compaction_service->CancelAwaitingJobs();
+  }
+
   shutting_down_.store(true, std::memory_order_release);
   bg_cv_.SignalAll();
   if (!wait) {

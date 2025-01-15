@@ -527,6 +527,9 @@ class CompactionService : public Customizable {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
+  // Cancel awaiting jobs. Called by CancelAllBackgroundWork()
+  virtual void CancelAwaitingJobs() {}
+
   // Optional callback function upon Installation.
   virtual void OnInstallation(const std::string& /*scheduled_job_id*/,
                               CompactionServiceJobStatus /*status*/) {}
