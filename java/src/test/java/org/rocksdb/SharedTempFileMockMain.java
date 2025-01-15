@@ -10,7 +10,7 @@ import java.nio.file.Path;
 import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.rocksdb.LeakedSharedObjectTest.compare;
+import static org.rocksdb.SharedTempFileLoaderTest.compare;
 
 public class SharedTempFileMockMain {
 
@@ -27,10 +27,10 @@ public class SharedTempFileMockMain {
         SharedTempFile sharedTemp = instance.searchOrCreate();
         System.err.println(sharedTemp + " created/found");
         Path content;
-        try (SharedTempFile.Lock ignored = sharedTemp.lock(LeakedSharedObjectTest::mockContent)) {
+        try (SharedTempFile.Lock ignored = sharedTemp.lock(SharedTempFileLoaderTest::mockContent)) {
             content = sharedTemp.getContent();
             assertThat(Files.exists(content)).isTrue();
-            try (BufferedReader shared = new BufferedReader(new InputStreamReader(Files.newInputStream(content))); BufferedReader resource = LeakedSharedObjectTest.mockContentReader()) {
+            try (BufferedReader shared = new BufferedReader(new InputStreamReader(Files.newInputStream(content))); BufferedReader resource = SharedTempFileLoaderTest.mockContentReader()) {
                 compare(resource, shared);
             }
             Thread.sleep(random.nextInt(1000));

@@ -12,7 +12,7 @@ import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class LeakedSharedObjectTest {
+public class SharedTempFileLoaderTest {
 
     private final static int SIGKILL_CODE = 128 + 9;
     private final static int SIGTERM_CODE = 128 + 15;
@@ -54,7 +54,7 @@ public class LeakedSharedObjectTest {
         SharedTempFile sharedTemp = instance.create();
         System.err.println(sharedTemp);
         Path content;
-        try (SharedTempFile.Lock ignored = sharedTemp.lock(LeakedSharedObjectTest::mockContent)) {
+        try (SharedTempFile.Lock ignored = sharedTemp.lock(SharedTempFileLoaderTest::mockContent)) {
             content = sharedTemp.getContent();
             assertThat(Files.exists(content)).isTrue();
             try (BufferedReader shared = new BufferedReader(new InputStreamReader(Files.newInputStream(content))); BufferedReader resource = mockContentReader()) {
@@ -76,7 +76,7 @@ public class LeakedSharedObjectTest {
         assertThat(existing).isNotEmpty();
         sharedTemp = existing.get(0);
         Path content;
-        try (SharedTempFile.Lock ignored = sharedTemp.lock(LeakedSharedObjectTest::mockContent)) {
+        try (SharedTempFile.Lock ignored = sharedTemp.lock(SharedTempFileLoaderTest::mockContent)) {
             content = sharedTemp.getContent();
             assertThat(Files.exists(content)).isTrue();
             try (BufferedReader shared = new BufferedReader(new InputStreamReader(Files.newInputStream(content))); BufferedReader resource = mockContentReader()) {
