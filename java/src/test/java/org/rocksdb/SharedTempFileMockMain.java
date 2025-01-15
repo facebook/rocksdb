@@ -1,5 +1,6 @@
 package org.rocksdb;
 
+import org.rocksdb.util.ArgUtil;
 import org.rocksdb.util.SharedTempFile;
 
 import java.io.BufferedReader;
@@ -7,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,6 +24,10 @@ public class SharedTempFileMockMain {
         Thread.sleep(random.nextInt(1000));
 
         String tmpDir = System.getProperty("java.io.tmpdir");
+        Map<String,String> argMap = ArgUtil.parseArgs(args);
+        if (argMap.containsKey("tmpdir")) {
+            tmpDir = argMap.get("tmpdir");
+        }
 
         SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir, "rocksdbmock", "jnilib");
         SharedTempFile sharedTemp = instance.searchOrCreate();
