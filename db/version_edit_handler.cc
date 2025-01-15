@@ -513,7 +513,7 @@ Status VersionEditHandler::MaybeCreateVersionBeforeApplyEdit(
     if (s.ok()) {
       // Install new version
       v->PrepareAppend(
-          cfd->GetLatestMutableCFOptions(), read_options_,
+          read_options_,
           !(version_set_->db_options_->skip_stats_update_on_db_open));
       version_set_->AppendVersion(cfd, v);
     } else {
@@ -885,7 +885,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
         }
       } else {
         version->PrepareAppend(
-            cfd->GetLatestMutableCFOptions(), read_options_,
+            read_options_,
             !version_set_->db_options_->skip_stats_update_on_db_open);
         auto v_iter = versions_.find(cfd->GetID());
         if (v_iter != versions_.end()) {
@@ -985,7 +985,7 @@ void VersionEditHandlerPointInTime::AtomicUpdateVersionsApply() {
     Version* version = cfid_and_version.second;
     assert(version != nullptr);
     version->PrepareAppend(
-        version->cfd()->GetLatestMutableCFOptions(), read_options_,
+        read_options_,
         !version_set_->db_options_->skip_stats_update_on_db_open);
     auto versions_iter = versions_.find(cfid);
     if (versions_iter != versions_.end()) {

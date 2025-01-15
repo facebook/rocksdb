@@ -329,7 +329,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
       TEST_SYNC_POINT("FlushJob::InstallResults");
       // Replace immutable memtable with the generated Table
       s = cfd_->imm()->TryInstallMemtableFlushResults(
-              cfd_, mutable_cf_options_, mems_, prep_tracker, versions_, db_mutex_,
+              cfd_, mems_, prep_tracker, versions_, db_mutex_,
               meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
               log_buffer_, &committed_flush_jobs_info_,
               !(mempurge_s.ok()) /* write_edit : true if no mempurge happened (or if aborted),
@@ -1238,8 +1238,7 @@ Status FlushJob::MaybeIncreaseFullHistoryTsLowToAboveCutoffUDT() {
   VersionEdit edit;
   edit.SetColumnFamily(cfd_->GetID());
   edit.SetFullHistoryTsLow(new_full_history_ts_low);
-  return versions_->LogAndApply(cfd_, cfd_->GetLatestMutableCFOptions(),
-                                ReadOptions(Env::IOActivity::kFlush),
+  return versions_->LogAndApply(cfd_, ReadOptions(Env::IOActivity::kFlush),
                                 WriteOptions(Env::IOActivity::kFlush), &edit,
                                 db_mutex_, output_file_directory_);
 }

@@ -156,7 +156,6 @@ class MemTableListVersion {
   friend Status InstallMemtableAtomicFlushResults(
       const autovector<MemTableList*>* imm_lists,
       const autovector<ColumnFamilyData*>& cfds,
-      const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<const autovector<ReadOnlyMemTable*>*>& mems_list,
       VersionSet* vset, LogsWithPrepTracker* prep_tracker,
       InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
@@ -311,9 +310,9 @@ class MemTableList {
   // Try commit a successful flush in the manifest file. It might just return
   // Status::OK letting a concurrent flush to do the actual the recording.
   Status TryInstallMemtableFlushResults(
-      ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-      const autovector<ReadOnlyMemTable*>& m, LogsWithPrepTracker* prep_tracker,
-      VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
+      ColumnFamilyData* cfd, const autovector<ReadOnlyMemTable*>& m,
+      LogsWithPrepTracker* prep_tracker, VersionSet* vset,
+      InstrumentedMutex* mu, uint64_t file_number,
       autovector<ReadOnlyMemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer,
       std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
@@ -480,7 +479,6 @@ class MemTableList {
   friend Status InstallMemtableAtomicFlushResults(
       const autovector<MemTableList*>* imm_lists,
       const autovector<ColumnFamilyData*>& cfds,
-      const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<const autovector<ReadOnlyMemTable*>*>& mems_list,
       VersionSet* vset, LogsWithPrepTracker* prep_tracker,
       InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
@@ -536,7 +534,6 @@ class MemTableList {
 Status InstallMemtableAtomicFlushResults(
     const autovector<MemTableList*>* imm_lists,
     const autovector<ColumnFamilyData*>& cfds,
-    const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<const autovector<ReadOnlyMemTable*>*>& mems_list,
     VersionSet* vset, LogsWithPrepTracker* prep_tracker, InstrumentedMutex* mu,
     const autovector<FileMetaData*>& file_meta,

@@ -2423,7 +2423,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   uint64_t new_log_number =
       creating_new_log ? versions_->NewFileNumber() : logfile_number_;
   // For use outside of holding DB mutex
-  MutableCFOptions mutable_cf_options_copy = cfd->GetLatestMutableCFOptions();
+  const MutableCFOptions mutable_cf_options_copy =
+      cfd->GetLatestMutableCFOptions();
 
   // Set memtable_info for memtable sealed callback
   // TODO: memtable_info for `new_imm`

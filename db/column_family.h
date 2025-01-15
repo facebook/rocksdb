@@ -401,10 +401,11 @@ class ColumnFamilyData {
   uint64_t OldestLogToKeep();
 
   // See Memtable constructor for explanation of earliest_seq param.
+  // `mutable_cf_options` might need to be a saved copy if calling this without
+  // holding the DB mutex.
   MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
                                  SequenceNumber earliest_seq);
-  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options,
-                         SequenceNumber earliest_seq);
+  void CreateNewMemtable(SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
   BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }

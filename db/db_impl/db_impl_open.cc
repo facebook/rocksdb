@@ -821,8 +821,7 @@ Status DBImpl::Recover(
       if (!s.ok()) {
         // Clear memtables if recovery failed
         for (auto cfd : *versions_->GetColumnFamilySet()) {
-          cfd->CreateNewMemtable(cfd->GetLatestMutableCFOptions(),
-                                 kMaxSequenceNumber);
+          cfd->CreateNewMemtable(kMaxSequenceNumber);
         }
       }
     }
@@ -988,8 +987,7 @@ Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
 
-  Status s = versions_->LogAndApply(recovery_ctx.cfds_,
-                                    recovery_ctx.mutable_cf_opts_, read_options,
+  Status s = versions_->LogAndApply(recovery_ctx.cfds_, read_options,
                                     write_options, recovery_ctx.edit_lists_,
                                     &mutex_, directories_.GetDbDir());
   return s;
@@ -1601,8 +1599,7 @@ Status DBImpl::MaybeWriteLevel0TableForRecovery(
       }
       *flushed = true;
 
-      cfd->CreateNewMemtable(cfd->GetLatestMutableCFOptions(),
-                             *next_sequence - 1);
+      cfd->CreateNewMemtable(*next_sequence - 1);
     }
   }
   return status;
@@ -1788,8 +1785,7 @@ Status DBImpl::MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
           }
           flushed = true;
 
-          cfd->CreateNewMemtable(cfd->GetLatestMutableCFOptions(),
-                                 versions_->LastSequence());
+          cfd->CreateNewMemtable(versions_->LastSequence());
         }
         data_seen = true;
       }

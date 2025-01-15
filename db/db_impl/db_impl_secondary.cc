@@ -270,11 +270,8 @@ Status DBImplSecondary::RecoverLogFiles(
           if (!cfd->mem()->IsEmpty() &&
               (curr_log_num == std::numeric_limits<uint64_t>::max() ||
                curr_log_num != log_number)) {
-            // FIXME: unnecessary copy
-            const MutableCFOptions mutable_cf_options =
-                cfd->GetLatestMutableCFOptions();
-            MemTable* new_mem =
-                cfd->ConstructNewMemtable(mutable_cf_options, seq_of_batch);
+            MemTable* new_mem = cfd->ConstructNewMemtable(
+                cfd->GetLatestMutableCFOptions(), seq_of_batch);
             cfd->mem()->SetNextLogNumber(log_number);
             cfd->mem()->ConstructFragmentedRangeTombstones();
             cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
