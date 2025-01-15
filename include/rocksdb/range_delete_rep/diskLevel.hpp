@@ -78,7 +78,7 @@ class DiskLevel {
     
     void AddRun(vector<DiskRun<K, V> *> &runList);
 
-    void AddRunFromMem(RTree<bool, uint64_t, 2, float, 16> * mem, Point & minP, Point & maxP, uint64_t & minU);
+    void AddRunFromMem(RTreeType * mem, Point & minP, Point & maxP, uint64_t & minU);
     
     vector<DiskRun<K,V> *> GetRunsToMerge();
     
@@ -94,7 +94,7 @@ class DiskLevel {
 
     bool QueryRect (const K &key);
 
-    bool QueryRect (const K &key, uint64_t & node_cnt, uint64_t & leaf_cnt);
+    bool QueryRect (const K &key, uint64_t & rtree_cnt, uint64_t & node_cnt, uint64_t & leaf_cnt);
 
     bool QueryRectAtRun(const K &key, size_t &level, size_t &run, uint64_t &sequence, uint64_t & node_cnt, uint64_t & leaf_cnt);
 
@@ -113,8 +113,8 @@ class DiskLevel {
 
 template <class K, class V>
 void DiskLevel<K, V>::AddRun(vector<DiskRun<K, V> *> &runList) {
-    RTree<bool, uint64_t, 2, float, 16> * RTree_res;
-    RTree_res = new RTree<bool, uint64_t, 2, float, 16>();
+    RTreeType * RTree_res;
+    RTree_res = new RTreeType();
     Point minP;
     Point maxP;
     uint64_t minU;
@@ -134,7 +134,7 @@ void DiskLevel<K, V>::AddRun(vector<DiskRun<K, V> *> &runList) {
             minU = std::min(minU, runList[i]->min_upper_);
 
             // insert entries in new RTree
-            RTree<bool, uint64_t, 2, float, 16>::Iterator it;
+            RTreeType::Iterator it;
             uint64_t boundsMin[2] = {0, 0};
             uint64_t boundsMax[2] = {0, 0};
 
@@ -150,12 +150,12 @@ void DiskLevel<K, V>::AddRun(vector<DiskRun<K, V> *> &runList) {
 }
 
 template <class K, class V>
-void DiskLevel<K, V>::AddRunFromMem(RTree<bool, uint64_t, 2, float, 16> * mem, Point & minP, Point & maxP, uint64_t & minU) {
+void DiskLevel<K, V>::AddRunFromMem(RTreeType * mem, Point & minP, Point & maxP, uint64_t & minU) {
     // insert into level_ 1
     size_t runID = runs_.size();
     runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, minU, use_full_rtree_, mem));
 
-    // RTree<bool, uint64_t, 2, float, 16>::Iterator it;
+    // RTreeType::Iterator it;
     // uint64_t boundsMin[2] = {0, 0};
     // uint64_t boundsMax[2] = {0, 0};
     // for (mem.GetFirst(it); !mem.IsNull(it); mem.GetNext(it)) {
@@ -223,7 +223,7 @@ bool DiskLevel<K, V>::QueryRect (const K &key) {
 }
 
 template <class K, class V>
-bool DiskLevel<K, V>::QueryRect (const K &key, uint64_t & node_cnt, uint64_t & leaf_cnt) {
+bool DiskLevel<K, V>::QueryRect (const K &key, uint64_t & rtree_cnt, uint64_t & node_cnt, uint64_t & leaf_cnt) {
     int maxRunToSearch = runs_.size();
     if (maxRunToSearch == 0){
         return false;
@@ -241,6 +241,7 @@ bool DiskLevel<K, V>::QueryRect (const K &key, uint64_t & node_cnt, uint64_t & l
         bool res = runs_[i]->QueryDisk(key, node_cnt_, leaf_cnt_);
         node_cnt += node_cnt_;
         leaf_cnt += leaf_cnt_;
+        rtree_cnt += 1;
         if (res) {return true;}
     }
     return false;

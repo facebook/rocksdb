@@ -1,7 +1,11 @@
 #pragma once
 #include "RTree.h"
 
+// typedef rangedelete_rep::RTree<bool, uint64_t, 2, float, 4> RTreeType;
+// typedef rangedelete_rep::RTree<bool, uint64_t, 2, float, 8> RTreeType;
 typedef rangedelete_rep::RTree<bool, uint64_t, 2, float, 16> RTreeType;
+// typedef rangedelete_rep::RTree<bool, uint64_t, 2, float, 64> RTreeType;
+// typedef rangedelete_rep::RTree<bool, uint64_t, 2, float, 256> RTreeType;
 
 namespace rangedelete_rep{
 

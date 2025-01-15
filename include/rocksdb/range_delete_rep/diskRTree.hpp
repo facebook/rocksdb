@@ -26,13 +26,13 @@ class DiskRun {
 public:
     DiskRun<K,V> (std::string path, size_t page_size, int level, size_t runID, 
                     Point min_point, Point max_point, uint64_t min_upper, bool use_full_rtree, 
-                    RTree<bool, uint64_t, 2, float, 16> * Tree)
+                    RTreeType * Tree)
                   :level_(level), page_size_(page_size), runID_(runID), min_point_(min_point), 
                   max_point_(max_point), min_upper_(min_upper), use_full_rtree_(use_full_rtree)
     {
         filename_ = path + "C_" + to_string(level_) + "_" + to_string(runID_) + ".dat";
         Tree->Save(filename_.c_str(), use_full_rtree_);
-        RTree_ = new RTree<bool, uint64_t, 2, float, 16>();
+        RTree_ = new RTreeType();
     }
 
     ~DiskRun<K,V>(){
@@ -76,7 +76,7 @@ public:
         }
         RectForRTree rectr(key);
         bool res = false;
-        RTree<bool, uint64_t, 2, float, 16>* tree = new RTree<bool, uint64_t, 2, float, 16>();
+        RTreeType* tree = new RTreeType();
         res = tree->QueryFromFile(rectr.min, rectr.max, node_cnt, leaf_cnt, filename_.c_str(), use_full_rtree_); //search r-tree
         return res;
     }
@@ -90,7 +90,7 @@ public:
         }
         RectForRTree rectr(key);
         bool res = false;
-        RTree<bool, uint64_t, 2, float, 16>* tree = new RTree<bool, uint64_t, 2, float, 16>();
+        RTreeType* tree = new RTreeType();
         // need to add full version
         res = tree->QueryMaxSequenceFromFile(rectr.min, rectr.max, sequence, node_cnt, leaf_cnt, filename_.c_str()); //search r-tree
         return res;
@@ -156,7 +156,7 @@ private:
     bool use_full_rtree_ = false;
     bool loaded_ = false;
 
-    RTree<bool, uint64_t, 2, float, 16> * RTree_ = nullptr;
+    RTreeType * RTree_ = nullptr;
 
     size_t page_size_;
     Point min_point_;
@@ -178,7 +178,7 @@ private:
         RTree_->Load(filename_.c_str(), use_full_rtree_);
     }
 
-    void LoadTo(RTree<bool, uint64_t, 2, float, 16> *tree){
+    void LoadTo(RTreeType *tree){
         // std::cout << "Load filename_ : " << filename_ << " to tmp rtree" << std::endl;
 
         struct stat buffer;

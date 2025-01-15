@@ -98,7 +98,7 @@ class LSM {
 
     bool QueryRect(K &key, bool is_point);
 
-    bool QueryRect(K &key, bool is_point, uint64_t & node_cnt, uint64_t & leaf_cnt);
+    bool QueryRect(K &key, bool is_point, uint64_t & rtree_cnt, uint64_t & node_cnt, uint64_t & leaf_cnt);
 
     // check the lsm file defined by &level and &run
     bool QueryNextFile(K &key, bool is_point, size_t &level, size_t &run, uint64_t &sequence, uint64_t &node_cnt, uint64_t &leaf_cnt);
@@ -189,6 +189,7 @@ bool LSM<K, V>::QueryRect(K &key, bool is_point){
     }
     RectForRTree rectr(key);
     //////////////////////////////////
+    uint64_t rtree_cnt_ = 0;
     uint64_t node_cnt_ = 0;
     uint64_t leaf_cnt_ = 0;
     bool is_in_mem = mem_->Cover(rectr.min, rectr.max, node_cnt_, leaf_cnt_);
@@ -204,9 +205,10 @@ bool LSM<K, V>::QueryRect(K &key, bool is_point){
             mergeThread.join();
         }
         for (int i = 0; i < diskLevels.size(); i++){
+            rtree_cnt_ = 0;
             node_cnt_ = 0;
             leaf_cnt_ = 0;
-            bool res = diskLevels[i]->QueryRect(key, node_cnt_, leaf_cnt_);
+            bool res = diskLevels[i]->QueryRect(key, rtree_cnt_, node_cnt_, leaf_cnt_);
             if (res) {
                 // std::cout << "Level " << (i+1) << " checked : found ..." << std::endl;
                 return true;
@@ -223,12 +225,13 @@ bool LSM<K, V>::QueryRect(K &key, bool is_point){
 }
 
 template <class K, class V>
-bool LSM<K, V>::QueryRect(K &key, bool is_point, uint64_t & node_cnt, uint64_t & leaf_cnt){
+bool LSM<K, V>::QueryRect(K &key, bool is_point, uint64_t & rtree_cnt, uint64_t & node_cnt, uint64_t & leaf_cnt){
     // query mem, if not, look at disk
     if (is_point){
         assert(key.min == key.max);
     }
     RectForRTree rectr(key);
+    uint64_t rtree_cnt_ = 0;
     uint64_t node_cnt_ = 0;
     uint64_t leaf_cnt_ = 0;
 
@@ -247,9 +250,11 @@ bool LSM<K, V>::QueryRect(K &key, bool is_point, uint64_t & node_cnt, uint64_t &
         for (int i = 0; i < diskLevels.size(); i++){
             node_cnt_ = 0;
             leaf_cnt_ = 0;
-            bool res = diskLevels[i]->QueryRect(key, node_cnt_, leaf_cnt_);
+            rtree_cnt_ = 0;
+            bool res = diskLevels[i]->QueryRect(key, rtree_cnt_, node_cnt_, leaf_cnt_);
             node_cnt += node_cnt_;
             leaf_cnt += leaf_cnt_;
+            rtree_cnt += rtree_cnt_;
             if (res) {
                 // std::cout << "Level " << (i+1) << " checked : found ..." << std::endl;
                 return true;

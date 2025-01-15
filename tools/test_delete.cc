@@ -5,7 +5,7 @@ class ResultChecker{
   public:
   ResultChecker(uint64_t key_space){
     uint64_t check_num_block = std::ceil(key_space / block_size);
-    check_num_block += (key_space % block_size == 0) ? 0 : 1;
+    // check_num_block += (key_space % block_size == 0) ? 0 : 1;
     data_.reserve(check_num_block);
     
     for (size_t i = 0; i < check_num_block; ++i) {
@@ -134,6 +134,7 @@ void ExcuteTestWithChecker(rocksdb::RangeDeleteDB* db, ResultChecker* checker) {
       }
       case 'r': {
         // std::cout << "Point read key : " << key_gen.Key() << std::endl;
+        uint64_t key_query = key_gen.Key();
         std::string value;
         auto status = db->PointQuery(key_gen.Key(), key_gen.KeyString(), value);
 
@@ -156,13 +157,63 @@ void ExcuteTestWithChecker(rocksdb::RangeDeleteDB* db, ResultChecker* checker) {
         auto status = db->RangeLookup(key_gen.Key(), key_gen.KeyString(), FLAGS_seek_len);
         break;
       }
+      // case 'g': {
+      //   // std::cout << "Range delete from key : " << key_gen.Key() << " to " << key_gen.Key() + FLAGS_rdelete_len << std::endl;
+      //   uint64_t key_right = key_gen.Key() + FLAGS_rdelete_len;
+      //   // WF: key_right_str is for RocksDB use, for which right boundary is exclusive, so we add 1
+      //   std::string key_right_str = key_gen.ToKeyString(key_right + 1);
+      //   auto status = db->RangeDelete(key_gen.Key(), key_gen.KeyString(), key_right, key_right_str, &key_gen);
+      //   checker->DeleteRange(key_gen.Key(), FLAGS_rdelete_len);
+      //   break;
+      // }
       case 'g': {
-        // std::cout << "Range delete from key : " << key_gen.Key() << " to " << key_gen.Key() + FLAGS_rdelete_len << std::endl;
+        std::cout << "Range delete from key : " << key_gen.Key() << " to " << key_gen.Key() + FLAGS_rdelete_len << std::endl;
+        uint64_t key_query_rep = key_gen.Key() + 3;
+        std::string key_query_rep_str = key_gen.ToKeyString(key_query_rep);
+        auto status = db->EntryInsert(key_query_rep, key_query_rep_str, key_gen.Value());
+        checker->InsertKey(key_query_rep);
+
+        uint64_t key_query_filter = key_gen.Key() + 120;
+        std::string key_query_filter_str = key_gen.ToKeyString(key_query_filter);
+        status = db->EntryInsert(key_query_filter, key_query_filter_str, key_gen.Value());
+        checker->InsertKey(key_query_filter);
+        ///////////
+
         uint64_t key_right = key_gen.Key() + FLAGS_rdelete_len;
         // WF: key_right_str is for RocksDB use, for which right boundary is exclusive, so we add 1
         std::string key_right_str = key_gen.ToKeyString(key_right + 1);
-        auto status = db->RangeDelete(key_gen.Key(), key_gen.KeyString(), key_right, key_right_str, &key_gen);
+        status = db->RangeDelete(key_gen.Key(), key_gen.KeyString(), key_right, key_right_str, &key_gen);
         checker->DeleteRange(key_gen.Key(), FLAGS_rdelete_len);
+
+        ///////////
+        std::string value;
+        status = db->PointQuery(key_query_rep, key_query_rep_str, value);
+        bool check_res = checker->CheckKey(key_query_rep);
+        if(check_res){
+          if (status != rocksdb::Result::kOk && status != rocksdb::Result::kNotRangeDeleted){
+            std::cerr << "Fail: cannot get existing key " << key_gen.Key() << " " << status << std::endl;
+            exit(1);
+          }
+        } else {
+          if (status == rocksdb::Result::kOk){
+            std::cerr << "Fail: get deleted/non-exist key " << key_gen.Key() << " " << status << std::endl;
+            exit(1);
+          }
+        }
+        status = db->PointQuery(key_query_filter, key_query_filter_str, value);
+        check_res = checker->CheckKey(key_query_filter);
+        if(check_res){
+          if (status != rocksdb::Result::kOk && status != rocksdb::Result::kNotRangeDeleted){
+            std::cerr << "Fail: cannot get existing key " << key_gen.Key() << " " << status << std::endl;
+            exit(1);
+          }
+        } else {
+          if (status == rocksdb::Result::kOk){
+            std::cerr << "Fail: get deleted/non-exist key " << key_gen.Key() << " " << status << std::endl;
+            exit(1);
+          }
+        }
+        //////////////////////////
         break;
       }
     }
@@ -174,13 +225,25 @@ void ExcuteTestWithChecker(rocksdb::RangeDeleteDB* db, ResultChecker* checker) {
 }
 
 void PrintSetting(){
-  std::cout << "Use Full R-tree : " << FLAGS_full_rtree << std::endl;
-  std::cout << "kv size : " << FLAGS_kvsize << " bytes" << std::endl;
-  std::cout << "db_opts.buffer_cap : " << FLAGS_buffer_size << " MB" << std::endl;
-  std::cout << "rep_opts.buffer_cap : " << FLAGS_rep_buffer_size << " KB" << std::endl;
-  std::cout << "LSM_Bloom bit_per_key : " << FLAGS_bpk_filter << std::endl;
-  std::cout << "filter_opts.bit_per_key : " << FLAGS_bpk_rd_filter << std::endl;
-  std::cout << "level start to involve rd_rep in comp : " << FLAGS_level_comp << std::endl;
+  std::cout << "LSM Setting" << std::endl;
+  std::cout << "Key size : " << FLAGS_ksize << " bytes;  KV size: " << FLAGS_kvsize << " bytes" << std::endl;
+  std::cout << "LSM buffer size : " << FLAGS_buffer_size << " MB" << std::endl;
+  std::cout << "LSM Bloom filter BPK : " << FLAGS_bpk_filter << std::endl;
+
+  if (FLAGS_mode == "grd"){
+    std::cout << "GRD Filter Setting" << std::endl;
+    std::cout << "Enable GRD filter : " << FLAGS_enable_rdfilter << std::endl;
+    std::cout << "GRD filter BPK : " << FLAGS_bpk_rd_filter << std::endl;
+    
+    std::cout << "GRD Rep Setting" << std::endl;
+    std::cout << "GRD Rep buffer size : " << FLAGS_rep_buffer_size << " KB" << std::endl;
+    std::cout << "GRD Rep size ratio : " << FLAGS_rep_size_ratio << std::endl;
+    std::cout << "Use Full R-tree : " << FLAGS_full_rtree << std::endl;
+    std::cout << "level start to involve GDR in compaction : " << FLAGS_level_comp << std::endl;
+  }
+  
+  std::cout << "Workload" << std::endl;
+  std::cout << "Maxkey : " << FLAGS_max_key << ",  Prepare: " << FLAGS_prep_num << "keys" << std::endl;
   std::cout << "workload: Write " << FLAGS_write_num << ", Point query " << FLAGS_read_num 
             << ", Range query " << FLAGS_seek_num << ", Range delete " << FLAGS_rdelete_num << " Delete length: " << FLAGS_rdelete_len << std::endl;
 }
@@ -196,7 +259,7 @@ int main(int argc, char** argv) {
 
   rocksdb::RangeDeleteDB* db = new rocksdb::RangeDeleteDB(options);
 
-  ResultChecker* checker = new ResultChecker(FLAGS_max_key);
+  ResultChecker* checker = new ResultChecker(FLAGS_max_key + 1);
 
   if (FLAGS_workload == "prepare") {
     PrepareDB(db, checker);
@@ -212,7 +275,7 @@ int main(int argc, char** argv) {
 
   db->PrintStatic();
 
-  // std::cout << "statistics: " << options.db_conf.statistics->ToString() << std::endl;
+  std::cout << "statistics: " << options.db_conf.statistics->ToString() << std::endl;
 
   db->close();
   delete db;

@@ -17,8 +17,10 @@ class BucketModel {
  public:
   BucketModel(uint64_t min_key, uint64_t max_key, uint64_t total_bit_size)
       : min_key_(min_key),
-        max_key_(max_key),
-        total_bit_size_(total_bit_size) {}
+        max_key_(max_key) 
+  {
+    max_pos_ = total_bit_size - 1;
+  }
 
   /**
    * For given query (point/range), return the (slope, bias) of the model
@@ -48,18 +50,18 @@ class BucketModel {
  private:
   uint64_t min_key_;
   uint64_t max_key_;
-  uint64_t total_bit_size_;
+  uint64_t max_pos_; //[0, total_bit_size -1]
 };
 
 
 uint64_t BucketModel::get_location(const uint64_t &key){
   uint64_t location = 0;
   if (key > max_key_){
-    location = total_bit_size_;
+    location = max_pos_;
   } else if (key > min_key_) {
-    location = static_cast<uint64_t>(static_cast<long double>(key - min_key_)/(max_key_ - min_key_) * total_bit_size_);
+    location = static_cast<uint64_t>(static_cast<long double>(key - min_key_)/(max_key_ - min_key_) * max_pos_);
   }
-  assert(location <= total_bit_size_ && location >= 0);
+  assert(location <= max_pos_ && location >= 0);
   return location;
 }
 

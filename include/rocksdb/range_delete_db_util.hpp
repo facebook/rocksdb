@@ -214,9 +214,11 @@ struct RDDBStat
   RDTimer op_rdelete_rep;
   // uint64_t break_filter = 0; //#operations filtered by filter
   // uint64_t break_rep = 0;    //#calls range delete rep
+  uint64_t read_notfound = 0;
   uint64_t filter_tn = 0;
   uint64_t filter_fp = 0;
   uint64_t filter_tp = 0;
+  std::vector<uint64_t> rtree_cnt;
   std::vector<uint64_t> rtree_node_cnt;
   std::vector<uint64_t> rtree_leaf_cnt;
   // std::vector<uint64_t> gc_times; // garbage collection
@@ -252,6 +254,7 @@ void RDDBStat::Print(){
   std::cout << "Test Information: " << std::endl;
   std::cout << "    Point query:  count: " << op_read.count << " , duration: " << op_read.duration 
             << " us, avg latency: " << op_read.duration/std::max(op_read.count, uint64_t(1)) << std::endl;
+  std::cout << "            number of not found: " << read_notfound << std::endl;
   std::cout << "    Range query: count:  " << op_rread.count << " , duration: " << op_rread.duration
             << " us, avg latency: " << op_rread.duration/std::max(op_rread.count, uint64_t(1)) << std::endl;
   std::cout << "    Range delete: count:  " << op_rdelete.count << " , duration: " << op_rdelete.duration 
@@ -269,6 +272,8 @@ void RDDBStat::Print(){
 
     std::cout << "    Read RD rep: count:  " << rd_rep.count << " , duration: " << rd_rep.duration 
               << " us, avg latency: " << rd_rep.duration/std::max(rd_rep.count, uint64_t(1)) << std::endl;
+    std::cout << "       number of accessed R-trees (min - max): " <<  GetMin(rtree_cnt) << " - " << GetMax(rtree_cnt)
+              << " average value: " << GetAvg(rtree_cnt) << std::endl;
     std::cout << "       number of accessed internal nodes (min - max): " <<  GetMin(rtree_node_cnt) << " - " << GetMax(rtree_node_cnt)
               << " average value: " << GetAvg(rtree_node_cnt) << std::endl;
     std::cout << "       number of accessed leaf nodes (min - max): " <<  GetMin(rtree_leaf_cnt) << " - " << GetMax(rtree_leaf_cnt)

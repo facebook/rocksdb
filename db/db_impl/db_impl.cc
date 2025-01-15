@@ -2596,6 +2596,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   PinnedIteratorsManager pinned_iters_mgr;
 
   if(read_options.use_cross_check){
+    uint64_t rtree_cnt = 0;
     uint64_t node_cnt = 0;
     uint64_t leaf_cnt = 0;
     if (!done) {
@@ -2626,7 +2627,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         uint64_t query_key = std::stoull(key.ToString());
         uint64_t query_seq = *get_impl_options.target_seq_num;
         rangedelete_rep::Rectangle query_rect(query_key, query_seq, query_key, query_seq);
-        bool query_res = global_range_delete_rep->QueryRect(query_rect, true, node_cnt, leaf_cnt);
+        bool query_res = global_range_delete_rep->QueryRect(query_rect, true, rtree_cnt, node_cnt, leaf_cnt);
         if (query_res)
         {
           s = Status::NotFound();
