@@ -9,6 +9,11 @@ import java.nio.file.StandardCopyOption;
 import org.rocksdb.util.Environment;
 import org.rocksdb.util.SharedTempFile;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.nio.file.Path;
+
 /**
  * This class is used to load the RocksDB shared library from within the jar.
  * The shared library is extracted to a temp folder and loaded from there.
@@ -140,56 +145,31 @@ public class NativeLibraryLoader {
     return is;
   }
 
-  @SuppressWarnings({"PMD.UseProperClassLoader", "PMD.UseTryWithResources", "PMD.SystemPrintln"})
-  File loadLibraryFromJarToTemp(final String tmpDir) throws IOException {
-    try (InputStream is = getClass().getClassLoader().getResourceAsStream(jniLibraryFileName)) {
-      if (is != null) {
-        final File temp = createTemp(tmpDir, jniLibraryFileName);
-        System.err.println("Temporary JNI lib copy: " + temp.toPath());
-        Files.copy(is, temp.toPath(), StandardCopyOption.REPLACE_EXISTING);
-        return temp;
-      } else {
-        if (DEBUG_LOADING) {
-          System.out.println("Unable to find: " + jniLibraryFileName + " on the classpath");
-        }
-      }
+  private String libraryResourcePath() {
+    URL resource = getClass().getClassLoader().getResource(jniLibraryFileName);
+    if (resource == null) {
+      resource = getClass().getClassLoader().getResource(fallbackJniLibraryFileName);
     }
-
-    if (fallbackJniLibraryFileName == null) {
-      throw new RuntimeException(
-          jniLibraryFileName + " was not found inside JAR, and there is no fallback.");
+    if (resource == null) {
+      throw new RuntimeException(jniLibraryFileName + " was not found inside JAR.");
     }
-
-    try (InputStream is =
-             getClass().getClassLoader().getResourceAsStream(fallbackJniLibraryFileName)) {
-      if (is != null) {
-        final File temp = createTemp(tmpDir, fallbackJniLibraryFileName);
-        Files.copy(is, temp.toPath(), StandardCopyOption.REPLACE_EXISTING);
-        return temp;
-      } else {
-        if (DEBUG_LOADING) {
-          System.out.println(
-              "Unable to find fallback: " + fallbackJniLibraryFileName + " on the classpath");
-        }
-      }
-    }
-
-    throw new RuntimeException("Neither " + jniLibraryFileName + " or " + fallbackJniLibraryFileName
-                                   + " were found inside the JAR, and there is no fallback.");
+    return resource.getFile();
   }
 
   @SuppressWarnings({"PMD.UseProperClassLoader", "PMD.UseTryWithResources"})
   Path loadLibraryFromJarToTemp(final String tmpDir) throws IOException {
 
-    String[] split = jniLibraryFileName.split("\\.");
     String prefix = "librocksdbjni";
     String suffix = "jnilib";
-    if (split.length == 2) {
-      prefix = split[0];
-      suffix = split[1];
+    if (jniLibraryFileName != null) {
+      String[] split = jniLibraryFileName.split("\\.");
+      if (split.length == 2) {
+        prefix = split[0];
+        suffix = split[1];
+      }
     }
-    SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir,prefix, suffix);
-    SharedTempFile sharedTemp = instance.searchOrCreate();
+    SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir,prefix, libraryResourcePath(), suffix);
+    SharedTempFile sharedTemp = instance.create();
     SharedTempFile.Lock lock = sharedTemp.lock(this::libraryFromJar);
     Runtime.getRuntime().addShutdownHook(new Thread(lock::close));
     return sharedTemp.getContent();
