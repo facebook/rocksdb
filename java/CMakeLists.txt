@@ -503,6 +503,7 @@ set(JAVA_TEST_RUNNING_CLASSES
   org.rocksdb.RocksIteratorTest
   org.rocksdb.RocksMemEnvTest
   org.rocksdb.SecondaryDBTest
+  org.rocksdb.SharedTempFileLoaderTest
   org.rocksdb.SliceTest
   org.rocksdb.SnapshotTest
   org.rocksdb.SstFileManagerTest
