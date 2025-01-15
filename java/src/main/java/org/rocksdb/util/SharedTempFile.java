@@ -153,40 +153,42 @@ public class SharedTempFile {
      * If this is the last user of the content (no other instance lock) delete it all.
      */
     private void unlock() {
-        try (FileChannel fc = FileChannel.open(directoryLock, StandardOpenOption.WRITE)) {
-            try (FileLock ignored = fc.lock()) {
-                Files.delete(instanceLock);
-                // prefixNNN.lock - one instance lock for every VM currently locking the content file
-                List<Path> lockFiles = new ArrayList<>();
-                try (Stream<Path> children = Files.walk(directory, 1)) {
-                    children.forEach(path -> {
-                        Path fileName = path.getFileName();
-                        String name = fileName.toString();
-                        if (name.startsWith(instance.prefix) && name.endsWith("." + INSTANCE_LOCK)) {
-                            lockFiles.add(fileName);
-                        }
-                    });
-                }
-                if (lockFiles.isEmpty()) {
-                    // No VMs are locking this SharedTempFile, so we can delete it
-                    if (!Files.exists(content)) {
-                        throw new RuntimeException("SharedTempFile " + instance.prefix + " contents not found for deletion");
+        if (Files.exists(directory)) {
+            try (FileChannel fc = FileChannel.open(directoryLock, StandardOpenOption.WRITE)) {
+                try (FileLock ignored = fc.lock()) {
+                    Files.delete(instanceLock);
+                    // prefixNNN.lock - one instance lock for every VM currently locking the content file
+                    List<Path> lockFiles = new ArrayList<>();
+                    try (Stream<Path> children = Files.walk(directory, 1)) {
+                        children.forEach(path -> {
+                            Path fileName = path.getFileName();
+                            String name = fileName.toString();
+                            if (name.startsWith(instance.prefix) && name.endsWith("." + INSTANCE_LOCK)) {
+                                lockFiles.add(fileName);
+                            }
+                        });
                     }
-                    Files.delete(content);
+                    if (lockFiles.isEmpty()) {
+                        // No VMs are locking this SharedTempFile, so we can delete it
+                        if (!Files.exists(content)) {
+                            throw new RuntimeException("SharedTempFile " + instance.prefix + " contents not found for deletion");
+                        }
+                        Files.delete(content);
 
-                    // At this point we have removed the content, but it is difficult to remove the dir
-                    // What happens to the contained lock file when the dir is renamed ?
-                    // This is presumably implementation dependent (e.g. advisory locking or not)
-                    // SO ? We just leave it hanging around, because:
-                    // 1. It's in a temporary so in theory it should just get deleted eventually
-                    // 2. It doesn't take up much space,  which was the point of the exercise.
-                    // 3. It may/will get used again anyway when found by `search()`
+                        // At this point we have removed the content, but it is difficult to remove the dir
+                        // What happens to the contained lock file when the dir is renamed ?
+                        // This is presumably implementation dependent (e.g. advisory locking or not)
+                        // SO ? We just leave it hanging around, because:
+                        // 1. It's in a temporary so in theory it should just get deleted eventually
+                        // 2. It doesn't take up much space,  which was the point of the exercise.
+                        // 3. It may/will get used again anyway when found by `search()`
+                    }
+                } catch (IOException e) {
+                    throw new RuntimeException("SharedTempFile " + instance.prefix + " could not be locked", e);
                 }
             } catch (IOException e) {
-                throw new RuntimeException("SharedTempFile " + instance.prefix + " could not be locked", e);
+                throw new RuntimeException("SharedTempFile " + instance.prefix + " could not be opened", e);
             }
-        } catch (IOException e) {
-            throw new RuntimeException("SharedTempFile " + instance.prefix + " could not be opened", e);
         }
     }
 
