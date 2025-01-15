@@ -1,6 +1,8 @@
 package org.rocksdb;
 
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.rocksdb.util.SharedTempFile;
 
 import java.io.*;
@@ -44,15 +46,20 @@ public class SharedTempFileLoaderTest {
         assertThat(actualLine).isNull();
     }
 
-    private final String tmpDir = System.getProperty("java.io.tmpdir");
+    @Rule
+    public TemporaryFolder temporaryFolder = new TemporaryFolder();
+
+    private String getTmpDir() {
+        return temporaryFolder.getRoot().getAbsolutePath();
+    }
 
     @Test
     public void sharedTempFresh() throws IOException {
         String prefix = "rocksdbjnitest__" + random.nextLong() + "__";
-        SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir, prefix, "jnilib");
+        SharedTempFile.Instance instance = new SharedTempFile.Instance(getTmpDir(), prefix, "jnilib");
         assertThat(instance.search()).isEmpty();
         SharedTempFile sharedTemp = instance.create();
-        System.err.println(sharedTemp);
+        System.err.println("sharedTempFresh() created: " + sharedTemp);
         Path content;
         try (SharedTempFile.Lock ignored = sharedTemp.lock(SharedTempFileLoaderTest::mockContent)) {
             content = sharedTemp.getContent();
@@ -68,10 +75,10 @@ public class SharedTempFileLoaderTest {
     public void sharedTempExists() throws IOException {
 
         String prefix = "rocksdbjnitest__" + random.nextLong() + "__";
-        SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir, prefix, "jnilib");
+        SharedTempFile.Instance instance = new SharedTempFile.Instance(getTmpDir(), prefix, "jnilib");
         assertThat(instance.search()).isEmpty();
         SharedTempFile sharedTemp = instance.create();
-        System.err.println("Created: " + sharedTemp);
+        System.err.println("sharedTempExists() created: " + sharedTemp);
         List<SharedTempFile> existing = instance.search();
         assertThat(existing).isNotEmpty();
         sharedTemp = existing.get(0);
@@ -88,19 +95,19 @@ public class SharedTempFileLoaderTest {
 
     @Test
     public void openManySharedTemp() throws IOException {
-        openMany("org.rocksdb.SharedTempFileMockMain", Kill.None);
+        openMany("org.rocksdb.SharedTempFileMockMain", Kill.None, "--tmpdir=" + getTmpDir());
     }
 
     @Test
     public void openManyRocksDBKill() throws IOException {
         // Do this to make processes wait a long time, and we will kill them exp;icitly before they exit
-        openMany("org.rocksdb.SharedTempFileRocksDBMain", Kill.Term, "--waitkill");
+        openMany("org.rocksdb.SharedTempFileRocksDBMain", Kill.Term, "--waitkill=true", "--tmpdir=" + getTmpDir());
     }
 
     @Test
     public void openManyRocksDBWait() throws IOException {
         //Do this to (1) not kill the process and let them exit by themselves
-        openMany("org.rocksdb.SharedTempFileRocksDBMain", Kill.None);
+        openMany("org.rocksdb.SharedTempFileRocksDBMain", Kill.None, "--tmpdir=" + getTmpDir());
     }
 
     enum Kill {
