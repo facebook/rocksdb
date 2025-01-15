@@ -4473,168 +4473,177 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
   // Need a sufficent set of file numbers
   options_.level0_file_num_compaction_trigger = 100;
 
-  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
-  // Need a sufficent set of file numbers
-  const int keys_iteration = 5000;
-  FillDB(db_.get(), 0, keys_iteration / 3);
-  FillDB(db_.get(), keys_iteration / 3, keys_iteration * 2 / 3);
-  FillDB(db_.get(), keys_iteration * 2 / 3, keys_iteration);
-  CloseAndReopenDB();
+  for (const auto& restore_mode :
+       {RestoreOptions::Mode::kPurgeAllFiles,
+        RestoreOptions::Mode::kKeepLatestDbSessionIdFiles,
+        RestoreOptions::Mode::kVerifyChecksum}) {
+    OpenDBAndBackupEngine(true, false, kShareWithChecksum);
+    // Need a sufficent set of file numbers
+    const int keys_iteration = 5000;
+    FillDB(db_.get(), 0, keys_iteration / 3);
+    FillDB(db_.get(), keys_iteration / 3, keys_iteration * 2 / 3);
+    FillDB(db_.get(), keys_iteration * 2 / 3, keys_iteration);
+    CloseAndReopenDB();
 
-  BackupEngine* alt_backup_engine;
-  BackupEngineOptions alt_engine_options{*engine_options_};
-  // Use an alternate Env to test that support
-  std::string backup_alt_chroot = test::PerThreadDBPath("db_alt_backups");
-  EXPECT_OK(Env::Default()->CreateDirIfMissing(backup_alt_chroot));
-  alt_engine_options.backup_dir = "/altbk";
-  std::shared_ptr<FileSystem> alt_fs{
-      NewChrootFileSystem(FileSystem::Default(), backup_alt_chroot)};
-  std::unique_ptr<Env> alt_env{new CompositeEnvWrapper(Env::Default(), alt_fs)};
-  alt_engine_options.backup_env = alt_env.get();
+    BackupEngine* alt_backup_engine;
+    BackupEngineOptions alt_engine_options{*engine_options_};
+    // Use an alternate Env to test that support
+    std::string backup_alt_chroot = test::PerThreadDBPath("db_alt_backups");
+    EXPECT_OK(Env::Default()->CreateDirIfMissing(backup_alt_chroot));
+    alt_engine_options.backup_dir = "/altbk";
+    std::shared_ptr<FileSystem> alt_fs{
+        NewChrootFileSystem(FileSystem::Default(), backup_alt_chroot)};
+    std::unique_ptr<Env> alt_env{
+        new CompositeEnvWrapper(Env::Default(), alt_fs)};
+    alt_engine_options.backup_env = alt_env.get();
 
-  ASSERT_OK(BackupEngine::Open(test_db_env_.get(), alt_engine_options,
-                               &alt_backup_engine));
+    ASSERT_OK(BackupEngine::Open(test_db_env_.get(), alt_engine_options,
+                                 &alt_backup_engine));
 
-  // Ensure each backup is same set of files
-  db_.reset();
-  DB* db = nullptr;
-  ASSERT_OK(DB::OpenForReadOnly(options_, dbname_, &db));
+    // Ensure each backup is same set of files
+    db_.reset();
+    DB* db = nullptr;
+    ASSERT_OK(DB::OpenForReadOnly(options_, dbname_, &db));
 
-  // A callback that throws should cleanly fail the backup creation.
-  // Do this early to ensure later operations still work.
-  CreateBackupOptions cbo;
-  cbo.exclude_files_callback = [](MaybeExcludeBackupFile* /*files_begin*/,
-                                  MaybeExcludeBackupFile* /*files_end*/) {
-    throw 42;
-  };
-  ASSERT_TRUE(backup_engine_->CreateNewBackup(cbo, db).IsAborted());
-  cbo.exclude_files_callback = [](MaybeExcludeBackupFile* /*files_begin*/,
-                                  MaybeExcludeBackupFile* /*files_end*/) {
-    throw std::out_of_range("blah");
-  };
-  ASSERT_TRUE(backup_engine_->CreateNewBackup(cbo, db).IsAborted());
+    // A callback that throws should cleanly fail the backup creation.
+    // Do this early to ensure later operations still work.
+    CreateBackupOptions cbo;
+    cbo.exclude_files_callback = [](MaybeExcludeBackupFile* /*files_begin*/,
+                                    MaybeExcludeBackupFile* /*files_end*/) {
+      throw 42;
+    };
+    ASSERT_TRUE(backup_engine_->CreateNewBackup(cbo, db).IsAborted());
+    cbo.exclude_files_callback = [](MaybeExcludeBackupFile* /*files_begin*/,
+                                    MaybeExcludeBackupFile* /*files_end*/) {
+      throw std::out_of_range("blah");
+    };
+    ASSERT_TRUE(backup_engine_->CreateNewBackup(cbo, db).IsAborted());
 
-  // Include files only in given bucket, based on modulus and remainder
-  constexpr int modulus = 4;
-  int remainder = 0;
+    // Include files only in given bucket, based on modulus and remainder
+    constexpr int modulus = 4;
+    int remainder = 0;
 
-  cbo.exclude_files_callback = [&remainder](MaybeExcludeBackupFile* files_begin,
-                                            MaybeExcludeBackupFile* files_end) {
-    for (auto* f = files_begin; f != files_end; ++f) {
-      std::string s = StringSplit(f->info.relative_file, '/').back();
-      s = s.substr(0, s.find('_'));
-      int64_t num = std::strtoll(s.c_str(), nullptr, /*base*/ 10);
-      // Exclude if not a match
-      f->exclude_decision = (num % modulus) != remainder;
-    }
-  };
+    cbo.exclude_files_callback = [&remainder](
+                                     MaybeExcludeBackupFile* files_begin,
+                                     MaybeExcludeBackupFile* files_end) {
+      for (auto* f = files_begin; f != files_end; ++f) {
+        std::string s = StringSplit(f->info.relative_file, '/').back();
+        s = s.substr(0, s.find('_'));
+        int64_t num = std::strtoll(s.c_str(), nullptr, /*base*/ 10);
+        // Exclude if not a match
+        f->exclude_decision = (num % modulus) != remainder;
+      }
+    };
 
-  BackupID first_id{};
-  BackupID last_alt_id{};
-  remainder = 0;
-  ASSERT_OK(backup_engine_->CreateNewBackup(cbo, db, &first_id));
-  AssertBackupInfoConsistency(/*allow excluded*/ true);
-  remainder = 1;
-  ASSERT_OK(alt_backup_engine->CreateNewBackup(cbo, db));
-  AssertBackupInfoConsistency(/*allow excluded*/ true);
-  remainder = 2;
-  ASSERT_OK(backup_engine_->CreateNewBackup(cbo, db));
-  AssertBackupInfoConsistency(/*allow excluded*/ true);
-  remainder = 3;
-  ASSERT_OK(alt_backup_engine->CreateNewBackup(cbo, db, &last_alt_id));
-  AssertBackupInfoConsistency(/*allow excluded*/ true);
+    BackupID first_id{};
+    BackupID last_alt_id{};
+    remainder = 0;
+    ASSERT_OK(backup_engine_->CreateNewBackup(cbo, db, &first_id));
+    AssertBackupInfoConsistency(/*allow excluded*/ true);
+    remainder = 1;
+    ASSERT_OK(alt_backup_engine->CreateNewBackup(cbo, db));
+    AssertBackupInfoConsistency(/*allow excluded*/ true);
+    remainder = 2;
+    ASSERT_OK(backup_engine_->CreateNewBackup(cbo, db));
+    AssertBackupInfoConsistency(/*allow excluded*/ true);
+    remainder = 3;
+    ASSERT_OK(alt_backup_engine->CreateNewBackup(cbo, db, &last_alt_id));
+    AssertBackupInfoConsistency(/*allow excluded*/ true);
 
-  // Close DB
-  ASSERT_OK(db->Close());
-  delete db;
-  db = nullptr;
-
-  auto backup_engine = backup_engine_.get();
-  for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
-                       std::make_pair(alt_backup_engine, backup_engine)}) {
-    ASSERT_OK(DestroyDB(dbname_, options_));
-    RestoreOptions ro;
-    // Fails without alternate dir
-    ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)
-                    .IsInvalidArgument());
-
-    ASSERT_OK(DestroyDB(dbname_, options_));
-    // Works with alternate dir
-    ro.alternate_dirs.push_front(be_pair.second);
-    ASSERT_OK(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro));
-
-    // Check DB contents
-    db = OpenDB();
-    AssertExists(db, 0, keys_iteration);
+    // Close DB
+    ASSERT_OK(db->Close());
     delete db;
-  }
+    db = nullptr;
 
-  // Should still work after close and re-open
-  CloseBackupEngine();
-  OpenBackupEngine();
+    auto backup_engine = backup_engine_.get();
+    for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
+                         std::make_pair(alt_backup_engine, backup_engine)}) {
+      ASSERT_OK(DestroyDB(dbname_, options_));
+      RestoreOptions ro(false /* _keep_log_files */, restore_mode);
+      // Fails without alternate dir
+      ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)
+                      .IsInvalidArgument());
 
-  backup_engine = backup_engine_.get();
-  for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
-                       std::make_pair(alt_backup_engine, backup_engine)}) {
+      ASSERT_OK(DestroyDB(dbname_, options_));
+      // Works with alternate dir
+      ro.alternate_dirs.push_front(be_pair.second);
+      ASSERT_OK(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro));
+
+      // Check DB contents
+      db = OpenDB();
+      AssertExists(db, 0, keys_iteration);
+      delete db;
+    }
+
+    // Should still work after close and re-open
+    CloseBackupEngine();
+    OpenBackupEngine();
+
+    backup_engine = backup_engine_.get();
+    for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
+                         std::make_pair(alt_backup_engine, backup_engine)}) {
+      ASSERT_OK(DestroyDB(dbname_, options_));
+      RestoreOptions ro(false /* _keep_log_files */, restore_mode);
+      ro.alternate_dirs.push_front(be_pair.second);
+      ASSERT_OK(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro));
+    }
+
+    // Deletion semantics are tricky when within a single backup dir one backup
+    // includes a file and the other backup excluded the file. The excluded one
+    // does not have a persistent record of metadata like file checksum, etc.
+    // Although it would be possible to amend the backup with the excluded file,
+    // that is not currently supported (unless you open the backup as read-only
+    // DB and take another backup of it). The "excluded" reference to the file
+    // is like a weak reference: it doesn't prevent the file from being deleted
+    // if all the backups with "included" references to it are deleted.
+    CloseBackupEngine();
+    OpenBackupEngine();
+
+    AssertBackupInfoConsistency(/*allow excluded*/ true);
+
+    ASSERT_OK(backup_engine_->DeleteBackup(first_id));
+    ASSERT_OK(alt_backup_engine->DeleteBackup(last_alt_id));
+
+    // Includes check for any leaked backup files
+    AssertBackupInfoConsistency(/*allow excluded*/ true);
+
+    // Excluded file(s) deleted, unable to restore
+    backup_engine = backup_engine_.get();
+    for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
+                         std::make_pair(alt_backup_engine, backup_engine)}) {
+      RestoreOptions ro(false /* _keep_log_files */, restore_mode);
+      ro.alternate_dirs.push_front(be_pair.second);
+      ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)
+                      .IsInvalidArgument());
+    }
+
+    // Close & Re-open (no crash, etc.)
+    CloseBackupEngine();
+    OpenBackupEngine();
+
+    AssertBackupInfoConsistency(/*allow excluded*/ true);
+
+    // Excluded file(s) deleted, unable to restore
+    backup_engine = backup_engine_.get();
+    for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
+                         std::make_pair(alt_backup_engine, backup_engine)}) {
+      RestoreOptions ro(false /* _keep_log_files */, restore_mode);
+      ro.alternate_dirs.push_front(be_pair.second);
+      ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)
+                      .IsInvalidArgument());
+    }
+
+    // Ensure files are not leaked after removing everything.
+    ASSERT_OK(backup_engine_->DeleteBackup(first_id + 1));
+    ASSERT_OK(alt_backup_engine->DeleteBackup(last_alt_id - 1));
+
+    // Includes check for leaked backups files
+    AssertBackupInfoConsistency(/*allow excluded*/ false);
+
+    delete alt_backup_engine;
+
     ASSERT_OK(DestroyDB(dbname_, options_));
-    RestoreOptions ro;
-    ro.alternate_dirs.push_front(be_pair.second);
-    ASSERT_OK(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro));
   }
-
-  // Deletion semantics are tricky when within a single backup dir one backup
-  // includes a file and the other backup excluded the file. The excluded one
-  // does not have a persistent record of metadata like file checksum, etc.
-  // Although it would be possible to amend the backup with the excluded file,
-  // that is not currently supported (unless you open the backup as read-only
-  // DB and take another backup of it). The "excluded" reference to the file
-  // is like a weak reference: it doesn't prevent the file from being deleted
-  // if all the backups with "included" references to it are deleted.
-  CloseBackupEngine();
-  OpenBackupEngine();
-
-  AssertBackupInfoConsistency(/*allow excluded*/ true);
-
-  ASSERT_OK(backup_engine_->DeleteBackup(first_id));
-  ASSERT_OK(alt_backup_engine->DeleteBackup(last_alt_id));
-
-  // Includes check for any leaked backup files
-  AssertBackupInfoConsistency(/*allow excluded*/ true);
-
-  // Excluded file(s) deleted, unable to restore
-  backup_engine = backup_engine_.get();
-  for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
-                       std::make_pair(alt_backup_engine, backup_engine)}) {
-    RestoreOptions ro;
-    ro.alternate_dirs.push_front(be_pair.second);
-    ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)
-                    .IsInvalidArgument());
-  }
-
-  // Close & Re-open (no crash, etc.)
-  CloseBackupEngine();
-  OpenBackupEngine();
-
-  AssertBackupInfoConsistency(/*allow excluded*/ true);
-
-  // Excluded file(s) deleted, unable to restore
-  backup_engine = backup_engine_.get();
-  for (auto be_pair : {std::make_pair(backup_engine, alt_backup_engine),
-                       std::make_pair(alt_backup_engine, backup_engine)}) {
-    RestoreOptions ro;
-    ro.alternate_dirs.push_front(be_pair.second);
-    ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)
-                    .IsInvalidArgument());
-  }
-
-  // Ensure files are not leaked after removing everything.
-  ASSERT_OK(backup_engine_->DeleteBackup(first_id + 1));
-  ASSERT_OK(alt_backup_engine->DeleteBackup(last_alt_id - 1));
-
-  // Includes check for leaked backups files
-  AssertBackupInfoConsistency(/*allow excluded*/ false);
-
-  delete alt_backup_engine;
 }
 
 TEST_F(BackupEngineTest, IOBufferSize) {
