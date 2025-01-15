@@ -115,7 +115,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     f.copy_file = false;
     const std::string path_outside_db = f.external_file_path;
     const std::string path_inside_db = TableFileName(
-        cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
+        cfd_->ioptions().cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
     if (ingestion_options_.move_files || ingestion_options_.link_files) {
       status =
           fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
@@ -463,7 +463,7 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
       status = CheckLevelForIngestedBehindFile(file);
     } else {
       status = AssignLevelAndSeqnoForIngestedFile(
-          super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
+          super_version, force_global_seqno, cfd_->ioptions().compaction_style,
           *last_seqno, file, &assigned_seqno, prev_batch_uppermost_level);
     }
 
@@ -584,13 +584,13 @@ void ExternalSstFileIngestionJob::CreateEquivalentFileIngestingCompactions() {
     int output_level = pair.first;
     const CompactionInputFiles& input = pair.second;
 
-    const auto& mutable_cf_options = *(cfd_->GetLatestMutableCFOptions());
+    const auto& mutable_cf_options = cfd_->GetLatestMutableCFOptions();
     file_ingesting_compactions_.push_back(new Compaction(
-        cfd_->current()->storage_info(), *cfd_->ioptions(), mutable_cf_options,
+        cfd_->current()->storage_info(), cfd_->ioptions(), mutable_cf_options,
         mutable_db_options_, {input}, output_level,
         /* output file size limit not applicable */
         MaxFileSizeForLevel(mutable_cf_options, output_level,
-                            cfd_->ioptions()->compaction_style),
+                            cfd_->ioptions().compaction_style),
         LLONG_MAX /* max compaction bytes, not applicable */,
         0 /* output path ID, not applicable */, mutable_cf_options.compression,
         mutable_cf_options.compression_opts,
@@ -749,7 +749,7 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
   status = sv->mutable_cf_options.table_factory->NewTableReader(
       ro,
       TableReaderOptions(
-          *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
+          cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
           sv->mutable_cf_options.block_protection_bytes_per_key,
           /*skip_filters*/ false, /*immortal*/ false,
@@ -843,7 +843,7 @@ Status ExternalSstFileIngestionJob::SanityCheckTableProperties(
   bool mark_sst_file_has_no_udt = false;
   Status s = ValidateUserDefinedTimestampsOptions(
       cfd_->user_comparator(), props->comparator_name,
-      cfd_->ioptions()->persist_user_defined_timestamps,
+      cfd_->ioptions().persist_user_defined_timestamps,
       file_to_ingest->user_defined_timestamps_persisted,
       &mark_sst_file_has_no_udt);
   if (s.ok() && mark_sst_file_has_no_udt) {

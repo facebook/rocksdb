@@ -103,8 +103,8 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
     cfd = cfh->cfd();
   }
   int output_level =
-      (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
-       cfd->ioptions()->compaction_style == kCompactionStyleFIFO)
+      (cfd->ioptions().compaction_style == kCompactionStyleUniversal ||
+       cfd->ioptions().compaction_style == kCompactionStyleFIFO)
           ? level
           : level + 1;
   return RunManualCompaction(
@@ -239,7 +239,7 @@ void DBImpl::TEST_GetAllBlockCaches(
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (const auto bbto =
             cfd->GetCurrentMutableCFOptions()
-                ->table_factory->GetOptions<BlockBasedTableOptions>()) {
+                .table_factory->GetOptions<BlockBasedTableOptions>()) {
       cache_set->insert(bbto->block_cache.get());
     }
   }
@@ -267,7 +267,7 @@ Status DBImpl::TEST_GetLatestMutableCFOptions(
   InstrumentedMutexLock l(&mutex_);
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-  *mutable_cf_options = *cfh->cfd()->GetLatestMutableCFOptions();
+  *mutable_cf_options = cfh->cfd()->GetLatestMutableCFOptions();
   return Status::OK();
 }
 

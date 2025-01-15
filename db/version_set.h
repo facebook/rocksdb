@@ -1139,7 +1139,7 @@ class Version {
   bool use_async_io_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
-          MutableCFOptions mutable_cf_options,
+          const MutableCFOptions& mutable_cf_options,
           const std::shared_ptr<IOTracer>& io_tracer,
           uint64_t version_number = 0,
           EpochNumberRequirement epoch_number_requirement =
@@ -1200,17 +1200,18 @@ class VersionSet {
       FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     ColumnFamilyData* default_cf = GetColumnFamilySet()->GetDefault();
-    const MutableCFOptions* cf_options =
-        default_cf->GetLatestMutableCFOptions();
-    return LogAndApply(default_cf, *cf_options, read_options, write_options,
-                       edit, mu, dir_contains_current_file, new_descriptor_log,
+    return LogAndApply(default_cf, default_cf->GetLatestMutableCFOptions(),
+                       read_options, write_options, edit, mu,
+                       dir_contains_current_file, new_descriptor_log,
                        column_family_options);
   }
 
   // Apply *edit to the current version to form a new descriptor that
   // is both saved to persistent state and installed as the new
   // current version.  Will release *mu while actually writing to the file.
-  // column_family_options has to be set if edit is column family add
+  // column_family_options has to be set if edit is column family add.
+  // FIXME: mutable_cf_options must be a copy accessible without db mutex
+  // under some conditions; which conditions?
   // REQUIRES: *mu is held on entry.
   // REQUIRES: no other thread concurrently calls LogAndApply()
   Status LogAndApply(
@@ -1573,7 +1574,7 @@ class VersionSet {
   void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
     assert(cfd);
 
-    const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+    const auto& mutable_cf_options = cfd->GetLatestMutableCFOptions();
     Version* const version =
         new Version(cfd, this, file_options_, mutable_cf_options, io_tracer_);
 

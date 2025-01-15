@@ -575,7 +575,7 @@ Status DBImpl::Recover(
   }
   if (s.ok() && !read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      auto& moptions = *cfd->GetLatestMutableCFOptions();
+      const auto& moptions = cfd->GetLatestMutableCFOptions();
       // Try to trivially move files down the LSM tree to start from bottommost
       // level when level_compaction_dynamic_level_bytes is enabled. This should
       // only be useful when user is migrating to turning on this option.
@@ -590,16 +590,16 @@ Status DBImpl::Recover(
       // the user wants to partition SST files.
       // Note that files moved in this step may not respect the compression
       // option in target level.
-      if (cfd->ioptions()->compaction_style ==
+      if (cfd->ioptions().compaction_style ==
               CompactionStyle::kCompactionStyleLevel &&
-          cfd->ioptions()->level_compaction_dynamic_level_bytes &&
+          cfd->ioptions().level_compaction_dynamic_level_bytes &&
           !moptions.disable_auto_compactions) {
-        int to_level = cfd->ioptions()->num_levels - 1;
+        int to_level = cfd->ioptions().num_levels - 1;
         // last level is reserved
         // allow_ingest_behind does not support Level Compaction,
         // and per_key_placement can have infinite compaction loop for Level
         // Compaction. Adjust to_level here just to be safe.
-        if (cfd->ioptions()->allow_ingest_behind ||
+        if (cfd->ioptions().allow_ingest_behind ||
             moptions.preclude_last_level_data_seconds > 0) {
           to_level -= 1;
         }
@@ -622,10 +622,10 @@ Status DBImpl::Recover(
               // lsm_state will look like "[1,2,3,4,5,6,0]" for an LSM with
               // 7 levels
               std::string lsm_state = "[";
-              for (int i = 0; i < cfd->ioptions()->num_levels; ++i) {
+              for (int i = 0; i < cfd->ioptions().num_levels; ++i) {
                 lsm_state += std::to_string(
                     cfd->current()->storage_info()->NumLevelFiles(i));
-                if (i < cfd->ioptions()->num_levels - 1) {
+                if (i < cfd->ioptions().num_levels - 1) {
                   lsm_state += ",";
                 }
               }
@@ -708,9 +708,9 @@ Status DBImpl::Recover(
     // may check this value to decide whether to flush.
     max_total_in_memory_state_ = 0;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
-      max_total_in_memory_state_ += mutable_cf_options->write_buffer_size *
-                                    mutable_cf_options->max_write_buffer_number;
+      const auto& mutable_cf_options = cfd->GetLatestMutableCFOptions();
+      max_total_in_memory_state_ += mutable_cf_options.write_buffer_size *
+                                    mutable_cf_options.max_write_buffer_number;
     }
 
     SequenceNumber next_sequence(kMaxSequenceNumber);
@@ -821,7 +821,7 @@ Status DBImpl::Recover(
       if (!s.ok()) {
         // Clear memtables if recovery failed
         for (auto cfd : *versions_->GetColumnFamilySet()) {
-          cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
+          cfd->CreateNewMemtable(cfd->GetLatestMutableCFOptions(),
                                  kMaxSequenceNumber);
         }
       }
@@ -1601,7 +1601,7 @@ Status DBImpl::MaybeWriteLevel0TableForRecovery(
       }
       *flushed = true;
 
-      cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
+      cfd->CreateNewMemtable(cfd->GetLatestMutableCFOptions(),
                              *next_sequence - 1);
     }
   }
@@ -1788,7 +1788,7 @@ Status DBImpl::MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
           }
           flushed = true;
 
-          cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
+          cfd->CreateNewMemtable(cfd->GetLatestMutableCFOptions(),
                                  versions_->LastSequence());
         }
         data_seen = true;
@@ -1956,7 +1956,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   assert(ucmp);
   const size_t ts_sz = ucmp->timestamp_size();
   const bool logical_strip_timestamp =
-      ts_sz > 0 && !cfd->ioptions()->persist_user_defined_timestamps;
+      ts_sz > 0 && !cfd->ioptions().persist_user_defined_timestamps;
   {
     ScopedArenaPtr<InternalIterator> iter(
         logical_strip_timestamp
@@ -1972,10 +1972,10 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                     cfd->GetName().c_str(), meta.fd.GetNumber());
 
     // Get the latest mutable cf options while the mutex is still locked
-    const MutableCFOptions mutable_cf_options =
-        *cfd->GetLatestMutableCFOptions();
+    const MutableCFOptions mutable_cf_options_copy =
+        cfd->GetLatestMutableCFOptions();
     bool paranoid_file_checks =
-        cfd->GetLatestMutableCFOptions()->paranoid_file_checks;
+        cfd->GetLatestMutableCFOptions().paranoid_file_checks;
 
     int64_t _current_time = 0;
     immutable_db_options_.clock->GetCurrentTime(&_current_time)
@@ -2017,11 +2017,11 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       const WriteOptions write_option(Env::IO_HIGH, Env::IOActivity::kDBOpen);
 
       TableBuilderOptions tboptions(
-          *cfd->ioptions(), mutable_cf_options, read_option, write_option,
+          cfd->ioptions(), mutable_cf_options_copy, read_option, write_option,
           cfd->internal_comparator(), cfd->internal_tbl_prop_coll_factories(),
-          GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
-          mutable_cf_options.compression_opts, cfd->GetID(), cfd->GetName(),
-          0 /* level */, current_time /* newest_key_time */,
+          GetCompressionFlush(cfd->ioptions(), mutable_cf_options_copy),
+          mutable_cf_options_copy.compression_opts, cfd->GetID(),
+          cfd->GetName(), 0 /* level */, current_time /* newest_key_time */,
           false /* is_bottommost */, TableFileCreationReason::kRecovery,
           0 /* oldest_key_time */, 0 /* file_creation_time */, db_id_,
           db_session_id_, 0 /* target_file_size */, meta.fd.GetNumber(),
@@ -2497,8 +2497,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     SuperVersionContext sv_context(/* create_superversion */ true);
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-      impl->InstallSuperVersionAndScheduleWork(
-          cfd, &sv_context, *cfd->GetLatestMutableCFOptions());
+      impl->InstallSuperVersionAndScheduleWork(cfd, &sv_context);
     }
     sv_context.Clean();
   }
@@ -2513,7 +2512,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       if (!cfd->mem()->IsSnapshotSupported()) {
         impl->is_snapshot_supported_ = false;
       }
-      if (cfd->ioptions()->merge_operator != nullptr &&
+      if (cfd->ioptions().merge_operator != nullptr &&
           !cfd->mem()->IsMergeOperatorSupported()) {
         s = Status::InvalidArgument(
             "The memtable of column family %s does not support merge operator "

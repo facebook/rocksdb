@@ -386,9 +386,9 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
           static_cast_with_check<ColumnFamilyHandleImpl>(default_cf_handle_);
       assert(cfh);
       ColumnFamilyData* cfd = cfh->cfd();
-      const MutableCFOptions& cf_opts = *cfd->GetLatestMutableCFOptions();
-      s = versions_->LogAndApply(cfd, cf_opts, read_options, write_options,
-                                 &edit, &mutex_, directories_.GetDbDir());
+      s = versions_->LogAndApply(cfd, cfd->GetLatestMutableCFOptions(),
+                                 read_options, write_options, &edit, &mutex_,
+                                 directories_.GetDbDir());
       if (!s.ok()) {
         io_s = versions_->io_status();
         if (!io_s.ok()) {
@@ -856,7 +856,7 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
     InstrumentedMutexLock l(&mutex_);
 
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      auto& mopts = *cfd->GetLatestMutableCFOptions();
+      auto& mopts = cfd->GetLatestMutableCFOptions();
       // preserve time is the max of 2 options.
       uint64_t preserve_seconds =
           std::max(mopts.preserve_internal_time_seconds,
@@ -1171,7 +1171,7 @@ void DBImpl::DumpStats() {
       }
 
       auto* table_factory =
-          cfd->GetCurrentMutableCFOptions()->table_factory.get();
+          cfd->GetCurrentMutableCFOptions().table_factory.get();
       assert(table_factory != nullptr);
       // FIXME: need to a shared_ptr if/when block_cache is going to be mutable
       Cache* cache =
@@ -1290,7 +1290,7 @@ Status DBImpl::SetOptions(
   }
 
   InstrumentedMutexLock ol(&options_mutex_);
-  MutableCFOptions new_options;
+  MutableCFOptions new_options_copy;
   Status s;
   Status persist_options_status;
   SuperVersionContext sv_context(/* create_superversion */ true);
@@ -1299,11 +1299,12 @@ Status DBImpl::SetOptions(
     InstrumentedMutexLock l(&mutex_);
     s = cfd->SetOptions(db_options, options_map);
     if (s.ok()) {
-      new_options = *cfd->GetLatestMutableCFOptions();
+      new_options_copy = cfd->GetLatestMutableCFOptions();
       // Append new version to recompute compaction score.
       VersionEdit dummy_edit;
-      s = versions_->LogAndApply(cfd, new_options, read_options, write_options,
-                                 &dummy_edit, &mutex_, directories_.GetDbDir());
+      s = versions_->LogAndApply(cfd, new_options_copy, read_options,
+                                 write_options, &dummy_edit, &mutex_,
+                                 directories_.GetDbDir());
       if (!versions_->io_status().ok()) {
         assert(!s.ok());
         error_handler_.SetBGError(versions_->io_status(),
@@ -1312,7 +1313,7 @@ Status DBImpl::SetOptions(
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
-      InstallSuperVersionAndScheduleWork(cfd, &sv_context, new_options);
+      InstallSuperVersionAndScheduleWork(cfd, &sv_context);
       persist_options_status =
           WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
       bg_cv_.SignalAll();
@@ -1336,7 +1337,7 @@ Status DBImpl::SetOptions(
   if (s.ok()) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "[%s] SetOptions() succeeded", cfd->GetName().c_str());
-    new_options.Dump(immutable_db_options_.info_log.get());
+    new_options_copy.Dump(immutable_db_options_.info_log.get());
     if (!persist_options_status.ok()) {
       // NOTE: WriteOptionsFile already logs on failure
       s = persist_options_status;
@@ -2118,7 +2119,7 @@ InternalIterator* DBImpl::NewInternalIterator(
     } else {
       mem_tombstone_iter = std::make_unique<TruncatedRangeDelIterator>(
           std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
-          &cfd->ioptions()->internal_comparator, nullptr /* smallest */,
+          &cfd->ioptions().internal_comparator, nullptr /* smallest */,
           nullptr /* largest */);
     }
     merge_iter_builder.AddPointAndTombstoneIterator(
@@ -3667,8 +3668,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
-      InstallSuperVersionAndScheduleWork(cfd, &sv_context,
-                                         *cfd->GetLatestMutableCFOptions());
+      InstallSuperVersionAndScheduleWork(cfd, &sv_context);
 
       if (!cfd->mem()->IsSnapshotSupported()) {
         is_snapshot_supported_ = false;
@@ -3762,13 +3762,13 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       // we drop column family from a single write thread
       WriteThread::Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
-      s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+      s = versions_->LogAndApply(cfd, cfd->GetLatestMutableCFOptions(),
                                  read_options, write_options, &edit, &mutex_,
                                  directories_.GetDbDir());
       write_thread_.ExitUnbatched(&w);
     }
     if (s.ok()) {
-      auto& moptions = *cfd->GetLatestMutableCFOptions();
+      auto& moptions = cfd->GetLatestMutableCFOptions();
       max_total_in_memory_state_ -=
           moptions.write_buffer_size * moptions.max_write_buffer_number;
       used_preserve_preclude = moptions.preserve_internal_time_seconds > 0 ||
@@ -3899,7 +3899,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
     auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                     /* allow_unprepared_value */ true);
     result = NewDBIterator(
-        env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
+        env_, read_options, cfd->ioptions(), sv->mutable_cf_options,
         cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
         nullptr /* read_callback */, cfh);
@@ -3981,7 +3981,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   // likely that any iterator pointer is close to the iterator it points to so
   // that they are likely to be in the same cache line and/or page.
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfh->cfd()->ioptions(), sv->mutable_cf_options,
+      env_, read_options, cfh->cfd()->ioptions(), sv->mutable_cf_options,
       sv->current, snapshot,
       sv->mutable_cf_options.max_sequential_skip_in_iterations,
       sv->version_number, read_callback, cfh, expose_blob_index, allow_refresh);
@@ -4116,7 +4116,7 @@ Status DBImpl::NewIterators(
                                       cf_sv_pair.super_version,
                                       /* allow_unprepared_value */ true);
       iterators->push_back(
-          NewDBIterator(env_, read_options, *cf_sv_pair.cfd->ioptions(),
+          NewDBIterator(env_, read_options, cf_sv_pair.cfd->ioptions(),
                         cf_sv_pair.super_version->mutable_cf_options,
                         cf_sv_pair.cfd->user_comparator(), iter,
                         cf_sv_pair.super_version->current, kMaxSequenceNumber,
@@ -4354,7 +4354,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     CfdList cf_scheduled;
     if (oldest_snapshot > bottommost_files_mark_threshold_) {
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        if (!cfd->ioptions()->allow_ingest_behind) {
+        if (!cfd->ioptions().allow_ingest_behind) {
           cfd->current()->storage_info()->UpdateOldestSnapshot(
               oldest_snapshot, /*allow_ingest_behind=*/false);
           if (!cfd->current()
@@ -4375,7 +4375,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
       SequenceNumber new_bottommost_files_mark_threshold = kMaxSequenceNumber;
       for (auto* cfd : *versions_->GetColumnFamilySet()) {
         if (CfdListContains(cf_scheduled, cfd) ||
-            cfd->ioptions()->allow_ingest_behind) {
+            cfd->ioptions().allow_ingest_behind) {
           continue;
         }
         new_bottommost_files_mark_threshold = std::min(
@@ -4969,13 +4969,12 @@ Status DBImpl::DEPRECATED_DeleteFile(std::string name) {
     }
     edit.SetColumnFamily(cfd->GetID());
     edit.DeleteFile(level, number);
-    status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+    status = versions_->LogAndApply(cfd, cfd->GetLatestMutableCFOptions(),
                                     read_options, write_options, &edit, &mutex_,
                                     directories_.GetDbDir());
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
-          cfd, job_context.superversion_contexts.data(),
-          *cfd->GetLatestMutableCFOptions());
+          cfd, job_context.superversion_contexts.data());
     }
     FindObsoleteFiles(&job_context, false);
   }  // lock released here
@@ -5074,21 +5073,20 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
       }
     }
     if (!deleted_files.empty()) {
-      vstorage->ComputeCompactionScore(*cfd->ioptions(),
-                                       *cfd->GetLatestMutableCFOptions());
+      vstorage->ComputeCompactionScore(cfd->ioptions(),
+                                       cfd->GetLatestMutableCFOptions());
     }
     if (edit.GetDeletedFiles().empty()) {
       job_context.Clean();
       return status;
     }
     input_version->Ref();
-    status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+    status = versions_->LogAndApply(cfd, cfd->GetLatestMutableCFOptions(),
                                     read_options, write_options, &edit, &mutex_,
                                     directories_.GetDbDir());
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
-          cfd, job_context.superversion_contexts.data(),
-          *cfd->GetLatestMutableCFOptions());
+          cfd, job_context.superversion_contexts.data());
     }
     for (auto* deleted_file : deleted_files) {
       deleted_file->being_compacted = false;
@@ -5687,7 +5685,7 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name,
 void DBImpl::NewThreadStatusCfInfo(ColumnFamilyData* cfd) const {
   if (immutable_db_options_.enable_thread_tracking) {
     ThreadStatusUtil::NewColumnFamilyInfo(this, cfd, cfd->GetName(),
-                                          cfd->ioptions()->env);
+                                          cfd->ioptions().env);
   }
 }
 
@@ -6138,7 +6136,7 @@ Status DBImpl::IngestExternalFiles(
         auto* cfd = ingestion_jobs[i].GetColumnFamilyData();
         assert(!cfd->IsDropped());
         cfds_to_commit.push_back(cfd);
-        mutable_cf_options_list.push_back(cfd->GetLatestMutableCFOptions());
+        mutable_cf_options_list.push_back(&cfd->GetLatestMutableCFOptions());
         autovector<VersionEdit*> edit_list;
         edit_list.push_back(ingestion_jobs[i].edit());
         edit_lists.push_back(edit_list);
@@ -6188,8 +6186,7 @@ Status DBImpl::IngestExternalFiles(
       for (size_t i = 0; i != num_cfs; ++i) {
         auto* cfd = ingestion_jobs[i].GetColumnFamilyData();
         assert(!cfd->IsDropped());
-        InstallSuperVersionAndScheduleWork(cfd, &sv_ctxs[i],
-                                           *cfd->GetLatestMutableCFOptions());
+        InstallSuperVersionAndScheduleWork(cfd, &sv_ctxs[i]);
 #ifndef NDEBUG
         if (0 == i && num_cfs > 1) {
           TEST_SYNC_POINT("DBImpl::IngestExternalFiles:InstallSVForFirstCF:0");
@@ -6308,12 +6305,13 @@ Status DBImpl::CreateColumnFamilyWithImport(
       // and this will overwrite the external file. To protect the external
       // file, we have to make sure the file number will never being reused.
       next_file_number = versions_->FetchAddFileNumber(total_file_num);
-      auto cf_options = cfd->GetLatestMutableCFOptions();
-      status =
-          versions_->LogAndApply(cfd, *cf_options, read_options, write_options,
-                                 &dummy_edit, &mutex_, directories_.GetDbDir());
+      MutableCFOptions mutable_cf_options_copy =
+          cfd->GetLatestMutableCFOptions();
+      status = versions_->LogAndApply(cfd, mutable_cf_options_copy,
+                                      read_options, write_options, &dummy_edit,
+                                      &mutex_, directories_.GetDbDir());
       if (status.ok()) {
-        InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *cf_options);
+        InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx);
       }
     }
   }
@@ -6346,12 +6344,13 @@ Status DBImpl::CreateColumnFamilyWithImport(
 
       // Install job edit [Mutex will be unlocked here]
       if (status.ok()) {
-        auto cf_options = cfd->GetLatestMutableCFOptions();
-        status = versions_->LogAndApply(cfd, *cf_options, read_options,
-                                        write_options, import_job.edit(),
-                                        &mutex_, directories_.GetDbDir());
+        MutableCFOptions mutable_cf_options_copy =
+            cfd->GetLatestMutableCFOptions();
+        status = versions_->LogAndApply(
+            cfd, mutable_cf_options_copy, read_options, write_options,
+            import_job.edit(), &mutex_, directories_.GetDbDir());
         if (status.ok()) {
-          InstallSuperVersionAndScheduleWork(cfd, &sv_context, *cf_options);
+          InstallSuperVersionAndScheduleWork(cfd, &sv_context);
         }
       }
 
@@ -6552,7 +6551,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         const auto& fd = fd_with_krange.fd;
         const FileMetaData* fmeta = fd_with_krange.file_metadata;
         assert(fmeta);
-        std::string fname = TableFileName(cfd->ioptions()->cf_paths,
+        std::string fname = TableFileName(cfd->ioptions().cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
         if (use_file_checksum) {
           s = VerifyFullFileChecksum(fmeta->file_checksum,
@@ -6576,7 +6575,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         const uint64_t blob_file_number = meta->GetBlobFileNumber();
 
         const std::string blob_file_name = BlobFileName(
-            cfd->ioptions()->cf_paths.front().path, blob_file_number);
+            cfd->ioptions().cf_paths.front().path, blob_file_number);
         s = VerifyFullFileChecksum(meta->GetChecksumValue(),
                                    meta->GetChecksumMethod(), blob_file_name,
                                    read_options);
@@ -6769,16 +6768,17 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
   pending_output_elem.reset(new std::list<uint64_t>::iterator(
       CaptureCurrentFileNumberInPendingOutputs()));
   *next_file_number = versions_->FetchAddFileNumber(static_cast<uint64_t>(num));
-  auto cf_options = cfd->GetLatestMutableCFOptions();
+  MutableCFOptions mutable_cf_options_copy = cfd->GetLatestMutableCFOptions();
   VersionEdit dummy_edit;
   // If crash happen after a hard link established, Recover function may
   // reuse the file number that has already assigned to the internal file,
   // and this will overwrite the external file. To protect the external
   // file, we have to make sure the file number will never being reused.
-  s = versions_->LogAndApply(cfd, *cf_options, read_options, write_options,
-                             &dummy_edit, &mutex_, directories_.GetDbDir());
+  s = versions_->LogAndApply(cfd, mutable_cf_options_copy, read_options,
+                             write_options, &dummy_edit, &mutex_,
+                             directories_.GetDbDir());
   if (s.ok()) {
-    InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx, *cf_options);
+    InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx);
   }
   dummy_sv_ctx.Clean();
   return s;
@@ -6949,7 +6949,7 @@ void DBImpl::InstallSeqnoToTimeMappingInSV(
     sv_contexts->emplace_back(/*create_superversion=*/true);
     sv_contexts->back().new_seqno_to_time_mapping = new_seqno_to_time_mapping;
     cfd->InstallSuperVersion(&sv_contexts->back(),
-                             *(cfd->GetLatestMutableCFOptions()));
+                             cfd->GetLatestMutableCFOptions());
   }
   bg_cv_.SignalAll();
 }

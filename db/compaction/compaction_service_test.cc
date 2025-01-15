@@ -495,7 +495,7 @@ TEST_F(CompactionServiceTest, PreservedOptionsLocalCompaction) {
         ASSERT_TRUE(s.IsNotFound());
         // Should be old value
         ASSERT_EQ(2, compaction->mutable_cf_options()
-                         ->level0_file_num_compaction_trigger);
+                         .level0_file_num_compaction_trigger);
         ASSERT_TRUE(dbfull()->min_options_file_numbers_.empty());
       });
 
@@ -581,7 +581,7 @@ TEST_F(CompactionServiceTest, PreservedOptionsRemoteCompaction) {
       "CompactionJob::ProcessKeyValueCompaction()::Processing", [&](void* arg) {
         auto compaction = static_cast<Compaction*>(arg);
         ASSERT_EQ(2, compaction->mutable_cf_options()
-                         ->level0_file_num_compaction_trigger);
+                         .level0_file_num_compaction_trigger);
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();

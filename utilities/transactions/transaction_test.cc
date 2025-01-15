@@ -5651,13 +5651,13 @@ TEST_P(TransactionTest, ToggleAutoCompactionTest) {
   ASSERT_OK(s);
 
   auto cfh_default = static_cast_with_check<ColumnFamilyHandleImpl>(handles[0]);
-  auto opt_default = *cfh_default->cfd()->GetLatestMutableCFOptions();
+  auto& opt_default = cfh_default->cfd()->GetLatestMutableCFOptions();
 
   auto cfh_a = static_cast_with_check<ColumnFamilyHandleImpl>(handles[1]);
-  auto opt_a = *cfh_a->cfd()->GetLatestMutableCFOptions();
+  auto& opt_a = cfh_a->cfd()->GetLatestMutableCFOptions();
 
   auto cfh_b = static_cast_with_check<ColumnFamilyHandleImpl>(handles[2]);
-  auto opt_b = *cfh_b->cfd()->GetLatestMutableCFOptions();
+  auto& opt_b = cfh_b->cfd()->GetLatestMutableCFOptions();
 
   ASSERT_EQ(opt_default.disable_auto_compactions, false);
   ASSERT_EQ(opt_a.disable_auto_compactions, true);
