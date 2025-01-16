@@ -9326,7 +9326,8 @@ TEST_P(CommitBypassMemtableTest, ThresholdTxnDBOption) {
   for (auto num_ops : {threshold, threshold + 1}) {
     commit_bypass_memtable = false;
     txn_opts.commit_bypass_memtable = false;
-    auto txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+    auto txn = txn_db->BeginTransaction(wopts, txn_opts, txn1);
+    txn1 = nullptr;
     ASSERT_OK(txn->SetName("xid" + std::to_string(num_ops)));
     for (uint32_t i = 0; i < num_ops; ++i) {
       ASSERT_OK(
