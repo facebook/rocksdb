@@ -471,8 +471,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
 ColumnFamilyData* VersionEditHandler::CreateCfAndInit(
     const ColumnFamilyOptions& cf_options, const VersionEdit& edit) {
   uint32_t cf_id = edit.GetColumnFamily();
-  ColumnFamilyData* cfd =
-      version_set_->CreateColumnFamily(cf_options, read_options_, &edit);
+  ColumnFamilyData* cfd = version_set_->CreateColumnFamily(
+      cf_options, read_options_, &edit, read_only_);
   assert(cfd != nullptr);
   cfd->set_initialized();
   assert(builders_.find(cf_id) == builders_.end());

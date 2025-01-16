@@ -35,8 +35,8 @@ Options SanitizeOptions(const std::string& dbname, const Options& src,
   auto db_options =
       SanitizeOptions(dbname, DBOptions(src), read_only, logger_creation_s);
   ImmutableDBOptions immutable_db_options(db_options);
-  auto cf_options =
-      SanitizeOptions(immutable_db_options, ColumnFamilyOptions(src));
+  auto cf_options = SanitizeOptions(immutable_db_options, read_only,
+                                    ColumnFamilyOptions(src));
   return Options(db_options, cf_options);
 }
 
@@ -2325,9 +2325,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   handles->clear();
 
   size_t max_write_buffer_size = 0;
+  MinAndMaxPreserveSeconds preserve_info;
   for (const auto& cf : column_families) {
     max_write_buffer_size =
         std::max(max_write_buffer_size, cf.options.write_buffer_size);
+    preserve_info.Combine(cf.options);
   }
 
   auto impl = std::make_unique<DBImpl>(db_options, dbname, seq_per_batch,
@@ -2460,6 +2462,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     s = impl->InitPersistStatsColumnFamily();
   }
 
+  // After reaching the post-recovery seqno but before creating SuperVersions
+  // ensure seqno to time mapping is pre-populated as needed.
+  if (s.ok() && recovery_ctx.is_new_db_ && preserve_info.IsEnabled()) {
+    impl->PrepopulateSeqnoToTimeMapping(preserve_info);
+  }
+
   if (s.ok()) {
     // set column family handles
     for (const auto& cf : column_families) {
@@ -2469,6 +2477,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         handles->push_back(
             new ColumnFamilyHandleImpl(cfd, impl.get(), &impl->mutex_));
         impl->NewThreadStatusCfInfo(cfd);
+        SuperVersionContext sv_context(/* create_superversion */ true);
+        impl->InstallSuperVersionForConfigChange(cfd, &sv_context);
+        sv_context.Clean();
       } else {
         if (db_options.create_missing_column_families) {
           // missing column family, create it
@@ -2476,6 +2487,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           impl->mutex_.Unlock();
           // NOTE: the work normally done in WrapUpCreateColumnFamilies will
           // be done separately below.
+          // This includes InstallSuperVersionForConfigChange.
           s = impl->CreateColumnFamilyImpl(read_options, write_options,
                                            cf.options, cf.name, &handle);
           impl->mutex_.Lock();
@@ -2492,15 +2504,14 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
   }
 
-  if (s.ok()) {
-    SuperVersionContext sv_context(/* create_superversion */ true);
-    for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-      impl->InstallSuperVersionAndScheduleWork(cfd, &sv_context);
-    }
-    sv_context.Clean();
-  }
-
   if (s.ok() && impl->immutable_db_options_.persist_stats_to_disk) {
+    // Install SuperVersion for hidden column family
+    assert(impl->persist_stats_cf_handle_);
+    assert(impl->persist_stats_cf_handle_->cfd());
+    SuperVersionContext sv_context(/* create_superversion */ true);
+    impl->InstallSuperVersionForConfigChange(
+        impl->persist_stats_cf_handle_->cfd(), &sv_context);
+    sv_context.Clean();
     // try to read format version
     s = impl->PersistentStatsProcessFormatVersion();
   }
@@ -2609,8 +2620,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     s = impl->StartPeriodicTaskScheduler();
   }
   if (s.ok()) {
-    s = impl->RegisterRecordSeqnoTimeWorker(read_options, write_options,
-                                            recovery_ctx.is_new_db_);
+    s = impl->RegisterRecordSeqnoTimeWorker();
   }
   impl->options_mutex_.Unlock();
   if (s.ok()) {
