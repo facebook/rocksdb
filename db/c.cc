@@ -5000,6 +5000,35 @@ int rocksdb_compactoptions_get_target_level(rocksdb_compactoptions_t* opt) {
   return opt->rep.target_level;
 }
 
+void rocksdb_compactoptions_set_target_path_id(rocksdb_compactoptions_t* opt,
+                                               int n) {
+  opt->rep.target_path_id = n;
+}
+
+int rocksdb_compactoptions_get_target_path_id(rocksdb_compactoptions_t* opt) {
+  return opt->rep.target_path_id;
+}
+
+void rocksdb_compactoptions_set_allow_write_stall(rocksdb_compactoptions_t* opt,
+                                                  unsigned char v) {
+  opt->rep.allow_write_stall = v;
+}
+
+unsigned char rocksdb_compactoptions_get_allow_write_stall(
+    rocksdb_compactoptions_t* opt) {
+  return opt->rep.allow_write_stall;
+}
+
+void rocksdb_compactoptions_set_max_subcompactions(
+    rocksdb_compactoptions_t* opt, int n) {
+  opt->rep.max_subcompactions = n;
+}
+
+int rocksdb_compactoptions_get_max_subcompactions(
+    rocksdb_compactoptions_t* opt) {
+  return opt->rep.max_subcompactions;
+}
+
 void rocksdb_compactoptions_set_full_history_ts_low(
     rocksdb_compactoptions_t* opt, char* ts, size_t tslen) {
   if (ts == nullptr) {

@@ -2129,6 +2129,18 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_target_level(
     rocksdb_compactoptions_t*, int);
 extern ROCKSDB_LIBRARY_API int rocksdb_compactoptions_get_target_level(
     rocksdb_compactoptions_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_target_path_id(
+    rocksdb_compactoptions_t*, int);
+extern ROCKSDB_LIBRARY_API int rocksdb_compactoptions_get_target_path_id(
+    rocksdb_compactoptions_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_allow_write_stall(
+    rocksdb_compactoptions_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_compactoptions_get_allow_write_stall(rocksdb_compactoptions_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_max_subcompactions(
+    rocksdb_compactoptions_t*, int);
+extern ROCKSDB_LIBRARY_API int rocksdb_compactoptions_get_max_subcompactions(
+    rocksdb_compactoptions_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_full_history_ts_low(
     rocksdb_compactoptions_t*, char* ts, size_t tslen);
 
