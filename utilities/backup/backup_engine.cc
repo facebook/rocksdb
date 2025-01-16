@@ -291,7 +291,7 @@ class BackupEngineImpl {
         if (!StartsWith(info->filename, kPrivateDirSlash)) {
           assert(StartsWith(info->filename, kSharedDirSlash) ||
                  StartsWith(info->filename, kSharedChecksumDirSlash));
-          remaps_[info->GetDbFileName()] = info;
+          remaps_[GetDbFileName(info->filename)] = info;
         }
       }
     }
@@ -628,6 +628,26 @@ class BackupEngineImpl {
     return file_copy.erase(first_underscore,
                            file_copy.find_last_of('.') - first_underscore);
   }
+
+  static inline std::string GetDbFileName(const std::string& filename) {
+    std::string rv;
+    // extract the filename part
+    size_t slash = filename.find_last_of('/');
+    // file will either be shared/<file>, shared_checksum/<file_crc32c_size>,
+    // shared_checksum/<file_session>, shared_checksum/<file_crc32c_session>,
+    // or private/<number>/<file>
+    assert(slash != std::string::npos);
+    rv = filename.substr(slash + 1);
+
+    // if the file was in shared_checksum, extract the real file name
+    // in this case the file is <number>_<checksum>_<size>.<type>,
+    // <number>_<session>.<type>, or <number>_<checksum>_<session>.<type>
+    if (filename.substr(0, slash) == kSharedChecksumDirName) {
+      rv = GetFileFromChecksumFile(rv);
+    }
+    return rv;
+  }
+
   inline std::string GetBackupMetaFile(BackupID backup_id, bool tmp) const {
     return GetAbsolutePath(kMetaDirName) + "/" + (tmp ? "." : "") +
            std::to_string(backup_id) + (tmp ? ".tmp" : "");
@@ -2049,9 +2069,7 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
       // as existing, on-disk db file metadata matches this unowned backup file
       // db_session_id and size.
       if (options.mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
-        size_t slash = file.find_last_of('/');
-        assert(slash != std::string::npos);
-        std::string filename = file.substr(slash + 1);
+        std::string filename = GetDbFileName(file);
 
         uint64_t number;
         FileType type;
@@ -2127,7 +2145,7 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
     Env* src_env = engine_and_file_info.first->backup_env_;
 
     // 1. get DB filename
-    std::string dst = file_info->GetDbFileName();
+    std::string dst = GetDbFileName(file_info->filename);
 
     // 2. find the filetype
     uint64_t number;
@@ -2923,7 +2941,7 @@ IOStatus BackupEngineImpl::InferDBFilesToRetainInRestore(
           !ub_db_sid.empty() && ub_size_bytes > 0) {
         const auto& db_it = file_num_to_filename_and_type.find(number);
         if (db_it != file_num_to_filename_and_type.end()) {
-          const auto& [db_f, db_type] = db_it->second;
+          const auto& [db_f, _] = db_it->second;
           uint64_t size_bytes = 0;
           std::string db_file_path = db_dir + "/" + db_f;
           IOStatus io_st = db_fs_->GetFileSize(db_file_path, io_options_,
@@ -2939,8 +2957,11 @@ IOStatus BackupEngineImpl::InferDBFilesToRetainInRestore(
                                     rate_limiter, &db_id, &db_session_id);
             if (s.ok() && (db_session_id == ub_db_sid)) {
               // Db file # has been already associated with the excluded backup.
-              // Remove it from the map of db files to be processed.
+              // Remove it from the temporary map of db files to be processed.
               file_num_to_filename_and_type.erase(number);
+
+              // Retain the file for the purpose of restore.
+              files_to_keep.insert(number);
 
               Log(options_.info_log,
                   "Excluded backup file '%s' has its' db file equivalent: '%s'",
@@ -2967,7 +2988,7 @@ IOStatus BackupEngineImpl::InferDBFilesToRetainInRestore(
     uint64_t number;
     FileType type;
 
-    std::string filename = engine_and_file_info.second->GetDbFileName();
+    std::string filename = GetDbFileName(engine_and_file_info.second->filename);
     if (!ParseFileName(filename, &number, &type)) {
       continue;
     }

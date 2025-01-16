@@ -1102,6 +1102,9 @@ class BackupEngineTestWithParam : public BackupEngineTest,
 };
 
 TEST_F(BackupEngineTest, IncrementalRestore) {
+  // Required for excluding files.
+  engine_options_->schema_version = 2;
+
   const int keys_iteration = 100;
 
   options_.disable_auto_compactions = true;
@@ -1110,6 +1113,10 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
   std::vector<std::string> always_copyable_files = {
       dbname_ + "/MANIFEST-000005", dbname_ + "/OPTIONS-000007",
       dbname_ + "/CURRENT.tmp", dbname_ + "/000011.log"};
+  std::vector<std::string> all_but_sst_files = {
+      dbname_ + "/000010.blob",     dbname_ + "/000013.blob",
+      dbname_ + "/MANIFEST-000005", dbname_ + "/OPTIONS-000007",
+      dbname_ + "/CURRENT.tmp",     dbname_ + "/000011.log"};
   std::vector<std::string> all_backed_up_files = {
       dbname_ + "/000012.sst",      dbname_ + "/000009.sst",
       dbname_ + "/000010.blob",     dbname_ + "/000013.blob",
@@ -1125,15 +1132,43 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     FillDB(db_.get(), 0, keys_iteration);
     FillDB(db_.get(), keys_iteration, keys_iteration * 2);
 
-    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    // 2. Verify expected behavior with exclude files feature.
+    BackupID first_id;
+    CreateBackupOptions cbo;
+    cbo.exclude_files_callback = [](MaybeExcludeBackupFile* files_begin,
+                                    MaybeExcludeBackupFile* files_end) {
+      for (auto* f = files_begin; f != files_end; ++f) {
+        std::string s = StringSplit(f->info.relative_file, '/').back();
+        s = s.substr(0, s.find('_'));
+        if (s + ".sst" == "000009.sst") {
+          // Backup will include everything BUT that one very SST file.
+          f->exclude_decision = true;
+        } else {
+          f->exclude_decision = false;
+        }
+      }
+    };
+    ASSERT_OK(backup_engine_->CreateNewBackup(cbo, db_.get(), &first_id));
 
+    test_db_fs_->ClearWrittenFiles();
+    RestoreOptions restore_options(false, mode);
+    IOStatus io_st = backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_,
+                                                               restore_options);
+    if (mode == RestoreOptions::kKeepLatestDbSessionIdFiles) {
+      EXPECT_OK(io_st);
+      test_db_fs_->AssertWrittenFiles(all_but_sst_files);
+    } else {
+      ASSERT_TRUE(io_st.IsInvalidArgument());
+    }
+    ASSERT_OK(backup_engine_->DeleteBackup(first_id));
+
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     CloseDBAndBackupEngine();
+
     DestroyDBWithoutCheck(dbname_, options_);
 
-    // 2. Verify clean restore scenario.
+    // 3. Verify clean restore scenario.
     test_db_fs_->ClearWrittenFiles();
-
-    RestoreOptions restore_options(false, mode);
     OpenBackupEngine();
     ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_,
                                                         restore_options));
@@ -1142,7 +1177,6 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     // Since we started with a blank db, restore copied all the files.
     test_db_fs_->AssertWrittenFiles(all_backed_up_files);
 
-    db_.reset();
     db_.reset(OpenDB());
 
     // Check DB contents.
@@ -1153,7 +1187,7 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
 
     db_.reset();  // CloseDB
 
-    // 3. Incremental restore - simple case.
+    // 4. Incremental restore - simple case.
     //
     // Create 'a hole' in a cleanly restored db by manually deleting data files.
     // At this point new files were created and old files were deleted - which
@@ -1188,7 +1222,7 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
 
     db_.reset();  // Close DB.
 
-    // 4. Incremental restore - corrupted db files.
+    // 5. Incremental restore - corrupted db files.
     ASSERT_OK(db_file_manager_->CorruptFile(dbname_ + "/000010.blob", 3));
 
     // First few bytes corruption will be detected by ReadTablePropertiesHelper
@@ -4522,7 +4556,6 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
     // Include files only in given bucket, based on modulus and remainder
     constexpr int modulus = 4;
     int remainder = 0;
-
     cbo.exclude_files_callback = [&remainder](
                                      MaybeExcludeBackupFile* files_begin,
                                      MaybeExcludeBackupFile* files_end) {
