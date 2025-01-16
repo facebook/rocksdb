@@ -3091,8 +3091,7 @@ void VersionStorageInfo::PrepareForVersionAppend(
   GenerateFileLocationIndex();
 }
 
-void Version::PrepareAppend(const MutableCFOptions& mutable_cf_options,
-                            const ReadOptions& read_options,
+void Version::PrepareAppend(const ReadOptions& read_options,
                             bool update_stats) {
   TEST_SYNC_POINT_CALLBACK(
       "Version::PrepareAppend:forced_check",
@@ -3102,7 +3101,7 @@ void Version::PrepareAppend(const MutableCFOptions& mutable_cf_options,
     UpdateAccumulatedStats(read_options);
   }
 
-  storage_info_.PrepareForVersionAppend(cfd_->ioptions(), mutable_cf_options);
+  storage_info_.PrepareForVersionAppend(cfd_->ioptions(), mutable_cf_options_);
 }
 
 bool Version::MaybeInitializeFileMetaData(const ReadOptions& read_options,
@@ -5037,18 +5036,16 @@ struct VersionSet::ManifestWriter {
   bool done;
   InstrumentedCondVar cv;
   ColumnFamilyData* cfd;
-  const MutableCFOptions mutable_cf_options;
   const autovector<VersionEdit*>& edit_list;
   const std::function<void(const Status&)> manifest_write_callback;
 
   explicit ManifestWriter(
       InstrumentedMutex* mu, ColumnFamilyData* _cfd,
-      const MutableCFOptions& cf_options, const autovector<VersionEdit*>& e,
+      const autovector<VersionEdit*>& e,
       const std::function<void(const Status&)>& manifest_wcb)
       : done(false),
         cv(mu),
         cfd(_cfd),
-        mutable_cf_options(cf_options),
         edit_list(e),
         manifest_write_callback(manifest_wcb) {}
   ~ManifestWriter() { status.PermitUncheckedError(); }
@@ -5189,8 +5186,7 @@ Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
                     io_s.ToString().c_str(), size);
     VersionEdit edit;
     assert(cfd);
-    s = LogAndApply(cfd, cfd->GetLatestMutableCFOptions(), ReadOptions(),
-                    WriteOptions(), &edit, mu, db_dir);
+    s = LogAndApply(cfd, ReadOptions(), WriteOptions(), &edit, mu, db_dir);
   }
 
   closed_ = true;
@@ -5298,7 +5294,6 @@ Status VersionSet::ProcessManifestWrites(
   // element removed, `batch_edits_ts_sz` should be updated too.
   autovector<std::optional<size_t>> batch_edits_ts_sz;
   autovector<Version*> versions;
-  autovector<const MutableCFOptions*> mutable_cf_options_ptrs;
   std::vector<std::unique_ptr<BaseReferencedVersionBuilder>> builder_guards;
   autovector<const autovector<uint64_t>*> files_to_quarantine_if_commit_fail;
   autovector<uint64_t> limbo_descriptor_log_file_number;
@@ -5379,11 +5374,12 @@ Status VersionSet::ProcessManifestWrites(
       if (version == nullptr) {
         // WAL manipulations do not need to be applied to versions.
         if (!last_writer->IsAllWalEdits()) {
-          version = new Version(last_writer->cfd, this, file_options_,
-                                last_writer->mutable_cf_options, io_tracer_,
-                                current_version_number_++);
+          version = new Version(
+              last_writer->cfd, this, file_options_,
+              last_writer->cfd ? last_writer->cfd->GetLatestMutableCFOptions()
+                               : MutableCFOptions(*new_cf_options),
+              io_tracer_, current_version_number_++);
           versions.push_back(version);
-          mutable_cf_options_ptrs.push_back(&last_writer->mutable_cf_options);
           builder_guards.emplace_back(
               new BaseReferencedVersionBuilder(last_writer->cfd));
           builder = builder_guards.back()->version_builder();
@@ -5524,14 +5520,13 @@ Status VersionSet::ProcessManifestWrites(
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
         assert(!builder_guards.empty() &&
                builder_guards.size() == versions.size());
-        assert(!mutable_cf_options_ptrs.empty() &&
-               builder_guards.size() == versions.size());
         ColumnFamilyData* cfd = versions[i]->cfd_;
         s = builder_guards[i]->version_builder()->LoadTableHandlers(
             cfd->internal_stats(), 1 /* max_threads */,
             true /* prefetch_index_and_filter_in_cache */,
-            false /* is_initial_load */, *mutable_cf_options_ptrs[i],
-            MaxFileSizeForL0MetaPin(*mutable_cf_options_ptrs[i]), read_options);
+            false /* is_initial_load */, versions[i]->GetMutableCFOptions(),
+            MaxFileSizeForL0MetaPin(versions[i]->GetMutableCFOptions()),
+            read_options);
         if (!s.ok()) {
           if (db_options_->paranoid_checks) {
             break;
@@ -5581,8 +5576,7 @@ Status VersionSet::ProcessManifestWrites(
         constexpr bool update_stats = true;
 
         for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
-          versions[i]->PrepareAppend(*mutable_cf_options_ptrs[i], read_options,
-                                     update_stats);
+          versions[i]->PrepareAppend(read_options, update_stats);
         }
       }
 
@@ -5879,7 +5873,6 @@ void VersionSet::WakeUpWaitingManifestWriters() {
 // that this variable represents a collection of column_family_data.
 Status VersionSet::LogAndApply(
     const autovector<ColumnFamilyData*>& column_family_datas,
-    const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const ReadOptions& read_options, const WriteOptions& write_options,
     const autovector<autovector<VersionEdit*>>& edit_lists,
     InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
@@ -5910,14 +5903,12 @@ Status VersionSet::LogAndApply(
   }
   std::deque<ManifestWriter> writers;
   if (num_cfds > 0) {
-    assert(static_cast<size_t>(num_cfds) == mutable_cf_options_list.size());
     assert(static_cast<size_t>(num_cfds) == edit_lists.size());
   }
   for (int i = 0; i < num_cfds; ++i) {
     const auto wcb =
         manifest_wcbs.empty() ? [](const Status&) {} : manifest_wcbs[i];
-    writers.emplace_back(mu, column_family_datas[i],
-                         *mutable_cf_options_list[i], edit_lists[i], wcb);
+    writers.emplace_back(mu, column_family_datas[i], edit_lists[i], wcb);
     manifest_writers_.push_back(&writers[i]);
   }
   assert(!writers.empty());
@@ -6407,13 +6398,12 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   vstorage->num_levels_ = new_levels;
   vstorage->ResizeCompactCursors(new_levels);
 
-  MutableCFOptions mutable_cf_options(*options);
   VersionEdit ve;
   InstrumentedMutex dummy_mutex;
   InstrumentedMutexLock l(&dummy_mutex);
   return versions.LogAndApply(versions.GetColumnFamilySet()->GetDefault(),
-                              mutable_cf_options, read_options, write_options,
-                              &ve, &dummy_mutex, nullptr, true);
+                              read_options, write_options, &ve, &dummy_mutex,
+                              nullptr, true);
 }
 
 // Get the checksum information including the checksum and checksum function
@@ -7273,14 +7263,12 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
 
   constexpr bool update_stats = false;
 
-  v->PrepareAppend(new_cfd->GetLatestMutableCFOptions(), read_options,
-                   update_stats);
+  v->PrepareAppend(read_options, update_stats);
 
   AppendVersion(new_cfd, v);
   // GetLatestMutableCFOptions() is safe here without mutex since the
   // cfd is not available to client
-  new_cfd->CreateNewMemtable(new_cfd->GetLatestMutableCFOptions(),
-                             LastSequence());
+  new_cfd->CreateNewMemtable(LastSequence());
   new_cfd->SetLogNumber(edit->GetLogNumber());
   return new_cfd;
 }

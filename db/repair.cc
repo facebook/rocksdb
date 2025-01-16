@@ -155,7 +155,6 @@ class Repairer {
                                 cf_name + ", id=" + std::to_string(cf_id));
     }
     Options opts(db_options_, *cf_opts);
-    MutableCFOptions mut_cf_opts(opts);
 
     VersionEdit edit;
     edit.SetComparatorName(opts.comparator->Name());
@@ -171,8 +170,8 @@ class Repairer {
     Status status = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(),
                                                         &db_dir, nullptr);
     if (status.ok()) {
-      status = vset_.LogAndApply(cfd, mut_cf_opts, read_options, write_options,
-                                 &edit, &mutex_, db_dir.get(),
+      status = vset_.LogAndApply(cfd, read_options, write_options, &edit,
+                                 &mutex_, db_dir.get(),
                                  false /* new_descriptor_log */, cf_opts);
     }
     mutex_.Unlock();
@@ -389,8 +388,7 @@ class Repairer {
 
     // Initialize per-column family memtables
     for (auto* cfd : *vset_.GetColumnFamilySet()) {
-      cfd->CreateNewMemtable(cfd->GetLatestMutableCFOptions(),
-                             kMaxSequenceNumber);
+      cfd->CreateNewMemtable(kMaxSequenceNumber);
     }
     auto cf_mems = new ColumnFamilyMemTablesImpl(vset_.GetColumnFamilySet());
 
@@ -761,9 +759,9 @@ class Repairer {
         s = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(), &db_dir,
                                                 nullptr);
         if (s.ok()) {
-          s = vset_.LogAndApply(cfd, cfd->GetLatestMutableCFOptions(),
-                                read_options, write_options, &edit, &mutex_,
-                                db_dir.get(), false /* new_descriptor_log */);
+          s = vset_.LogAndApply(cfd, read_options, write_options, &edit,
+                                &mutex_, db_dir.get(),
+                                false /* new_descriptor_log */);
         }
         mutex_.Unlock();
       }

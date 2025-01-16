@@ -403,7 +403,8 @@ Status DBImpl::FlushMemTablesToOutputFiles(
   const auto& bg_flush_arg = bg_flush_args[0];
   ColumnFamilyData* cfd = bg_flush_arg.cfd_;
   // intentional infrequent copy for each flush
-  MutableCFOptions mutable_cf_options_copy = cfd->GetLatestMutableCFOptions();
+  const MutableCFOptions mutable_cf_options_copy =
+      cfd->GetLatestMutableCFOptions();
   SuperVersionContext* superversion_context =
       bg_flush_arg.superversion_context_;
   FlushReason flush_reason = bg_flush_arg.flush_reason_;
@@ -753,7 +754,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   if (s.ok()) {
     autovector<ColumnFamilyData*> tmp_cfds;
     autovector<const autovector<ReadOnlyMemTable*>*> mems_list;
-    autovector<const MutableCFOptions*> mutable_cf_options_list;
     autovector<FileMetaData*> tmp_file_meta;
     autovector<std::list<std::unique_ptr<FlushJobInfo>>*>
         committed_flush_jobs_info;
@@ -762,7 +762,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (!cfds[i]->IsDropped() && !mems.empty()) {
         tmp_cfds.emplace_back(cfds[i]);
         mems_list.emplace_back(&mems);
-        mutable_cf_options_list.emplace_back(&all_mutable_cf_options[i]);
         tmp_file_meta.emplace_back(&file_meta[i]);
         committed_flush_jobs_info.emplace_back(
             jobs[i]->GetCommittedFlushJobsInfo());
@@ -770,8 +769,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
 
     s = InstallMemtableAtomicFlushResults(
-        nullptr /* imm_lists */, tmp_cfds, mutable_cf_options_list, mems_list,
-        versions_.get(), &logs_with_prep_tracker_, &mutex_, tmp_file_meta,
+        nullptr /* imm_lists */, tmp_cfds, mems_list, versions_.get(),
+        &logs_with_prep_tracker_, &mutex_, tmp_file_meta,
         committed_flush_jobs_info, &job_context->memtables_to_free,
         directories_.GetDbDir(), log_buffer);
   }
@@ -1038,9 +1037,8 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
     return Status::InvalidArgument(oss.str());
   }
 
-  Status s = versions_->LogAndApply(cfd, cfd->GetLatestMutableCFOptions(),
-                                    read_options, write_options, &edit, &mutex_,
-                                    directories_.GetDbDir());
+  Status s = versions_->LogAndApply(cfd, read_options, write_options, &edit,
+                                    &mutex_, directories_.GetDbDir());
   if (!s.ok()) {
     return s;
   }
@@ -1574,8 +1572,7 @@ Status DBImpl::CompactFilesImpl(
   }
 
   bool compaction_released = false;
-  Status status =
-      compaction_job.Install(c->mutable_cf_options(), &compaction_released);
+  Status status = compaction_job.Install(&compaction_released);
   if (!compaction_released) {
     c->ReleaseCompactionFiles(s);
   }
@@ -1771,8 +1768,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   }
   refitting_level_ = true;
 
-  // FIXME: unnecessary copy
-  const MutableCFOptions mutable_cf_options = cfd->GetLatestMutableCFOptions();
+  const auto& mutable_cf_options = cfd->GetLatestMutableCFOptions();
   // move to a smaller level
   int to_level = target_level;
   if (target_level < 0) {
@@ -1881,9 +1877,9 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
                     edit.DebugString().data());
 
-    Status status = versions_->LogAndApply(cfd, mutable_cf_options,
-                                           read_options, write_options, &edit,
-                                           &mutex_, directories_.GetDbDir());
+    Status status =
+        versions_->LogAndApply(cfd, read_options, write_options, &edit, &mutex_,
+                               directories_.GetDbDir());
     c->MarkFilesBeingCompacted(false);
     cfd->compaction_picker()->UnregisterCompaction(c.get());
     c.reset();
@@ -3770,8 +3766,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
     }
     status = versions_->LogAndApply(
-        c->column_family_data(), c->mutable_cf_options(), read_options,
-        write_options, c->edit(), &mutex_, directories_.GetDbDir(),
+        c->column_family_data(), read_options, write_options, c->edit(),
+        &mutex_, directories_.GetDbDir(),
         /*new_descriptor_log=*/false, /*column_family_options=*/nullptr,
         [&c, &compaction_released](const Status& s) {
           c->ReleaseCompactionFiles(s);
@@ -3845,8 +3841,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       }
     }
     status = versions_->LogAndApply(
-        c->column_family_data(), c->mutable_cf_options(), read_options,
-        write_options, c->edit(), &mutex_, directories_.GetDbDir(),
+        c->column_family_data(), read_options, write_options, c->edit(),
+        &mutex_, directories_.GetDbDir(),
         /*new_descriptor_log=*/false, /*column_family_options=*/nullptr,
         [&c, &compaction_released](const Status& s) {
           c->ReleaseCompactionFiles(s);
@@ -3953,8 +3949,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       ReleaseOptionsFileNumber(min_options_file_number_elem);
     }
 
-    status =
-        compaction_job.Install(c->mutable_cf_options(), &compaction_released);
+    status = compaction_job.Install(&compaction_released);
     io_s = compaction_job.io_status();
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(

@@ -193,8 +193,7 @@ class CompactionJob {
   // Add compaction input/output to the current version
   // Releases compaction file through Compaction::ReleaseCompactionFiles().
   // Sets *compaction_released to true if compaction is released.
-  Status Install(const MutableCFOptions& mutable_cf_options,
-                 bool* compaction_released);
+  Status Install(bool* compaction_released);
 
   // Return the IO status
   IOStatus io_status() const { return io_status_; }
@@ -282,8 +281,7 @@ class CompactionJob {
                                     const Slice& next_table_min_key,
                                     const Slice* comp_start_user_key,
                                     const Slice* comp_end_user_key);
-  Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options,
-                                  bool* compaction_released);
+  Status InstallCompactionResults(bool* compaction_released);
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact,
                                   CompactionOutputs& outputs);
 

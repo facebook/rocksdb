@@ -397,8 +397,8 @@ class CompactionJobTestBase : public testing::Test {
 
     mutex_.Lock();
     EXPECT_OK(versions_->LogAndApply(
-        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        read_options_, write_options_, &edit, &mutex_, nullptr));
+        versions_->GetColumnFamilySet()->GetDefault(), read_options_,
+        write_options_, &edit, &mutex_, nullptr));
     mutex_.Unlock();
   }
 
@@ -684,8 +684,7 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_OK(compaction_job.io_status());
     mutex_.Lock();
     bool compaction_released = false;
-    ASSERT_OK(compaction_job.Install(cfd->GetLatestMutableCFOptions(),
-                                     &compaction_released));
+    ASSERT_OK(compaction_job.Install(&compaction_released));
     ASSERT_OK(compaction_job.io_status());
     mutex_.Unlock();
     log_buffer.FlushBufferToLog();

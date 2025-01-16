@@ -1451,7 +1451,6 @@ class DBImpl : public DB {
         uint32_t size = static_cast<uint32_t>(map_.size());
         map_.emplace(cfd->GetID(), size);
         cfds_.emplace_back(cfd);
-        mutable_cf_opts_.emplace_back(&cfd->GetLatestMutableCFOptions());
         edit_lists_.emplace_back(autovector<VersionEdit*>());
       }
       uint32_t i = map_[cfd->GetID()];
@@ -1460,7 +1459,6 @@ class DBImpl : public DB {
 
     std::unordered_map<uint32_t, uint32_t> map_;  // cf_id to index;
     autovector<ColumnFamilyData*> cfds_;
-    autovector<const MutableCFOptions*> mutable_cf_opts_;
     autovector<autovector<VersionEdit*>> edit_lists_;
     // All existing data files (SST files and Blob files) found during DB::Open.
     std::vector<std::string> existing_data_files_;

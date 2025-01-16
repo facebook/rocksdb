@@ -1160,12 +1160,13 @@ MemTable* ColumnFamilyData::ConstructNewMemtable(
                       write_buffer_manager_, earliest_seq, id_);
 }
 
-void ColumnFamilyData::CreateNewMemtable(
-    const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
+void ColumnFamilyData::CreateNewMemtable(SequenceNumber earliest_seq) {
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  SetMemtable(ConstructNewMemtable(mutable_cf_options, earliest_seq));
+  // NOTE: db mutex must be locked for SetMemtable, so safe for
+  // GetLatestMutableCFOptions
+  SetMemtable(ConstructNewMemtable(GetLatestMutableCFOptions(), earliest_seq));
   mem_->Ref();
 }
 
