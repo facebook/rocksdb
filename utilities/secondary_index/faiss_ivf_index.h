@@ -10,7 +10,7 @@
 #include <string>
 
 #include "faiss/IndexIVF.h"
-#include "rocksdb/utilities/secondary_index.h"
+#include "rocksdb/utilities/secondary_index_faiss.h"
 
 namespace ROCKSDB_NAMESPACE {
 

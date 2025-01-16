@@ -457,4 +457,10 @@ std::unique_ptr<Iterator> FaissIVFIndex::NewIterator(
       *read_options.similarity_search_probes);
 }
 
+std::unique_ptr<SecondaryIndex> NewFaissIVFIndex(
+    std::unique_ptr<faiss::IndexIVF>&& index, std::string primary_column_name) {
+  return std::make_unique<FaissIVFIndex>(std::move(index),
+                                         std::move(primary_column_name));
+}
+
 }  // namespace ROCKSDB_NAMESPACE

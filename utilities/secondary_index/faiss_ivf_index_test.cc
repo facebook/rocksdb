@@ -3,8 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "utilities/secondary_index/faiss_ivf_index.h"
-
 #include <charconv>
 #include <memory>
 #include <string>
@@ -13,6 +11,7 @@
 #include "faiss/IndexFlat.h"
 #include "faiss/IndexIVFFlat.h"
 #include "faiss/utils/random.h"
+#include "rocksdb/utilities/secondary_index_faiss.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
@@ -42,7 +41,7 @@ TEST(FaissIVFIndexTest, Basic) {
   TransactionDBOptions txn_db_options;
   const std::string primary_column_name = "embedding";
   txn_db_options.secondary_indices.emplace_back(
-      std::make_shared<FaissIVFIndex>(std::move(index), primary_column_name));
+      NewFaissIVFIndex(std::move(index), primary_column_name));
 
   TransactionDB* db = nullptr;
   ASSERT_OK(TransactionDB::Open(options, txn_db_options, db_name, &db));
@@ -319,8 +318,8 @@ TEST(FaissIVFIndexTest, Compare) {
   options.create_if_missing = true;
 
   TransactionDBOptions txn_db_options;
-  txn_db_options.secondary_indices.emplace_back(std::make_shared<FaissIVFIndex>(
-      std::move(index), kDefaultWideColumnName.ToString()));
+  txn_db_options.secondary_indices.emplace_back(
+      NewFaissIVFIndex(std::move(index), kDefaultWideColumnName.ToString()));
 
   TransactionDB* db = nullptr;
   ASSERT_OK(TransactionDB::Open(options, txn_db_options, db_name, &db));
