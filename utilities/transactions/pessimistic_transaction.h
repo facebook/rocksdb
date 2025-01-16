@@ -168,7 +168,8 @@ class PessimisticTransaction : public TransactionBaseImpl {
   bool skip_prepare_ = false;
   // Refer to
   // TransactionOptions::commit_bypass_memtable
-  bool commit_bypass_memtable_ = false;
+  uint32_t commit_bypass_memtable_threshold_ =
+      std::numeric_limits<uint32_t>::max();
 
  private:
   friend class TransactionTest_ValidateSnapshotTest_Test;
@@ -306,10 +307,6 @@ class WriteCommittedTxn : public PessimisticTransaction {
   Status SetReadTimestampForValidation(TxnTimestamp ts) override;
   Status SetCommitTimestamp(TxnTimestamp ts) override;
   TxnTimestamp GetCommitTimestamp() const override { return commit_timestamp_; }
-
-  bool GetCommitBypassMemTable() const override {
-    return commit_bypass_memtable_;
-  }
 
  private:
   template <typename TValue>
