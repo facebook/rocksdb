@@ -15,6 +15,7 @@
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/utilities/secondary_index_options.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -50,27 +51,6 @@ class ColumnFamilyHandle;
 // Note: the methods of SecondaryIndex implementations are expected to be
 // thread-safe with the exception of Set{Primary,Secondary}ColumnFamily (which
 // are not expected to be called after initialization).
-
-// Read options for secondary index iterators
-struct SecondaryIndexReadOptions {
-  // The maximum number of neighbors K to return when performing a
-  // K-nearest-neighbors vector similarity search. The number of neighbors
-  // returned can be smaller if there are not enough vectors in the inverted
-  // lists probed. Only applicable to FAISS IVF secondary indices, where it must
-  // be specified and positive. See also `SecondaryIndex::NewIterator` and
-  // `similarity_search_probes` below.
-  //
-  // Default: none
-  std::optional<size_t> similarity_search_neighbors;
-
-  // The number of inverted lists to probe when performing a K-nearest-neighbors
-  // vector similarity search. Only applicable to FAISS IVF secondary indices,
-  // where it must be specified and positive. See also
-  // `SecondaryIndex::NewIterator` and `similarity_search_neighbors` above.
-  //
-  // Default: none
-  std::optional<size_t> similarity_search_probes;
-};
 
 class SecondaryIndex {
  public:
