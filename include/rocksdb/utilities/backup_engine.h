@@ -366,8 +366,15 @@ struct RestoreOptions {
     // Instructs restore engine to consider existing destination file and its'
     // backup counterpart file as 'equal' IF the `db_session_id` (indicative of
     // db instance runtime that created this SST file) parsed out from the
-    // backup file name AND its respective size MATCH the corresponding values
+    // backup file name AND its respective size match the corresponding values
     // in the existing destination file metadata block.
+    //
+    // EXCLUDED FILES COMPATIBILITY:
+    // =============================
+    // In case when excluded backup file name cannot be found under the default
+    // (or alternative) backup directories, restore engine will try to
+    // opportunistically find existing destination file with `db_session_id`
+    // and size matching those parsed from excluded backup relative file name.
     //
     // WARNING:
     // ========
