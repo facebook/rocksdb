@@ -563,7 +563,7 @@ class BackupEngineImpl {
     return file_copy;
   }
 
-  // Path valid format: */**/<file_number>_s<db_session_id>[_<file_size>].<ext>.
+  // Valid path format: */**/<file_number>_s<db_session_id>[_<file_size>].<ext>.
   // Path might be preceeded with any # of '/' and directories.
   //
   // Function will return true in following cases:
@@ -2056,9 +2056,6 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
         uint64_t number;
         FileType type;
         if (ParseFileName(filename, &number, &type) && type == kTableFile) {
-          // ParseDbSessionIdAndSizeFromFile(filename, &db_session_id, &size) {
-          // unowned_sst_backups.emplace(number,
-          // std::make_pair(std::move(db_session_id), size));
           unowned_sst_backups.emplace(number, ef.relative_file);
           continue;
         }
@@ -3069,8 +3066,7 @@ IOStatus BackupEngineImpl::InferDBFilesToRetainInRestore(
       if (parsed_size_bytes != 0 && (parsed_size_bytes != size_bytes)) {
         Log(options_.info_log,
             "Mismatch between on-disk backup file size: %" PRIu64
-            " "
-            "and parsed backup file size: %" PRIu64 " for file: '%s",
+            " and parsed backup file size: %" PRIu64 " for file: '%s",
             size_bytes, parsed_size_bytes, backup_file_info->filename.c_str());
         continue;
       }
