@@ -1092,9 +1092,10 @@ class DBImpl : public DB {
   // This is to be used only by internal rocksdb classes.
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
-                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-                     const bool seq_per_batch, const bool batch_per_txn,
-                     const bool is_retry, bool* can_retry);
+                     std::vector<ColumnFamilyHandle*>* handles,
+                     std::unique_ptr<DB>* dbptr, const bool seq_per_batch,
+                     const bool batch_per_txn, const bool is_retry,
+                     bool* can_retry);
 
   static IOStatus CreateAndNewDirectory(
       FileSystem* fs, const std::string& dirname,

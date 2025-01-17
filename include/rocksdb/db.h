@@ -179,7 +179,15 @@ class DB {
   //
   // Caller must delete *dbptr when it is no longer needed.
   static Status Open(const Options& options, const std::string& name,
-                     DB** dbptr);
+                     std::unique_ptr<DB>* dbptr);
+  // DEPRECATED: raw pointer variant
+  static Status Open(const Options& options, const std::string& name,
+                     DB** dbptr) {
+    std::unique_ptr<DB> smart_ptr;
+    Status s = Open(options, name, &smart_ptr);
+    *dbptr = smart_ptr.release();
+    return s;
+  }
 
   // Open DB with column families.
   // db_options specify database specific options
@@ -197,7 +205,17 @@ class DB {
   // DestroyColumnFamilyHandle() with all the handles.
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
-                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+                     std::vector<ColumnFamilyHandle*>* handles,
+                     std::unique_ptr<DB>* dbptr);
+  // DEPRECATED: raw pointer variant
+  static Status Open(const DBOptions& db_options, const std::string& name,
+                     const std::vector<ColumnFamilyDescriptor>& column_families,
+                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
+    std::unique_ptr<DB> smart_ptr;
+    Status s = Open(db_options, name, column_families, handles, &smart_ptr);
+    *dbptr = smart_ptr.release();
+    return s;
+  }
 
   // OpenForReadOnly() creates a Read-only instance that supports reads alone.
   //
@@ -214,8 +232,18 @@ class DB {
   // Open the database for read only.
   //
   static Status OpenForReadOnly(const Options& options, const std::string& name,
-                                DB** dbptr,
+                                std::unique_ptr<DB>* dbptr,
                                 bool error_if_wal_file_exists = false);
+  // DEPRECATED: raw pointer variant
+  static Status OpenForReadOnly(const Options& options, const std::string& name,
+                                DB** dbptr,
+                                bool error_if_wal_file_exists = false) {
+    std::unique_ptr<DB> smart_ptr;
+    Status s =
+        OpenForReadOnly(options, name, &smart_ptr, error_if_wal_file_exists);
+    *dbptr = smart_ptr.release();
+    return s;
+  }
 
   // Open the database for read only with column families.
   //
@@ -227,8 +255,20 @@ class DB {
   static Status OpenForReadOnly(
       const DBOptions& db_options, const std::string& name,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
       bool error_if_wal_file_exists = false);
+  // DEPRECATED: raw pointer variant
+  static Status OpenForReadOnly(
+      const DBOptions& db_options, const std::string& name,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      bool error_if_wal_file_exists = false) {
+    std::unique_ptr<DB> smart_ptr;
+    Status s = OpenForReadOnly(db_options, name, column_families, handles,
+                               &smart_ptr, error_if_wal_file_exists);
+    *dbptr = smart_ptr.release();
+    return s;
+  }
 
   // OpenAsSecondary() creates a secondary instance that supports read-only
   // operations and supports dynamic catch up with the primary (through a
@@ -255,7 +295,16 @@ class DB {
   //
   // Return OK on success, non-OK on failures.
   static Status OpenAsSecondary(const Options& options, const std::string& name,
-                                const std::string& secondary_path, DB** dbptr);
+                                const std::string& secondary_path,
+                                std::unique_ptr<DB>* dbptr);
+  // DEPRECATED: raw pointer variant
+  static Status OpenAsSecondary(const Options& options, const std::string& name,
+                                const std::string& secondary_path, DB** dbptr) {
+    std::unique_ptr<DB> smart_ptr;
+    Status s = OpenAsSecondary(options, name, secondary_path, &smart_ptr);
+    *dbptr = smart_ptr.release();
+    return s;
+  }
 
   // Open DB as secondary instance with specified column families
   //
@@ -293,7 +342,19 @@ class DB {
       const DBOptions& db_options, const std::string& name,
       const std::string& secondary_path,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr);
+  // DEPRECATED: raw pointer variant
+  static Status OpenAsSecondary(
+      const DBOptions& db_options, const std::string& name,
+      const std::string& secondary_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
+    std::unique_ptr<DB> smart_ptr;
+    Status s = OpenAsSecondary(db_options, name, secondary_path,
+                               column_families, handles, &smart_ptr);
+    *dbptr = smart_ptr.release();
+    return s;
+  }
 
   // EXPERIMENTAL
 
@@ -344,8 +405,20 @@ class DB {
   static Status OpenAndTrimHistory(
       const DBOptions& db_options, const std::string& dbname,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
       std::string trim_ts);
+  // DEPRECATED: raw pointer variant
+  static Status OpenAndTrimHistory(
+      const DBOptions& db_options, const std::string& dbname,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      std::string trim_ts) {
+    std::unique_ptr<DB> smart_ptr;
+    Status s = OpenAndTrimHistory(db_options, dbname, column_families, handles,
+                                  &smart_ptr, trim_ts);
+    *dbptr = smart_ptr.release();
+    return s;
+  }
 
   // Manually, synchronously attempt to resume DB writes after a write failure
   // to the underlying filesystem. See

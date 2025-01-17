@@ -735,7 +735,8 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
 }
 
 Status DB::OpenAsSecondary(const Options& options, const std::string& dbname,
-                           const std::string& secondary_path, DB** dbptr) {
+                           const std::string& secondary_path,
+                           std::unique_ptr<DB>* dbptr) {
   *dbptr = nullptr;
 
   DBOptions db_options(options);
@@ -757,7 +758,7 @@ Status DB::OpenAsSecondary(
     const DBOptions& db_options, const std::string& dbname,
     const std::string& secondary_path,
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
+    std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
   *dbptr = nullptr;
 
   DBOptions tmp_opts(db_options);
@@ -824,7 +825,7 @@ Status DB::OpenAsSecondary(
   impl->mutex_.Unlock();
   sv_context.Clean();
   if (s.ok()) {
-    *dbptr = impl;
+    dbptr->reset(impl);
     for (auto h : *handles) {
       impl->NewThreadStatusCfInfo(
           static_cast_with_check<ColumnFamilyHandleImpl>(h)->cfd());

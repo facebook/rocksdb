@@ -2126,7 +2126,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   return s;
 }
 
-Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
+Status DB::Open(const Options& options, const std::string& dbname,
+                std::unique_ptr<DB>* dbptr) {
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -2154,7 +2155,8 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
 
 Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 const std::vector<ColumnFamilyDescriptor>& column_families,
-                std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
+                std::vector<ColumnFamilyHandle*>* handles,
+                std::unique_ptr<DB>* dbptr) {
   const bool kSeqPerBatch = true;
   const bool kBatchPerTxn = true;
   ThreadStatusUtil::SetEnableTracking(db_options.enable_thread_tracking);
@@ -2176,7 +2178,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
 Status DB::OpenAndTrimHistory(
     const DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
     std::string trim_ts) {
   assert(dbptr != nullptr);
   assert(handles != nullptr);
@@ -2231,7 +2233,7 @@ Status DB::OpenAndTrimHistory(
     return s;
   }
 
-  *dbptr = db;
+  dbptr->reset(db);
   return s;
 }
 
@@ -2301,9 +2303,10 @@ void DBImpl::TrackExistingDataFiles(
 
 Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
-                    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-                    const bool seq_per_batch, const bool batch_per_txn,
-                    const bool is_retry, bool* can_retry) {
+                    std::vector<ColumnFamilyHandle*>* handles,
+                    std::unique_ptr<DB>* dbptr, const bool seq_per_batch,
+                    const bool batch_per_txn, const bool is_retry,
+                    bool* can_retry) {
   const WriteOptions write_options(Env::IOActivity::kDBOpen);
   const ReadOptions read_options(Env::IOActivity::kDBOpen);
 
@@ -2327,10 +2330,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         std::max(max_write_buffer_size, cf.options.write_buffer_size);
   }
 
-  DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
+  auto impl = std::make_unique<DBImpl>(db_options, dbname, seq_per_batch,
+                                       batch_per_txn);
   if (!impl->immutable_db_options_.info_log) {
     s = impl->init_logger_creation_s_;
-    delete impl;
     return s;
   } else {
     assert(impl->init_logger_creation_s_.ok());
@@ -2363,7 +2366,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     s = impl->CreateArchivalDirectory();
   }
   if (!s.ok()) {
-    delete impl;
     return s;
   }
 
@@ -2465,7 +2467,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
       if (cfd != nullptr) {
         handles->push_back(
-            new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));
+            new ColumnFamilyHandleImpl(cfd, impl.get(), &impl->mutex_));
         impl->NewThreadStatusCfInfo(cfd);
       } else {
         if (db_options.create_missing_column_families) {
@@ -2527,7 +2529,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     // The WriteOptionsFile() will release and lock the mutex internally.
     persist_options_status =
         impl->WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
-    *dbptr = impl;
     impl->opened_successfully_ = true;
   } else {
     persist_options_status.PermitUncheckedError();
@@ -2578,7 +2579,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   if (s.ok()) {
     ROCKS_LOG_HEADER(impl->immutable_db_options_.info_log, "DB pointer %p",
-                     impl);
+                     impl.get());
     LogFlush(impl->immutable_db_options_.info_log);
     if (!impl->WALBufferIsEmpty()) {
       s = impl->FlushWAL(write_options, false);
@@ -2612,13 +2613,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                                             recovery_ctx.is_new_db_);
   }
   impl->options_mutex_.Unlock();
-  if (!s.ok()) {
+  if (s.ok()) {
+    *dbptr = std::move(impl);
+  } else {
     for (auto* h : *handles) {
       delete h;
     }
     handles->clear();
-    delete impl;
-    *dbptr = nullptr;
   }
   return s;
 }

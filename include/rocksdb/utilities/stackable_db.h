@@ -27,6 +27,10 @@ class StackableDB : public DB {
   explicit StackableDB(std::shared_ptr<DB> db)
       : db_(db.get()), shared_db_ptr_(db) {}
 
+  // StackableDB take sole ownership of the underlying db.
+  explicit StackableDB(std::unique_ptr<DB>&& db)
+      : db_(db.get()), shared_db_ptr_(std::move(db)) {}
+
   ~StackableDB() override {
     if (shared_db_ptr_ == nullptr) {
       delete db_;
