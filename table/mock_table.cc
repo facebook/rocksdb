@@ -162,7 +162,7 @@ class MockTableBuilder : public TableBuilder {
 
 InternalIterator* MockTableReader::NewIterator(
     const ReadOptions&, const SliceTransform* /* prefix_extractor */,
-    Arena* /*arena*/, bool /*skip_filters*/, TableReaderCaller /*caller*/,
+    Arena* /*arena*/, InternalStats* /*internal_stats*/, bool /*skip_filters*/, TableReaderCaller /*caller*/,
     size_t /*compaction_readahead_size*/, bool /* allow_unprepared_value */) {
   return new MockTableIterator(table_);
 }
@@ -202,6 +202,7 @@ Status MockTableFactory::NewTableReader(
     const TableReaderOptions& /*table_reader_options*/,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t /*file_size*/,
     std::unique_ptr<TableReader>* table_reader,
+    InternalStats* /*internal_stats*/,
     bool /*prefetch_index_and_filter_in_cache*/) const {
   uint32_t id;
   Status s = GetIDFromFile(file.get(), &id);

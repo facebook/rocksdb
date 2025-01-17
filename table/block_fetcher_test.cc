@@ -282,7 +282,7 @@ class BlockFetcherTest : public testing::Test {
     ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
                                     comparator, std::move(file), file_size,
                                     0 /* block_protection_bytes_per_key */,
-                                    &table_reader, 0 /* tail_size */));
+                                    &table_reader, nullptr /*internal_stats*/, 0 /* tail_size */));
 
     table->reset(static_cast<BlockBasedTable*>(table_reader.release()));
   }

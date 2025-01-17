@@ -463,11 +463,11 @@ class CompactionJobTestBase : public testing::Test {
           TableReaderOptions(cfd->ioptions(), nullptr, FileOptions(),
                              cfd_->internal_comparator(),
                              0 /* block_protection_bytes_per_key */),
-          std::move(freader), file_size, &table_reader, false);
+          std::move(freader), file_size, &table_reader, /*internal_stast=*/nullptr, false);
       ASSERT_OK(s);
       assert(table_reader);
       std::unique_ptr<InternalIterator> iiter(
-          table_reader->NewIterator(read_opts, nullptr, nullptr, true,
+          table_reader->NewIterator(read_opts, nullptr, nullptr, nullptr, true,
                                     TableReaderCaller::kUncategorized));
       assert(iiter);
 

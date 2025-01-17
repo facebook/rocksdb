@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cassert>
 
+#include "db/internal_stats.h"  // This include works. Do NOT put it in the header file
 #include "file/random_access_file_reader.h"
 #include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
@@ -204,6 +205,7 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
     RecordInHistogram(stats_, TABLE_OPEN_PREFETCH_TAIL_READ_BYTES, read_len);
   }
   assert(buf->offset_ <= offset);
+  UpdateInternalStats();
   return s;
 }
 
@@ -765,6 +767,7 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
       RecordTick(stats_, TABLE_OPEN_PREFETCH_TAIL_MISS);
     }
   }
+  UpdateInternalStats();
   return ret;
 }
 
@@ -1038,6 +1041,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     }
     readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
   }
+
+  UpdateInternalStats();
   return (data_found ? Status::OK() : Status::TryAgain());
 }
 
@@ -1074,6 +1079,20 @@ Status FilePrefetchBuffer::PrefetchRemBuffers(const IOOptions& opts,
     end_offset1 = end_offset2;
   }
   return s;
+}
+
+void FilePrefetchBuffer::UpdateInternalStats() {
+  size_t current_buffer_size = GetTotalBufferSize();
+  if (last_recorded_buffer_size_ < current_buffer_size) {
+    internal_stats_->AddDBStats(
+        InternalStats::InternalDBStatsType::kIntStatsPrefetchBufferSizeBytes,
+        current_buffer_size - last_recorded_buffer_size_);
+  } else {
+    internal_stats_->SubDBStats(
+        InternalStats::InternalDBStatsType::kIntStatsPrefetchBufferSizeBytes,
+        last_recorded_buffer_size_ - current_buffer_size);
+  }
+  last_recorded_buffer_size_ = current_buffer_size;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -760,6 +760,7 @@ Status ExternalSstFileIngestionJob::ResetTableReader(
           /* unique_id */ {}, /* largest_seqno */ 0,
           /* tail_size */ 0, user_defined_timestamps_persisted),
       std::move(sst_file_reader), file_to_ingest->file_size, table_reader,
+      /*internal_stats=*/nullptr,
       // No need to prefetch index/filter if caching is not needed.
       /*prefetch_index_and_filter_in_cache=*/ingestion_options_.fill_cache);
   return status;
@@ -922,7 +923,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   ReadOptions ro;
   ro.fill_cache = ingestion_options_.fill_cache;
   std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
-      ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
+      ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr, /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
 
   // Get first (smallest) and last (largest) key from file.

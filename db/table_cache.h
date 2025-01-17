@@ -34,6 +34,7 @@ class Arena;
 struct FileDescriptor;
 class GetContext;
 class HistogramImpl;
+class InternalStats;
 
 // Manages caching for TableReader objects for a column family. The actual
 // cache is allocated separately and passed to the constructor. TableCache
@@ -93,7 +94,7 @@ class TableCache {
       const InternalKeyComparator& internal_comparator,
       const FileMetaData& file_meta, RangeDelAggregator* range_del_agg,
       const MutableCFOptions& mutable_cf_options,
-      TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
+      TableReader** table_reader_ptr, InternalStats* internal_stats, HistogramImpl* file_read_hist,
       TableReaderCaller caller, Arena* arena, bool skip_filters, int level,
       size_t max_file_size_for_l0_meta_pin,
       const InternalKey* smallest_compaction_key,

@@ -194,7 +194,7 @@ void PlainTableReader::SetupForCompaction() {}
 
 InternalIterator* PlainTableReader::NewIterator(
     const ReadOptions& options, const SliceTransform* /* prefix_extractor */,
-    Arena* arena, bool /*skip_filters*/, TableReaderCaller /*caller*/,
+    Arena* arena, InternalStats* /*internal_stats*/, bool /*skip_filters*/, TableReaderCaller /*caller*/,
     size_t /*compaction_readahead_size*/, bool /* allow_unprepared_value */) {
   // Not necessarily used here, but make sure this has been initialized
   assert(table_properties_);

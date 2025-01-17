@@ -101,7 +101,7 @@ class BlockBasedTable : public TableReader {
       const InternalKeyComparator& internal_key_comparator,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       uint8_t block_protection_bytes_per_key,
-      std::unique_ptr<TableReader>* table_reader, uint64_t tail_size,
+      std::unique_ptr<TableReader>* table_reader, InternalStats* internal_status, uint64_t tail_size,
       std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr =
           nullptr,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
@@ -132,7 +132,7 @@ class BlockBasedTable : public TableReader {
   // kCompaction.
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
-                                Arena* arena, bool skip_filters,
+                                Arena* arena, InternalStats* internal_stats, bool skip_filters,
                                 TableReaderCaller caller,
                                 size_t compaction_readahead_size = 0,
                                 bool allow_unprepared_value = false) override;
@@ -718,7 +718,7 @@ struct BlockBasedTable::Rep {
     fpb->reset(new FilePrefetchBuffer(
         readahead_params, !ioptions.allow_mmap_reads /* enable */,
         false /* track_min_offset */, ioptions.fs.get(), ioptions.clock,
-        ioptions.stats, readaheadsize_cb, usage));
+        nullptr /*internal_stats */, ioptions.stats, readaheadsize_cb, usage));
   }
 
   void CreateFilePrefetchBufferIfNotExists(

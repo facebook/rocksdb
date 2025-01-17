@@ -421,6 +421,7 @@ Status BuildTable(
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           tboptions.read_options, file_options, tboptions.internal_comparator,
           *meta, nullptr /* range_del_agg */, mutable_cf_options, nullptr,
+          internal_stats,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
           TableReaderCaller::kFlush, /*arena=*/nullptr,

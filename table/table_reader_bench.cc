@@ -147,7 +147,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     s = opts.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, env_options,
                            ikc, 0 /* block_protection_bytes_per_key */),
-        std::move(file_reader), file_size, &table_reader);
+        std::move(file_reader), file_size, &table_reader, nullptr /*internal_stats*/);
     if (!s.ok()) {
       fprintf(stderr, "Open Table Error: %s\n", s.ToString().c_str());
       exit(1);
@@ -205,6 +205,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           if (!through_db) {
             iiter = table_reader->NewIterator(
                 read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+                /*internal_stats=*/nullptr,
                 /*skip_filters=*/false, TableReaderCaller::kUncategorized);
           } else {
             iter = db->NewIterator(read_options);

@@ -395,6 +395,7 @@ Slice CuckooTableIterator::value() const {
 InternalIterator* CuckooTableReader::NewIterator(
     const ReadOptions& /*read_options*/,
     const SliceTransform* /* prefix_extractor */, Arena* arena,
+    InternalStats* /*internal_stats*/,
     bool /*skip_filters*/, TableReaderCaller /*caller*/,
     size_t /*compaction_readahead_size*/, bool /* allow_unprepared_value */) {
   if (!status().ok()) {

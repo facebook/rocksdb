@@ -6,10 +6,13 @@
 #pragma once
 #include "rocksdb/db.h"
 
+class InternalStats;
+
 namespace ROCKSDB_NAMESPACE {
 Status VerifySstFileChecksumInternal(const Options& options,
                                      const EnvOptions& env_options,
                                      const ReadOptions& read_options,
                                      const std::string& file_path,
-                                     const SequenceNumber& largest_seqno = 0);
+                                     const SequenceNumber& largest_seqno,
+                                     InternalStats* internal_stats);
 }  // namespace ROCKSDB_NAMESPACE

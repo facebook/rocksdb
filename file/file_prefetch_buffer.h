@@ -128,7 +128,7 @@ struct BufferInfo {
             offset < offset_ + async_req_len_);
   }
 
-  size_t CurrentSize() { return buffer_.CurrentSize(); }
+  size_t CurrentSize() const { return buffer_.CurrentSize(); }
 };
 
 enum class FilePrefetchBufferUsage {
@@ -186,7 +186,8 @@ class FilePrefetchBuffer {
   FilePrefetchBuffer(
       const ReadaheadParams& readahead_params = {}, bool enable = true,
       bool track_min_offset = false, FileSystem* fs = nullptr,
-      SystemClock* clock = nullptr, Statistics* stats = nullptr,
+      SystemClock* clock = nullptr, InternalStats* internal_stats = nullptr,
+      Statistics* stats = nullptr,
       const std::function<void(bool, uint64_t&, uint64_t&)>& cb = nullptr,
       FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown)
       : readahead_size_(readahead_params.initial_readahead_size),
@@ -204,6 +205,8 @@ class FilePrefetchBuffer {
         explicit_prefetch_submitted_(false),
         fs_(fs),
         clock_(clock),
+        internal_stats_(internal_stats),
+        last_recorded_buffer_size_(0),
         stats_(stats),
         usage_(usage),
         readaheadsize_cb_(cb),
@@ -229,7 +232,7 @@ class FilePrefetchBuffer {
     }
   }
 
-  ~FilePrefetchBuffer() {
+ ~FilePrefetchBuffer() {
     // Abort any pending async read request before destroying the class object.
     if (fs_ != nullptr) {
       std::vector<void*> handles;
@@ -288,6 +291,9 @@ class FilePrefetchBuffer {
       delete overlap_buf_;
       overlap_buf_ = nullptr;
     }
+
+    // Decrement buffer memory usage to 0
+    UpdateInternalStats();
   }
 
   bool Enabled() const { return enable_; }
@@ -582,6 +588,21 @@ class FilePrefetchBuffer {
     }
   }
 
+  void UpdateInternalStats();
+
+  size_t GetTotalBufferSize() const {
+    size_t total = 0;
+    for (const BufferInfo* buf_info : bufs_) {
+      if (buf_info != nullptr) {
+        total += buf_info->CurrentSize();
+      }
+    }
+    if (overlap_buf_ != nullptr) {
+      total += overlap_buf_->CurrentSize();
+    }
+    return total;
+  }
+
   void UpdateReadAheadTrimmedStat(size_t initial_length,
                                   size_t updated_length) {
     if (initial_length != updated_length) {
@@ -696,6 +717,8 @@ class FilePrefetchBuffer {
 
   FileSystem* fs_;
   SystemClock* clock_;
+  InternalStats* internal_stats_;
+  size_t last_recorded_buffer_size_;
   Statistics* stats_;
 
   FilePrefetchBufferUsage usage_;

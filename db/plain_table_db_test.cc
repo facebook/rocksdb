@@ -323,7 +323,7 @@ class TestPlainTableFactory : public PlainTableFactory {
   Status NewTableReader(
       const ReadOptions& /*ro*/, const TableReaderOptions& table_reader_options,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      std::unique_ptr<TableReader>* table,
+      std::unique_ptr<TableReader>* table,InternalStats* /*internal_stats*/,
       bool /*prefetch_index_and_filter_in_cache*/) const override {
     std::unique_ptr<TableProperties> props;
     const ReadOptions read_options;

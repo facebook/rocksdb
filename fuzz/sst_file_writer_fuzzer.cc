@@ -96,7 +96,7 @@ TableReader* NewTableReader(const std::string& sst_file_path,
                              0 /* block_protection_bytes_per_key */);
     t_opt.largest_seqno = kMaxSequenceNumber;
     s = options.table_factory->NewTableReader(t_opt, std::move(file_reader),
-                                              file_size, &table_reader,
+                                              file_size, &table_reader,/*internal_stats=*/nullptr,
                                               /*prefetch=*/false);
   }
   if (!s.ok()) {

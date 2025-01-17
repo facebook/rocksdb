@@ -626,7 +626,8 @@ Status BlockBasedTable::Open(
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     uint8_t block_protection_bytes_per_key,
-    std::unique_ptr<TableReader>* table_reader, uint64_t tail_size,
+    std::unique_ptr<TableReader>* table_reader,
+    InternalStats* /*internal_stats*/, uint64_t tail_size,
     std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
@@ -949,7 +950,8 @@ Status BlockBasedTable::PrefetchTail(
   // Use `FilePrefetchBuffer`
   prefetch_buffer->reset(new FilePrefetchBuffer(
       ReadaheadParams(), true /* enable */, true /* track_min_offset */,
-      ioptions.fs.get() /* fs */, nullptr /* clock */, stats,
+      ioptions.fs.get() /* fs */, nullptr /* clock */,
+      nullptr /* internal_stats */, stats,
       /* readahead_cb */ nullptr,
       FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 
@@ -2011,8 +2013,10 @@ bool BlockBasedTable::IsLastLevel() const {
 
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
-    Arena* arena, bool skip_filters, TableReaderCaller caller,
-    size_t compaction_readahead_size, bool allow_unprepared_value) {
+    Arena* arena, InternalStats* internal_stats, bool skip_filters,
+    TableReaderCaller caller, size_t compaction_readahead_size,
+    bool allow_unprepared_value) {
+  (void)internal_stats;
   BlockCacheLookupContext lookup_context{caller};
   bool need_upper_bound_check =
       read_options.auto_prefix_mode || PrefixExtractorChanged(prefix_extractor);
@@ -2028,7 +2032,7 @@ InternalIterator* BlockBasedTable::NewIterator(
             (!read_options.total_order_seek || read_options.auto_prefix_mode ||
              read_options.prefix_same_as_start) &&
             prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, caller,
+        need_upper_bound_check, prefix_extractor, caller, internal_stats,
         compaction_readahead_size, allow_unprepared_value);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
@@ -2038,7 +2042,7 @@ InternalIterator* BlockBasedTable::NewIterator(
             (!read_options.total_order_seek || read_options.auto_prefix_mode ||
              read_options.prefix_same_as_start) &&
             prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, caller,
+        need_upper_bound_check, prefix_extractor, caller, internal_stats,
         compaction_readahead_size, allow_unprepared_value);
   }
 }

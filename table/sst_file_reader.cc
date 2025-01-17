@@ -75,7 +75,7 @@ Status SstFileReader::Open(const std::string& file_path) {
     // Allow open file with global sequence number for backward compatibility.
     t_opt.largest_seqno = kMaxSequenceNumber;
     s = r->options.table_factory->NewTableReader(t_opt, std::move(file_reader),
-                                                 file_size, &r->table_reader);
+                                                 file_size, &r->table_reader, /*internal_stats=*/nullptr);
   }
   return s;
 }
@@ -94,7 +94,7 @@ Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
       true /* expose_blob_index */, false /* allow_refresh */);
   auto internal_iter = r->table_reader->NewIterator(
       res->GetReadOptions(), r->moptions.prefix_extractor.get(),
-      res->GetArena(), false /* skip_filters */,
+      res->GetArena(), /*internal_stats=*/nullptr, false /* skip_filters */,
       TableReaderCaller::kSSTFileReader);
   res->SetIterUnderDBIter(internal_iter);
   return res;
@@ -104,7 +104,7 @@ std::unique_ptr<Iterator> SstFileReader::NewTableIterator() {
   auto r = rep_.get();
   InternalIterator* internal_iter = r->table_reader->NewIterator(
       r->roptions_for_table_iter, r->moptions.prefix_extractor.get(),
-      /*arena*/ nullptr, false /* skip_filters */,
+      /*arena*/ nullptr, /*internal_stats=*/nullptr, false /* skip_filters */,
       TableReaderCaller::kSSTFileReader);
   assert(internal_iter);
   if (internal_iter == nullptr) {
@@ -129,7 +129,7 @@ Status SstFileReader::VerifyChecksum(const ReadOptions& read_options) {
 Status SstFileReader::VerifyNumEntries(const ReadOptions& read_options) {
   Rep* r = rep_.get();
   std::unique_ptr<InternalIterator> internal_iter{r->table_reader->NewIterator(
-      read_options, r->moptions.prefix_extractor.get(), nullptr,
+      read_options, r->moptions.prefix_extractor.get(), nullptr, /*internal_stats=*/nullptr,
       false /* skip_filters */, TableReaderCaller::kSSTFileReader)};
   internal_iter->SeekToFirst();
   Status s = internal_iter->status();

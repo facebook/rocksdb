@@ -547,13 +547,13 @@ Status CheckCacheOptionCompatibility(const BlockBasedTableOptions& bbto) {
 Status BlockBasedTableFactory::NewTableReader(
     const ReadOptions& ro, const TableReaderOptions& table_reader_options,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-    std::unique_ptr<TableReader>* table_reader,
+    std::unique_ptr<TableReader>* table_reader,InternalStats* internal_stats,
     bool prefetch_index_and_filter_in_cache) const {
   return BlockBasedTable::Open(
       ro, table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
       file_size, table_reader_options.block_protection_bytes_per_key,
-      table_reader, table_reader_options.tail_size,
+      table_reader, internal_stats, table_reader_options.tail_size,
       shared_state_->table_reader_cache_res_mgr,
       table_reader_options.prefix_extractor, prefetch_index_and_filter_in_cache,
       table_reader_options.skip_filters, table_reader_options.level,

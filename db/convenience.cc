@@ -32,16 +32,18 @@ Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
 
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
-                             const std::string& file_path) {
+                             const std::string& file_path,
+                             InternalStats* internal_stats) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
-  return VerifySstFileChecksum(options, env_options, read_options, file_path);
+  return VerifySstFileChecksum(options, env_options, read_options, file_path, /*largest_seqno=*/0, internal_stats);
 }
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const ReadOptions& _read_options,
                              const std::string& file_path,
-                             const SequenceNumber& largest_seqno) {
+                             const SequenceNumber& largest_seqno,
+                             InternalStats* internal_stats) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown) {
     return Status::InvalidArgument(
         "Can only call VerifySstFileChecksum with `ReadOptions::io_activity` "
@@ -50,14 +52,15 @@ Status VerifySstFileChecksum(const Options& options,
   }
   ReadOptions read_options(_read_options);
   return VerifySstFileChecksumInternal(options, env_options, read_options,
-                                       file_path, largest_seqno);
+                                       file_path, largest_seqno, internal_stats);
 }
 
 Status VerifySstFileChecksumInternal(const Options& options,
                                      const EnvOptions& env_options,
                                      const ReadOptions& read_options,
                                      const std::string& file_path,
-                                     const SequenceNumber& largest_seqno) {
+                                     const SequenceNumber& largest_seqno,
+                                     InternalStats* internal_stats) {
   std::unique_ptr<FSRandomAccessFile> file;
   uint64_t file_size;
   InternalKeyComparator internal_comparator(options.comparator);
@@ -88,7 +91,7 @@ Status VerifySstFileChecksumInternal(const Options& options,
   reader_options.largest_seqno = largest_seqno;
   s = options.table_factory->NewTableReader(
       read_options, reader_options, std::move(file_reader), file_size,
-      &table_reader, false /* prefetch_index_and_filter_in_cache */);
+      &table_reader, internal_stats, false /* prefetch_index_and_filter_in_cache */);
   if (!s.ok()) {
     return s;
   }

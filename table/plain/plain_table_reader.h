@@ -81,7 +81,7 @@ class PlainTableReader : public TableReader {
   // true
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
-                                Arena* arena, bool skip_filters,
+                                Arena* arena, InternalStats* internal_stats,bool skip_filters,
                                 TableReaderCaller caller,
                                 size_t compaction_readahead_size = 0,
                                 bool allow_unprepared_value = false) override;

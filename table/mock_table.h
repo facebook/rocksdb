@@ -56,6 +56,7 @@ class MockTableFactory : public TableFactory {
       const ReadOptions& ro, const TableReaderOptions& table_reader_options,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       std::unique_ptr<TableReader>* table_reader,
+      InternalStats* internal_stats,
       bool prefetch_index_and_filter_in_cache = true) const override;
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
@@ -104,7 +105,7 @@ class MockTableReader : public TableReader {
       : table_(table), tp_(tp) {}
 
   virtual InternalIterator* NewIterator(
-      const ReadOptions&, const SliceTransform* prefix_extractor, Arena* arena,
+      const ReadOptions&, const SliceTransform* prefix_extractor, Arena* arena, InternalStats* internal_stats,
       bool skip_filters, TableReaderCaller caller,
       size_t compaction_readahead_size = 0,
       bool allow_unprepared_value = false) override;
