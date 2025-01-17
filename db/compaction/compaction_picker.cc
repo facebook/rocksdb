@@ -745,6 +745,8 @@ Compaction* CompactionPicker::CompactRange(
       input_level_total += input_file_size;
 
       if (input_level_total + output_level_total > limit) {
+        // To ensure compaction size is <= limit, leave out inputs from
+        // index i onwards.
         covering_the_whole_range = false;
         inputs.files.resize(i);
         break;
@@ -814,6 +816,9 @@ Compaction* CompactionPicker::CompactRange(
     assert(input_level == 0);
     output_level = vstorage->base_level();
     assert(output_level > 0);
+  }
+  for (int i = input_level + 1; i < output_level; i++) {
+    assert(vstorage->NumLevelFiles(i) == 0);
   }
   output_level_inputs.level = output_level;
   if (input_level != output_level) {
