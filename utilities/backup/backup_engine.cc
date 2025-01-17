@@ -291,7 +291,7 @@ class BackupEngineImpl {
         if (!StartsWith(info->filename, kPrivateDirSlash)) {
           assert(StartsWith(info->filename, kSharedDirSlash) ||
                  StartsWith(info->filename, kSharedChecksumDirSlash));
-          remaps_[GetDbFileName(info->filename)] = info;
+          remaps_[info->GetDbFileName()] = info;
         }
       }
     }
@@ -508,10 +508,10 @@ class BackupEngineImpl {
   // during the incremental restore procedure in accordance with user
   // selected strategy (RestoreMode). File can be retained only if it's
   // deemed to exist in the referenced backup set.
-  IOStatus InferDBFilesToRetainInRestore(
+  void InferDBFilesToRetainInRestore(
       const std::vector<std::pair<const BackupEngineImpl*, const FileInfo*>>&
           restore_file_infos,
-      const std::unordered_map<uint64_t, std::string>& unowned_sst_backups,
+      std::unordered_set<std::string>& unowned_backups,
       const std::string& db_dir, RestoreOptions::Mode mode,
       std::unordered_set<uint64_t>& files_to_keep) const;
 
@@ -563,62 +563,15 @@ class BackupEngineImpl {
     return file_copy;
   }
 
-  // Valid path format: */**/<file_number>_s<db_session_id>[_<file_size>].<ext>.
-  // Path might be preceeded with any # of '/' and directories.
-  //
-  // Function will return true in following cases:
-  //
-  //  1) File path ends with *_s<db_session_id>.<ext>
-  //  2) File path ends with *_s<db_session_id>_<file_size>.<ext>
-  //
-  // ... where:
-  //
-  // * <db_session_id> represents a 20 character long id AND
-  // * <file_size> (if provided) represents a valid uint64_t value
-  static bool ParseDbSessionIdAndSizeFromFile(const std::string& path,
-                                              std::string* db_session_id,
-                                              uint64_t* size) {
-    *db_session_id = "";
-    *size = 0;
-
-    size_t next_pos = 0;
-    size_t slash = path.find_last_of('/');
-    if (slash != std::string::npos) {
-      next_pos = slash + 1;
-    }
-
-    // Valid format:
-    // where the only expected <ext> is technically 'sst', but we're
-    // more permissive in this case.
-    size_t first_s_underscore = path.find("_s", next_pos);
-    if (first_s_underscore == std::string::npos) {
-      return false;
-    }
-
-    // <db_session_id> is always 20 character long string.
-    const size_t db_session_id_len = 20U;
-    if (first_s_underscore + 2 + db_session_id_len > path.size()) {
-      return false;
-    }
-
-    next_pos = first_s_underscore + 2 + db_session_id_len;
-    size_t last_dot = path.find_last_of('.');
-    if (last_dot == next_pos) {
-      *db_session_id = path.substr(first_s_underscore + 2, db_session_id_len);
-      return true;
-    }
-
-    size_t second_underscore = path.find_first_of('_', next_pos);
-    if (second_underscore == next_pos && last_dot != std::string::npos) {
-      try {
-        *size = std::stoull(path.substr(next_pos + 1, last_dot - next_pos + 1));
-        *db_session_id = path.substr(first_s_underscore + 2, db_session_id_len);
-        return true;
-      } catch (...) {
-      }
-    }
-
-    return false;
+  inline std::string GenerateSharedFileWithDbSessionIdAndSize(
+      const std::string& file, const uint64_t file_size,
+      const std::string& db_session_id) const {
+    assert(file.size() == 0 || file[0] != '/');
+    std::string file_copy = file;
+    file_copy.insert(file_copy.find_last_of('.'), "_s" + db_session_id);
+    file_copy.insert(file_copy.find_last_of('.'),
+                     "_" + std::to_string(file_size));
+    return kSharedChecksumDirSlash + file_copy;
   }
 
   static inline std::string GetFileFromChecksumFile(const std::string& file) {
@@ -627,25 +580,6 @@ class BackupEngineImpl {
     size_t first_underscore = file_copy.find_first_of('_');
     return file_copy.erase(first_underscore,
                            file_copy.find_last_of('.') - first_underscore);
-  }
-
-  static inline std::string GetDbFileName(const std::string& filename) {
-    std::string rv;
-    // extract the filename part
-    size_t slash = filename.find_last_of('/');
-    // file will either be shared/<file>, shared_checksum/<file_crc32c_size>,
-    // shared_checksum/<file_session>, shared_checksum/<file_crc32c_session>,
-    // or private/<number>/<file>
-    assert(slash != std::string::npos);
-    rv = filename.substr(slash + 1);
-
-    // if the file was in shared_checksum, extract the real file name
-    // in this case the file is <number>_<checksum>_<size>.<type>,
-    // <number>_<session>.<type>, or <number>_<checksum>_<session>.<type>
-    if (filename.substr(0, slash) == kSharedChecksumDirName) {
-      rv = GetFileFromChecksumFile(rv);
-    }
-    return rv;
   }
 
   inline std::string GetBackupMetaFile(BackupID backup_id, bool tmp) const {
@@ -2050,7 +1984,7 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
       restore_file_infos;
   restore_file_infos.reserve(backup->GetFiles().size() +
                              backup->GetExcludedFiles().size());
-  std::unordered_map<uint64_t, std::string> unowned_sst_backups;
+  std::unordered_set<std::string> unowned_backups;
   for (const auto& ef : backup->GetExcludedFiles()) {
     const std::string& file = ef.relative_file;
 
@@ -2069,20 +2003,14 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
       // as existing, on-disk db file metadata matches this unowned backup file
       // db_session_id and size.
       if (options.mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
-        std::string filename = GetDbFileName(file);
-
-        uint64_t number;
-        FileType type;
-        if (ParseFileName(filename, &number, &type) && type == kTableFile) {
-          unowned_sst_backups.emplace(number, ef.relative_file);
-          continue;
-        }
+        unowned_backups.insert(ef.relative_file);
+        continue;
       }
 
       return IOStatus::InvalidArgument(
-          "Excluded file " + file + " not found in other backups nor in " +
+          "Excluded file " + file + " not found in any of %d" +
           std::to_string(locked_restore_from_dirs.size() - 1) +
-          " alternate backup directories");
+          "backup directories!");
     }
   }
 
@@ -2092,11 +2020,15 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
   }
 
   std::unordered_set<uint64_t> files_to_keep;
-  IOStatus io_status =
-      InferDBFilesToRetainInRestore(restore_file_infos, unowned_sst_backups,
-                                    db_dir, options.mode, files_to_keep);
-  if (!io_status.ok()) {
-    return io_status;
+  InferDBFilesToRetainInRestore(restore_file_infos, unowned_backups, db_dir,
+                                options.mode, files_to_keep);
+
+  if (!unowned_backups.empty()) {
+    return IOStatus::InvalidArgument(
+        "Excluded file " + *unowned_backups.begin() + " (one amongst " +
+        std::to_string(unowned_backups.size()) + ") not found in any of" +
+        std::to_string(locked_restore_from_dirs.size() - 1) +
+        "backup directories!");
   }
 
   if (options.keep_log_files) {
@@ -2145,7 +2077,7 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
     Env* src_env = engine_and_file_info.first->backup_env_;
 
     // 1. get DB filename
-    std::string dst = GetDbFileName(file_info->filename);
+    std::string dst = file_info->GetDbFileName();
 
     // 2. find the filetype
     uint64_t number;
@@ -2875,28 +2807,53 @@ void BackupEngineImpl::LoopRateLimitRequestHelper(
   }
 }
 
-IOStatus BackupEngineImpl::InferDBFilesToRetainInRestore(
+void BackupEngineImpl::InferDBFilesToRetainInRestore(
     const std::vector<std::pair<const BackupEngineImpl*, const FileInfo*>>&
         restore_file_infos,
-    const std::unordered_map<uint64_t, std::string>& unowned_sst_backups,
-    const std::string& db_dir, RestoreOptions::Mode mode,
+    std::unordered_set<std::string>& unowned_backups, const std::string& db_dir,
+    RestoreOptions::Mode mode,
     std::unordered_set<uint64_t>& files_to_keep) const {
   if (mode == RestoreOptions::Mode::kPurgeAllFiles) {
-    return IOStatus::OK();
+    return;
   }
-  RateLimiter* rate_limiter = options_.restore_rate_limiter.get();
 
   ROCKS_LOG_INFO(options_.info_log,
                  "Starting incremental restore evaluation in %" PRIu32 " mode",
                  mode);
 
+  ROCKS_LOG_INFO(options_.info_log, "Constructing backup files mapping...");
+  std::unordered_map<uint64_t,
+                     std::pair<const BackupEngineImpl*, const FileInfo*>>
+      file_num_to_engine_infos;
+  for (const auto& engine_and_file_info : restore_file_infos) {
+    uint64_t number;
+    FileType type;
+
+    std::string filename = engine_and_file_info.second->GetDbFileName();
+    if (!ParseFileName(filename, &number, &type)) {
+      continue;
+    }
+
+    // We only care to optimize restore for large files - like SSTs and blobs.
+    // Blobs are only supported in kVerifyChecksum mode as we do not record
+    // `db_session_id` for blobs.
+    if (type == kTableFile ||
+        (type == kBlobFile && mode == RestoreOptions::Mode::kVerifyChecksum)) {
+      file_num_to_engine_infos[number] = engine_and_file_info;
+    }
+  }
+
+  ROCKS_LOG_INFO(
+      options_.info_log,
+      "Evaluating existing .sst%s files restore retention eligibility...",
+      mode == RestoreOptions::Mode::kVerifyChecksum ? " and .blob files" : "");
+
   std::vector<std::string> children;
   db_fs_->GetChildren(db_dir, io_options_, &children, nullptr)
       .PermitUncheckedError();  // ignore errors
-
-  // Create a mapping from SST / blob files numbers to their filename and type.
-  std::unordered_map<uint64_t, std::pair<std::string, FileType>>
-      file_num_to_filename_and_type;
+  std::vector<ComputeChecksumWorkItem> backup_files_compute_checksum_work_items;
+  std::vector<ComputeChecksumWorkItem> db_files_compute_checksum_work_items;
+  std::unordered_map<uint64_t, std::string> backup_file_num_to_checksum;
   for (const auto& f : children) {
     uint64_t number;
     FileType type;
@@ -2917,124 +2874,6 @@ IOStatus BackupEngineImpl::InferDBFilesToRetainInRestore(
       continue;
     }
 
-    file_num_to_filename_and_type[number] = std::make_pair(f, type);
-  }
-
-  // Go through all the unowned SST backups first with the intent to bail out
-  // early if some of them do not have an 'equivalent' db file in db directory.
-  //
-  // NOTE: This is an edge case when restore in `kKeepLatestDbSessionIdFiles`
-  //       mode interleaves with _peculiar_ case of 'excluded files' feature
-  //       where supplied list of (alternative) backup directories are jointly
-  //       missing one or more SST file. In the logic below we try to fill the
-  //       gap by retaining existing db files if db_session_id and sizes match.
-  if (unowned_sst_backups.size() > 0) {
-    ROCKS_LOG_INFO(options_.info_log, "Handling unowned excluded backups...");
-    assert(mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles);
-
-    // Backup file does not need to be restored if it's corresponding
-    // matching ID file has the exact same session ID and size.
-    for (const auto& [number, f] : unowned_sst_backups) {
-      std::string ub_db_sid;
-      uint64_t ub_size_bytes;
-      if (ParseDbSessionIdAndSizeFromFile(f, &ub_db_sid, &ub_size_bytes) &&
-          !ub_db_sid.empty() && ub_size_bytes > 0) {
-        const auto& db_it = file_num_to_filename_and_type.find(number);
-        if (db_it != file_num_to_filename_and_type.end()) {
-          const auto& [db_f, _] = db_it->second;
-          uint64_t size_bytes = 0;
-          std::string db_file_path = db_dir + "/" + db_f;
-          IOStatus io_st = db_fs_->GetFileSize(db_file_path, io_options_,
-                                               &size_bytes, nullptr /* dbg */);
-          if (io_st.ok() && (size_bytes == ub_size_bytes)) {
-            // Obtain existing destination's file db_session_id from the footer.
-            std::string db_id;
-            std::string db_session_id;
-            Status s =
-                GetFileDbIdentities(db_env_, EnvOptions() /* src_env_options */,
-                                    db_file_path /* file_path */,
-                                    Temperature::kUnknown /* src_temp */,
-                                    rate_limiter, &db_id, &db_session_id);
-            if (s.ok() && (db_session_id == ub_db_sid)) {
-              // Db file # has been already associated with the excluded backup.
-              // Remove it from the temporary map of db files to be processed.
-              file_num_to_filename_and_type.erase(number);
-
-              // Retain the file for the purpose of restore.
-              files_to_keep.insert(number);
-
-              Log(options_.info_log,
-                  "Excluded backup file '%s' has its' db file equivalent: '%s'",
-                  f.c_str(), db_file_path.c_str());
-              continue;
-            }
-          }
-        }
-      }
-
-      return IOStatus::InvalidArgument(
-          "Excluded file " + f +
-          " could not be found neither in the existing db "
-          "directory nor in any of the supplied backup directories!");
-    }
-  }
-
-  ROCKS_LOG_INFO(options_.info_log, "Constructing backup files mapping...");
-  std::unordered_map<
-      uint64_t,
-      std::pair<std::pair<const BackupEngineImpl*, const FileInfo*>, FileType>>
-      file_num_to_meta;
-  for (const auto& engine_and_file_info : restore_file_infos) {
-    uint64_t number;
-    FileType type;
-
-    std::string filename = GetDbFileName(engine_and_file_info.second->filename);
-    if (!ParseFileName(filename, &number, &type)) {
-      continue;
-    }
-
-    // We only care to optimize restore for large files - like SSTs and blobs.
-    // Blobs are only supported in kVerifyChecksum mode as we do not record
-    // `db_session_id` for blobs.
-    if (type == kTableFile ||
-        (type == kBlobFile && mode == RestoreOptions::Mode::kVerifyChecksum)) {
-      file_num_to_meta.insert(
-          {number, std::make_pair(engine_and_file_info, type)});
-    }
-  }
-
-  ROCKS_LOG_INFO(
-      options_.info_log,
-      "Evaluating existing .sst%s files restore retention eligibility...",
-      mode == RestoreOptions::Mode::kVerifyChecksum ? " and .blob files" : "");
-
-  std::vector<ComputeChecksumWorkItem> backup_files_compute_checksum_work_items;
-  std::vector<ComputeChecksumWorkItem> db_files_compute_checksum_work_items;
-  std::unordered_map<uint64_t, std::string> backup_file_number_to_checksum;
-  for (const auto& [number, d] : file_num_to_filename_and_type) {
-    const auto& [f, type] = d;
-
-    auto it = file_num_to_meta.find(number);
-    if (it == file_num_to_meta.end()) {
-      Log(options_.info_log, "Existing file '%s' is not present in the backup!",
-          f.c_str());
-      continue;
-    }
-
-    auto backup_engine_impl = (it->second).first.first;
-    auto backup_file_info = (it->second).first.second;
-    auto backup_file_type = (it->second).second;
-
-    if (type != backup_file_type) {
-      Log(options_.info_log,
-          "Existing db file with the very same number can only be retained "
-          "if it has the same type as it's corresponding backup counterpart. "
-          "Backup file '%s' type: %d, existing file '%s' type: %d",
-          backup_file_info->filename.c_str(), backup_file_type, f.c_str(),
-          type);
-      continue;
-    }
-
     uint64_t size_bytes = 0;
     std::string db_file_path = db_dir + "/" + f;
     IOStatus io_st = db_fs_->GetFileSize(db_file_path, io_options_, &size_bytes,
@@ -3046,52 +2885,8 @@ IOStatus BackupEngineImpl::InferDBFilesToRetainInRestore(
       continue;
     }
 
-    if (backup_file_info->size != size_bytes) {
-      Log(options_.info_log,
-          "File size mismatch between backup and file system!"
-          "Backup file '%s' size: %" PRIu64
-          " bytes"
-          "Existing file '%s' size: %" PRIu64 " bytes",
-          backup_file_info->filename.c_str(), backup_file_info->size, f.c_str(),
-          size_bytes);
-      continue;
-    }
-
+    RateLimiter* rate_limiter = options_.restore_rate_limiter.get();
     if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
-      // Backup file does not need to be restored if it's corresponding
-      // matching ID file has the exact same session ID and size.
-
-      // Unlike checksum_hex and size, backup db_session_id and db_id values
-      // are usually not derived at the time of backup engine initialization /
-      // loading metadata from file. At which point, we have two options:
-      //
-      // 1) Querying backup metadata footer (read I/O [potentially remote]) OR
-      // 2) Parsing db session id from backup file name (by convention)
-      //
-      // Given that we already rely on the naming convention in incremental
-      // backup as well as it's simplicity and efficiency, we settled on 2).
-      assert(type == kTableFile);
-
-      std::string parsed_db_session_id;
-      uint64_t parsed_size_bytes;
-      if (!ParseDbSessionIdAndSizeFromFile(backup_file_info->filename,
-                                           &parsed_db_session_id,
-                                           &parsed_size_bytes)) {
-        Log(options_.info_log,
-            "Could not parse db session id and size from backup filename: '%s'",
-            backup_file_info->filename.c_str());
-        continue;
-      }
-      assert(!parsed_db_session_id.empty());
-
-      if (parsed_size_bytes != 0 && (parsed_size_bytes != size_bytes)) {
-        Log(options_.info_log,
-            "Mismatch between on-disk backup file size: %" PRIu64
-            " and parsed backup file size: %" PRIu64 " for file: '%s",
-            size_bytes, parsed_size_bytes, backup_file_info->filename.c_str());
-        continue;
-      }
-
       // On-disk existing db file names require direct file footer query
       // as they don't follow same naming convention as backups.
       std::string db_id;
@@ -3108,28 +2903,49 @@ IOStatus BackupEngineImpl::InferDBFilesToRetainInRestore(
         continue;
       }
 
-      if (parsed_db_session_id != db_session_id) {
+      const std::string checksum_hex = "";
+      std::string shared_file_name = GenerateSharedFileWithDbSessionIdAndSize(
+          f, size_bytes, db_session_id);
+      bool found = false;
+      const auto& f_ei = file_num_to_engine_infos.find(number);
+      if (f_ei != file_num_to_engine_infos.end()) {
+        found = f_ei->second.second->filename == shared_file_name;
+      }
+
+      if (!found) {
+        const auto& uo_sst_bfn = unowned_backups.find(shared_file_name);
+        if (uo_sst_bfn != unowned_backups.end()) {
+          // Db file # has been already associated with the excluded backup.
+          // Remove it from the temporary map of files to be processed.
+          unowned_backups.erase(shared_file_name);
+          found = true;
+        }
+      }
+
+      if (found) {
+        files_to_keep.insert(number);
+
+        ROCKS_LOG_INFO(options_.info_log,
+                       "Existing db file '%s' is retained for restore.",
+                       f.c_str());
+      }
+    } else if (mode == RestoreOptions::Mode::kVerifyChecksum) {
+      const auto& f_ei = file_num_to_engine_infos.find(number);
+      if (f_ei == file_num_to_engine_infos.end() ||
+          f_ei->second.second->GetDbFileName() != f) {
         Log(options_.info_log,
-            "`db_session_id` mismatch between backup and file system!"
-            "Parsed backup file '%s' db session id: '%s', "
-            "Existing file '%s' db session id: '%s'",
-            backup_file_info->filename.c_str(), parsed_db_session_id.c_str(),
-            f.c_str(), db_session_id.c_str());
+            "Existing file '%s' is not present in the backup!", f.c_str());
         continue;
       }
 
-      files_to_keep.insert(number);
-
-      ROCKS_LOG_INFO(options_.info_log,
-                     "Existing file '%s' is retained for restore.", f.c_str());
-    } else if (mode == RestoreOptions::Mode::kVerifyChecksum) {
+      auto backup_engine_impl = f_ei->second.first;
+      auto backup_file_info = f_ei->second.second;
       DBOptions db_options;
       std::string backup_file_path =
           backup_engine_impl->GetAbsolutePath(backup_file_info->filename);
       std::string backup_file_checksum = backup_file_info->checksum_hex;
       if (!backup_file_checksum.empty()) {
-        backup_file_number_to_checksum.insert(
-            std::make_pair(number, backup_file_checksum));
+        backup_file_num_to_checksum[number] = backup_file_checksum;
       } else {
         // Backup file checksum is missing in the backup metadata.
         // Given explicit requirement, compute it asynchronously.
@@ -3154,8 +2970,8 @@ IOStatus BackupEngineImpl::InferDBFilesToRetainInRestore(
             WorkItemType::ComputeChecksum);
 
         ComputeChecksumWorkItem backup_file_checksum_work_item(
-            backup_file_work_item.result.get_future(), backup_file_path,
-            number);
+            backup_file_work_item.result.get_future(),
+            backup_file_info->filename, number);
 
         work_items_.write(std::move(backup_file_work_item));
         backup_files_compute_checksum_work_items.push_back(
@@ -3214,8 +3030,7 @@ IOStatus BackupEngineImpl::InferDBFilesToRetainInRestore(
         continue;
       }
 
-      backup_file_number_to_checksum.insert(
-          std::make_pair(item.file_number, result.checksum_hex));
+      backup_file_num_to_checksum[item.file_number] = result.checksum_hex;
     }
 
     // Loop through db files checksum computation results.
@@ -3233,14 +3048,15 @@ IOStatus BackupEngineImpl::InferDBFilesToRetainInRestore(
         continue;
       }
 
-      auto it = backup_file_number_to_checksum.find(item.file_number);
-      if (it == backup_file_number_to_checksum.end()) {
+      auto it = backup_file_num_to_checksum.find(item.file_number);
+      if (it == backup_file_num_to_checksum.end()) {
         Log(options_.info_log,
             "Failed to find backup file checksum for existing file '%s'.",
             item.file_path.c_str());
         continue;
       }
 
+      auto backup_checksum_hex = it->second;
       if (it->second != result.checksum_hex) {
         Log(options_.info_log,
             "Checksum mismatch between backup file and existing file '%s'.",
@@ -3259,8 +3075,6 @@ IOStatus BackupEngineImpl::InferDBFilesToRetainInRestore(
                  "Done with incremental restore evaluation. "
                  "Retained %zu files.",
                  files_to_keep.size());
-
-  return IOStatus::OK();
 }
 
 void BackupEngineImpl::DeleteChildren(

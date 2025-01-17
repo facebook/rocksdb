@@ -4556,6 +4556,7 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
     // Include files only in given bucket, based on modulus and remainder
     constexpr int modulus = 4;
     int remainder = 0;
+
     cbo.exclude_files_callback = [&remainder](
                                      MaybeExcludeBackupFile* files_begin,
                                      MaybeExcludeBackupFile* files_end) {
@@ -4646,8 +4647,13 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
                          std::make_pair(alt_backup_engine, backup_engine)}) {
       RestoreOptions ro(false /* _keep_log_files */, restore_mode);
       ro.alternate_dirs.push_front(be_pair.second);
-      ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)
-                      .IsInvalidArgument());
+      IOStatus io_st =
+          be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro);
+      if (restore_mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
+        ASSERT_OK(io_st);
+      } else {
+        ASSERT_TRUE(io_st.IsInvalidArgument());
+      }
     }
 
     // Close & Re-open (no crash, etc.)
@@ -4662,8 +4668,13 @@ TEST_F(BackupEngineTest, ExcludeFiles) {
                          std::make_pair(alt_backup_engine, backup_engine)}) {
       RestoreOptions ro(false /* _keep_log_files */, restore_mode);
       ro.alternate_dirs.push_front(be_pair.second);
-      ASSERT_TRUE(be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro)
-                      .IsInvalidArgument());
+      IOStatus io_st =
+          be_pair.first->RestoreDBFromLatestBackup(dbname_, dbname_, ro);
+      if (restore_mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
+        ASSERT_OK(io_st);
+      } else {
+        ASSERT_TRUE(io_st.IsInvalidArgument());
+      }
     }
 
     // Ensure files are not leaked after removing everything.
