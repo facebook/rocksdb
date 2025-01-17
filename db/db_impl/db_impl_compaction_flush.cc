@@ -61,6 +61,20 @@ bool DBImpl::EnoughRoomForCompaction(
   return enough_room;
 }
 
+int DBImpl::GetNumberCompactionIterators(Compaction* c) {
+  assert(c);
+  int num_l0_files = 0;
+  int num_non_l0_levels = 0;
+  for (auto& each_level : *c->inputs()) {
+    if (each_level.level == 0) {
+      num_l0_files += each_level.files.size();
+    } else {
+      num_non_l0_levels++;
+    }
+  }
+  return num_l0_files + num_non_l0_levels;
+}
+
 bool DBImpl::RequestCompactionToken(ColumnFamilyData* cfd, bool force,
                                     std::unique_ptr<TaskLimiterToken>* token,
                                     LogBuffer* log_buffer) {
@@ -3410,6 +3424,9 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     InstrumentedMutexLock l(&mutex_);
 
     num_running_compactions_++;
+    int num_compaction_iterators =
+        GetNumberCompactionIterators(prepicked_compaction->compaction);
+    num_running_compaction_iterators_ += num_compaction_iterators;
 
     std::unique_ptr<std::list<uint64_t>::iterator>
         pending_outputs_inserted_elem(new std::list<uint64_t>::iterator(
@@ -3484,6 +3501,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
+    assert(num_running_compaction_iterators_ >= num_compaction_iterators);
+    num_running_compaction_iterators_ -= num_compaction_iterators;
 
     if (bg_thread_pri == Env::Priority::LOW) {
       bg_compaction_scheduled_--;

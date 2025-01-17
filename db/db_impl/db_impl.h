@@ -2430,6 +2430,8 @@ class DBImpl : public DB {
                                const std::vector<CompactionInputFiles>& inputs,
                                bool* sfm_bookkeeping, LogBuffer* log_buffer);
 
+  int GetNumberCompactionIterators(Compaction* c);
+
   // Request compaction tasks token from compaction thread limiter.
   // It always succeeds if force = true or limiter is disable.
   bool RequestCompactionToken(ColumnFamilyData* cfd, bool force,
@@ -2962,6 +2964,9 @@ class DBImpl : public DB {
 
   // stores the number of compactions are currently running
   int num_running_compactions_;
+
+  // stores the number of iterators required for currently running compactions
+  int num_running_compaction_iterators_;
 
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_;
