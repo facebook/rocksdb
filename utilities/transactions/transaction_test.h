@@ -163,7 +163,7 @@ class TransactionTestBase : public ::testing::Test {
                              std::vector<ColumnFamilyHandle*>* handles) {
     std::vector<size_t> compaction_enabled_cf_indices;
     TransactionDB::PrepareWrap(&options, &cfs, &compaction_enabled_cf_indices);
-    DB* root_db = nullptr;
+    std::unique_ptr<DB> root_db;
     Options options_copy(options);
     const bool use_seq_per_batch =
         txn_db_options.write_policy == WRITE_PREPARED ||
@@ -174,9 +174,8 @@ class TransactionTestBase : public ::testing::Test {
     Status s = DBImpl::Open(options_copy, dbname, cfs, handles, &root_db,
                             use_seq_per_batch, use_batch_per_txn,
                             /*is_retry=*/false, /*can_retry=*/nullptr);
-    auto stackable_db = std::make_unique<StackableDB>(root_db);
+    auto stackable_db = std::make_unique<StackableDB>(std::move(root_db));
     if (s.ok()) {
-      assert(root_db != nullptr);
       // If WrapStackableDB() returns non-ok, then stackable_db is already
       // deleted within WrapStackableDB().
       s = TransactionDB::WrapStackableDB(stackable_db.release(), txn_db_options,
@@ -194,7 +193,7 @@ class TransactionTestBase : public ::testing::Test {
     TransactionDB::PrepareWrap(&options, &column_families,
                                &compaction_enabled_cf_indices);
     std::vector<ColumnFamilyHandle*> handles;
-    DB* root_db = nullptr;
+    std::unique_ptr<DB> root_db;
     Options options_copy(options);
     const bool use_seq_per_batch =
         txn_db_options.write_policy == WRITE_PREPARED ||
@@ -206,11 +205,9 @@ class TransactionTestBase : public ::testing::Test {
                             &root_db, use_seq_per_batch, use_batch_per_txn,
                             /*is_retry=*/false, /*can_retry=*/nullptr);
     if (!s.ok()) {
-      delete root_db;
       return s;
     }
-    StackableDB* stackable_db = new StackableDB(root_db);
-    assert(root_db != nullptr);
+    StackableDB* stackable_db = new StackableDB(std::move(root_db));
     assert(handles.size() == 1);
     s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
                                        compaction_enabled_cf_indices, handles,

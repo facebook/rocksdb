@@ -275,7 +275,8 @@ Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
 }  // namespace
 
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
-                           DB** dbptr, bool /*error_if_wal_file_exists*/) {
+                           std::unique_ptr<DB>* dbptr,
+                           bool /*error_if_wal_file_exists*/) {
   Status s = OpenForReadOnlyCheckExistence(options, dbname);
   if (!s.ok()) {
     return s;
@@ -309,7 +310,7 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
 Status DB::OpenForReadOnly(
     const DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
     bool error_if_wal_file_exists) {
   // If dbname does not exist in the file system, should not do anything
   Status s = OpenForReadOnlyCheckExistence(db_options, dbname);
@@ -325,7 +326,7 @@ Status DB::OpenForReadOnly(
 Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
     const DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
     bool error_if_wal_file_exists) {
   *dbptr = nullptr;
   handles->clear();
@@ -356,7 +357,7 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
   impl->mutex_.Unlock();
   sv_context.Clean();
   if (s.ok()) {
-    *dbptr = impl;
+    dbptr->reset(impl);
     for (auto* h : *handles) {
       impl->NewThreadStatusCfInfo(
           static_cast_with_check<ColumnFamilyHandleImpl>(h)->cfd());
