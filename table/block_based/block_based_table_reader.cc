@@ -626,8 +626,8 @@ Status BlockBasedTable::Open(
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     uint8_t block_protection_bytes_per_key,
-    std::unique_ptr<TableReader>* table_reader,
-    InternalStats* /*internal_stats*/, uint64_t tail_size,
+    std::unique_ptr<TableReader>* table_reader, InternalStats* internal_stats,
+    uint64_t tail_size,
     std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
@@ -662,8 +662,8 @@ Status BlockBasedTable::Open(
 
   if (!ioptions.allow_mmap_reads && !env_options.use_mmap_reads) {
     s = PrefetchTail(ro, ioptions, file.get(), file_size, force_direct_prefetch,
-                     tail_prefetch_stats, prefetch_all, preload_all,
-                     &prefetch_buffer, ioptions.stats, tail_size,
+                     tail_prefetch_stats, internal_stats, prefetch_all,
+                     preload_all, &prefetch_buffer, ioptions.stats, tail_size,
                      ioptions.logger);
     // Return error in prefetch path to users.
     if (!s.ok()) {
@@ -881,7 +881,8 @@ Status BlockBasedTable::PrefetchTail(
     const ReadOptions& ro, const ImmutableOptions& ioptions,
     RandomAccessFileReader* file, uint64_t file_size,
     bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
-    const bool prefetch_all, const bool preload_all,
+    InternalStats* internal_stats, const bool prefetch_all,
+    const bool preload_all,
     std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats,
     uint64_t tail_size, Logger* const logger) {
   assert(tail_size <= file_size);
@@ -951,7 +952,7 @@ Status BlockBasedTable::PrefetchTail(
   prefetch_buffer->reset(new FilePrefetchBuffer(
       ReadaheadParams(), true /* enable */, true /* track_min_offset */,
       ioptions.fs.get() /* fs */, nullptr /* clock */,
-      nullptr /* internal_stats */, stats,
+      internal_stats /* internal_stats */, stats,
       /* readahead_cb */ nullptr,
       FilePrefetchBufferUsage::kTableOpenPrefetchTail));
 

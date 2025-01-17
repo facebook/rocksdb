@@ -101,7 +101,8 @@ class BlockBasedTable : public TableReader {
       const InternalKeyComparator& internal_key_comparator,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       uint8_t block_protection_bytes_per_key,
-      std::unique_ptr<TableReader>* table_reader, InternalStats* internal_status, uint64_t tail_size,
+      std::unique_ptr<TableReader>* table_reader,
+      InternalStats* internal_status, uint64_t tail_size,
       std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr =
           nullptr,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
@@ -132,8 +133,8 @@ class BlockBasedTable : public TableReader {
   // kCompaction.
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
-                                Arena* arena, InternalStats* internal_stats, bool skip_filters,
-                                TableReaderCaller caller,
+                                Arena* arena, InternalStats* internal_stats,
+                                bool skip_filters, TableReaderCaller caller,
                                 size_t compaction_readahead_size = 0,
                                 bool allow_unprepared_value = false) override;
 
@@ -485,7 +486,8 @@ class BlockBasedTable : public TableReader {
       const ReadOptions& ro, const ImmutableOptions& ioptions,
       RandomAccessFileReader* file, uint64_t file_size,
       bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
-      const bool prefetch_all, const bool preload_all,
+      InternalStats* internal_stats, const bool prefetch_all,
+      const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer, Statistics* stats,
       uint64_t tail_size, Logger* const logger);
   Status ReadMetaIndexBlock(const ReadOptions& ro,
@@ -714,20 +716,22 @@ struct BlockBasedTable::Rep {
       const ReadaheadParams& readahead_params,
       std::unique_ptr<FilePrefetchBuffer>* fpb,
       const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb,
-      FilePrefetchBufferUsage usage) const {
+      InternalStats* internal_stats, FilePrefetchBufferUsage usage) const {
     fpb->reset(new FilePrefetchBuffer(
         readahead_params, !ioptions.allow_mmap_reads /* enable */,
         false /* track_min_offset */, ioptions.fs.get(), ioptions.clock,
-        nullptr /*internal_stats */, ioptions.stats, readaheadsize_cb, usage));
+        internal_stats, ioptions.stats, readaheadsize_cb, usage));
   }
 
   void CreateFilePrefetchBufferIfNotExists(
       const ReadaheadParams& readahead_params,
       std::unique_ptr<FilePrefetchBuffer>* fpb,
       const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb,
+      InternalStats* internal_stats,
       FilePrefetchBufferUsage usage = FilePrefetchBufferUsage::kUnknown) const {
     if (!(*fpb)) {
-      CreateFilePrefetchBuffer(readahead_params, fpb, readaheadsize_cb, usage);
+      CreateFilePrefetchBuffer(readahead_params, fpb, readaheadsize_cb,
+                               internal_stats, usage);
     }
   }
 
