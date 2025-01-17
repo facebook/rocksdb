@@ -1110,19 +1110,6 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
   options_.disable_auto_compactions = true;
   options_.level0_file_num_compaction_trigger = 1000;
 
-  std::vector<std::string> always_copyable_files = {
-      dbname_ + "/MANIFEST-000005", dbname_ + "/OPTIONS-000007",
-      dbname_ + "/CURRENT.tmp", dbname_ + "/000011.log"};
-  std::vector<std::string> all_but_sst_files = {
-      dbname_ + "/000010.blob",     dbname_ + "/000013.blob",
-      dbname_ + "/MANIFEST-000005", dbname_ + "/OPTIONS-000007",
-      dbname_ + "/CURRENT.tmp",     dbname_ + "/000011.log"};
-  std::vector<std::string> all_backed_up_files = {
-      dbname_ + "/000012.sst",      dbname_ + "/000009.sst",
-      dbname_ + "/000010.blob",     dbname_ + "/000013.blob",
-      dbname_ + "/MANIFEST-000005", dbname_ + "/OPTIONS-000007",
-      dbname_ + "/CURRENT.tmp",     dbname_ + "/000011.log"};
-
   for (const auto& mode : {RestoreOptions::Mode::kKeepLatestDbSessionIdFiles,
                            RestoreOptions::Mode::kVerifyChecksum}) {
     OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
@@ -1132,15 +1119,57 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     FillDB(db_.get(), 0, keys_iteration);
     FillDB(db_.get(), keys_iteration, keys_iteration * 2);
 
+    std::vector<LiveFileStorageInfo> file_infos;
+    EXPECT_OK(db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
+                                           &file_infos));
+
+    std::vector<std::string> all_files;
+    std::vector<std::string> all_files_but_sst;
+    std::vector<std::string> all_sst_files;
+    std::vector<std::string> all_blob_files;
+    std::vector<std::string> all_files_but_data;
+    for (const auto& file_info : file_infos) {
+      std::string abs_file_path =
+          file_info.directory + "/" + file_info.relative_filename;
+      if (file_info.relative_filename == "CURRENT") {
+        abs_file_path += ".tmp";
+      }
+      all_files.push_back(abs_file_path);
+      if (file_info.file_type == kTableFile) {
+        all_sst_files.push_back(abs_file_path);
+      } else {
+        all_files_but_sst.push_back(abs_file_path);
+      }
+
+      if (file_info.file_type == kBlobFile) {
+        all_blob_files.push_back(abs_file_path);
+      }
+
+      if (file_info.file_type != kTableFile &&
+          file_info.file_type != kBlobFile) {
+        all_files_but_data.push_back(abs_file_path);
+      }
+    }
+
+    // Files filled with data have lower #s.
+    // It's handy to know which files are non-empty and
+    // therefore easier to corrupt for the sake of testing.
+    std::sort(all_sst_files.begin(), all_sst_files.end());
+    std::sort(all_blob_files.begin(), all_blob_files.end());
+
+    std::string one_sst_file = all_sst_files[0];
+
     // 2. Verify expected behavior with exclude files feature.
     BackupID first_id;
     CreateBackupOptions cbo;
-    cbo.exclude_files_callback = [](MaybeExcludeBackupFile* files_begin,
-                                    MaybeExcludeBackupFile* files_end) {
+    cbo.exclude_files_callback = [&one_sst_file](
+                                     MaybeExcludeBackupFile* files_begin,
+                                     MaybeExcludeBackupFile* files_end) {
       for (auto* f = files_begin; f != files_end; ++f) {
         std::string s = StringSplit(f->info.relative_file, '/').back();
         s = s.substr(0, s.find('_'));
-        if (s + ".sst" == "000009.sst") {
+        auto filename = one_sst_file.substr(one_sst_file.find_last_of("/") + 1);
+        if (s + ".sst" == filename) {
           // Backup will include everything BUT that one very SST file.
           f->exclude_decision = true;
         } else {
@@ -1156,7 +1185,7 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
                                                                restore_options);
     if (mode == RestoreOptions::kKeepLatestDbSessionIdFiles) {
       EXPECT_OK(io_st);
-      test_db_fs_->AssertWrittenFiles(all_but_sst_files);
+      test_db_fs_->AssertWrittenFiles(all_files_but_sst);
     } else {
       ASSERT_TRUE(io_st.IsInvalidArgument());
     }
@@ -1175,7 +1204,7 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     CloseBackupEngine();
 
     // Since we started with a blank db, restore copied all the files.
-    test_db_fs_->AssertWrittenFiles(all_backed_up_files);
+    test_db_fs_->AssertWrittenFiles(all_files);
 
     db_.reset(OpenDB());
 
@@ -1192,10 +1221,13 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     // Create 'a hole' in a cleanly restored db by manually deleting data files.
     // At this point new files were created and old files were deleted - which
     // is representative of the users workloads.
+
+    std::string sst_file_to_be_deleted = one_sst_file;
+    std::string blob_file_to_be_deleted = all_blob_files[0];
     IOOptions io_opts;
-    ASSERT_OK(test_db_fs_->DeleteFile(dbname_ + "/000012.sst", io_opts,
+    ASSERT_OK(test_db_fs_->DeleteFile(sst_file_to_be_deleted, io_opts,
                                       nullptr /* dbg */));
-    ASSERT_OK(test_db_fs_->DeleteFile(dbname_ + "/000010.blob", io_opts,
+    ASSERT_OK(test_db_fs_->DeleteFile(blob_file_to_be_deleted, io_opts,
                                       nullptr /* dbg */));
 
     test_db_fs_->ClearWrittenFiles();
@@ -1205,12 +1237,14 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
                                                         restore_options));
     CloseBackupEngine();
 
-    std::vector<std::string> should_have_written = always_copyable_files;
-    should_have_written.emplace_back(dbname_ + "/000012.sst");
-    should_have_written.emplace_back(dbname_ + "/000010.blob");
+    std::vector<std::string> should_have_written = all_files_but_data;
+    should_have_written.emplace_back(sst_file_to_be_deleted);
     if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
       // We only support incremental restore for blobs in kVerifyChecksum mode.
-      should_have_written.emplace_back(dbname_ + "/000013.blob");
+      should_have_written.insert(should_have_written.end(),
+                                 all_blob_files.begin(), all_blob_files.end());
+    } else {
+      should_have_written.emplace_back(blob_file_to_be_deleted);
     }
 
     // 'Hole' has been patched, 'in-policy' db files were retained.
@@ -1223,28 +1257,30 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     db_.reset();  // Close DB.
 
     // 5. Incremental restore - corrupted db files.
-    ASSERT_OK(db_file_manager_->CorruptFile(dbname_ + "/000010.blob", 3));
+    std::string blob_file_to_be_corrupted = all_blob_files[0];
+    ASSERT_OK(db_file_manager_->CorruptFile(blob_file_to_be_corrupted, 3));
 
     // First few bytes corruption will be detected by ReadTablePropertiesHelper
     // at the time of reading the metadata footer. We must try a bit harder
     // (by overriding bytes beyond the footer) to corrupt a file in a more
     // harmful way...
-    ASSERT_OK(db_file_manager_->CorruptFileMiddle(dbname_ + "/000012.sst"));
-
-    test_db_fs_->ClearWrittenFiles();
+    std::string sst_file_to_be_corrupted = all_sst_files[0];
+    ASSERT_OK(db_file_manager_->CorruptFileMiddle(sst_file_to_be_corrupted));
 
     OpenBackupEngine();
+
+    test_db_fs_->ClearWrittenFiles();
     ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_,
                                                         restore_options));
     CloseBackupEngine();
 
-    should_have_written = always_copyable_files;
-    should_have_written.emplace_back(dbname_ + "/000010.blob");
+    should_have_written = all_files_but_data;
     if (mode == RestoreOptions::Mode::kVerifyChecksum) {
       // Restore running in kVerifyChecksum mode would have caught the mismatch
       // between crc32c and db file contents. Such file would have been deleted
       // and restored from the backup.
-      should_have_written.emplace_back(dbname_ + "/000012.sst");
+      should_have_written.emplace_back(blob_file_to_be_corrupted);
+      should_have_written.emplace_back(sst_file_to_be_corrupted);
     } else if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
       // This mode is more prone to subtle db file corruptions as we do not run
       // any CPU intensive computations (like checksum) and the match between
@@ -1255,7 +1291,8 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
       // the cracks and only be detected at the time of running CRC32c.
 
       // Separately, this mode does not support incremental restore for blobs.
-      should_have_written.emplace_back(dbname_ + "/000013.blob");
+      should_have_written.insert(should_have_written.end(),
+                                 all_blob_files.begin(), all_blob_files.end());
     }
 
     // 'Hole' has been patched, 'in-policy' db files were retained.
