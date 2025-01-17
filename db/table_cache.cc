@@ -89,7 +89,8 @@ Status TableCache::GetTableReader(
     const ReadOptions& ro, const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator,
     const FileMetaData& file_meta, bool sequential_mode,
-    HistogramImpl* file_read_hist, std::unique_ptr<TableReader>* table_reader,
+    HistogramImpl* file_read_hist, InternalStats* internal_stats,
+    std::unique_ptr<TableReader>* table_reader,
     const MutableCFOptions& mutable_cf_options, bool skip_filters, int level,
     bool prefetch_index_and_filter_in_cache,
     size_t max_file_size_for_l0_meta_pin, Temperature file_temperature) {
@@ -155,7 +156,7 @@ Status TableCache::GetTableReader(
             file_meta.fd.largest_seqno, file_meta.tail_size,
             file_meta.user_defined_timestamps_persisted),
         std::move(file_reader), file_meta.fd.GetFileSize(), table_reader,
-        /*internal_stats=*/nullptr, prefetch_index_and_filter_in_cache);
+        internal_stats, prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
   }
   return s;
@@ -172,8 +173,8 @@ Status TableCache::FindTable(
     const InternalKeyComparator& internal_comparator,
     const FileMetaData& file_meta, TypedHandle** handle,
     const MutableCFOptions& mutable_cf_options, const bool no_io,
-    HistogramImpl* file_read_hist, bool skip_filters, int level,
-    bool prefetch_index_and_filter_in_cache,
+    HistogramImpl* file_read_hist, InternalStats* internal_stats,
+    bool skip_filters, int level, bool prefetch_index_and_filter_in_cache,
     size_t max_file_size_for_l0_meta_pin, Temperature file_temperature) {
   PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
   uint64_t number = file_meta.fd.GetNumber();
@@ -195,11 +196,12 @@ Status TableCache::FindTable(
     }
 
     std::unique_ptr<TableReader> table_reader;
-    Status s = GetTableReader(ro, file_options, internal_comparator, file_meta,
-                              false /* sequential mode */, file_read_hist,
-                              &table_reader, mutable_cf_options, skip_filters,
-                              level, prefetch_index_and_filter_in_cache,
-                              max_file_size_for_l0_meta_pin, file_temperature);
+    Status s =
+        GetTableReader(ro, file_options, internal_comparator, file_meta,
+                       false /* sequential mode */, file_read_hist,
+                       internal_stats, &table_reader, mutable_cf_options,
+                       skip_filters, level, prefetch_index_and_filter_in_cache,
+                       max_file_size_for_l0_meta_pin, file_temperature);
     if (!s.ok()) {
       assert(table_reader == nullptr);
       RecordTick(ioptions_.stats, NO_FILE_ERRORS);
@@ -243,7 +245,7 @@ InternalIterator* TableCache::NewIterator(
     s = FindTable(options, file_options, icomparator, file_meta, &handle,
                   mutable_cf_options,
                   options.read_tier == kBlockCacheTier /* no_io */,
-                  file_read_hist, skip_filters, level,
+                  file_read_hist, internal_stats, skip_filters, level,
                   true /* prefetch_index_and_filter_in_cache */,
                   max_file_size_for_l0_meta_pin, file_meta.temperature);
     if (s.ok()) {
@@ -335,7 +337,8 @@ Status TableCache::GetRangeTombstoneIterator(
   TypedHandle* handle = nullptr;
   if (t == nullptr) {
     s = FindTable(options, file_options_, internal_comparator, file_meta,
-                  &handle, mutable_cf_options);
+                  &handle, mutable_cf_options, false /* no_io */,
+                  nullptr /* file_read_hist */, nullptr /* internal_stats */);
     if (s.ok()) {
       t = cache_.Value(handle);
     }
@@ -460,8 +463,8 @@ Status TableCache::Get(const ReadOptions& options,
       s = FindTable(options, file_options_, internal_comparator, file_meta,
                     &handle, mutable_cf_options,
                     options.read_tier == kBlockCacheTier /* no_io */,
-                    file_read_hist, skip_filters, level,
-                    true /* prefetch_index_and_filter_in_cache */,
+                    file_read_hist, /*internal_stats=*/nullptr, skip_filters,
+                    level, true /* prefetch_index_and_filter_in_cache */,
                     max_file_size_for_l0_meta_pin, file_meta.temperature);
       if (s.ok()) {
         t = cache_.Value(handle);
@@ -564,7 +567,7 @@ Status TableCache::MultiGetFilter(
     s = FindTable(options, file_options_, internal_comparator, file_meta,
                   &handle, mutable_cf_options,
                   options.read_tier == kBlockCacheTier /* no_io */,
-                  file_read_hist,
+                  file_read_hist, /*internal_stats=*/nullptr,
                   /*skip_filters=*/false, level,
                   true /* prefetch_index_and_filter_in_cache */,
                   /*max_file_size_for_l0_meta_pin=*/0, file_meta.temperature);
@@ -606,8 +609,10 @@ Status TableCache::GetTableProperties(
   }
 
   TypedHandle* table_handle = nullptr;
-  Status s = FindTable(read_options, file_options, internal_comparator,
-                       file_meta, &table_handle, mutable_cf_options, no_io);
+  Status s =
+      FindTable(read_options, file_options, internal_comparator, file_meta,
+                &table_handle, mutable_cf_options, no_io,
+                nullptr /* file_read_hist */, nullptr /* internal_stats */);
   if (!s.ok()) {
     return s;
   }
@@ -628,7 +633,8 @@ Status TableCache::ApproximateKeyAnchors(
   TypedHandle* handle = nullptr;
   if (t == nullptr) {
     s = FindTable(ro, file_options_, internal_comparator, file_meta, &handle,
-                  mutable_cf_options);
+                  mutable_cf_options, false /* no_io */,
+                  nullptr /* file_read_hist */, nullptr /* internal_stats */);
     if (s.ok()) {
       t = cache_.Value(handle);
     }
@@ -655,7 +661,8 @@ size_t TableCache::GetMemoryUsageByTableReader(
   TypedHandle* table_handle = nullptr;
   Status s =
       FindTable(read_options, file_options, internal_comparator, file_meta,
-                &table_handle, mutable_cf_options, true /* no_io */);
+                &table_handle, mutable_cf_options, true /* no_io */,
+                nullptr /* file_read_hist */, nullptr /* internal_stats */);
   if (!s.ok()) {
     return 0;
   }
@@ -681,7 +688,8 @@ uint64_t TableCache::ApproximateOffsetOf(
   if (table_reader == nullptr) {
     Status s =
         FindTable(read_options, file_options_, internal_comparator, file_meta,
-                  &table_handle, mutable_cf_options, false /* no_io */);
+                  &table_handle, mutable_cf_options, false /* no_io */,
+                  nullptr /* file_read_hist */, nullptr /* internal_stats */);
     if (s.ok()) {
       table_reader = cache_.Value(table_handle);
     }
@@ -708,7 +716,8 @@ uint64_t TableCache::ApproximateSize(
   if (table_reader == nullptr) {
     Status s =
         FindTable(read_options, file_options_, internal_comparator, file_meta,
-                  &table_handle, mutable_cf_options, false /* no_io */);
+                  &table_handle, mutable_cf_options, false /* no_io */,
+                  nullptr /* file_read_hist */, nullptr /* internal_stats */);
     if (s.ok()) {
       table_reader = cache_.Value(table_handle);
     }

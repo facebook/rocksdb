@@ -486,8 +486,8 @@ class Repairer {
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
           {}, kMaxSequenceNumber, kMaxSequenceNumber, kMaxSequenceNumber,
           snapshot_checker, false /* paranoid_file_checks*/,
-          nullptr /* internal_stats */, &io_s, nullptr /*IOTracer*/,
-          BlobFileCreationReason::kRecovery,
+          cfd == nullptr ? nullptr : cfd->internal_stats(), &io_s,
+          nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
           nullptr /* seqno_to_time_mapping */, nullptr /* event_logger */,
           0 /* job_id */, nullptr /* table_properties */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,

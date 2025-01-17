@@ -7364,7 +7364,8 @@ Status VersionSet::VerifyFileMetadata(const ReadOptions& read_options,
     FileMetaData meta_copy = meta;
     status = table_cache->FindTable(
         read_options, file_opts, *icmp, meta_copy, &handle, cf_opts,
-        /*no_io=*/false, internal_stats->GetFileReadHist(level), false, level,
+        /*no_io=*/false, internal_stats->GetFileReadHist(level), internal_stats,
+        false, level,
         /*prefetch_index_and_filter_in_cache*/ false, max_sz_for_l0_meta_pin,
         meta_copy.temperature);
     if (handle) {
