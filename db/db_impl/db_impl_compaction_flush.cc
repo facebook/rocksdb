@@ -61,6 +61,20 @@ bool DBImpl::EnoughRoomForCompaction(
   return enough_room;
 }
 
+int DBImpl::GetNumberCompactionIterators(Compaction* c) {
+  assert(c);
+  int num_l0_files = 0;
+  int num_non_l0_levels = 0;
+  for (auto& each_level : *c->inputs()) {
+    if (each_level.level == 0) {
+      num_l0_files += each_level.files.size();
+    } else {
+      num_non_l0_levels++;
+    }
+  }
+  return num_l0_files + num_non_l0_levels;
+}
+
 bool DBImpl::RequestCompactionToken(ColumnFamilyData* cfd, bool force,
                                     std::unique_ptr<TaskLimiterToken>* token,
                                     LogBuffer* log_buffer) {
@@ -3410,6 +3424,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     InstrumentedMutexLock l(&mutex_);
 
     num_running_compactions_++;
+    int num_compaction_iterators = 0;
 
     std::unique_ptr<std::list<uint64_t>::iterator>
         pending_outputs_inserted_elem(new std::list<uint64_t>::iterator(
@@ -3418,8 +3433,10 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     assert((bg_thread_pri == Env::Priority::BOTTOM &&
             bg_bottom_compaction_scheduled_) ||
            (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
-    Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
+    Status s = BackgroundCompaction(&made_progress, num_compaction_iterators,
+                                    &job_context, &log_buffer,
                                     prepicked_compaction, bg_thread_pri);
+    num_running_compaction_iterators_ += num_compaction_iterators;
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
     if (s.IsBusy()) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
@@ -3484,6 +3501,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
+    assert(num_running_compaction_iterators_ >= num_compaction_iterators);
+    num_running_compaction_iterators_ -= num_compaction_iterators;
 
     if (bg_thread_pri == Env::Priority::LOW) {
       bg_compaction_scheduled_--;
@@ -3523,6 +3542,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 }
 
 Status DBImpl::BackgroundCompaction(bool* made_progress,
+                                    int& num_compaction_iterators,
                                     JobContext* job_context,
                                     LogBuffer* log_buffer,
                                     PrepickedCompaction* prepicked_compaction,
@@ -3720,6 +3740,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             num_files += each_level.files.size();
           }
           RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION, num_files);
+          num_compaction_iterators = GetNumberCompactionIterators(c.get());
 
           // There are three things that can change compaction score:
           // 1) When flush or compaction finish. This case is covered by
