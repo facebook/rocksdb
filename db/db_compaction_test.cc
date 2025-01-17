@@ -6927,7 +6927,8 @@ TEST_F(DBCompactionTest, ManualCompactionMax) {
   DestroyAndReopen(opts);
   generate_sst_func();
   uint64_t total_size = (l1_avg_size * 10) + (l2_avg_size * 100);
-  opts.max_compaction_bytes = total_size / num_split;
+  // Slightly inflate max_compaction_bytes since it's usually a strict bound.
+  opts.max_compaction_bytes = total_size / num_split + l2_avg_size * 10;
   opts.target_file_size_base = total_size / num_split;
   Reopen(opts);
   num_compactions.store(0);
@@ -6949,8 +6950,10 @@ TEST_F(DBCompactionTest, ManualCompactionMax) {
   DestroyAndReopen(opts);
   generate_sst_func();
   total_size = (l1_avg_size * 10) + (l2_avg_size * 100);
+  // Slightly inflate max_compaction_bytes since it's usually a strict bound.
   Status s = db_->SetOptions(
-      {{"max_compaction_bytes", std::to_string(total_size / num_split)},
+      {{"max_compaction_bytes",
+        std::to_string(total_size / num_split + 10 * l2_avg_size)},
        {"target_file_size_base", std::to_string(total_size / num_split)}});
   ASSERT_OK(s);
 
