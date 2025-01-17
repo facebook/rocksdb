@@ -352,41 +352,22 @@ struct RestoreOptions {
   // Enum reflecting tiered approach to restores.
   //
   // Options `kKeepLatestDbSessionIdFiles`, `kVerifyChecksum` introduce
-  // incremental restore capability to the service and are intended to
-  // be used separately.
+  // incremental restore capability and are intended to be used separately.
   enum Mode : uint32_t {
-    // SEMANTICS:
-    // ==========
+    // Most efficient way to restore a healthy / non-corrupted DB from
+    // the backup(s). This mode can almost always successfully recover from
+    // incomplete / missing files, as in an incomplete copy of a DB.
+    // This mode is also integrated with `exclude_files_callback` feature
+    // and will opportunistically try to find excluded files in existing db
+    // filesystem if missing in all supplied backup directories.
     //
-    // This mode will be only effective on backed up SST files that follow
-    // the `kUseDbSessionId` naming convention:
-    //
-    //  <file_number>_s<db_session_id>[_<file_size>].sst
-    //
-    // Instructs restore engine to consider existing destination file and its'
-    // backup counterpart file as 'equal' IF the `db_session_id` (indicative of
-    // db instance runtime that created this SST file) parsed out from the
-    // backup file name AND its respective size match the corresponding values
-    // in the existing destination file metadata block.
-    //
-    // EXCLUDED FILES COMPATIBILITY:
-    // =============================
-    // In case when excluded backup file name cannot be found under the default
-    // (or alternative) backup directories, restore engine will try to
-    // opportunistically find existing destination file with `db_session_id`
-    // and size matching those parsed from excluded backup relative file name.
-    //
-    // WARNING:
-    // ========
-    //
-    // Determination is made solely based on the backup file naming convention
-    // and db file footer metadata. Technically speaking, it is possible that
-    // backup or db file with the very same db session id and size hold
-    // different data - think file corruption, blocks filled with zeros [trash].
-    // If you need stronger integrity guarantees, use `kVerifyChecksum` restore
-    // mode instead.
+    // Effective on data files following modern share files naming schemes.
     kKeepLatestDbSessionIdFiles = 1U,
 
+    // Recommended when db is suspected to be unhealthy, ex. we want to retain
+    // most of the files (therefore saving on write I/O) with an exception of
+    // a few corrupted ones.
+    //
     // When opted-in, restore engine will scan the db file, compute the
     // checksum and compare it against the checksum hardened in the backup file
     // metadata. If checksums match, existing file will be retained as-is.
@@ -395,7 +376,9 @@ struct RestoreOptions {
     // metadata, we'll schedule an async task to compute it.
     kVerifyChecksum = 2U,
 
-    // Zero trust. Purge all the destination files and restore all the files.
+    // Zero trust. Least efficient.
+    //
+    // Purge all the destination files and restores all files from the backup.
     kPurgeAllFiles = 0xffffU,
   };
 

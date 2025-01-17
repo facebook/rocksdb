@@ -2835,8 +2835,7 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
     }
 
     // We only care to optimize restore for large files - like SSTs and blobs.
-    // Blobs are only supported in kVerifyChecksum mode as we do not record
-    // `db_session_id` for blobs.
+    // Blobs are only supported in kVerifyChecksum.
     if (type == kTableFile ||
         (type == kBlobFile && mode == RestoreOptions::Mode::kVerifyChecksum)) {
       file_num_to_engine_infos[number] = engine_and_file_info;
@@ -2915,8 +2914,7 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
       if (!found) {
         const auto& uo_sst_bfn = unowned_backups.find(shared_file_name);
         if (uo_sst_bfn != unowned_backups.end()) {
-          // Db file # has been already associated with the excluded backup.
-          // Remove it from the temporary map of files to be processed.
+          // Db file has been successfully associated with the excluded backup.
           unowned_backups.erase(shared_file_name);
           found = true;
         }
