@@ -413,7 +413,8 @@ class TableConstructor : public Constructor {
   InternalIterator* NewIterator(
       const SliceTransform* prefix_extractor) const override {
     InternalIterator* iter = table_reader_->NewIterator(
-        read_options_, prefix_extractor, /*arena=*/nullptr,/*internal_stats=*/nullptr,
+        read_options_, prefix_extractor, /*arena=*/nullptr,
+        /*internal_stats=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized);
     if (convert_to_internal_key_) {
       return new KeyConvertingIterator(iter);
@@ -2129,7 +2130,8 @@ TEST_P(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
     ReadOptions ro;
     ro.total_order_seek = true;
     std::unique_ptr<InternalIterator> iter(reader->NewIterator(
-        ro, moptions.prefix_extractor.get(), /*arena=*/nullptr, /*internal_stats=*/nullptr,
+        ro, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*internal_stats=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
     iter->Seek(InternalKey("b", 0, kTypeValue).Encode());
@@ -2189,7 +2191,8 @@ TEST_P(BlockBasedTableTest, NoopTransformSeek) {
     ReadOptions ro;
     ro.total_order_seek = (i == 0);
     std::unique_ptr<InternalIterator> iter(reader->NewIterator(
-        ro, moptions.prefix_extractor.get(), /*arena=*/nullptr,/*internal_stats=*/nullptr,
+        ro, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*internal_stats=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
     iter->Seek(key.Encode());
@@ -2229,7 +2232,8 @@ TEST_P(BlockBasedTableTest, SkipPrefixBloomFilter) {
   auto reader = c.GetTableReader();
   ReadOptions read_options;
   std::unique_ptr<InternalIterator> db_iter(reader->NewIterator(
-      read_options, new_moptions.prefix_extractor.get(), /*arena=*/nullptr,/*internal_stats=*/nullptr,
+      read_options, new_moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   // Test point lookup
@@ -2483,7 +2487,8 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
   // TODO(Zhongyi): update test to use MutableCFOptions
   ReadOptions read_options;
   std::unique_ptr<InternalIterator> index_iter(reader->NewIterator(
-      read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,/*internal_stats=*/nullptr,
+      read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   // -- Find keys do not exist, but have common prefix.
@@ -2578,7 +2583,8 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
     ReadOptions ro;
     ro.total_order_seek = true;
     std::unique_ptr<InternalIterator> index_iter2(reader->NewIterator(
-        ro, moptions.prefix_extractor.get(), /*arena=*/nullptr,/*internal_stats=*/nullptr,
+        ro, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*internal_stats=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
     // Things to cover in partitioned index:
@@ -2695,7 +2701,8 @@ TEST_P(BlockBasedTableTest, IndexSeekOptimizationIncomplete) {
   ReadOptions ropt;
   ropt.read_tier = ReadTier::kBlockCacheTier;
   std::unique_ptr<InternalIterator> iter(reader->NewIterator(
-      ropt, /*prefix_extractor=*/nullptr, /*internal_stats=*/nullptr,/*internal_stats=*/nullptr,
+      ropt, /*prefix_extractor=*/nullptr, /*internal_stats=*/nullptr,
+      /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   auto ikey = [](Slice user_key) {
@@ -2799,7 +2806,8 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
     ASSERT_EQ(4u, props->num_data_blocks);
     ReadOptions read_options;
     std::unique_ptr<InternalIterator> iter(reader->NewIterator(
-        read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,/*internal_stats=*/nullptr,
+        read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+        /*internal_stats=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized,
         /*compaction_readahead_size=*/0, /*allow_unprepared_value=*/true));
 
@@ -2984,7 +2992,8 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKeyGlobalSeqno) {
   ASSERT_EQ(1u, props->num_data_blocks);
   ReadOptions read_options;
   std::unique_ptr<InternalIterator> iter(reader->NewIterator(
-      read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr, /*internal_stats=*/nullptr,
+      read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized,
       /*compaction_readahead_size=*/0, /*allow_unprepared_value=*/true));
 
@@ -3237,7 +3246,8 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
       ASSERT_OK(options.statistics->Reset());
 
       std::unique_ptr<InternalIterator> iter(c.GetTableReader()->NewIterator(
-          read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,/*internal_stats=*/nullptr,
+          read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+          /*internal_stats=*/nullptr,
           /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
       // Seek key -
@@ -3275,8 +3285,8 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupSeqScans) {
       WarmUpCache(&c, moptions, warm_keys);
 
       std::unique_ptr<InternalIterator> iter(c.GetTableReader()->NewIterator(
-          read_options, moptions.prefix_extractor.get(), nullptr, nullptr, false,
-          TableReaderCaller::kUncategorized));
+          read_options, moptions.prefix_extractor.get(), nullptr, nullptr,
+          false, TableReaderCaller::kUncategorized));
 
       // Seek key -
       InternalKey ikey("00000315", 0, kTypeValue);
@@ -3384,8 +3394,8 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       ASSERT_OK(options.statistics->Reset());
 
       std::unique_ptr<InternalIterator> iter(c.GetTableReader()->NewIterator(
-          read_options, moptions.prefix_extractor.get(), nullptr, nullptr, false,
-          TableReaderCaller::kUncategorized));
+          read_options, moptions.prefix_extractor.get(), nullptr, nullptr,
+          false, TableReaderCaller::kUncategorized));
 
       // Seek key -
       InternalKey ikey("00000200", 0, kTypeValue);
@@ -3423,8 +3433,8 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       WarmUpCache(&c, moptions, warm_keys);
 
       std::unique_ptr<InternalIterator> iter(c.GetTableReader()->NewIterator(
-          read_options, moptions.prefix_extractor.get(), nullptr, nullptr, false,
-          TableReaderCaller::kUncategorized));
+          read_options, moptions.prefix_extractor.get(), nullptr, nullptr,
+          false, TableReaderCaller::kUncategorized));
 
       // Seek key -
       InternalKey ikey("00000315", 0, kTypeValue);
@@ -3473,7 +3483,8 @@ TEST_P(BlockBasedTableTest, BlockCacheLookupAsyncScansSeek) {
       WarmUpCache(&c, moptions, warm_keys);
 
       std::unique_ptr<InternalIterator> iter(c.GetTableReader()->NewIterator(
-          read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,/*internal_stats=*/nullptr,
+          read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+          /*internal_stats=*/nullptr,
           /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
       // Seek key -
@@ -3867,7 +3878,8 @@ TEST_P(BlockBasedTableTest, TracingIterator) {
   for (uint32_t i = 1; i <= 2; i++) {
     ReadOptions read_options;
     std::unique_ptr<InternalIterator> iter(c.GetTableReader()->NewIterator(
-        read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,/*internal_stats=*/nullptr,
+        read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*internal_stats=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUserIterator));
     iter->SeekToFirst();
     while (iter->Valid()) {
@@ -5131,7 +5143,8 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
 
   ReadOptions read_options;
   std::unique_ptr<InternalIterator> db_iter(reader->NewIterator(
-      read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,/*internal_stats=*/nullptr,
+      read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   // Test point lookup
@@ -5326,10 +5339,12 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
     options.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, EnvOptions(),
                            ikc, 0 /* block_protection_bytes_per_key */),
-        std::move(file_reader), ss_rw.contents().size(), &table_reader, /*internal_stats=*/nullptr);
+        std::move(file_reader), ss_rw.contents().size(), &table_reader,
+        /*internal_stats=*/nullptr);
 
     return table_reader->NewIterator(
-        read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,/*internal_stats=*/nullptr,
+        read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*internal_stats=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized);
   };
 
@@ -5502,10 +5517,12 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
       TableReaderOptions(ioptions2, moptions2.prefix_extractor, EnvOptions(),
                          GetPlainInternalComparator(options2.comparator),
                          0 /* block_protection_bytes_per_key */),
-      std::move(file_reader), sink->contents().size(), &table_reader, /*internal_stats=*/nullptr));
+      std::move(file_reader), sink->contents().size(), &table_reader,
+      /*internal_stats=*/nullptr));
 
   std::unique_ptr<InternalIterator> db_iter(table_reader->NewIterator(
-      read_options, moptions2.prefix_extractor.get(), /*arena=*/nullptr,/*internal_stats=*/nullptr,
+      read_options, moptions2.prefix_extractor.get(), /*arena=*/nullptr,
+      /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   int expected_key = 1;
@@ -6054,7 +6071,8 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
   std::unique_ptr<InternalIterator> seek_iter;
   ReadOptions read_options;
   seek_iter.reset(reader->NewIterator(
-      read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,/*internal_stats=*/nullptr,
+      read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
   for (int i = 0; i < 2; ++i) {
     ReadOptions ro;
@@ -6137,14 +6155,16 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnSeek) {
   read_opt.iterate_upper_bound = &upper_bound_slice;
   std::unique_ptr<InternalIterator> iter;
   iter.reset(new KeyConvertingIterator(reader->NewIterator(
-      read_opt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,/*internal_stats=*/nullptr,
+      read_opt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized)));
   iter->SeekToFirst();
   ASSERT_FALSE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->UpperBoundCheckResult() == IterBoundCheck::kOutOfBound);
   iter.reset(new KeyConvertingIterator(reader->NewIterator(
-      read_opt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,/*internal_stats=*/nullptr,
+      read_opt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized)));
   iter->Seek("foo");
   ASSERT_FALSE(iter->Valid());
@@ -6177,7 +6197,8 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
   read_opt.iterate_upper_bound = &ub_slice1;
   std::unique_ptr<InternalIterator> iter;
   iter.reset(new KeyConvertingIterator(reader->NewIterator(
-      read_opt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr, /*internal_stats=*/nullptr,
+      read_opt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized)));
   iter->Seek("bar");
   ASSERT_TRUE(iter->Valid());
@@ -6189,7 +6210,8 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
   Slice ub_slice2(ub2);
   read_opt.iterate_upper_bound = &ub_slice2;
   iter.reset(new KeyConvertingIterator(reader->NewIterator(
-      read_opt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,/*internal_stats=*/nullptr,
+      read_opt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized)));
   iter->Seek("foo");
   ASSERT_TRUE(iter->Valid());

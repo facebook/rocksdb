@@ -74,7 +74,8 @@ class SstFileDumper {
                         const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
                         uint64_t file_size,
-                        std::unique_ptr<TableReader>* table_reader, InternalStats* internal_stats);
+                        std::unique_ptr<TableReader>* table_reader,
+                        InternalStats* internal_stats);
 
   std::string file_name_;
   uint64_t read_num_;

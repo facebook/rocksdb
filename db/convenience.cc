@@ -36,7 +36,8 @@ Status VerifySstFileChecksum(const Options& options,
                              InternalStats* internal_stats) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
-  return VerifySstFileChecksum(options, env_options, read_options, file_path, /*largest_seqno=*/0, internal_stats);
+  return VerifySstFileChecksum(options, env_options, read_options, file_path,
+                               /*largest_seqno=*/0, internal_stats);
 }
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
@@ -52,7 +53,8 @@ Status VerifySstFileChecksum(const Options& options,
   }
   ReadOptions read_options(_read_options);
   return VerifySstFileChecksumInternal(options, env_options, read_options,
-                                       file_path, largest_seqno, internal_stats);
+                                       file_path, largest_seqno,
+                                       internal_stats);
 }
 
 Status VerifySstFileChecksumInternal(const Options& options,
@@ -91,7 +93,8 @@ Status VerifySstFileChecksumInternal(const Options& options,
   reader_options.largest_seqno = largest_seqno;
   s = options.table_factory->NewTableReader(
       read_options, reader_options, std::move(file_reader), file_size,
-      &table_reader, internal_stats, false /* prefetch_index_and_filter_in_cache */);
+      &table_reader, internal_stats,
+      false /* prefetch_index_and_filter_in_cache */);
   if (!s.ok()) {
     return s;
   }

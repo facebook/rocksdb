@@ -232,7 +232,7 @@ class FilePrefetchBuffer {
     }
   }
 
- ~FilePrefetchBuffer() {
+  ~FilePrefetchBuffer() {
     // Abort any pending async read request before destroying the class object.
     if (fs_ != nullptr) {
       std::vector<void*> handles;

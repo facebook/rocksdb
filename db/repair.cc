@@ -604,8 +604,10 @@ class Repairer {
       InternalIterator* iter = table_cache_->NewIterator(
           ropts, file_options_, cfd->internal_comparator(), t->meta,
           nullptr /* range_del_agg */, cfd->GetLatestMutableCFOptions(),
-          /*table_reader_ptr=*/nullptr, cfd == nullptr ? nullptr : cfd->internal_stats(),/*file_read_hist=*/nullptr,
-          TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
+          /*table_reader_ptr=*/nullptr,
+          cfd == nullptr ? nullptr : cfd->internal_stats(),
+          /*file_read_hist=*/nullptr, TableReaderCaller::kRepair,
+          /*arena=*/nullptr, /*skip_filters=*/false,
           /*level=*/-1, /*max_file_size_for_l0_meta_pin=*/0,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,

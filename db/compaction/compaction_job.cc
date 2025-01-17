@@ -781,8 +781,7 @@ Status CompactionJob::Run() {
             cfd->internal_comparator(), files_output[file_idx]->meta,
             /*range_del_agg=*/nullptr,
             compact_->compaction->mutable_cf_options(),
-            /*table_reader_ptr=*/nullptr,
-            cfd->internal_stats(),
+            /*table_reader_ptr=*/nullptr, cfd->internal_stats(),
             cfd->internal_stats()->GetFileReadHist(
                 compact_->compaction->output_level()),
             TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,

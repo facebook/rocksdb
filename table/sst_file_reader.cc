@@ -75,7 +75,8 @@ Status SstFileReader::Open(const std::string& file_path) {
     // Allow open file with global sequence number for backward compatibility.
     t_opt.largest_seqno = kMaxSequenceNumber;
     s = r->options.table_factory->NewTableReader(t_opt, std::move(file_reader),
-                                                 file_size, &r->table_reader, /*internal_stats=*/nullptr);
+                                                 file_size, &r->table_reader,
+                                                 /*internal_stats=*/nullptr);
   }
   return s;
 }
@@ -129,8 +130,9 @@ Status SstFileReader::VerifyChecksum(const ReadOptions& read_options) {
 Status SstFileReader::VerifyNumEntries(const ReadOptions& read_options) {
   Rep* r = rep_.get();
   std::unique_ptr<InternalIterator> internal_iter{r->table_reader->NewIterator(
-      read_options, r->moptions.prefix_extractor.get(), nullptr, /*internal_stats=*/nullptr,
-      false /* skip_filters */, TableReaderCaller::kSSTFileReader)};
+      read_options, r->moptions.prefix_extractor.get(), nullptr,
+      /*internal_stats=*/nullptr, false /* skip_filters */,
+      TableReaderCaller::kSSTFileReader)};
   internal_iter->SeekToFirst();
   Status s = internal_iter->status();
   if (!s.ok()) {

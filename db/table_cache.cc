@@ -154,8 +154,8 @@ Status TableCache::GetTableReader(
             file_meta.fd.GetNumber(), expected_unique_id,
             file_meta.fd.largest_seqno, file_meta.tail_size,
             file_meta.user_defined_timestamps_persisted),
-        std::move(file_reader), file_meta.fd.GetFileSize(), table_reader, /*internal_stats=*/nullptr,
-        prefetch_index_and_filter_in_cache);
+        std::move(file_reader), file_meta.fd.GetFileSize(), table_reader,
+        /*internal_stats=*/nullptr, prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
   }
   return s;
@@ -222,15 +222,14 @@ InternalIterator* TableCache::NewIterator(
     const InternalKeyComparator& icomparator, const FileMetaData& file_meta,
     RangeDelAggregator* range_del_agg,
     const MutableCFOptions& mutable_cf_options, TableReader** table_reader_ptr,
-    InternalStats* internal_stats,
-    HistogramImpl* file_read_hist, TableReaderCaller caller, Arena* arena,
-    bool skip_filters, int level, size_t max_file_size_for_l0_meta_pin,
+    InternalStats* internal_stats, HistogramImpl* file_read_hist,
+    TableReaderCaller caller, Arena* arena, bool skip_filters, int level,
+    size_t max_file_size_for_l0_meta_pin,
     const InternalKey* smallest_compaction_key,
     const InternalKey* largest_compaction_key, bool allow_unprepared_value,
     const SequenceNumber* read_seqno,
     std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
-  (void) internal_stats;
   Status s;
   TableReader* table_reader = nullptr;
   TypedHandle* handle = nullptr;
@@ -259,9 +258,8 @@ InternalIterator* TableCache::NewIterator(
     } else {
       result = table_reader->NewIterator(
           options, mutable_cf_options.prefix_extractor.get(), arena,
-          internal_stats,
-          skip_filters, caller, file_options.compaction_readahead_size,
-          allow_unprepared_value);
+          internal_stats, skip_filters, caller,
+          file_options.compaction_readahead_size, allow_unprepared_value);
     }
     if (handle != nullptr) {
       cache_.RegisterReleaseAsCleanup(handle, *result);

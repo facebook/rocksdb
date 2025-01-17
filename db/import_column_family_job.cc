@@ -338,7 +338,8 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
           /*block_cache_tracer*/ nullptr,
           /*max_file_size_for_l0_meta_pin*/ 0, versions_->DbSessionId(),
           /*cur_file_num*/ new_file_number),
-      std::move(sst_file_reader), file_to_import->file_size, &table_reader, /*internal_stats=*/nullptr);
+      std::move(sst_file_reader), file_to_import->file_size, &table_reader,
+      /*internal_stats=*/nullptr);
   if (!status.ok()) {
     return status;
   }
@@ -361,7 +362,8 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
     // TODO: plumb Env::IOActivity, Env::IOPriority
     ReadOptions ro;
     std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(
-        ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr, /*internal_stats=*/nullptr,
+        ro, sv->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
+        /*internal_stats=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
 
     // Get first (smallest) key from file

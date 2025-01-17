@@ -170,7 +170,8 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
 Status SstFileDumper::NewTableReader(
     const ImmutableOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
-    std::unique_ptr<TableReader>* /*table_reader*/, InternalStats* /*internal_stats*/) {
+    std::unique_ptr<TableReader>* /*table_reader*/,
+    InternalStats* /*internal_stats*/) {
   auto t_opt = TableReaderOptions(
       ioptions_, moptions_.prefix_extractor, soptions_, internal_comparator_,
       0 /* block_protection_bytes_per_key */, false /* skip_filters */,
@@ -197,7 +198,8 @@ Status SstFileDumper::NewTableReader(
 
   // For all other factory implementation
   return options_.table_factory->NewTableReader(t_opt, std::move(file_),
-                                                file_size, &table_reader_, /*internal_stats=*/nullptr);
+                                                file_size, &table_reader_,
+                                                /*internal_stats=*/nullptr);
 }
 
 Status SstFileDumper::VerifyChecksum() {
@@ -240,7 +242,8 @@ Status SstFileDumper::CalculateCompressedTableSize(
   table_builder.reset(
       block_based_tf.NewTableBuilder(tb_options, dest_writer.get()));
   std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
-      read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,/*internal_stats=*/nullptr,
+      read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*internal_stats=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     table_builder->Add(iter->key(), iter->value());
@@ -469,7 +472,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num_limit,
 
   InternalIterator* iter = table_reader_->NewIterator(
       read_options_, moptions_.prefix_extractor.get(),
-      /*arena=*/nullptr, /*internal_stats=*/nullptr,/*skip_filters=*/false,
+      /*arena=*/nullptr, /*internal_stats=*/nullptr, /*skip_filters=*/false,
       TableReaderCaller::kSSTDumpTool);
 
   const Comparator* ucmp = internal_comparator_.user_comparator();

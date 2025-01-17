@@ -147,7 +147,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     s = opts.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor, env_options,
                            ikc, 0 /* block_protection_bytes_per_key */),
-        std::move(file_reader), file_size, &table_reader, nullptr /*internal_stats*/);
+        std::move(file_reader), file_size, &table_reader,
+        nullptr /*internal_stats*/);
     if (!s.ok()) {
       fprintf(stderr, "Open Table Error: %s\n", s.ToString().c_str());
       exit(1);
