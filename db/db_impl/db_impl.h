@@ -2416,8 +2416,8 @@ class DBImpl : public DB {
                                 Env::Priority thread_pri);
   void BackgroundCallFlush(Env::Priority thread_pri);
   void BackgroundCallPurge();
-  Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
-                              LogBuffer* log_buffer,
+  Status BackgroundCompaction(bool* madeProgress, int& num_compaction_iterators,
+                              JobContext* job_context, LogBuffer* log_buffer,
                               PrepickedCompaction* prepicked_compaction,
                               Env::Priority thread_pri);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
@@ -2428,6 +2428,8 @@ class DBImpl : public DB {
   bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
                                const std::vector<CompactionInputFiles>& inputs,
                                bool* sfm_bookkeeping, LogBuffer* log_buffer);
+
+  int GetNumberCompactionIterators(Compaction* c);
 
   // Request compaction tasks token from compaction thread limiter.
   // It always succeeds if force = true or limiter is disable.
@@ -2961,6 +2963,9 @@ class DBImpl : public DB {
 
   // stores the number of compactions are currently running
   int num_running_compactions_;
+
+  // stores the number of iterators required for currently running compactions
+  int num_running_compaction_iterators_;
 
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_;
