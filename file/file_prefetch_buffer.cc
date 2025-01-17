@@ -1082,6 +1082,9 @@ Status FilePrefetchBuffer::PrefetchRemBuffers(const IOOptions& opts,
 }
 
 void FilePrefetchBuffer::UpdateInternalStats() {
+  if (internal_stats_ == nullptr) {
+    return;
+  }
   size_t current_buffer_size = GetTotalBufferSize();
   if (last_recorded_buffer_size_ < current_buffer_size) {
     internal_stats_->AddDBStats(

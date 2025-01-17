@@ -183,10 +183,10 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
   ReadOptions roptions;
   CHECK_OK(table_reader->VerifyChecksum(roptions,
                                         TableReaderCaller::kUncategorized));
-  std::unique_ptr<InternalIterator> it(
-      table_reader->NewIterator(roptions, /*prefix_extractor=*/nullptr,
-                                /*arena=*/nullptr, /*skip_filters=*/true,
-                                TableReaderCaller::kUncategorized));
+  std::unique_ptr<InternalIterator> it(table_reader->NewIterator(
+      roptions, /*prefix_extractor=*/nullptr,
+      /*arena=*/nullptr, /*internal_stats=*/nullptr, /*skip_filters=*/true,
+      TableReaderCaller::kUncategorized));
   it->SeekToFirst();
   for (const DBOperation& op : input.operations()) {
     if (op.type() == OpType::DELETE_RANGE) {

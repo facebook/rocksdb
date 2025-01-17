@@ -2017,7 +2017,6 @@ InternalIterator* BlockBasedTable::NewIterator(
     Arena* arena, InternalStats* internal_stats, bool skip_filters,
     TableReaderCaller caller, size_t compaction_readahead_size,
     bool allow_unprepared_value) {
-  (void)internal_stats;
   BlockCacheLookupContext lookup_context{caller};
   bool need_upper_bound_check =
       read_options.auto_prefix_mode || PrefixExtractorChanged(prefix_extractor);

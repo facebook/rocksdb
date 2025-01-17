@@ -21,7 +21,8 @@ class SstFileDumper {
                          bool verify_checksum, bool output_hex,
                          bool decode_blob_index,
                          const EnvOptions& soptions = EnvOptions(),
-                         bool silent = false);
+                         bool silent = false,
+                         InternalStats* internal_stats = nullptr);
 
   // read_num_limit limits the total number of keys read. If read_num_limit = 0,
   // then there is no limit. If read_num_limit = 0 or
@@ -55,7 +56,8 @@ class SstFileDumper {
 
  private:
   // Get the TableReader implementation for the sst file
-  Status GetTableReader(const std::string& file_path);
+  Status GetTableReader(const std::string& file_path,
+                        InternalStats* internal_stats);
   Status ReadTableProperties(uint64_t table_magic_number,
                              RandomAccessFileReader* file, uint64_t file_size,
                              FilePrefetchBuffer* prefetch_buffer);

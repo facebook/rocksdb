@@ -47,7 +47,7 @@ SstFileDumper::SstFileDumper(const Options& options,
                              Temperature file_temp, size_t readahead_size,
                              bool verify_checksum, bool output_hex,
                              bool decode_blob_index, const EnvOptions& soptions,
-                             bool silent)
+                             bool silent, InternalStats* internal_stats)
     : file_name_(file_path),
       read_num_(0),
       file_temp_(file_temp),
@@ -65,12 +65,13 @@ SstFileDumper::SstFileDumper(const Options& options,
   if (!silent_) {
     fprintf(stdout, "Process %s\n", file_path.c_str());
   }
-  init_result_ = GetTableReader(file_name_);
+  init_result_ = GetTableReader(file_name_, internal_stats);
 }
 
 const char* testFileName = "test_file_name";
 
-Status SstFileDumper::GetTableReader(const std::string& file_path) {
+Status SstFileDumper::GetTableReader(const std::string& file_path,
+                                     InternalStats* internal_stats) {
   // Warning about 'magic_number' being uninitialized shows up only in UBsan
   // builds. Though access is guarded by 's.ok()' checks, fix the issue to
   // avoid any warnings.
@@ -162,7 +163,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
 
   if (s.ok()) {
     s = NewTableReader(ioptions_, soptions_, internal_comparator_, file_size,
-                       &table_reader_, /*internal_stats=*/nullptr);
+                       &table_reader_, internal_stats);
   }
   return s;
 }
@@ -171,7 +172,7 @@ Status SstFileDumper::NewTableReader(
     const ImmutableOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
     std::unique_ptr<TableReader>* /*table_reader*/,
-    InternalStats* /*internal_stats*/) {
+    InternalStats* internal_stats) {
   auto t_opt = TableReaderOptions(
       ioptions_, moptions_.prefix_extractor, soptions_, internal_comparator_,
       0 /* block_protection_bytes_per_key */, false /* skip_filters */,
@@ -197,9 +198,8 @@ Status SstFileDumper::NewTableReader(
   }
 
   // For all other factory implementation
-  return options_.table_factory->NewTableReader(t_opt, std::move(file_),
-                                                file_size, &table_reader_,
-                                                /*internal_stats=*/nullptr);
+  return options_.table_factory->NewTableReader(
+      t_opt, std::move(file_), file_size, &table_reader_, internal_stats);
 }
 
 Status SstFileDumper::VerifyChecksum() {
