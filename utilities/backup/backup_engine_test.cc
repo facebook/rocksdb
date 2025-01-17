@@ -1151,12 +1151,6 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
       }
     }
 
-    // Files filled with data have lower #s.
-    // It's handy to know which files are non-empty and
-    // therefore easier to corrupt for the sake of testing.
-    std::sort(all_sst_files.begin(), all_sst_files.end());
-    std::sort(all_blob_files.begin(), all_blob_files.end());
-
     std::string one_sst_file = all_sst_files[0];
 
     // 2. Verify expected behavior with exclude files feature.
@@ -1265,7 +1259,7 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     // (by overriding bytes beyond the footer) to corrupt a file in a more
     // harmful way...
     std::string sst_file_to_be_corrupted = all_sst_files[0];
-    ASSERT_OK(db_file_manager_->CorruptFileMiddle(sst_file_to_be_corrupted));
+    ASSERT_OK(db_file_manager_->CorruptFileStart(sst_file_to_be_corrupted));
 
     OpenBackupEngine();
 

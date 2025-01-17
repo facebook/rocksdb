@@ -3054,7 +3054,6 @@ void BackupEngineImpl::InferDBFilesToRetainInRestore(
         continue;
       }
 
-      auto backup_checksum_hex = it->second;
       if (it->second != result.checksum_hex) {
         Log(options_.info_log,
             "Checksum mismatch between backup file and existing file '%s'.",
