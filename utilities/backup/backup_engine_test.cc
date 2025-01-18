@@ -1309,11 +1309,11 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     Status s = db_->VerifyChecksum();
 
     // Check DB contents.
-    if (mode == RestoreOptions::Mode::kVerifyChecksum) {
+    if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
+      ASSERT_TRUE(s.IsCorruption());
+    } else {
       EXPECT_OK(s);
       AssertExists(db_.get(), 0, keys_iteration * 2);
-    } else if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
-      ASSERT_TRUE(s.IsCorruption());
     }
 
     db_.reset();  // Close DB.
