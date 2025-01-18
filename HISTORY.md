@@ -1,6 +1,26 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.11.0 (01/17/2025)
+### New Features
+* Introduce CancelAwaitingJobs() in CompactionService interface which will allow users to implement cancellation of running remote compactions from the primary instance
+* Experimental feature: RocksDB now supports defining secondary indices, which are automatically maintained by the storage engine. Secondary indices provide a new customization point: applications can provide their own by implementing the new `SecondaryIndex` interface. See the `SecondaryIndex` API comments for more details. Note: this feature is currently only available in conjunction with write-committed pessimistic transactions, and `Merge` is not yet supported.
+* Provide a new option `track_and_verify_wals` to track and verify various information about WAL during WAL recovery. This is intended to be a better replacement to `track_and_verify_wals_in_manifest`.
+
+### Public API Changes
+* Add `io_buffer_size` to BackupEngineOptions to enable optimal configuration of IO size
+* Clean up all the references to `random_access_max_buffer_size`, related rules and all the clients wrappers. This option has been officially deprecated in 5.4.0.
+* Add `file_ingestion_nanos` and `file_ingestion_blocking_live_writes_nanos` in PerfContext to observe file ingestions
+* Offer new DB::Open and variants that use `std::unique_ptr<DB>*` output parameters and deprecate the old versions that use `DB**` output parameters.
+* The DB::DeleteFile API is officially deprecated.
+
+### Behavior Changes
+* For leveled compaction, manual compaction (CompactRange()) will be more strict about keeping compaction size under `max_compaction_bytes`. This prevents overly large compactions in some cases (#13306).
+* Experimental tiering options `preclude_last_level_data_seconds` and `preserve_internal_time_seconds` are now mutable with `SetOptions()`. Some changes to handling of these features along with long-lived snapshots and range deletes made this possible.
+
+### Bug Fixes
+* Fix a longstanding major bug with SetOptions() in which setting changes can be quietly reverted.
+
 ## 9.10.0 (12/12/2024)
 ### New Features
 * Introduce `TransactionOptions::commit_bypass_memtable` to enable transaction commit to bypass memtable insertions. This can be beneficial for transactions with many operations, as it reduces commit time that is mostly spent on memtable insertion.
