@@ -1110,7 +1110,8 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
   options_.disable_auto_compactions = true;
   options_.level0_file_num_compaction_trigger = 1000;
 
-  for (const auto& mode : {RestoreOptions::Mode::kKeepLatestDbSessionIdFiles,
+  for (const auto& mode : {RestoreOptions::Mode::kPurgeAllFiles,
+                           RestoreOptions::Mode::kKeepLatestDbSessionIdFiles,
                            RestoreOptions::Mode::kVerifyChecksum}) {
     OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                           kShareWithChecksum);
@@ -1231,14 +1232,21 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
                                                         restore_options));
     CloseBackupEngine();
 
-    std::vector<std::string> should_have_written = all_files_but_data;
-    should_have_written.emplace_back(sst_file_to_be_deleted);
-    if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
-      // We only support incremental restore for blobs in kVerifyChecksum mode.
-      should_have_written.insert(should_have_written.end(),
-                                 all_blob_files.begin(), all_blob_files.end());
+    std::vector<std::string> should_have_written;
+    if (mode == RestoreOptions::Mode::kPurgeAllFiles) {
+      should_have_written = all_files;
     } else {
-      should_have_written.emplace_back(blob_file_to_be_deleted);
+      should_have_written = all_files_but_data;
+      should_have_written.emplace_back(sst_file_to_be_deleted);
+      if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
+        // We only support incremental restore for blobs in kVerifyChecksum
+        // mode.
+        should_have_written.insert(should_have_written.end(),
+                                   all_blob_files.begin(),
+                                   all_blob_files.end());
+      } else {
+        should_have_written.emplace_back(blob_file_to_be_deleted);
+      }
     }
 
     // 'Hole' has been patched, 'in-policy' db files were retained.
@@ -1267,26 +1275,31 @@ TEST_F(BackupEngineTest, IncrementalRestore) {
     ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_,
                                                         restore_options));
     CloseBackupEngine();
+    if (mode == RestoreOptions::Mode::kPurgeAllFiles) {
+      should_have_written = all_files;
+    } else {
+      should_have_written = all_files_but_data;
+      if (mode == RestoreOptions::Mode::kVerifyChecksum) {
+        // Restore running in kVerifyChecksum mode would have caught the
+        // mismatch between crc32c and db file contents. Such file would have
+        // been deleted and restored from the backup.
+        should_have_written.emplace_back(blob_file_to_be_corrupted);
+        should_have_written.emplace_back(sst_file_to_be_corrupted);
+      } else if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
+        // This mode is more prone to subtle db file corruptions as we do not
+        // run any CPU intensive computations (like checksum) and the match
+        // between existing db file and its' relevant backup counterpart is
+        // determined purely based on the metadata from the footer (size,
+        // db_session_id). Therefore, if corrupted portion of an existing db
+        // file does NOT directly affect those properties in the footer, it
+        // might slip through the cracks and only be detected at the time of
+        // running CRC32c.
 
-    should_have_written = all_files_but_data;
-    if (mode == RestoreOptions::Mode::kVerifyChecksum) {
-      // Restore running in kVerifyChecksum mode would have caught the mismatch
-      // between crc32c and db file contents. Such file would have been deleted
-      // and restored from the backup.
-      should_have_written.emplace_back(blob_file_to_be_corrupted);
-      should_have_written.emplace_back(sst_file_to_be_corrupted);
-    } else if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
-      // This mode is more prone to subtle db file corruptions as we do not run
-      // any CPU intensive computations (like checksum) and the match between
-      // existing db file and its' relevant backup counterpart is determined
-      // purely based on the metadata from the footer (size, db_session_id).
-      // Therefore, if corrupted portion of an existing db file does NOT
-      // directly affect those properties in the footer, it might slip through
-      // the cracks and only be detected at the time of running CRC32c.
-
-      // Separately, this mode does not support incremental restore for blobs.
-      should_have_written.insert(should_have_written.end(),
-                                 all_blob_files.begin(), all_blob_files.end());
+        // Separately, this mode does not support incremental restore for blobs.
+        should_have_written.insert(should_have_written.end(),
+                                   all_blob_files.begin(),
+                                   all_blob_files.end());
+      }
     }
 
     // 'Hole' has been patched, 'in-policy' db files were retained.
