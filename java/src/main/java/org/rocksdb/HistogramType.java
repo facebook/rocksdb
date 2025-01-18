@@ -210,8 +210,14 @@ public enum HistogramType {
    */
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES((byte) 0x3D),
 
-  // 0x3E for backwards compatibility on current minor version.
-  HISTOGRAM_ENUM_MAX((byte) 0x3E);
+  /**
+   * Number of iterators needed to process compaction inputs
+   * Equal to number of L0 input files + number of non-L0 input levels
+   */
+  NUM_COMPACTION_INPUT_ITERATORS((byte) 0x3E),
+
+  // 0x3F for backwards compatibility on current minor version.
+  HISTOGRAM_ENUM_MAX((byte) 0x3F);
 
   private final byte value;
 

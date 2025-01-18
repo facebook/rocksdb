@@ -301,8 +301,6 @@ static const std::string aggregated_table_properties =
 static const std::string aggregated_table_properties_at_level =
     aggregated_table_properties + "-at-level";
 static const std::string num_running_compactions = "num-running-compactions";
-static const std::string num_running_compaction_iterators =
-    "num-running-compaction-iterators";
 static const std::string num_running_flushes = "num-running-flushes";
 static const std::string actual_delayed_write_rate =
     "actual-delayed-write-rate";
@@ -353,8 +351,6 @@ const std::string DB::Properties::kCompactionPending =
     rocksdb_prefix + compaction_pending;
 const std::string DB::Properties::kNumRunningCompactions =
     rocksdb_prefix + num_running_compactions;
-const std::string DB::Properties::kNumRunningCompactionIterators =
-    rocksdb_prefix + num_running_compaction_iterators;
 const std::string DB::Properties::kNumRunningFlushes =
     rocksdb_prefix + num_running_flushes;
 const std::string DB::Properties::kBackgroundErrors =
@@ -584,9 +580,6 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kNumRunningCompactions,
          {false, nullptr, &InternalStats::HandleNumRunningCompactions, nullptr,
           nullptr}},
-        {DB::Properties::kNumRunningCompactionIterators,
-         {false, nullptr, &InternalStats::HandleNumRunningCompactionIterators,
-          nullptr, nullptr}},
         {DB::Properties::kActualDelayedWriteRate,
          {false, nullptr, &InternalStats::HandleActualDelayedWriteRate, nullptr,
           nullptr}},
@@ -1269,13 +1262,6 @@ bool InternalStats::HandleCompactionPending(uint64_t* value, DBImpl* /*db*/,
 bool InternalStats::HandleNumRunningCompactions(uint64_t* value, DBImpl* db,
                                                 Version* /*version*/) {
   *value = db->num_running_compactions_;
-  return true;
-}
-
-bool InternalStats::HandleNumRunningCompactionIterators(uint64_t* value,
-                                                        DBImpl* db,
-                                                        Version* /*version*/) {
-  *value = db->num_running_compaction_iterators_;
   return true;
 }
 

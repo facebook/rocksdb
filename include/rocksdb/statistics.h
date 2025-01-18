@@ -667,6 +667,10 @@ enum Histograms : uint32_t {
   // system's prefetch) from the end of SST table during block based table open
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
 
+  // Number of iterators needed to process compaction inputs
+  // Equal to number of L0 input files + number of non-L0 input levels
+  NUM_COMPACTION_INPUT_ITERATORS,
+
   HISTOGRAM_ENUM_MAX
 };
 

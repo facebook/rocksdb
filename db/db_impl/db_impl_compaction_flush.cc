@@ -61,18 +61,14 @@ bool DBImpl::EnoughRoomForCompaction(
   return enough_room;
 }
 
-int DBImpl::GetNumberCompactionIterators(Compaction* c) {
+size_t DBImpl::GetNumberCompactionInputIterators(Compaction* c) {
   assert(c);
-  int num_l0_files = 0;
-  int num_non_l0_levels = 0;
-  for (auto& each_level : *c->inputs()) {
-    if (each_level.level == 0) {
-      num_l0_files += each_level.files.size();
-    } else {
-      num_non_l0_levels++;
-    }
+  if (c->start_level() == 0) {
+    size_t num_l0_files = c->num_input_files(0);
+    size_t num_non_l0_levels = c->num_input_levels() - 1;
+    return num_l0_files + num_non_l0_levels;
   }
-  return num_l0_files + num_non_l0_levels;
+  return c->num_input_levels();
 }
 
 bool DBImpl::RequestCompactionToken(ColumnFamilyData* cfd, bool force,
@@ -3424,9 +3420,6 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     InstrumentedMutexLock l(&mutex_);
 
     num_running_compactions_++;
-    int num_compaction_iterators =
-        GetNumberCompactionIterators(prepicked_compaction->compaction);
-    num_running_compaction_iterators_ += num_compaction_iterators;
 
     std::unique_ptr<std::list<uint64_t>::iterator>
         pending_outputs_inserted_elem(new std::list<uint64_t>::iterator(
@@ -3501,8 +3494,6 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
-    assert(num_running_compaction_iterators_ >= num_compaction_iterators);
-    num_running_compaction_iterators_ -= num_compaction_iterators;
 
     if (bg_thread_pri == Env::Priority::LOW) {
       bg_compaction_scheduled_--;
@@ -3739,13 +3730,17 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             num_files += each_level.files.size();
           }
           RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION, num_files);
+          size_t num_compaction_input_iterators =
+              GetNumberCompactionInputIterators(c.get());
+          RecordInHistogram(stats_, NUM_COMPACTION_INPUT_ITERATORS,
+                            num_compaction_input_iterators);
 
           // There are three things that can change compaction score:
           // 1) When flush or compaction finish. This case is covered by
           // InstallSuperVersionAndScheduleWork
           // 2) When MutableCFOptions changes. This case is also covered by
-          // InstallSuperVersionAndScheduleWork, because this is when the new
-          // options take effect.
+          // InstallSuperVersionAndScheduleWork, because this is when the
+          // new options take effect.
           // 3) When we Pick a new compaction, we "remove" those files being
           // compacted from the calculation, which then influences compaction
           // score. Here we check if we need the new compaction even without the
