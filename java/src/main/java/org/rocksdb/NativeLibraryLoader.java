@@ -1,13 +1,12 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb;
 
-import org.rocksdb.util.Environment;
-import org.rocksdb.util.SharedTempFile;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.nio.file.Path;
+import org.rocksdb.util.Environment;
+import org.rocksdb.util.SharedTempFile;
 
 /**
  * This class is used to load the RocksDB shared library from within the jar.
@@ -112,7 +111,6 @@ public class NativeLibraryLoader {
   }
 
   private InputStream libraryFromJar() {
-
     InputStream is = getClass().getClassLoader().getResourceAsStream(jniLibraryFileName);
     if (is == null) {
       is = getClass().getClassLoader().getResourceAsStream(fallbackJniLibraryFileName);
@@ -145,7 +143,8 @@ public class NativeLibraryLoader {
         suffix = split[1];
       }
     }
-    SharedTempFile.Instance instance = new SharedTempFile.Instance(tmpDir,prefix, libraryResourcePath(), suffix);
+    SharedTempFile.Instance instance =
+        new SharedTempFile.Instance(tmpDir, prefix, libraryResourcePath(), suffix);
     SharedTempFile sharedTemp = instance.create();
     SharedTempFile.Lock lock = sharedTemp.lock(this::libraryFromJar);
     Runtime.getRuntime().addShutdownHook(new Thread(lock::close));
