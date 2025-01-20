@@ -8,9 +8,7 @@ import org.rocksdb.util.SharedTempFile;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -104,19 +102,37 @@ public class SharedTempFileLoaderTest {
 
     @Test
     public void openManySharedTemp() throws IOException {
-        openMany("org.rocksdb.SharedTempFileMockMain", Kill.None, "--tmpdir=" + getTmpDir());
+        openMany("org.rocksdb.SharedTempFileMockMain", testClassPathWithJar(), null, Kill.None, "--tmpdir=" + getTmpDir());
     }
 
     @Test
     public void openManyRocksDBKill() throws IOException {
         // Do this to make processes wait a long time, and we will kill them exp;icitly before they exit
-        openMany("org.rocksdb.SharedTempFileRocksDBMain", Kill.Term, "--waitkill=true", "--tmpdir=" + getTmpDir());
+        openMany("org.rocksdb.SharedTempFileRocksDBMain", testClassPathWithJar(), null, Kill.Term, "--waitkill=true", "--tmpdir=" + getTmpDir());
     }
 
     @Test
     public void openManyRocksDBWait() throws IOException {
         //Do this to (1) not kill the process and let them exit by themselves
-        openMany("org.rocksdb.SharedTempFileRocksDBMain", Kill.None, "--tmpdir=" + getTmpDir());
+        openMany("org.rocksdb.SharedTempFileRocksDBMain", testClassPathWithJar(), null, Kill.None, "--tmpdir=" + getTmpDir());
+    }
+
+    /**
+     * Validate that we can set java.library.path, and then not require the JAR
+     *
+     * @throws IOException
+     */
+    @Test
+    public void openManyRocksDBWaitNoJar() throws IOException {
+        //Like openManyRocksDBWait but check it can load the JNI library from java.library.path
+
+        // Add definition of java.library.path to where it can find the shared library
+        //String ld_library_path = System.getenv().get("PWD") + "/target";
+        String ld_library_path = "target";
+        Map<String, String> definitions = new HashMap<>();
+        definitions.put("java.library.path", ld_library_path);
+
+        openMany("org.rocksdb.SharedTempFileRocksDBMain", testClassPath(), definitions, Kill.None, "--tmpdir=" + getTmpDir());
     }
 
     enum Kill {
@@ -126,6 +142,36 @@ public class SharedTempFileLoaderTest {
     };
 
     /**
+     * A base list for forming the classpath to run tests
+     * This does NOT include a built JAR,
+     * so the NativeLibraryLoader will be unable to load the library from it.
+     *
+     * @return a path list of class, test class and library directories
+     */
+    private List<String> testClassPath() {
+        final List<String> cp = new ArrayList<>();
+        cp.add("target/test-classes");
+        cp.add("target/classes");
+        cp.add("test-libs/*");
+
+        return cp;
+    }
+
+    /**
+     * A list for forming the classpath to run tests
+     * Any built JAR should appear at <code>target/name-of-jar</code>
+     * so the NativeLibraryLoader will be able to load the library from it.
+     *
+     * @return the path list
+     */
+    private List<String> testClassPathWithJar() {
+        final List<String> cp = testClassPath();
+        cp.add("target/*");
+
+        return cp;
+    }
+
+    /**
      * Helper to create multiples subprocesses and have them run a java class main
      *
      * @param mainClass java class to run main of
@@ -133,7 +179,7 @@ public class SharedTempFileLoaderTest {
      * @param args to pass to the main() method
      * @throws IOException if there is a problem creating/communication with the processes
      */
-    private void openMany(final String mainClass, final Kill kill, final String... args) throws IOException {
+    private void openMany(final String mainClass, final List<String> cp, final Map<String, String> defns, final Kill kill, final String... args) throws IOException {
 
         final int DB_COUNT = 50;
         List<Process> processes = new ArrayList<>();
@@ -143,12 +189,32 @@ public class SharedTempFileLoaderTest {
 
         for (int i = 0; i < DB_COUNT; i++) {
 
-            StringBuilder sb = new StringBuilder();
+            StringBuilder arguments = new StringBuilder();
             for (String arg : args) {
-                sb.append(" ").append(arg);
+                arguments.append(" ").append(arg);
+            }
+            StringBuilder classpath = new StringBuilder();
+            if (cp != null) {
+                for (String element : cp) {
+                    classpath.append(element).append(":");
+                }
+            }
+            int length = classpath.length();
+            if (length > 0) {
+                //remove trailing ":"
+                classpath.deleteCharAt(length - 1);
+            }
+            if (classpath.length() > 0) {
+                classpath.insert(0, "-cp ");
+            }
+            StringBuilder definitions = new StringBuilder();
+            if (defns != null) {
+                for (Map.Entry<String, String> entry : defns.entrySet()) {
+                    definitions.append("-D").append(entry.getKey()).append("=").append(entry.getValue()).append(" ");
+                }
             }
             Process process = Runtime.getRuntime()
-                .exec("java -cp target/classes:target/test-classes:target/*:test-libs/assertj-core-2.9.0.jar " + mainClass + sb);
+                .exec("java " + definitions + classpath + " " + mainClass + arguments);
             processes.add(process);
             BufferedReader err = new BufferedReader( new InputStreamReader(process.getErrorStream()));
             readers.add(err);
@@ -228,5 +294,4 @@ public class SharedTempFileLoaderTest {
         }
         assertThat(ok).as("all subprocesses return success").isTrue();
     }
-
 }
