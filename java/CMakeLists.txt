@@ -299,6 +299,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/util/Environment.java
   src/main/java/org/rocksdb/util/IntComparator.java
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
+  src/main/java/org/rocksdb/util/SharedTempfile.java
   src/main/java/org/rocksdb/util/SizeUnit.java
   src/main/java/org/rocksdb/util/StdErrLogger.java
   src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
