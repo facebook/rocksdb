@@ -52,14 +52,13 @@ public class SharedTempFile {
     private final String suffix;
 
     /**
-     * Look for existing shared temp files
-     * @return a list of these files.
-     */
-    /**
-     * Create the shared temp file
-     * Ensure that the contained lock file is also created
+     * Create the shared temp file's containing directory
+     * It may already exist, which is fine.
+     *
+     * Either way, once it exists, ensure that the contained lock file is also created
      *
      * @return the new shared temp file object
+     * @throws IOException if there is an unexpected problem creating
      */
     @SuppressWarnings("PMD.EmptyCatchBlock")
     public SharedTempFile create() throws IOException {
