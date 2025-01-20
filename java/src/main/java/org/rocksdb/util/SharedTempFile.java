@@ -25,8 +25,8 @@ import java.util.stream.Stream;
  * </p>
  */
 public class SharedTempFile {
-  private final static String INSTANCE_LOCK = "instance-lock";
-  private final static String DIR_LOCK = "dir-lock";
+  private final static String INSTANCE_LOCK = ".instance-lock";
+  private final static String DIR_LOCK = ".dir-lock";
 
   private final Instance instance;
 
@@ -38,7 +38,7 @@ public class SharedTempFile {
   private SharedTempFile(final Instance instance, final Path directory) {
     this.instance = instance;
     this.directory = directory;
-    this.directoryLock = directory.resolve(instance.prefix + "." + DIR_LOCK);
+    this.directoryLock = directory.resolve(instance.prefix + DIR_LOCK);
     this.content = directory.resolve(instance.prefix + "." + instance.suffix);
   }
 
@@ -61,6 +61,7 @@ public class SharedTempFile {
      *
      * @return the new shared temp file object
      */
+    @SuppressWarnings("PMD.EmptyCatchBlock")
     public SharedTempFile create() throws IOException {
       final Path directory = Paths.get(tmpDir).resolve(prefix + digest);
       try {
@@ -87,8 +88,9 @@ public class SharedTempFile {
     }
   }
 
+  @SuppressWarnings("PMD.EmptyCatchBlock")
   private SharedTempFile ensureCreated() throws IOException {
-    Path dirLock = directory.resolve(instance.prefix + "." + DIR_LOCK);
+    Path dirLock = directory.resolve(instance.prefix + DIR_LOCK);
     try {
       Files.createFile(dirLock);
     } catch (FileAlreadyExistsException e) {
@@ -124,11 +126,10 @@ public class SharedTempFile {
   public Lock lock(Callable<InputStream> contentCreator) throws IOException {
     try (FileChannel fc = FileChannel.open(directoryLock, StandardOpenOption.WRITE)) {
       try (FileLock ignored = fc.lock()) {
-        instanceLock = Files.createTempFile(directory, instance.prefix, "." + INSTANCE_LOCK);
+        instanceLock = Files.createTempFile(directory, instance.prefix, INSTANCE_LOCK);
         if (!Files.exists(content)) {
           Files.createFile(content);
-          try {
-            InputStream is = contentCreator.call();
+          try (InputStream is = contentCreator.call()) {
             Files.copy(is, content, StandardCopyOption.REPLACE_EXISTING);
           } catch (Exception e) {
             throw new RuntimeException(
@@ -156,7 +157,7 @@ public class SharedTempFile {
             children.forEach(path -> {
               Path fileName = path.getFileName();
               String name = fileName.toString();
-              if (name.startsWith(instance.prefix) && name.endsWith("." + INSTANCE_LOCK)) {
+              if (name.startsWith(instance.prefix) && name.endsWith(INSTANCE_LOCK)) {
                 lockFiles.add(fileName);
               }
             });
