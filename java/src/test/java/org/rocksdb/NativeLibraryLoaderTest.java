@@ -4,18 +4,17 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
-import org.rocksdb.util.Environment;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+import org.rocksdb.util.Environment;
 
 public class NativeLibraryLoaderTest {
 
@@ -43,8 +42,9 @@ public class NativeLibraryLoaderTest {
 
   @Test
   public void overridesExistingLibrary() throws IOException {
-    final File first = NativeLibraryLoader.getInstance().loadLibraryFromJarToTemp(
-        temporaryFolder.getRoot().getAbsolutePath()).toFile();
+    final File first = NativeLibraryLoader.getInstance()
+                           .loadLibraryFromJarToTemp(temporaryFolder.getRoot().getAbsolutePath())
+                           .toFile();
     NativeLibraryLoader.getInstance().loadLibraryFromJarToTemp(
         temporaryFolder.getRoot().getAbsolutePath());
     assertThat(first.exists()).isTrue();
