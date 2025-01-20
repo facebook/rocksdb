@@ -136,7 +136,6 @@ public class NativeLibraryLoader {
 
   @SuppressWarnings({"PMD.UseProperClassLoader", "PMD.UseTryWithResources"})
   Path loadLibraryFromJarToTemp(final String tmpDir) throws IOException {
-
     String prefix = tempFilePrefix;
     String suffix = tempFileSuffix;
     if (jniLibraryFileName != null) {
