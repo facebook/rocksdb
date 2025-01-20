@@ -1,16 +1,15 @@
 package org.rocksdb;
 
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
-import org.rocksdb.util.SharedTempFile;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+import org.rocksdb.util.SharedTempFile;
 
 public class SharedTempFileLoaderTest {
 
@@ -102,19 +101,22 @@ public class SharedTempFileLoaderTest {
 
     @Test
     public void openManySharedTemp() throws IOException {
-        openMany("org.rocksdb.SharedTempFileMockMain", testClassPathWithJar(), null, Kill.None, "--tmpdir=" + getTmpDir());
+      openMany("org.rocksdb.SharedTempFileMockMain", testClassPathWithJar(), null, Kill.None,
+          "--tmpdir=" + getTmpDir());
     }
 
     @Test
     public void openManyRocksDBKill() throws IOException {
         // Do this to make processes wait a long time, and we will kill them exp;icitly before they exit
-        openMany("org.rocksdb.SharedTempFileRocksDBMain", testClassPathWithJar(), null, Kill.Term, "--waitkill=true", "--tmpdir=" + getTmpDir());
+        openMany("org.rocksdb.SharedTempFileRocksDBMain", testClassPathWithJar(), null, Kill.Term,
+            "--waitkill=true", "--tmpdir=" + getTmpDir());
     }
 
     @Test
     public void openManyRocksDBWait() throws IOException {
         //Do this to (1) not kill the process and let them exit by themselves
-        openMany("org.rocksdb.SharedTempFileRocksDBMain", testClassPathWithJar(), null, Kill.None, "--tmpdir=" + getTmpDir());
+        openMany("org.rocksdb.SharedTempFileRocksDBMain", testClassPathWithJar(), null, Kill.None,
+            "--tmpdir=" + getTmpDir());
     }
 
     /**
@@ -124,15 +126,16 @@ public class SharedTempFileLoaderTest {
      */
     @Test
     public void openManyRocksDBWaitNoJar() throws IOException {
-        //Like openManyRocksDBWait but check it can load the JNI library from java.library.path
+      // Like openManyRocksDBWait but check it can load the JNI library from java.library.path
 
-        // Add definition of java.library.path to where it can find the shared library
-        //String ld_library_path = System.getenv().get("PWD") + "/target";
-        String ld_library_path = "target";
-        Map<String, String> definitions = new HashMap<>();
-        definitions.put("java.library.path", ld_library_path);
+      // Add definition of java.library.path to where it can find the shared library
+      // String ld_library_path = System.getenv().get("PWD") + "/target";
+      String ld_library_path = "target";
+      Map<String, String> definitions = new HashMap<>();
+      definitions.put("java.library.path", ld_library_path);
 
-        openMany("org.rocksdb.SharedTempFileRocksDBMain", testClassPath(), definitions, Kill.None, "--tmpdir=" + getTmpDir());
+      openMany("org.rocksdb.SharedTempFileRocksDBMain", testClassPath(), definitions, Kill.None,
+          "--tmpdir=" + getTmpDir());
     }
 
     enum Kill {
@@ -149,12 +152,12 @@ public class SharedTempFileLoaderTest {
      * @return a path list of class, test class and library directories
      */
     private List<String> testClassPath() {
-        final List<String> cp = new ArrayList<>();
-        cp.add("target/test-classes");
-        cp.add("target/classes");
-        cp.add("test-libs/*");
+      final List<String> cp = new ArrayList<>();
+      cp.add("target/test-classes");
+      cp.add("target/classes");
+      cp.add("test-libs/*");
 
-        return cp;
+      return cp;
     }
 
     /**
@@ -165,10 +168,10 @@ public class SharedTempFileLoaderTest {
      * @return the path list
      */
     private List<String> testClassPathWithJar() {
-        final List<String> cp = testClassPath();
-        cp.add("target/*");
+      final List<String> cp = testClassPath();
+      cp.add("target/*");
 
-        return cp;
+      return cp;
     }
 
     /**
@@ -179,119 +182,122 @@ public class SharedTempFileLoaderTest {
      * @param args to pass to the main() method
      * @throws IOException if there is a problem creating/communication with the processes
      */
-    private void openMany(final String mainClass, final List<String> cp, final Map<String, String> defns, final Kill kill, final String... args) throws IOException {
+    private void openMany(final String mainClass, final List<String> cp,
+        final Map<String, String> defns, final Kill kill, final String... args) throws IOException {
+      final int DB_COUNT = 50;
+      List<Process> processes = new ArrayList<>();
+      List<BufferedReader> readers = new ArrayList<>();
+      List<List<String>> lines = new ArrayList<>();
+      List<Integer> exitCodes = new ArrayList<>();
 
-        final int DB_COUNT = 50;
-        List<Process> processes = new ArrayList<>();
-        List<BufferedReader> readers = new ArrayList<>();
-        List<List<String>> lines = new ArrayList<>();
-        List<Integer> exitCodes = new ArrayList<>();
+      for (int i = 0; i < DB_COUNT; i++) {
+        StringBuilder arguments = new StringBuilder();
+        for (String arg : args) {
+          arguments.append(" ").append(arg);
+        }
+        StringBuilder classpath = new StringBuilder();
+        if (cp != null) {
+          for (String element : cp) {
+            classpath.append(element).append(":");
+          }
+        }
+        int length = classpath.length();
+        if (length > 0) {
+          // remove trailing ":"
+          classpath.deleteCharAt(length - 1);
+        }
+        if (classpath.length() > 0) {
+          classpath.insert(0, "-cp ");
+        }
+        StringBuilder definitions = new StringBuilder();
+        if (defns != null) {
+          for (Map.Entry<String, String> entry : defns.entrySet()) {
+            definitions.append("-D")
+                .append(entry.getKey())
+                .append("=")
+                .append(entry.getValue())
+                .append(" ");
+          }
+        }
+        Process process = Runtime.getRuntime().exec(
+            "java " + definitions + classpath + " " + mainClass + arguments);
+        processes.add(process);
+        BufferedReader err = new BufferedReader(new InputStreamReader(process.getErrorStream()));
+        readers.add(err);
+        lines.add(new ArrayList<>());
+      }
 
+      for (int i = 0; i < DB_COUNT; i++) {
+        lines.get(i).add("|--------|" + i + "|--------|");
+      }
+
+      try {
+        Thread.sleep(5000);
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      }
+
+      boolean finished = false;
+      while (!finished) {
+        finished = true;
         for (int i = 0; i < DB_COUNT; i++) {
-
-            StringBuilder arguments = new StringBuilder();
-            for (String arg : args) {
-                arguments.append(" ").append(arg);
-            }
-            StringBuilder classpath = new StringBuilder();
-            if (cp != null) {
-                for (String element : cp) {
-                    classpath.append(element).append(":");
-                }
-            }
-            int length = classpath.length();
-            if (length > 0) {
-                //remove trailing ":"
-                classpath.deleteCharAt(length - 1);
-            }
-            if (classpath.length() > 0) {
-                classpath.insert(0, "-cp ");
-            }
-            StringBuilder definitions = new StringBuilder();
-            if (defns != null) {
-                for (Map.Entry<String, String> entry : defns.entrySet()) {
-                    definitions.append("-D").append(entry.getKey()).append("=").append(entry.getValue()).append(" ");
-                }
-            }
-            Process process = Runtime.getRuntime()
-                .exec("java " + definitions + classpath + " " + mainClass + arguments);
-            processes.add(process);
-            BufferedReader err = new BufferedReader( new InputStreamReader(process.getErrorStream()));
-            readers.add(err);
-            lines.add(new ArrayList<>());
+          if (readers.get(i).ready()) {
+            finished = false;
+            lines.get(i).add(readers.get(i).readLine());
+          }
         }
+      }
 
-        for (int i = 0; i < DB_COUNT; i++) {
-            lines.get(i).add("|--------|" + i + "|--------|");
-        }
-
-        try {
-            Thread.sleep(5000);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
-
-        boolean finished = false;
-        while (!finished) {
-            finished = true;
-            for (int i = 0; i < DB_COUNT; i++) {
-                if (readers.get(i).ready()) {
-                    finished = false;
-                    lines.get(i).add(readers.get(i).readLine());
-                }
-            }
-        }
-
-        int expectedExitCode;
+      int expectedExitCode;
+      switch (kill) {
+        case Kill:
+          expectedExitCode = SIGKILL_CODE;
+          break;
+        case Term:
+          expectedExitCode = SIGTERM_CODE;
+          break;
+        case None:
+        default:
+          expectedExitCode = 0;
+      }
+      for (Process process : processes) {
         switch (kill) {
-            case Kill:
-                expectedExitCode = SIGKILL_CODE;
-                break;
-            case Term:
-                expectedExitCode = SIGTERM_CODE;
-                break;
-            case None:
-            default:
-                expectedExitCode = 0;
+          case Kill:
+            process.destroyForcibly();
+            break;
+          case Term:
+            process.destroy();
+            break;
+          case None:
+          default:
+            break;
         }
-        for (Process process : processes) {
-            switch (kill) {
-                case Kill:
-                    process.destroyForcibly();
-                    break;
-                case Term:
-                    process.destroy();
-                    break;
-                case None:
-                default:
-                    break;
-            }
-        }
+      }
 
-        for (int i = 0; i < DB_COUNT; i++) {
-            try {
-                processes.get(i).waitFor();
-                int exitCode = processes.get(i).exitValue();
-                exitCodes.add(exitCode);
-            } catch (InterruptedException ie) {
-                throw new RuntimeException("Process interrupted");
-            }
+      for (int i = 0; i < DB_COUNT; i++) {
+        try {
+          processes.get(i).waitFor();
+          int exitCode = processes.get(i).exitValue();
+          exitCodes.add(exitCode);
+        } catch (InterruptedException ie) {
+          throw new RuntimeException("Process interrupted");
         }
+      }
 
-        for (int i = 0; i < DB_COUNT; i++) {
-            lines.get(i).add("|------------------|");
-        }
+      for (int i = 0; i < DB_COUNT; i++) {
+        lines.get(i).add("|------------------|");
+      }
 
-        boolean ok = true;
-        for (int i = 0; i < DB_COUNT; i++) {
-            if (exitCodes.get(i) != expectedExitCode) {
-                ok = false;
-                System.err.println("Process " + i + " failed: " + exitCodes.get(i));
-                for (String line : lines.get(i)) {
-                    System.err.println(line);
-                }
-            }
+      boolean ok = true;
+      for (int i = 0; i < DB_COUNT; i++) {
+        if (exitCodes.get(i) != expectedExitCode) {
+          ok = false;
+          System.err.println("Process " + i + " failed: " + exitCodes.get(i));
+          for (String line : lines.get(i)) {
+            System.err.println(line);
+          }
         }
-        assertThat(ok).as("all subprocesses return success").isTrue();
+      }
+      assertThat(ok).as("all subprocesses return success").isTrue();
     }
 }
