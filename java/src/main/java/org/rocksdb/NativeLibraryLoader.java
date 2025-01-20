@@ -136,6 +136,7 @@ public class NativeLibraryLoader {
     }
   }
 
+  @SuppressWarnings({"PMD.UseProperClassLoader", "PMD.CloseResource"})
   private InputStream libraryFromJar() {
     InputStream is = getClass().getClassLoader().getResourceAsStream(jniLibraryFileName);
     if (is == null) {
@@ -147,6 +148,7 @@ public class NativeLibraryLoader {
     return is;
   }
 
+  @SuppressWarnings("PMD.UseProperClassLoader")
   private String libraryResourcePath() {
     URL resource = getClass().getClassLoader().getResource(jniLibraryFileName);
     if (resource == null) {
@@ -158,7 +160,7 @@ public class NativeLibraryLoader {
     return resource.getFile();
   }
 
-  @SuppressWarnings({"PMD.UseProperClassLoader", "PMD.UseTryWithResources"})
+  @SuppressWarnings({"PMD.UseTryWithResources", "PMD.CloseResource"})
   Path loadLibraryFromJarToTemp(final String tmpDir) throws IOException {
     String prefix = tempFilePrefix;
     String suffix = tempFileSuffix;
