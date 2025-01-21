@@ -17,6 +17,31 @@ import java.util.stream.Stream;
  * A mechanism for sharing a single instance of a temporary file
  * The file persists (and uses storage space) only as long as the longest lived of its users.
  * <p>
+ *   The implementation uses the java `FileLock` mechanism to mediate access, and implements what is
+ *   effectively shared locks underneath that, with an empty file created by each locking process.
+ *   Concurrent processes can compete to create the containing directory (expected to be in the temporary space)
+ *   and to create the "lock" file which is used via `FileLock` as the exclusive lock on the contents
+ *   of the directory.
+ *   When a process (briefly) holds the exclusive lock, it must check to discover whether the shared
+ *   contents have been instantiated. If they have not, it has a mechanism to do this.
+ *   Once the shared contents are instantiated, or if they already exist, a unique-to-the-process
+ *   lock file is added to the directory, to denote that the process has a shared lock on the contents.
+ *   At this point the exclusive `FileLock` is released.
+ *   When a process has reached the point of holding a shared lock (by means of the locking file)
+ *   it can read the content file safely, knowing that it will not be removed.
+ *   A process will typically register a shutdown hook to release a `SharedTempFile.Lock` when it exits;
+ *   it could choose to do sooner if it did not need the resource at this point.
+ *   The `unlock()` of a shared lock will acquire the exclusive file lock, remove the shared file,
+ *   and check whether the last shared file has been removed. If it has been, the content file will
+ *   be removed also. The containing directory, and the exclusive lock file, are never removed within
+ *   the `SharedTempFile` code, and if a new process requests a lock, it can re-use the directory
+ *   successfully.
+ *   If a process is hard killed, and therefore its shutdown hook is not called, its shared lock file
+ *   will persist, and there will never be a final unlock to remove the content file. This is unfortunate,
+ *   but at most 1 content file will ever be left behind; the same one will always continue to be re-shared
+ *   when further processes request the same resource.
+ * </p>
+ * <p>
  *     Shared temp files are used so that only a single temporary instance of the RocksJNI shared
  * library is created when it is loaded from within the RocksJNI jar. This prevents the infinite
  * destruction of storage (it has been observed) when each VM which creates its own copy, and is
