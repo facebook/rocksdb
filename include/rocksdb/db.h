@@ -1210,8 +1210,8 @@ class DB {
     //      running compactions.
     static const std::string kNumRunningCompactions;
 
-    //  "rocksdb.num-running-compaction-iterators" - returns the number of
-    //  iterators required for currently running compactions.
+    //  "rocksdb.num-running-compaction-input-iterators" - returns the number of
+    //  input iterators required for currently running compactions.
     static const std::string kNumRunningCompactionInputIterators;
 
     //  "rocksdb.background-errors" - returns accumulated number of background
