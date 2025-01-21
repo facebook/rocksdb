@@ -216,7 +216,6 @@ public enum HistogramType {
    */
   NUM_COMPACTION_INPUT_ITERATORS((byte) 0x3E),
 
-  // 0x3F for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x3F);
 
   private final byte value;

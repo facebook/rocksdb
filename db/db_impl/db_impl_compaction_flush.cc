@@ -3739,8 +3739,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           // 1) When flush or compaction finish. This case is covered by
           // InstallSuperVersionAndScheduleWork
           // 2) When MutableCFOptions changes. This case is also covered by
-          // InstallSuperVersionAndScheduleWork, because this is when the
-          // new options take effect.
+          // InstallSuperVersionAndScheduleWork, because this is when the new
+          // options take effect.
           // 3) When we Pick a new compaction, we "remove" those files being
           // compacted from the calculation, which then influences compaction
           // score. Here we check if we need the new compaction even without the
