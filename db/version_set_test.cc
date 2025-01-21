@@ -1408,8 +1408,8 @@ class VersionSetTestBase {
   Status LogAndApplyToDefaultCF(VersionEdit& edit) {
     mutex_.Lock();
     Status s = versions_->LogAndApply(
-        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        read_options_, write_options_, &edit, &mutex_, nullptr);
+        versions_->GetColumnFamilySet()->GetDefault(), read_options_,
+        write_options_, &edit, &mutex_, nullptr);
     mutex_.Unlock();
     return s;
   }
@@ -1422,8 +1422,8 @@ class VersionSetTestBase {
     }
     mutex_.Lock();
     Status s = versions_->LogAndApply(
-        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        read_options_, write_options_, vedits, &mutex_, nullptr);
+        versions_->GetColumnFamilySet()->GetDefault(), read_options_,
+        write_options_, vedits, &mutex_, nullptr);
     mutex_.Unlock();
     return s;
   }
@@ -1434,9 +1434,8 @@ class VersionSetTestBase {
     mutex_.Lock();
     VersionEdit dummy;
     ASSERT_OK(versions_->LogAndApply(
-        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        read_options_, write_options_, &dummy, &mutex_, db_directory,
-        new_descriptor_log));
+        versions_->GetColumnFamilySet()->GetDefault(), read_options_,
+        write_options_, &dummy, &mutex_, db_directory, new_descriptor_log));
     mutex_.Unlock();
   }
 
@@ -1452,8 +1451,7 @@ class VersionSetTestBase {
         cf_options.persist_user_defined_timestamps);
     Status s;
     mutex_.Lock();
-    s = versions_->LogAndApply(/*column_family_data=*/nullptr,
-                               MutableCFOptions(cf_options), read_options_,
+    s = versions_->LogAndApply(/*column_family_data=*/nullptr, read_options_,
                                write_options_, &new_cf, &mutex_,
                                /*db_directory=*/nullptr,
                                /*new_descriptor_log=*/false, &cf_options);
@@ -1510,11 +1508,9 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
     edits.emplace_back(VersionEdit());
   }
   autovector<ColumnFamilyData*> cfds;
-  autovector<const MutableCFOptions*> all_mutable_cf_options;
   autovector<autovector<VersionEdit*>> edit_lists;
   for (int i = 0; i != kGroupSize; ++i) {
     cfds.emplace_back(versions_->GetColumnFamilySet()->GetDefault());
-    all_mutable_cf_options.emplace_back(&mutable_cf_options_);
     autovector<VersionEdit*> edit_list;
     edit_list.emplace_back(&edits[i]);
     edit_lists.emplace_back(edit_list);
@@ -1531,9 +1527,8 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  Status s =
-      versions_->LogAndApply(cfds, all_mutable_cf_options, read_options,
-                             write_options, edit_lists, &mutex_, nullptr);
+  Status s = versions_->LogAndApply(cfds, read_options, write_options,
+                                    edit_lists, &mutex_, nullptr);
   mutex_.Unlock();
   EXPECT_OK(s);
   EXPECT_EQ(kGroupSize - 1, count);
@@ -1734,8 +1729,8 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
 
   mutex_.Lock();
   Status s = versions_->LogAndApply(
-      versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-      read_options_, write_options_, &edit, &mutex_, nullptr);
+      versions_->GetColumnFamilySet()->GetDefault(), read_options_,
+      write_options_, &edit, &mutex_, nullptr);
   mutex_.Unlock();
 
   ASSERT_OK(s);
@@ -2425,7 +2420,6 @@ class VersionSetWithTimestampTest : public VersionSetTest {
     options.comparator = test::BytewiseComparatorWithU64TsWrapper();
     cfd_ = CreateColumnFamily(kNewCfName, options);
     EXPECT_NE(nullptr, cfd_);
-    EXPECT_NE(nullptr, cfd_->GetLatestMutableCFOptions());
     column_families_.emplace_back(kNewCfName, options);
   }
 
@@ -2475,9 +2469,8 @@ class VersionSetWithTimestampTest : public VersionSetTest {
 
     Status s;
     mutex_.Lock();
-    s = versions_->LogAndApply(cfd_, *(cfd_->GetLatestMutableCFOptions()),
-                               read_options_, write_options_, edits_, &mutex_,
-                               nullptr);
+    s = versions_->LogAndApply(cfd_, read_options_, write_options_, edits_,
+                               &mutex_, nullptr);
     mutex_.Unlock();
     ASSERT_OK(s);
     VerifyFullHistoryTsLow(*std::max_element(ts_lbs.begin(), ts_lbs.end()));
@@ -3370,9 +3363,8 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   cfd_to_drop->Ref();
   drop_cf_edit.SetColumnFamily(cfd_to_drop->GetID());
   mutex_.Lock();
-  Status s = versions_->LogAndApply(
-      cfd_to_drop, *cfd_to_drop->GetLatestMutableCFOptions(), read_options,
-      write_options, &drop_cf_edit, &mutex_, nullptr);
+  Status s = versions_->LogAndApply(cfd_to_drop, read_options, write_options,
+                                    &drop_cf_edit, &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
 
@@ -3380,7 +3372,6 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   uint32_t remaining = kAtomicGroupSize;
   size_t i = 0;
   autovector<ColumnFamilyData*> cfds;
-  autovector<const MutableCFOptions*> mutable_cf_options_list;
   autovector<autovector<VersionEdit*>> edit_lists;
   for (const auto& cf_name : non_default_cf_names) {
     auto cfd = (cf_name != cf_to_drop_name)
@@ -3388,7 +3379,6 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
                    : cfd_to_drop;
     ASSERT_NE(nullptr, cfd);
     cfds.push_back(cfd);
-    mutable_cf_options_list.emplace_back(cfd->GetLatestMutableCFOptions());
     edits[i].SetColumnFamily(cfd->GetID());
     edits[i].SetLogNumber(0);
     edits[i].SetNextFile(2);
@@ -3421,8 +3411,8 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  s = versions_->LogAndApply(cfds, mutable_cf_options_list, read_options,
-                             write_options, edit_lists, &mutex_, nullptr);
+  s = versions_->LogAndApply(cfds, read_options, write_options, edit_lists,
+                             &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
   ASSERT_EQ(1, called);

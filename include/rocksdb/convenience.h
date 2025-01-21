@@ -109,7 +109,6 @@ struct ConfigOptions {
   }
 };
 
-
 // The following set of functions provide a way to construct RocksDB Options
 // from a string or a string-to-string map.  Here is the general rule of
 // setting option values from strings by type.  Some RocksDB types are also

@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-
 #include <algorithm>
 #include <cstdint>
 #include <memory>
@@ -266,7 +265,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
       continue;
     }
     VersionStorageInfo& vsi = *cfd->current()->storage_info();
-    auto& cf_paths = cfd->ioptions()->cf_paths;
+    auto& cf_paths = cfd->ioptions().cf_paths;
 
     auto GetDir = [&](size_t path_id) {
       // Matching TableFileName() behavior

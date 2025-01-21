@@ -159,6 +159,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   // Get obsolete files.  This function will also update the list of
   // pending files in VersionSet().
+  assert(versions_);
   versions_->GetObsoleteFiles(
       &job_context->sst_delete_files, &job_context->blob_delete_files,
       &job_context->manifest_delete_files, job_context->min_pending_output);
@@ -1039,7 +1040,7 @@ std::set<std::string> DBImpl::CollectAllDBPaths() {
     all_db_paths.insert(NormalizePath(db_path.path));
   }
   for (const auto* cfd : *versions_->GetColumnFamilySet()) {
-    for (const auto& cf_path : cfd->ioptions()->cf_paths) {
+    for (const auto& cf_path : cfd->ioptions().cf_paths) {
       all_db_paths.insert(NormalizePath(cf_path.path));
     }
   }

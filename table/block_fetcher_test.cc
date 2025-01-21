@@ -530,7 +530,6 @@ TEST_F(BlockFetcherTest, FetchAndUncompressCompressedDataBlock) {
                      expected_stats_by_mode);
 }
 
-
 }  // namespace
 }  // namespace ROCKSDB_NAMESPACE
 

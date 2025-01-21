@@ -241,9 +241,7 @@ struct TransactionDBOptions {
   // user-defined timestamps so this option only applies in this case.
   bool enable_udt_validation = true;
 
-  //       / \     UNDER CONSTRUCTION
-  //      / ! \    UNDER CONSTRUCTION
-  //     /-----\   UNDER CONSTRUCTION
+  // EXPERIMENTAL
   //
   // The secondary indices to be maintained. See the SecondaryIndex interface
   // for more details.

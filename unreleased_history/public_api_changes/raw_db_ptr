@@ -1,0 +1,1 @@
+* Offer new DB::Open and variants that use `std::unique_ptr<DB>*` output parameters and deprecate the old versions that use `DB**` output parameters.

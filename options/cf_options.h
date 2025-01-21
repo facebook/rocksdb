@@ -341,9 +341,10 @@ struct MutableCFOptions {
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2);
 
 // Get the max file size in a given level.
-uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
-    int level, CompactionStyle compaction_style, int base_level = 1,
-    bool level_compaction_dynamic_level_bytes = false);
+uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options, int level,
+                             CompactionStyle compaction_style,
+                             int base_level = 1,
+                             bool level_compaction_dynamic_level_bytes = false);
 
 // Get the max size of an L0 file for which we will pin its meta-blocks when
 // `pin_l0_filter_and_index_blocks_in_cache` is set.

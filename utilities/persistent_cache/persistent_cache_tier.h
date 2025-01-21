@@ -5,7 +5,6 @@
 //
 #pragma once
 
-
 #include <limits>
 #include <list>
 #include <map>
@@ -337,4 +336,3 @@ class PersistentTieredCache : public PersistentCacheTier {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

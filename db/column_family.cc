@@ -53,7 +53,7 @@ ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
 
 ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
   if (cfd_ != nullptr) {
-    for (auto& listener : cfd_->ioptions()->listeners) {
+    for (auto& listener : cfd_->ioptions().listeners) {
       listener->OnColumnFamilyHandleDeletionStarted(this);
     }
     // Job id == 0 means that this is not our background process, but rather
@@ -593,7 +593,7 @@ ColumnFamilyData::ColumnFamilyData(
                                       block_cache_tracer, io_tracer,
                                       db_session_id));
     blob_file_cache_.reset(
-        new BlobFileCache(_table_cache, ioptions(), soptions(), id_,
+        new BlobFileCache(_table_cache, &ioptions(), soptions(), id_,
                           internal_stats_->GetBlobFileReadHist(), io_tracer));
     blob_source_.reset(new BlobSource(ioptions_, mutable_cf_options_, db_id,
                                       db_session_id, blob_file_cache_.get()));
@@ -968,7 +968,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
     auto write_stall_condition_and_cause = GetWriteStallConditionAndCause(
         imm()->NumNotFlushed(), vstorage->l0_delay_trigger_count(),
         vstorage->estimated_compaction_needed_bytes(), mutable_cf_options,
-        *ioptions());
+        ioptions());
     write_stall_condition = write_stall_condition_and_cause.first;
     auto write_stall_cause = write_stall_condition_and_cause.second;
 
@@ -1160,12 +1160,13 @@ MemTable* ColumnFamilyData::ConstructNewMemtable(
                       write_buffer_manager_, earliest_seq, id_);
 }
 
-void ColumnFamilyData::CreateNewMemtable(
-    const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
+void ColumnFamilyData::CreateNewMemtable(SequenceNumber earliest_seq) {
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  SetMemtable(ConstructNewMemtable(mutable_cf_options, earliest_seq));
+  // NOTE: db mutex must be locked for SetMemtable, so safe for
+  // GetLatestMutableCFOptions
+  SetMemtable(ConstructNewMemtable(GetLatestMutableCFOptions(), earliest_seq));
   mem_->Ref();
 }
 
@@ -1384,7 +1385,7 @@ void ColumnFamilyData::InstallSuperVersion(
         new_superversion->write_stall_condition) {
       sv_context->PushWriteStallNotification(
           old_superversion->write_stall_condition,
-          new_superversion->write_stall_condition, GetName(), ioptions());
+          new_superversion->write_stall_condition, GetName(), &ioptions());
     }
     if (old_superversion->Unref()) {
       old_superversion->Cleanup();
@@ -1844,10 +1845,7 @@ const ImmutableOptions& GetImmutableOptions(ColumnFamilyHandle* column_family) {
   const ColumnFamilyData* const cfd = handle->cfd();
   assert(cfd);
 
-  const ImmutableOptions* ioptions = cfd->ioptions();
-  assert(ioptions);
-
-  return *ioptions;
+  return cfd->ioptions();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

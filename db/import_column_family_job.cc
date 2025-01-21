@@ -4,8 +4,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/version_builder.h"
-
 #include "db/import_column_family_job.h"
 
 #include <algorithm>
@@ -13,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
@@ -109,7 +108,7 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
     for (auto& f : files_to_import_per_cf) {
       const auto path_outside_db = f.external_file_path;
       const auto path_inside_db = TableFileName(
-          cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
+          cfd_->ioptions().cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
 
       if (hardlink_files) {
         status = fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(),
@@ -187,16 +186,16 @@ Status ImportColumnFamilyJob::Run() {
   // RecoverEpochNumbers() below.
   for (size_t i = 0; s.ok() && i < files_to_import_.size(); ++i) {
     VersionBuilder dummy_version_builder(
-        cfd_->current()->version_set()->file_options(), cfd_->ioptions(),
+        cfd_->current()->version_set()->file_options(), &cfd_->ioptions(),
         cfd_->table_cache(), cfd_->current()->storage_info(),
         cfd_->current()->version_set(),
         cfd_->GetFileMetadataCacheReservationManager());
     VersionStorageInfo dummy_vstorage(
         &cfd_->internal_comparator(), cfd_->user_comparator(),
-        cfd_->NumberLevels(), cfd_->ioptions()->compaction_style,
-        nullptr /* src_vstorage */, cfd_->ioptions()->force_consistency_checks,
-        EpochNumberRequirement::kMightMissing, cfd_->ioptions()->clock,
-        cfd_->GetLatestMutableCFOptions()->bottommost_file_compaction_delay,
+        cfd_->NumberLevels(), cfd_->ioptions().compaction_style,
+        nullptr /* src_vstorage */, cfd_->ioptions().force_consistency_checks,
+        EpochNumberRequirement::kMightMissing, cfd_->ioptions().clock,
+        cfd_->GetLatestMutableCFOptions().bottommost_file_compaction_delay,
         cfd_->current()->version_set()->offpeak_time_option());
     for (size_t j = 0; s.ok() && j < files_to_import_[i].size(); ++j) {
       const auto& f = files_to_import_[i][j];
@@ -331,7 +330,7 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   //  creating `TableReaderOptions` when the support is there.
   status = sv->mutable_cf_options.table_factory->NewTableReader(
       TableReaderOptions(
-          *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
+          cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
           env_options_, cfd_->internal_comparator(),
           sv->mutable_cf_options.block_protection_bytes_per_key,
           /*skip_filters*/ false, /*immortal*/ false,

@@ -5,16 +5,14 @@
 
 #include "db/snapshot_checker.h"
 
-
 #include "port/lang.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-
 WritePreparedSnapshotChecker::WritePreparedSnapshotChecker(
     WritePreparedTxnDB* txn_db)
-    : txn_db_(txn_db){}
+    : txn_db_(txn_db) {}
 
 SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
     SequenceNumber sequence, SequenceNumber snapshot_sequence) const {
@@ -28,7 +26,6 @@ SnapshotCheckerResult WritePreparedSnapshotChecker::CheckInSnapshot(
   return in_snapshot ? SnapshotCheckerResult::kInSnapshot
                      : SnapshotCheckerResult::kNotInSnapshot;
 }
-
 
 DisableGCSnapshotChecker* DisableGCSnapshotChecker::Instance() {
   STATIC_AVOID_DESTRUCTION(DisableGCSnapshotChecker, instance);

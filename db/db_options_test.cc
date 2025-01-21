@@ -1451,7 +1451,6 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
-
 TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   // Verify the bottommost compression options still take effect even when the
   // bottommost compression type is left at its default value. Verify for both

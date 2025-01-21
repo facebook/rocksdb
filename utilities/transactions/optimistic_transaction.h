@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <stack>
 #include <string>
 #include <unordered_map>
@@ -96,4 +95,3 @@ class OptimisticTransactionCallback : public WriteCallback {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

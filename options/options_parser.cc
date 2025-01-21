@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "options/options_parser.h"
 
 #include <cmath>
@@ -385,9 +384,8 @@ Status RocksDBOptionsParser::CheckSection(const OptionSection section,
   } else if (section == kOptionSectionTableOptions) {
     if (GetCFOptions(section_arg) == nullptr) {
       return InvalidArgument(
-          line_num, std::string(
-                        "Does not find a matched column family name in "
-                        "TableOptions section.  Column Family Name:") +
+          line_num, std::string("Does not find a matched column family name in "
+                                "TableOptions section.  Column Family Name:") +
                         section_arg);
     }
   } else if (section == kOptionSectionVersion) {

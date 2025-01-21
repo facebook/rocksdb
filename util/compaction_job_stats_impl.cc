@@ -7,7 +7,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-
 void CompactionJobStats::Reset() {
   elapsed_micros = 0;
   cpu_micros = 0;
@@ -99,6 +98,5 @@ void CompactionJobStats::Add(const CompactionJobStats& stats) {
 
   is_remote_compaction |= stats.is_remote_compaction;
 }
-
 
 }  // namespace ROCKSDB_NAMESPACE

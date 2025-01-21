@@ -251,29 +251,6 @@ public class EnvOptions extends RocksObject {
   }
 
   /**
-   * See {@link DBOptions#setRandomAccessMaxBufferSize(long)}.
-   *
-   * @param randomAccessMaxBufferSize the max buffer size for random access.
-   *
-   * @return the reference to these options.
-   */
-  public EnvOptions setRandomAccessMaxBufferSize(
-      final long randomAccessMaxBufferSize) {
-    setRandomAccessMaxBufferSize(nativeHandle_, randomAccessMaxBufferSize);
-    return this;
-  }
-
-  /**
-   * See {@link DBOptions#randomAccessMaxBufferSize()}.
-   *
-   * @return the max buffer size for random access.
-   */
-  public long randomAccessMaxBufferSize() {
-    assert(isOwningHandle());
-    return randomAccessMaxBufferSize(nativeHandle_);
-  }
-
-  /**
    * See {@link DBOptions#setWritableFileMaxBufferSize(long)}.
    *
    * @param writableFileMaxBufferSize the max buffer size.
@@ -351,9 +328,6 @@ public class EnvOptions extends RocksObject {
   private static native void setCompactionReadaheadSize(
       final long handle, final long compactionReadaheadSize);
   private static native long compactionReadaheadSize(final long handle);
-  private static native void setRandomAccessMaxBufferSize(
-      final long handle, final long randomAccessMaxBufferSize);
-  private static native long randomAccessMaxBufferSize(final long handle);
   private static native void setWritableFileMaxBufferSize(
       final long handle, final long writableFileMaxBufferSize);
   private static native long writableFileMaxBufferSize(final long handle);

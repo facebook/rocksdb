@@ -93,9 +93,8 @@ void LRUHandleTable::Resize() {
 
   uint32_t old_length = uint32_t{1} << length_bits_;
   int new_length_bits = length_bits_ + 1;
-  std::unique_ptr<LRUHandle* []> new_list {
-    new LRUHandle* [size_t{1} << new_length_bits] {}
-  };
+  std::unique_ptr<LRUHandle*[]> new_list{
+      new LRUHandle* [size_t{1} << new_length_bits] {}};
   [[maybe_unused]] uint32_t count = 0;
   for (uint32_t i = 0; i < old_length; i++) {
     LRUHandle* h = list_[i];

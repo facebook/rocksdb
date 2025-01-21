@@ -5,7 +5,6 @@
 
 #pragma once
 
-
 #include <string>
 #include <vector>
 
@@ -172,7 +171,7 @@ class DBImplReadOnly : public DBImpl {
   static Status OpenForReadOnlyWithoutCheck(
       const DBOptions& db_options, const std::string& dbname,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr,
       bool error_if_wal_file_exists = false);
   friend class DB;
 };

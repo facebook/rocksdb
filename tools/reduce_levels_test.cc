@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-
 #include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
 #include "rocksdb/db.h"
@@ -210,4 +209,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-

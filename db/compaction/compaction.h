@@ -288,14 +288,14 @@ class Compaction {
 
   // Return the ImmutableOptions that should be used throughout the compaction
   // procedure
-  const ImmutableOptions* immutable_options() const {
-    return &immutable_options_;
+  const ImmutableOptions& immutable_options() const {
+    return immutable_options_;
   }
 
   // Return the MutableCFOptions that should be used throughout the compaction
   // procedure
-  const MutableCFOptions* mutable_cf_options() const {
-    return &mutable_cf_options_;
+  const MutableCFOptions& mutable_cf_options() const {
+    return mutable_cf_options_;
   }
 
   // Returns the size in bytes that the output file should be preallocated to.
@@ -388,12 +388,12 @@ class Compaction {
   bool OverlapPenultimateLevelOutputRange(const Slice& smallest_key,
                                           const Slice& largest_key) const;
 
-  // Return true if the key is within penultimate level output range for
-  // per_key_placement feature, which is safe to place the key to the
-  // penultimate level. different compaction strategy has different rules.
-  // If per_key_placement is not supported, always return false.
-  //  key includes timestamp if user-defined timestamp is enabled.
-  bool WithinPenultimateLevelOutputRange(const ParsedInternalKey& ikey) const;
+  // For testing purposes, check that a key is within penultimate level
+  // output range for per_key_placement feature, which is safe to place the key
+  // to the penultimate level. Different compaction strategies have different
+  // rules. `user_key` includes timestamp if user-defined timestamp is enabled.
+  void TEST_AssertWithinPenultimateLevelOutputRange(
+      const Slice& user_key, bool expect_failure = false) const;
 
   CompactionReason compaction_reason() const { return compaction_reason_; }
 
@@ -456,11 +456,17 @@ class Compaction {
       const ImmutableOptions& immutable_options, const int start_level,
       const int output_level);
 
+  // If some data cannot be safely migrated "up" the LSM tree due to a change
+  // in the preclude_last_level_data_seconds setting, this indicates a sequence
+  // number for the newest data that must be kept in the last level.
+  SequenceNumber GetKeepInLastLevelThroughSeqno() const {
+    return keep_in_last_level_through_seqno_;
+  }
+
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool being_compacted) const;
 
  private:
-
   Status InitInputTableProperties();
 
   // get the smallest and largest key present in files to be compacted
@@ -605,6 +611,8 @@ class Compaction {
 
   // Blob garbage collection age cutoff.
   double blob_garbage_collection_age_cutoff_;
+
+  SequenceNumber keep_in_last_level_through_seqno_ = kMaxSequenceNumber;
 
   // only set when per_key_placement feature is enabled, -1 (kInvalidLevel)
   // means not supported.

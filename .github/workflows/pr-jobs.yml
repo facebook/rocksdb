@@ -31,7 +31,7 @@ jobs:
   # ======================== Fast Initial Checks ====================== #
   check-format-and-targets:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4.1.0
       with:
@@ -390,9 +390,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check
+    - run: COMPILE_WITH_UBSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check
     - uses: "./.github/actions/post-steps"
-  build-linux-clang10-mini-tsan:
+  build-linux-clang13-mini-tsan:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 32-core-ubuntu

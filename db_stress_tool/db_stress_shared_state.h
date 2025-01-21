@@ -89,11 +89,17 @@ class SharedState {
     // expected state. Only then should we permit bypassing the below feature
     // compatibility checks.
     if (!FLAGS_expected_values_dir.empty()) {
-      if (!std::atomic<uint32_t>{}.is_lock_free()) {
-        status = Status::InvalidArgument(
-            "Cannot use --expected_values_dir on platforms without lock-free "
-            "std::atomic<uint32_t>");
+      if (!std::atomic<uint32_t>{}.is_lock_free() ||
+          !std::atomic<uint64_t>{}.is_lock_free()) {
+        std::ostringstream status_s;
+        status_s << "Cannot use --expected_values_dir on platforms without "
+                    "lock-free "
+                 << (!std::atomic<uint32_t>{}.is_lock_free()
+                         ? "std::atomic<uint32_t>"
+                         : "std::atomic<uint64_t>");
+        status = Status::InvalidArgument(status_s.str());
       }
+
       if (status.ok() && FLAGS_clear_column_family_one_in > 0) {
         status = Status::InvalidArgument(
             "Cannot use --expected_values_dir on when "
@@ -260,6 +266,16 @@ class SharedState {
     return expected_state_manager_->ClearColumnFamily(cf);
   }
 
+  void SetPersistedSeqno(SequenceNumber seqno) {
+    MutexLock l(&persist_seqno_mu_);
+    return expected_state_manager_->SetPersistedSeqno(seqno);
+  }
+
+  SequenceNumber GetPersistedSeqno() {
+    MutexLock l(&persist_seqno_mu_);
+    return expected_state_manager_->GetPersistedSeqno();
+  }
+
   // Prepare a Put that will be started but not finish yet
   // This is useful for crash-recovery testing when the process may crash
   // before updating the corresponding expected value
@@ -396,6 +412,7 @@ class SharedState {
 
   port::Mutex mu_;
   port::CondVar cv_;
+  port::Mutex persist_seqno_mu_;
   const uint32_t seed_;
   const int64_t max_key_;
   const uint32_t log2_keys_per_lock_;

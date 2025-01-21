@@ -235,7 +235,7 @@ class TableBuilder {
   // enforced state (ready to encode to string).
   virtual void SetSeqnoTimeTableProperties(
       const SeqnoToTimeMapping& /*relevant_mapping*/,
-      uint64_t /*oldest_ancestor_time*/){}
+      uint64_t /*oldest_ancestor_time*/) {}
 };
 
 }  // namespace ROCKSDB_NAMESPACE

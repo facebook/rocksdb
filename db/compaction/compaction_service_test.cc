@@ -114,6 +114,8 @@ class MyTestCompactionService : public CompactionService {
     }
   }
 
+  void CancelAwaitingJobs() override { canceled_ = true; }
+
   void OnInstallation(const std::string& /*scheduled_job_id*/,
                       CompactionServiceJobStatus status) override {
     final_updated_status_ = status;
@@ -146,6 +148,7 @@ class MyTestCompactionService : public CompactionService {
   }
 
   void SetCanceled(bool canceled) { canceled_ = canceled; }
+  bool GetCanceled() { return canceled_; }
 
   void GetResult(CompactionServiceResult* deserialized) {
     CompactionServiceResult::Read(result_, deserialized).PermitUncheckedError();
@@ -194,12 +197,15 @@ class CompactionServiceTest : public DBTestBase {
     options->statistics = primary_statistics_;
     compactor_statistics_ = CreateDBStatistics();
 
-    compaction_service_ = std::make_shared<MyTestCompactionService>(
+    auto my_cs = std::make_shared<MyTestCompactionService>(
         dbname_, *options, compactor_statistics_, remote_listeners,
         remote_table_properties_collector_factories);
+
+    compaction_service_ = my_cs;
     options->compaction_service = compaction_service_;
     DestroyAndReopen(*options);
     CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, *options);
+    my_cs->SetCanceled(false);
   }
 
   Statistics* GetCompactorStatistics() { return compactor_statistics_.get(); }
@@ -339,6 +345,8 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
         assert(*id != kNullUniqueId64x2);
         verify_passed++;
       });
+  Close();
+  my_cs->SetCanceled(false);
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "cf_1", "cf_2", "cf_3"},
                            options);
   ASSERT_GT(verify_passed, 0);
@@ -487,7 +495,7 @@ TEST_F(CompactionServiceTest, PreservedOptionsLocalCompaction) {
         ASSERT_TRUE(s.IsNotFound());
         // Should be old value
         ASSERT_EQ(2, compaction->mutable_cf_options()
-                         ->level0_file_num_compaction_trigger);
+                         .level0_file_num_compaction_trigger);
         ASSERT_TRUE(dbfull()->min_options_file_numbers_.empty());
       });
 
@@ -573,7 +581,7 @@ TEST_F(CompactionServiceTest, PreservedOptionsRemoteCompaction) {
       "CompactionJob::ProcessKeyValueCompaction()::Processing", [&](void* arg) {
         auto compaction = static_cast<Compaction*>(arg);
         ASSERT_EQ(2, compaction->mutable_cf_options()
-                         ->level0_file_num_compaction_trigger);
+                         .level0_file_num_compaction_trigger);
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -996,6 +1004,41 @@ TEST_F(CompactionServiceTest, CancelCompactionOnRemoteSide) {
   VerifyTestData();
 }
 
+TEST_F(CompactionServiceTest, CancelCompactionOnPrimarySide) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  uint64_t comp_num = my_cs->GetCompactionNum();
+
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+  my_cs = GetCompactionService();
+
+  // Primary DB calls CancelAllBackgroundWork() while the compaction is running
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():Inprogress",
+      [&](void* /*arg*/) { CancelAllBackgroundWork(db_, false /*wait*/); });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+  ASSERT_TRUE(s.IsIncomplete());
+
+  // Check canceled_ was set to true by CancelAwaitingJobs()
+  ASSERT_TRUE(my_cs->GetCanceled());
+
+  // compaction number is not increased
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num);
+}
+
 TEST_F(CompactionServiceTest, FailedToStart) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -1116,6 +1159,63 @@ TEST_F(CompactionServiceTest, Snapshot) {
   ASSERT_EQ("value1", Get(Key(1), s1));
   ASSERT_EQ("value2", Get(Key(1)));
   db_->ReleaseSnapshot(s1);
+}
+
+TEST_F(CompactionServiceTest, PrecludeLastLevel) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.last_level_temperature = Temperature::kCold;
+  options.level0_file_num_compaction_trigger = 4;
+  options.max_subcompactions = 10;
+  options.num_levels = kNumLevels;
+
+  ReopenWithCompactionService(&options);
+  // Alternate for comparison: DestroyAndReopen(options);
+
+  // This is simpler than setting up mock time to make the user option work,
+  // but is not as direct as testing with preclude option itself.
+  SyncPoint::GetInstance()->SetCallBack(
+      "Compaction::SupportsPerKeyPlacement:Enabled",
+      [&](void* arg) { *static_cast<bool*>(arg) = true; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
+      [&](void* arg) { *static_cast<SequenceNumber*>(arg) = 100; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 0; i < kNumTrigger; i++) {
+    for (int j = 0; j < kNumKeys; j++) {
+      // FIXME: need to assign outputs to levels to allow overlapping ranges:
+      // ASSERT_OK(Put(Key(j * kNumTrigger + i), "v" + std::to_string(i)));
+      // instead of this (too easy):
+      ASSERT_OK(Put(Key(i * kNumKeys + j), "v" + std::to_string(i)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Data split between penultimate (kUnknown) and last (kCold) levels
+  // FIXME: need to assign outputs to levels to get this:
+  // ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
+  // ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  // ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  // instead of this (WRONG but currently expected):
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+  // Check manifest temperatures
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  // TODO: Check FileSystem temperatures with FileTemperatureTestFS
+
+  for (int i = 0; i < kNumTrigger; i++) {
+    for (int j = 0; j < kNumKeys; j++) {
+      // FIXME
+      // ASSERT_EQ(Get(Key(j * kNumTrigger + i)), "v" + std::to_string(i));
+      ASSERT_EQ(Get(Key(i * kNumKeys + j)), "v" + std::to_string(i));
+    }
+  }
 }
 
 TEST_F(CompactionServiceTest, ConcurrentCompaction) {

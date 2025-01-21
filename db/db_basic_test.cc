@@ -878,7 +878,6 @@ TEST_F(DBBasicTest, Snapshot) {
   } while (ChangeOptions());
 }
 
-
 class DBBasicMultiConfigs : public DBBasicTest,
                             public ::testing::WithParamInterface<int> {
  public:
@@ -2604,8 +2603,7 @@ class DBMultiGetAsyncIOTest : public DBBasicTest,
     // Warm up the block cache so we don't need to use the IO uring
     Iterator* iter = dbfull()->NewIterator(ReadOptions());
     for (iter->SeekToFirst(); iter->Valid() && iter->status().ok();
-         iter->Next())
-      ;
+         iter->Next());
     EXPECT_OK(iter->status());
     delete iter;
 #endif  // ROCKSDB_IOURING_PRESENT

@@ -11,6 +11,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/options.h"
+#include "rocksdb/perf_context.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -260,14 +261,54 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   ASSERT_NOK(s) << s.ToString();
 
   DestroyAndReopen(options);
+
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::IngestExternalFile:AfterIncIngestFileCounter",
+       "ExternalSSTFileBasicTest.LiveWriteStart"},
+      {"ExternalSSTFileBasicTest.LiveWriteStart",
+       "DBImpl::IngestExternalFiles:InstallSVForFirstCF:0"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  PerfContext* write_thread_perf_context;
+  std::thread write_thread([&] {
+    TEST_SYNC_POINT("ExternalSSTFileBasicTest.LiveWriteStart");
+    SetPerfLevel(kEnableWait);
+    write_thread_perf_context = get_perf_context();
+    write_thread_perf_context->Reset();
+    ASSERT_OK(db_->Put(WriteOptions(), "bar", "v2"));
+    ASSERT_GT(write_thread_perf_context->write_thread_wait_nanos, 0);
+    // Test sync points were used to make sure this live write enter write
+    // thread after the file ingestion entered write thread. So by the time this
+    // live write finishes, the latest seqno is 1 means file ingestion used
+    // seqno 0.
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 1U);
+  });
+
   // Add file using file path
+  SetPerfLevel(kEnableTimeExceptForMutex);
+  PerfContext* perf_ctx = get_perf_context();
+  perf_ctx->Reset();
   s = DeprecatedAddFile({file1});
+  ASSERT_GT(perf_context.file_ingestion_nanos, 0);
+  ASSERT_GT(perf_context.file_ingestion_blocking_live_writes_nanos, 0);
   ASSERT_OK(s) << s.ToString();
-  ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
   for (int k = 0; k < 100; k++) {
     ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
   }
 
+  write_thread.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Re-ingest the file just to check the perf context not enabled at and below
+  // kEnableWait.
+  SetPerfLevel(kEnableWait);
+  perf_ctx->Reset();
+  IngestExternalFileOptions opts;
+  opts.allow_global_seqno = true;
+  opts.allow_blocking_flush = true;
+  ASSERT_OK(db_->IngestExternalFile({file1}, opts));
+  ASSERT_EQ(perf_context.file_ingestion_nanos, 0);
+  ASSERT_EQ(perf_context.file_ingestion_blocking_live_writes_nanos, 0);
   DestroyAndRecreateExternalSSTFilesDir();
 }
 
@@ -2877,7 +2918,6 @@ INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                                         std::make_tuple(true, false),
                                         std::make_tuple(false, true),
                                         std::make_tuple(false, false)));
-
 
 }  // namespace ROCKSDB_NAMESPACE
 

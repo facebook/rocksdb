@@ -64,7 +64,7 @@ class FilterBlockBuilder {
   virtual void AddWithPrevKey(const Slice& key_without_ts,
                               const Slice& /*prev_key_without_ts*/) = 0;
 
-  virtual bool IsEmpty() const = 0;      // Empty == none added
+  virtual bool IsEmpty() const = 0;  // Empty == none added
   // For reporting stats on how many entries the builder considered unique
   virtual size_t EstimateEntriesAdded() = 0;
 

@@ -176,7 +176,13 @@ class CompactionJob {
 
   // REQUIRED: mutex held
   // Prepare for the compaction by setting up boundaries for each subcompaction
-  void Prepare();
+  // and organizing seqno <-> time info. `known_single_subcompact` is non-null
+  // if we already have a known single subcompaction, with optional key bounds
+  // (currently for executing a remote compaction).
+  void Prepare(
+      std::optional<std::pair<std::optional<Slice>, std::optional<Slice>>>
+          known_single_subcompact);
+
   // REQUIRED mutex not held
   // Launch threads for each subcompaction and wait for them to finish. After
   // that, verify table is usable and finally do bookkeeping to unify
@@ -187,8 +193,7 @@ class CompactionJob {
   // Add compaction input/output to the current version
   // Releases compaction file through Compaction::ReleaseCompactionFiles().
   // Sets *compaction_released to true if compaction is released.
-  Status Install(const MutableCFOptions& mutable_cf_options,
-                 bool* compaction_released);
+  Status Install(bool* compaction_released);
 
   // Return the IO status
   IOStatus io_status() const { return io_status_; }
@@ -276,8 +281,7 @@ class CompactionJob {
                                     const Slice& next_table_min_key,
                                     const Slice* comp_start_user_key,
                                     const Slice* comp_end_user_key);
-  Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options,
-                                  bool* compaction_released);
+  Status InstallCompactionResults(bool* compaction_released);
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact,
                                   CompactionOutputs& outputs);
 
@@ -353,15 +357,14 @@ class CompactionJob {
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.
   SeqnoToTimeMapping seqno_to_time_mapping_;
 
-  // Minimal sequence number for preserving the time information. The time info
-  // older than this sequence number won't be preserved after the compaction and
-  // if it's bottommost compaction, the seq num will be zeroed out.
-  SequenceNumber preserve_time_min_seqno_ = kMaxSequenceNumber;
+  // Max seqno that can be zeroed out in last level, including for preserving
+  // write times.
+  SequenceNumber preserve_seqno_after_ = kMaxSequenceNumber;
 
   // Minimal sequence number to preclude the data from the last level. If the
   // key has bigger (newer) sequence number than this, it will be precluded from
   // the last level (output to penultimate level).
-  SequenceNumber preclude_last_level_min_seqno_ = kMaxSequenceNumber;
+  SequenceNumber penultimate_after_seqno_ = kMaxSequenceNumber;
 
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.
@@ -495,6 +498,10 @@ class CompactionServiceCompactionJob : private CompactionJob {
       std::string output_path,
       const CompactionServiceInput& compaction_service_input,
       CompactionServiceResult* compaction_service_result);
+
+  // REQUIRED: mutex held
+  // Like CompactionJob::Prepare()
+  void Prepare();
 
   // Run the compaction in current thread and return the result
   Status Run();

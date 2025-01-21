@@ -546,7 +546,7 @@ TYPED_TEST(ClockCacheTest, Limits) {
     // verify usage tracking on detached entries.)
     {
       size_t n = kCapacity * 5 + 1;
-      std::unique_ptr<HandleImpl* []> ha { new HandleImpl* [n] {} };
+      std::unique_ptr<HandleImpl*[]> ha{new HandleImpl* [n] {}};
       Status s;
       for (size_t i = 0; i < n && s.ok(); ++i) {
         hkey[1] = i;
@@ -713,7 +713,7 @@ TYPED_TEST(ClockCacheTest, ClockEvictionEffortCapTest) {
       // evictable entries are present beyond the cache capacity, despite
       // being evictable.
       constexpr size_t kCount = kCapacity - 1;
-      std::unique_ptr<HandleImpl* []> ha { new HandleImpl* [kCount] {} };
+      std::unique_ptr<HandleImpl*[]> ha{new HandleImpl* [kCount] {}};
       for (size_t i = 0; i < 2 * kCount; ++i) {
         UniqueId64x2 hkey = this->CheapHash(i);
         ASSERT_OK(shard.Insert(

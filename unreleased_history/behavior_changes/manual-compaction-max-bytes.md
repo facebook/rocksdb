@@ -1,0 +1,1 @@
+* For leveled compaction, manual compaction (CompactRange()) will be more strict about keeping compaction size under `max_compaction_bytes`. This prevents overly large compactions in some cases (#13306).

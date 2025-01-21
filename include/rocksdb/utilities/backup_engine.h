@@ -77,6 +77,15 @@ struct BackupEngineOptions {
   // Default: true
   bool backup_log_files;
 
+  // Size of the buffer in bytes used for reading files.
+  // Enables optimally configuring the IO size based on the storage backend.
+  // If specified, takes precendence over the rate limiter burst size (if
+  // specified) as well as kDefaultCopyFileBufferSize.
+  // If 0, the rate limiter burst size (if specified) or
+  // kDefaultCopyFileBufferSize will be used.
+  // Default: 0
+  uint64_t io_buffer_size;
+
   // Max bytes that can be transferred in a second during backup.
   // If 0, go as fast as you can
   // This limit only applies to writes. To also limit reads,
@@ -117,8 +126,8 @@ struct BackupEngineOptions {
   // Default: true
   bool share_files_with_checksum;
 
-  // Up to this many background threads will copy files for CreateNewBackup()
-  // and RestoreDBFromBackup()
+  // Up to this many background threads will be used to copy files & compute
+  // checksums for CreateNewBackup() and RestoreDBFromBackup().
   // Default: 1
   int max_background_operations;
 
@@ -228,8 +237,9 @@ struct BackupEngineOptions {
       const std::string& _backup_dir, Env* _backup_env = nullptr,
       bool _share_table_files = true, Logger* _info_log = nullptr,
       bool _sync = true, bool _destroy_old_data = false,
-      bool _backup_log_files = true, uint64_t _backup_rate_limit = 0,
-      uint64_t _restore_rate_limit = 0, int _max_background_operations = 1,
+      bool _backup_log_files = true, uint64_t _io_buffer_size = 0,
+      uint64_t _backup_rate_limit = 0, uint64_t _restore_rate_limit = 0,
+      int _max_background_operations = 1,
       uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
       int _max_valid_backups_to_open = INT_MAX,
       ShareFilesNaming _share_files_with_checksum_naming =
@@ -241,6 +251,7 @@ struct BackupEngineOptions {
         sync(_sync),
         destroy_old_data(_destroy_old_data),
         backup_log_files(_backup_log_files),
+        io_buffer_size(_io_buffer_size),
         backup_rate_limit(_backup_rate_limit),
         restore_rate_limit(_restore_rate_limit),
         share_files_with_checksum(true),
@@ -338,6 +349,39 @@ struct CreateBackupOptions {
 };
 
 struct RestoreOptions {
+  // Enum reflecting tiered approach to restores.
+  //
+  // Options `kKeepLatestDbSessionIdFiles`, `kVerifyChecksum` introduce
+  // incremental restore capability and are intended to be used separately.
+  enum Mode : uint32_t {
+    // Most efficient way to restore a healthy / non-corrupted DB from
+    // the backup(s). This mode can almost always successfully recover from
+    // incomplete / missing files, as in an incomplete copy of a DB.
+    // This mode is also integrated with `exclude_files_callback` feature
+    // and will opportunistically try to find excluded files in existing db
+    // filesystem if missing in all supplied backup directories.
+    //
+    // Effective on data files following modern share files naming schemes.
+    kKeepLatestDbSessionIdFiles = 1U,
+
+    // Recommended when db is suspected to be unhealthy, ex. we want to retain
+    // most of the files (therefore saving on write I/O) with an exception of
+    // a few corrupted ones.
+    //
+    // When opted-in, restore engine will scan the db file, compute the
+    // checksum and compare it against the checksum hardened in the backup file
+    // metadata. If checksums match, existing file will be retained as-is.
+    // Otherwise, it will be deleted and replaced it with its' restored backup
+    // counterpart. If backup file doesn't have a checksum hardened in the
+    // metadata, we'll schedule an async task to compute it.
+    kVerifyChecksum = 2U,
+
+    // Zero trust. Least efficient.
+    //
+    // Purge all the destination files and restores all files from the backup.
+    kPurgeAllFiles = 0xffffU,
+  };
+
   // If true, restore won't overwrite the existing log files in wal_dir. It will
   // also move all log files from archive directory to wal_dir. Use this option
   // in combination with BackupEngineOptions::backup_log_files = false for
@@ -350,8 +394,13 @@ struct RestoreOptions {
   // directories known to contain the required files.
   std::forward_list<BackupEngineReadOnlyBase*> alternate_dirs;
 
-  explicit RestoreOptions(bool _keep_log_files = false)
-      : keep_log_files(_keep_log_files) {}
+  // Specifies the level of incremental restore. 'kPurgeAllFiles' by default.
+  Mode mode;
+
+  // FIXME(https://github.com/facebook/rocksdb/issues/13293)
+  explicit RestoreOptions(bool _keep_log_files = false,
+                          Mode _mode = Mode::kPurgeAllFiles)
+      : keep_log_files(_keep_log_files), mode(_mode) {}
 };
 
 using BackupID = uint32_t;

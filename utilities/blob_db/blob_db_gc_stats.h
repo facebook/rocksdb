@@ -9,7 +9,6 @@
 
 #include "rocksdb/rocksdb_namespace.h"
 
-
 namespace ROCKSDB_NAMESPACE {
 
 namespace blob_db {

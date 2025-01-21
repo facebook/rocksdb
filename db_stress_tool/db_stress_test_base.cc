@@ -423,6 +423,15 @@ bool StressTest::BuildOptionsTable() {
             "{{temperature=kCold;age=100}}", "{}"});
   }
 
+  // NOTE: allow -1 to mean starting disabled but dynamically changing
+  // But 0 means tiering is disabled for the entire run.
+  if (FLAGS_preclude_last_level_data_seconds != 0) {
+    options_tbl.emplace("preclude_last_level_data_seconds",
+                        std::vector<std::string>{"0", "5", "30", "5000"});
+  }
+  options_tbl.emplace("preserve_internal_time_seconds",
+                      std::vector<std::string>{"0", "5", "30", "5000"});
+
   options_table_ = std::move(options_tbl);
 
   for (const auto& iter : options_table_) {
@@ -3472,8 +3481,9 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     }
 
     options_.listeners.clear();
-    options_.listeners.emplace_back(new DbStressListener(
-        FLAGS_db, options_.db_paths, cf_descriptors, db_stress_listener_env));
+    options_.listeners.emplace_back(
+        new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors,
+                             db_stress_listener_env, shared));
     RegisterAdditionalListeners();
 
     // If this is for DB reopen,  error injection may have been enabled.
@@ -3712,6 +3722,15 @@ void StressTest::Open(SharedState* shared, bool reopen) {
 
   if (!s.ok()) {
     fprintf(stderr, "open error: %s\n", s.ToString().c_str());
+    exit(1);
+  }
+
+  if (db_->GetLatestSequenceNumber() < shared->GetPersistedSeqno()) {
+    fprintf(stderr,
+            "DB of latest sequence number %" PRIu64
+            "did not recover to the persisted "
+            "sequence number %" PRIu64 " from last DB session\n",
+            db_->GetLatestSequenceNumber(), shared->GetPersistedSeqno());
     exit(1);
   }
 }
@@ -4117,6 +4136,7 @@ void InitializeOptionsFromFlags(
   options.level_compaction_dynamic_level_bytes =
       FLAGS_level_compaction_dynamic_level_bytes;
   options.track_and_verify_wals_in_manifest = true;
+  options.track_and_verify_wals = FLAGS_track_and_verify_wals;
   options.verify_sst_unique_id_in_manifest =
       FLAGS_verify_sst_unique_id_in_manifest;
   options.memtable_protection_bytes_per_key =
@@ -4189,8 +4209,9 @@ void InitializeOptionsFromFlags(
       exit(1);
     }
   }
+  // NOTE: allow -1 to mean starting disabled but dynamically changing
   options.preclude_last_level_data_seconds =
-      FLAGS_preclude_last_level_data_seconds;
+      std::max(FLAGS_preclude_last_level_data_seconds, int64_t{0});
   options.preserve_internal_time_seconds = FLAGS_preserve_internal_time_seconds;
 
   switch (FLAGS_rep_factory) {

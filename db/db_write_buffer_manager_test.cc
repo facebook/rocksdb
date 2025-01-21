@@ -780,7 +780,6 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-
 // Tests a `WriteBufferManager` constructed with `allow_stall == false` does not
 // thrash memtable switching when full and a CF receives multiple writes.
 // Instead, we expect to switch a CF's memtable for flush only when that CF does

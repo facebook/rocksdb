@@ -132,10 +132,13 @@ void ExpectedState::SyncDeleteRange(int cf, int64_t begin_key,
   }
 }
 
-FileExpectedState::FileExpectedState(std::string expected_state_file_path,
-                                     size_t max_key, size_t num_column_families)
+FileExpectedState::FileExpectedState(
+    const std::string& expected_state_file_path,
+    const std::string& expected_persisted_seqno_file_path, size_t max_key,
+    size_t num_column_families)
     : ExpectedState(max_key, num_column_families),
-      expected_state_file_path_(expected_state_file_path) {}
+      expected_state_file_path_(expected_state_file_path),
+      expected_persisted_seqno_file_path_(expected_persisted_seqno_file_path) {}
 
 Status FileExpectedState::Open(bool create) {
   size_t expected_values_size = GetValuesLen();
@@ -144,30 +147,53 @@ Status FileExpectedState::Open(bool create) {
 
   Status status;
   if (create) {
-    std::unique_ptr<WritableFile> wfile;
-    const EnvOptions soptions;
-    status = default_env->NewWritableFile(expected_state_file_path_, &wfile,
-                                          soptions);
-    if (status.ok()) {
-      std::string buf(expected_values_size, '\0');
-      status = wfile->Append(buf);
+    status = CreateFile(default_env, EnvOptions(), expected_state_file_path_,
+                        std::string(expected_values_size, '\0'));
+    if (!status.ok()) {
+      return status;
+    }
+
+    status = CreateFile(default_env, EnvOptions(),
+                        expected_persisted_seqno_file_path_,
+                        std::string(sizeof(std::atomic<SequenceNumber>), '\0'));
+
+    if (!status.ok()) {
+      return status;
     }
   }
-  if (status.ok()) {
-    status = default_env->NewMemoryMappedFileBuffer(
-        expected_state_file_path_, &expected_state_mmap_buffer_);
-  }
-  if (status.ok()) {
-    assert(expected_state_mmap_buffer_->GetLen() == expected_values_size);
-    values_ = static_cast<std::atomic<uint32_t>*>(
-        expected_state_mmap_buffer_->GetBase());
-    assert(values_ != nullptr);
-    if (create) {
-      Reset();
-    }
-  } else {
+
+  status = MemoryMappedFile(default_env, expected_state_file_path_,
+                            expected_state_mmap_buffer_, expected_values_size);
+  if (!status.ok()) {
     assert(values_ == nullptr);
+    return status;
   }
+
+  values_ = static_cast<std::atomic<uint32_t>*>(
+      expected_state_mmap_buffer_->GetBase());
+  assert(values_ != nullptr);
+  if (create) {
+    Reset();
+  }
+
+  // TODO(hx235): Find a way to mmap persisted seqno and expected state into the
+  // same LATEST file so we can obselete the logic to handle this extra file for
+  // persisted seqno
+  status = MemoryMappedFile(default_env, expected_persisted_seqno_file_path_,
+                            expected_persisted_seqno_mmap_buffer_,
+                            sizeof(std::atomic<SequenceNumber>));
+  if (!status.ok()) {
+    assert(persisted_seqno_ == nullptr);
+    return status;
+  }
+
+  persisted_seqno_ = static_cast<std::atomic<SequenceNumber>*>(
+      expected_persisted_seqno_mmap_buffer_->GetBase());
+  assert(persisted_seqno_ != nullptr);
+  if (create) {
+    persisted_seqno_->store(0, std::memory_order_relaxed);
+  }
+
   return status;
 }
 
@@ -200,6 +226,9 @@ ExpectedStateManager::~ExpectedStateManager() = default;
 const std::string FileExpectedStateManager::kLatestBasename = "LATEST";
 const std::string FileExpectedStateManager::kStateFilenameSuffix = ".state";
 const std::string FileExpectedStateManager::kTraceFilenameSuffix = ".trace";
+const std::string FileExpectedStateManager::kPersistedSeqnoBasename = "PERSIST";
+const std::string FileExpectedStateManager::kPersistedSeqnoFilenameSuffix =
+    ".seqno";
 const std::string FileExpectedStateManager::kTempFilenamePrefix = ".";
 const std::string FileExpectedStateManager::kTempFilenameSuffix = ".tmp";
 
@@ -264,13 +293,17 @@ Status FileExpectedStateManager::Open() {
 
   std::string expected_state_file_path =
       GetPathForFilename(kLatestBasename + kStateFilenameSuffix);
+  std::string expected_persisted_seqno_file_path = GetPathForFilename(
+      kPersistedSeqnoBasename + kPersistedSeqnoFilenameSuffix);
   bool found = false;
   if (s.ok()) {
     Status exists_status = Env::Default()->FileExists(expected_state_file_path);
     if (exists_status.ok()) {
       found = true;
     } else if (exists_status.IsNotFound()) {
-      found = false;
+      assert(Env::Default()
+                 ->FileExists(expected_persisted_seqno_file_path)
+                 .IsNotFound());
     } else {
       s = exists_status;
     }
@@ -282,8 +315,12 @@ Status FileExpectedStateManager::Open() {
     // the incomplete expected values file.
     std::string temp_expected_state_file_path =
         GetTempPathForFilename(kLatestBasename + kStateFilenameSuffix);
-    FileExpectedState temp_expected_state(temp_expected_state_file_path,
-                                          max_key_, num_column_families_);
+    std::string temp_expected_persisted_seqno_file_path =
+        GetTempPathForFilename(kPersistedSeqnoBasename +
+                               kPersistedSeqnoFilenameSuffix);
+    FileExpectedState temp_expected_state(
+        temp_expected_state_file_path, temp_expected_persisted_seqno_file_path,
+        max_key_, num_column_families_);
     if (s.ok()) {
       s = temp_expected_state.Open(true /* create */);
     }
@@ -291,11 +328,17 @@ Status FileExpectedStateManager::Open() {
       s = Env::Default()->RenameFile(temp_expected_state_file_path,
                                      expected_state_file_path);
     }
+    if (s.ok()) {
+      s = Env::Default()->RenameFile(temp_expected_persisted_seqno_file_path,
+                                     expected_persisted_seqno_file_path);
+    }
   }
 
   if (s.ok()) {
-    latest_.reset(new FileExpectedState(std::move(expected_state_file_path),
-                                        max_key_, num_column_families_));
+    latest_.reset(
+        new FileExpectedState(std::move(expected_state_file_path),
+                              std::move(expected_persisted_seqno_file_path),
+                              max_key_, num_column_families_));
     s = latest_->Open(false /* create */);
   }
   return s;
@@ -660,6 +703,9 @@ Status FileExpectedStateManager::Restore(DB* db) {
   Status s = NewFileTraceReader(Env::Default(), EnvOptions(), trace_file_path,
                                 &trace_reader);
 
+  std::string persisted_seqno_file_path = GetPathForFilename(
+      kPersistedSeqnoBasename + kPersistedSeqnoFilenameSuffix);
+
   if (s.ok()) {
     // We are going to replay on top of "`seqno`.state" to create a new
     // "LATEST.state". Start off by creating a tempfile so we can later make the
@@ -674,7 +720,8 @@ Status FileExpectedStateManager::Restore(DB* db) {
     std::unique_ptr<ExpectedState> state;
     std::unique_ptr<ExpectedStateTraceRecordHandler> handler;
     if (s.ok()) {
-      state.reset(new FileExpectedState(latest_file_temp_path, max_key_,
+      state.reset(new FileExpectedState(latest_file_temp_path,
+                                        persisted_seqno_file_path, max_key_,
                                         num_column_families_));
       s = state->Open(false /* create */);
     }
@@ -720,7 +767,8 @@ Status FileExpectedStateManager::Restore(DB* db) {
                                           nullptr /* dbg */);
   }
   if (s.ok()) {
-    latest_.reset(new FileExpectedState(latest_file_path, max_key_,
+    latest_.reset(new FileExpectedState(latest_file_path,
+                                        persisted_seqno_file_path, max_key_,
                                         num_column_families_));
     s = latest_->Open(false /* create */);
   }

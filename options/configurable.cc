@@ -246,7 +246,6 @@ Status Configurable::ParseOption(const ConfigOptions& config_options,
   }
 }
 
-
 Status ConfigurableHelper::ConfigureOptions(
     const ConfigOptions& config_options, Configurable& configurable,
     const std::unordered_map<std::string, std::string>& opts_map,
@@ -329,7 +328,7 @@ Status ConfigurableHelper::ConfigureSomeOptions(
         }
       }
     }  // End for all remaining options
-  }    // End while found one or options remain
+  }  // End while found one or options remain
 
   // Now that we have been through the list, remove any unsupported
   for (const auto& u : unsupported) {

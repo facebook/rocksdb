@@ -397,4 +397,3 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

@@ -20,6 +20,12 @@ namespace ROCKSDB_NAMESPACE {
  * add/remove fields to this structure, builds would fail. The way to fix the
  * builds would be to add the appropriate fields to the
  * DEF_PERF_CONTEXT_LEVEL_METRICS() macro in the perf_context.cc file.
+ *
+ * If you plan to add new metrics, please read documentation in perf_level.h and
+ * try to come up with a metric name that follows the naming conventions
+ * mentioned there. It helps to indicate the metric's starting enabling P
+ * erfLevel. Document this starting PerfLevel if the metric name cannot meet the
+ * naming conventions.
  */
 
 // Break down performance counters by level and store per-level perf context in
@@ -189,6 +195,7 @@ struct PerfContextBase {
   // total nanos spent on writing to WAL
   uint64_t write_wal_time;
   // total nanos spent on writing to mem tables
+  // This metric gets collected starting from PerfLevel::kEnableWait
   uint64_t write_memtable_time;
   // total nanos spent on delaying or throttling write
   uint64_t write_delay_time;
@@ -230,6 +237,8 @@ struct PerfContextBase {
   uint64_t bloom_sst_miss_count;
 
   // Time spent waiting on key locks in transaction lock manager.
+  // This metric gets collected starting from
+  // PerfLevel::kEnableTimeExceptForMutex
   uint64_t key_lock_wait_time;
   // number of times acquiring a lock was blocked by another transaction.
   uint64_t key_lock_wait_count;
@@ -275,6 +284,12 @@ struct PerfContextBase {
   uint64_t decrypt_data_nanos;
 
   uint64_t number_async_seek;
+
+  // Metrics for file ingestion
+  // Time spent end to end in an IngestExternalFile call.
+  uint64_t file_ingestion_nanos;
+  // Time IngestExternalFile blocked live writes.
+  uint64_t file_ingestion_blocking_live_writes_nanos;
 };
 
 struct PerfContext : public PerfContextBase {

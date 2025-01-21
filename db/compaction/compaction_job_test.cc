@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "db/compaction/compaction_job.h"
 
 #include <algorithm>
@@ -302,7 +301,7 @@ class CompactionJobTestBase : public testing::Test {
     std::unique_ptr<TableBuilder> table_builder(
         cf_options_.table_factory->NewTableBuilder(
             TableBuilderOptions(
-                *cfd_->ioptions(), mutable_cf_options_, read_options,
+                cfd_->ioptions(), mutable_cf_options_, read_options,
                 write_options, cfd_->internal_comparator(),
                 cfd_->internal_tbl_prop_coll_factories(),
                 CompressionType::kNoCompression, CompressionOptions(),
@@ -398,8 +397,8 @@ class CompactionJobTestBase : public testing::Test {
 
     mutex_.Lock();
     EXPECT_OK(versions_->LogAndApply(
-        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        read_options_, write_options_, &edit, &mutex_, nullptr));
+        versions_->GetColumnFamilySet()->GetDefault(), read_options_,
+        write_options_, &edit, &mutex_, nullptr));
     mutex_.Unlock();
   }
 
@@ -461,7 +460,7 @@ class CompactionJobTestBase : public testing::Test {
       ReadOptions read_opts;
       Status s = cf_options_.table_factory->NewTableReader(
           read_opts,
-          TableReaderOptions(*cfd->ioptions(), nullptr, FileOptions(),
+          TableReaderOptions(cfd->ioptions(), nullptr, FileOptions(),
                              cfd_->internal_comparator(),
                              0 /* block_protection_bytes_per_key */),
           std::move(freader), file_size, &table_reader, false);
@@ -646,12 +645,12 @@ class CompactionJobTestBase : public testing::Test {
     }
 
     Compaction compaction(
-        cfd->current()->storage_info(), *cfd->ioptions(),
-        *cfd->GetLatestMutableCFOptions(), mutable_db_options_,
+        cfd->current()->storage_info(), cfd->ioptions(),
+        cfd->GetLatestMutableCFOptions(), mutable_db_options_,
         compaction_input_files, output_level,
         mutable_cf_options_.target_file_size_base,
         mutable_cf_options_.max_compaction_bytes, 0, kNoCompression,
-        cfd->GetLatestMutableCFOptions()->compression_opts,
+        cfd->GetLatestMutableCFOptions().compression_opts,
         Temperature::kUnknown, max_subcompactions, grandparents,
         /*earliest_snapshot*/ std::nullopt, /*snapshot_checker*/ nullptr, true);
     compaction.FinalizeInputInfo(cfd->current());
@@ -678,15 +677,14 @@ class CompactionJobTestBase : public testing::Test {
         full_history_ts_low_);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
-    compaction_job.Prepare();
+    compaction_job.Prepare(std::nullopt /*subcompact to be computed*/);
     mutex_.Unlock();
     Status s = compaction_job.Run();
     ASSERT_OK(s);
     ASSERT_OK(compaction_job.io_status());
     mutex_.Lock();
     bool compaction_released = false;
-    ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions(),
-                                     &compaction_released));
+    ASSERT_OK(compaction_job.Install(&compaction_released));
     ASSERT_OK(compaction_job.io_status());
     mutex_.Unlock();
     log_buffer.FlushBufferToLog();
@@ -1536,14 +1534,11 @@ TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
       /*verify_func=*/[&](Compaction& comp) {
         for (char c = 'a'; c <= 'z'; c++) {
           if (c == 'a') {
-            ParsedInternalKey pik("a", 0U, kTypeValue);
-            ASSERT_FALSE(comp.WithinPenultimateLevelOutputRange(pik));
+            comp.TEST_AssertWithinPenultimateLevelOutputRange(
+                "a", true /*expect_failure*/);
           } else {
             std::string c_str{c};
-            // WithinPenultimateLevelOutputRange checks internal key range.
-            // 'z' is the last key, so set seqno properly.
-            ParsedInternalKey pik(c_str, c == 'z' ? 12U : 0U, kTypeValue);
-            ASSERT_TRUE(comp.WithinPenultimateLevelOutputRange(pik));
+            comp.TEST_AssertWithinPenultimateLevelOutputRange(c_str);
           }
         }
       });
@@ -1900,8 +1895,8 @@ TEST_F(CompactionJobTest, CutToSkipGrandparentFile) {
   const std::vector<int> input_levels = {0, 1};
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
   auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
-    RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file1, expected_file2});
+  RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                {expected_file1, expected_file2});
 }
 
 TEST_F(CompactionJobTest, CutToAlignGrandparentBoundary) {
@@ -1975,8 +1970,8 @@ TEST_F(CompactionJobTest, CutToAlignGrandparentBoundary) {
   const std::vector<int> input_levels = {0, 1};
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
   auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
-    RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file1, expected_file2});
+  RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                {expected_file1, expected_file2});
 }
 
 TEST_F(CompactionJobTest, CutToAlignGrandparentBoundarySameKey) {
@@ -2037,8 +2032,8 @@ TEST_F(CompactionJobTest, CutToAlignGrandparentBoundarySameKey) {
   for (int i = 80; i <= 100; i++) {
     snapshots.emplace_back(i);
   }
-    RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                  {expected_file1, expected_file2}, snapshots);
+  RunCompaction({lvl0_files, lvl1_files}, input_levels,
+                {expected_file1, expected_file2}, snapshots);
 }
 
 TEST_F(CompactionJobTest, CutForMaxCompactionBytesSameKey) {

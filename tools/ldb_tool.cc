@@ -140,7 +140,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
 }
 
 int LDBCommandRunner::RunCommand(
-    int argc, char const* const* argv, Options options,
+    int argc, char const* const* argv, const Options& options,
     const LDBOptions& ldb_options,
     const std::vector<ColumnFamilyDescriptor>* column_families) {
   if (argc <= 2) {

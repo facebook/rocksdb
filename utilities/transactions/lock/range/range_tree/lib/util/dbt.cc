@@ -65,7 +65,8 @@ DBT *toku_init_dbt(DBT *dbt) {
 }
 
 DBT toku_empty_dbt(void) {
-  static const DBT empty_dbt = {.data = nullptr, .size = 0, .ulen = 0, .flags = 0};
+  static const DBT empty_dbt = {
+      .data = nullptr, .size = 0, .ulen = 0, .flags = 0};
   return empty_dbt;
 }
 

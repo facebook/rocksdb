@@ -183,6 +183,8 @@ enum class FlushReason : int {
   kWalFull = 0xd,
   // SwitchMemtable will not be called for this flush reason.
   kCatchUpAfterErrorRecovery = 0xe,
+
+  // When adding flush reason, make sure to also add it to FlushReason in Java.
 };
 
 const char* GetFlushReasonString(FlushReason flush_reason);
@@ -210,7 +212,6 @@ struct WriteStallInfo {
     WriteStallCondition prev;
   } condition;
 };
-
 
 struct FileDeletionInfo {
   FileDeletionInfo() = default;
@@ -864,6 +865,5 @@ class EventListener : public Customizable {
 
   ~EventListener() override {}
 };
-
 
 }  // namespace ROCKSDB_NAMESPACE

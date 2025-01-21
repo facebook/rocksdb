@@ -435,7 +435,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_drop_column_family(
     rocksdb_t* db, rocksdb_column_family_handle_t* handle, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t*
-    rocksdb_get_default_column_family_handle(rocksdb_t* db);
+rocksdb_get_default_column_family_handle(rocksdb_t* db);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_column_family_handle_destroy(
     rocksdb_column_family_handle_t*);
@@ -692,8 +692,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_cf_opt(
     rocksdb_compactoptions_t* opt, const char* start_key, size_t start_key_len,
     const char* limit_key, size_t limit_key_len);
 
-extern ROCKSDB_LIBRARY_API void rocksdb_delete_file(rocksdb_t* db,
-                                                    const char* name);
+extern ROCKSDB_LIBRARY_API void DEPRECATED_rocksdb_delete_file(
+    rocksdb_t* db, const char* name);
 
 extern ROCKSDB_LIBRARY_API const rocksdb_livefiles_t* rocksdb_livefiles(
     rocksdb_t* db);
@@ -2128,6 +2128,18 @@ rocksdb_compactoptions_get_change_level(rocksdb_compactoptions_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_target_level(
     rocksdb_compactoptions_t*, int);
 extern ROCKSDB_LIBRARY_API int rocksdb_compactoptions_get_target_level(
+    rocksdb_compactoptions_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_target_path_id(
+    rocksdb_compactoptions_t*, int);
+extern ROCKSDB_LIBRARY_API int rocksdb_compactoptions_get_target_path_id(
+    rocksdb_compactoptions_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_allow_write_stall(
+    rocksdb_compactoptions_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_compactoptions_get_allow_write_stall(rocksdb_compactoptions_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_max_subcompactions(
+    rocksdb_compactoptions_t*, int);
+extern ROCKSDB_LIBRARY_API int rocksdb_compactoptions_get_max_subcompactions(
     rocksdb_compactoptions_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_full_history_ts_low(
     rocksdb_compactoptions_t*, char* ts, size_t tslen);

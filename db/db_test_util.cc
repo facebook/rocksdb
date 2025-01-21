@@ -122,7 +122,6 @@ DBTestBase::~DBTestBase() {
 }
 
 bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
-
   if ((skip_mask & kSkipUniversalCompaction) &&
       (option_config == kUniversalCompaction ||
        option_config == kUniversalCompactionMultiLevel ||
@@ -1208,7 +1207,6 @@ std::string DBTestBase::FilesPerLevel(int cf) {
   return result;
 }
 
-
 std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
   VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
@@ -1667,7 +1665,7 @@ void DBTestBase::VerifyDBFromMap(
     data_iter = true_data.begin();
     for (iter->SeekToFirst(); iter->Valid(); iter->Next(), ++data_iter) {
       ASSERT_EQ(iter->key().ToString(), data_iter->first);
-        ASSERT_EQ(iter->value().ToString(), data_iter->second);
+      ASSERT_EQ(iter->value().ToString(), data_iter->second);
       iter_cnt++;
       total_reads++;
     }
@@ -1683,7 +1681,7 @@ void DBTestBase::VerifyDBFromMap(
     auto data_rev = true_data.rbegin();
     for (iter->SeekToLast(); iter->Valid(); iter->Prev(), data_rev++) {
       ASSERT_EQ(iter->key().ToString(), data_rev->first);
-        ASSERT_EQ(iter->value().ToString(), data_rev->second);
+      ASSERT_EQ(iter->value().ToString(), data_rev->second);
       iter_cnt++;
       total_reads++;
     }
@@ -1764,7 +1762,6 @@ void DBTestBase::VerifyDBInternal(
   ASSERT_FALSE(iter->Valid());
   iter->~InternalIterator();
 }
-
 
 uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
     DB* db, std::string column_family_name) {

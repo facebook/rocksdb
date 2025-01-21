@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
 #include <algorithm>
 #include <atomic>
 #include <cinttypes>
@@ -191,6 +190,7 @@ class BackupEngineImpl {
 
  private:
   void DeleteChildren(const std::string& dir,
+                      const std::unordered_set<uint64_t>& files_to_keep,
                       uint32_t file_type_filter = 0) const;
   IOStatus DeleteBackupNoGC(BackupID backup_id);
 
@@ -504,6 +504,17 @@ class BackupEngineImpl {
                                    BackupInfo* backup_info,
                                    bool include_file_details) const;
 
+  // Infers set of existing destination files that could be retained
+  // during the incremental restore procedure in accordance with user
+  // selected strategy (RestoreMode). File can be retained only if it's
+  // deemed to exist in the referenced backup set.
+  void InferDBFilesToRetainInRestore(
+      const std::vector<std::pair<const BackupEngineImpl*, const FileInfo*>>&
+          restore_file_infos,
+      std::unordered_set<std::string>& unowned_backups,
+      const std::string& db_dir, RestoreOptions::Mode mode,
+      std::unordered_set<uint64_t>& files_to_keep) const;
+
   inline std::string GetAbsolutePath(
       const std::string& relative_path = "") const {
     assert(relative_path.size() == 0 || relative_path[0] != '/');
@@ -551,6 +562,18 @@ class BackupEngineImpl {
     }
     return file_copy;
   }
+
+  inline std::string GenerateSharedFileWithDbSessionIdAndSize(
+      const std::string& file, const uint64_t file_size,
+      const std::string& db_session_id) const {
+    assert(file.size() == 0 || file[0] != '/');
+    std::string file_copy = file;
+    file_copy.insert(file_copy.find_last_of('.'), "_s" + db_session_id);
+    file_copy.insert(file_copy.find_last_of('.'),
+                     "_" + std::to_string(file_size));
+    return kSharedChecksumDirSlash + file_copy;
+  }
+
   static inline std::string GetFileFromChecksumFile(const std::string& file) {
     assert(file.size() == 0 || file[0] != '/');
     std::string file_copy = file;
@@ -558,6 +581,7 @@ class BackupEngineImpl {
     return file_copy.erase(first_underscore,
                            file_copy.find_last_of('.') - first_underscore);
   }
+
   inline std::string GetBackupMetaFile(BackupID backup_id, bool tmp) const {
     return GetAbsolutePath(kMetaDirName) + "/" + (tmp ? "." : "") +
            std::to_string(backup_id) + (tmp ? ".tmp" : "");
@@ -582,6 +606,8 @@ class BackupEngineImpl {
                             uint64_t* bytes_toward_next_callback,
                             uint64_t* size, std::string* checksum_hex);
 
+  uint64_t CalculateIOBufferSize(RateLimiter* rate_limiter) const;
+
   IOStatus ReadFileAndComputeChecksum(const std::string& src,
                                       const std::shared_ptr<FileSystem>& src_fs,
                                       const EnvOptions& src_env_options,
@@ -593,10 +619,32 @@ class BackupEngineImpl {
   Status GetFileDbIdentities(Env* src_env, const EnvOptions& src_env_options,
                              const std::string& file_path,
                              Temperature file_temp, RateLimiter* rate_limiter,
-                             std::string* db_id, std::string* db_session_id);
+                             std::string* db_id,
+                             std::string* db_session_id) const;
 
-  struct CopyOrCreateResult {
-    ~CopyOrCreateResult() {
+  struct WorkItemResult {
+    WorkItemResult()
+        : size(0),
+          expected_src_temperature(Temperature::kUnknown),
+          current_src_temperature(Temperature::kUnknown) {}
+
+    WorkItemResult(const WorkItemResult& other) = delete;
+    WorkItemResult& operator=(const WorkItemResult& other) = delete;
+
+    WorkItemResult(WorkItemResult&& o) noexcept { *this = std::move(o); }
+
+    WorkItemResult& operator=(WorkItemResult&& o) noexcept {
+      size = o.size;
+      checksum_hex = std::move(o.checksum_hex);
+      db_id = std::move(o.db_id);
+      db_session_id = std::move(o.db_session_id);
+      io_status = std::move(o.io_status);
+      expected_src_temperature = o.expected_src_temperature;
+      current_src_temperature = o.current_src_temperature;
+      return *this;
+    }
+
+    ~WorkItemResult() {
       // The Status needs to be ignored here for two reasons.
       // First, if the BackupEngineImpl shuts down with jobs outstanding, then
       // it is possible that the Status in the future/promise is never read,
@@ -615,10 +663,15 @@ class BackupEngineImpl {
     Temperature current_src_temperature = Temperature::kUnknown;
   };
 
+  enum WorkItemType : uint64_t {
+    CopyOrCreate = 1U,
+    ComputeChecksum = 2U,
+  };
+
   // Exactly one of src_path and contents must be non-empty. If src_path is
   // non-empty, the file is copied from this pathname. Otherwise, if contents is
   // non-empty, the file will be created at dst_path with these contents.
-  struct CopyOrCreateWorkItem {
+  struct WorkItem {
     std::string src_path;
     std::string dst_path;
     Temperature src_temperature;
@@ -631,17 +684,17 @@ class BackupEngineImpl {
     RateLimiter* rate_limiter;
     uint64_t size_limit;
     Statistics* stats;
-    std::promise<CopyOrCreateResult> result;
+    std::promise<WorkItemResult> result;
     std::function<void()> progress_callback;
     std::string src_checksum_func_name;
     std::string src_checksum_hex;
     std::string db_id;
     std::string db_session_id;
+    WorkItemType type;
 
-    CopyOrCreateWorkItem()
+    WorkItem()
         : src_temperature(Temperature::kUnknown),
           dst_temperature(Temperature::kUnknown),
-
           src_env(nullptr),
           dst_env(nullptr),
           src_env_options(),
@@ -649,16 +702,15 @@ class BackupEngineImpl {
           rate_limiter(nullptr),
           size_limit(0),
           stats(nullptr),
-          src_checksum_func_name(kUnknownFileChecksumFuncName) {}
+          src_checksum_func_name(kUnknownFileChecksumFuncName),
+          type(WorkItemType::CopyOrCreate) {}
 
-    CopyOrCreateWorkItem(const CopyOrCreateWorkItem&) = delete;
-    CopyOrCreateWorkItem& operator=(const CopyOrCreateWorkItem&) = delete;
+    WorkItem(const WorkItem&) = delete;
+    WorkItem& operator=(const WorkItem&) = delete;
 
-    CopyOrCreateWorkItem(CopyOrCreateWorkItem&& o) noexcept {
-      *this = std::move(o);
-    }
+    WorkItem(WorkItem&& o) noexcept { *this = std::move(o); }
 
-    CopyOrCreateWorkItem& operator=(CopyOrCreateWorkItem&& o) noexcept {
+    WorkItem& operator=(WorkItem&& o) noexcept {
       src_path = std::move(o.src_path);
       dst_path = std::move(o.dst_path);
       src_temperature = std::move(o.src_temperature);
@@ -678,22 +730,22 @@ class BackupEngineImpl {
       db_id = std::move(o.db_id);
       db_session_id = std::move(o.db_session_id);
       src_temperature = o.src_temperature;
+      type = std::move(o.type);
       return *this;
     }
 
-    CopyOrCreateWorkItem(std::string _src_path, std::string _dst_path,
-                         const Temperature _src_temperature,
-                         const Temperature _dst_temperature,
-                         std::string _contents, Env* _src_env, Env* _dst_env,
-                         EnvOptions _src_env_options, bool _sync,
-                         RateLimiter* _rate_limiter, uint64_t _size_limit,
-                         Statistics* _stats,
-                         std::function<void()> _progress_callback = {},
-                         const std::string& _src_checksum_func_name =
-                             kUnknownFileChecksumFuncName,
-                         const std::string& _src_checksum_hex = "",
-                         const std::string& _db_id = "",
-                         const std::string& _db_session_id = "")
+    WorkItem(std::string _src_path, std::string _dst_path,
+             const Temperature _src_temperature,
+             const Temperature _dst_temperature, std::string _contents,
+             Env* _src_env, Env* _dst_env, EnvOptions _src_env_options,
+             bool _sync, RateLimiter* _rate_limiter, uint64_t _size_limit,
+             Statistics* _stats, std::function<void()> _progress_callback = {},
+             const std::string& _src_checksum_func_name =
+                 kUnknownFileChecksumFuncName,
+             const std::string& _src_checksum_hex = "",
+             const std::string& _db_id = "",
+             const std::string& _db_session_id = "",
+             WorkItemType _type = WorkItemType::CopyOrCreate)
         : src_path(std::move(_src_path)),
           dst_path(std::move(_dst_path)),
           src_temperature(_src_temperature),
@@ -710,11 +762,14 @@ class BackupEngineImpl {
           src_checksum_func_name(_src_checksum_func_name),
           src_checksum_hex(_src_checksum_hex),
           db_id(_db_id),
-          db_session_id(_db_session_id) {}
+          db_session_id(_db_session_id),
+          type(_type) {}
+
+    ~WorkItem() = default;
   };
 
   struct BackupAfterCopyOrCreateWorkItem {
-    std::future<CopyOrCreateResult> result;
+    std::future<WorkItemResult> result;
     bool shared;
     bool needed_to_copy;
     Env* backup_env;
@@ -741,7 +796,7 @@ class BackupEngineImpl {
       return *this;
     }
 
-    BackupAfterCopyOrCreateWorkItem(std::future<CopyOrCreateResult>&& _result,
+    BackupAfterCopyOrCreateWorkItem(std::future<WorkItemResult>&& _result,
                                     bool _shared, bool _needed_to_copy,
                                     Env* _backup_env, std::string _dst_path_tmp,
                                     std::string _dst_path,
@@ -756,15 +811,44 @@ class BackupEngineImpl {
   };
 
   using BackupWorkItemPair =
-      std::pair<CopyOrCreateWorkItem, BackupAfterCopyOrCreateWorkItem>;
+      std::pair<WorkItem, BackupAfterCopyOrCreateWorkItem>;
+
+  struct ComputeChecksumWorkItem {
+    std::future<WorkItemResult> result;
+    std::string file_path;
+    uint64_t file_number;
+
+    ComputeChecksumWorkItem(std::future<WorkItemResult>&& _result,
+                            const std::string& _file_path,
+                            uint64_t _file_number)
+        : result(std::move(_result)),
+          file_path(_file_path),
+          file_number(_file_number) {}
+
+    ComputeChecksumWorkItem(const ComputeChecksumWorkItem&) = delete;
+    ComputeChecksumWorkItem& operator=(const ComputeChecksumWorkItem&) = delete;
+
+    ComputeChecksumWorkItem(ComputeChecksumWorkItem&& o) noexcept {
+      *this = std::move(o);
+    }
+
+    ComputeChecksumWorkItem& operator=(ComputeChecksumWorkItem&& o) noexcept {
+      result = std::move(o.result);
+      file_path = std::move(o.file_path);
+      file_number = o.file_number;
+      return *this;
+    }
+
+    ~ComputeChecksumWorkItem() = default;
+  };
 
   struct RestoreAfterCopyOrCreateWorkItem {
-    std::future<CopyOrCreateResult> result;
+    std::future<WorkItemResult> result;
     std::string from_file;
     std::string to_file;
     std::string checksum_hex;
     RestoreAfterCopyOrCreateWorkItem() {}
-    RestoreAfterCopyOrCreateWorkItem(std::future<CopyOrCreateResult>&& _result,
+    RestoreAfterCopyOrCreateWorkItem(std::future<WorkItemResult>&& _result,
                                      const std::string& _from_file,
                                      const std::string& _to_file,
                                      const std::string& _checksum_hex)
@@ -787,7 +871,7 @@ class BackupEngineImpl {
 
   bool initialized_;
   std::mutex byte_report_mutex_;
-  mutable channel<CopyOrCreateWorkItem> files_to_copy_or_create_;
+  mutable channel<WorkItem> work_items_;
   std::vector<port::Thread> threads_;
   std::atomic<CpuPriority> threads_cpu_priority_;
 
@@ -1041,7 +1125,7 @@ BackupEngineImpl::BackupEngineImpl(const BackupEngineOptions& options,
 }
 
 BackupEngineImpl::~BackupEngineImpl() {
-  files_to_copy_or_create_.sendEof();
+  work_items_.sendEof();
   for (auto& t : threads_) {
     t.join();
   }
@@ -1240,8 +1324,8 @@ IOStatus BackupEngineImpl::Initialize() {
   ROCKS_LOG_INFO(options_.info_log, "Latest valid backup is %u",
                  latest_valid_backup_id_);
 
-  // set up threads perform copies from files_to_copy_or_create_ in the
-  // background
+  // set up threads to perform file creation / copy or checksum computations
+  // from work_items_ in the background.
   threads_cpu_priority_ = CpuPriority::kNormal;
   threads_.reserve(options_.max_background_operations);
   for (int t = 0; t < options_.max_background_operations; t++) {
@@ -1252,9 +1336,9 @@ IOStatus BackupEngineImpl::Initialize() {
 #endif
 #endif
       CpuPriority current_priority = CpuPriority::kNormal;
-      CopyOrCreateWorkItem work_item;
+      WorkItem work_item;
       uint64_t bytes_toward_next_callback = 0;
-      while (files_to_copy_or_create_.read(work_item)) {
+      while (work_items_.read(work_item)) {
         CpuPriority priority = threads_cpu_priority_;
         if (current_priority != priority) {
           TEST_SYNC_POINT_CALLBACK(
@@ -1269,52 +1353,64 @@ IOStatus BackupEngineImpl::Initialize() {
         uint64_t prev_bytes_read = IOSTATS(bytes_read);
         uint64_t prev_bytes_written = IOSTATS(bytes_written);
 
-        CopyOrCreateResult result;
-        Temperature temp = work_item.src_temperature;
-        result.io_status = CopyOrCreateFile(
-            work_item.src_path, work_item.dst_path, work_item.contents,
-            work_item.size_limit, work_item.src_env, work_item.dst_env,
-            work_item.src_env_options, work_item.sync, work_item.rate_limiter,
-            work_item.progress_callback, &temp, work_item.dst_temperature,
-            &bytes_toward_next_callback, &result.size, &result.checksum_hex);
+        WorkItemResult result;
+        if (work_item.type == WorkItemType::CopyOrCreate) {
+          Temperature temp = work_item.src_temperature;
+          result.io_status = CopyOrCreateFile(
+              work_item.src_path, work_item.dst_path, work_item.contents,
+              work_item.size_limit, work_item.src_env, work_item.dst_env,
+              work_item.src_env_options, work_item.sync, work_item.rate_limiter,
+              work_item.progress_callback, &temp, work_item.dst_temperature,
+              &bytes_toward_next_callback, &result.size, &result.checksum_hex);
 
-        RecordTick(work_item.stats, BACKUP_READ_BYTES,
-                   IOSTATS(bytes_read) - prev_bytes_read);
-        RecordTick(work_item.stats, BACKUP_WRITE_BYTES,
-                   IOSTATS(bytes_written) - prev_bytes_written);
+          RecordTick(work_item.stats, BACKUP_READ_BYTES,
+                     IOSTATS(bytes_read) - prev_bytes_read);
+          RecordTick(work_item.stats, BACKUP_WRITE_BYTES,
+                     IOSTATS(bytes_written) - prev_bytes_written);
 
-        result.db_id = work_item.db_id;
-        result.db_session_id = work_item.db_session_id;
-        result.expected_src_temperature = work_item.src_temperature;
-        result.current_src_temperature = temp;
-        if (result.io_status.ok() && !work_item.src_checksum_hex.empty()) {
-          // unknown checksum function name implies no db table file checksum in
-          // db manifest; work_item.src_checksum_hex not empty means
-          // backup engine has calculated its crc32c checksum for the table
-          // file; therefore, we are able to compare the checksums.
-          if (work_item.src_checksum_func_name ==
-                  kUnknownFileChecksumFuncName ||
-              work_item.src_checksum_func_name == kDbFileChecksumFuncName) {
-            if (work_item.src_checksum_hex != result.checksum_hex) {
-              std::string checksum_info(
-                  "Expected checksum is " + work_item.src_checksum_hex +
-                  " while computed checksum is " + result.checksum_hex);
-              result.io_status = IOStatus::Corruption(
-                  "Checksum mismatch after copying to " + work_item.dst_path +
-                  ": " + checksum_info);
+          result.db_id = work_item.db_id;
+          result.db_session_id = work_item.db_session_id;
+          result.expected_src_temperature = work_item.src_temperature;
+          result.current_src_temperature = temp;
+          if (result.io_status.ok() && !work_item.src_checksum_hex.empty()) {
+            // unknown checksum function name implies no db table file checksum
+            // in db manifest; work_item.src_checksum_hex not empty means backup
+            // engine has calculated its crc32c checksum for the table file;
+            // therefore, we are able to compare the checksums.
+            if (work_item.src_checksum_func_name ==
+                    kUnknownFileChecksumFuncName ||
+                work_item.src_checksum_func_name == kDbFileChecksumFuncName) {
+              if (work_item.src_checksum_hex != result.checksum_hex) {
+                std::string checksum_info(
+                    "Expected checksum is " + work_item.src_checksum_hex +
+                    " while computed checksum is " + result.checksum_hex);
+                result.io_status = IOStatus::Corruption(
+                    "Checksum mismatch after copying to " + work_item.dst_path +
+                    ": " + checksum_info);
+              }
+            } else {
+              // FIXME(peterd): dead code?
+              std::string checksum_function_info(
+                  "Existing checksum function is " +
+                  work_item.src_checksum_func_name +
+                  " while provided checksum function is " +
+                  kBackupFileChecksumFuncName);
+              ROCKS_LOG_INFO(
+                  options_.info_log,
+                  "Unable to verify checksum after copying to %s: %s\n",
+                  work_item.dst_path.c_str(), checksum_function_info.c_str());
             }
-          } else {
-            // FIXME(peterd): dead code?
-            std::string checksum_function_info(
-                "Existing checksum function is " +
-                work_item.src_checksum_func_name +
-                " while provided checksum function is " +
-                kBackupFileChecksumFuncName);
-            ROCKS_LOG_INFO(
-                options_.info_log,
-                "Unable to verify checksum after copying to %s: %s\n",
-                work_item.dst_path.c_str(), checksum_function_info.c_str());
           }
+        } else if (work_item.type == ComputeChecksum) {
+          result.io_status = ReadFileAndComputeChecksum(
+              work_item.src_path, work_item.src_env->GetFileSystem(),
+              work_item.src_env_options, work_item.size_limit,
+              &result.checksum_hex, work_item.src_temperature);
+          result.db_id = work_item.db_id;
+          result.db_session_id = work_item.db_session_id;
+        } else {
+          result.io_status = IOStatus::InvalidArgument(
+              "Unknown work item type: " + std::to_string(work_item.type));
         }
         work_item.result.set_value(std::move(result));
       }
@@ -1405,7 +1501,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
 
   std::deque<BackupWorkItemPair> excludable_items;
   std::deque<BackupAfterCopyOrCreateWorkItem> backup_items_to_finish;
-  // Add a CopyOrCreateWorkItem to the channel for each live file
+  // Add a WorkItem to the channel for each live file
   Status disabled = db->DisableFileDeletions();
   DBOptions db_options = db->GetDBOptions();
   Statistics* stats = db_options.statistics.get();
@@ -1534,7 +1630,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
         if (maybe_exclude_files[i].exclude_decision) {
           new_backup.get()->AddExcludedFile(e.second.dst_relative);
         } else {
-          files_to_copy_or_create_.write(std::move(e.first));
+          work_items_.write(std::move(e.first));
           backup_items_to_finish.push_back(std::move(e.second));
         }
       }
@@ -1883,9 +1979,61 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
   db_fs_->CreateDirIfMissing(wal_dir, io_options_, nullptr)
       .PermitUncheckedError();
 
+  // Files to restore, and from where (taking into account excluded files)
+  std::vector<std::pair<const BackupEngineImpl*, const FileInfo*>>
+      restore_file_infos;
+  restore_file_infos.reserve(backup->GetFiles().size() +
+                             backup->GetExcludedFiles().size());
+  std::unordered_set<std::string> unowned_backups;
+  for (const auto& ef : backup->GetExcludedFiles()) {
+    const std::string& file = ef.relative_file;
+
+    bool found = false;
+    for (auto be : locked_restore_from_dirs) {
+      auto it = be->backuped_file_infos_.find(file);
+      if (it != backuped_file_infos_.end()) {
+        restore_file_infos.emplace_back(be, &*it->second);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      // In `kKeepLatestDbSessionIdFiles` restore mode, it's not strictly
+      // required for the corresponding backup file to be present for as long
+      // as existing, on-disk db file metadata matches this unowned backup file
+      // db_session_id and size.
+      if (options.mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
+        unowned_backups.insert(ef.relative_file);
+        continue;
+      }
+
+      return IOStatus::InvalidArgument(
+          "Excluded file " + file + " not found in any of %d" +
+          std::to_string(locked_restore_from_dirs.size() - 1) +
+          "backup directories!");
+    }
+  }
+
+  // Non-excluded files
+  for (const auto& file_info_shared : backup->GetFiles()) {
+    restore_file_infos.emplace_back(this, &*file_info_shared);
+  }
+
+  std::unordered_set<uint64_t> files_to_keep;
+  InferDBFilesToRetainInRestore(restore_file_infos, unowned_backups, db_dir,
+                                options.mode, files_to_keep);
+
+  if (!unowned_backups.empty()) {
+    return IOStatus::InvalidArgument(
+        "Excluded file " + *unowned_backups.begin() + " (one amongst " +
+        std::to_string(unowned_backups.size()) + ") not found in any of" +
+        std::to_string(locked_restore_from_dirs.size() - 1) +
+        "backup directories!");
+  }
+
   if (options.keep_log_files) {
-    // delete files in db_dir, but keep all the log files
-    DeleteChildren(db_dir, 1 << kWalFile);
+    // delete non-matching files in db_dir, but keep all the log files
+    DeleteChildren(db_dir, files_to_keep, 1 << kWalFile);
     // move all the files from archive dir to wal_dir
     std::string archive_dir = ArchivalDirectory(wal_dir);
     std::vector<std::string> archive_files;
@@ -1909,40 +2057,9 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
       }
     }
   } else {
-    DeleteChildren(wal_dir);
-    DeleteChildren(ArchivalDirectory(wal_dir));
-    DeleteChildren(db_dir);
-  }
-
-  // Files to restore, and from where (taking into account excluded files)
-  std::vector<std::pair<const BackupEngineImpl*, const FileInfo*>>
-      restore_file_infos;
-  restore_file_infos.reserve(backup->GetFiles().size() +
-                             backup->GetExcludedFiles().size());
-
-  for (const auto& ef : backup->GetExcludedFiles()) {
-    const std::string& file = ef.relative_file;
-
-    bool found = false;
-    for (auto be : locked_restore_from_dirs) {
-      auto it = be->backuped_file_infos_.find(file);
-      if (it != backuped_file_infos_.end()) {
-        restore_file_infos.emplace_back(be, &*it->second);
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      return IOStatus::InvalidArgument(
-          "Excluded file " + file + " not found in other backups nor in " +
-          std::to_string(locked_restore_from_dirs.size() - 1) +
-          " alternate backup directories");
-    }
-  }
-
-  // Non-excluded files
-  for (const auto& file_info_shared : backup->GetFiles()) {
-    restore_file_infos.emplace_back(this, &*file_info_shared);
+    DeleteChildren(wal_dir, files_to_keep);
+    DeleteChildren(ArchivalDirectory(wal_dir), files_to_keep);
+    DeleteChildren(db_dir, files_to_keep);
   }
 
   IOStatus io_s;
@@ -1970,6 +2087,15 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
       return IOStatus::Corruption("Backup corrupted: Fail to parse filename " +
                                   dst);
     }
+
+    // `files_to_keep` identifies existing database files with contents
+    // 'identical' to their respective backup files (standard or excluded)
+    // as per user-selected RestoreOptions::Mode.
+    if (files_to_keep.find(number) != files_to_keep.end()) {
+      // This file is already in the destination directory. Skip restore.
+      continue;
+    }
+
     // 3. Construct the final path
     // kWalFile lives in wal_dir and all the rest live in db_dir
     if (type == kWalFile) {
@@ -2001,7 +2127,15 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
 
     ROCKS_LOG_INFO(options_.info_log, "Restoring %s to %s\n", file.c_str(),
                    dst.c_str());
-    CopyOrCreateWorkItem copy_or_create_work_item(
+
+    // When file is being copied over, it means that it was either non-existent,
+    // purged or its' original on-disk representation didn't meet incremental
+    // restore tiering criteria. As such, we need to unconditionally recompute
+    // the checksum on the newly restored files - even if checksum was already
+    // computed on its' seed backup file in early assessment phase. Protection
+    // is put in place to ensure that there are no bugs in the actual restore /
+    // file copy logic and we're not producing garbage db files.
+    WorkItem copy_or_create_work_item(
         absolute_file, dst, Temperature::kUnknown /* src_temp */,
         file_info->temp, "" /* contents */, src_env, db_env_,
         EnvOptions() /* src_env_options */, options_.sync,
@@ -2010,7 +2144,7 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
     RestoreAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), file, dst,
         file_info->checksum_hex);
-    files_to_copy_or_create_.write(std::move(copy_or_create_work_item));
+    work_items_.write(std::move(copy_or_create_work_item));
     restore_items_to_finish.push_back(
         std::move(after_copy_or_create_work_item));
   }
@@ -2181,9 +2315,9 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     return io_s;
   }
 
-  size_t buf_size =
-      rate_limiter ? static_cast<size_t>(rate_limiter->GetSingleBurstBytes())
-                   : kDefaultCopyFileBufferSize;
+  size_t buf_size = CalculateIOBufferSize(rate_limiter);
+  TEST_SYNC_POINT_CALLBACK(
+      "BackupEngineImpl::CopyOrCreateFile:CalculateIOBufferSize", &buf_size);
 
   // TODO: pass in Histograms if the destination file is sst or blob
   std::unique_ptr<WritableFileWriter> dest_writer(
@@ -2274,6 +2408,16 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     io_s = dest_writer->Close(opts);
   }
   return io_s;
+}
+
+uint64_t BackupEngineImpl::CalculateIOBufferSize(
+    RateLimiter* rate_limiter) const {
+  if (options_.io_buffer_size > 0) {
+    return options_.io_buffer_size;
+  }
+  return rate_limiter != nullptr
+             ? static_cast<size_t>(rate_limiter->GetSingleBurstBytes())
+             : kDefaultCopyFileBufferSize;
 }
 
 // fname will always start with "/"
@@ -2487,7 +2631,7 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
 
   // Step 3: Add work item
   if (!contents.empty() || need_to_copy) {
-    CopyOrCreateWorkItem copy_or_create_work_item(
+    WorkItem copy_or_create_work_item(
         src_dir.empty() ? "" : src_path, *copy_dest_path, src_temperature,
         Temperature::kUnknown /*dst_temp*/, contents, db_env_, backup_env_,
         src_env_options, options_.sync, rate_limiter, size_limit, stats,
@@ -2507,17 +2651,17 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
       // the checkpoint
       ROCKS_LOG_INFO(options_.info_log, "Copying %s to %s", fname.c_str(),
                      copy_dest_path->c_str());
-      files_to_copy_or_create_.write(std::move(copy_or_create_work_item));
+      work_items_.write(std::move(copy_or_create_work_item));
       backup_items_to_finish.push_back(
           std::move(after_copy_or_create_work_item));
     }
   } else {
-    std::promise<CopyOrCreateResult> promise_result;
+    std::promise<WorkItemResult> promise_result;
     BackupAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         promise_result.get_future(), shared, need_to_copy, backup_env_,
         temp_dest_path, final_dest_path, dst_relative);
     backup_items_to_finish.push_back(std::move(after_copy_or_create_work_item));
-    CopyOrCreateResult result;
+    WorkItemResult result;
     result.io_status = IOStatus::OK();
     result.size = size_bytes;
     result.checksum_hex = std::move(checksum_hex);
@@ -2557,7 +2701,7 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
     return io_s;
   }
 
-  size_t buf_size = kDefaultCopyFileBufferSize;
+  size_t buf_size = CalculateIOBufferSize(rate_limiter);
   std::unique_ptr<char[]> buf(new char[buf_size]);
   Slice data;
 
@@ -2582,10 +2726,13 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
   return io_s;
 }
 
-Status BackupEngineImpl::GetFileDbIdentities(
-    Env* src_env, const EnvOptions& src_env_options,
-    const std::string& file_path, Temperature file_temp,
-    RateLimiter* rate_limiter, std::string* db_id, std::string* db_session_id) {
+Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
+                                             const EnvOptions& src_env_options,
+                                             const std::string& file_path,
+                                             Temperature file_temp,
+                                             RateLimiter* rate_limiter,
+                                             std::string* db_id,
+                                             std::string* db_session_id) const {
   assert(db_id != nullptr || db_session_id != nullptr);
 
   Options options;
@@ -2660,8 +2807,276 @@ void BackupEngineImpl::LoopRateLimitRequestHelper(
   }
 }
 
-void BackupEngineImpl::DeleteChildren(const std::string& dir,
-                                      uint32_t file_type_filter) const {
+void BackupEngineImpl::InferDBFilesToRetainInRestore(
+    const std::vector<std::pair<const BackupEngineImpl*, const FileInfo*>>&
+        restore_file_infos,
+    std::unordered_set<std::string>& unowned_backups, const std::string& db_dir,
+    RestoreOptions::Mode mode,
+    std::unordered_set<uint64_t>& files_to_keep) const {
+  if (mode == RestoreOptions::Mode::kPurgeAllFiles) {
+    return;
+  }
+
+  ROCKS_LOG_INFO(options_.info_log,
+                 "Starting incremental restore evaluation in %" PRIu32 " mode",
+                 mode);
+
+  ROCKS_LOG_INFO(options_.info_log, "Constructing backup files mapping...");
+  std::unordered_map<uint64_t,
+                     std::pair<const BackupEngineImpl*, const FileInfo*>>
+      file_num_to_engine_infos;
+  for (const auto& engine_and_file_info : restore_file_infos) {
+    uint64_t number;
+    FileType type;
+
+    std::string filename = engine_and_file_info.second->GetDbFileName();
+    if (!ParseFileName(filename, &number, &type)) {
+      continue;
+    }
+
+    // We only care to optimize restore for large files - like SSTs and blobs.
+    // Blobs are only supported in kVerifyChecksum.
+    if (type == kTableFile ||
+        (type == kBlobFile && mode == RestoreOptions::Mode::kVerifyChecksum)) {
+      file_num_to_engine_infos[number] = engine_and_file_info;
+    }
+  }
+
+  ROCKS_LOG_INFO(
+      options_.info_log,
+      "Evaluating existing .sst%s files restore retention eligibility...",
+      mode == RestoreOptions::Mode::kVerifyChecksum ? " and .blob files" : "");
+
+  std::vector<std::string> children;
+  db_fs_->GetChildren(db_dir, io_options_, &children, nullptr)
+      .PermitUncheckedError();  // ignore errors
+  std::vector<ComputeChecksumWorkItem> backup_files_compute_checksum_work_items;
+  std::vector<ComputeChecksumWorkItem> db_files_compute_checksum_work_items;
+  std::unordered_map<uint64_t, std::string> backup_file_num_to_checksum;
+  for (const auto& f : children) {
+    uint64_t number;
+    FileType type;
+    bool ok = ParseFileName(f, &number, &type);
+    if (!ok) {
+      // Couldn't parse existing file name. We deliberately choose to sliently
+      // skip here to avoid noisy & excessive logging in user controlled envs.
+      continue;
+    }
+
+    if (type != kTableFile && type != kBlobFile) {
+      // We only care to optimize restore for large files - like SSTs / blobs.
+      continue;
+    }
+
+    if (type == kBlobFile && mode != RestoreOptions::Mode::kVerifyChecksum) {
+      // Blob files are only supported in kVerifyChecksum mode.
+      continue;
+    }
+
+    uint64_t size_bytes = 0;
+    std::string db_file_path = db_dir + "/" + f;
+    IOStatus io_st = db_fs_->GetFileSize(db_file_path, io_options_, &size_bytes,
+                                         nullptr /* dbg */);
+    if (!io_st.ok()) {
+      Log(options_.info_log,
+          "Failed to get the file size for existing file: '%s'. IO status: %s",
+          f.c_str(), io_st.ToString().c_str());
+      continue;
+    }
+
+    RateLimiter* rate_limiter = options_.restore_rate_limiter.get();
+    if (mode == RestoreOptions::Mode::kKeepLatestDbSessionIdFiles) {
+      // On-disk existing db file names require direct file footer query
+      // as they don't follow same naming convention as backups.
+      std::string db_id;
+      std::string db_session_id;
+      Status s = GetFileDbIdentities(
+          db_env_, EnvOptions() /* src_env_options */,
+          db_file_path /* file_path */, Temperature::kUnknown /* src_temp */,
+          rate_limiter, &db_id, &db_session_id);
+      if (!s.ok()) {
+        Log(options_.info_log,
+            "Encountered IO error while obtaining db session id metadata for "
+            "existing file '%s'.",
+            db_file_path.c_str());
+        continue;
+      }
+
+      const std::string checksum_hex = "";
+      std::string shared_file_name = GenerateSharedFileWithDbSessionIdAndSize(
+          f, size_bytes, db_session_id);
+      bool found = false;
+      const auto& f_ei = file_num_to_engine_infos.find(number);
+      if (f_ei != file_num_to_engine_infos.end()) {
+        found = f_ei->second.second->filename == shared_file_name;
+      }
+
+      if (!found) {
+        const auto& uo_sst_bfn = unowned_backups.find(shared_file_name);
+        if (uo_sst_bfn != unowned_backups.end()) {
+          // Db file has been successfully associated with the excluded backup.
+          unowned_backups.erase(shared_file_name);
+          found = true;
+        }
+      }
+
+      if (found) {
+        files_to_keep.insert(number);
+
+        ROCKS_LOG_INFO(options_.info_log,
+                       "Existing db file '%s' is retained for restore.",
+                       f.c_str());
+      }
+    } else if (mode == RestoreOptions::Mode::kVerifyChecksum) {
+      const auto& f_ei = file_num_to_engine_infos.find(number);
+      if (f_ei == file_num_to_engine_infos.end() ||
+          f_ei->second.second->GetDbFileName() != f) {
+        Log(options_.info_log,
+            "Existing file '%s' is not present in the backup!", f.c_str());
+        continue;
+      }
+
+      auto backup_engine_impl = f_ei->second.first;
+      auto backup_file_info = f_ei->second.second;
+      DBOptions db_options;
+      std::string backup_file_path =
+          backup_engine_impl->GetAbsolutePath(backup_file_info->filename);
+      std::string backup_file_checksum = backup_file_info->checksum_hex;
+      if (!backup_file_checksum.empty()) {
+        backup_file_num_to_checksum[number] = backup_file_checksum;
+      } else {
+        // Backup file checksum is missing in the backup metadata.
+        // Given explicit requirement, compute it asynchronously.
+        EnvOptions backup_env_options;
+        if (type == kBlobFile) {
+          backup_engine_impl->backup_env_->OptimizeForBlobFileRead(
+              backup_env_options, ImmutableDBOptions(db_options));
+        } else if (type == kTableFile) {
+          backup_engine_impl->backup_env_->OptimizeForCompactionTableRead(
+              backup_env_options, ImmutableDBOptions(db_options));
+        }
+
+        WorkItem backup_file_work_item(
+            backup_file_path, "" /* dst_path */, backup_file_info->temp,
+            Temperature::kUnknown /* dst_temperature */, "" /* contents */,
+            backup_engine_impl->backup_env_, nullptr /* dst_env */,
+            backup_env_options, false /* sync */,
+            options_.restore_rate_limiter.get(), 0 /* size_limit */,
+            nullptr /* stats */, {} /* progress_callback */,
+            kUnknownFileChecksumFuncName /* src_checksum_func_name */,
+            "" /* src_checksum_hex */, "" /* db_id */, "" /* db_session_id*/,
+            WorkItemType::ComputeChecksum);
+
+        ComputeChecksumWorkItem backup_file_checksum_work_item(
+            backup_file_work_item.result.get_future(),
+            backup_file_info->filename, number);
+
+        work_items_.write(std::move(backup_file_work_item));
+        backup_files_compute_checksum_work_items.push_back(
+            std::move(backup_file_checksum_work_item));
+
+        Log(options_.info_log,
+            "Checksum is missing in '%s' backup file metadata."
+            "Scheduled async computation...",
+            backup_file_info->filename.c_str());
+      }
+
+      // Unconditionally compute checksum for existing file.
+      EnvOptions db_env_options;
+      if (type == kBlobFile) {
+        db_env_->OptimizeForBlobFileRead(db_env_options,
+                                         ImmutableDBOptions(db_options));
+      } else if (type == kTableFile) {
+        db_env_->OptimizeForCompactionTableRead(db_env_options,
+                                                ImmutableDBOptions(db_options));
+      }
+
+      WorkItem db_file_work_item(
+          db_file_path, "" /* dst_path */, backup_file_info->temp,
+          Temperature::kUnknown /* dst_temperature */, "" /* contents */,
+          db_env_, nullptr /* dst_env */, db_env_options, false /* sync */,
+          options_.restore_rate_limiter.get(), 0 /* size_limit */,
+          nullptr /* stats */, {} /* progress_callback */,
+          kUnknownFileChecksumFuncName /* src_checksum_func_name */,
+          "" /* src_checksum_hex */, "" /* db_id */, "" /* db_session_id*/,
+          WorkItemType::ComputeChecksum);
+
+      ComputeChecksumWorkItem db_file_checksum_work_item(
+          db_file_work_item.result.get_future(), db_file_path, number);
+      work_items_.write(std::move(db_file_work_item));
+      db_files_compute_checksum_work_items.push_back(
+          std::move(db_file_checksum_work_item));
+
+      Log(options_.info_log,
+          "Schedule async checksum computation for file '%s'", f.c_str());
+    }
+  }
+
+  if (mode == RestoreOptions::Mode::kVerifyChecksum) {
+    // First loop through checksum computation results for backup files.
+    for (auto& item : backup_files_compute_checksum_work_items) {
+      item.result.wait();
+      auto result = item.result.get();
+      IOStatus item_io_status = result.io_status;
+      if (!item_io_status.ok()) {
+        // Failed computation for backup file will result in purging
+        // the existing file and restoring the backup file.
+        Log(options_.info_log,
+            "Encountered IO error while computing checksum for "
+            "backup file '%s'.",
+            item.file_path.c_str());
+        continue;
+      }
+
+      backup_file_num_to_checksum[item.file_number] = result.checksum_hex;
+    }
+
+    // Loop through db files checksum computation results.
+    for (auto& item : db_files_compute_checksum_work_items) {
+      item.result.wait();
+      auto result = item.result.get();
+      IOStatus item_io_status = result.io_status;
+      if (!item_io_status.ok()) {
+        // Failed computation for existing file will result in purging
+        // and restoring it from the corresponding backup file.
+        Log(options_.info_log,
+            "Encountered IO error while computing checksum for "
+            "existing file '%s'.",
+            item.file_path.c_str());
+        continue;
+      }
+
+      auto it = backup_file_num_to_checksum.find(item.file_number);
+      if (it == backup_file_num_to_checksum.end()) {
+        Log(options_.info_log,
+            "Failed to find backup file checksum for existing file '%s'.",
+            item.file_path.c_str());
+        continue;
+      }
+
+      if (it->second != result.checksum_hex) {
+        Log(options_.info_log,
+            "Checksum mismatch between backup file and existing file '%s'.",
+            item.file_path.c_str());
+        continue;
+      }
+
+      files_to_keep.insert(item.file_number);
+
+      Log(options_.info_log, "Existing file '%s' is retained for restore.",
+          item.file_path.c_str());
+    }
+  }
+
+  ROCKS_LOG_INFO(options_.info_log,
+                 "Done with incremental restore evaluation. "
+                 "Retained %zu files.",
+                 files_to_keep.size());
+}
+
+void BackupEngineImpl::DeleteChildren(
+    const std::string& dir, const std::unordered_set<uint64_t>& files_to_keep,
+    uint32_t file_type_filter) const {
   std::vector<std::string> children;
   db_fs_->GetChildren(dir, io_options_, &children, nullptr)
       .PermitUncheckedError();  // ignore errors
@@ -2670,8 +3085,12 @@ void BackupEngineImpl::DeleteChildren(const std::string& dir,
     uint64_t number;
     FileType type;
     bool ok = ParseFileName(f, &number, &type);
+    if (ok && (files_to_keep.find(number) != files_to_keep.end())) {
+      // don't delete file with this number.
+      continue;
+    }
     if (ok && (file_type_filter & (1 << type))) {
-      // don't delete this file
+      // don't delete this file type.
       continue;
     }
     db_fs_->DeleteFile(dir + "/" + f, io_options_, nullptr)

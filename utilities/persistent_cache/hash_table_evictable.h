@@ -5,7 +5,6 @@
 //
 #pragma once
 
-
 #include <functional>
 
 #include "util/random.h"
@@ -163,4 +162,3 @@ class EvictableHashTable : private HashTable<T*, Hash, Equal> {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-

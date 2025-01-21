@@ -2938,7 +2938,6 @@ TEST_F(CreateEnvTest, CreateEncryptedFileSystem) {
   ASSERT_TRUE(fs->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
 
-
 namespace {
 
 constexpr size_t kThreads = 8;

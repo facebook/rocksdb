@@ -332,11 +332,11 @@ Compaction::Compaction(
               : (_blob_garbage_collection_policy ==
                          BlobGarbageCollectionPolicy::kDisable
                      ? false
-                     : mutable_cf_options()->enable_blob_garbage_collection)),
+                     : mutable_cf_options().enable_blob_garbage_collection)),
       blob_garbage_collection_age_cutoff_(
           _blob_garbage_collection_age_cutoff < 0 ||
                   _blob_garbage_collection_age_cutoff > 1
-              ? mutable_cf_options()->blob_garbage_collection_age_cutoff
+              ? mutable_cf_options().blob_garbage_collection_age_cutoff
               : _blob_garbage_collection_age_cutoff),
       penultimate_level_(
           // For simplicity, we don't support the concept of "penultimate level"
@@ -410,6 +410,7 @@ Compaction::Compaction(
 
 void Compaction::PopulatePenultimateLevelOutputRange() {
   if (!SupportsPerKeyPlacement()) {
+    assert(keep_in_last_level_through_seqno_ == kMaxSequenceNumber);
     return;
   }
 
@@ -452,6 +453,27 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
   GetBoundaryInternalKeys(input_vstorage_, inputs_,
                           &penultimate_level_smallest_,
                           &penultimate_level_largest_, exclude_level);
+
+  if (penultimate_output_range_type_ !=
+      PenultimateOutputRangeType::kFullRange) {
+    // If not full range in penultimate level, must keep everything already
+    // in the last level there, because moving it back up might cause
+    // overlap/placement issues that are difficult to resolve properly in the
+    // presence of range deletes
+    SequenceNumber max_last_level_seqno = 0;
+    for (const auto& input_lvl : inputs_) {
+      if (input_lvl.level == output_level_) {
+        for (const auto& file : input_lvl.files) {
+          max_last_level_seqno =
+              std::max(max_last_level_seqno, file->fd.largest_seqno);
+        }
+      }
+    }
+
+    keep_in_last_level_through_seqno_ = max_last_level_seqno;
+  } else {
+    keep_in_last_level_through_seqno_ = 0;
+  }
 }
 
 Compaction::~Compaction() {
@@ -494,22 +516,29 @@ bool Compaction::OverlapPenultimateLevelOutputRange(
 }
 
 // key includes timestamp if user-defined timestamp is enabled.
-bool Compaction::WithinPenultimateLevelOutputRange(
-    const ParsedInternalKey& ikey) const {
-  if (!SupportsPerKeyPlacement()) {
-    return false;
-  }
+void Compaction::TEST_AssertWithinPenultimateLevelOutputRange(
+    const Slice& user_key, bool expect_failure) const {
+#ifdef NDEBUG
+  (void)user_key;
+  (void)expect_failure;
+#else
+  assert(SupportsPerKeyPlacement());
 
-  if (penultimate_level_smallest_.size() == 0 ||
-      penultimate_level_largest_.size() == 0) {
-    return false;
-  }
+  assert(penultimate_level_smallest_.size() > 0);
+  assert(penultimate_level_largest_.size() > 0);
 
-  const InternalKeyComparator* icmp = input_vstorage_->InternalComparator();
+  auto* cmp = input_vstorage_->user_comparator();
 
   // op_type of a key can change during compaction, e.g. Merge -> Put.
-  return icmp->CompareKeySeq(ikey, penultimate_level_smallest_.Encode()) >= 0 &&
-         icmp->CompareKeySeq(ikey, penultimate_level_largest_.Encode()) <= 0;
+  if (!(cmp->Compare(user_key, penultimate_level_smallest_.user_key()) >= 0)) {
+    assert(expect_failure);
+  } else if (!(cmp->Compare(user_key, penultimate_level_largest_.user_key()) <=
+               0)) {
+    assert(expect_failure);
+  } else {
+    assert(!expect_failure);
+  }
+#endif
 }
 
 bool Compaction::InputCompressionMatchesOutput() const {
@@ -563,7 +592,7 @@ bool Compaction::IsTrivialMove() const {
   // input files are non overlapping
   if ((mutable_cf_options_.compaction_options_universal.allow_trivial_move) &&
       (output_level_ != 0) &&
-      (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal)) {
+      (cfd_->ioptions().compaction_style == kCompactionStyleUniversal)) {
     return is_trivial_move_;
   }
 
@@ -621,7 +650,7 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   if (bottommost_level_) {
     return true;
   } else if (output_level_ != 0 &&
-             cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+             cfd_->ioptions().compaction_style == kCompactionStyleLevel) {
     // Maybe use binary search to find right entry instead of linear search?
     const Comparator* user_cmp = cfd_->user_comparator();
     for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
@@ -662,7 +691,7 @@ bool Compaction::KeyRangeNotExistsBeyondOutputLevel(
   if (bottommost_level_) {
     return true /* does not overlap */;
   } else if (output_level_ != 0 &&
-             cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+             cfd_->ioptions().compaction_style == kCompactionStyleLevel) {
     const Comparator* user_cmp = cfd_->user_comparator();
     for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
       const std::vector<FileMetaData*>& files =
@@ -838,12 +867,12 @@ uint64_t Compaction::OutputFilePreallocationSize() const {
 }
 
 std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
-  if (!cfd_->ioptions()->compaction_filter_factory) {
+  if (!cfd_->ioptions().compaction_filter_factory) {
     return nullptr;
   }
 
   if (!cfd_->ioptions()
-           ->compaction_filter_factory->ShouldFilterTableFileCreation(
+           .compaction_filter_factory->ShouldFilterTableFileCreation(
                TableFileCreationReason::kCompaction)) {
     return nullptr;
   }
@@ -862,7 +891,7 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
         "for compaction.");
   }
 
-  return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
+  return cfd_->ioptions().compaction_filter_factory->CreateCompactionFilter(
       context);
 }
 
@@ -896,8 +925,8 @@ bool Compaction::ShouldFormSubcompactions() const {
 
   // Round-Robin pri under leveled compaction allows subcompactions by default
   // and the number of subcompactions can be larger than max_subcompactions_
-  if (cfd_->ioptions()->compaction_pri == kRoundRobin &&
-      cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+  if (cfd_->ioptions().compaction_pri == kRoundRobin &&
+      cfd_->ioptions().compaction_style == kCompactionStyleLevel) {
     return output_level_ > 0;
   }
 
@@ -905,9 +934,9 @@ bool Compaction::ShouldFormSubcompactions() const {
     return false;
   }
 
-  if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+  if (cfd_->ioptions().compaction_style == kCompactionStyleLevel) {
     return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0;
-  } else if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
+  } else if (cfd_->ioptions().compaction_style == kCompactionStyleUniversal) {
     return number_levels_ > 1 && output_level_ > 0;
   } else {
     return false;

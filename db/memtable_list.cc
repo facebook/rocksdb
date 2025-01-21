@@ -515,8 +515,7 @@ void MemTableList::RollbackMemtableFlush(
 // Try record a successful flush in the manifest file. It might just return
 // Status::OK letting a concurrent flush to do actual the recording..
 Status MemTableList::TryInstallMemtableFlushResults(
-    ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-    const autovector<ReadOnlyMemTable*>& mems,
+    ColumnFamilyData* cfd, const autovector<ReadOnlyMemTable*>& mems,
     LogsWithPrepTracker* prep_tracker, VersionSet* vset, InstrumentedMutex* mu,
     uint64_t file_number, autovector<ReadOnlyMemTable*>* to_delete,
     FSDirectory* db_directory, LogBuffer* log_buffer,
@@ -632,10 +631,10 @@ Status MemTableList::TryInstallMemtableFlushResults(
       };
       if (write_edits) {
         // this can release and reacquire the mutex.
-        s = vset->LogAndApply(
-            cfd, mutable_cf_options, read_options, write_options, edit_list, mu,
-            db_directory, /*new_descriptor_log=*/false,
-            /*column_family_options=*/nullptr, manifest_write_cb);
+        s = vset->LogAndApply(cfd, read_options, write_options, edit_list, mu,
+                              db_directory, /*new_descriptor_log=*/false,
+                              /*column_family_options=*/nullptr,
+                              manifest_write_cb);
       } else {
         // If write_edit is false (e.g: successful mempurge),
         // then remove old memtables, wake up manifest write queue threads,
@@ -854,7 +853,6 @@ uint64_t MemTableList::PrecomputeMinLogContainingPrepSection(
 Status InstallMemtableAtomicFlushResults(
     const autovector<MemTableList*>* imm_lists,
     const autovector<ColumnFamilyData*>& cfds,
-    const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<const autovector<ReadOnlyMemTable*>*>& mems_list,
     VersionSet* vset, LogsWithPrepTracker* prep_tracker, InstrumentedMutex* mu,
     const autovector<FileMetaData*>& file_metas,
@@ -946,8 +944,8 @@ Status InstallMemtableAtomicFlushResults(
   }
 
   // this can release and reacquire the mutex.
-  s = vset->LogAndApply(cfds, mutable_cf_options_list, read_options,
-                        write_options, edit_lists, mu, db_directory);
+  s = vset->LogAndApply(cfds, read_options, write_options, edit_lists, mu,
+                        db_directory);
 
   for (size_t k = 0; k != cfds.size(); ++k) {
     auto* imm = (imm_lists == nullptr) ? cfds[k]->imm() : imm_lists->at(k);

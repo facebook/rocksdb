@@ -177,5 +177,4 @@ Env* NewTimedEnv(Env* base_env) {
   return new CompositeEnvWrapper(base_env, timed_fs);
 }
 
-
 }  // namespace ROCKSDB_NAMESPACE

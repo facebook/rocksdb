@@ -53,13 +53,11 @@ static Slice GetSliceForFileNumber(const uint64_t* file_number) {
                sizeof(*file_number));
 }
 
-
 void AppendVarint64(IterKey* key, uint64_t v) {
   char buf[10];
   auto ptr = EncodeVarint64(buf, v);
   key->TrimAppend(key->Size(), buf, ptr - buf);
 }
-
 
 }  // anonymous namespace
 

@@ -227,7 +227,7 @@ std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity>
          Status::Severity::kFatalError},
 };
 
-void ErrorHandler::CancelErrorRecovery() {
+void ErrorHandler::CancelErrorRecoveryForShutDown() {
   db_mutex_->AssertHeld();
 
   // We'll release the lock before calling sfm, so make sure no new
@@ -573,6 +573,8 @@ Status ErrorHandler::ClearBGError() {
 
   // Signal that recovery succeeded
   if (recovery_error_.ok()) {
+    // If this assertion fails, it means likely bg error is not set after a
+    // file is quarantined during MANIFEST write.
     assert(files_to_quarantine_.empty());
     Status old_bg_error = bg_error_;
     // old_bg_error is only for notifying listeners, so may not be checked
@@ -585,8 +587,15 @@ Status ErrorHandler::ClearBGError() {
     recovery_error_.PermitUncheckedError();
     recovery_in_prog_ = false;
     soft_error_no_bg_work_ = false;
-    EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, old_bg_error,
-                                           bg_error_, db_mutex_);
+    if (!db_->shutdown_initiated_) {
+      // NotifyOnErrorRecoveryEnd() may release and re-acquire db_mutex_.
+      // Prevent DB from being closed while we notify listeners. DB close will
+      // wait until allow_db_shutdown_ = true, see ReadyForShutdown().
+      allow_db_shutdown_ = false;
+      EventHelpers::NotifyOnErrorRecoveryEnd(
+          db_options_.listeners, old_bg_error, bg_error_, db_mutex_);
+      allow_db_shutdown_ = true;
+    }
   }
   return recovery_error_;
 }

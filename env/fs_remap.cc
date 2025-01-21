@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-
 #include "env/fs_remap.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -349,4 +348,3 @@ IOStatus RemapFileSystem::GetAbsolutePath(const std::string& db_path,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-

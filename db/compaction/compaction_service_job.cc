@@ -177,7 +177,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   for (const auto& file : compaction_result.output_files) {
     uint64_t file_num = versions_->NewFileNumber();
     auto src_file = compaction_result.output_path + "/" + file.file_name;
-    auto tgt_file = TableFileName(compaction->immutable_options()->cf_paths,
+    auto tgt_file = TableFileName(compaction->immutable_options().cf_paths,
                                   file_num, compaction->output_path_id());
     s = fs_->RenameFile(src_file, tgt_file, IOOptions(), nullptr);
     if (!s.ok()) {
@@ -189,6 +189,10 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
     FileMetaData meta;
     uint64_t file_size;
+    // FIXME: file_size should be part of CompactionServiceOutputFile so that
+    // we don't get DB corruption if the full file size has not been propagated
+    // back to the caller through the file system (which could have metadata
+    // lag or caching bugs).
     s = fs_->GetFileSize(tgt_file, IOOptions(), &file_size, nullptr);
     if (!s.ok()) {
       sub_compact->status = s;
@@ -265,43 +269,38 @@ CompactionServiceCompactionJob::CompactionServiceCompactionJob(
     std::string output_path,
     const CompactionServiceInput& compaction_service_input,
     CompactionServiceResult* compaction_service_result)
-    : CompactionJob(
-          job_id, compaction, db_options, mutable_db_options, file_options,
-          versions, shutting_down, log_buffer, nullptr, output_directory,
-          nullptr, stats, db_mutex, db_error_handler,
-          std::move(existing_snapshots), kMaxSequenceNumber, nullptr, nullptr,
-          std::move(table_cache), event_logger,
-          compaction->mutable_cf_options()->paranoid_file_checks,
-          compaction->mutable_cf_options()->report_bg_io_stats, dbname,
-          &(compaction_service_result->stats), Env::Priority::USER, io_tracer,
-          manual_compaction_canceled, db_id, db_session_id,
-          compaction->column_family_data()->GetFullHistoryTsLow()),
+    : CompactionJob(job_id, compaction, db_options, mutable_db_options,
+                    file_options, versions, shutting_down, log_buffer, nullptr,
+                    output_directory, nullptr, stats, db_mutex,
+                    db_error_handler, std::move(existing_snapshots),
+                    kMaxSequenceNumber, nullptr, nullptr,
+                    std::move(table_cache), event_logger,
+                    compaction->mutable_cf_options().paranoid_file_checks,
+                    compaction->mutable_cf_options().report_bg_io_stats, dbname,
+                    &(compaction_service_result->stats), Env::Priority::USER,
+                    io_tracer, manual_compaction_canceled, db_id, db_session_id,
+                    compaction->column_family_data()->GetFullHistoryTsLow()),
       output_path_(std::move(output_path)),
       compaction_input_(compaction_service_input),
       compaction_result_(compaction_service_result) {}
+
+void CompactionServiceCompactionJob::Prepare() {
+  std::optional<Slice> begin;
+  if (compaction_input_.has_begin) {
+    begin = compaction_input_.begin;
+  }
+  std::optional<Slice> end;
+  if (compaction_input_.has_end) {
+    end = compaction_input_.end;
+  }
+  CompactionJob::Prepare(std::make_pair(begin, end));
+}
 
 Status CompactionServiceCompactionJob::Run() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
 
   auto* c = compact_->compaction;
-  assert(c->column_family_data() != nullptr);
-  const VersionStorageInfo* storage_info = c->input_version()->storage_info();
-  assert(storage_info);
-  assert(storage_info->NumLevelFiles(compact_->compaction->level()) > 0);
-  write_hint_ = storage_info->CalculateSSTWriteHint(c->output_level());
-
-  bottommost_level_ = c->bottommost_level();
-
-  Slice begin = compaction_input_.begin;
-  Slice end = compaction_input_.end;
-  compact_->sub_compact_states.emplace_back(
-      c,
-      compaction_input_.has_begin ? std::optional<Slice>(begin)
-                                  : std::optional<Slice>(),
-      compaction_input_.has_end ? std::optional<Slice>(end)
-                                : std::optional<Slice>(),
-      /*sub_job_id*/ 0);
 
   log_buffer_->FlushBufferToLog();
   LogCompaction();

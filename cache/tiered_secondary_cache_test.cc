@@ -951,12 +951,20 @@ TEST_F(DBTieredSecondaryCacheTest, FSBufferTest) {
                            IODebugContext* dbg) override {
           for (size_t i = 0; i < num_reqs; ++i) {
             FSReadRequest& req = reqs[i];
-            FSAllocationPtr buffer(new char[req.len], [](void* ptr) {
-              delete[] static_cast<char*>(ptr);
-            });
-            req.fs_scratch = std::move(buffer);
+            // See https://github.com/facebook/rocksdb/pull/13195 for why we
+            // want to set up our test implementation for FSAllocationPtr this
+            // way.
+            char* internalData = new char[req.len];
             req.status = Read(req.offset, req.len, options, &req.result,
-                              static_cast<char*>(req.fs_scratch.get()), dbg);
+                              internalData, dbg);
+
+            Slice* internalSlice = new Slice(internalData, req.len);
+            FSAllocationPtr internalPtr(internalSlice, [](void* ptr) {
+              delete[] static_cast<const char*>(
+                  static_cast<Slice*>(ptr)->data_);
+              delete static_cast<Slice*>(ptr);
+            });
+            req.fs_scratch = std::move(internalPtr);
           }
           return IOStatus::OK();
         }

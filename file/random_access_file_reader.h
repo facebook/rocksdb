@@ -76,7 +76,6 @@ class RandomAccessFileReader {
     io_status.PermitUncheckedError();
   }
 
-
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
 
   FSRandomAccessFilePtr file_;
