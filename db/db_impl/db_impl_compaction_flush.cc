@@ -3421,7 +3421,6 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     InstrumentedMutexLock l(&mutex_);
 
     num_running_compactions_++;
-    int num_compaction_input_iterators = 0;
 
     std::unique_ptr<std::list<uint64_t>::iterator>
         pending_outputs_inserted_elem(new std::list<uint64_t>::iterator(
@@ -3430,8 +3429,13 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     assert((bg_thread_pri == Env::Priority::BOTTOM &&
             bg_bottom_compaction_scheduled_) ||
            (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
+
+    // BackgroundCompaction will update the
+    // num_running_compaction_input_iterators_ total and later we will subtract
+    // what was added
+    int num_compaction_input_iterators_added = 0;
     Status s = BackgroundCompaction(
-        &made_progress, num_compaction_input_iterators, &job_context,
+        &made_progress, num_compaction_input_iterators_added, &job_context,
         &log_buffer, prepicked_compaction, bg_thread_pri);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
     if (s.IsBusy()) {
@@ -3498,8 +3502,9 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
     assert(num_running_compaction_input_iterators_ >=
-           num_compaction_input_iterators);
-    num_running_compaction_input_iterators_ -= num_compaction_input_iterators;
+           num_compaction_input_iterators_added);
+    num_running_compaction_input_iterators_ -=
+        num_compaction_input_iterators_added;
 
     if (bg_thread_pri == Env::Priority::LOW) {
       bg_compaction_scheduled_--;
@@ -3539,7 +3544,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 }
 
 Status DBImpl::BackgroundCompaction(bool* made_progress,
-                                    int& num_compaction_input_iterators,
+                                    int& num_compaction_input_iterators_added,
                                     JobContext* job_context,
                                     LogBuffer* log_buffer,
                                     PrepickedCompaction* prepicked_compaction,
@@ -3737,11 +3742,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             num_files += each_level.files.size();
           }
           RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION, num_files);
-          num_compaction_input_iterators =
+          num_compaction_input_iterators_added =
               static_cast<int>(GetNumberCompactionInputIterators(c.get()));
-          assert(num_compaction_input_iterators >= 0);
+          assert(num_compaction_input_iterators_added >= 0);
           num_running_compaction_input_iterators_ +=
-              num_compaction_input_iterators;
+              num_compaction_input_iterators_added;
 
           // There are three things that can change compaction score:
           // 1) When flush or compaction finish. This case is covered by

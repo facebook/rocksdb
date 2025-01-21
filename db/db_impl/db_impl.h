@@ -2416,7 +2416,8 @@ class DBImpl : public DB {
                                 Env::Priority thread_pri);
   void BackgroundCallFlush(Env::Priority thread_pri);
   void BackgroundCallPurge();
-  Status BackgroundCompaction(bool* madeProgress, int& num_compaction_iterators,
+  Status BackgroundCompaction(bool* madeProgress,
+                              int& num_compaction_iterators_added,
                               JobContext* job_context, LogBuffer* log_buffer,
                               PrepickedCompaction* prepicked_compaction,
                               Env::Priority thread_pri);
