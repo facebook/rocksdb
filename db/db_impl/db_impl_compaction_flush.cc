@@ -3501,6 +3501,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
+    assert(num_running_compaction_input_iterators_ >= 0);
     assert(num_running_compaction_input_iterators_ >=
            num_compaction_input_iterators_added);
     num_running_compaction_input_iterators_ -=
@@ -3745,6 +3746,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           num_compaction_input_iterators_added =
               static_cast<int>(GetNumberCompactionInputIterators(c.get()));
           assert(num_compaction_input_iterators_added >= 0);
+          assert(num_running_compaction_input_iterators_ >= 0);
           num_running_compaction_input_iterators_ +=
               num_compaction_input_iterators_added;
 
