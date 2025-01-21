@@ -64,6 +64,7 @@ bool DBImpl::EnoughRoomForCompaction(
 size_t DBImpl::GetNumberCompactionInputIterators(Compaction* c) {
   assert(c);
   if (c->start_level() == 0) {
+    assert(0 < c->num_input_levels());
     size_t num_l0_files = c->num_input_files(0);
     size_t num_non_l0_levels = c->num_input_levels() - 1;
     return num_l0_files + num_non_l0_levels;
