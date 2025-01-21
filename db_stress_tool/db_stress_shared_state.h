@@ -10,6 +10,8 @@
 #ifdef GFLAGS
 #pragma once
 
+#include <iostream>
+
 #include "db_stress_tool/db_stress_stat.h"
 #include "db_stress_tool/expected_state.h"
 // SyncPoint is not supported in Released Windows Mode.
@@ -108,9 +110,11 @@ class SharedState {
     }
     if (status.ok()) {
       if (FLAGS_expected_values_dir.empty()) {
+        std::cout << "Using AnonExpectedStateManager" << std::endl;
         expected_state_manager_.reset(
             new AnonExpectedStateManager(FLAGS_max_key, FLAGS_column_families));
       } else {
+        std::cout << "Using FileExpectedStateManager" << std::endl;
         expected_state_manager_.reset(new FileExpectedStateManager(
             FLAGS_max_key, FLAGS_column_families, FLAGS_expected_values_dir));
       }
@@ -165,6 +169,8 @@ class SharedState {
   }
 
   port::Mutex* GetMutex() { return &mu_; }
+
+  port::Mutex* GetSecondaryMutex() { return &secondary_mu_; }
 
   port::CondVar* GetCondVar() { return &cv_; }
 
@@ -261,6 +267,10 @@ class SharedState {
 
   Status Restore(DB* db) { return expected_state_manager_->Restore(db); }
 
+  Status SetSecondaryExpectedState(DB* db) {
+    return expected_state_manager_->SetSecondaryExpectedState(db);
+  }
+
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) {
     return expected_state_manager_->ClearColumnFamily(cf);
@@ -289,6 +299,10 @@ class SharedState {
   // Does not requires external locking.
   ExpectedValue Get(int cf, int64_t key) {
     return expected_state_manager_->Get(cf, key);
+  }
+
+  ExpectedValue GetSecondary(int cf, int64_t key) {
+    return expected_state_manager_->GetSecondary(cf, key);
   }
 
   // Prepare a Delete that will be started but not finish yet
@@ -411,6 +425,7 @@ class SharedState {
   }
 
   port::Mutex mu_;
+  port::Mutex secondary_mu_;
   port::CondVar cv_;
   port::Mutex persist_seqno_mu_;
   const uint32_t seed_;

@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <iostream>
+
 #include "db/dbformat.h"
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
@@ -126,7 +128,8 @@ class NonBatchedOpsStressTest : public StressTest {
             s = Status::NotFound();
           }
 
-          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared,
+                            shared->Get(static_cast<int>(cf), i), from_db,
                             /* msg_prefix */ "Iterator verification", s);
 
           if (!from_db.empty()) {
@@ -145,7 +148,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
           Status s = db_->Get(options, column_families_[cf], key, &from_db);
 
-          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared,
+                            shared->Get(static_cast<int>(cf), i), from_db,
                             /* msg_prefix */ "Get verification", s);
 
           if (!from_db.empty()) {
@@ -180,7 +184,8 @@ class NonBatchedOpsStressTest : public StressTest {
             }
           }
 
-          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared,
+                            shared->Get(static_cast<int>(cf), i), from_db,
                             /* msg_prefix */ "GetEntity verification", s);
 
           if (!from_db.empty()) {
@@ -215,7 +220,8 @@ class NonBatchedOpsStressTest : public StressTest {
             const std::string from_db = values[j].ToString();
 
             VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
-                              from_db, /* msg_prefix */ "MultiGet verification",
+                              shared->Get(static_cast<int>(cf), i + j), from_db,
+                              /* msg_prefix */ "MultiGet verification",
                               statuses[j]);
 
             if (!from_db.empty()) {
@@ -266,9 +272,10 @@ class NonBatchedOpsStressTest : public StressTest {
               }
             }
 
-            VerifyOrSyncValue(
-                static_cast<int>(cf), i + j, options, shared, from_db,
-                /* msg_prefix */ "MultiGetEntity verification", statuses[j]);
+            VerifyOrSyncValue(static_cast<int>(cf), i + j, options, shared,
+                              shared->Get(static_cast<int>(cf), i + j), from_db,
+                              /* msg_prefix */ "MultiGetEntity verification",
+                              statuses[j]);
 
             if (!from_db.empty()) {
               PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
@@ -319,7 +326,8 @@ class NonBatchedOpsStressTest : public StressTest {
             from_db = values[number_of_operands - 1].ToString();
           }
 
-          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared, from_db,
+          VerifyOrSyncValue(static_cast<int>(cf), i, options, shared,
+                            shared->Get(static_cast<int>(cf), i), from_db,
                             /* msg_prefix */ "GetMergeOperands verification",
                             s);
 
@@ -336,94 +344,153 @@ class NonBatchedOpsStressTest : public StressTest {
     if (!cmp_db_) {
       return;
     }
+
     assert(cmp_db_);
     assert(!cmp_cfhs_.empty());
+    if (thread->tid != 0) {
+      return;
+    }
+    auto* shared = thread->shared;
+    assert(shared);
+    MutexLock l(shared->GetSecondaryMutex());
+
     Status s = cmp_db_->TryCatchUpWithPrimary();
     if (!s.ok()) {
       assert(false);
       exit(1);
     }
 
-    const auto checksum_column_family = [](Iterator* iter,
-                                           uint32_t* checksum) -> Status {
-      assert(nullptr != checksum);
-      uint32_t ret = 0;
-      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-        ret = crc32c::Extend(ret, iter->key().data(), iter->key().size());
-        ret = crc32c::Extend(ret, iter->value().data(), iter->value().size());
-      }
-      *checksum = ret;
-      return iter->status();
-    };
-
-    auto* shared = thread->shared;
-    assert(shared);
     const int64_t max_key = shared->GetMaxKey();
     ReadOptions read_opts(FLAGS_verify_checksum, true);
-    std::string ts_str;
-    Slice ts;
-    if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GetNowNanos();
-      ts = ts_str;
-      read_opts.timestamp = &ts;
-    }
 
-    static Random64 rand64(shared->GetSeed());
-
-    {
-      uint32_t crc = 0;
-      std::unique_ptr<Iterator> it(cmp_db_->NewIterator(read_opts));
-      s = checksum_column_family(it.get(), &crc);
-      if (!s.ok()) {
-        fprintf(stderr, "Computing checksum of default cf: %s\n",
-                s.ToString().c_str());
+    // If another thread calls SetSecondaryExpectedState while we are verifying
+    // the values, then that would mess up our verification if we are using Get
+    if (thread->shared->HasHistory() && thread->tid == 0) {
+      uint64_t start_get_expected_state = clock_->NowMicros();
+      Status setSecondaryExpectedStateStatus =
+          thread->shared->SetSecondaryExpectedState(cmp_db_);
+      if (!setSecondaryExpectedStateStatus.ok()) {
+        std::cout << "[NonBatchedOpsStressTest::ContinuouslyVerifyDb]: Failed "
+                     "to get expected state"
+                  << std::endl;
         assert(false);
       }
-    }
+      uint64_t end_get_expected_state = clock_->NowMicros();
+      std::cout << "Retrieved expected state in "
+                << end_get_expected_state - start_get_expected_state
+                << " microseconds" << std::endl;
 
-    for (auto* handle : cmp_cfhs_) {
-      if (thread->rand.OneInOpt(3)) {
-        // Use Get()
-        uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
-        std::string key_str = Key(key);
-        std::string value;
-        std::string key_ts;
-        s = cmp_db_->Get(read_opts, handle, key_str, &value,
-                         FLAGS_user_timestamp_size > 0 ? &key_ts : nullptr);
-        s.PermitUncheckedError();
-      } else {
-        // Use range scan
-        std::unique_ptr<Iterator> iter(cmp_db_->NewIterator(read_opts, handle));
-        uint32_t rnd = (thread->rand.Next()) % 4;
-        if (0 == rnd) {
-          // SeekToFirst() + Next()*5
-          read_opts.total_order_seek = true;
-          iter->SeekToFirst();
-          for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Next()) {
-          }
-        } else if (1 == rnd) {
-          // SeekToLast() + Prev()*5
-          read_opts.total_order_seek = true;
-          iter->SeekToLast();
-          for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Prev()) {
-          }
-        } else if (2 == rnd) {
-          // Seek() +Next()*5
-          uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
-          std::string key_str = Key(key);
-          iter->Seek(key_str);
-          for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Next()) {
-          }
-        } else {
-          // SeekForPrev() + Prev()*5
-          uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
-          std::string key_str = Key(key);
-          iter->SeekForPrev(key_str);
-          for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Prev()) {
-          }
+      uint64_t start_secondary_scan = clock_->NowMicros();
+
+      std::cout << "Checking again on cmp_db_ sequence number "
+                << cmp_db_->GetLatestSequenceNumber() << std::endl;
+
+      uint64_t num_keys_with_data = 0;
+
+      for (int64_t i = 0; i < max_key; ++i) {
+        if (thread->shared->HasVerificationFailedYet()) {
+          break;
+        }
+
+        const std::string key = Key(i);
+        std::string from_db;
+        s = cmp_db_->Get(read_opts, column_families_[0], key, &from_db);
+        if (!VerifyOrSyncValue(
+                0, i, read_opts, shared, shared->GetSecondary(0, i), from_db,
+                /* msg_prefix */ "Secondary get verification", s)) {
+          std::cout << "Failed on key i=" << i << std::endl;
+        }
+
+        if (!from_db.empty()) {
+          num_keys_with_data++;
         }
       }
+      uint64_t end_secondary_scan = clock_->NowMicros();
+      std::cout << "Scanned all of secondary db in "
+                << end_secondary_scan - start_secondary_scan << " microseconds"
+                << std::endl;
+      std::cout << "Encountered " << num_keys_with_data << " keys with data"
+                << std::endl;
     }
+
+    // This iterator code seems to result in an assertion failure for
+    // `iter_.iter()->IsValuePinned()'
+    // const auto checksum_column_family = [](Iterator* iter,
+    //                                        uint32_t* checksum) -> Status {
+    //   assert(nullptr != checksum);
+    //   uint32_t ret = 0;
+    //   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    //     ret = crc32c::Extend(ret, iter->key().data(), iter->key().size());
+    //     ret = crc32c::Extend(ret, iter->value().data(),
+    //     iter->value().size());
+    //   }
+    //   *checksum = ret;
+    //   return iter->status();
+    // };
+
+    // std::string ts_str;
+    // Slice ts;
+    // if (FLAGS_user_timestamp_size > 0) {
+    //   ts_str = GetNowNanos();
+    //   ts = ts_str;
+    //   read_opts.timestamp = &ts;
+    // }
+
+    // static Random64 rand64(shared->GetSeed());
+
+    // {
+    //   uint32_t crc = 0;
+    //   std::unique_ptr<Iterator> it(cmp_db_->NewIterator(read_opts));
+    //   s = checksum_column_family(it.get(), &crc);
+    //   if (!s.ok()) {
+    //     fprintf(stderr, "Computing checksum of default cf: %s\n",
+    //             s.ToString().c_str());
+    //     assert(false);
+    //   }
+    // }
+
+    // for (auto* handle : cmp_cfhs_) {
+    //   if (thread->rand.OneInOpt(3)) {
+    //     // Use Get()
+    //     uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
+    //     std::string key_str = Key(key);
+    //     std::string value;
+    //     std::string key_ts;
+    //     s = cmp_db_->Get(read_opts, handle, key_str, &value,
+    //                      FLAGS_user_timestamp_size > 0 ? &key_ts : nullptr);
+    //     s.PermitUncheckedError();
+    //   } else {
+    //     // Use range scan
+    //     std::unique_ptr<Iterator> iter(cmp_db_->NewIterator(read_opts,
+    //     handle)); uint32_t rnd = (thread->rand.Next()) % 4; if (0 == rnd) {
+    //       // SeekToFirst() + Next()*5
+    //       read_opts.total_order_seek = true;
+    //       iter->SeekToFirst();
+    //       for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Next()) {
+    //       }
+    //     } else if (1 == rnd) {
+    //       // SeekToLast() + Prev()*5
+    //       read_opts.total_order_seek = true;
+    //       iter->SeekToLast();
+    //       for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Prev()) {
+    //       }
+    //     } else if (2 == rnd) {
+    //       // Seek() +Next()*5
+    //       uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
+    //       std::string key_str = Key(key);
+    //       iter->Seek(key_str);
+    //       for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Next()) {
+    //       }
+    //     } else {
+    //       // SeekForPrev() + Prev()*5
+    //       uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
+    //       std::string key_str = Key(key);
+    //       iter->SeekForPrev(key_str);
+    //       for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Prev()) {
+    //       }
+    //     }
+    //   }
+    // }
   }
 
   void MaybeClearOneColumnFamily(ThreadState* thread) override {
@@ -1629,9 +1696,11 @@ class NonBatchedOpsStressTest : public StressTest {
 
       std::string from_db;
       Status s = db_->Get(read_opts, cfh, k, &from_db);
-      bool res = VerifyOrSyncValue(
-          rand_column_family, rand_key, read_opts, shared,
-          /* msg_prefix */ "Pre-Put Get verification", from_db, s);
+      // looks like these arguments for msg_prefix and from_db were swapped
+      bool res =
+          VerifyOrSyncValue(rand_column_family, rand_key, read_opts, shared,
+                            shared->Get(rand_column_family, rand_key), from_db,
+                            /* msg_prefix */ "Pre-Put Get verification", s);
 
       // Enable back error injection disabled for preparation
       if (fault_fs_guard) {
@@ -2714,12 +2783,13 @@ class NonBatchedOpsStressTest : public StressTest {
   }
 
   bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& opts,
-                         SharedState* shared, const std::string& value_from_db,
+                         SharedState* shared,
+                         const ExpectedValue& expected_value,
+                         const std::string& value_from_db,
                          std::string msg_prefix, const Status& s) const {
     if (shared->HasVerificationFailedYet()) {
       return false;
     }
-    const ExpectedValue expected_value = shared->Get(cf, key);
 
     if (expected_value.PendingWrite() || expected_value.PendingDelete()) {
       if (s.ok()) {
@@ -2760,15 +2830,19 @@ class NonBatchedOpsStressTest : public StressTest {
       const uint32_t value_base_from_db = GetValueBase(slice);
       if (ExpectedValueHelper::MustHaveNotExisted(expected_value,
                                                   expected_value)) {
-        VerificationAbort(
-            shared, msg_prefix + ": Unexpected value found" + read_u64ts.str(),
-            cf, key, value_from_db, "");
+        VerificationAbort(shared,
+                          msg_prefix +
+                              ": Unexpected value found (MustHaveNotExisted)" +
+                              read_u64ts.str(),
+                          cf, key, value_from_db, "");
         return false;
       }
       if (!ExpectedValueHelper::InExpectedValueBaseRange(
               value_base_from_db, expected_value, expected_value)) {
         VerificationAbort(
-            shared, msg_prefix + ": Unexpected value found" + read_u64ts.str(),
+            shared,
+            msg_prefix + ": Unexpected value found (InExpectedValueBaseRange)" +
+                read_u64ts.str(),
             cf, key, value_from_db,
             Slice(expected_value_data, expected_value_data_size));
         return false;

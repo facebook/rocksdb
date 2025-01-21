@@ -209,6 +209,7 @@ class Stats {
             num_compact_files_succeed_);
     fprintf(stdout, "%-12s: %ld CompactFiles() did not succeed\n", "",
             num_compact_files_failed_);
+    fprintf(stdout, "%-12s: %.2f elapsed\n", "", elapsed);
 
     if (FLAGS_histogram) {
       fprintf(stdout, "Microseconds per op:\n%s\n", hist_.ToString().c_str());

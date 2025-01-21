@@ -181,6 +181,19 @@ class FileExpectedState : public ExpectedState {
   std::unique_ptr<MemoryMappedFileBuffer> expected_persisted_seqno_mmap_buffer_;
 };
 
+class FileSnapshotExpectedState : public ExpectedState {
+ public:
+  explicit FileSnapshotExpectedState(
+      const std::string& expected_state_file_path, size_t max_key,
+      size_t num_column_families);
+
+  Status Open(bool create) override;
+
+ private:
+  const std::string expected_state_file_path_;
+  std::unique_ptr<MemoryMappedFileBuffer> expected_state_mmap_buffer_;
+};
+
 // An `AnonExpectedState` implements `ExpectedState` backed by a memory
 // allocation.
 class AnonExpectedState : public ExpectedState {
@@ -233,6 +246,8 @@ class ExpectedStateManager {
   // is executing.
   virtual Status Restore(DB* db) = 0;
 
+  virtual Status SetSecondaryExpectedState(DB* db) = 0;
+
   // Requires external locking covering all keys in `cf`.
   void ClearColumnFamily(int cf) { return latest_->ClearColumnFamily(cf); }
 
@@ -249,6 +264,10 @@ class ExpectedStateManager {
 
   // See ExpectedState::Get()
   ExpectedValue Get(int cf, int64_t key) { return latest_->Get(cf, key); }
+
+  ExpectedValue GetSecondary(int cf, int64_t key) {
+    return secondary_expected_state_->Get(cf, key);
+  }
 
   // See ExpectedState::PrepareDelete()
   PendingExpectedValue PrepareDelete(int cf, int64_t key) {
@@ -292,6 +311,8 @@ class ExpectedStateManager {
   const size_t max_key_;
   const size_t num_column_families_;
   std::unique_ptr<ExpectedState> latest_;
+  std::unique_ptr<ExpectedState> secondary_expected_state_;
+  std::unique_ptr<ExpectedState> follower_expected_state_;
 };
 
 // A `FileExpectedStateManager` implements an `ExpectedStateManager` backed by
@@ -325,6 +346,8 @@ class FileExpectedStateManager : public ExpectedStateManager {
   // file into "LATEST.state".
   Status Restore(DB* db) override;
 
+  Status SetSecondaryExpectedState(DB* db) override;
+
  private:
   // Requires external locking preventing concurrent execution with any other
   // member function.
@@ -332,10 +355,13 @@ class FileExpectedStateManager : public ExpectedStateManager {
 
   std::string GetTempPathForFilename(const std::string& filename);
   std::string GetPathForFilename(const std::string& filename);
+  Status ReplayTrace(DB* db, std::unique_ptr<TraceReader> trace_reader,
+                     uint64_t max_write_ops, ExpectedState* state);
 
   static const std::string kLatestBasename;
   static const std::string kStateFilenameSuffix;
   static const std::string kTraceFilenameSuffix;
+  static const std::string kVerificationFilenameSuffix;
   static const std::string kPersistedSeqnoBasename;
   static const std::string kPersistedSeqnoFilenameSuffix;
   static const std::string kTempFilenamePrefix;
@@ -343,6 +369,7 @@ class FileExpectedStateManager : public ExpectedStateManager {
 
   const std::string expected_state_dir_path_;
   SequenceNumber saved_seqno_ = kMaxSequenceNumber;
+  SequenceNumber saved_verification_seqno_ = kMaxSequenceNumber;
 };
 
 // An `AnonExpectedStateManager` implements an `ExpectedStateManager` backed by
@@ -367,6 +394,10 @@ class AnonExpectedStateManager : public ExpectedStateManager {
   // This implementation returns `Status::NotSupported` since we do not
   // currently have a need to keep history of expected state within a process.
   Status Restore(DB* /* db */) override { return Status::NotSupported(); }
+
+  Status SetSecondaryExpectedState(DB* /* db */) override {
+    return Status::NotSupported();
+  }
 
   // Requires external locking preventing concurrent execution with any other
   // member function.
