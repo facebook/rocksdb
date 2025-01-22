@@ -301,8 +301,8 @@ static const std::string aggregated_table_properties =
 static const std::string aggregated_table_properties_at_level =
     aggregated_table_properties + "-at-level";
 static const std::string num_running_compactions = "num-running-compactions";
-static const std::string num_running_compaction_input_iterators =
-    "num-running-compaction-input-iterators";
+static const std::string num_running_compaction_sorted_runs =
+    "num-running-compaction-sorted-runs";
 static const std::string num_running_flushes = "num-running-flushes";
 static const std::string actual_delayed_write_rate =
     "actual-delayed-write-rate";
@@ -353,8 +353,8 @@ const std::string DB::Properties::kCompactionPending =
     rocksdb_prefix + compaction_pending;
 const std::string DB::Properties::kNumRunningCompactions =
     rocksdb_prefix + num_running_compactions;
-const std::string DB::Properties::kNumRunningCompactionInputIterators =
-    rocksdb_prefix + num_running_compaction_input_iterators;
+const std::string DB::Properties::kNumRunningCompactionSortedRuns =
+    rocksdb_prefix + num_running_compaction_sorted_runs;
 const std::string DB::Properties::kNumRunningFlushes =
     rocksdb_prefix + num_running_flushes;
 const std::string DB::Properties::kBackgroundErrors =
@@ -584,10 +584,9 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kNumRunningCompactions,
          {false, nullptr, &InternalStats::HandleNumRunningCompactions, nullptr,
           nullptr}},
-        {DB::Properties::kNumRunningCompactionInputIterators,
-         {false, nullptr,
-          &InternalStats::HandleNumRunningCompactionInputIterators, nullptr,
-          nullptr}},
+        {DB::Properties::kNumRunningCompactionSortedRuns,
+         {false, nullptr, &InternalStats::HandleNumRunningCompactionSortedRuns,
+          nullptr, nullptr}},
         {DB::Properties::kActualDelayedWriteRate,
          {false, nullptr, &InternalStats::HandleActualDelayedWriteRate, nullptr,
           nullptr}},
@@ -1273,9 +1272,10 @@ bool InternalStats::HandleNumRunningCompactions(uint64_t* value, DBImpl* db,
   return true;
 }
 
-bool InternalStats::HandleNumRunningCompactionInputIterators(
-    uint64_t* value, DBImpl* db, Version* /*version*/) {
-  *value = db->num_running_compaction_input_iterators_;
+bool InternalStats::HandleNumRunningCompactionSortedRuns(uint64_t* value,
+                                                         DBImpl* db,
+                                                         Version* /*version*/) {
+  *value = db->num_running_compaction_sorted_runs_;
   return true;
 }
 
