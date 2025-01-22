@@ -3435,9 +3435,9 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // num_running_compaction_input_iterators_ total and later we will subtract
     // what was added
     int num_compaction_input_iterators_added = 0;
-    Status s = BackgroundCompaction(
-        &made_progress, num_compaction_input_iterators_added, &job_context,
-        &log_buffer, prepicked_compaction, bg_thread_pri);
+    Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
+                                    prepicked_compaction, bg_thread_pri,
+                                    num_compaction_input_iterators_added);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
     if (s.IsBusy()) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
@@ -3547,11 +3547,11 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
 // Precondition: mutex_ must be held when calling this function.
 Status DBImpl::BackgroundCompaction(bool* made_progress,
-                                    int& num_compaction_input_iterators_added,
                                     JobContext* job_context,
                                     LogBuffer* log_buffer,
                                     PrepickedCompaction* prepicked_compaction,
-                                    Env::Priority thread_pri) {
+                                    Env::Priority thread_pri,
+                                    int& num_compaction_input_iterators_added) {
   ManualCompactionState* manual_compaction =
       prepicked_compaction == nullptr
           ? nullptr

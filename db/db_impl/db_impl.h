@@ -950,20 +950,6 @@ class DBImpl : public DB {
     return num_running_flushes_;
   }
 
-  // Returns the number of currently running compactions.
-  // REQUIREMENT: mutex_ must be held when calling this function.
-  int num_running_compactions() {
-    mutex_.AssertHeld();
-    return num_running_compactions_;
-  }
-
-  // Returns the number of input iterators for currently running compactions.
-  // REQUIREMENT: mutex_ must be held when calling this function.
-  int num_running_compaction_input_iterators() {
-    mutex_.AssertHeld();
-    return num_running_compaction_input_iterators_;
-  }
-
   const WriteController& write_controller() { return write_controller_; }
 
   // hollow transactions shell used for recovery.
@@ -2424,11 +2410,11 @@ class DBImpl : public DB {
                                 Env::Priority thread_pri);
   void BackgroundCallFlush(Env::Priority thread_pri);
   void BackgroundCallPurge();
-  Status BackgroundCompaction(bool* madeProgress,
-                              int& num_compaction_iterators_added,
-                              JobContext* job_context, LogBuffer* log_buffer,
+  Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
+                              LogBuffer* log_buffer,
                               PrepickedCompaction* prepicked_compaction,
-                              Env::Priority thread_pri);
+                              Env::Priority thread_pri,
+                              int& num_compaction_iterators_added);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer, FlushReason* reason,
                          bool* flush_rescheduled_to_retain_udt,
