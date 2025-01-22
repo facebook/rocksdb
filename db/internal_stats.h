@@ -599,16 +599,36 @@ class InternalStats {
     comp_stats_[level].bytes_moved += amount;
   }
 
-  void AddCFStats(InternalCFStatsType type, uint64_t value) {
+  void AddCFStats(InternalCFStatsType type, uint64_t value,
+                  bool concurrent = false) {
     has_cf_change_since_dump_ = true;
-    cf_stats_value_[type] += value;
-    ++cf_stats_count_[type];
+    auto& v = cf_stats_value_[type];
+    auto& ct = cf_stats_count_[type];
+    if (concurrent) {
+      v.fetch_add(value, std::memory_order_relaxed);
+      ct.fetch_add(1, std::memory_order_relaxed);
+    } else {
+      v.store(v.load(std::memory_order_relaxed) + value,
+              std::memory_order_relaxed);
+      ct.store(ct.load(std::memory_order_relaxed) + 1,
+               std::memory_order_relaxed);
+    }
   }
 
-  void SubCFStats(InternalCFStatsType type, uint64_t value) {
+  void SubCFStats(InternalCFStatsType type, uint64_t value,
+                  bool concurrent = false) {
     has_cf_change_since_dump_ = true;
-    cf_stats_value_[type] -= value;
-    --cf_stats_count_[type];
+    auto& v = cf_stats_value_[type];
+    auto& ct = cf_stats_count_[type];
+    if (concurrent) {
+      v.fetch_sub(value, std::memory_order_relaxed);
+      ct.fetch_sub(1, std::memory_order_relaxed);
+    } else {
+      v.store(v.load(std::memory_order_relaxed) - value,
+              std::memory_order_relaxed);
+      ct.store(ct.load(std::memory_order_relaxed) - 1,
+               std::memory_order_relaxed);
+    }
   }
 
   uint64_t GetCFStats(InternalCFStatsType type) {
@@ -660,7 +680,9 @@ class InternalStats {
   // This should only be called while NOT holding the DB mutex.
   void CollectCacheEntryStats(bool foreground);
 
-  const uint64_t* TEST_GetCFStatsValue() const { return cf_stats_value_; }
+  const std::atomic<uint64_t>* TEST_GetCFStatsValue() const {
+    return cf_stats_value_;
+  }
 
   const std::vector<CompactionStats>& TEST_GetCompactionStats() const {
     return comp_stats_;
@@ -710,8 +732,8 @@ class InternalStats {
   // Per-DB stats
   std::atomic<uint64_t> db_stats_[kIntStatsNumMax];
   // Per-ColumnFamily stats
-  uint64_t cf_stats_value_[INTERNAL_CF_STATS_ENUM_MAX];
-  uint64_t cf_stats_count_[INTERNAL_CF_STATS_ENUM_MAX];
+  std::atomic<uint64_t> cf_stats_value_[INTERNAL_CF_STATS_ENUM_MAX];
+  std::atomic<uint64_t> cf_stats_count_[INTERNAL_CF_STATS_ENUM_MAX];
   // Initialize/reference the collector in constructor so that we don't need
   // additional synchronization in InternalStats, relying on synchronization
   // in CacheEntryStatsCollector::GetStats. This collector is pinned in cache

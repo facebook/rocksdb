@@ -2157,8 +2157,9 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   ASSERT_EQ(compaction_stats[0].num_output_files, 1);
   ASSERT_EQ(compaction_stats[0].num_output_files_blob, 1);
 
-  const uint64_t* const cf_stats_value = internal_stats->TEST_GetCFStatsValue();
-  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
+  const std::atomic<uint64_t>* const cf_stats_value =
+      internal_stats->TEST_GetCFStatsValue();
+  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED].load(),
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
 }
@@ -2493,8 +2494,9 @@ TEST_P(DBFlushTestBlobError, FlushError) {
     ASSERT_EQ(compaction_stats[0].num_output_files_blob, 0);
   }
 
-  const uint64_t* const cf_stats_value = internal_stats->TEST_GetCFStatsValue();
-  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
+  const std::atomic<uint64_t>* const cf_stats_value =
+      internal_stats->TEST_GetCFStatsValue();
+  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED].load(),
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
 }
