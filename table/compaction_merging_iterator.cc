@@ -42,8 +42,10 @@ class CompactionMergingIterator : public InternalIterator {
       pinned_heap_item_[i].level = i;
       pinned_heap_item_[i].type = HeapItem::DELETE_RANGE_START;
     }
-    internal_stats_->AddCFStats(
-        InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS, n);
+    if (internal_stats_) {
+      internal_stats_->AddCFStats(
+          InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS, n);
+    }
   }
 
   void considerStatus(const Status& s) {
@@ -53,9 +55,12 @@ class CompactionMergingIterator : public InternalIterator {
   }
 
   ~CompactionMergingIterator() override {
-    internal_stats_->SubCFStats(
-        InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS,
-        range_tombstone_iters_.size());
+    if (internal_stats_) {
+      internal_stats_->SubCFStats(
+          InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS,
+          range_tombstone_iters_.size());
+    }
+
     range_tombstone_iters_.clear();
 
     for (auto& child : children_) {
