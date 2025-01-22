@@ -22,7 +22,8 @@ class CompactionMergingIterator : public InternalIterator {
         current_(nullptr),
         minHeap_(CompactionHeapItemComparator(comparator_)),
         pinned_iters_mgr_(nullptr),
-        internal_stats_(internal_stats) {
+        internal_stats_(internal_stats),
+        num_sorted_runs_recorded_(0) {
     children_.resize(n);
     for (int i = 0; i < n; i++) {
       children_[i].level = i;
