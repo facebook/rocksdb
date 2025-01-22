@@ -3300,11 +3300,14 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   GenerateNewFile(&rnd, &key_idx);
   ASSERT_EQ("1,4,8", FilesPerLevel(0));
 
-  ASSERT_EQ(matches, 12);
+  // 12 of the matches come from GetNumberCompactionSortedRuns which calls
+  // IsTrivialMove(), which then calls InputCompressionMatchesOutput()
+  ASSERT_EQ(matches, 12 + 12);
   // Currently, the test relies on the number of calls to
   // InputCompressionMatchesOutput() per compaction.
   const int kCallsToInputCompressionMatch = 2;
-  ASSERT_EQ(didnt_match, 8 * kCallsToInputCompressionMatch);
+  // Similarly, 8 of the didnt_match come from GetNumberCompactionSortedRuns
+  ASSERT_EQ(didnt_match, 8 + 8 * kCallsToInputCompressionMatch);
   ASSERT_EQ(trivial_move, 12);
   ASSERT_EQ(non_trivial, 8);
 
