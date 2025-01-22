@@ -5856,6 +5856,18 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   options.listeners.emplace_back(collector);
   DestroyAndReopen(options);
 
+  // Verify internal statistics for num_running_compactions and
+  // num_running_compaction_input_iterators start and end at valid states
+  uint64_t num_running_compactions = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                                  &num_running_compactions));
+  ASSERT_EQ(num_running_compactions, 0);
+  uint64_t num_running_compaction_input_iterators = 0;
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kNumRunningCompactionInputIterators,
+                          &num_running_compaction_input_iterators));
+  ASSERT_EQ(num_running_compaction_input_iterators, 0);
+
   for (int i = 0; i < 32; i++) {
     for (int j = 0; j < 5000; j++) {
       ASSERT_OK(Put(std::to_string(j), std::string(1, 'A')));
@@ -5869,6 +5881,15 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   ColumnFamilyData* cfd = cfh->cfd();
 
   VerifyCompactionStats(*cfd, *collector);
+  // There should be no more running compactions, and thus no more input
+  // iterators
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                                  &num_running_compactions));
+  ASSERT_EQ(num_running_compactions, 0);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kNumRunningCompactionInputIterators,
+                          &num_running_compaction_input_iterators));
+  ASSERT_EQ(num_running_compaction_input_iterators, 0);
 }
 
 TEST_F(DBCompactionTest, SubcompactionEvent) {
