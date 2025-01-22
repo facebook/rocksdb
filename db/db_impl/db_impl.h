@@ -957,6 +957,13 @@ class DBImpl : public DB {
     return num_running_compactions_;
   }
 
+  // Returns the number of input iterators for currently running compactions.
+  // REQUIREMENT: mutex_ must be held when calling this function.
+  int num_running_compaction_input_iterators() {
+    mutex_.AssertHeld();
+    return num_running_compaction_input_iterators_;
+  }
+
   const WriteController& write_controller() { return write_controller_; }
 
   // hollow transactions shell used for recovery.
