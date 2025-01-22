@@ -5856,7 +5856,7 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   options.listeners.emplace_back(collector);
   DestroyAndReopen(options);
 
-  // Verify internal statistics for num_running_compactions and
+  // Verify that the internal statistics for num_running_compactions and
   // num_running_compaction_input_iterators start and end at valid states
   uint64_t num_running_compactions = 0;
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,

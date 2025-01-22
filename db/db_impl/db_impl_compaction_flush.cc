@@ -65,6 +65,7 @@ size_t DBImpl::GetNumberCompactionInputIterators(Compaction* c) {
   assert(c);
   if (c->start_level() == 0) {
     assert(0 < c->num_input_levels());
+    assert(c->level(0) == 0);
     size_t num_l0_files = c->num_input_files(0);
     size_t num_non_l0_levels = c->num_input_levels() - 1;
     return num_l0_files + num_non_l0_levels;
@@ -3544,6 +3545,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
   }
 }
 
+// Precondition: mutex_ must be held when calling this function.
 Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     int& num_compaction_input_iterators_added,
                                     JobContext* job_context,
