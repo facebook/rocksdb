@@ -123,6 +123,7 @@ class InternalStats {
     INGESTED_NUM_FILES_TOTAL,
     INGESTED_LEVEL0_NUM_FILES_TOTAL,
     INGESTED_NUM_KEYS_TOTAL,
+    NUM_RUNNING_COMPACTION_SORTED_RUNS,
     INTERNAL_CF_STATS_ENUM_MAX,
   };
 
@@ -602,6 +603,16 @@ class InternalStats {
     has_cf_change_since_dump_ = true;
     cf_stats_value_[type] += value;
     ++cf_stats_count_[type];
+  }
+
+  void SubCFStats(InternalCFStatsType type, uint64_t value) {
+    has_cf_change_since_dump_ = true;
+    cf_stats_value_[type] -= value;
+    --cf_stats_count_[type];
+  }
+
+  uint64_t GetCFStats(InternalCFStatsType type) {
+    return cf_stats_value_[type];
   }
 
   void AddDBStats(InternalDBStatsType type, uint64_t value,
