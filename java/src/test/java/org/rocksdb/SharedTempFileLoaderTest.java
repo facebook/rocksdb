@@ -18,13 +18,13 @@ public class SharedTempFileLoaderTest {
   final static Random random = new Random();
 
   static InputStream mockContent() {
-    ClassLoader classloader = Thread.currentThread().getContextClassLoader();
+    ClassLoader classloader = NativeLibraryLoader.class.getClassLoader();
     InputStream is = classloader.getResourceAsStream("shared-temp-file.txt");
     return new BufferedInputStream(is);
   }
 
   static BufferedReader mockContentReader() {
-    ClassLoader classloader = Thread.currentThread().getContextClassLoader();
+    ClassLoader classloader = NativeLibraryLoader.class.getClassLoader();
     InputStream is = classloader.getResourceAsStream("shared-temp-file.txt");
     return new BufferedReader(new InputStreamReader(is));
   }
