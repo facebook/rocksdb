@@ -63,6 +63,9 @@ bool DBImpl::EnoughRoomForCompaction(
 
 size_t DBImpl::GetNumberCompactionInputIterators(Compaction* c) {
   assert(c);
+  if (c->IsTrivialMove() || c->deletion_compaction()) {
+    return 0;
+  }
   if (c->start_level() == 0) {
     assert(0 < c->num_input_levels());
     assert(c->level(0) == 0);
