@@ -43,9 +43,13 @@ class CompactionMergingIterator : public InternalIterator {
       pinned_heap_item_[i].type = HeapItem::DELETE_RANGE_START;
     }
     if (internal_stats_) {
+      // The size of range_tombstone_iters_ (n) should not change but to be
+      // safe, we can record the size here so we decrement by the correct amount
+      // at destruction time
+      num_sorted_runs_recorded_ = n;
       internal_stats_->AddCFStats(
           InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS,
-          range_tombstone_iters_.size(), /*concurrent=*/true);
+          num_sorted_runs_recorded_, /*concurrent=*/true);
     }
   }
 
@@ -57,9 +61,13 @@ class CompactionMergingIterator : public InternalIterator {
 
   ~CompactionMergingIterator() override {
     if (internal_stats_) {
+      assert(num_sorted_runs_recorded_ == range_tombstone_iters_.size());
+      assert(num_sorted_runs_recorded_ <=
+             internal_stats_->GetCFStats(
+                 InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS));
       internal_stats_->SubCFStats(
           InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS,
-          range_tombstone_iters_.size(), /*concurrent=*/true);
+          num_sorted_runs_recorded_, /*concurrent=*/true);
     }
 
     range_tombstone_iters_.clear();
@@ -224,6 +232,7 @@ class CompactionMergingIterator : public InternalIterator {
   CompactionMinHeap minHeap_;
   PinnedIteratorsManager* pinned_iters_mgr_;
   InternalStats* internal_stats_;
+  uint64_t num_sorted_runs_recorded_;
   // Process a child that is not in the min heap.
   // If valid, add to the min heap. Otherwise, check status.
   void AddToMinHeapOrCheckStatus(HeapItem*);
