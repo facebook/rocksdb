@@ -61,7 +61,7 @@ bool DBImpl::EnoughRoomForCompaction(
   return enough_room;
 }
 
-size_t DBImpl::GetNumberCompactionInputIterators(Compaction* c) {
+size_t DBImpl::GetNumberCompactionSortedRuns(Compaction* c) {
   assert(c);
   if (c->IsTrivialMove() || c->deletion_compaction()) {
     return 0;
@@ -3435,12 +3435,12 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
            (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
 
     // BackgroundCompaction will update the
-    // num_running_compaction_input_iterators_ total and later we will subtract
+    // num_running_compaction_sorted_runs_ total and later we will subtract
     // what was added
-    int num_compaction_input_iterators_added = 0;
+    int num_compaction_sorted_runs_added = 0;
     Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
                                     prepicked_compaction, bg_thread_pri,
-                                    num_compaction_input_iterators_added);
+                                    num_compaction_sorted_runs_added);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
     if (s.IsBusy()) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
@@ -3505,11 +3505,10 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
-    assert(num_running_compaction_input_iterators_ >= 0);
-    assert(num_running_compaction_input_iterators_ >=
-           num_compaction_input_iterators_added);
-    num_running_compaction_input_iterators_ -=
-        num_compaction_input_iterators_added;
+    assert(num_running_compaction_sorted_runs_ >= 0);
+    assert(num_running_compaction_sorted_runs_ >=
+           num_compaction_sorted_runs_added);
+    num_running_compaction_sorted_runs_ -= num_compaction_sorted_runs_added;
 
     if (bg_thread_pri == Env::Priority::LOW) {
       bg_compaction_scheduled_--;
@@ -3554,7 +3553,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     LogBuffer* log_buffer,
                                     PrepickedCompaction* prepicked_compaction,
                                     Env::Priority thread_pri,
-                                    int& num_compaction_input_iterators_added) {
+                                    int& num_compaction_sorted_runs_added) {
   ManualCompactionState* manual_compaction =
       prepicked_compaction == nullptr
           ? nullptr
@@ -3748,12 +3747,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             num_files += each_level.files.size();
           }
           RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION, num_files);
-          num_compaction_input_iterators_added =
-              static_cast<int>(GetNumberCompactionInputIterators(c.get()));
-          assert(num_compaction_input_iterators_added >= 0);
-          assert(num_running_compaction_input_iterators_ >= 0);
-          num_running_compaction_input_iterators_ +=
-              num_compaction_input_iterators_added;
+          num_compaction_sorted_runs_added =
+              static_cast<int>(GetNumberCompactionSortedRuns(c.get()));
+          assert(num_compaction_sorted_runs_added >= 0);
+          assert(num_running_compaction_sorted_runs_ >= 0);
+          num_running_compaction_sorted_runs_ +=
+              num_compaction_sorted_runs_added;
 
           // There are three things that can change compaction score:
           // 1) When flush or compaction finish. This case is covered by
