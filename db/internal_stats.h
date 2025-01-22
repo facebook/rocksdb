@@ -632,7 +632,7 @@ class InternalStats {
   }
 
   uint64_t GetCFStats(InternalCFStatsType type) {
-    return cf_stats_value_[type];
+    return cf_stats_value_[type].load();
   }
 
   void AddDBStats(InternalDBStatsType type, uint64_t value,

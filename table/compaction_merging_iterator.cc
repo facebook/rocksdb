@@ -44,7 +44,8 @@ class CompactionMergingIterator : public InternalIterator {
     }
     if (internal_stats_) {
       internal_stats_->AddCFStats(
-          InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS, n);
+          InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS,
+          range_tombstone_iters_.size(), /*concurrent=*/true);
     }
   }
 
@@ -58,7 +59,7 @@ class CompactionMergingIterator : public InternalIterator {
     if (internal_stats_) {
       internal_stats_->SubCFStats(
           InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS,
-          range_tombstone_iters_.size());
+          range_tombstone_iters_.size(), /*concurrent=*/true);
     }
 
     range_tombstone_iters_.clear();
