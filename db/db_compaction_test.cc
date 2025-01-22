@@ -5857,16 +5857,16 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   DestroyAndReopen(options);
 
   // Verify that the internal statistics for num_running_compactions and
-  // num_running_compaction_input_iterators start and end at valid states
+  // num_running_compaction_sorted_runs start and end at valid states
   uint64_t num_running_compactions = 0;
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
                                   &num_running_compactions));
   ASSERT_EQ(num_running_compactions, 0);
-  uint64_t num_running_compaction_input_iterators = 0;
+  uint64_t num_running_compaction_sorted_runs = 0;
   ASSERT_TRUE(
-      db_->GetIntProperty(DB::Properties::kNumRunningCompactionInputIterators,
-                          &num_running_compaction_input_iterators));
-  ASSERT_EQ(num_running_compaction_input_iterators, 0);
+      db_->GetIntProperty(DB::Properties::kNumRunningCompactionSortedRuns,
+                          &num_running_compaction_sorted_runs));
+  ASSERT_EQ(num_running_compaction_sorted_runs, 0);
 
   for (int i = 0; i < 32; i++) {
     for (int j = 0; j < 5000; j++) {
@@ -5882,14 +5882,14 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
 
   VerifyCompactionStats(*cfd, *collector);
   // There should be no more running compactions, and thus no more input
-  // iterators
+  // sorted runs
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
                                   &num_running_compactions));
   ASSERT_EQ(num_running_compactions, 0);
   ASSERT_TRUE(
-      db_->GetIntProperty(DB::Properties::kNumRunningCompactionInputIterators,
-                          &num_running_compaction_input_iterators));
-  ASSERT_EQ(num_running_compaction_input_iterators, 0);
+      db_->GetIntProperty(DB::Properties::kNumRunningCompactionSortedRuns,
+                          &num_running_compaction_sorted_runs));
+  ASSERT_EQ(num_running_compaction_sorted_runs, 0);
 }
 
 TEST_F(DBCompactionTest, SubcompactionEvent) {
