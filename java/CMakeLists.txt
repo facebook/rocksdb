@@ -385,6 +385,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/RocksIteratorTest.java
   src/test/java/org/rocksdb/RocksMemEnvTest.java
   src/test/java/org/rocksdb/SecondaryDBTest.java
+  src/test/java/org/rocksdb/SharedTempFileLoaderTest.java
   src/test/java/org/rocksdb/SliceTest.java
   src/test/java/org/rocksdb/SnapshotTest.java
   src/test/java/org/rocksdb/SstFileManagerTest.java
@@ -428,6 +429,10 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/util/SizeUnitTest.java
   src/test/java/org/rocksdb/util/StdErrLoggerTest.java
   src/test/java/org/rocksdb/util/TestUtil.java
+)
+
+set(JAVA_TEST_RESOURCES
+  src/test/resources/shared-temp-file.txt
 )
 
 set(JAVA_TEST_RUNNING_CLASSES
@@ -600,6 +605,7 @@ add_jar(
     SOURCES
     ${JAVA_MAIN_CLASSES}
     ${JAVA_TEST_CLASSES}
+    ${JAVA_TEST_RESOURCES}
     INCLUDE_JARS ${JAVA_TESTCLASSPATH}
     GENERATE_NATIVE_HEADERS rocksdbjni_test_headers DESTINATION ${JNI_OUTPUT_DIR}
 )
