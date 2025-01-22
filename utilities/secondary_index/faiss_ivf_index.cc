@@ -390,7 +390,7 @@ Status FaissIVFIndex::UpdatePrimaryColumnValue(
 }
 
 Status FaissIVFIndex::GetSecondaryKeyPrefix(
-    const Slice& primary_column_value,
+    const Slice& /* primary_key */, const Slice& primary_column_value,
     std::variant<Slice, std::string>* secondary_key_prefix) const {
   assert(secondary_key_prefix);
 
@@ -404,8 +404,14 @@ Status FaissIVFIndex::GetSecondaryKeyPrefix(
   return Status::OK();
 }
 
+Status FaissIVFIndex::FinalizeSecondaryKeyPrefix(
+    std::variant<Slice, std::string>* /* secondary_key_prefix */) const {
+  return Status::OK();
+}
+
 Status FaissIVFIndex::GetSecondaryValue(
-    const Slice& primary_column_value, const Slice& original_column_value,
+    const Slice& /* primary_key */, const Slice& primary_column_value,
+    const Slice& original_column_value,
     std::optional<std::variant<Slice, std::string>>* secondary_value) const {
   assert(secondary_value);
 
