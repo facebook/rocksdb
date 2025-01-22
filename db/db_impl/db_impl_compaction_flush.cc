@@ -61,21 +61,6 @@ bool DBImpl::EnoughRoomForCompaction(
   return enough_room;
 }
 
-size_t DBImpl::GetNumberCompactionSortedRuns(Compaction* c) {
-  assert(c);
-  if (c->IsTrivialMove() || c->deletion_compaction()) {
-    return 0;
-  }
-  if (c->start_level() == 0) {
-    assert(0 < c->num_input_levels());
-    assert(c->level(0) == 0);
-    size_t num_l0_files = c->num_input_files(0);
-    size_t num_non_l0_levels = c->num_input_levels() - 1;
-    return num_l0_files + num_non_l0_levels;
-  }
-  return c->num_input_levels();
-}
-
 bool DBImpl::RequestCompactionToken(ColumnFamilyData* cfd, bool force,
                                     std::unique_ptr<TaskLimiterToken>* token,
                                     LogBuffer* log_buffer) {
@@ -3434,13 +3419,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
             bg_bottom_compaction_scheduled_) ||
            (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
 
-    // BackgroundCompaction will update the
-    // num_running_compaction_sorted_runs_ total and later we will subtract
-    // what was added
-    int num_compaction_sorted_runs_added = 0;
     Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
-                                    prepicked_compaction, bg_thread_pri,
-                                    num_compaction_sorted_runs_added);
+                                    prepicked_compaction, bg_thread_pri);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
     if (s.IsBusy()) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
@@ -3505,10 +3485,6 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
-    assert(num_running_compaction_sorted_runs_ >= 0);
-    assert(num_running_compaction_sorted_runs_ >=
-           num_compaction_sorted_runs_added);
-    num_running_compaction_sorted_runs_ -= num_compaction_sorted_runs_added;
 
     if (bg_thread_pri == Env::Priority::LOW) {
       bg_compaction_scheduled_--;
@@ -3552,8 +3528,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     JobContext* job_context,
                                     LogBuffer* log_buffer,
                                     PrepickedCompaction* prepicked_compaction,
-                                    Env::Priority thread_pri,
-                                    int& num_compaction_sorted_runs_added) {
+                                    Env::Priority thread_pri) {
   ManualCompactionState* manual_compaction =
       prepicked_compaction == nullptr
           ? nullptr
@@ -3747,12 +3722,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             num_files += each_level.files.size();
           }
           RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION, num_files);
-          num_compaction_sorted_runs_added =
-              static_cast<int>(GetNumberCompactionSortedRuns(c.get()));
-          assert(num_compaction_sorted_runs_added >= 0);
-          assert(num_running_compaction_sorted_runs_ >= 0);
-          num_running_compaction_sorted_runs_ +=
-              num_compaction_sorted_runs_added;
 
           // There are three things that can change compaction score:
           // 1) When flush or compaction finish. This case is covered by
