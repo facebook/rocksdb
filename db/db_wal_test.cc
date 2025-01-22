@@ -704,7 +704,7 @@ TEST_F(DBWALTest, RecoverWithBlob) {
 
   const std::atomic<uint64_t>* const cf_stats_value =
       internal_stats->TEST_GetCFStatsValue();
-  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED].load(),
+  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
             compaction_stats[0].bytes_written +
                 compaction_stats[0].bytes_written_blob);
 }
