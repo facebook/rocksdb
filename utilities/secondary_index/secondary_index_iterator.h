@@ -46,9 +46,9 @@ class SecondaryIndexIterator : public Iterator {
   void Seek(const Slice& target) override {
     status_ = Status::OK();
 
-    std::variant<Slice, std::string> prefix;
+    std::variant<Slice, std::string> prefix = target;
 
-    const Status s = index_->GetSecondaryKeyPrefix(target, &prefix);
+    const Status s = index_->FinalizeSecondaryKeyPrefix(&prefix);
     if (!s.ok()) {
       status_ = s;
       return;

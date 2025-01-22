@@ -8047,19 +8047,30 @@ TEST_P(TransactionTest, SecondaryIndexPutDelete) {
     }
 
     Status GetSecondaryKeyPrefix(
-        const Slice& primary_column_value,
+        const Slice& /* primary_key */, const Slice& primary_column_value,
+        std::variant<Slice, std::string>* secondary_key_prefix) const override {
+      assert(secondary_key_prefix);
+
+      *secondary_key_prefix = primary_column_value;
+
+      return Status::OK();
+    }
+
+    Status FinalizeSecondaryKeyPrefix(
         std::variant<Slice, std::string>* secondary_key_prefix) const override {
       assert(secondary_key_prefix);
 
       std::string prefix;
-      PutLengthPrefixedSlice(&prefix, primary_column_value);
+      PutLengthPrefixedSlice(
+          &prefix, SecondaryIndexHelper::AsSlice(*secondary_key_prefix));
 
       *secondary_key_prefix = std::move(prefix);
 
       return Status::OK();
     }
 
-    Status GetSecondaryValue(const Slice& /* primary_column_value */,
+    Status GetSecondaryValue(const Slice& /* primary_key */,
+                             const Slice& /* primary_column_value */,
                              const Slice& /* previous_column_value */,
                              std::optional<std::variant<Slice, std::string>>*
                              /* secondary_value */) const override {
@@ -8403,7 +8414,7 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
     }
 
     Status GetSecondaryKeyPrefix(
-        const Slice& primary_column_value,
+        const Slice& /* primary_key */, const Slice& primary_column_value,
         std::variant<Slice, std::string>* secondary_key_prefix) const override {
       assert(secondary_key_prefix);
 
@@ -8417,7 +8428,17 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
       return Status::OK();
     }
 
-    Status GetSecondaryValue(const Slice& primary_column_value,
+    Status FinalizeSecondaryKeyPrefix(
+        std::variant<Slice, std::string>* secondary_key_prefix) const override {
+      if (SecondaryIndexHelper::AsSlice(*secondary_key_prefix) == "!") {
+        return Status::Corruption();
+      }
+
+      return Status::OK();
+    }
+
+    Status GetSecondaryValue(const Slice& /* primary_key */,
+                             const Slice& primary_column_value,
                              const Slice& previous_column_value,
                              std::optional<std::variant<Slice, std::string>>*
                                  secondary_value) const override {
@@ -8486,9 +8507,12 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
     // CF1, empty value in the "foo" column => GetSecondaryKeyPrefix errors out
     ASSERT_TRUE(txn->PutEntity(cfh1, "key5", {{"foo", ""}}).IsNotFound());
 
+    // CF1, "!!!" in the "foo" column => FinalizeSecondaryKeyPrefix errors out
+    ASSERT_TRUE(txn->PutEntity(cfh1, "key6", {{"foo", "!!!"}}).IsCorruption());
+
     // CF1, "corge" in the "foo" column => GetSecondaryValue errors out
     ASSERT_TRUE(
-        txn->PutEntity(cfh1, "key6", {{"foo", "corge"}}).IsNotSupported());
+        txn->PutEntity(cfh1, "key7", {{"foo", "corge"}}).IsNotSupported());
 
     ASSERT_OK(txn->Commit());
   }
@@ -8570,11 +8594,11 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
     ASSERT_FALSE(it->Valid());
     ASSERT_TRUE(it->status().IsNotSupported());
 
-    it->SeekForPrev("box");
+    it->SeekForPrev("x");
     ASSERT_FALSE(it->Valid());
     ASSERT_TRUE(it->status().IsNotSupported());
 
-    it->Seek("box");  // last character used for indexing: x
+    it->Seek("x");
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ(it->key(), "key3");
@@ -8602,7 +8626,7 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
     ASSERT_FALSE(it->Valid());
     ASSERT_OK(it->status());
 
-    it->Seek("toy");  // last character used for indexing: y
+    it->Seek("y");
     ASSERT_FALSE(it->Valid());
     ASSERT_OK(it->status());
   }
@@ -8698,11 +8722,11 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
     ASSERT_FALSE(it->Valid());
     ASSERT_TRUE(it->status().IsNotSupported());
 
-    it->SeekForPrev("bot");
+    it->SeekForPrev("t");
     ASSERT_FALSE(it->Valid());
     ASSERT_TRUE(it->status().IsNotSupported());
 
-    it->Seek("bot");  // last character used for indexing: t
+    it->Seek("t");
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ(it->key(), "key1");
@@ -8712,11 +8736,211 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
     ASSERT_FALSE(it->Valid());
     ASSERT_OK(it->status());
 
-    it->Seek("toy");  // last character used for indexing: y
+    it->Seek("y");
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ(it->key(), "key3");
     ASSERT_EQ(it->value(), "ylprag");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+}
+
+TEST_P(TransactionTest, SecondaryIndexOnKey) {
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
+  if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
+    ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
+    return;
+  }
+
+  // A secondary index that removes the first three characters of the primary
+  // key and indexes the rest.
+  class KeySecondaryIndex : public SecondaryIndex {
+   public:
+    void SetPrimaryColumnFamily(ColumnFamilyHandle* cfh) override {
+      primary_cfh_ = cfh;
+    }
+
+    void SetSecondaryColumnFamily(ColumnFamilyHandle* cfh) override {
+      secondary_cfh_ = cfh;
+    }
+
+    ColumnFamilyHandle* GetPrimaryColumnFamily() const override {
+      return primary_cfh_;
+    }
+
+    ColumnFamilyHandle* GetSecondaryColumnFamily() const override {
+      return secondary_cfh_;
+    }
+
+    Slice GetPrimaryColumnName() const override {
+      return kDefaultWideColumnName;
+    }
+
+    Status UpdatePrimaryColumnValue(
+        const Slice& /* primary_key */, const Slice& /* primary_column_value */,
+        std::optional<
+            std::variant<Slice, std::string>>* /* updated_column_value */)
+        const override {
+      return Status::OK();
+    }
+
+    Status GetSecondaryKeyPrefix(
+        const Slice& primary_key, const Slice& /* primary_column_value */,
+        std::variant<Slice, std::string>* secondary_key_prefix) const override {
+      assert(secondary_key_prefix);
+
+      constexpr size_t prefix_len = 3;
+
+      if (primary_key.size() < prefix_len) {
+        return Status::InvalidArgument();
+      }
+
+      Slice transformed_key = primary_key;
+      transformed_key.remove_prefix(prefix_len);
+
+      *secondary_key_prefix = transformed_key;
+
+      return Status::OK();
+    }
+
+    Status FinalizeSecondaryKeyPrefix(
+        std::variant<Slice, std::string>* /* secondary_key_prefix */)
+        const override {
+      return Status::OK();
+    }
+
+    Status GetSecondaryValue(const Slice& primary_key,
+                             const Slice& /* primary_column_value */,
+                             const Slice& /* previous_column_value */,
+                             std::optional<std::variant<Slice, std::string>>*
+                                 secondary_value) const override {
+      assert(secondary_value);
+
+      std::string index_value = primary_key.ToString();
+      std::reverse(index_value.begin(), index_value.end());
+
+      *secondary_value = std::move(index_value);
+
+      return Status::OK();
+    }
+
+    std::unique_ptr<Iterator> NewIterator(
+        const SecondaryIndexReadOptions& /* read_options */,
+        std::unique_ptr<Iterator>&& underlying_it) const override {
+      return std::make_unique<SecondaryIndexIterator>(this,
+                                                      std::move(underlying_it));
+    }
+
+   private:
+    ColumnFamilyHandle* primary_cfh_{};
+    ColumnFamilyHandle* secondary_cfh_{};
+  };
+
+  txn_db_options.secondary_indices.emplace_back(
+      std::make_shared<KeySecondaryIndex>());
+
+  ASSERT_OK(ReOpen());
+
+  ColumnFamilyOptions cf1_opts;
+  ColumnFamilyHandle* cfh1 = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(cf1_opts, "cf1", &cfh1));
+  std::unique_ptr<ColumnFamilyHandle> cfh1_guard(cfh1);
+
+  ColumnFamilyOptions cf2_opts;
+  ColumnFamilyHandle* cfh2 = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(cf2_opts, "cf2", &cfh2));
+  std::unique_ptr<ColumnFamilyHandle> cfh2_guard(cfh2);
+
+  auto& index = txn_db_options.secondary_indices.back();
+  index->SetPrimaryColumnFamily(cfh1);
+  index->SetSecondaryColumnFamily(cfh2);
+
+  {
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+
+    ASSERT_OK(txn->Put(cfh1, "123foo", "a"));
+    ASSERT_OK(txn->Put(cfh1, "123bar", "b"));
+    ASSERT_OK(txn->Put(cfh1, "123baz", "c"));
+    ASSERT_OK(txn->Put(cfh1, "456foo", "d"));
+    ASSERT_OK(txn->Put(cfh1, "456bar", "e"));
+    ASSERT_OK(txn->Put(cfh1, "456baz", "f"));
+    ASSERT_OK(txn->Put(cfh1, "789foo", "g"));
+    ASSERT_OK(txn->Put(cfh1, "789bar", "h"));
+    ASSERT_OK(txn->Put(cfh1, "789baz", "i"));
+
+    ASSERT_OK(txn->Commit());
+  }
+
+  {
+    std::unique_ptr<Iterator> underlying_it(
+        db->NewIterator(ReadOptions(), cfh2));
+    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
+                                                    std::move(underlying_it)));
+
+    it->Seek("foo");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "123foo");
+    ASSERT_EQ(it->value(), "oof321");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "456foo");
+    ASSERT_EQ(it->value(), "oof654");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "789foo");
+    ASSERT_EQ(it->value(), "oof987");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+
+    it->Seek("bar");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "123bar");
+    ASSERT_EQ(it->value(), "rab321");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "456bar");
+    ASSERT_EQ(it->value(), "rab654");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "789bar");
+    ASSERT_EQ(it->value(), "rab987");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+
+    it->Seek("baz");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "123baz");
+    ASSERT_EQ(it->value(), "zab321");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "456baz");
+    ASSERT_EQ(it->value(), "zab654");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "789baz");
+    ASSERT_EQ(it->value(), "zab987");
 
     it->Next();
     ASSERT_FALSE(it->Valid());
