@@ -96,7 +96,7 @@
 * In FIFO compaction, compactions for changing file temperature (configured by option `file_temperature_age_thresholds`) will compact one file at a time, instead of merging multiple eligible file together (#13018).
 * Support ingesting db generated files using hard link, i.e. IngestExternalFileOptions::move_files/link_files and IngestExternalFileOptions::allow_db_generated_files.
 * Add a new file ingestion option `IngestExternalFileOptions::link_files` to hard link input files and preserve original files links after ingestion.
-* DB::Close now untracks files in SstFileManager, making avaialble any space used
+* DB::Close now untracks files in SstFileManager, making available any space used
 by them. Prior to this change they would be orphaned until the DB is re-opened.
 
 ### Bug Fixes
