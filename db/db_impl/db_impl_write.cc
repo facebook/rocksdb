@@ -2142,6 +2142,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   // Recoverable state is persisted in WAL. After memtable switch, WAL might
   // be deleted, so we write the state to memtable to be persisted as well.
   Status s = WriteRecoverableState();
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] SwitchMemtable: Finished WriteRecoverableState, Status: %s",
+                  s.ToString().c_str());
   if (!s.ok()) {
     return s;
   }
@@ -2189,6 +2191,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
   if (s.ok()) {
     SequenceNumber seq = versions_->LastSequence();
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "[Micheal_Log] SwitchMemtable: Starting ConstructNewMemtable");
     new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
     context->superversion_context.NewSuperVersion();
   }
