@@ -1269,13 +1269,13 @@ bool InternalStats::HandleCompactionPending(uint64_t* value, DBImpl* /*db*/,
 
 bool InternalStats::HandleNumRunningCompactions(uint64_t* value, DBImpl* db,
                                                 Version* /*version*/) {
-  *value = db->num_running_compactions_;
+  *value = db->num_running_compactions();
   return true;
 }
 
 bool InternalStats::HandleNumRunningCompactionInputIterators(
     uint64_t* value, DBImpl* db, Version* /*version*/) {
-  *value = db->num_running_compaction_input_iterators_;
+  *value = db->num_running_compaction_input_iterators();
   return true;
 }
 
