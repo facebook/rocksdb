@@ -149,7 +149,8 @@ public:
   /// @param sequence Max sequence of accessed rect
   /// @return whether the target rect are overlapped by the R-tree
   bool QueryMaxSequence(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], ELEMTYPE & sequence) const;
-  bool QueryMaxSequenceFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, const char* a_fileName);
+  bool QueryMaxSequenceFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, const char* a_fileName, bool isfull = false);
+  // bool QueryMaxSequenceFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, const char* a_fileName);
 
   /// Query existence of target from file
   bool QueryFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], uint64_t & node_cnt, uint64_t & leaf_cnt, const char* a_fileName, bool isfull = false);
@@ -416,8 +417,9 @@ protected:
 
   void QueryMaxSequence(Node* a_node, Rect* a_rect, bool& found, ELEMTYPE & sequence) const;
 
-  bool QueryMaxSequenceFromFile(Rect* a_rect, ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream);
+  bool QueryMaxSequenceFromFile(Rect* a_rect, ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream, bool isfull = false);
   bool QueryMaxSequenceFromFileImpl(Node* a_node, RTFileStream& a_stream, Rect* a_rect, bool& found, ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt);
+  bool QueryMaxSequenceFullFromFileImpl(Node* a_node, RTFileStream& a_stream, Rect* a_rect, bool& found, ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt);
 
   /// Query tree contents from stream
   bool QueryFromFile(Rect* a_rect, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream, bool isfull = false);
@@ -768,7 +770,7 @@ void RTREE_QUAL::QueryMaxSequence(Node* a_node, Rect* a_rect, bool& found, ELEMT
 
 
 RTREE_TEMPLATE
-bool RTREE_QUAL::QueryMaxSequenceFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, const char* a_fileName)
+bool RTREE_QUAL::QueryMaxSequenceFromFile(const ELEMTYPE a_min[NUMDIMS], const ELEMTYPE a_max[NUMDIMS], ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, const char* a_fileName, bool isfull)
 {
   RemoveAll(); // Clear existing tree
 
@@ -786,7 +788,7 @@ bool RTREE_QUAL::QueryMaxSequenceFromFile(const ELEMTYPE a_min[NUMDIMS], const E
   }
 
   bool result = false;
-  result = QueryMaxSequenceFromFile(&rect, sequence, node_cnt, leaf_cnt, stream);
+  result = QueryMaxSequenceFromFile(&rect, sequence, node_cnt, leaf_cnt, stream, isfull);
 
   stream.Close();
 
@@ -796,7 +798,7 @@ bool RTREE_QUAL::QueryMaxSequenceFromFile(const ELEMTYPE a_min[NUMDIMS], const E
 }
 
 RTREE_TEMPLATE
-bool RTREE_QUAL::QueryMaxSequenceFromFile(Rect* a_rect, ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream)
+bool RTREE_QUAL::QueryMaxSequenceFromFile(Rect* a_rect, ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt, RTFileStream& a_stream, bool isfull)
 {
   bool found = false;
 
@@ -836,9 +838,12 @@ bool RTREE_QUAL::QueryMaxSequenceFromFile(Rect* a_rect, ELEMTYPE & sequence, uin
     )
   {
     // Recursively load tree
-    bool result = QueryMaxSequenceFromFileImpl(m_root, a_stream, a_rect, found, sequence, node_cnt, leaf_cnt);
+    if (isfull) {
+      bool res = QueryMaxSequenceFromFileImpl(m_root, a_stream, a_rect, found, sequence, node_cnt, leaf_cnt);
+    } else {
+      bool res = QueryMaxSequenceFullFromFileImpl(m_root, a_stream, a_rect, found, sequence, node_cnt, leaf_cnt);
+    }
   }
-
   return found;
 }
 
@@ -909,6 +914,79 @@ bool RTREE_QUAL::QueryMaxSequenceFromFileImpl(Node* a_node, RTFileStream& a_stre
   }
   return false;
 }
+
+RTREE_TEMPLATE
+bool RTREE_QUAL::QueryMaxSequenceFullFromFileImpl(Node* a_node, RTFileStream& a_stream, Rect* a_rect, bool& found, ELEMTYPE & sequence, uint64_t & node_cnt, uint64_t & leaf_cnt)
+{
+  a_stream.Read(a_node->m_level);
+  a_stream.Read(a_node->m_count);
+
+  if(a_node->IsInternalNode())  // not a leaf node
+  {
+    node_cnt++;
+    for(int index = 0; index < a_node->m_count; ++index)
+    {
+      Branch* curBranch = new Branch;
+
+      a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+      a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+
+      //continue if target point is overlapped
+      if(OverlapBelowLastDim(a_rect, &(curBranch->m_rect))){
+        curBranch->m_child = AllocNode();
+        bool res = QueryMaxSequenceFullFromFileImpl(curBranch->m_child, a_stream, a_rect, found, sequence, node_cnt, leaf_cnt);
+        delete curBranch->m_child;
+      } else {
+        int skip_bytes = CalculateNodeSizeBytes(a_node->m_level, false);
+        if (a_stream.MoveBackward(skip_bytes)){
+          std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
+          exit(1);
+        }
+      }
+      delete curBranch;
+    }
+    if (a_node->m_count < MAXNODES){
+      int invalid_nodes = MAXNODES - a_node->m_count;
+      int total_bytes = CalculateNodeSizeBytes(a_node->m_level, true);
+      total_bytes *= invalid_nodes;
+      if (a_stream.MoveBackward(total_bytes)){
+        std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
+        exit(1);
+      }
+    }
+  }
+  else // A leaf node
+  {
+    leaf_cnt++;
+    for(int index = 0; index < a_node->m_count; ++index)
+    {
+      Branch* curBranch = new Branch;
+      a_stream.ReadArray(curBranch->m_rect.m_min, NUMDIMS);
+      a_stream.ReadArray(curBranch->m_rect.m_max, NUMDIMS);
+      a_stream.Read(curBranch->m_data);
+      if(OverlapBelowLastDim(a_rect, &(curBranch->m_rect)))
+      { 
+        found = true;
+        ELEMTYPE rect_seq = curBranch->m_rect.m_max[NUMDIMS - 1];
+        if(sequence < rect_seq){
+          sequence = rect_seq;
+        }
+      }
+      delete curBranch;
+    }
+    if (a_node->m_count < MAXNODES){
+      int invalid_nodes = MAXNODES - a_node->m_count;
+      int total_bytes = CalculateNodeSizeBytes(0, true);
+      total_bytes *= invalid_nodes;
+      if (a_stream.MoveBackward(total_bytes)){
+        std::cerr << "Fail: cannot move backward when extracting subtree" << std::endl;
+        exit(1);
+      }
+    }
+  }
+  return false;
+}
+
 
 RTREE_TEMPLATE
 size_t RTREE_QUAL::NNSearch(

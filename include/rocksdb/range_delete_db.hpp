@@ -153,7 +153,10 @@ rocksdb::Result RangeDeleteDB::PointQuery(const uint64_t &key, const string &key
   if(use_stat){ stat->op_read.Start(); }
 
   if (!enable_global_rd_){
-    auto s = db_->Get(rocksdb::ReadOptions(), key_str, &value);
+    rocksdb::ReadOptions read_options;
+    read_options.ignore_range_deletions = false;
+    // read_options.ignore_range_deletions = true;
+    auto s = db_->Get(read_options, key_str, &value);
     if (!s.ok() && !s.IsNotFound()) {
       std::cerr << "Failed to get key " << key << std::endl;
       exit(1);
@@ -233,8 +236,9 @@ rocksdb::Result RangeDeleteDB::RangeDelete(const uint64_t &key_left, const strin
       k_str = key_gen->ToKeyString(k);
       s = db_->Delete(rocksdb::WriteOptions(), k_str);
       if (!s.ok()) {
-        std::cerr << "Failed to delete key " << k << std::endl;
-        exit(1);
+        std::cout << "Failed to delete key " << k << std::endl;
+        // std::cerr << "Failed to delete key " << k << std::endl;
+        // exit(1);
       }
     }
     if(use_stat){ 

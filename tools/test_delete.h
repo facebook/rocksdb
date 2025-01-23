@@ -20,6 +20,7 @@ DEFINE_bool(enable_rdfilter, true, "whether to use range delete filter");
 DEFINE_uint64(max_key, 999999, "the upper bound of key space");
 DEFINE_int32(bpk_rd_filter, 10, "Bits per key for range delete filter");
 DEFINE_int32(rep_buffer_size, 64, "LSM RTree Buffer size in KB");
+DEFINE_int32(rep_run_num, 1, "LSM RTree size_ratio");
 DEFINE_int32(rep_size_ratio, 10, "LSM RTree size_ratio");
 //Workload
 DEFINE_string(workload, "prepare", "prepare or test");
@@ -104,6 +105,7 @@ bool get_default_options(rocksdb::range_delete_db_opt& options) {
   rep_opts.use_full_rtree = FLAGS_full_rtree;
   rep_opts.buffer_cap = (FLAGS_rep_buffer_size << 10) / sizeof(rangedelete_rep::Rectangle); //size is 32
   rep_opts.T = FLAGS_rep_size_ratio;
+  rep_opts.max_run_num = FLAGS_rep_run_num;
   rep_opts.path = FLAGS_db_path + "/";
 
   // rocksdb::range_delete_db_opt options;

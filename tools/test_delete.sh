@@ -338,24 +338,20 @@
 # cp -r ./db/PrepareDB_K256_KV1024_5M_default ./testdb
 # ./tools/test_delete --mode=decom --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=100 >> ./res/testlog.txt
 
-echo "Test Group 2 ..." >> ./res/testlog.txt
-rm -rf ./testdb
-./tools/test_delete --mode=grd --full_rtree=true --workload=test --level_comp=2 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=5000000 --read_num=5000000 --seek_num=0 --rdelete_num=500000 --rdelete_len=100 >> ./res/testlog.txt
 
-echo "Test Group 4: Preload DB ..." >> ./res/testlog.txt
-rm -rf ./testdb
-cp -r ./db/PrepareDB_K256_KV1024_5M_default ./testdb
-./tools/test_delete --mode=default --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=0 --rdelete_len=100 >> ./res/testlog.txt
-rm -rf ./testdb
-cp -r ./db/PrepareDB_K256_KV1024_5M_default ./testdb
-./tools/test_delete --mode=grd --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=0 --rdelete_len=100 >> ./res/testlog.txt
-rm -rf ./testdb
-cp -r ./db/PrepareDB_K256_KV1024_5M_default ./testdb
-./tools/test_delete --mode=scan --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=0 --rdelete_len=100 >> ./res/testlog.txt
-rm -rf ./testdb
-cp -r ./db/PrepareDB_K256_KV1024_5M_default ./testdb
-./tools/test_delete --mode=decom --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=0 --rdelete_len=100 >> ./res/testlog.txt
-
+# echo "Test Group 4: Preload DB ..." >> ./res/testlog.txt
+# rm -rf ./testdb
+# cp -r ./db/PrepareDB_K256_KV1024_5M_default ./testdb
+# ./tools/test_delete --mode=default --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=0 --rdelete_len=100 >> ./res/testlog.txt
+# rm -rf ./testdb
+# cp -r ./db/PrepareDB_K256_KV1024_5M_default ./testdb
+# ./tools/test_delete --mode=grd --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=0 --rdelete_len=100 >> ./res/testlog.txt
+# rm -rf ./testdb
+# cp -r ./db/PrepareDB_K256_KV1024_5M_default ./testdb
+# ./tools/test_delete --mode=scan --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=0 --rdelete_len=100 >> ./res/testlog.txt
+# rm -rf ./testdb
+# cp -r ./db/PrepareDB_K256_KV1024_5M_default ./testdb
+# ./tools/test_delete --mode=decom --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=0 --rdelete_len=100 >> ./res/testlog.txt
 
 
 # echo "Test Group 4: Preload DB ..." >> ./res/testlog.txt
@@ -371,3 +367,26 @@ cp -r ./db/PrepareDB_K256_KV1024_5M_default ./testdb
 # rm -rf ./testdb
 # cp -r ./db/PrepareDB_K256_KV1024_20M_default ./testdb
 # ./tools/test_delete --mode=decom --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=100 >> ./res/testlog.txt
+
+
+# echo "Test Group 1 ..." >> ./res/testlog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=default --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=100 >> ./res/testlog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=grd --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=100 >> ./res/testlog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=scan --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=100 >> ./res/testlog.txt
+# rm -rf ./testdb
+# ./tools/test_delete --mode=decom --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=1000000 --read_num=1000000 --seek_num=0 --rdelete_num=100000 --rdelete_len=100 >> ./res/testlog.txt
+
+
+
+echo "Test Group 10 ..." >> ./res/testlog_2.txt
+rm -rf ./testdb
+./tools/test_delete --mode=default --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=9000000 --read_num=1000000 --seek_num=0 --rdelete_num=500000 --rdelete_len=100 >> ./res/testlog_2.txt
+rm -rf ./testdb
+./tools/test_delete --mode=grd --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=9000000 --read_num=1000000 --seek_num=0 --rdelete_num=500000 --rdelete_len=100 >> ./res/testlog_2.txt
+rm -rf ./testdb
+./tools/test_delete --mode=scan --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=9000000 --read_num=1000000 --seek_num=0 --rdelete_num=500000 --rdelete_len=100 >> ./res/testlog_2.txt
+rm -rf ./testdb
+./tools/test_delete --mode=decom --full_rtree=true --workload=test --level_comp=10 --ksize=256 --kvsize=1024 --buffer_size=64 --rep_buffer_size=4096 --max_key=99999999 --prep_num=0 --write_num=9000000 --read_num=1000000 --seek_num=0 --rdelete_num=500000 --rdelete_len=100 >> ./res/testlog_2.txt

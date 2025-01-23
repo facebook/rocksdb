@@ -42,6 +42,13 @@ public:
             exit(EXIT_FAILURE);
         }
     }
+
+    void UpdateInfo(Point min_point, Point max_point, uint64_t min_upper)
+    {
+        min_point_ = min_point; 
+        max_point_ = max_point;
+        min_upper_ = min_upper;
+    }
     
     bool query(const K &key){
         PrepareRTree();
@@ -149,6 +156,7 @@ public:
     
     
 private:
+    RTreeType * Index_RTree_ = nullptr;
     std::string filename_;
     int level_;
     size_t runID_;

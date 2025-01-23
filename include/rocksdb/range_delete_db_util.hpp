@@ -167,6 +167,229 @@ class OperationGenerator {
     idx_ = 0;
   }
 
+  void InitForTestNotfound(const uint64_t &start, const uint64_t &write, const uint64_t &read, 
+                  const uint64_t &seek, const uint64_t &rdelete) {
+    srand(100);
+    uint64_t idx = 0;
+    std::vector<uint64_t> idxs;
+    std::vector<uint64_t> keys;
+    std::vector<char> ops;
+    
+    // write & range delete
+    for (uint64_t i = 0; i < 1000000; i++) {
+      ops.push_back('w');
+      keys.push_back(i * 200);
+      idxs.push_back(idx);
+      idx++;
+    }
+    if (rdelete != 0){
+      for (uint64_t i = 0; i < 200000; i++) {
+        ops.push_back('g');
+        keys.push_back(i * 1000 + 50);
+        idxs.push_back(idx);
+        idx++;
+      }
+    }
+    if (shuffle_) {
+      auto rng = std::default_random_engine{};
+      std::shuffle(std::begin(idxs), std::end(idxs), rng);
+    }
+    assert(ops.size() == keys.size());
+    for (uint64_t i = 0; i < ops.size(); i++){
+      ops_.push_back(ops[idxs[i]]);
+      keys_.push_back(keys[idxs[i]]);
+    }
+
+    // read
+    keys.clear();
+    for (uint64_t i = 0; i < 1000000; i++) {
+      keys.push_back(i * 200 + 20);
+    }
+    if (shuffle_) {
+      auto rng = std::default_random_engine{};
+      std::shuffle(std::begin(keys), std::end(keys), rng);
+    }
+    for (uint64_t i = 0; i < keys.size(); i++){
+      ops_.push_back('r');
+      keys_.push_back(keys[i]);
+    }
+
+    assert(keys_.size() == ops_.size());
+    idx_ = 0;
+  }
+
+  void InitForTestNotfoundBefore(const uint64_t &start, const uint64_t &write, const uint64_t &read, 
+                  const uint64_t &seek, const uint64_t &rdelete) {
+    srand(100);
+    uint64_t idx = 0;
+    std::vector<uint64_t> idxs;
+    std::vector<uint64_t> keys;
+    std::vector<char> ops;
+    
+    // write & range delete
+    for (uint64_t i = 0; i < 1000000; i++) {
+      ops.push_back('w');
+      keys.push_back(10000000 + i * 5);
+      idxs.push_back(idx);
+      idx++;
+    }
+    if (rdelete != 0){
+      for (uint64_t i = 0; i < 200000; i++) {
+        ops.push_back('g');
+        keys.push_back(i * 50 + 10);
+        idxs.push_back(idx);
+        idx++;
+      }
+    }
+    if (shuffle_) {
+      auto rng = std::default_random_engine{};
+      std::shuffle(std::begin(idxs), std::end(idxs), rng);
+    }
+    assert(ops.size() == keys.size());
+    for (uint64_t i = 0; i < ops.size(); i++){
+      ops_.push_back(ops[idxs[i]]);
+      keys_.push_back(keys[idxs[i]]);
+    }
+
+    // read
+    keys.clear();
+    for (uint64_t i = 0; i < 1000000; i++) {
+      keys.push_back(10000000 + i * 5 + 2);
+    }
+    if (shuffle_) {
+      auto rng = std::default_random_engine{};
+      std::shuffle(std::begin(keys), std::end(keys), rng);
+    }
+    for (uint64_t i = 0; i < keys.size(); i++){
+      ops_.push_back('r');
+      keys_.push_back(keys[i]);
+    }
+
+    assert(keys_.size() == ops_.size());
+    idx_ = 0;
+  }
+
+  void InitForTestValid(const uint64_t &start, const uint64_t &write, const uint64_t &read, 
+                  const uint64_t &seek, const uint64_t &rdelete) {
+    srand(100);
+    uint64_t idx = 0;
+    std::vector<uint64_t> idxs;
+    std::vector<uint64_t> keys;
+    std::vector<char> ops;
+    
+    // write & range delete
+    for (uint64_t i = 0; i < 1000000; i++) {
+      ops.push_back('w');
+      keys.push_back(i * 200);
+      idxs.push_back(idx);
+      idx++;
+    }
+    if (rdelete != 0){
+      for (uint64_t i = 0; i < 200000; i++) {
+        ops.push_back('g');
+        keys.push_back(i * 1000 + 50);
+        idxs.push_back(idx);
+        idx++;
+      }
+    }
+    if (shuffle_) {
+      auto rng = std::default_random_engine{};
+      std::shuffle(std::begin(idxs), std::end(idxs), rng);
+    }
+    assert(ops.size() == keys.size());
+    for (uint64_t i = 0; i < ops.size(); i++){
+      ops_.push_back(ops[idxs[i]]);
+      keys_.push_back(keys[idxs[i]]);
+    }
+
+    // read
+    keys.clear();
+    for (uint64_t i = 0; i < 1000000; i++) {
+      keys.push_back(i * 200);
+    }
+    if (shuffle_) {
+      auto rng = std::default_random_engine{};
+      std::shuffle(std::begin(keys), std::end(keys), rng);
+    }
+    for (uint64_t i = 0; i < keys.size(); i++){
+      ops_.push_back('r');
+      keys_.push_back(keys[i]);
+    }
+
+    assert(keys_.size() == ops_.size());
+    idx_ = 0;
+  }
+
+  void InitForTestDeleted(const uint64_t &start, const uint64_t &write, const uint64_t &read, 
+                  const uint64_t &seek, const uint64_t &rdelete) {
+    srand(100);
+    uint64_t idx = 0;
+    std::vector<uint64_t> idxs;
+    std::vector<uint64_t> keys;
+    std::vector<char> ops;
+    
+    // write & range delete
+    if (rdelete != 0){
+      for (uint64_t i = 0; i < 200000; i++) {
+        ops_.push_back('w');
+        keys_.push_back(i * 1000 + 60);
+        ops_.push_back('w');
+        keys_.push_back(i * 1000 + 80);
+        ops_.push_back('w');
+        keys_.push_back(i * 1000 + 100);
+        ops_.push_back('w');
+        keys_.push_back(i * 1000 + 120);
+        ops_.push_back('w');
+        keys_.push_back(i * 1000 + 140);
+      }
+    }
+
+    for (uint64_t i = 0; i < 1000000; i++) {
+      ops.push_back('w');
+      keys.push_back(i * 200);
+      idxs.push_back(idx);
+      idx++;
+    }
+    if (rdelete != 0){
+      for (uint64_t i = 0; i < 200000; i++) {
+        ops.push_back('g');
+        keys.push_back(i * 1000 + 50);
+        idxs.push_back(idx);
+        idx++;
+      }
+    }
+    if (shuffle_) {
+      auto rng = std::default_random_engine{};
+      std::shuffle(std::begin(idxs), std::end(idxs), rng);
+    }
+    assert(ops.size() == keys.size());
+    for (uint64_t i = 0; i < ops.size(); i++){
+      ops_.push_back(ops[idxs[i]]);
+      keys_.push_back(keys[idxs[i]]);
+    }
+
+    // read
+    keys.clear();
+    for (uint64_t i = 0; i < 200000; i++) {
+      keys.push_back(i * 1000 + 60);
+      keys.push_back(i * 1000 + 80);
+      keys.push_back(i * 1000 + 100);
+      keys.push_back(i * 1000 + 120);
+      keys.push_back(i * 1000 + 140);
+    }
+    if (shuffle_) {
+      auto rng = std::default_random_engine{};
+      std::shuffle(std::begin(keys), std::end(keys), rng);
+    }
+    for (uint64_t i = 0; i < keys.size(); i++){
+      ops_.push_back('r');
+      keys_.push_back(keys[i]);
+    }
+
+    assert(keys_.size() == ops_.size());
+    idx_ = 0;
+  }
+
   uint64_t size() const {
     return keys_.size();
   }

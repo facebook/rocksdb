@@ -54,17 +54,21 @@ class DiskLevel {
  public:
     int level_;
     size_t page_size_; // number of elements per fence pointer
-    size_t T_; // number of runs in a level
+    size_t T_; // size ratio of runs in a level
+    size_t max_run_num_; // number of runs in a level
+    size_t run_cap_; // number of compaction a run can hold
+    size_t compact_num_; // record the number of compaction involed after the last full compaction
     // unsigned _numRuns; // index of active run
     // unsigned _numMerges; // number of merges in a level
     mutex *curr_read_lock; //WF: Used to protect read RTree in each run during compaction TODO: try to use other methods
     
-    DiskLevel<K,V>( std::string path, size_t page_size, int level, size_t T, bool use_full_rtree)
-                    :T_(T), level_(level), page_size_(page_size), path_(path), use_full_rtree_(use_full_rtree)
+    DiskLevel<K,V>( std::string path, size_t page_size, int level, size_t T, size_t max_run_num, bool use_full_rtree)
+                    :T_(T), max_run_num_(max_run_num), level_(level), page_size_(page_size), path_(path), use_full_rtree_(use_full_rtree), compact_num_(0)
     {
         // min_point_.init_min();
         // max_point_.init_max();
         // min_upper_ = std::numeric_limits<uint64_t>::max();
+        run_cap_ = T_ / max_run_num_;
         runs_.reserve(100); //temperaly set it to 100, while we expect at most T runs in this level
         curr_read_lock = new mutex();
     }
@@ -78,6 +82,10 @@ class DiskLevel {
     
     void AddRun(vector<DiskRun<K, V> *> &runList);
 
+    void MergeToLastRun(vector<DiskRun<K, V> *> &runList);
+
+    void ExcuteCompaction(vector<DiskRun<K, V> *> &runList);
+
     void AddRunFromMem(RTreeType * mem, Point & minP, Point & maxP, uint64_t & minU);
     
     vector<DiskRun<K,V> *> GetRunsToMerge();
@@ -85,7 +93,8 @@ class DiskLevel {
     void FreeMergedRuns(vector<DiskRun<K,V> *> &toFree);
 
     bool to_merge(){
-        return (runs_.size() >= T_);
+        // return (runs_.size() >= T_);
+        return (compact_num_ >= T_);
     }
 
     bool level_empty(){
@@ -150,29 +159,97 @@ void DiskLevel<K, V>::AddRun(vector<DiskRun<K, V> *> &runList) {
 }
 
 template <class K, class V>
-void DiskLevel<K, V>::AddRunFromMem(RTreeType * mem, Point & minP, Point & maxP, uint64_t & minU) {
-    // insert into level_ 1
-    size_t runID = runs_.size();
-    runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, minU, use_full_rtree_, mem));
+void DiskLevel<K, V>::MergeToLastRun(vector<DiskRun<K, V> *> &runList) {
+    RTreeType * RTree_res;
+    RTree_res = new RTreeType();
+    size_t last_idx = runs_.size() - 1;
+    Point minP = runs_[last_idx]->min_point_;
+    Point maxP = runs_[last_idx]->max_point_;
+    uint64_t minU = runs_[last_idx]->min_upper_;
+    runs_[last_idx]->LoadTo(RTree_res);
 
-    // RTreeType::Iterator it;
-    // uint64_t boundsMin[2] = {0, 0};
-    // uint64_t boundsMax[2] = {0, 0};
-    // for (mem.GetFirst(it); !mem.IsNull(it); mem.GetNext(it)) {
-    //     it.GetBounds(boundsMin, boundsMax);
-    //     if (boundsMin[0] < minP.data[0]){
-    //         minP.data[0] = boundsMin[0];
-    //     }
-    //     if (boundsMin[1] < minP.data[1]){
-    //         minP.data[1] = boundsMin[1];
-    //     }
-    //     if (boundsMax[0] > maxP.data[0]){
-    //         maxP.data[0] = boundsMax[0];
-    //     }
-    //     if (boundsMax[1] > maxP.data[1]){
-    //         maxP.data[1] = boundsMax[1];
-    //     }
-    // }        
+    // merge existing rtrees to last run in this level
+    for (int i = 0; i < runList.size(); i++){
+        runList[i]->PrepareRTree();
+        // update boundary
+        minP.set_min(runList[i]->min_point_);
+        maxP.set_max(runList[i]->max_point_);
+        minU = std::min(minU, runList[i]->min_upper_);
+
+        // insert entries in new RTree
+        RTreeType::Iterator it;
+        uint64_t boundsMin[2] = {0, 0};
+        uint64_t boundsMax[2] = {0, 0};
+
+        for (runList[i]->RTree_->GetFirst(it); !runList[i]->RTree_->IsNull(it); runList[i]->RTree_->GetNext(it)) {
+            it.GetBounds(boundsMin, boundsMax);
+            RTree_res->Insert(boundsMin, boundsMax, *it);
+        }
+    }
+    // insert into target slot
+    std::string filename = runs_[last_idx]->filename_;
+    std::string newname = filename.substr(0, filename.length() - 4) + "_tmp.dat";
+    RTree_res->Save(newname.c_str(), use_full_rtree_);
+    // rename
+    if (rename(newname.c_str(), filename.c_str())){
+        perror(("Error renaming file " + filename + " to " + newname).c_str());
+        exit(EXIT_FAILURE);
+    }
+    runs_[last_idx]->UpdateInfo(minP, maxP, minU);
+}
+
+template <class K, class V>
+void DiskLevel<K, V>::ExcuteCompaction(vector<DiskRun<K, V> *> &runList) {
+    if (compact_num_ % run_cap_ == 0){
+        AddRun(runList);
+    } else {
+        MergeToLastRun(runList);
+    }
+    compact_num_++;
+}
+
+template <class K, class V>
+void DiskLevel<K, V>::AddRunFromMem(RTreeType * mem, Point & minP, Point & maxP, uint64_t & minU) {
+    if (compact_num_ % run_cap_ == 0){
+        // insert new run into level_ 1
+        size_t runID = runs_.size();
+        runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, minU, use_full_rtree_, mem));
+    } else {
+        RTreeType * RTree_res;
+        RTree_res = new RTreeType();
+        size_t last_idx = runs_.size() - 1;
+        Point minPoint = runs_[last_idx]->min_point_;
+        Point maxPoint = runs_[last_idx]->max_point_;
+        uint64_t minUpper = runs_[last_idx]->min_upper_;
+        runs_[last_idx]->LoadTo(RTree_res);
+
+        // merge existing rtrees to last run in this level
+        minPoint.set_min(minP);
+        maxPoint.set_max(maxP);
+        minUpper = std::min(minU, minUpper);
+
+        // insert entries in new RTree
+        RTreeType::Iterator it;
+        uint64_t boundsMin[2] = {0, 0};
+        uint64_t boundsMax[2] = {0, 0};
+
+        for (mem->GetFirst(it); !mem->IsNull(it); mem->GetNext(it)) {
+            it.GetBounds(boundsMin, boundsMax);
+            RTree_res->Insert(boundsMin, boundsMax, *it);
+        }
+        
+        // insert into target slot
+        std::string filename = runs_[last_idx]->filename_;
+        std::string newname = filename.substr(0, filename.length() - 4) + "_tmp.dat";
+        RTree_res->Save(newname.c_str(), use_full_rtree_);
+        // rename
+        if (rename(newname.c_str(), filename.c_str())){
+            perror(("Error renaming file " + filename + " to " + newname).c_str());
+            exit(EXIT_FAILURE);
+        }
+        runs_[last_idx]->UpdateInfo(minPoint, maxPoint, minUpper);
+    }
+    compact_num_++; 
 }
 
 template <class K, class V>
