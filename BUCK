@@ -317,6 +317,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/persistent_cache/block_cache_tier_metadata.cc",
         "utilities/persistent_cache/persistent_cache_tier.cc",
         "utilities/persistent_cache/volatile_tier_impl.cc",
+        "utilities/secondary_index/secondary_index_iterator.cc",
         "utilities/simulator_cache/cache_simulator.cc",
         "utilities/simulator_cache/sim_cache.cc",
         "utilities/table_properties_collectors/compact_for_tiering_collector.cc",
