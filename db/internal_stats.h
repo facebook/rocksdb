@@ -620,7 +620,6 @@ class InternalStats {
     has_cf_change_since_dump_ = true;
     auto& v = cf_stats_value_[type];
     auto& ct = cf_stats_count_[type];
-    assert(value <= v);
     if (concurrent) {
       v.fetch_sub(value, std::memory_order_relaxed);
       ct--;
