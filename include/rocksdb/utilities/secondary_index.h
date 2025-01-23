@@ -138,4 +138,12 @@ class SecondaryIndex {
       std::unique_ptr<Iterator>&& underlying_it) const = 0;
 };
 
+// Create a simple secondary index iterator that can be used to query an index,
+// i.e. find the primary keys for a given search target. Can be used as-is or as
+// a building block for more complex iterators. The returned iterator supports
+// Seek/Next/Prev but not SeekToFirst/SeekToLast/SeekForPrev, and exposes
+// primary keys. See also SecondaryIndex::NewIterator above.
+std::unique_ptr<Iterator> NewSecondaryIndexIterator(
+    const SecondaryIndex* index, std::unique_ptr<Iterator>&& underlying_it);
+
 }  // namespace ROCKSDB_NAMESPACE

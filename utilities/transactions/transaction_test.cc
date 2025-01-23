@@ -8080,8 +8080,7 @@ TEST_P(TransactionTest, SecondaryIndexPutDelete) {
     std::unique_ptr<Iterator> NewIterator(
         const SecondaryIndexReadOptions& /* read_options */,
         std::unique_ptr<Iterator>&& underlying_it) const override {
-      return std::make_unique<SecondaryIndexIterator>(this,
-                                                      std::move(underlying_it));
+      return NewSecondaryIndexIterator(this, std::move(underlying_it));
     }
 
    private:
@@ -8456,8 +8455,7 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
     std::unique_ptr<Iterator> NewIterator(
         const SecondaryIndexReadOptions& /* read_options */,
         std::unique_ptr<Iterator>&& underlying_it) const override {
-      return std::make_unique<SecondaryIndexIterator>(this,
-                                                      std::move(underlying_it));
+      return NewSecondaryIndexIterator(this, std::move(underlying_it));
     }
 
    private:
@@ -8830,8 +8828,7 @@ TEST_P(TransactionTest, SecondaryIndexOnKey) {
     std::unique_ptr<Iterator> NewIterator(
         const SecondaryIndexReadOptions& /* read_options */,
         std::unique_ptr<Iterator>&& underlying_it) const override {
-      return std::make_unique<SecondaryIndexIterator>(this,
-                                                      std::move(underlying_it));
+      return NewSecondaryIndexIterator(this, std::move(underlying_it));
     }
 
    private:

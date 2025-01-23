@@ -457,8 +457,7 @@ std::unique_ptr<Iterator> FaissIVFIndex::NewIterator(
   }
 
   return std::make_unique<KNNIterator>(
-      index_.get(),
-      std::make_unique<SecondaryIndexIterator>(this, std::move(underlying_it)),
+      index_.get(), NewSecondaryIndexIterator(this, std::move(underlying_it)),
       *read_options.similarity_search_neighbors,
       *read_options.similarity_search_probes);
 }
