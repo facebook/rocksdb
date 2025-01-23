@@ -599,8 +599,6 @@ class InternalStats {
     comp_stats_[level].bytes_moved += amount;
   }
 
-  // Multiple compaction and flush jobs can be running concurrently, so
-  // concurrent's default value is set to true.
   void AddCFStats(InternalCFStatsType type, uint64_t value,
                   bool concurrent = false) {
     has_cf_change_since_dump_ = true;
@@ -608,7 +606,7 @@ class InternalStats {
     auto& ct = cf_stats_count_[type];
     if (concurrent) {
       v.fetch_add(value, std::memory_order_relaxed);
-      ct.fetch_add(1, std::memory_order_relaxed);
+      ct++;
     } else {
       v.store(v.load(std::memory_order_relaxed) + value,
               std::memory_order_relaxed);
@@ -624,7 +622,7 @@ class InternalStats {
     auto& ct = cf_stats_count_[type];
     if (concurrent) {
       v.fetch_sub(value, std::memory_order_relaxed);
-      ct.fetch_sub(1, std::memory_order_relaxed);
+      ct--;
     } else {
       v.store(v.load(std::memory_order_relaxed) - value,
               std::memory_order_relaxed);
