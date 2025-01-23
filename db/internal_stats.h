@@ -599,8 +599,10 @@ class InternalStats {
     comp_stats_[level].bytes_moved += amount;
   }
 
+  // Multiple compaction and flush jobs can be running concurrently, so
+  // concurrent's default value is set to true.
   void AddCFStats(InternalCFStatsType type, uint64_t value,
-                  bool concurrent = false) {
+                  bool concurrent = true) {
     has_cf_change_since_dump_ = true;
     auto& v = cf_stats_value_[type];
     auto& ct = cf_stats_count_[type];
@@ -616,7 +618,7 @@ class InternalStats {
   }
 
   void SubCFStats(InternalCFStatsType type, uint64_t value,
-                  bool concurrent = false) {
+                  bool concurrent = true) {
     has_cf_change_since_dump_ = true;
     auto& v = cf_stats_value_[type];
     auto& ct = cf_stats_count_[type];
