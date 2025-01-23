@@ -1277,8 +1277,10 @@ bool InternalStats::HandleNumRunningCompactionSortedRuns(uint64_t* value,
                                                          Version* /*version*/) {
   uint64_t sorted_runs = 0;
   for (auto* cfd : *db->versions_->GetColumnFamilySet()) {
-    sorted_runs += cfd->internal_stats()->GetCFStats(
-        InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS);
+    if (cfd->dummy_versions() == nullptr) {
+      sorted_runs += cfd->internal_stats()->GetCFStats(
+          InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS);
+    }
   }
   *value = sorted_runs;
   return true;
