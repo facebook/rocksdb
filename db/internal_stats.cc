@@ -1277,16 +1277,8 @@ bool InternalStats::HandleNumRunningCompactionSortedRuns(uint64_t* value,
                                                          Version* /*version*/) {
   uint64_t sorted_runs = 0;
   for (auto* cfd : *db->versions_->GetColumnFamilySet()) {
-    // When dummy_versions() != nullptr, then the "dummy column family" can
-    // reset the pointer to the internal stats. Since we increment and decrement
-    // to calculate the current number of sorted runs, we can underflow the
-    // unsigned integer if the stats get reset before we decrement. Thus, we
-    // need to ignore the results from the "dummy column family" since they will
-    // be invalid
-    if (cfd->dummy_versions() == nullptr) {
-      sorted_runs += cfd->internal_stats()->GetCFStats(
-          InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS);
-    }
+    sorted_runs += cfd->internal_stats()->GetCFStats(
+        InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS);
   }
   *value = sorted_runs;
   return true;
