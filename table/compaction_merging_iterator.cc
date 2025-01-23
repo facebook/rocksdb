@@ -63,9 +63,6 @@ class CompactionMergingIterator : public InternalIterator {
   ~CompactionMergingIterator() override {
     if (internal_stats_) {
       assert(num_sorted_runs_recorded_ == range_tombstone_iters_.size());
-      assert(num_sorted_runs_recorded_ <=
-             internal_stats_->GetCFStats(
-                 InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS));
       internal_stats_->SubCFStats(
           InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS,
           num_sorted_runs_recorded_, /*concurrent=*/true);
