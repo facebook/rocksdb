@@ -602,7 +602,7 @@ class InternalStats {
   // Multiple compaction and flush jobs can be running concurrently, so
   // concurrent's default value is set to true.
   void AddCFStats(InternalCFStatsType type, uint64_t value,
-                  bool concurrent = true) {
+                  bool concurrent = false) {
     has_cf_change_since_dump_ = true;
     auto& v = cf_stats_value_[type];
     auto& ct = cf_stats_count_[type];
@@ -618,7 +618,7 @@ class InternalStats {
   }
 
   void SubCFStats(InternalCFStatsType type, uint64_t value,
-                  bool concurrent = true) {
+                  bool concurrent = false) {
     has_cf_change_since_dump_ = true;
     auto& v = cf_stats_value_[type];
     auto& ct = cf_stats_count_[type];
@@ -749,7 +749,7 @@ class InternalStats {
   CompactionStats per_key_placement_comp_stats_;
   std::vector<HistogramImpl> file_read_latency_;
   HistogramImpl blob_file_read_latency_;
-  bool has_cf_change_since_dump_;
+  std::atomic<bool> has_cf_change_since_dump_;
   // How many periods of no change since the last time stats are dumped for
   // a periodic dump.
   int no_cf_change_period_since_dump_ = 0;
