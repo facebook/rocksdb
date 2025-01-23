@@ -5881,8 +5881,8 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   ColumnFamilyData* cfd = cfh->cfd();
 
   VerifyCompactionStats(*cfd, *collector);
-  // There should be no more running compactions, and thus no more input
-  // sorted runs
+  // There should be no more running compactions, and thus no more sorted runs
+  // to process
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
                                   &num_running_compactions));
   ASSERT_EQ(num_running_compactions, 0);
