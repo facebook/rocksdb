@@ -51,6 +51,8 @@ class CompactionMergingIterator : public InternalIterator {
       num_sorted_runs_recorded_ = n;
       internal_stats_->IncrNumRunningCompactionSortedRuns(
           num_sorted_runs_recorded_);
+      assert(num_sorted_runs_recorded_ <=
+             internal_stats_->NumRunningCompactionSortedRuns());
     }
   }
 
@@ -63,8 +65,8 @@ class CompactionMergingIterator : public InternalIterator {
   ~CompactionMergingIterator() override {
     if (internal_stats_) {
       assert(num_sorted_runs_recorded_ == range_tombstone_iters_.size());
-      assert(internal_stats_->NumRunningCompactionSortedRuns() >=
-             num_sorted_runs_recorded_);
+      assert(num_sorted_runs_recorded_ <=
+             internal_stats_->NumRunningCompactionSortedRuns());
       internal_stats_->DecrNumRunningCompactionSortedRuns(
           num_sorted_runs_recorded_);
     }
