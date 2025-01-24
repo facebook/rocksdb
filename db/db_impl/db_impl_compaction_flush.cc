@@ -3409,11 +3409,6 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
   {
     InstrumentedMutexLock l(&mutex_);
 
-    ROCKS_LOG_INFO(immutable_db_options_.logger,
-                   "NUM_RUNNING_COMPACTION_SORTED_RUNS at start of compaction: "
-                   "%lu with %d compactions running",
-                   default_cf_internal_stats_->NumRunningCompactionSortedRuns(),
-                   num_running_compactions_);
     num_running_compactions_++;
 
     std::unique_ptr<std::list<uint64_t>::iterator>
@@ -3489,12 +3484,6 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
-
-    ROCKS_LOG_INFO(immutable_db_options_.logger,
-                   "NUM_RUNNING_COMPACTION_SORTED_RUNS at end of compaction: "
-                   "%lu with %d compactions running",
-                   default_cf_internal_stats_->NumRunningCompactionSortedRuns(),
-                   num_running_compactions_);
 
     if (bg_thread_pri == Env::Priority::LOW) {
       bg_compaction_scheduled_--;

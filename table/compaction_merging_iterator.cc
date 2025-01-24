@@ -50,8 +50,6 @@ class CompactionMergingIterator : public InternalIterator {
       num_sorted_runs_recorded_ = n;
       internal_stats_->IncrNumRunningCompactionSortedRuns(
           num_sorted_runs_recorded_);
-      fprintf(stdout, "INCR %lu\n",
-              internal_stats_->NumRunningCompactionSortedRuns());
     }
   }
 
@@ -68,8 +66,6 @@ class CompactionMergingIterator : public InternalIterator {
              num_sorted_runs_recorded_);
       internal_stats_->DecrNumRunningCompactionSortedRuns(
           num_sorted_runs_recorded_);
-      fprintf(stdout, "DECR %lu\n",
-              internal_stats_->NumRunningCompactionSortedRuns());
     }
 
     range_tombstone_iters_.clear();
