@@ -5290,7 +5290,6 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   for (int i = 0; i < kNKeys; i++) {
     keys[i] = i;
   }
-  RandomShuffle(std::begin(keys), std::end(keys));
 
   Random rnd(301);
   Options options;
@@ -5315,7 +5314,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   options.compression_per_level[0] = kNoCompression;
   // No compression for the Ln whre L0 is compacted to
   options.compression_per_level[1] = kNoCompression;
-  // Snpapy compression for Ln+1
+  // Snappy compression for Ln+1
   options.compression_per_level[2] = kSnappyCompression;
 
   OnFileDeletionListener* listener = new OnFileDeletionListener();
@@ -5359,6 +5358,36 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   num_block_compressed =
       options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
   ASSERT_GT(num_block_compressed, 0);
+
+  // Make sure data in files in L3 is not compacted by removing all files
+  // in L4 and calculate number of rows
+  ASSERT_OK(dbfull()->SetOptions({
+      {"disable_auto_compactions", "true"},
+  }));
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  for (const auto& file : cf_meta.levels[4].files) {
+    listener->SetExpectedFileName(dbname_ + file.name);
+    Slice start(file.smallestkey), limit(file.largestkey);
+    const RangePtr ranges(&start, &limit);
+    EXPECT_OK(dbfull()->DeleteFilesInRanges(dbfull()->DefaultColumnFamily(),
+                                            &ranges, true /* include_end */));
+  }
+  listener->VerifyMatchedCount(cf_meta.levels[4].files.size());
+
+  int num_keys = 0;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    num_keys++;
+  }
+  ASSERT_OK(iter->status());
+
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+  ASSERT_GE(NumTableFilesAtLevel(3), 1);
+  ASSERT_EQ(NumTableFilesAtLevel(4), 0);
+
+  ASSERT_GT(SizeAtLevel(0) + SizeAtLevel(3), num_keys * 4000U + num_keys * 10U);
 }
 
 TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
