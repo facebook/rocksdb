@@ -192,5 +192,7 @@ class RandomAccessFileReader {
                      AlignedBuf* aligned_buf);
 
   void ReadAsyncCallback(FSReadRequest& req, void* cb_arg);
+
+  size_t GetBlockSize() const { return file_->GetBlockSize(); }
 };
 }  // namespace ROCKSDB_NAMESPACE

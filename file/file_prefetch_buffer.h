@@ -434,12 +434,12 @@ class FilePrefetchBuffer {
 
   Status PrefetchInternal(const IOOptions& opts, RandomAccessFileReader* reader,
                           uint64_t offset, size_t length, size_t readahead_size,
-                          bool& copy_to_third_buffer);
+                          bool for_compaction, bool& copy_to_third_buffer);
 
   Status Read(BufferInfo* buf, const IOOptions& opts,
               RandomAccessFileReader* reader, uint64_t read_len,
               uint64_t aligned_useful_len, uint64_t start_offset,
-              bool use_fs_buffer);
+              bool use_fs_buffer, bool for_compaction);
 
   Status ReadAsync(BufferInfo* buf, const IOOptions& opts,
                    RandomAccessFileReader* reader, uint64_t read_len,
@@ -521,11 +521,19 @@ class FilePrefetchBuffer {
   // Reuses the file system allocated buffer to avoid an extra copy
   IOStatus FSBufferDirectRead(RandomAccessFileReader* reader, BufferInfo* buf,
                               const IOOptions& opts, uint64_t offset, size_t n,
-                              Slice& result) {
+                              bool for_compaction, Slice& result) {
     FSReadRequest read_req;
     read_req.offset = offset;
     read_req.len = n;
     read_req.scratch = nullptr;
+    if (for_compaction) {
+      // We can consider passing in another option to toggle whether we allow
+      // expanding the read size. We also want to enable this optimization in
+      // the future for low-priority reads, but note that IOOptions::prio is
+      // marked as deprecated in the comments.
+      read_req.additional_read_size = reader->GetBlockSize();
+    }
+
     IOStatus s = reader->MultiRead(opts, &read_req, 1, nullptr);
     if (!s.ok()) {
       return s;
