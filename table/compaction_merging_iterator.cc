@@ -44,6 +44,7 @@ class CompactionMergingIterator : public InternalIterator {
       pinned_heap_item_[i].type = HeapItem::DELETE_RANGE_START;
     }
     if (internal_stats_) {
+      TEST_SYNC_POINT("CompactionMergingIterator::UpdateInternalStats");
       // The size of children_ or range_tombstone_iters_ (n) should not change
       // but to be safe, we can record the size here so we decrement by the
       // correct amount at destruction time
