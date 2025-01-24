@@ -1123,6 +1123,13 @@ void CompactionJob::NotifyOnSubcompactionCompleted(
 }
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
+  ROCKS_LOG_INFO(
+      db_options_.logger,
+      "NUM_RUNNING_COMPACTION_SORTED_RUNS inside ProcessKeyValueCompaction: "
+      "%lu",
+      sub_compact->compaction->column_family_data()
+          ->internal_stats()
+          ->NumRunningCompactionSortedRuns());
   assert(sub_compact);
   assert(sub_compact->compaction);
   if (db_options_.compaction_service) {

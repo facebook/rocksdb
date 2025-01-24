@@ -48,9 +48,10 @@ class CompactionMergingIterator : public InternalIterator {
       // but to be safe, we can record the size here so we decrement by the
       // correct amount at destruction time
       num_sorted_runs_recorded_ = n;
-      internal_stats_->AddCFStats(
-          InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS,
-          num_sorted_runs_recorded_, /*concurrent=*/true);
+      internal_stats_->IncrNumRunningCompactionSortedRuns(
+          num_sorted_runs_recorded_);
+      fprintf(stdout, "INCR %lu\n",
+              internal_stats_->NumRunningCompactionSortedRuns());
     }
   }
 
@@ -63,9 +64,12 @@ class CompactionMergingIterator : public InternalIterator {
   ~CompactionMergingIterator() override {
     if (internal_stats_) {
       assert(num_sorted_runs_recorded_ == range_tombstone_iters_.size());
-      internal_stats_->SubCFStats(
-          InternalStats::NUM_RUNNING_COMPACTION_SORTED_RUNS,
-          num_sorted_runs_recorded_, /*concurrent=*/true);
+      assert(internal_stats_->NumRunningCompactionSortedRuns() >=
+             num_sorted_runs_recorded_);
+      internal_stats_->DecrNumRunningCompactionSortedRuns(
+          num_sorted_runs_recorded_);
+      fprintf(stdout, "DECR %lu\n",
+              internal_stats_->NumRunningCompactionSortedRuns());
     }
 
     range_tombstone_iters_.clear();
