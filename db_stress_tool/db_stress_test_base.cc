@@ -69,7 +69,7 @@ StressTest::StressTest()
       new_column_family_name_(1),
       num_times_reopened_(0),
       db_preload_finished_(false),
-      cmp_db_(nullptr),
+      secondary_db_(nullptr),
       is_db_stopped_(false) {
   if (FLAGS_destroy_db_initially) {
     std::vector<std::string> files;
@@ -114,11 +114,11 @@ void StressTest::CleanUp() {
   delete db_;
   db_ = nullptr;
 
-  for (auto* cf : cmp_cfhs_) {
+  for (auto* cf : secondary_cfhs_) {
     delete cf;
   }
-  cmp_cfhs_.clear();
-  delete cmp_db_;
+  secondary_cfhs_.clear();
+  delete secondary_db_;
 }
 
 std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
@@ -3696,9 +3696,10 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       tmp_opts.env = db_stress_env;
       const std::string& secondary_path = FLAGS_secondaries_base;
       s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
-                              cf_descriptors, &cmp_cfhs_, &cmp_db_);
+                              cf_descriptors, &secondary_cfhs_, &secondary_db_);
       assert(s.ok());
-      assert(cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
+      assert(secondary_cfhs_.size() ==
+             static_cast<size_t>(FLAGS_column_families));
     }
   } else {
     DBWithTTL* db_with_ttl;

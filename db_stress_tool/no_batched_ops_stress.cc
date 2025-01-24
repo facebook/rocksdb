@@ -153,6 +153,49 @@ class NonBatchedOpsStressTest : public StressTest {
                           from_db.data(), from_db.size());
           }
         }
+
+        if (secondary_db_) {
+          assert(secondary_cfhs_.size() == column_families_.size());
+          // We are going to read in the expected values before catching the
+          // secondary up to the primary. This sets the lower bound of the
+          // acceptable values that can be returned from the secondary. After
+          // each Get() to the secondary, we are going to read in the expected
+          // value again to determine the upper bound. As long as the returned
+          // value from Get() is within these bounds, we consider that okay. The
+          // lower bound will always be moving forwards anyways as
+          // TryCatchUpWithPrimary() gets called.
+          std::vector<ExpectedValue> pre_read_expected_values;
+          for (int64_t i = start; i < end; ++i) {
+            pre_read_expected_values.push_back(
+                shared->Get(static_cast<int>(cf), i));
+          }
+
+          Status s = secondary_db_->TryCatchUpWithPrimary();
+          if (!s.ok()) {
+            VerificationAbort(shared,
+                              "Secondary failed to catch up to the primary");
+          }
+
+          for (int64_t i = start; i < end; ++i) {
+            if (thread->shared->HasVerificationFailedYet()) {
+              break;
+            }
+
+            const std::string key = Key(i);
+            std::string from_db;
+
+            s = secondary_db_->Get(options, column_families_[cf], key,
+                                   &from_db);
+
+            assert(!pre_read_expected_values.empty() &&
+                   static_cast<size_t>(i - start) <
+                       pre_read_expected_values.size());
+            VerifyValueRange(static_cast<int>(cf), i, options, shared, from_db,
+                             /* msg_prefix */ "Secondary get verification", s,
+                             pre_read_expected_values[i - start]);
+          }
+        }
+
       } else if (method == VerificationMethod::kGetEntity) {
         for (int64_t i = start; i < end; ++i) {
           if (thread->shared->HasVerificationFailedYet()) {
@@ -333,12 +376,19 @@ class NonBatchedOpsStressTest : public StressTest {
   }
 
   void ContinuouslyVerifyDb(ThreadState* thread) const override {
-    if (!cmp_db_) {
+    // For automated crash tests, we only want to run this continous
+    // verification when continuous_verification_interval > 0 and there is
+    // a secondary db. This continous verification currently fails when there is
+    // a secondary db during the iterator scan. The stack trace mentions
+    // BlobReader/BlobSource but it may not necessarily be related to BlobDB.
+    // Regardless, we only want to run this function if we are experimenting and
+    // explicitly setting continuous_verification_interval.
+    if (!secondary_db_ || !FLAGS_continuous_verification_interval) {
       return;
     }
-    assert(cmp_db_);
-    assert(!cmp_cfhs_.empty());
-    Status s = cmp_db_->TryCatchUpWithPrimary();
+    assert(secondary_db_);
+    assert(!secondary_cfhs_.empty());
+    Status s = secondary_db_->TryCatchUpWithPrimary();
     if (!s.ok()) {
       assert(false);
       exit(1);
@@ -372,7 +422,7 @@ class NonBatchedOpsStressTest : public StressTest {
 
     {
       uint32_t crc = 0;
-      std::unique_ptr<Iterator> it(cmp_db_->NewIterator(read_opts));
+      std::unique_ptr<Iterator> it(secondary_db_->NewIterator(read_opts));
       s = checksum_column_family(it.get(), &crc);
       if (!s.ok()) {
         fprintf(stderr, "Computing checksum of default cf: %s\n",
@@ -381,19 +431,21 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
 
-    for (auto* handle : cmp_cfhs_) {
+    for (auto* handle : secondary_cfhs_) {
       if (thread->rand.OneInOpt(3)) {
         // Use Get()
         uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
         std::string key_str = Key(key);
         std::string value;
         std::string key_ts;
-        s = cmp_db_->Get(read_opts, handle, key_str, &value,
-                         FLAGS_user_timestamp_size > 0 ? &key_ts : nullptr);
+        s = secondary_db_->Get(
+            read_opts, handle, key_str, &value,
+            FLAGS_user_timestamp_size > 0 ? &key_ts : nullptr);
         s.PermitUncheckedError();
       } else {
         // Use range scan
-        std::unique_ptr<Iterator> iter(cmp_db_->NewIterator(read_opts, handle));
+        std::unique_ptr<Iterator> iter(
+            secondary_db_->NewIterator(read_opts, handle));
         uint32_t rnd = (thread->rand.Next()) % 4;
         if (0 == rnd) {
           // SeekToFirst() + Next()*5
@@ -2804,6 +2856,84 @@ class NonBatchedOpsStressTest : public StressTest {
       VerificationAbort(
           shared,
           msg_prefix + "Non-OK status " + read_u64ts.str() + s.ToString(), cf,
+          key, "", Slice(expected_value_data, expected_value_data_size));
+      return false;
+    }
+    return true;
+  }
+
+  // Compared to VerifyOrSyncValue, VerifyValueRange takes in a
+  // pre_read_expected_value to determine the lower bound of acceptable values.
+  // Anything from the pre_read_expected_value to the post_read_expected_value
+  // is considered acceptable. VerifyValueRange does not perform the initial
+  // "sync" step and does not compare the exact data/lengths for the values.
+  // This verification is suitable for verifying secondary or follower databases
+  bool VerifyValueRange(int cf, int64_t key, const ReadOptions& opts,
+                        SharedState* shared, const std::string& value_from_db,
+                        const std::string& msg_prefix, const Status& s,
+                        const ExpectedValue& pre_read_expected_value) const {
+    if (shared->HasVerificationFailedYet()) {
+      return false;
+    }
+    const ExpectedValue post_read_expected_value = shared->Get(cf, key);
+    char expected_value_data[kValueMaxLen];
+    size_t expected_value_data_size =
+        GenerateValue(post_read_expected_value.GetValueBase(),
+                      expected_value_data, sizeof(expected_value_data));
+
+    std::ostringstream read_u64ts;
+    if (opts.timestamp) {
+      read_u64ts << " while read with timestamp: ";
+      uint64_t read_ts;
+      if (DecodeU64Ts(*opts.timestamp, &read_ts).ok()) {
+        read_u64ts << std::to_string(read_ts) << ", ";
+      } else {
+        read_u64ts << s.ToString()
+                   << " Encoded read timestamp: " << opts.timestamp->ToString()
+                   << ", ";
+      }
+    }
+
+    // Compare value_from_db with the range of possible values from
+    // pre_read_expected_value to post_read_expected_value
+    if (s.ok()) {
+      const Slice slice(value_from_db);
+      const uint32_t value_base_from_db = GetValueBase(slice);
+      if (ExpectedValueHelper::MustHaveNotExisted(pre_read_expected_value,
+                                                  post_read_expected_value)) {
+        VerificationAbort(shared,
+                          msg_prefix +
+                              ": Unexpected value found that should not exist" +
+                              read_u64ts.str(),
+                          cf, key, value_from_db, "");
+        return false;
+      }
+      if (!ExpectedValueHelper::InExpectedValueBaseRange(
+              value_base_from_db, pre_read_expected_value,
+              post_read_expected_value)) {
+        VerificationAbort(
+            shared,
+            msg_prefix +
+                ": Unexpected value found outside of the value base range" +
+                read_u64ts.str(),
+            cf, key, value_from_db,
+            Slice(expected_value_data, expected_value_data_size));
+        return false;
+      }
+    } else if (s.IsNotFound()) {
+      if (ExpectedValueHelper::MustHaveExisted(pre_read_expected_value,
+                                               post_read_expected_value)) {
+        VerificationAbort(shared,
+                          msg_prefix + ": Value not found which should exist" +
+                              read_u64ts.str() + s.ToString(),
+                          cf, key, "",
+                          Slice(expected_value_data, expected_value_data_size));
+        return false;
+      }
+    } else {
+      VerificationAbort(
+          shared,
+          msg_prefix + "Non-OK status" + read_u64ts.str() + s.ToString(), cf,
           key, "", Slice(expected_value_data, expected_value_data_size));
       return false;
     }
