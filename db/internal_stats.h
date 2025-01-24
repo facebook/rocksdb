@@ -123,7 +123,6 @@ class InternalStats {
     INGESTED_NUM_FILES_TOTAL,
     INGESTED_LEVEL0_NUM_FILES_TOTAL,
     INGESTED_NUM_KEYS_TOTAL,
-    NUM_RUNNING_COMPACTION_SORTED_RUNS,
     INTERNAL_CF_STATS_ENUM_MAX,
   };
 
@@ -599,20 +598,10 @@ class InternalStats {
     comp_stats_[level].bytes_moved += amount;
   }
 
-  void AddCFStats(InternalCFStatsType type, uint64_t value,
-                  bool concurrent = false) {
+  void AddCFStats(InternalCFStatsType type, uint64_t value) {
     has_cf_change_since_dump_ = true;
-    auto& v = cf_stats_value_[type];
-    auto& ct = cf_stats_count_[type];
-    if (concurrent) {
-      v.fetch_add(value, std::memory_order_relaxed);
-      ct++;
-    } else {
-      v.store(v.load(std::memory_order_relaxed) + value,
-              std::memory_order_relaxed);
-      ct.store(ct.load(std::memory_order_relaxed) + 1,
-               std::memory_order_relaxed);
-    }
+    cf_stats_value_[type] += value;
+    ++cf_stats_count_[type];
   }
 
   void IncrNumRunningCompactionSortedRuns(uint64_t value) {
@@ -625,10 +614,6 @@ class InternalStats {
 
   uint64_t NumRunningCompactionSortedRuns() {
     return num_running_compaction_sorted_runs_.load();
-  }
-
-  uint64_t GetCFStats(InternalCFStatsType type) {
-    return cf_stats_value_[type];
   }
 
   void AddDBStats(InternalDBStatsType type, uint64_t value,
@@ -676,9 +661,7 @@ class InternalStats {
   // This should only be called while NOT holding the DB mutex.
   void CollectCacheEntryStats(bool foreground);
 
-  const std::atomic<uint64_t>* TEST_GetCFStatsValue() const {
-    return cf_stats_value_;
-  }
+  const uint64_t* TEST_GetCFStatsValue() const { return cf_stats_value_; }
 
   const std::vector<CompactionStats>& TEST_GetCompactionStats() const {
     return comp_stats_;
@@ -728,8 +711,8 @@ class InternalStats {
   // Per-DB stats
   std::atomic<uint64_t> db_stats_[kIntStatsNumMax];
   // Per-ColumnFamily stats
-  std::atomic<uint64_t> cf_stats_value_[INTERNAL_CF_STATS_ENUM_MAX];
-  std::atomic<uint64_t> cf_stats_count_[INTERNAL_CF_STATS_ENUM_MAX];
+  uint64_t cf_stats_value_[INTERNAL_CF_STATS_ENUM_MAX];
+  uint64_t cf_stats_count_[INTERNAL_CF_STATS_ENUM_MAX];
   // Initialize/reference the collector in constructor so that we don't need
   // additional synchronization in InternalStats, relying on synchronization
   // in CacheEntryStatsCollector::GetStats. This collector is pinned in cache
@@ -743,7 +726,7 @@ class InternalStats {
   CompactionStats per_key_placement_comp_stats_;
   std::vector<HistogramImpl> file_read_latency_;
   HistogramImpl blob_file_read_latency_;
-  std::atomic<bool> has_cf_change_since_dump_;
+  bool has_cf_change_since_dump_;
   // How many periods of no change since the last time stats are dumped for
   // a periodic dump.
   int no_cf_change_period_since_dump_ = 0;
@@ -952,6 +935,10 @@ class InternalStats {
   // or compaction will cause the counter to increase too.
   uint64_t bg_error_count_;
 
+  // This is a rolling count of the number of sorted runs being processed by
+  // currently running compactions. Other metrics are only incremented, but this
+  // metric is also decremented. Additionally, we also do not want to reset this
+  // count to zero at a periodic interval.
   std::atomic<uint64_t> num_running_compaction_sorted_runs_;
 
   const int number_levels_;

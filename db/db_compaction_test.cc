@@ -5867,6 +5867,14 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
       db_->GetIntProperty(DB::Properties::kNumRunningCompactionSortedRuns,
                           &num_running_compaction_sorted_runs));
   ASSERT_EQ(num_running_compaction_sorted_runs, 0);
+  // Check that the stat actually gets changed some time between the start and
+  // end of compaction
+  std::atomic<bool> sorted_runs_count_incremented = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionMergingIterator::UpdateInternalStats",
+      [&](void*) { sorted_runs_count_incremented = true; });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   for (int i = 0; i < 32; i++) {
     for (int j = 0; j < 5000; j++) {
@@ -5890,6 +5898,10 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
       db_->GetIntProperty(DB::Properties::kNumRunningCompactionSortedRuns,
                           &num_running_compaction_sorted_runs));
   ASSERT_EQ(num_running_compaction_sorted_runs, 0);
+  ASSERT_TRUE(sorted_runs_count_incremented);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(DBCompactionTest, SubcompactionEvent) {
