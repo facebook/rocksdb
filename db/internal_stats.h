@@ -615,20 +615,16 @@ class InternalStats {
     }
   }
 
-  void SubCFStats(InternalCFStatsType type, uint64_t value,
-                  bool concurrent = false) {
-    has_cf_change_since_dump_ = true;
-    auto& v = cf_stats_value_[type];
-    auto& ct = cf_stats_count_[type];
-    if (concurrent) {
-      v.fetch_sub(value, std::memory_order_relaxed);
-      ct--;
-    } else {
-      v.store(v.load(std::memory_order_relaxed) - value,
-              std::memory_order_relaxed);
-      ct.store(ct.load(std::memory_order_relaxed) - 1,
-               std::memory_order_relaxed);
-    }
+  void IncrNumRunningCompactionSortedRuns(uint64_t value) {
+    num_running_compaction_sorted_runs_.fetch_add(value);
+  }
+
+  void DecrNumRunningCompactionSortedRuns(uint64_t value) {
+    num_running_compaction_sorted_runs_.fetch_sub(value);
+  }
+
+  uint64_t NumRunningCompactionSortedRuns() {
+    return num_running_compaction_sorted_runs_.load();
   }
 
   uint64_t GetCFStats(InternalCFStatsType type) {
@@ -955,6 +951,8 @@ class InternalStats {
   // resources, or input file corruption. Failing when retrying the same flush
   // or compaction will cause the counter to increase too.
   uint64_t bg_error_count_;
+
+  std::atomic<uint64_t> num_running_compaction_sorted_runs_;
 
   const int number_levels_;
   SystemClock* clock_;
