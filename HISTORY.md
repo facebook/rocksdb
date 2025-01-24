@@ -9,7 +9,7 @@
 
 ### Public API Changes
 * Add `io_buffer_size` to BackupEngineOptions to enable optimal configuration of IO size
-* Clean up all the references to `random_access_max_buffer_size`, related rules and all the clients wrappers. This option has been officially deprecated in 5.4.0.
+* Clean up all the references to `random_access_max_buffer_size`, related rules and all the client's wrappers. This option has been officially deprecated in 5.4.0.
 * Add `file_ingestion_nanos` and `file_ingestion_blocking_live_writes_nanos` in PerfContext to observe file ingestions
 * Offer new DB::Open and variants that use `std::unique_ptr<DB>*` output parameters and deprecate the old versions that use `DB**` output parameters.
 * The DB::DeleteFile API is officially deprecated.
@@ -96,7 +96,7 @@
 * In FIFO compaction, compactions for changing file temperature (configured by option `file_temperature_age_thresholds`) will compact one file at a time, instead of merging multiple eligible file together (#13018).
 * Support ingesting db generated files using hard link, i.e. IngestExternalFileOptions::move_files/link_files and IngestExternalFileOptions::allow_db_generated_files.
 * Add a new file ingestion option `IngestExternalFileOptions::link_files` to hard link input files and preserve original files links after ingestion.
-* DB::Close now untracks files in SstFileManager, making avaialble any space used
+* DB::Close now untracks files in SstFileManager, making available any space used
 by them. Prior to this change they would be orphaned until the DB is re-opened.
 
 ### Bug Fixes
