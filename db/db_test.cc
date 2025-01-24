@@ -5290,6 +5290,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   for (int i = 0; i < kNKeys; i++) {
     keys[i] = i;
   }
+  RandomShuffle(std::begin(keys), std::end(keys));
 
   Random rnd(301);
   Options options;
