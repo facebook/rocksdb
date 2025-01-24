@@ -74,8 +74,7 @@ TEST(FaissIVFIndexTest, Basic) {
           cfh1, primary_key,
           WideColumns{
               {primary_column_name,
-               Slice(reinterpret_cast<const char*>(embeddings.data() + i * dim),
-                     dim * sizeof(float))}}));
+               ConvertFloatsToSlice(embeddings.data() + i * dim, dim)}}));
     }
 
     ASSERT_OK(txn->Commit());
@@ -102,10 +101,8 @@ TEST(FaissIVFIndexTest, Basic) {
 
       // Since we use IndexIVFFlat, there is no fine quantization, so the code
       // is actually just the original embedding
-      ASSERT_EQ(
-          it->value(),
-          Slice(reinterpret_cast<const char*>(embeddings.data() + id * dim),
-                dim * sizeof(float)));
+      ASSERT_EQ(it->value(),
+                ConvertFloatsToSlice(embeddings.data() + id * dim, dim));
 
       ++num_found;
     }
@@ -159,9 +156,7 @@ TEST(FaissIVFIndexTest, Basic) {
     // Search for a vector from the original set; we expect to find the vector
     // itself as the closest match, since we're performing an exhaustive search
     {
-      it->Seek(
-          Slice(reinterpret_cast<const char*>(embeddings.data() + id * dim),
-                dim * sizeof(float)));
+      it->Seek(ConvertFloatsToSlice(embeddings.data() + id * dim, dim));
       ASSERT_TRUE(it->Valid());
       ASSERT_OK(it->status());
       ASSERT_EQ(get_id(), id);
@@ -225,8 +220,7 @@ TEST(FaissIVFIndexTest, Basic) {
   ASSERT_FALSE(it->Valid());
   ASSERT_TRUE(it->status().IsNotSupported());
 
-  it->SeekForPrev(Slice(reinterpret_cast<const char*>(embeddings.data()),
-                        dim * sizeof(float)));
+  it->SeekForPrev(ConvertFloatsToSlice(embeddings.data(), dim));
   ASSERT_FALSE(it->Valid());
   ASSERT_TRUE(it->status().IsNotSupported());
 
@@ -354,8 +348,7 @@ TEST(FaissIVFIndexTest, Compare) {
 
       const std::string primary_key = std::to_string(i);
       ASSERT_OK(db->Put(WriteOptions(), cfh1, primary_key,
-                        Slice(reinterpret_cast<const char*>(embedding),
-                              dim * sizeof(float))));
+                        ConvertFloatsToSlice(embedding, dim)));
     }
   }
 
@@ -413,9 +406,8 @@ TEST(FaissIVFIndexTest, Compare) {
           }
 
           size_t num_found = 0;
-          for (it->Seek(Slice(reinterpret_cast<const char*>(embedding),
-                              dim * sizeof(float)));
-               it->Valid(); it->Next()) {
+          for (it->Seek(ConvertFloatsToSlice(embedding, dim)); it->Valid();
+               it->Next()) {
             const faiss::idx_t id = get_id();
             ASSERT_GE(id, 0);
             ASSERT_LT(id, num_db);

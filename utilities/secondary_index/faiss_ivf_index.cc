@@ -70,7 +70,8 @@ class FaissIVFIndex::KNNIterator : public Iterator {
     pos_ = 0;
     keys_.clear();
 
-    if (target.size() != index_->d * sizeof(float)) {
+    const float* const embedding = ConvertSliceToFloats(target, index_->d);
+    if (!embedding) {
       status_ = Status::InvalidArgument(
           "Incorrectly sized vector passed to FaissIVFIndex");
       return;
@@ -83,8 +84,8 @@ class FaissIVFIndex::KNNIterator : public Iterator {
     constexpr faiss::idx_t n = 1;
 
     try {
-      index_->search(n, reinterpret_cast<const float*>(target.data()), k_,
-                     distances_.data(), labels_.data(), &params);
+      index_->search(n, embedding, k_, distances_.data(), labels_.data(),
+                     &params);
     } catch (const std::exception& e) {
       status_ = Status::InvalidArgument(e.what());
     }
@@ -364,7 +365,9 @@ Status FaissIVFIndex::UpdatePrimaryColumnValue(
     const {
   assert(updated_column_value);
 
-  if (primary_column_value.size() != index_->d * sizeof(float)) {
+  const float* const embedding =
+      ConvertSliceToFloats(primary_column_value, index_->d);
+  if (!embedding) {
     return Status::InvalidArgument(
         "Incorrectly sized vector passed to FaissIVFIndex");
   }
@@ -373,8 +376,7 @@ Status FaissIVFIndex::UpdatePrimaryColumnValue(
   faiss::idx_t label = -1;
 
   try {
-    index_->quantizer->assign(
-        n, reinterpret_cast<const float*>(primary_column_value.data()), &label);
+    index_->quantizer->assign(n, embedding, &label);
   } catch (const std::exception& e) {
     return Status::InvalidArgument(e.what());
   }
@@ -420,13 +422,16 @@ Status FaissIVFIndex::GetSecondaryValue(
   assert(label < index_->nlist);
 
   constexpr faiss::idx_t n = 1;
+
+  const float* const embedding =
+      ConvertSliceToFloats(original_column_value, index_->d);
+  assert(embedding);
+
   constexpr faiss::idx_t* xids = nullptr;
   std::string code_str;
 
   try {
-    index_->add_core(
-        n, reinterpret_cast<const float*>(original_column_value.data()), xids,
-        &label, &code_str);
+    index_->add_core(n, embedding, xids, &label, &code_str);
   } catch (const std::exception& e) {
     return Status::InvalidArgument(e.what());
   }
