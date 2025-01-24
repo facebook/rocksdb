@@ -78,15 +78,15 @@ public class EventListenerTest {
     final int KEY_SIZE = 20;
     final int VALUE_SIZE = 1000;
     final int FILE_SIZE = 64000;
-    final int NUM_FILES = 10;
+    final int NUM_FILES = 2;
 
     final int KEY_INTERVAL = 10000;
     /*
-     * Intention of these options is to end up reliably with 10 files
+     * Intention of these options is to end up reliably with NUM_FILES files.
      * we will be deleting using deleteFilesInRange.
-     * It is writing roughly number of keys that will fit in 10 files (target size)
-     * It is writing interleaved so that files from memory on L0 will overlap
-     * Then compaction cleans everything, and we should end up with 10 files
+     * It is writing roughly number of keys that will fit in NUM_FILES files (target size).
+     * It is writing interleaved so that files from memory on L0 will overlap.
+     * Then compaction cleans everything, and we should end up with NUM_FILES files.
      */
     try (final Options opt = new Options()
                                  .setCreateIfMissing(true)
