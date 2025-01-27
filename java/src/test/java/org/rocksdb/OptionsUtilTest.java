@@ -371,10 +371,6 @@ public class OptionsUtilTest {
     assertThat(actual.superBlockAlignmentSpaceOverheadRatio())
         .isEqualTo(expected.superBlockAlignmentSpaceOverheadRatio());
     assertThat(actual.indexShortening()).isEqualTo(expected.indexShortening());
-    if (expected.filterPolicy() == null) {
-      assertThat(actual.filterPolicy()).isNull();
-    } else {
-      assertThat(expected.filterPolicy().equals(actual.filterPolicy()));
-    }
+    assertThat(expected.filterPolicy()).isEqualTo(actual.filterPolicy());
   }
 }

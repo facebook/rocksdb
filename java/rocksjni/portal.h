@@ -45,6 +45,7 @@
 #include "rocksjni/transaction_notifier_jnicallback.h"
 #include "rocksjni/wal_filter_jnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
+#include "table/block_based/filter_policy_internal.h"
 
 // Remove macro on windows
 #ifdef DELETE
@@ -3667,6 +3668,55 @@ class FilterPolicyJni
       return kBloomFilterPolicy;
     }
     return kUnknownFilterPolicy;
+  }
+
+  /**
+   * Create a new Java org.rocksdb.Filter object with the
+   * properties as the provided C++ ROCKSDB_NAMESPACE::FilterPolicy
+   * object
+   *
+   * @param env A pointer to the Java environment
+   * @param filter_policy A pointer to ROCKSDB_NAMESPACE::FilterPolicy object
+   *
+   * @return A reference to a Java org.rocksdb.Filter object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject construct(
+      JNIEnv* env, const std::shared_ptr<const FilterPolicy>& filter_policy) {
+    auto filter_policy_typejni = FilterPolicyJni::getFilterPolicyType(
+        filter_policy->CompatibilityName());
+    jclass jclazz = nullptr;
+    jmethodID method_id_init = nullptr;
+    switch (filter_policy_typejni) {
+      case kBloomFilterPolicy:
+        jclazz = RocksDBNativeClass::getJClass(env, "org/rocksdb/BloomFilter");
+        if (jclazz != nullptr) {
+          method_id_init = env->GetMethodID(jclazz, "<init>", "(JD)V");
+        }
+        break;
+      default:
+        break;
+    }
+
+    if (jclazz == nullptr || method_id_init == nullptr) {
+      // not a policy type implemented in Java
+      // OR exception occurred accessing class / constructor
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    auto* sptr_filter =
+        new std::shared_ptr<const ROCKSDB_NAMESPACE::FilterPolicy>(
+            filter_policy);
+
+    double filter_bits = 0.0;
+    if (const ROCKSDB_NAMESPACE::BloomLikeFilterPolicy* bloomlike_filter =
+            dynamic_cast<const BloomLikeFilterPolicy*>(sptr_filter->get())) {
+      filter_bits = bloomlike_filter->GetMillibitsPerKey() / 1000.0;
+    }
+
+    return env->NewObject(jclazz, method_id_init,
+                          GET_CPLUSPLUS_POINTER(sptr_filter), filter_bits);
   }
 };
 
@@ -9142,9 +9192,10 @@ class BlockBasedTableOptionsJni
    * object
    *
    * @param env A pointer to the Java environment
-   * @param cfoptions A pointer to ROCKSDB_NAMESPACE::ColumnFamilyOptions object
+   * @param table_factory_options A pointer to
+   * ROCKSDB_NAMESPACE::BlockBasedTableOptions object
    *
-   * @return A reference to a Java org.rocksdb.ColumnFamilyOptions object, or
+   * @return A reference to a Java org.rocksdb.BlockBasedTableConfig object, or
    * nullptr if an an exception occurs
    */
   static jobject construct(
@@ -9155,23 +9206,19 @@ class BlockBasedTableOptionsJni
       return nullptr;
     }
 
-    jmethodID method_id_init =
-        env->GetMethodID(jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZJJBBJD)V");
+    jmethodID method_id_init = env->GetMethodID(
+        jclazz, "<init>", "(ZZZZBBDBZJIIIJZZZZZIIZZBLorg/rocksdb/Filter;)V");
     if (method_id_init == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
     }
 
-    FilterPolicyTypeJni filter_policy_type =
-        FilterPolicyTypeJni::kUnknownFilterPolicy;
-    jlong filter_policy_handle = 0L;
-    jdouble filter_policy_config_value = 0.0;
+    jobject jfilter_policy = nullptr;
     if (table_factory_options->filter_policy) {
-      auto filter_policy = table_factory_options->filter_policy.get();
-      filter_policy_type = FilterPolicyJni::getFilterPolicyType(
-          filter_policy->CompatibilityName());
-      if (FilterPolicyTypeJni::kUnknownFilterPolicy != filter_policy_type) {
-        filter_policy_handle = GET_CPLUSPLUS_POINTER(filter_policy);
+      jfilter_policy = ROCKSDB_NAMESPACE::FilterPolicyJni::construct(
+          env, table_factory_options->filter_policy);
+      if (env->ExceptionCheck()) {
+        return nullptr;
       }
     }
 
@@ -9206,8 +9253,8 @@ class BlockBasedTableOptionsJni
             table_factory_options->super_block_alignment_space_overhead_ratio),
         IndexShorteningModeJni::toJavaIndexShorteningMode(
             table_factory_options->index_shortening),
-        FilterPolicyJni::toJavaIndexType(filter_policy_type),
-        filter_policy_handle, filter_policy_config_value);
+        jfilter_policy);
+
     if (env->ExceptionCheck()) {
       return nullptr;
     }

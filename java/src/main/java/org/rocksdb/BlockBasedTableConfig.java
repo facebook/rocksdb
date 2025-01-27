@@ -64,8 +64,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
       final boolean enableIndexCompression, final boolean blockAlign,
       final long superBlockAlignmentSize, final long superBlockAlignmentSpaceOverheadRatio,
-      final byte indexShortening, final byte filterPolicyType, final long filterPolicyHandle,
-      final double filterPolicyConfigValue) {
+      final byte indexShortening, final Filter filterPolicy) {
     this.cacheIndexAndFilterBlocks = cacheIndexAndFilterBlocks;
     this.cacheIndexAndFilterBlocksWithHighPriority = cacheIndexAndFilterBlocksWithHighPriority;
     this.pinL0FilterAndIndexBlocksInCache = pinL0FilterAndIndexBlocksInCache;
@@ -92,13 +91,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     this.superBlockAlignmentSize = superBlockAlignmentSize;
     this.superBlockAlignmentSpaceOverheadRatio = superBlockAlignmentSpaceOverheadRatio;
     this.indexShortening = IndexShorteningMode.values()[indexShortening];
-    try (Filter filterPolicy = FilterPolicyType.values()[filterPolicyType].createFilter(
-             filterPolicyHandle, filterPolicyConfigValue)) {
-      if (filterPolicy != null) {
-        filterPolicy.disOwnNativeHandle();
-        this.setFilterPolicy(filterPolicy);
-      }
-    }
+    this.setFilterPolicy(filterPolicy);
   }
 
   /**
