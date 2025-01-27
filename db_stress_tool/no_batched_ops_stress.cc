@@ -178,6 +178,12 @@ class NonBatchedOpsStressTest : public StressTest {
             Status memtable_flush_status =
                 db_->Flush(FlushOptions(), column_families_[cf]);
             if (!memtable_flush_status.ok()) {
+              if (IsErrorInjectedAndRetryable(memtable_flush_status)) {
+                fprintf(stdout,
+                        "Skipping secondary verification because error was "
+                        "injected into memtable flush\n");
+                continue;
+              }
               VerificationAbort(shared,
                                 "Failed to flush primary's memtables before "
                                 "secondary verification");
@@ -187,8 +193,14 @@ class NonBatchedOpsStressTest : public StressTest {
             // manual_wal_flush is used. The secondary can read the WAL to catch
             // up with the primary's memtable changes, but these changes need to
             // be flushed first.
-            Status flush_wall_status = db_->FlushWAL(/*sync=*/true);
-            if (!flush_wall_status.ok()) {
+            Status flush_wal_status = db_->FlushWAL(/*sync=*/true);
+            if (!flush_wal_status.ok()) {
+              if (IsErrorInjectedAndRetryable(flush_wal_status)) {
+                fprintf(stdout,
+                        "Skipping secondary verification because error was "
+                        "injected into WAL flush\n");
+                continue;
+              }
               VerificationAbort(shared,
                                 "Failed to flush primary's WAL before "
                                 "secondary verification");
