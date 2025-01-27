@@ -171,12 +171,27 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           if (FLAGS_disable_wal) {
-            Status flush_status =
+            // The secondary relies on the WAL to be able to catch up with the
+            // primary's memtable changes. If there is no WAL, before
+            // verification we should make sure the changes are reflected in the
+            // SST files
+            Status memtable_flush_status =
                 db_->Flush(FlushOptions(), column_families_[cf]);
-            if (!flush_status.ok()) {
-              VerificationAbort(
-                  shared,
-                  "Failed to flush primary before secondary verification");
+            if (!memtable_flush_status.ok()) {
+              VerificationAbort(shared,
+                                "Failed to flush primary's memtables before "
+                                "secondary verification");
+            }
+          } else if (FLAGS_manual_wal_flush_one_in > 0) {
+            // RocksDB maintains internal buffers of WAL data when
+            // manual_wal_flush is used. The secondary can read the WAL to catch
+            // up with the primary's memtable changes, but these changes need to
+            // be flushed first.
+            Status flush_wall_status = db_->FlushWAL(/*sync=*/true);
+            if (!flush_wall_status.ok()) {
+              VerificationAbort(shared,
+                                "Failed to flush primary's WAL before "
+                                "secondary verification");
             }
           }
 
