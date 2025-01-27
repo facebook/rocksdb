@@ -119,6 +119,7 @@ void StressTest::CleanUp() {
   }
   secondary_cfhs_.clear();
   delete secondary_db_;
+  secondary_db_ = nullptr;
 }
 
 std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
@@ -742,6 +743,8 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     db_ = nullptr;
     txn_db_ = nullptr;
     optimistic_txn_db_ = nullptr;
+    delete secondary_db_;
+    secondary_db_ = nullptr;
 
     db_preload_finished_.store(true);
     auto now = clock_->NowMicros();
@@ -3584,6 +3587,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
               column_families_.clear();
               delete db_;
               db_ = nullptr;
+              delete secondary_db_;
+              secondary_db_ = nullptr;
             }
           }
           if (!s.ok()) {
@@ -3790,6 +3795,8 @@ void StressTest::Reopen(ThreadState* thread) {
   db_ = nullptr;
   txn_db_ = nullptr;
   optimistic_txn_db_ = nullptr;
+  delete secondary_db_;
+  secondary_db_ = nullptr;
 
   num_times_reopened_++;
   auto now = clock_->NowMicros();
