@@ -170,14 +170,17 @@ class NonBatchedOpsStressTest : public StressTest {
                 shared->Get(static_cast<int>(cf), i));
           }
 
-          Status s = db_->Flush(FlushOptions(), column_families_[cf]);
-          if (!s.ok()) {
-            VerificationAbort(
-                shared,
-                "Failed to flush primary before secondary verification");
+          if (FLAGS_disable_wal) {
+            Status flush_status =
+                db_->Flush(FlushOptions(), column_families_[cf]);
+            if (!flush_status.ok()) {
+              VerificationAbort(
+                  shared,
+                  "Failed to flush primary before secondary verification");
+            }
           }
 
-          s = secondary_db_->TryCatchUpWithPrimary();
+          Status s = secondary_db_->TryCatchUpWithPrimary();
           if (!s.ok()) {
             VerificationAbort(shared,
                               "Secondary failed to catch up to the primary");
