@@ -386,6 +386,8 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/RocksMemEnvTest.java
   src/test/java/org/rocksdb/SecondaryDBTest.java
   src/test/java/org/rocksdb/SharedTempFileLoaderTest.java
+  src/test/java/org/rocksdb/SharedTempFileMockMain.java
+  src/test/java/org/rocksdb/SharedTempFileRocksDBMain.java
   src/test/java/org/rocksdb/SliceTest.java
   src/test/java/org/rocksdb/SnapshotTest.java
   src/test/java/org/rocksdb/SstFileManagerTest.java
