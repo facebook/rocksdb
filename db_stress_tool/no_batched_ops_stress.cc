@@ -170,11 +170,22 @@ class NonBatchedOpsStressTest : public StressTest {
                 shared->Get(static_cast<int>(cf), i));
           }
 
+          SequenceNumber pre_read_sequence_number =
+              db_->GetLatestSequenceNumber();
+
           Status s = secondary_db_->TryCatchUpWithPrimary();
           if (!s.ok()) {
             VerificationAbort(shared,
                               "Secondary failed to catch up to the primary");
           }
+
+          SequenceNumber secondary_seq_num =
+              secondary_db_->GetLatestSequenceNumber();
+          fprintf(
+              stdout,
+              "Primary sequence number %lu, secondary sequence number %lu\n",
+              pre_read_sequence_number, secondary_seq_num);
+          assert(pre_read_sequence_number <= secondary_seq_num);
 
           for (int64_t i = start; i < end; ++i) {
             if (thread->shared->HasVerificationFailedYet()) {
