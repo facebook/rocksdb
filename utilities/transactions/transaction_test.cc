@@ -8078,7 +8078,7 @@ TEST_P(TransactionTest, SecondaryIndexPutDelete) {
     }
 
     std::unique_ptr<Iterator> NewIterator(
-        const SecondaryIndexReadOptions& /* read_options */,
+        const std::any& /* read_options */,
         std::unique_ptr<Iterator>&& underlying_it) const override {
       return NewSecondaryIndexIterator(this, std::move(underlying_it));
     }
@@ -8188,8 +8188,8 @@ TEST_P(TransactionTest, SecondaryIndexPutDelete) {
     // Query the secondary index
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
-                                                    std::move(underlying_it)));
+    std::unique_ptr<Iterator> it(
+        index->NewIterator(std::any(), std::move(underlying_it)));
 
     it->SeekToFirst();
     ASSERT_FALSE(it->Valid());
@@ -8302,8 +8302,8 @@ TEST_P(TransactionTest, SecondaryIndexPutDelete) {
     // Query the secondary index
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
-                                                    std::move(underlying_it)));
+    std::unique_ptr<Iterator> it(
+        index->NewIterator(std::any(), std::move(underlying_it)));
 
     it->SeekToFirst();
     ASSERT_FALSE(it->Valid());
@@ -8453,7 +8453,7 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
     }
 
     std::unique_ptr<Iterator> NewIterator(
-        const SecondaryIndexReadOptions& /* read_options */,
+        const std::any& /* read_options */,
         std::unique_ptr<Iterator>&& underlying_it) const override {
       return NewSecondaryIndexIterator(this, std::move(underlying_it));
     }
@@ -8581,8 +8581,8 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
     // Query the secondary index
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
-                                                    std::move(underlying_it)));
+    std::unique_ptr<Iterator> it(
+        index->NewIterator(std::any(), std::move(underlying_it)));
 
     it->SeekToFirst();
     ASSERT_FALSE(it->Valid());
@@ -8709,8 +8709,8 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
     // Query the secondary index
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
-                                                    std::move(underlying_it)));
+    std::unique_ptr<Iterator> it(
+        index->NewIterator(std::any(), std::move(underlying_it)));
 
     it->SeekToFirst();
     ASSERT_FALSE(it->Valid());
@@ -8826,7 +8826,7 @@ TEST_P(TransactionTest, SecondaryIndexOnKey) {
     }
 
     std::unique_ptr<Iterator> NewIterator(
-        const SecondaryIndexReadOptions& /* read_options */,
+        const std::any& /* read_options */,
         std::unique_ptr<Iterator>&& underlying_it) const override {
       return NewSecondaryIndexIterator(this, std::move(underlying_it));
     }
@@ -8874,8 +8874,8 @@ TEST_P(TransactionTest, SecondaryIndexOnKey) {
   {
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
-                                                    std::move(underlying_it)));
+    std::unique_ptr<Iterator> it(
+        index->NewIterator(std::any(), std::move(underlying_it)));
 
     it->Seek("foo");
     ASSERT_TRUE(it->Valid());

@@ -114,7 +114,7 @@ TEST(FaissIVFIndexTest, Basic) {
   // Query the index with some of the original embeddings
   std::unique_ptr<Iterator> underlying_it(db->NewIterator(ReadOptions(), cfh2));
 
-  SecondaryIndexReadOptions read_options;
+  FaissIVFIndexReadOptions read_options;
   read_options.similarity_search_neighbors = 8;
   read_options.similarity_search_probes = num_lists;
 
@@ -229,7 +229,7 @@ TEST(FaissIVFIndexTest, Basic) {
   ASSERT_TRUE(it->status().IsInvalidArgument());
 
   {
-    SecondaryIndexReadOptions bad_options;
+    FaissIVFIndexReadOptions bad_options;
     bad_options.similarity_search_probes = 1;
 
     // similarity_search_neighbors not set
@@ -256,7 +256,7 @@ TEST(FaissIVFIndexTest, Basic) {
   }
 
   {
-    SecondaryIndexReadOptions bad_options;
+    FaissIVFIndexReadOptions bad_options;
     bad_options.similarity_search_neighbors = 1;
 
     // similarity_search_probes not set
@@ -364,7 +364,7 @@ TEST(FaissIVFIndexTest, Compare) {
         std::unique_ptr<Iterator> underlying_it(
             db->NewIterator(ReadOptions(), cfh2));
 
-        SecondaryIndexReadOptions read_options;
+        FaissIVFIndexReadOptions read_options;
         read_options.similarity_search_neighbors = neighbors;
         read_options.similarity_search_probes = probes;
 

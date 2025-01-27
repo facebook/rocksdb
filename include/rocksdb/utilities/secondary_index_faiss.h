@@ -23,12 +23,33 @@ namespace ROCKSDB_NAMESPACE {
 //
 // Creates a new FAISS inverted file based secondary index that indexes the
 // embedding in the specified primary column using the given pre-trained
-// faiss::IndexIVF object (which the secondary index takes ownership of).
-// The secondary index iterator returned by the index can be used to perform
-// K-nearest-neighbors queries (see also SecondaryIndex::NewIterator and
-// SecondaryIndexReadOptions).
+// faiss::IndexIVF object (which the secondary index takes ownership of), or
+// nullptr if the index parameter is not valid. The secondary index iterator
+// returned by the index can be used to perform K-nearest-neighbors queries (see
+// also SecondaryIndex::NewIterator and FaissIVFIndexReadOptions below).
 std::unique_ptr<SecondaryIndex> NewFaissIVFIndex(
     std::unique_ptr<faiss::IndexIVF>&& index, std::string primary_column_name);
+
+// Read options for vector similarity search. Applications are expected to pass
+// an object of this type to the NewIterator method of FAISS IVF secondary
+// indices.
+struct FaissIVFIndexReadOptions {
+  // The maximum number of neighbors K to return when performing a
+  // K-nearest-neighbors vector similarity search. The number of neighbors
+  // returned can be smaller if there are not enough vectors in the inverted
+  // lists probed. Must be specified and positive for KNN search. See also
+  // SecondaryIndex::NewIterator and similarity_search_probes below.
+  //
+  // Default: none
+  std::optional<size_t> similarity_search_neighbors;
+
+  // The number of inverted lists to probe when performing a K-nearest-neighbors
+  // vector similarity search. Must be specified and positive for KNN search.
+  // See also SecondaryIndex::NewIterator and similarity_search_neighbors above.
+  //
+  // Default: none
+  std::optional<size_t> similarity_search_probes;
+};
 
 // Helper methods to convert embeddings from a span of floats to Slice or vice
 // versa

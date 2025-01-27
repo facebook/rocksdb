@@ -48,7 +48,7 @@ class FaissIVFIndex : public SecondaryIndex {
                                secondary_value) const override;
 
   std::unique_ptr<Iterator> NewIterator(
-      const SecondaryIndexReadOptions& read_options,
+      const std::any& read_options,
       std::unique_ptr<Iterator>&& underlying_it) const override;
 
  private:

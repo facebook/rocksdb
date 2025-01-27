@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <any>
 #include <memory>
 #include <optional>
 #include <string>
@@ -15,7 +16,6 @@
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "rocksdb/utilities/secondary_index_options.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -112,13 +112,13 @@ class SecondaryIndex {
       const = 0;
 
   // Create an iterator that can be used by applications to query the index.
-  // This method takes a SecondaryIndexReadOptions structure, which can be used
-  // by applications to provide (implementation-specific) query parameters to
-  // the index as well as an underlying iterator over the index's secondary
-  // column family, which the returned iterator is expected to take ownership of
-  // and use to read the actual secondary index entries. (Providing the
-  // underlying iterator this way enables querying the index as of a specific
-  // point in time for example.)
+  // This method takes a type-erased structure, which can be used by
+  // applications to provide implementation-specific query parameters to the
+  // index as well as an underlying iterator over the index's secondary column
+  // family, which the returned iterator is expected to take ownership of and
+  // use to read the actual secondary index entries. (Providing the underlying
+  // iterator this way enables querying the index as of a specific point in time
+  // for example.)
   //
   // Querying the index can be performed by calling the returned iterator's
   // Seek API with a search target, and then using Next (and potentially
@@ -134,7 +134,7 @@ class SecondaryIndex {
   // For vector indices, the search target might be a vector, and the iterator
   // might return similar vectors from the index.
   virtual std::unique_ptr<Iterator> NewIterator(
-      const SecondaryIndexReadOptions& read_options,
+      const std::any& read_options,
       std::unique_ptr<Iterator>&& underlying_it) const = 0;
 };
 

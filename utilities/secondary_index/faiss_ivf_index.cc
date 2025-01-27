@@ -447,28 +447,40 @@ Status FaissIVFIndex::GetSecondaryValue(
 }
 
 std::unique_ptr<Iterator> FaissIVFIndex::NewIterator(
-    const SecondaryIndexReadOptions& read_options,
+    const std::any& read_options,
     std::unique_ptr<Iterator>&& underlying_it) const {
-  if (!read_options.similarity_search_neighbors.has_value() ||
-      *read_options.similarity_search_neighbors == 0) {
+  const FaissIVFIndexReadOptions* const faiss_idx_options =
+      std::any_cast<FaissIVFIndexReadOptions>(&read_options);
+
+  if (!faiss_idx_options) {
+    return std::unique_ptr<Iterator>(NewErrorIterator(Status::InvalidArgument(
+        "Read options of invalid type provided to FaissIVFIndex")));
+  }
+
+  if (!faiss_idx_options->similarity_search_neighbors.has_value() ||
+      faiss_idx_options->similarity_search_neighbors.value() == 0) {
     return std::unique_ptr<Iterator>(NewErrorIterator(
         Status::InvalidArgument("Invalid number of neighbors")));
   }
 
-  if (!read_options.similarity_search_probes.has_value() ||
-      *read_options.similarity_search_probes == 0) {
+  if (!faiss_idx_options->similarity_search_probes.has_value() ||
+      faiss_idx_options->similarity_search_probes.value() == 0) {
     return std::unique_ptr<Iterator>(
         NewErrorIterator(Status::InvalidArgument("Invalid number of probes")));
   }
 
   return std::make_unique<KNNIterator>(
       index_.get(), NewSecondaryIndexIterator(this, std::move(underlying_it)),
-      *read_options.similarity_search_neighbors,
-      *read_options.similarity_search_probes);
+      faiss_idx_options->similarity_search_neighbors.value(),
+      faiss_idx_options->similarity_search_probes.value());
 }
 
 std::unique_ptr<SecondaryIndex> NewFaissIVFIndex(
     std::unique_ptr<faiss::IndexIVF>&& index, std::string primary_column_name) {
+  if (!index) {
+    return std::unique_ptr<SecondaryIndex>();
+  }
+
   return std::make_unique<FaissIVFIndex>(std::move(index),
                                          std::move(primary_column_name));
 }
