@@ -14,7 +14,6 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
-#include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -355,7 +354,6 @@ TEST_F(DBSecondaryTest, GetMergeOperands) {
 
   auto cfh = db_secondary_->DefaultColumnFamily();
 
-  // s.IsMergeInProgress()
   const Status s = db_secondary_->GetMergeOperands(
       ReadOptions(), cfh, "k1", values.data(), &merge_operands_info,
       &number_of_operands);
