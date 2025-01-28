@@ -73,6 +73,7 @@ class LSM {
 
     void ResetMem(){
         mem_->RemoveAll();
+        // mem_ = new RTreeType();
         buffer_size = 0;
         mem_min_point_.init_min();
         mem_max_point_.init_max();
@@ -195,7 +196,7 @@ bool LSM<K, V>::QueryRect(K &key, bool is_point){
     uint64_t rtree_cnt_ = 0;
     uint64_t node_cnt_ = 0;
     uint64_t leaf_cnt_ = 0;
-    bool is_in_mem = mem_->Cover(rectr.min, rectr.max, node_cnt_, leaf_cnt_);
+    bool is_in_mem = mem_->Cover(rectr.min, rectr.max);
     // std::cout << "Memtable checked ..." << std::endl;
     // std::cout << "mem_->Cover : " << is_in_mem << ", node_cnt_ " << node_cnt_ << ", leaf_cnt_ " << leaf_cnt_ << std::endl;
     // node_cnt += node_cnt_;
@@ -240,11 +241,8 @@ bool LSM<K, V>::QueryRect(K &key, bool is_point, uint64_t & rtree_cnt, uint64_t 
 
     bool is_in_mem = false;
     if (!(key.max < mem_min_point_ || key.min > mem_max_point_)){
-        is_in_mem = mem_->Cover(rectr.min, rectr.max, node_cnt_, leaf_cnt_);
+        is_in_mem = mem_->Cover(rectr.min, rectr.max);
     }
-    node_cnt_ = 0;
-    leaf_cnt_ = 0;
-
     if (! is_in_mem){
         if (mergeThread.joinable()){
             // make sure that there isn't a merge happening as you search the disk

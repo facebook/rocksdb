@@ -3,7 +3,8 @@
 
 // typedef rangedelete_rep::RTree<bool, uint64_t, 2, float, 4> RTreeType;
 // typedef rangedelete_rep::RTree<bool, uint64_t, 2, float, 8> RTreeType;
-typedef rangedelete_rep::RTree<bool, uint64_t, 2, float, 16> RTreeType;
+// typedef rangedelete_rep::RTree<uint64_t, uint64_t, 2, float, 16> RTreeType;
+typedef rangedelete_rep::RTree<uint32_t, uint64_t, 2, float, 16> RTreeType;
 // typedef rangedelete_rep::RTree<bool, uint64_t, 2, float, 64> RTreeType;
 // typedef rangedelete_rep::RTree<bool, uint64_t, 2, float, 256> RTreeType;
 

@@ -31,12 +31,16 @@ public:
                   max_point_(max_point), min_upper_(min_upper), use_full_rtree_(use_full_rtree)
     {
         filename_ = path + "C_" + to_string(level_) + "_" + to_string(runID_) + ".dat";
-        Tree->Save(filename_.c_str(), use_full_rtree_);
+        // Index_RTree_ = Tree;
+        Tree->SaveLeafToFile(filename_.c_str());
+        Index_RTree_ = new RTreeType();
+        Index_RTree_->CopyWithoutLeaf(Tree);
         RTree_ = new RTreeType();
     }
 
     ~DiskRun<K,V>(){
         delete(RTree_);
+        delete(Index_RTree_);
         if (remove(filename_.c_str())){
             perror(("Error removing file " + string(filename_)).c_str());
             exit(EXIT_FAILURE);
@@ -49,6 +53,20 @@ public:
         max_point_ = max_point;
         min_upper_ = min_upper;
     }
+
+    void UpdateRtree(RTreeType * tree){
+        // RTreeType* old_tree = Index_RTree_;
+        std::string newName = filename_.substr(0, filename_.length() - 4) + "_tmp.dat";
+        tree->SaveLeafToFile(newName.c_str());
+        Index_RTree_->RemoveAll();
+        Index_RTree_->CopyWithoutLeaf(tree);
+        // rename
+        if (rename(newName.c_str(), filename_.c_str())){
+            perror(("Error renaming file " + filename_ + " to " + newName).c_str());
+            exit(EXIT_FAILURE);
+        }
+        loaded_ = false;
+    }
     
     bool query(const K &key){
         PrepareRTree();
@@ -60,7 +78,7 @@ public:
     bool query(const K &key, uint64_t &node_cnt, uint64_t &leaf_cnt){ 
         PrepareRTree();
         RectForRTree rectr(key);
-        return RTree_->Cover(rectr.min, rectr.max, node_cnt, leaf_cnt); //search r-tree
+        return RTree_->Cover(rectr.min, rectr.max); //search r-tree
     }
 
     // // query current RTree_
@@ -75,7 +93,7 @@ public:
     // }
 
     // print the number of accessed internal nodes and leaf nodes
-    bool QueryDisk(const K &key, uint64_t &node_cnt, uint64_t &leaf_cnt){ 
+    bool QueryDisk(const K &key, uint64_t &node_cnt, uint64_t &leaf_cnt) const{
         struct stat buffer;
         if (stat(filename_.c_str(), &buffer) != 0){
             perror(("Loading RTree Error: No file " + string(filename_)).c_str());
@@ -83,12 +101,15 @@ public:
         }
         RectForRTree rectr(key);
         bool res = false;
-        RTreeType* tree = new RTreeType();
-        res = tree->QueryFromFile(rectr.min, rectr.max, node_cnt, leaf_cnt, filename_.c_str(), use_full_rtree_); //search r-tree
+        //search index r-tree and search leaf file
+        res = Index_RTree_->QueryFromLeafFile(rectr.min, rectr.max, node_cnt, leaf_cnt, filename_.c_str()); 
+        // RTreeType* tree = new RTreeType();
+        // res = tree->QueryFromFile(rectr.min, rectr.max, node_cnt, leaf_cnt, filename_.c_str(), use_full_rtree_); //search r-tree
         return res;
     }
 
     // return whether the key is covered and record the max sequence if the cover rects exists
+    // Obsolete
     bool QueryDiskMaxSequence(const K &key, uint64_t &sequence, uint64_t &node_cnt, uint64_t &leaf_cnt){ 
         struct stat buffer;
         if (stat(filename_.c_str(), &buffer) != 0){
@@ -120,8 +141,7 @@ public:
         std::vector<uint64_t> bounds_min(2, std::numeric_limits<uint64_t>::max());
         std::vector<uint64_t> bounds_max(2, 0);
         uint64_t new_upper = std::numeric_limits<uint64_t>::max();
-        bool res = tree->ExtractSubtreeFromFileBeforeUpper(upper, new_upper, bounds_min, bounds_max, filename_.c_str(), use_full_rtree_);
-        
+        bool res = tree->ExtractSubtreeBeforeUpperFromIndexedLeafFile(upper, new_upper, bounds_min, bounds_max, Index_RTree_, filename_.c_str());        
         if (!res){
             return;
         }
@@ -131,13 +151,7 @@ public:
             // update upper
             min_upper_ = new_upper;
             // save rtree
-            string newName = filename_.substr(0, filename_.length() - 4) + "_tmp.dat";
-            tree->Save(newName.c_str(), use_full_rtree_);
-            // rename
-            if (rename(newName.c_str(), filename_.c_str())){
-                perror(("Error renaming file " + filename_ + " to " + newName).c_str());
-                exit(EXIT_FAILURE);
-            }
+            UpdateRtree(tree);
         }
     }
 
@@ -150,7 +164,7 @@ public:
         RectForRTree rectr(key);
         tree->RemoveAll();
         //reload RTree_ with elements overlapping with rectr in file
-        bool res = tree->ExtractSubtreeFromFile(rectr.min, rectr.max, node_cnt, leaf_cnt, filename_.c_str(), use_full_rtree_); 
+        bool res = tree->ExtractSubtreeFromIndexedLeafFile(rectr.min, rectr.max, Index_RTree_, filename_.c_str());
         return res;
     }
     
@@ -171,30 +185,28 @@ private:
     Point max_point_;
     uint64_t min_upper_;
                             
-    void Save(){
-        RTree_->Save(filename_.c_str(), use_full_rtree_);
-    }
+    // void Save(){
+    //     RTree_->Save(filename_.c_str(), use_full_rtree_);
+    // }
     
     void Load(){
-        // std::cout << "Load filename_ : " << filename_ << std::endl;
-
         struct stat buffer;
         if (stat(filename_.c_str(), &buffer) != 0){
             perror(("Loading RTree Error: No file " + string(filename_)).c_str());
             exit(EXIT_FAILURE);
         }
-        RTree_->Load(filename_.c_str(), use_full_rtree_);
+        RTree_->CopyWithoutLeaf(Index_RTree_);
+        RTree_->LoadLeafFromFile(filename_.c_str());
     }
 
     void LoadTo(RTreeType *tree){
-        // std::cout << "Load filename_ : " << filename_ << " to tmp rtree" << std::endl;
-
         struct stat buffer;
         if (stat(filename_.c_str(), &buffer) != 0){
             perror(("Loading RTree Error: No file " + string(filename_)).c_str());
             exit(EXIT_FAILURE);
         }
-        tree->Load(filename_.c_str(), use_full_rtree_);
+        tree->CopyWithoutLeaf(Index_RTree_);
+        tree->LoadLeafFromFile(filename_.c_str());
     }
     
 };

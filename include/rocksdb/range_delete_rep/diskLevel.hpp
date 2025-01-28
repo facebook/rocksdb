@@ -156,6 +156,8 @@ void DiskLevel<K, V>::AddRun(vector<DiskRun<K, V> *> &runList) {
     // insert into target slot
     size_t runID = runs_.size();
     runs_.emplace_back(new DiskRun<K,V>(path_, page_size_, level_, runID, minP, maxP, minU, use_full_rtree_, RTree_res));
+    
+    delete RTree_res;
 }
 
 template <class K, class V>
@@ -187,14 +189,7 @@ void DiskLevel<K, V>::MergeToLastRun(vector<DiskRun<K, V> *> &runList) {
         }
     }
     // insert into target slot
-    std::string filename = runs_[last_idx]->filename_;
-    std::string newname = filename.substr(0, filename.length() - 4) + "_tmp.dat";
-    RTree_res->Save(newname.c_str(), use_full_rtree_);
-    // rename
-    if (rename(newname.c_str(), filename.c_str())){
-        perror(("Error renaming file " + filename + " to " + newname).c_str());
-        exit(EXIT_FAILURE);
-    }
+    runs_[last_idx]->UpdateRtree(RTree_res);
     runs_[last_idx]->UpdateInfo(minP, maxP, minU);
 }
 
@@ -239,14 +234,7 @@ void DiskLevel<K, V>::AddRunFromMem(RTreeType * mem, Point & minP, Point & maxP,
         }
         
         // insert into target slot
-        std::string filename = runs_[last_idx]->filename_;
-        std::string newname = filename.substr(0, filename.length() - 4) + "_tmp.dat";
-        RTree_res->Save(newname.c_str(), use_full_rtree_);
-        // rename
-        if (rename(newname.c_str(), filename.c_str())){
-            perror(("Error renaming file " + filename + " to " + newname).c_str());
-            exit(EXIT_FAILURE);
-        }
+        runs_[last_idx]->UpdateRtree(RTree_res);
         runs_[last_idx]->UpdateInfo(minPoint, maxPoint, minUpper);
     }
     compact_num_++; 
@@ -282,22 +270,22 @@ void DiskLevel<K, V>::FreeMergedRuns(vector<DiskRun<K,V> *> &toFree){
     }
 }
 
-template <class K, class V>
-bool DiskLevel<K, V>::QueryRect (const K &key) {
-    int maxRunToSearch = runs_.size();
-    if (maxRunToSearch == 0){
-        return false;
-    }
-    for (int i = maxRunToSearch - 1; i >= 0; i--){
-        if (key.max < runs_[i]->min_point_ || key.min > runs_[i]->max_point_){
-            continue;
-        }
-        if (runs_[i]->query(key)) {
-            return true;
-        }
-    }
-    return false;
-}
+// template <class K, class V>
+// bool DiskLevel<K, V>::QueryRect (const K &key) {
+//     int maxRunToSearch = runs_.size();
+//     if (maxRunToSearch == 0){
+//         return false;
+//     }
+//     for (int i = maxRunToSearch - 1; i >= 0; i--){
+//         if (key.max < runs_[i]->min_point_ || key.min > runs_[i]->max_point_){
+//             continue;
+//         }
+//         if (runs_[i]->query(key)) {
+//             return true;
+//         }
+//     }
+//     return false;
+// }
 
 template <class K, class V>
 bool DiskLevel<K, V>::QueryRect (const K &key, uint64_t & rtree_cnt, uint64_t & node_cnt, uint64_t & leaf_cnt) {
@@ -324,6 +312,7 @@ bool DiskLevel<K, V>::QueryRect (const K &key, uint64_t & rtree_cnt, uint64_t & 
     return false;
 }
 
+// obsolete
 template <class K, class V>
 bool DiskLevel<K, V>::QueryRectAtRun(const K &key, size_t &level, size_t &run, uint64_t &sequence, uint64_t & node_cnt, uint64_t & leaf_cnt){
     bool result = false;
