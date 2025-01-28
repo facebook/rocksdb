@@ -104,22 +104,26 @@ StressTest::StressTest()
 }
 
 void StressTest::CleanUp() {
-  for (auto cf : column_families_) {
-    delete cf;
-  }
-  column_families_.clear();
+  CleanUpColumnFamilies();
   if (db_) {
     db_->Close();
   }
   delete db_;
   db_ = nullptr;
 
+  delete secondary_db_;
+  secondary_db_ = nullptr;
+}
+
+void StressTest::CleanUpColumnFamilies() {
+  for (auto cf : column_families_) {
+    delete cf;
+  }
+  column_families_.clear();
   for (auto* cf : secondary_cfhs_) {
     delete cf;
   }
   secondary_cfhs_.clear();
-  delete secondary_db_;
-  secondary_db_ = nullptr;
 }
 
 std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
@@ -735,10 +739,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     s = db_->Flush(FlushOptions(), column_families_);
   }
   if (s.ok()) {
-    for (auto cf : column_families_) {
-      delete cf;
-    }
-    column_families_.clear();
+    CleanUpColumnFamilies();
     delete db_;
     db_ = nullptr;
     txn_db_ = nullptr;
@@ -3581,10 +3582,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             // clean state before executing queries.
             s = db_->GetRootDB()->WaitForCompact(WaitForCompactOptions());
             if (!s.ok()) {
-              for (auto cf : column_families_) {
-                delete cf;
-              }
-              column_families_.clear();
+              CleanUpColumnFamilies();
               delete db_;
               db_ = nullptr;
               delete secondary_db_;
@@ -3755,15 +3753,12 @@ void StressTest::Reopen(ThreadState* thread) {
   }
   assert(!write_prepared || bg_canceled);
 
-  for (auto cf : column_families_) {
-    delete cf;
-  }
-  column_families_.clear();
+  CleanUpColumnFamilies();
 
   // Currently reopen does not restore expected state
   // with potential data loss in mind like the first open before
-  // crash-recovery verification does. Therefore it always expects no data loss
-  // and we should ensure no data loss in testing.
+  // crash-recovery verification does. Therefore it always expects no data
+  // loss and we should ensure no data loss in testing.
   // TODO(hx235): eliminate the FlushWAL(true /* sync */)/SyncWAL() below
   if (!FLAGS_disable_wal) {
     Status s;
