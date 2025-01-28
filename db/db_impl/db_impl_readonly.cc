@@ -103,6 +103,9 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
           get_impl_options.columns, ts, &s, &merge_context,
           &max_covering_tombstone_seq, read_options,
           false /* immutable_memtable */, &read_cb)) {
+    if (get_impl_options.value) {
+      get_impl_options.value->PinSelf();
+    }
     RecordTick(stats_, MEMTABLE_HIT);
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
@@ -120,7 +123,6 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
     if (get_impl_options.value) {
-      get_impl_options.value->PinSelf();
       size = get_impl_options.value->size();
     } else if (get_impl_options.columns) {
       size = get_impl_options.columns->serialized_size();

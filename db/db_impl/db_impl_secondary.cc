@@ -414,6 +414,9 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
           &max_covering_tombstone_seq, read_options,
           false /* immutable_memtable */, &read_cb)) {
     done = true;
+    if (get_impl_options.value) {
+      get_impl_options.value->PinSelf();
+    }
     RecordTick(stats_, MEMTABLE_HIT);
   } else if ((s.ok() || s.IsMergeInProgress()) &&
              super_version->imm->Get(
@@ -423,6 +426,9 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                  get_impl_options.columns, ts, &s, &merge_context,
                  &max_covering_tombstone_seq, read_options, &read_cb)) {
     done = true;
+    if (get_impl_options.value) {
+      get_impl_options.value->PinSelf();
+    }
     RecordTick(stats_, MEMTABLE_HIT);
   }
   if (!done && !s.ok() && !s.IsMergeInProgress()) {
@@ -446,7 +452,6 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
     if (get_impl_options.value) {
-      get_impl_options.value->PinSelf();
       size = get_impl_options.value->size();
     } else if (get_impl_options.columns) {
       size = get_impl_options.columns->serialized_size();
