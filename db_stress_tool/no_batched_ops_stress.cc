@@ -170,6 +170,43 @@ class NonBatchedOpsStressTest : public StressTest {
                 shared->Get(static_cast<int>(cf), i));
           }
 
+          if (FLAGS_disable_wal) {
+            // The secondary relies on the WAL to be able to catch up with the
+            // primary's memtable changes. If there is no WAL, before
+            // verification we should make sure the changes are reflected in the
+            // SST files
+            Status memtable_flush_status =
+                db_->Flush(FlushOptions(), column_families_[cf]);
+            if (!memtable_flush_status.ok()) {
+              if (IsErrorInjectedAndRetryable(memtable_flush_status)) {
+                fprintf(stdout,
+                        "Skipping secondary verification because error was "
+                        "injected into memtable flush\n");
+                continue;
+              }
+              VerificationAbort(shared,
+                                "Failed to flush primary's memtables before "
+                                "secondary verification");
+            }
+          } else if (FLAGS_manual_wal_flush_one_in > 0) {
+            // RocksDB maintains internal buffers of WAL data when
+            // manual_wal_flush is used. The secondary can read the WAL to catch
+            // up with the primary's memtable changes, but these changes need to
+            // be flushed first.
+            Status flush_wal_status = db_->FlushWAL(/*sync=*/true);
+            if (!flush_wal_status.ok()) {
+              if (IsErrorInjectedAndRetryable(flush_wal_status)) {
+                fprintf(stdout,
+                        "Skipping secondary verification because error was "
+                        "injected into WAL flush\n");
+                continue;
+              }
+              VerificationAbort(shared,
+                                "Failed to flush primary's WAL before "
+                                "secondary verification");
+            }
+          }
+
           Status s = secondary_db_->TryCatchUpWithPrimary();
           if (!s.ok()) {
             VerificationAbort(shared,
