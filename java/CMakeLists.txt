@@ -419,6 +419,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/test/RocksJunitRunner.java
   src/test/java/org/rocksdb/test/TestableEventListener.java
   src/test/java/org/rocksdb/test/TestableEventListener.java
+  src/test/java/org/rocksdb/util/ArgUtil.java
   src/test/java/org/rocksdb/util/ByteBufferAllocator.java
   src/test/java/org/rocksdb/util/BytewiseComparatorIntTest.java
   src/test/java/org/rocksdb/util/BytewiseComparatorTest.java
