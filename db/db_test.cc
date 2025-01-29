@@ -5290,7 +5290,6 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   for (int i = 0; i < kNKeys; i++) {
     keys[i] = i;
   }
-  RandomShuffle(std::begin(keys), std::end(keys), 301);
 
   Random rnd(301);
   Options options;
@@ -5369,10 +5368,32 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   }));
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
+
+  // Ensure that files are non-overlapping and encompass full key range
+  // between 'smallestkey' and 'largestkey' recorded in CF file metadata.
+  std::vector<std::pair<std::string, std::string>> no_overlap_intervals;
+  for (size_t i = 0; i < cf_meta.levels.size(); i++) {
+    for (const auto& file : cf_meta.levels[i].files) {
+      auto smallest_int_key = IdFromKey(file.smallestkey);
+      auto largest_int_key = IdFromKey(file.largestkey);
+      ASSERT_EQ(file.num_entries, largest_int_key - smallest_int_key + 1);
+
+      for (const auto& interval : no_overlap_intervals) {
+        ASSERT_FALSE(file.smallestkey <= interval.second &&
+                     file.largestkey >= interval.first);
+      }
+      no_overlap_intervals.emplace_back(
+          std::make_pair(file.smallestkey, file.largestkey));
+    }
+  }
+
   for (const auto& file : cf_meta.levels[4].files) {
     listener->SetExpectedFileName(dbname_ + file.name);
     Slice start(file.smallestkey), limit(file.largestkey);
     const RangePtr ranges(&start, &limit);
+    // Given verification from above, we're guaranteed that by deleting all the
+    // files in [<smallestkey>, <largestkey>] range, we're effectively deleting
+    // that very single file and nothing more.
     EXPECT_OK(dbfull()->DeleteFilesInRanges(dbfull()->DefaultColumnFamily(),
                                             &ranges, true /* include_end */));
   }
