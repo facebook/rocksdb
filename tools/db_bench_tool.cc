@@ -62,6 +62,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/stats_history.h"
 #include "rocksdb/table.h"
+#include "rocksdb/tool_hooks.h"
 #include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
@@ -3448,11 +3449,11 @@ class Benchmark {
     exit(1);
   }
 
-  void Run() {
+  void Run(ToolHooks& hooks) {
     if (!SanityCheck()) {
       ErrorExit();
     }
-    Open(&open_options_);
+    Open(&open_options_, hooks);
     PrintHeader(open_options_);
     std::stringstream benchmark_stream(FLAGS_benchmarks);
     std::string name;
@@ -3794,7 +3795,7 @@ class Benchmark {
           }
           multi_dbs_.clear();
         }
-        Open(&open_options_);  // use open_options for the last accessed
+        Open(&open_options_, hooks);  // use open_options for the last accessed
       }
 
       if (method != nullptr) {
@@ -4753,7 +4754,7 @@ class Benchmark {
     options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
   }
 
-  void InitializeOptionsGeneral(Options* opts) {
+  void InitializeOptionsGeneral(Options* opts, ToolHooks& hooks) {
     // Be careful about what is set here to avoid accidentally overwriting
     // settings already configured by OPTIONS file. Only configure settings that
     // are needed for the benchmark to run, settings for shared objects that
@@ -4846,7 +4847,7 @@ class Benchmark {
     }
 
     if (FLAGS_num_multi_db <= 1) {
-      OpenDb(options, FLAGS_db, &db_);
+      OpenDb(options, hooks, FLAGS_db, &db_);
     } else {
       multi_dbs_.clear();
       multi_dbs_.resize(FLAGS_num_multi_db);
@@ -4855,7 +4856,7 @@ class Benchmark {
         if (!wal_dir.empty()) {
           options.wal_dir = GetPathForMultiple(wal_dir, i);
         }
-        OpenDb(options, GetPathForMultiple(FLAGS_db, i), &multi_dbs_[i]);
+        OpenDb(options, hooks, GetPathForMultiple(FLAGS_db, i), &multi_dbs_[i]);
       }
       options.wal_dir = wal_dir;
     }
@@ -4882,15 +4883,15 @@ class Benchmark {
     }
   }
 
-  void Open(Options* opts) {
+  void Open(Options* opts, ToolHooks& hooks) {
     if (!InitializeOptionsFromFile(opts)) {
       InitializeOptionsFromFlags(opts);
     }
 
-    InitializeOptionsGeneral(opts);
+    InitializeOptionsGeneral(opts, hooks);
   }
 
-  void OpenDb(Options options, const std::string& db_name,
+  void OpenDb(Options options, ToolHooks& hooks, const std::string& db_name,
               DBWithColumnFamilies* db) {
     uint64_t open_start = FLAGS_report_open_timing ? FLAGS_env->NowNanos() : 0;
     Status s;
@@ -4931,11 +4932,11 @@ class Benchmark {
         }
       }
       if (FLAGS_readonly) {
-        s = DB::OpenForReadOnly(options, db_name, column_families, &db->cfh,
-                                &db->db);
+        s = hooks.OpenForReadOnly(options, db_name, column_families, &db->cfh,
+                                  &db->db);
       } else if (FLAGS_optimistic_transaction_db) {
-        s = OptimisticTransactionDB::Open(options, db_name, column_families,
-                                          &db->cfh, &db->opt_txn_db);
+        s = hooks.OpenOptimisticTransactionDB(options, db_name, column_families,
+                                              &db->cfh, &db->opt_txn_db);
         if (s.ok()) {
           db->db = db->opt_txn_db->GetBaseDB();
         }
@@ -4947,22 +4948,22 @@ class Benchmark {
           txn_db_options.skip_concurrency_control = true;
           txn_db_options.write_policy = WRITE_PREPARED;
         }
-        s = TransactionDB::Open(options, txn_db_options, db_name,
-                                column_families, &db->cfh, &ptr);
+        s = hooks.OpenTransactionDB(options, txn_db_options, db_name,
+                                    column_families, &db->cfh, &ptr);
         if (s.ok()) {
           db->db = ptr;
         }
       } else {
-        s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
+        s = hooks.Open(options, db_name, column_families, &db->cfh, &db->db);
       }
       db->cfh.resize(FLAGS_num_column_families);
       db->num_created = num_hot;
       db->num_hot = num_hot;
       db->cfh_idx_to_prob = std::move(cfh_idx_to_prob);
     } else if (FLAGS_readonly) {
-      s = DB::OpenForReadOnly(options, db_name, &db->db);
+      s = hooks.OpenForReadOnly(options, db_name, &db->db, false);
     } else if (FLAGS_optimistic_transaction_db) {
-      s = OptimisticTransactionDB::Open(options, db_name, &db->opt_txn_db);
+      s = hooks.OpenOptimisticTransactionDB(options, db_name, &db->opt_txn_db);
       if (s.ok()) {
         db->db = db->opt_txn_db->GetBaseDB();
       }
@@ -4976,7 +4977,7 @@ class Benchmark {
       }
       s = CreateLoggerFromOptions(db_name, options, &options.info_log);
       if (s.ok()) {
-        s = TransactionDB::Open(options, txn_db_options, db_name, &ptr);
+        s = hooks.OpenTransactionDB(options, txn_db_options, db_name, &ptr);
       }
       if (s.ok()) {
         db->db = ptr;
@@ -4994,7 +4995,7 @@ class Benchmark {
       blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
       blob_db_options.compression = FLAGS_blob_db_compression_type_e;
       blob_db::BlobDB* ptr = nullptr;
-      s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
+      s = hooks.Open(options, blob_db_options, db_name, &ptr);
       if (s.ok()) {
         db->db = ptr;
       }
@@ -5005,7 +5006,8 @@ class Benchmark {
         default_secondary_path += "/dbbench_secondary";
         FLAGS_secondary_path = default_secondary_path;
       }
-      s = DB::OpenAsSecondary(options, db_name, FLAGS_secondary_path, &db->db);
+      s = hooks.OpenAsSecondary(options, db_name, FLAGS_secondary_path,
+                                &db->db);
       if (s.ok() && FLAGS_secondary_update_interval > 0) {
         secondary_update_thread_.reset(new port::Thread(
             [this](int interval, DBWithColumnFamilies* _db) {
@@ -5026,12 +5028,12 @@ class Benchmark {
       }
     } else if (FLAGS_open_as_follower) {
       std::unique_ptr<DB> dbptr;
-      s = DB::OpenAsFollower(options, db_name, FLAGS_leader_path, &dbptr);
+      s = hooks.OpenAsFollower(options, db_name, FLAGS_leader_path, &dbptr);
       if (s.ok()) {
         db->db = dbptr.release();
       }
     } else {
-      s = DB::Open(options, db_name, &db->db);
+      s = hooks.Open(options, db_name, &db->db);
     }
     if (FLAGS_report_open_timing) {
       std::cout << "OpenDb:     "
@@ -8623,7 +8625,7 @@ class Benchmark {
   }
 };
 
-int db_bench_tool(int argc, char** argv) {
+int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ConfigOptions config_options;
   static bool initialized = false;
@@ -8775,7 +8777,7 @@ int db_bench_tool(int argc, char** argv) {
   }
 
   ROCKSDB_NAMESPACE::Benchmark benchmark;
-  benchmark.Run();
+  benchmark.Run(hooks);
 
   if (FLAGS_print_malloc_stats) {
     std::string stats_string;
