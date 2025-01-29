@@ -1106,6 +1106,10 @@ class DBTestBase : public testing::Test {
     return std::string(buf);
   }
 
+  static int IdFromKey(const std::string& key) {
+    return std::stoi(key.substr(3));
+  }
+
   static bool ShouldSkipOptions(int option_config, int skip_mask = kNoSkip);
 
   // Switch to a fresh database with the next option configuration to
