@@ -3,19 +3,37 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "utilities/secondary_index/faiss_ivf_index.h"
-
 #include <cassert>
 #include <optional>
 #include <stdexcept>
 #include <utility>
 
+#include "faiss/IndexIVF.h"
 #include "faiss/invlists/InvertedLists.h"
+#include "rocksdb/utilities/secondary_index_faiss.h"
 #include "util/autovector.h"
 #include "util/coding.h"
-#include "utilities/secondary_index/secondary_index_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+
+std::string SerializeLabel(faiss::idx_t label) {
+  std::string label_str;
+  PutVarsignedint64(&label_str, label);
+
+  return label_str;
+}
+
+faiss::idx_t DeserializeLabel(Slice label_slice) {
+  faiss::idx_t label = -1;
+  [[maybe_unused]] const bool ok = GetVarsignedint64(&label_slice, &label);
+  assert(ok);
+
+  return label;
+}
+
+}  // namespace
 
 class FaissIVFIndex::KNNIterator : public Iterator {
  public:
@@ -307,21 +325,6 @@ class FaissIVFIndex::Adapter : public faiss::InvertedLists {
   };
 };
 
-std::string FaissIVFIndex::SerializeLabel(faiss::idx_t label) {
-  std::string label_str;
-  PutVarsignedint64(&label_str, label);
-
-  return label_str;
-}
-
-faiss::idx_t FaissIVFIndex::DeserializeLabel(Slice label_slice) {
-  faiss::idx_t label = -1;
-  [[maybe_unused]] const bool ok = GetVarsignedint64(&label_slice, &label);
-  assert(ok);
-
-  return label;
-}
-
 FaissIVFIndex::FaissIVFIndex(std::unique_ptr<faiss::IndexIVF>&& index,
                              std::string primary_column_name)
     : adapter_(std::make_unique<Adapter>(index->nlist, index->code_size)),
@@ -467,7 +470,7 @@ std::unique_ptr<Iterator> FaissIVFIndex::NewIterator(
       *read_options.similarity_search_probes);
 }
 
-std::unique_ptr<SecondaryIndex> NewFaissIVFIndex(
+std::unique_ptr<FaissIVFIndex> NewFaissIVFIndex(
     std::unique_ptr<faiss::IndexIVF>&& index, std::string primary_column_name) {
   return std::make_unique<FaissIVFIndex>(std::move(index),
                                          std::move(primary_column_name));
