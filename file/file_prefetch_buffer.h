@@ -434,12 +434,12 @@ class FilePrefetchBuffer {
 
   Status PrefetchInternal(const IOOptions& opts, RandomAccessFileReader* reader,
                           uint64_t offset, size_t length, size_t readahead_size,
-                          bool& copy_to_third_buffer);
+                          bool for_compaction, bool& copy_to_third_buffer);
 
   Status Read(BufferInfo* buf, const IOOptions& opts,
-              RandomAccessFileReader* reader, uint64_t read_len,
-              uint64_t aligned_useful_len, uint64_t start_offset,
-              bool use_fs_buffer);
+              RandomAccessFileReader* reader, const uint64_t original_length,
+              uint64_t read_len, uint64_t aligned_useful_len,
+              uint64_t start_offset, bool use_fs_buffer, bool for_compaction);
 
   Status ReadAsync(BufferInfo* buf, const IOOptions& opts,
                    RandomAccessFileReader* reader, uint64_t read_len,
@@ -572,6 +572,17 @@ class FilePrefetchBuffer {
                            size_t length, size_t readahead_size,
                            uint64_t& offset, uint64_t& end_offset,
                            size_t& read_len, uint64_t& aligned_useful_len);
+
+  IOOptions MaybeTuneIOOptions(const IOOptions& opts, bool for_compaction,
+                               bool use_direct_io, uint64_t original_length,
+                               uint64_t read_length) {
+    if (for_compaction && !use_direct_io && original_length < read_length) {
+      IOOptions updated_opts = opts;
+      updated_opts.optional_read_size = read_length - original_length;
+      return updated_opts;
+    }
+    return opts;
+  }
 
   void UpdateStats(bool found_in_buffer, size_t length_found) {
     if (found_in_buffer) {

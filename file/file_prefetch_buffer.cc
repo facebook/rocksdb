@@ -92,8 +92,10 @@ void FilePrefetchBuffer::PrepareBufferForRead(
 
 Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
                                 RandomAccessFileReader* reader,
+                                const uint64_t original_length,
                                 uint64_t read_len, uint64_t aligned_useful_len,
-                                uint64_t start_offset, bool use_fs_buffer) {
+                                uint64_t start_offset, bool use_fs_buffer,
+                                bool for_compaction) {
   Slice result;
   Status s;
   char* to_buf = nullptr;
@@ -102,8 +104,11 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
                            read_len, result);
   } else {
     to_buf = buf->buffer_.BufferStart() + aligned_useful_len;
-    s = reader->Read(opts, start_offset + aligned_useful_len, read_len, &result,
-                     to_buf, /*aligned_buf=*/nullptr);
+    IOOptions tuned_read_opts =
+        MaybeTuneIOOptions(opts, for_compaction, reader->use_direct_io(),
+                           original_length, read_len);
+    s = reader->Read(tuned_read_opts, start_offset + aligned_useful_len,
+                     read_len, &result, to_buf, /*aligned_buf=*/nullptr);
   }
 
 #ifndef NDEBUG
@@ -196,8 +201,9 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
 
   Status s;
   if (read_len > 0) {
-    s = Read(buf, opts, reader, read_len, aligned_useful_len, rounddown_offset,
-             use_fs_buffer);
+    s = Read(buf, opts, reader, /*original_length=*/n, read_len,
+             aligned_useful_len, rounddown_offset, use_fs_buffer,
+             /*for_compaction=*/false);
   }
 
   if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail && s.ok()) {
@@ -592,6 +598,7 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
                                             RandomAccessFileReader* reader,
                                             uint64_t offset, size_t length,
                                             size_t readahead_size,
+                                            bool for_compaction,
                                             bool& copy_to_overlap_buffer) {
   if (!enable_) {
     return Status::OK();
@@ -603,7 +610,7 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   Status s;
   uint64_t tmp_offset = offset;
   size_t tmp_length = length;
-  size_t original_length = length;
+  const size_t original_length = length;
 
   // Abort outdated IO.
   if (!explicit_prefetch_submitted_) {
@@ -734,8 +741,8 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   }
 
   if (read_len1 > 0) {
-    s = Read(buf, opts, reader, read_len1, aligned_useful_len1, start_offset1,
-             use_fs_buffer);
+    s = Read(buf, opts, reader, original_length, read_len1, aligned_useful_len1,
+             start_offset1, use_fs_buffer, for_compaction);
     if (!s.ok()) {
       AbortAllIOs();
       FreeAllBuffers();
@@ -839,7 +846,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
       s = PrefetchInternal(
           opts, reader, offset, n,
           (num_buffers_ > 1 ? readahead_size_ / 2 : readahead_size_),
-          copy_to_overlap_buffer);
+          for_compaction, copy_to_overlap_buffer);
       explicit_prefetch_submitted_ = false;
       if (!s.ok()) {
         if (status) {
