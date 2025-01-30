@@ -221,8 +221,7 @@ class NonBatchedOpsStressTest : public StressTest {
             const std::string key = Key(i);
             std::string from_db;
 
-            s = secondary_db_->Get(options, column_families_[cf], key,
-                                   &from_db);
+            s = secondary_db_->Get(options, secondary_cfhs_[cf], key, &from_db);
 
             assert(!pre_read_expected_values.empty() &&
                    static_cast<size_t>(i - start) <
