@@ -96,18 +96,18 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       // No compression or current block and previous one is not adjacent:
       // Step 1, create a new request for previous blocks
       if (prev_len != 0) {
-        char* req_scratch = nullptr;
-        size_t req_len = prev_len;
+        FSReadRequest req;
+        req.offset = prev_offset;
+        req.len = prev_len;
         if (file->use_direct_io() || use_fs_scratch) {
-          req_scratch = nullptr;
+          req.scratch = nullptr;
         } else if (use_shared_buffer) {
-          req_scratch = scratch + buf_offset;
-          buf_offset += req_len;
+          req.scratch = scratch + buf_offset;
+          buf_offset += req.len;
         } else {
-          req_scratch = new char[req_len];
+          req.scratch = new char[req.len];
         }
-        read_reqs.emplace_back(FSReadRequest(
-            prev_offset, req_len, /*optional_read_size=*/0, req_scratch));
+        read_reqs.emplace_back(std::move(req));
       }
 
       // Step 2, remember the previous block info
@@ -122,17 +122,17 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
   }
   // Handle the last block and process the pending last request
   if (prev_len != 0) {
-    char* req_scratch = nullptr;
-    size_t req_len = prev_len;
+    FSReadRequest req;
+    req.offset = prev_offset;
+    req.len = prev_len;
     if (file->use_direct_io() || use_fs_scratch) {
-      req_scratch = nullptr;
+      req.scratch = nullptr;
     } else if (use_shared_buffer) {
-      req_scratch = scratch + buf_offset;
+      req.scratch = scratch + buf_offset;
     } else {
-      req_scratch = new char[req_len];
+      req.scratch = new char[req.len];
     }
-    read_reqs.emplace_back(FSReadRequest(
-        prev_offset, req_len, /*optional_read_size=*/0, req_scratch));
+    read_reqs.emplace_back(std::move(req));
   }
 
   AlignedBuf direct_io_buf;

@@ -805,25 +805,12 @@ using FSAllocationPtr = std::unique_ptr<void, std::function<void(void*)>>;
 
 // A read IO request structure for use in MultiRead and asynchronous Read APIs.
 struct FSReadRequest {
-  explicit FSReadRequest(uint64_t _offset, size_t _len,
-                         size_t _optional_read_size, char* _scratch,
-                         IOStatus _status = IOStatus::OK())
-      : offset(_offset),
-        len(_len),
-        optional_read_size(std::min(_optional_read_size, len)),
-        scratch(_scratch),
-        result(),
-        status(_status),
-        fs_scratch() {
-    assert(_optional_read_size <= len);
-  }
-
   // Input parameter that represents the file offset in bytes.
-  const uint64_t offset;
+  uint64_t offset;
 
   // Input parameter that represents the length to read in bytes. `result` only
   // returns fewer bytes if end of file is hit (or `status` is not OK).
-  const size_t len;
+  size_t len;
 
   // EXPERIMENTAL: Enables the file system to return less data than
   // requested, even when the end of file has not been reached. Normally, our
@@ -833,7 +820,7 @@ struct FSReadRequest {
   // performed and some of the data is not needed immediately. In that case, the
   // file system has the freedom to tune the read size optimally based on its
   // storage internals.
-  const size_t optional_read_size;
+  size_t optional_read_size = 0;
 
   // A buffer that MultiRead() can optionally place data in. It can
   // ignore this and allocate its own buffer.

@@ -96,13 +96,17 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
       "RandomAccessFileReader::MultiRead:AlignedReqs", [&](void* reqs) {
         // Copy reqs, since it's allocated on stack inside MultiRead, which will
         // be deallocated after MultiRead returns.
-        aligned_reqs.reserve(
+        size_t i = 0;
+        aligned_reqs.resize(
             (*reinterpret_cast<std::vector<FSReadRequest>*>(reqs)).size());
         for (auto& req :
              (*reinterpret_cast<std::vector<FSReadRequest>*>(reqs))) {
-          aligned_reqs.push_back(FSReadRequest(req.offset, req.len,
-                                               req.optional_read_size,
-                                               req.scratch, req.status));
+          aligned_reqs[i].offset = req.offset;
+          aligned_reqs[i].len = req.len;
+          aligned_reqs[i].result = req.result;
+          aligned_reqs[i].status = req.status;
+          aligned_reqs[i].scratch = req.scratch;
+          i++;
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -129,11 +133,15 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     // First page: xxxx
     // 1st block:  x
     // 2nd block:    xx
-    FSReadRequest r0(/*offset=*/0, /*len=*/page_size / 4,
-                     /*_optional_read_size=*/0, /*scratch=*/nullptr);
+    FSReadRequest r0;
+    r0.offset = 0;
+    r0.len = page_size / 4;
+    r0.scratch = nullptr;
 
-    FSReadRequest r1(/*offset=*/page_size / 2, /*len=*/page_size / 2,
-                     /*_optional_read_size=*/0, /*scratch=*/nullptr);
+    FSReadRequest r1;
+    r1.offset = page_size / 2;
+    r1.len = page_size / 2;
+    r1.scratch = nullptr;
 
     std::vector<FSReadRequest> reqs;
     reqs.push_back(std::move(r0));
@@ -164,15 +172,20 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     // 1st block: x
     // 2nd block:   xxxx
     // 3rd block:        x
-    FSReadRequest r0(/*offset=*/0, /*len=*/page_size / 4,
-                     /*_optional_read_size=*/0, /*scratch=*/nullptr);
+    FSReadRequest r0;
+    r0.offset = 0;
+    r0.len = page_size / 4;
+    r0.scratch = nullptr;
 
-    FSReadRequest r1(/*offset=*/page_size / 2, /*len=*/page_size,
-                     /*_optional_read_size=*/0, /*scratch=*/nullptr);
+    FSReadRequest r1;
+    r1.offset = page_size / 2;
+    r1.len = page_size;
+    r1.scratch = nullptr;
 
-    FSReadRequest r2(/*offset=*/2 * page_size - page_size / 4,
-                     /*len=*/page_size / 4,
-                     /*_optional_read_size=*/0, /*scratch=*/nullptr);
+    FSReadRequest r2;
+    r2.offset = 2 * page_size - page_size / 4;
+    r2.len = page_size / 4;
+    r2.scratch = nullptr;
 
     std::vector<FSReadRequest> reqs;
     reqs.push_back(std::move(r0));
@@ -204,17 +217,20 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     // 1st block:  xx
     // 2nd block:      xx
     // 3rd block:          xx
+    FSReadRequest r0;
+    r0.offset = page_size / 4;
+    r0.len = page_size / 2;
+    r0.scratch = nullptr;
 
-    FSReadRequest r0(/*offset=*/page_size / 4, /*len=*/page_size / 2,
-                     /*_optional_read_size=*/0, /*scratch=*/nullptr);
+    FSReadRequest r1;
+    r1.offset = page_size + page_size / 4;
+    r1.len = page_size / 2;
+    r1.scratch = nullptr;
 
-    FSReadRequest r1(/*offset=*/page_size + page_size / 4,
-                     /*len=*/page_size / 2,
-                     /*_optional_read_size=*/0, /*scratch=*/nullptr);
-
-    FSReadRequest r2(/*offset=*/2 * page_size + page_size / 4,
-                     /*len=*/page_size / 2,
-                     /*_optional_read_size=*/0, /*scratch=*/nullptr);
+    FSReadRequest r2;
+    r2.offset = 2 * page_size + page_size / 4;
+    r2.len = page_size / 2;
+    r2.scratch = nullptr;
 
     std::vector<FSReadRequest> reqs;
     reqs.push_back(std::move(r0));
@@ -244,12 +260,15 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     // 3 pages:   xxxxxxxxxxxx
     // 1st block:  xx
     // 2nd block:          xx
-    FSReadRequest r0(/*offset=*/page_size / 4, /*len=*/page_size / 2,
-                     /*_optional_read_size=*/0, /*scratch=*/nullptr);
+    FSReadRequest r0;
+    r0.offset = page_size / 4;
+    r0.len = page_size / 2;
+    r0.scratch = nullptr;
 
-    FSReadRequest r1(/*offset=*/2 * page_size + page_size / 4,
-                     /*len=*/page_size / 2,
-                     /*_optional_read_size=*/0, /*scratch=*/nullptr);
+    FSReadRequest r1;
+    r1.offset = 2 * page_size + page_size / 4;
+    r1.len = page_size / 2;
+    r1.scratch = nullptr;
 
     std::vector<FSReadRequest> reqs;
     reqs.push_back(std::move(r0));
@@ -277,8 +296,10 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
 }
 
 TEST(FSReadRequest, Align) {
-  FSReadRequest r(/*_offset=*/2000, /*_len=*/2000, /*_optional_read_size=*/0,
-                  /*_scratch=*/nullptr);
+  FSReadRequest r;
+  r.offset = 2000;
+  r.len = 2000;
+  r.scratch = nullptr;
   ASSERT_OK(r.status);
 
   FSReadRequest aligned_r = Align(r, 1024);
@@ -288,148 +309,180 @@ TEST(FSReadRequest, Align) {
   ASSERT_EQ(aligned_r.len, 3072);
 }
 
-TEST(FSReadRequest, Merge) {
+TEST(FSReadRequest, TryMerge) {
   // reverse means merging dest into src.
   for (bool reverse : {true, false}) {
     {
       // dest: [ ]
       //  src:      [ ]
-      FSReadRequest req1(/*_offset=*/0, /*_len=*/10, /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req1.status);
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+      dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
-      FSReadRequest req2(/*_offset=*/15, /*_len=*/10, /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req2.status);
+      FSReadRequest src;
+      src.offset = 15;
+      src.len = 10;
+      src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      FSReadRequest src = reverse ? std::move(req2) : std::move(req1);
-      FSReadRequest dest = reverse ? std::move(req1) : std::move(req2);
-      ASSERT_FALSE(CanMerge(dest, src));
+      if (reverse) {
+        std::swap(dest, src);
+      }
+      ASSERT_FALSE(TryMerge(&dest, src));
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
       // dest: [ ]
       //  src:   [ ]
-      FSReadRequest req1(/*_offset=*/0, /*_len=*/10, /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req1.status);
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+      dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
-      FSReadRequest req2(/*_offset=*/10, /*_len=*/10, /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req2.status);
+      FSReadRequest src;
+      src.offset = 10;
+      src.len = 10;
+      src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      FSReadRequest src = reverse ? std::move(req2) : std::move(req1);
-      FSReadRequest dest = reverse ? std::move(req1) : std::move(req2);
-      ASSERT_TRUE(CanMerge(dest, src));
-      FSReadRequest merged = Merge(dest, src);
-      ASSERT_EQ(merged.offset, 0);
-      ASSERT_EQ(merged.len, 20);
-      ASSERT_OK(merged.status);
+      if (reverse) {
+        std::swap(dest, src);
+      }
+      ASSERT_TRUE(TryMerge(&dest, src));
+      ASSERT_EQ(dest.offset, 0);
+      ASSERT_EQ(dest.len, 20);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
       // dest: [    ]
       //  src:   [    ]
-      FSReadRequest req1(/*_offset=*/0, /*_len=*/10,
-                         /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req1.status);
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+      dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
-      FSReadRequest req2(/*_offset=*/5, /*_len=*/10, /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req2.status);
+      FSReadRequest src;
+      src.offset = 5;
+      src.len = 10;
+      src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      FSReadRequest src = reverse ? std::move(req2) : std::move(req1);
-      FSReadRequest dest = reverse ? std::move(req1) : std::move(req2);
-      ASSERT_TRUE(CanMerge(dest, src));
-      FSReadRequest merged = Merge(dest, src);
-      ASSERT_EQ(merged.offset, 0);
-      ASSERT_EQ(merged.len, 15);
-      ASSERT_OK(merged.status);
+      if (reverse) {
+        std::swap(dest, src);
+      }
+      ASSERT_TRUE(TryMerge(&dest, src));
+      ASSERT_EQ(dest.offset, 0);
+      ASSERT_EQ(dest.len, 15);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
       // dest: [    ]
       //  src:   [  ]
-      FSReadRequest req1(/*_offset=*/0, /*_len=*/10,
-                         /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req1.status);
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+      dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
-      FSReadRequest req2(/*_offset=*/5, /*_len=*/5, /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req2.status);
+      FSReadRequest src;
+      src.offset = 5;
+      src.len = 5;
+      src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      FSReadRequest src = reverse ? std::move(req2) : std::move(req1);
-      FSReadRequest dest = reverse ? std::move(req1) : std::move(req2);
-      ASSERT_TRUE(CanMerge(dest, src));
-      FSReadRequest merged = Merge(dest, src);
-      ASSERT_EQ(merged.offset, 0);
-      ASSERT_EQ(merged.len, 10);
-      ASSERT_OK(merged.status);
+      if (reverse) {
+        std::swap(dest, src);
+      }
+      ASSERT_TRUE(TryMerge(&dest, src));
+      ASSERT_EQ(dest.offset, 0);
+      ASSERT_EQ(dest.len, 10);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
       // dest: [     ]
       //  src:   [ ]
-      FSReadRequest req1(/*_offset=*/0, /*_len=*/10,
-                         /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req1.status);
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+      dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
-      FSReadRequest req2(/*_offset=*/5, /*_len=*/1, /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req2.status);
+      FSReadRequest src;
+      src.offset = 5;
+      src.len = 1;
+      src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      FSReadRequest src = reverse ? std::move(req2) : std::move(req1);
-      FSReadRequest dest = reverse ? std::move(req1) : std::move(req2);
-      ASSERT_TRUE(CanMerge(dest, src));
-      FSReadRequest merged = Merge(dest, src);
-      ASSERT_EQ(merged.offset, 0);
-      ASSERT_EQ(merged.len, 10);
-      ASSERT_OK(merged.status);
+      if (reverse) {
+        std::swap(dest, src);
+      }
+      ASSERT_TRUE(TryMerge(&dest, src));
+      ASSERT_EQ(dest.offset, 0);
+      ASSERT_EQ(dest.len, 10);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
       // dest: [ ]
       //  src: [ ]
-      FSReadRequest req1(/*_offset=*/0, /*_len=*/10,
-                         /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req1.status);
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+      dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
-      FSReadRequest req2(/*_offset=*/0, /*_len=*/10, /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req2.status);
+      FSReadRequest src;
+      src.offset = 0;
+      src.len = 10;
+      src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      FSReadRequest src = reverse ? std::move(req2) : std::move(req1);
-      FSReadRequest dest = reverse ? std::move(req1) : std::move(req2);
-      ASSERT_TRUE(CanMerge(dest, src));
-      FSReadRequest merged = Merge(dest, src);
-      ASSERT_EQ(merged.offset, 0);
-      ASSERT_EQ(merged.len, 10);
-      ASSERT_OK(merged.status);
+      if (reverse) {
+        std::swap(dest, src);
+      }
+      ASSERT_TRUE(TryMerge(&dest, src));
+      ASSERT_EQ(dest.offset, 0);
+      ASSERT_EQ(dest.len, 10);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
       // dest: [   ]
       //  src: [ ]
-      FSReadRequest req1(/*_offset=*/0, /*_len=*/10,
-                         /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req1.status);
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+      dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
-      FSReadRequest req2(/*_offset=*/0, /*_len=*/5, /*_optional_read_size=*/0,
-                         /*_scratch=*/nullptr);
-      ASSERT_OK(req2.status);
+      FSReadRequest src;
+      src.offset = 0;
+      src.len = 5;
+      src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      FSReadRequest src = reverse ? std::move(req2) : std::move(req1);
-      FSReadRequest dest = reverse ? std::move(req1) : std::move(req2);
-      ASSERT_TRUE(CanMerge(dest, src));
-      FSReadRequest merged = Merge(dest, src);
-      ASSERT_EQ(merged.offset, 0);
-      ASSERT_EQ(merged.len, 10);
-      ASSERT_OK(merged.status);
+      if (reverse) {
+        std::swap(dest, src);
+      }
+      ASSERT_TRUE(TryMerge(&dest, src));
+      ASSERT_EQ(dest.offset, 0);
+      ASSERT_EQ(dest.len, 10);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
   }
 }
