@@ -104,11 +104,15 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
                            read_len, result);
   } else {
     to_buf = buf->buffer_.BufferStart() + aligned_useful_len;
-    IOOptions tuned_read_opts =
-        MaybeTuneIOOptions(opts, for_compaction, reader->use_direct_io(),
-                           original_length, read_len);
-    s = reader->Read(tuned_read_opts, start_offset + aligned_useful_len,
-                     read_len, &result, to_buf, /*aligned_buf=*/nullptr);
+    bool issue_flexible_read = for_compaction && !reader->use_direct_io() &&
+                               original_length < read_len;
+    if (issue_flexible_read) {
+      s = FlexibleMultiRead(reader, opts, start_offset + aligned_useful_len,
+                            original_length, read_len, to_buf, result);
+    } else {
+      s = reader->Read(opts, start_offset + aligned_useful_len, read_len,
+                       &result, to_buf, /*aligned_buf=*/nullptr);
+    }
   }
 
 #ifndef NDEBUG

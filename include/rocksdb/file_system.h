@@ -139,16 +139,6 @@ struct IOOptions {
   // FSSupportedOps, otherwise this feature will not be used.
   bool verify_and_reconstruct_read;
 
-  // EXPERIMENTAL: Enables the file system to return less data than
-  // requested, even when the end of file has not been reached. Normally, our
-  // read semantics are defined so that we assume that less data is only
-  // returned when the end of file has been reached or an error has occurred. It
-  // may be useful to set optional_read_size > 0 when prefetching is being
-  // performed and some of the data is not needed immediately. In that case, the
-  // file system has the freedom to tune the read size optimally based on its
-  // storage internals.
-  size_t optional_read_size = 0;
-
   // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
 
@@ -821,6 +811,16 @@ struct FSReadRequest {
   // Input parameter that represents the length to read in bytes. `result` only
   // returns fewer bytes if end of file is hit (or `status` is not OK).
   size_t len;
+
+  // EXPERIMENTAL: Enables the file system to return less data than
+  // requested, even when the end of file has not been reached. Normally, our
+  // read semantics are defined so that we assume that less data is only
+  // returned when the end of file has been reached or an error has occurred. It
+  // may be useful to set optional_read_size > 0 when prefetching is being
+  // performed and some of the data is not needed immediately. In that case, the
+  // file system has the freedom to tune the read size optimally based on its
+  // storage internals.
+  size_t optional_read_size = 0;
 
   // A buffer that MultiRead() can optionally place data in. It can
   // ignore this and allocate its own buffer.

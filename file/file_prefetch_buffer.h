@@ -541,6 +541,28 @@ class FilePrefetchBuffer {
     return s;
   }
 
+  IOStatus FlexibleMultiRead(RandomAccessFileReader* reader,
+                             const IOOptions& opts, uint64_t offset,
+                             size_t original_length, size_t read_length,
+                             char* scratch, Slice& result) {
+    FSReadRequest read_req;
+    read_req.offset = offset;
+    read_req.len = read_length;
+    read_req.scratch = scratch;
+    assert(original_length <= read_length);
+    read_req.optional_read_size = read_length - original_length;
+    IOStatus s = reader->MultiRead(opts, &read_req, 1, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+    s = read_req.status;
+    if (!s.ok()) {
+      return s;
+    }
+    result = read_req.result;
+    return s;
+  }
+
   void DestroyAndClearIOHandle(BufferInfo* buf) {
     if (buf->io_handle_ != nullptr && buf->del_fn_ != nullptr) {
       buf->del_fn_(buf->io_handle_);
@@ -572,17 +594,6 @@ class FilePrefetchBuffer {
                            size_t length, size_t readahead_size,
                            uint64_t& offset, uint64_t& end_offset,
                            size_t& read_len, uint64_t& aligned_useful_len);
-
-  IOOptions MaybeTuneIOOptions(const IOOptions& opts, bool for_compaction,
-                               bool use_direct_io, uint64_t original_length,
-                               uint64_t read_length) {
-    if (for_compaction && !use_direct_io && original_length < read_length) {
-      IOOptions updated_opts = opts;
-      updated_opts.optional_read_size = read_length - original_length;
-      return updated_opts;
-    }
-    return opts;
-  }
 
   void UpdateStats(bool found_in_buffer, size_t length_found) {
     if (found_in_buffer) {
