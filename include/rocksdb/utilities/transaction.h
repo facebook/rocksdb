@@ -750,8 +750,6 @@ class Transaction {
 
   virtual TxnTimestamp GetCommitTimestamp() const { return kMaxTxnTimestamp; }
 
-  virtual bool GetCommitBypassMemTable() const { return false; }
-
  protected:
   explicit Transaction(const TransactionDB* /*db*/) {}
   Transaction() : log_number_(0), txn_state_(STARTED) {}

@@ -301,8 +301,8 @@ void CompactionJob::Prepare(
   SequenceNumber preserve_time_min_seqno = kMaxSequenceNumber;
   SequenceNumber preclude_last_level_min_seqno = kMaxSequenceNumber;
   uint64_t preserve_time_duration =
-      std::max(c->mutable_cf_options()->preserve_internal_time_seconds,
-               c->mutable_cf_options()->preclude_last_level_data_seconds);
+      std::max(c->mutable_cf_options().preserve_internal_time_seconds,
+               c->mutable_cf_options().preclude_last_level_data_seconds);
 
   if (preserve_time_duration > 0) {
     const ReadOptions read_options(Env::IOActivity::kCompaction);
@@ -339,8 +339,8 @@ void CompactionJob::Prepare(
       seqno_to_time_mapping_.Enforce(_current_time);
       seqno_to_time_mapping_.GetCurrentTieringCutoffSeqnos(
           static_cast<uint64_t>(_current_time),
-          c->mutable_cf_options()->preserve_internal_time_seconds,
-          c->mutable_cf_options()->preclude_last_level_data_seconds,
+          c->mutable_cf_options().preserve_internal_time_seconds,
+          c->mutable_cf_options().preclude_last_level_data_seconds,
           &preserve_time_min_seqno, &preclude_last_level_min_seqno);
     }
     // For accuracy of the GetProximalSeqnoBeforeTime queries above, we only
@@ -519,14 +519,14 @@ void CompactionJob::GenSubcompactionBoundaries() {
   ReadOptions read_options(Env::IOActivity::kCompaction);
   read_options.rate_limiter_priority = GetRateLimiterPriority();
   auto* c = compact_->compaction;
-  if (c->mutable_cf_options()->table_factory->Name() ==
+  if (c->mutable_cf_options().table_factory->Name() ==
       TableFactory::kPlainTableName()) {
     return;
   }
 
   if (c->max_subcompactions() <= 1 &&
-      !(c->immutable_options()->compaction_pri == kRoundRobin &&
-        c->immutable_options()->compaction_style == kCompactionStyleLevel)) {
+      !(c->immutable_options().compaction_pri == kRoundRobin &&
+        c->immutable_options().compaction_style == kCompactionStyleLevel)) {
     return;
   }
   auto* cfd = c->column_family_data();
@@ -556,7 +556,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
         FileMetaData* f = flevel->files[i].file_metadata;
         std::vector<TableReader::Anchor> my_anchors;
         Status s = cfd->table_cache()->ApproximateKeyAnchors(
-            read_options, icomp, *f, *c->mutable_cf_options(), my_anchors);
+            read_options, icomp, *f, c->mutable_cf_options(), my_anchors);
         if (!s.ok() || my_anchors.empty()) {
           my_anchors.emplace_back(f->largest.user_key(), f->fd.GetFileSize());
         }
@@ -595,8 +595,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
   // Get the number of planned subcompactions, may update reserve threads
   // and update extra_num_subcompaction_threads_reserved_ for round-robin
   uint64_t num_planned_subcompactions;
-  if (c->immutable_options()->compaction_pri == kRoundRobin &&
-      c->immutable_options()->compaction_style == kCompactionStyleLevel) {
+  if (c->immutable_options().compaction_pri == kRoundRobin &&
+      c->immutable_options().compaction_style == kCompactionStyleLevel) {
     // For round-robin compaction prioity, we need to employ more
     // subcompactions (may exceed the max_subcompaction limit). The extra
     // subcompactions will be executed using reserved threads and taken into
@@ -635,9 +635,9 @@ void CompactionJob::GenSubcompactionBoundaries() {
   uint64_t target_range_size = std::max(
       total_size / num_planned_subcompactions,
       MaxFileSizeForLevel(
-          *(c->mutable_cf_options()), out_lvl,
-          c->immutable_options()->compaction_style, base_level,
-          c->immutable_options()->level_compaction_dynamic_level_bytes));
+          c->mutable_cf_options(), out_lvl,
+          c->immutable_options().compaction_style, base_level,
+          c->immutable_options().level_compaction_dynamic_level_bytes));
 
   if (target_range_size >= total_size) {
     return;
@@ -780,14 +780,13 @@ Status CompactionJob::Run() {
             verify_table_read_options, file_options_,
             cfd->internal_comparator(), files_output[file_idx]->meta,
             /*range_del_agg=*/nullptr,
-            *compact_->compaction->mutable_cf_options(),
+            compact_->compaction->mutable_cf_options(),
             /*table_reader_ptr=*/nullptr,
             cfd->internal_stats()->GetFileReadHist(
                 compact_->compaction->output_level()),
             TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
             /*skip_filters=*/false, compact_->compaction->output_level(),
-            MaxFileSizeForL0MetaPin(
-                *compact_->compaction->mutable_cf_options()),
+            MaxFileSizeForL0MetaPin(compact_->compaction->mutable_cf_options()),
             /*smallest_compaction_key=*/nullptr,
             /*largest_compaction_key=*/nullptr,
             /*allow_unprepared_value=*/false);
@@ -844,7 +843,7 @@ Status CompactionJob::Run() {
   for (const auto& state : compact_->sub_compact_states) {
     for (const auto& output : state.GetOutputs()) {
       auto fn =
-          TableFileName(state.compaction->immutable_options()->cf_paths,
+          TableFileName(state.compaction->immutable_options().cf_paths,
                         output.meta.fd.GetNumber(), output.meta.fd.GetPathId());
       compact_->compaction->SetOutputTableProperties(fn,
                                                      output.table_properties);
@@ -903,8 +902,7 @@ Status CompactionJob::Run() {
   return status;
 }
 
-Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
-                              bool* compaction_released) {
+Status CompactionJob::Install(bool* compaction_released) {
   assert(compact_);
 
   AutoThreadOperationStageUpdater stage_updater(
@@ -920,7 +918,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
                                             compaction_stats_);
 
   if (status.ok()) {
-    status = InstallCompactionResults(mutable_cf_options, compaction_released);
+    status = InstallCompactionResults(compaction_released);
   }
   if (!versions_->io_status().ok()) {
     io_status_ = versions_->io_status();
@@ -1145,8 +1143,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   // Create compaction filter and fail the compaction if
   // IgnoreSnapshots() = false because it is not supported anymore
-  const CompactionFilter* compaction_filter =
-      cfd->ioptions()->compaction_filter;
+  const CompactionFilter* compaction_filter = cfd->ioptions().compaction_filter;
   std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
   if (compaction_filter == nullptr) {
     compaction_filter_from_factory =
@@ -1304,28 +1301,27 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   MergeHelper merge(
-      env_, cfd->user_comparator(), cfd->ioptions()->merge_operator.get(),
+      env_, cfd->user_comparator(), cfd->ioptions().merge_operator.get(),
       compaction_filter, db_options_.info_log.get(),
       false /* internal key corruption is expected */,
       existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
       snapshot_checker_, compact_->compaction->level(), db_options_.stats);
 
-  const MutableCFOptions* mutable_cf_options =
+  const auto& mutable_cf_options =
       sub_compact->compaction->mutable_cf_options();
-  assert(mutable_cf_options);
 
   std::vector<std::string> blob_file_paths;
 
   // TODO: BlobDB to support output_to_penultimate_level compaction, which needs
   //  2 builders, so may need to move to `CompactionOutputs`
   std::unique_ptr<BlobFileBuilder> blob_file_builder(
-      (mutable_cf_options->enable_blob_files &&
+      (mutable_cf_options.enable_blob_files &&
        sub_compact->compaction->output_level() >=
-           mutable_cf_options->blob_file_starting_level)
+           mutable_cf_options.blob_file_starting_level)
           ? new BlobFileBuilder(
                 versions_, fs_.get(),
-                sub_compact->compaction->immutable_options(),
-                mutable_cf_options, &file_options_, &write_options, db_id_,
+                &sub_compact->compaction->immutable_options(),
+                &mutable_cf_options, &file_options_, &write_options, db_id_,
                 db_session_id_, job_id_, cfd->GetID(), cfd->GetName(),
                 write_hint_, io_tracer_, blob_callback_,
                 BlobFileCreationReason::kCompaction, &blob_file_paths,
@@ -1728,7 +1724,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     // This happens when the output level is bottom level, at the same time
     // the sub_compact output nothing.
     std::string fname =
-        TableFileName(sub_compact->compaction->immutable_options()->cf_paths,
+        TableFileName(sub_compact->compaction->immutable_options().cf_paths,
                       meta->fd.GetNumber(), meta->fd.GetPathId());
 
     // TODO(AR) it is not clear if there are any larger implications if
@@ -1775,7 +1771,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     }
   }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
-      event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
+      event_logger_, cfd->ioptions().listeners, dbname_, cfd->GetName(), fname,
       job_id_, output_fd, oldest_blob_file_number, tp,
       TableFileCreationReason::kCompaction, status_for_listener, file_checksum,
       file_checksum_func_name);
@@ -1803,8 +1799,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   return s;
 }
 
-Status CompactionJob::InstallCompactionResults(
-    const MutableCFOptions& mutable_cf_options, bool* compaction_released) {
+Status CompactionJob::InstallCompactionResults(bool* compaction_released) {
   assert(compact_);
 
   db_mutex_->AssertHeld();
@@ -1878,7 +1873,7 @@ Status CompactionJob::InstallCompactionResults(
   if ((compaction->compaction_reason() ==
            CompactionReason::kLevelMaxLevelSize ||
        compaction->compaction_reason() == CompactionReason::kRoundRobinTtl) &&
-      compaction->immutable_options()->compaction_pri == kRoundRobin) {
+      compaction->immutable_options().compaction_pri == kRoundRobin) {
     int start_level = compaction->start_level();
     if (start_level > 0) {
       auto vstorage = compaction->input_version()->storage_info();
@@ -1893,11 +1888,11 @@ Status CompactionJob::InstallCompactionResults(
     *compaction_released = true;
   };
 
-  return versions_->LogAndApply(
-      compaction->column_family_data(), mutable_cf_options, read_options,
-      write_options, edit, db_mutex_, db_directory_,
-      /*new_descriptor_log=*/false,
-      /*column_family_options=*/nullptr, manifest_wcb);
+  return versions_->LogAndApply(compaction->column_family_data(), read_options,
+                                write_options, edit, db_mutex_, db_directory_,
+                                /*new_descriptor_log=*/false,
+                                /*column_family_options=*/nullptr,
+                                manifest_wcb);
 }
 
 void CompactionJob::RecordCompactionIOStats() {
@@ -1933,7 +1928,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   // Fire events.
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
   EventHelpers::NotifyTableFileCreationStarted(
-      cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname, job_id_,
+      cfd->ioptions().listeners, dbname_, cfd->GetName(), fname, job_id_,
       TableFileCreationReason::kCompaction);
   // Make the output file
   std::unique_ptr<FSWritableFile> writable_file;
@@ -1947,7 +1942,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   FileOptions fo_copy = file_options_;
   Temperature temperature = sub_compact->compaction->output_temperature();
   Temperature last_level_temp =
-      sub_compact->compaction->mutable_cf_options()->last_level_temperature;
+      sub_compact->compaction->mutable_cf_options().last_level_temperature;
   // Here last_level_temperature supersedes default_write_temperature, when
   // enabled and applicable
   if (last_level_temp != Temperature::kUnknown &&
@@ -1975,7 +1970,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
         job_id_, file_number, s.ToString().c_str());
     LogFlush(db_options_.info_log);
     EventHelpers::LogAndNotifyTableFileCreationFinished(
-        event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(),
+        event_logger_, cfd->ioptions().listeners, dbname_, cfd->GetName(),
         fname, job_id_, FileDescriptor(), kInvalidBlobFileNumber,
         TableProperties(), TableFileCreationReason::kCompaction, s,
         kUnknownFileChecksum, kUnknownFileChecksumFuncName);
@@ -2046,7 +2041,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
   const auto& listeners =
-      sub_compact->compaction->immutable_options()->listeners;
+      sub_compact->compaction->immutable_options().listeners;
   outputs.AssignFileWriter(new WritableFileWriter(
       std::move(writable_file), fname, fo_copy, db_options_.clock, io_tracer_,
       db_options_.stats, Histograms::SST_WRITE_MICROS, listeners,
@@ -2057,7 +2052,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   const ReadOptions read_options(Env::IOActivity::kCompaction);
   const WriteOptions write_options(Env::IOActivity::kCompaction);
   TableBuilderOptions tboptions(
-      *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
+      cfd->ioptions(), sub_compact->compaction->mutable_cf_options(),
       read_options, write_options, cfd->internal_comparator(),
       cfd->internal_tbl_prop_coll_factories(),
       sub_compact->compaction->output_compression(),
@@ -2123,9 +2118,8 @@ bool CompactionJob::UpdateCompactionStats(uint64_t* num_input_range_del) {
       if (file_input_entries == 0) {
         uint64_t file_number = file_meta->fd.GetNumber();
         // Try getting info from table property
-        std::string fn =
-            TableFileName(compaction->immutable_options()->cf_paths,
-                          file_number, file_meta->fd.GetPathId());
+        std::string fn = TableFileName(compaction->immutable_options().cf_paths,
+                                       file_number, file_meta->fd.GetPathId());
         const auto& tp = input_table_properties.find(fn);
         if (tp != input_table_properties.end()) {
           file_input_entries = tp->second->num_entries;
@@ -2258,7 +2252,7 @@ void CompactionJob::LogCompaction() {
 }
 
 std::string CompactionJob::GetTableFileName(uint64_t file_number) {
-  return TableFileName(compact_->compaction->immutable_options()->cf_paths,
+  return TableFileName(compact_->compaction->immutable_options().cf_paths,
                        file_number, compact_->compaction->output_path_id());
 }
 

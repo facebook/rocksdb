@@ -506,14 +506,14 @@ Status VersionEditHandler::MaybeCreateVersionBeforeApplyEdit(
   auto* builder = builder_iter->second->version_builder();
   if (force_create_version) {
     auto* v = new Version(cfd, version_set_, version_set_->file_options_,
-                          *cfd->GetLatestMutableCFOptions(), io_tracer_,
+                          cfd->GetLatestMutableCFOptions(), io_tracer_,
                           version_set_->current_version_number_++,
                           epoch_number_requirement_);
     s = builder->SaveTo(v->storage_info());
     if (s.ok()) {
       // Install new version
       v->PrepareAppend(
-          *cfd->GetLatestMutableCFOptions(), read_options_,
+          read_options_,
           !(version_set_->db_options_->skip_stats_update_on_db_open));
       version_set_->AppendVersion(cfd, v);
     } else {
@@ -541,12 +541,12 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
   assert(builder_iter->second != nullptr);
   VersionBuilder* builder = builder_iter->second->version_builder();
   assert(builder);
-  const MutableCFOptions* moptions = cfd->GetLatestMutableCFOptions();
+  const auto& moptions = cfd->GetLatestMutableCFOptions();
   Status s = builder->LoadTableHandlers(
       cfd->internal_stats(),
       version_set_->db_options_->max_file_opening_threads,
-      prefetch_index_and_filter_in_cache, is_initial_load, *moptions,
-      MaxFileSizeForL0MetaPin(*moptions), read_options_);
+      prefetch_index_and_filter_in_cache, is_initial_load, moptions,
+      MaxFileSizeForL0MetaPin(moptions), read_options_);
   if ((s.IsPathNotFound() || s.IsCorruption()) && no_error_if_files_missing_) {
     s = Status::OK();
   }
@@ -582,7 +582,7 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
       // it's not recorded and it should have default value true.
       s = ValidateUserDefinedTimestampsOptions(
           cfd->user_comparator(), edit.GetComparatorName(),
-          cfd->ioptions()->persist_user_defined_timestamps,
+          cfd->ioptions().persist_user_defined_timestamps,
           edit.GetPersistUserDefinedTimestamps(), &mark_sst_files_has_no_udt);
       if (!s.ok() && cf_to_cmp_names_) {
         cf_to_cmp_names_->emplace(cfd->GetID(), edit.GetComparatorName());
@@ -861,15 +861,14 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
   if (s.ok() && !missing_info && !in_atomic_group_ &&
       ((!valid_pit_after_edit && valid_pit_before_edit) ||
        (valid_pit_after_edit && force_create_version))) {
-    const MutableCFOptions* cf_opts_ptr = cfd->GetLatestMutableCFOptions();
-    auto* version = new Version(cfd, version_set_, version_set_->file_options_,
-                                *cf_opts_ptr, io_tracer_,
-                                version_set_->current_version_number_++,
-                                epoch_number_requirement_);
+    const auto& mopts = cfd->GetLatestMutableCFOptions();
+    auto* version = new Version(
+        cfd, version_set_, version_set_->file_options_, mopts, io_tracer_,
+        version_set_->current_version_number_++, epoch_number_requirement_);
     s = builder->LoadSavePointTableHandlers(
         cfd->internal_stats(),
-        version_set_->db_options_->max_file_opening_threads, false, true,
-        *cf_opts_ptr, MaxFileSizeForL0MetaPin(*cf_opts_ptr), read_options_);
+        version_set_->db_options_->max_file_opening_threads, false, true, mopts,
+        MaxFileSizeForL0MetaPin(mopts), read_options_);
     if (!s.ok()) {
       delete version;
       if (s.IsCorruption()) {
@@ -886,7 +885,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersionBeforeApplyEdit(
         }
       } else {
         version->PrepareAppend(
-            *cfd->GetLatestMutableCFOptions(), read_options_,
+            read_options_,
             !version_set_->db_options_->skip_stats_update_on_db_open);
         auto v_iter = versions_.find(cfd->GetID());
         if (v_iter != versions_.end()) {
@@ -986,7 +985,7 @@ void VersionEditHandlerPointInTime::AtomicUpdateVersionsApply() {
     Version* version = cfid_and_version.second;
     assert(version != nullptr);
     version->PrepareAppend(
-        *version->cfd()->GetLatestMutableCFOptions(), read_options_,
+        read_options_,
         !version_set_->db_options_->skip_stats_update_on_db_open);
     auto versions_iter = versions_.find(cfid);
     if (versions_iter != versions_.end()) {

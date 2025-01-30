@@ -721,14 +721,14 @@ Compaction* CompactionPicker::CompactRange(
   // two files overlap.
   if (input_level > 0) {
     const uint64_t limit = mutable_cf_options.max_compaction_bytes;
-    uint64_t input_level_total = 0;
     int hint_index = -1;
-    InternalKey* smallest = nullptr;
+    assert(!inputs.empty());
+    // Always include first file for progress.
+    uint64_t input_level_total = inputs[0]->fd.GetFileSize();
+    InternalKey* smallest = &(inputs[0]->smallest);
     InternalKey* largest = nullptr;
-    for (size_t i = 0; i + 1 < inputs.size(); ++i) {
-      if (!smallest) {
-        smallest = &inputs[i]->smallest;
-      }
+    for (size_t i = 1; i < inputs.size(); ++i) {
+      // Consider whether to include inputs[i]
       largest = &inputs[i]->largest;
 
       uint64_t input_file_size = inputs[i]->fd.GetFileSize();
@@ -744,13 +744,11 @@ Compaction* CompactionPicker::CompactRange(
 
       input_level_total += input_file_size;
 
-      if (input_level_total + output_level_total >= limit) {
+      if (input_level_total + output_level_total > limit) {
+        // To ensure compaction size is <= limit, leave out inputs from
+        // index i onwards.
         covering_the_whole_range = false;
-        // still include the current file, so the compaction could be larger
-        // than max_compaction_bytes, which is also to make sure the compaction
-        // can make progress even `max_compaction_bytes` is small (e.g. smaller
-        // than an SST file).
-        inputs.files.resize(i + 1);
+        inputs.files.resize(i);
         break;
       }
     }
@@ -818,6 +816,9 @@ Compaction* CompactionPicker::CompactRange(
     assert(input_level == 0);
     output_level = vstorage->base_level();
     assert(output_level > 0);
+  }
+  for (int i = input_level + 1; i < output_level; i++) {
+    assert(vstorage->NumLevelFiles(i) == 0);
   }
   output_level_inputs.level = output_level;
   if (input_level != output_level) {

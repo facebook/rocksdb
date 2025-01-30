@@ -67,7 +67,7 @@ Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
     return s;
   }
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
-  if (!cfh->cfd()->ioptions()->merge_operator) {
+  if (!cfh->cfd()->ioptions().merge_operator) {
     return Status::NotSupported("Provide a merge_operator when opening DB");
   } else {
     return DB::Merge(o, column_family, key, val);
@@ -232,8 +232,8 @@ Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
       return s;
     }
     WBWIMemTable* wbwi_memtable =
-        new WBWIMemTable(wbwi, cfd->user_comparator(), cf_id, cfd->ioptions(),
-                         cfd->GetLatestMutableCFOptions(), stat);
+        new WBWIMemTable(wbwi, cfd->user_comparator(), cf_id, &cfd->ioptions(),
+                         &cfd->GetLatestMutableCFOptions(), stat);
     wbwi_memtable->Ref();
     wbwi_memtable->AssignSequenceNumbers(assigned_seqno);
     // This is needed to keep the WAL that contains Prepare alive until
@@ -2422,7 +2422,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   }
   uint64_t new_log_number =
       creating_new_log ? versions_->NewFileNumber() : logfile_number_;
-  const MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+  // For use outside of holding DB mutex
+  const MutableCFOptions mutable_cf_options_copy =
+      cfd->GetLatestMutableCFOptions();
 
   // Set memtable_info for memtable sealed callback
   // TODO: memtable_info for `new_imm`
@@ -2432,7 +2434,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   memtable_info.earliest_seqno = cfd->mem()->GetEarliestSequenceNumber();
   memtable_info.num_entries = cfd->mem()->NumEntries();
   memtable_info.num_deletes = cfd->mem()->NumDeletion();
-  if (!cfd->ioptions()->persist_user_defined_timestamps &&
+  if (!cfd->ioptions().persist_user_defined_timestamps &&
       cfd->user_comparator()->timestamp_size() > 0) {
     const Slice& newest_udt = cfd->mem()->GetNewestUDT();
     memtable_info.newest_udt.assign(newest_udt.data(), newest_udt.size());
@@ -2441,7 +2443,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   // flush happens before logging, but that should be ok.
   int num_imm_unflushed = cfd->imm()->NumNotFlushed();
   const auto preallocate_block_size =
-      GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size);
+      GetWalPreallocateBlockSize(mutable_cf_options_copy.write_buffer_size);
   mutex_.Unlock();
   if (creating_new_log) {
     PredecessorWALInfo info;
@@ -2474,8 +2476,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
     } else {
       seq = versions_->LastSequence();
     }
-    new_mem =
-        cfd->ConstructNewMemtable(mutable_cf_options, /*earliest_seq=*/seq);
+    new_mem = cfd->ConstructNewMemtable(mutable_cf_options_copy,
+                                        /*earliest_seq=*/seq);
     context->superversion_context.NewSuperVersion();
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -2630,8 +2632,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
   }
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
-  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
-                                     mutable_cf_options);
+  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context);
 
   // Notify client that memtable is sealed, now that we have successfully
   // installed a new memtable

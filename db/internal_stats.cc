@@ -924,7 +924,7 @@ bool InternalStats::HandleLiveBlobFileGarbageSize(uint64_t* value,
 }
 
 Cache* InternalStats::GetBlobCacheForStats() {
-  return cfd_->ioptions()->blob_cache.get();
+  return cfd_->ioptions().blob_cache.get();
 }
 
 bool InternalStats::HandleBlobCacheCapacity(uint64_t* value, DBImpl* /*db*/,
@@ -1468,9 +1468,9 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
   // TODO(yiwu): The property is currently available for fifo compaction
   // with allow_compaction = false. This is because we don't propagate
   // oldest_key_time on compaction.
-  if (cfd_->ioptions()->compaction_style != kCompactionStyleFIFO ||
+  if (cfd_->ioptions().compaction_style != kCompactionStyleFIFO ||
       cfd_->GetCurrentMutableCFOptions()
-          ->compaction_options_fifo.allow_compaction) {
+          .compaction_options_fifo.allow_compaction) {
     return false;
   }
   // TODO: plumb Env::IOActivity, Env::IOPriority
@@ -1496,7 +1496,7 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
 
 Cache* InternalStats::GetBlockCacheForStats() {
   // NOTE: called in startup before GetCurrentMutableCFOptions() is ready
-  auto* table_factory = cfd_->GetLatestMutableCFOptions()->table_factory.get();
+  auto* table_factory = cfd_->GetLatestMutableCFOptions().table_factory.get();
   assert(table_factory != nullptr);
   // FIXME: need to a shared_ptr if/when block_cache is going to be mutable
   return table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
@@ -1752,7 +1752,7 @@ void InternalStats::DumpCFMapStats(
   assert(vstorage);
 
   int num_levels_to_check =
-      (cfd_->ioptions()->compaction_style == kCompactionStyleLevel)
+      (cfd_->ioptions().compaction_style == kCompactionStyleLevel)
           ? vstorage->num_levels() - 1
           : 1;
 
@@ -2163,8 +2163,7 @@ class BlockCachePropertyAggregator : public IntPropertyAggregator {
   virtual ~BlockCachePropertyAggregator() override = default;
 
   void Add(ColumnFamilyData* cfd, uint64_t value) override {
-    auto* table_factory =
-        cfd->GetCurrentMutableCFOptions()->table_factory.get();
+    auto* table_factory = cfd->GetCurrentMutableCFOptions().table_factory.get();
     assert(table_factory != nullptr);
     Cache* cache =
         table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());

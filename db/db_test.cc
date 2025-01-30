@@ -3409,10 +3409,6 @@ class ModelDB : public DB {
     return Status::NotSupported();
   }
 
-  Status DEPRECATED_DeleteFile(std::string /*name*/) override {
-    return Status::OK();
-  }
-
   Status GetUpdatesSince(
       ROCKSDB_NAMESPACE::SequenceNumber,
       std::unique_ptr<ROCKSDB_NAMESPACE::TransactionLogIterator>*,
@@ -3714,6 +3710,139 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   Reopen(options);
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
+}
+
+TEST_F(DBTest, SetOptionsEffectiveInSuperVersions) {
+  // Basically, to test the SetOptions take effect with (and only with)
+  // new SuperVersions, and remain in effect through some things like
+  // flush and compaction, we use some queries that depend on the current
+  // prefix extractor.
+  //
+  // Making the semantics of read options dependent on the current state of
+  // mutable options is kind of an anti-pattern that prefix_seek_opt_in_only
+  // is helping to phase out. However, this is useful for rather directly
+  // testing the expected behavior of mutable options handling.
+  ReadOptions ropts;
+  ropts.prefix_same_as_start = true;
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(5));
+  options.prefix_seek_opt_in_only = false;
+  Reopen(options);
+
+  ASSERT_OK(Put("goat1", "g1"));
+  ASSERT_OK(Put("goat2", "g2"));
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ropts));
+
+  auto VerifyTransform4 = [&](int caller_line) {
+    SCOPED_TRACE("Called from " + std::to_string(caller_line));
+    // Nothing with this prefix
+    iter->Seek("game1");
+    ASSERT_OK(iter->status());
+    ASSERT_FALSE(iter->Valid());
+
+    iter->Seek("goat1");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("goat1", iter->key());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("goat2", iter->key());
+  };
+
+  auto VerifyTransform5 = [&](int caller_line) {
+    SCOPED_TRACE("Called from " + std::to_string(caller_line));
+    // Nothing with this prefix
+    iter->Seek("game1");
+    ASSERT_OK(iter->status());
+    ASSERT_FALSE(iter->Valid());
+
+    iter->Seek("goat1");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("goat1", iter->key());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_FALSE(iter->Valid());
+
+    iter->Seek("goat2");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("goat2", iter->key());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_FALSE(iter->Valid());
+  };
+
+  for (int i = 0;; ++i) {
+    SCOPED_TRACE("Iteration " + std::to_string(i));
+    // Baseline
+    VerifyTransform5(__LINE__);
+
+    if (i == 0) {
+      // Test a "normal" change with nothing happening in parallel
+      ASSERT_OK(db_->SetOptions({{"prefix_extractor", "fixed:4"}}));
+
+      // Iterator still uses old superversion
+      VerifyTransform5(__LINE__);
+
+      // Refresh updates the SuperVersion
+      ASSERT_OK(iter->Refresh());
+    } else if (i == 1) {
+      // Test a setting change in parallel with flush
+      iter = nullptr;
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+      SyncPoint::GetInstance()->SetCallBack(
+          "FlushJob::WriteLevel0Table:num_memtables", [&](void*) {
+            // During flush, without DB mutex held
+            ASSERT_OK(db_->SetOptions({{"prefix_extractor", "fixed:4"}}));
+            iter.reset(db_->NewIterator(ropts));
+            VerifyTransform4(__LINE__);
+          });
+      SyncPoint::GetInstance()->EnableProcessing();
+      ASSERT_OK(Flush());
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+      // Callback was called
+      ASSERT_NE(iter, nullptr);
+    } else if (i == 2) {
+      // Test a setting change in parallel with compaction
+      iter = nullptr;
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+      SyncPoint::GetInstance()->SetCallBack(
+          "CompactionJob::Run():EndStatusSet", [&](void*) {
+            // During compaction, without DB mutex held
+            ASSERT_OK(db_->SetOptions({{"prefix_extractor", "fixed:4"}}));
+            iter.reset(db_->NewIterator(ropts));
+            VerifyTransform4(__LINE__);
+          });
+      SyncPoint::GetInstance()->EnableProcessing();
+      // Need data overlapping that L0 file to prevent trivial move
+      ASSERT_OK(Put("aaaaa", "a"));
+      ASSERT_OK(Put("zzzzz", "a"));
+      ASSERT_OK(CompactRange({}, {}, {}));
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+      // Callback was called
+      ASSERT_NE(iter, nullptr);
+    } else {
+      break;
+    }
+    // Change has taken effect
+    VerifyTransform4(__LINE__);
+    // Same after a new iterator (in case a new SuperVersion reverted the
+    // setting)
+    iter.reset(db_->NewIterator(ropts));
+    VerifyTransform4(__LINE__);
+
+    // Back to baseline setting
+    ASSERT_OK(db_->SetOptions({{"prefix_extractor", "fixed:5"}}));
+    // New iterator uses latest SuperVersion
+    iter.reset(db_->NewIterator(ropts));
+  }
 }
 
 TEST_F(DBTest, BlockBasedTablePrefixHashIndexTest) {
@@ -5186,7 +5315,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   options.compression_per_level[0] = kNoCompression;
   // No compression for the Ln whre L0 is compacted to
   options.compression_per_level[1] = kNoCompression;
-  // Snpapy compression for Ln+1
+  // Snappy compression for Ln+1
   options.compression_per_level[2] = kSnappyCompression;
 
   OnFileDeletionListener* listener = new OnFileDeletionListener();
@@ -5240,7 +5369,10 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   db_->GetColumnFamilyMetaData(&cf_meta);
   for (const auto& file : cf_meta.levels[4].files) {
     listener->SetExpectedFileName(dbname_ + file.name);
-    ASSERT_OK(dbfull()->DEPRECATED_DeleteFile(file.name));
+    Slice start(file.smallestkey), limit(file.largestkey);
+    const RangePtr ranges(&start, &limit);
+    EXPECT_OK(dbfull()->DeleteFilesInRanges(dbfull()->DefaultColumnFamily(),
+                                            &ranges, true /* include_end */));
   }
   listener->VerifyMatchedCount(cf_meta.levels[4].files.size());
 

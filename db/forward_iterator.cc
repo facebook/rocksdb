@@ -242,7 +242,7 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
   if (sv_) {
     RebuildIterators(false);
   }
-  if (!CheckFSFeatureSupport(cfd_->ioptions()->env->GetFileSystem().get(),
+  if (!CheckFSFeatureSupport(cfd_->ioptions().env->GetFileSystem().get(),
                              FSSupportedOps::kAsyncIO)) {
     read_options_.async_io = false;
   }

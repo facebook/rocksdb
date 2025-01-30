@@ -55,9 +55,9 @@ Status DBImplSecondary::Recover(
   // Initial max_total_in_memory_state_ before recovery logs.
   max_total_in_memory_state_ = 0;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
-    auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
-    max_total_in_memory_state_ += mutable_cf_options->write_buffer_size *
-                                  mutable_cf_options->max_write_buffer_number;
+    const auto& mutable_cf_options = cfd->GetLatestMutableCFOptions();
+    max_total_in_memory_state_ += mutable_cf_options.write_buffer_size *
+                                  mutable_cf_options.max_write_buffer_number;
   }
   if (s.ok()) {
     default_cf_handle_ = new ColumnFamilyHandleImpl(
@@ -270,10 +270,8 @@ Status DBImplSecondary::RecoverLogFiles(
           if (!cfd->mem()->IsEmpty() &&
               (curr_log_num == std::numeric_limits<uint64_t>::max() ||
                curr_log_num != log_number)) {
-            const MutableCFOptions mutable_cf_options =
-                *cfd->GetLatestMutableCFOptions();
-            MemTable* new_mem =
-                cfd->ConstructNewMemtable(mutable_cf_options, seq_of_batch);
+            MemTable* new_mem = cfd->ConstructNewMemtable(
+                cfd->GetLatestMutableCFOptions(), seq_of_batch);
             cfd->mem()->SetNextLogNumber(log_number);
             cfd->mem()->ConstructFragmentedRangeTombstones();
             cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
@@ -344,7 +342,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                 const Slice& key,
                                 GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
-         get_impl_options.columns != nullptr);
+         get_impl_options.columns != nullptr ||
+         get_impl_options.merge_operands != nullptr);
   assert(get_impl_options.column_family);
 
   Status s;
@@ -399,6 +398,9 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
     }
   }
   MergeContext merge_context;
+  // TODO - Large Result Optimization for Secondary DB
+  // (https://github.com/facebook/rocksdb/pull/10458)
+
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
@@ -453,6 +455,14 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
       size = get_impl_options.value->size();
     } else if (get_impl_options.columns) {
       size = get_impl_options.columns->serialized_size();
+    } else if (get_impl_options.merge_operands) {
+      *get_impl_options.number_of_operands =
+          static_cast<int>(merge_context.GetNumOperands());
+      for (const Slice& sl : merge_context.GetOperands()) {
+        size += sl.size();
+        get_impl_options.merge_operands->PinSelf(sl);
+        get_impl_options.merge_operands++;
+      }
     }
     RecordTick(stats_, BYTES_READ, size);
     RecordTimeToHistogram(stats_, BYTES_PER_READ, size);
@@ -533,7 +543,7 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
   snapshot = versions_->LastSequence();
   assert(snapshot != kMaxSequenceNumber);
   auto db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfh->cfd()->ioptions(),
+      env_, read_options, cfh->cfd()->ioptions(),
       super_version->mutable_cf_options, super_version->current, snapshot,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
       super_version->version_number, read_callback, cfh, expose_blob_index,
@@ -737,7 +747,8 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
 }
 
 Status DB::OpenAsSecondary(const Options& options, const std::string& dbname,
-                           const std::string& secondary_path, DB** dbptr) {
+                           const std::string& secondary_path,
+                           std::unique_ptr<DB>* dbptr) {
   *dbptr = nullptr;
 
   DBOptions db_options(options);
@@ -759,7 +770,7 @@ Status DB::OpenAsSecondary(
     const DBOptions& db_options, const std::string& dbname,
     const std::string& secondary_path,
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
+    std::vector<ColumnFamilyHandle*>* handles, std::unique_ptr<DB>* dbptr) {
   *dbptr = nullptr;
 
   DBOptions tmp_opts(db_options);
@@ -826,7 +837,7 @@ Status DB::OpenAsSecondary(
   impl->mutex_.Unlock();
   sv_context.Clean();
   if (s.ok()) {
-    *dbptr = impl;
+    dbptr->reset(impl);
     for (auto h : *handles) {
       impl->NewThreadStatusCfInfo(
           static_cast_with_check<ColumnFamilyHandleImpl>(h)->cfd());
@@ -864,16 +875,15 @@ Status DBImplSecondary::CompactWithoutInstallation(
   ColumnFamilyMetaData cf_meta;
   version->GetColumnFamilyMetaData(&cf_meta);
 
-  const MutableCFOptions* mutable_cf_options = cfd->GetLatestMutableCFOptions();
-  ColumnFamilyOptions cf_options = cfd->GetLatestCFOptions();
   VersionStorageInfo* vstorage = version->storage_info();
 
   // Use comp_options to reuse some CompactFiles functions
   CompactionOptions comp_options;
   comp_options.compression = kDisableCompressionOption;
   comp_options.output_file_size_limit = MaxFileSizeForLevel(
-      *mutable_cf_options, input.output_level, cf_options.compaction_style,
-      vstorage->base_level(), cf_options.level_compaction_dynamic_level_bytes);
+      cfd->GetLatestMutableCFOptions(), input.output_level,
+      cfd->ioptions().compaction_style, vstorage->base_level(),
+      cfd->ioptions().level_compaction_dynamic_level_bytes);
 
   std::vector<CompactionInputFiles> input_files;
   Status s = cfd->compaction_picker()->GetCompactionInputsFromFileNumbers(
@@ -886,7 +896,7 @@ Status DBImplSecondary::CompactWithoutInstallation(
   assert(cfd->compaction_picker());
   c.reset(cfd->compaction_picker()->CompactFiles(
       comp_options, input_files, input.output_level, vstorage,
-      *mutable_cf_options, mutable_db_options_, 0));
+      cfd->GetLatestMutableCFOptions(), mutable_db_options_, 0));
   assert(c != nullptr);
 
   c->FinalizeInputInfo(version);

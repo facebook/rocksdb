@@ -22,7 +22,7 @@ class CompactedDBImpl : public DBImpl {
   ~CompactedDBImpl() override;
 
   static Status Open(const Options& options, const std::string& dbname,
-                     DB** dbptr);
+                     std::unique_ptr<DB>* dbptr);
 
   // Implementations of the DB interface
   using DB::Get;

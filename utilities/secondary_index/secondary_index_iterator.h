@@ -12,7 +12,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/secondary_index.h"
-#include "util/overload.h"
+#include "utilities/secondary_index/secondary_index_helper.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -46,19 +46,15 @@ class SecondaryIndexIterator : public Iterator {
   void Seek(const Slice& target) override {
     status_ = Status::OK();
 
-    std::variant<Slice, std::string> prefix;
+    std::variant<Slice, std::string> prefix = target;
 
-    const Status s = index_->GetSecondaryKeyPrefix(target, &prefix);
+    const Status s = index_->FinalizeSecondaryKeyPrefix(&prefix);
     if (!s.ok()) {
       status_ = s;
       return;
     }
 
-    prefix_ = std::visit(
-        overload{
-            [](const Slice& value) -> std::string { return value.ToString(); },
-            [](const std::string& value) -> std::string { return value; }},
-        prefix);
+    prefix_ = SecondaryIndexHelper::AsString(prefix);
 
     // FIXME: this works for BytewiseComparator but not for all comparators in
     // general

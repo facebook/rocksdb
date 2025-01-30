@@ -20,10 +20,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class ColumnFamilyHandle;
 
-//       / \     UNDER CONSTRUCTION
-//      / ! \    UNDER CONSTRUCTION
-//     /-----\   UNDER CONSTRUCTION
-
+// EXPERIMENTAL
+//
 // A secondary index is an additional data structure built over a set of primary
 // key-values that enables efficiently querying key-values by value instead of
 // key. Both plain and wide-column key-values can be indexed, the latter on a
@@ -53,27 +51,6 @@ class ColumnFamilyHandle;
 // thread-safe with the exception of Set{Primary,Secondary}ColumnFamily (which
 // are not expected to be called after initialization).
 
-// Read options for secondary index iterators
-struct SecondaryIndexReadOptions {
-  // The maximum number of neighbors K to return when performing a
-  // K-nearest-neighbors vector similarity search. The number of neighbors
-  // returned can be smaller if there are not enough vectors in the inverted
-  // lists probed. Only applicable to FAISS IVF secondary indices, where it must
-  // be specified and positive. See also `SecondaryIndex::NewIterator` and
-  // `similarity_search_probes` below.
-  //
-  // Default: none
-  std::optional<size_t> similarity_search_neighbors;
-
-  // The number of inverted lists to probe when performing a K-nearest-neighbors
-  // vector similarity search. Only applicable to FAISS IVF secondary indices,
-  // where it must be specified and positive. See also
-  // `SecondaryIndex::NewIterator` and `similarity_search_neighbors` above.
-  //
-  // Default: none
-  std::optional<size_t> similarity_search_probes;
-};
-
 class SecondaryIndex {
  public:
   virtual ~SecondaryIndex() = default;
@@ -102,12 +79,22 @@ class SecondaryIndex {
   // called by the transaction layer when adding or removing secondary index
   // entries (which have the form <secondary_key_prefix><primary_key> ->
   // <secondary_value>) and should be deterministic. The output parameter
-  // secondary_key_prefix is expected to be based on primary_column_value,
-  // potentially with some additional metadata to prevent ambiguities (e.g.
-  // index id or length indicator). Returning a non-OK status rolls back all
-  // operations in the transaction related to this primary key-value.
+  // secondary_key_prefix is expected to be based on primary_key and/or
+  // primary_column_value. Returning a non-OK status rolls back all operations
+  // in the transaction related to this primary key-value.
   virtual Status GetSecondaryKeyPrefix(
-      const Slice& primary_column_value,
+      const Slice& primary_key, const Slice& primary_column_value,
+      std::variant<Slice, std::string>* secondary_key_prefix) const = 0;
+
+  // Finalize the secondary key prefix, for instance by adding some metadata to
+  // prevent ambiguities (e.g. index id or length indicator). This method is
+  // called by the transaction layer when adding or removing secondary index
+  // entries (which have the form <secondary_key_prefix><primary_key> ->
+  // <secondary_value>) and also when querying the index (in which case it is
+  // called with the search target). The method should be deterministic.
+  // Returning a non-OK status rolls back all operations in the transaction
+  // related to this primary key-value.
+  virtual Status FinalizeSecondaryKeyPrefix(
       std::variant<Slice, std::string>* secondary_key_prefix) const = 0;
 
   // Get the optional secondary value for a given primary key-value. This method
@@ -118,35 +105,25 @@ class SecondaryIndex {
   // Returning a non-OK status rolls back all operations in the transaction
   // related to this primary key-value.
   virtual Status GetSecondaryValue(
-      const Slice& primary_column_value, const Slice& previous_column_value,
+      const Slice& primary_key, const Slice& primary_column_value,
+      const Slice& previous_column_value,
       std::optional<std::variant<Slice, std::string>>* secondary_value)
       const = 0;
-
-  // Create an iterator that can be used by applications to query the index.
-  // This method takes a SecondaryIndexReadOptions structure, which can be used
-  // by applications to provide (implementation-specific) query parameters to
-  // the index as well as an underlying iterator over the index's secondary
-  // column family, which the returned iterator is expected to take ownership of
-  // and use to read the actual secondary index entries. (Providing the
-  // underlying iterator this way enables querying the index as of a specific
-  // point in time for example.)
-  //
-  // Querying the index can be performed by calling the returned iterator's
-  // Seek API with a search target, and then using Next (and potentially
-  // Prev) to iterate through the matching index entries. SeekToFirst,
-  // SeekToLast, and SeekForPrev are not expected to be supported by the
-  // iterator. The iterator should expose primary keys, that is, the secondary
-  // key prefix should be stripped from the index entries.
-  //
-  // The exact semantics of the returned iterator depend on the index and are
-  // implementation-specific. For simple indices, the search target might be a
-  // primary column value, and the iterator might return all primary keys that
-  // have the given column value; however, other semantics are also possible.
-  // For vector indices, the search target might be a vector, and the iterator
-  // might return similar vectors from the index.
-  virtual std::unique_ptr<Iterator> NewIterator(
-      const SecondaryIndexReadOptions& read_options,
-      std::unique_ptr<Iterator>&& underlying_it) const = 0;
 };
+
+// Create a simple secondary index iterator that can be used to find the primary
+// keys for a given search target. Can be used as-is or as a building block for
+// more complex iterators. Querying the index can be performed by calling the
+// returned iterator's Seek API with a search target, and then using Next (and
+// potentially Prev) to iterate through the matching index entries. SeekToFirst,
+// SeekToLast, and SeekForPrev are not supported by the iterator. The iterator
+// exposes primary keys, that is, the secondary key prefix is stripped
+// from the index entries. The parameter underlying_it should point to an
+// iterator over the index's secondary column family. The returned iterator
+// takes ownership of underlying_it and uses it to read the actual secondary
+// index entries. (Providing the underlying iterator this way enables querying
+// the index as of a specific point in time for example.)
+std::unique_ptr<Iterator> NewSecondaryIndexIterator(
+    const SecondaryIndex* index, std::unique_ptr<Iterator>&& underlying_it);
 
 }  // namespace ROCKSDB_NAMESPACE

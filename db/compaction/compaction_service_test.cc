@@ -114,6 +114,8 @@ class MyTestCompactionService : public CompactionService {
     }
   }
 
+  void CancelAwaitingJobs() override { canceled_ = true; }
+
   void OnInstallation(const std::string& /*scheduled_job_id*/,
                       CompactionServiceJobStatus status) override {
     final_updated_status_ = status;
@@ -146,6 +148,7 @@ class MyTestCompactionService : public CompactionService {
   }
 
   void SetCanceled(bool canceled) { canceled_ = canceled; }
+  bool GetCanceled() { return canceled_; }
 
   void GetResult(CompactionServiceResult* deserialized) {
     CompactionServiceResult::Read(result_, deserialized).PermitUncheckedError();
@@ -194,12 +197,15 @@ class CompactionServiceTest : public DBTestBase {
     options->statistics = primary_statistics_;
     compactor_statistics_ = CreateDBStatistics();
 
-    compaction_service_ = std::make_shared<MyTestCompactionService>(
+    auto my_cs = std::make_shared<MyTestCompactionService>(
         dbname_, *options, compactor_statistics_, remote_listeners,
         remote_table_properties_collector_factories);
+
+    compaction_service_ = my_cs;
     options->compaction_service = compaction_service_;
     DestroyAndReopen(*options);
     CreateAndReopenWithCF({"cf_1", "cf_2", "cf_3"}, *options);
+    my_cs->SetCanceled(false);
   }
 
   Statistics* GetCompactorStatistics() { return compactor_statistics_.get(); }
@@ -339,6 +345,8 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
         assert(*id != kNullUniqueId64x2);
         verify_passed++;
       });
+  Close();
+  my_cs->SetCanceled(false);
   ReopenWithColumnFamilies({kDefaultColumnFamilyName, "cf_1", "cf_2", "cf_3"},
                            options);
   ASSERT_GT(verify_passed, 0);
@@ -487,7 +495,7 @@ TEST_F(CompactionServiceTest, PreservedOptionsLocalCompaction) {
         ASSERT_TRUE(s.IsNotFound());
         // Should be old value
         ASSERT_EQ(2, compaction->mutable_cf_options()
-                         ->level0_file_num_compaction_trigger);
+                         .level0_file_num_compaction_trigger);
         ASSERT_TRUE(dbfull()->min_options_file_numbers_.empty());
       });
 
@@ -573,7 +581,7 @@ TEST_F(CompactionServiceTest, PreservedOptionsRemoteCompaction) {
       "CompactionJob::ProcessKeyValueCompaction()::Processing", [&](void* arg) {
         auto compaction = static_cast<Compaction*>(arg);
         ASSERT_EQ(2, compaction->mutable_cf_options()
-                         ->level0_file_num_compaction_trigger);
+                         .level0_file_num_compaction_trigger);
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -994,6 +1002,41 @@ TEST_F(CompactionServiceTest, CancelCompactionOnRemoteSide) {
   // compaction number is not increased
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num);
   VerifyTestData();
+}
+
+TEST_F(CompactionServiceTest, CancelCompactionOnPrimarySide) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  uint64_t comp_num = my_cs->GetCompactionNum();
+
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+  my_cs = GetCompactionService();
+
+  // Primary DB calls CancelAllBackgroundWork() while the compaction is running
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():Inprogress",
+      [&](void* /*arg*/) { CancelAllBackgroundWork(db_, false /*wait*/); });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+  ASSERT_TRUE(s.IsIncomplete());
+
+  // Check canceled_ was set to true by CancelAwaitingJobs()
+  ASSERT_TRUE(my_cs->GetCanceled());
+
+  // compaction number is not increased
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num);
 }
 
 TEST_F(CompactionServiceTest, FailedToStart) {
