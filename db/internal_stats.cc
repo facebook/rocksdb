@@ -82,6 +82,8 @@ const std::map<InternalStats::InternalDBStatsType, DBStatInfo>
          DBStatInfo{WriteStallStatsMapKeys::CauseConditionCount(
              WriteStallCause::kWriteBufferManagerLimit,
              WriteStallCondition::kStopped)}},
+        {InternalStats::kIntStatsPrefetchBufferSizeBytes,
+         DBStatInfo{"db.prefetch_buffer_size_bytes"}},
 };
 
 namespace {
