@@ -450,7 +450,7 @@ Status FaissIVFIndex::GetSecondaryValue(
 }
 
 std::unique_ptr<Iterator> FaissIVFIndex::NewIterator(
-    const SecondaryIndexReadOptions& read_options,
+    const FaissIVFIndexReadOptions& read_options,
     std::unique_ptr<Iterator>&& underlying_it) const {
   if (!read_options.similarity_search_neighbors.has_value() ||
       *read_options.similarity_search_neighbors == 0) {
@@ -470,9 +470,9 @@ std::unique_ptr<Iterator> FaissIVFIndex::NewIterator(
       *read_options.similarity_search_probes);
 }
 
-std::unique_ptr<FaissIVFIndex> NewFaissIVFIndex(
+std::shared_ptr<FaissIVFIndex> NewFaissIVFIndex(
     std::unique_ptr<faiss::IndexIVF>&& index, std::string primary_column_name) {
-  return std::make_unique<FaissIVFIndex>(std::move(index),
+  return std::make_shared<FaissIVFIndex>(std::move(index),
                                          std::move(primary_column_name));
 }
 
