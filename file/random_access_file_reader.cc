@@ -287,25 +287,32 @@ size_t End(const FSReadRequest& r) {
 }
 
 FSReadRequest Align(const FSReadRequest& r, size_t alignment) {
-  FSReadRequest req;
-  req.offset = static_cast<uint64_t>(
+  uint64_t offset = static_cast<uint64_t>(
       TruncateToPageBoundary(alignment, static_cast<size_t>(r.offset)));
-  req.len = Roundup(End(r), alignment) - req.offset;
-  req.scratch = nullptr;
-  return req;
+  size_t len = Roundup(End(r), alignment) - offset;
+  return FSReadRequest(offset, len, /*optional_read_size=*/0,
+                       /*scratch=*/nullptr);
 }
 
-bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
-  size_t dest_offset = static_cast<size_t>(dest->offset);
-  size_t src_offset = static_cast<size_t>(src.offset);
-  size_t dest_end = End(*dest);
-  size_t src_end = End(src);
-  if (std::max(dest_offset, src_offset) > std::min(dest_end, src_end)) {
-    return false;
-  }
-  dest->offset = static_cast<uint64_t>(std::min(dest_offset, src_offset));
-  dest->len = std::max(dest_end, src_end) - dest->offset;
-  return true;
+FSReadRequest Merge(const FSReadRequest& req1, const FSReadRequest& req2) {
+  assert(CanMerge(req1, req2));
+  size_t offset1 = static_cast<size_t>(req1.offset);
+  size_t offset2 = static_cast<size_t>(req2.offset);
+  size_t end1 = End(req1);
+  size_t end2 = End(req2);
+
+  size_t merged_offset = static_cast<uint64_t>(std::min(offset1, offset2));
+  size_t merged_len = std::max(end1, end2) - merged_offset;
+  return FSReadRequest(merged_offset, merged_len,
+                       /*optional_read_size=*/0, /*scratch=*/req1.scratch);
+}
+
+bool CanMerge(const FSReadRequest& req1, const FSReadRequest& req2) {
+  size_t offset1 = static_cast<size_t>(req1.offset);
+  size_t offset2 = static_cast<size_t>(req2.offset);
+  size_t end1 = End(req1);
+  size_t end2 = End(req2);
+  return std::max(offset1, offset2) <= std::min(end1, end2);
 }
 
 IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
@@ -358,13 +365,15 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
           // head
           aligned_reqs.push_back(std::move(r));
 
-        } else if (!TryMerge(&aligned_reqs.back(), r)) {
+        } else if (!CanMerge(aligned_reqs.back(), r)) {
           // head + n
           aligned_reqs.push_back(std::move(r));
-
         } else {
-          // unused
-          r.status.PermitUncheckedError();
+          FSReadRequest last_req(aligned_reqs.back().offset,
+                                 aligned_reqs.back().len,
+                                 aligned_reqs.back().optional_read_size,
+                                 aligned_reqs.back().scratch);
+          aligned_reqs.push_back(Merge(last_req, r));
         }
       }
       TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::MultiRead:AlignedReqs",
@@ -564,10 +573,9 @@ void RandomAccessFileReader::ReadAsyncCallback(FSReadRequest& req,
 
   if (use_direct_io() && read_async_info->is_aligned_ == false) {
     // Create FSReadRequest with user provided fields.
-    FSReadRequest user_req;
-    user_req.scratch = read_async_info->user_scratch_;
-    user_req.offset = read_async_info->user_offset_;
-    user_req.len = read_async_info->user_len_;
+    FSReadRequest user_req(
+        read_async_info->user_offset_, read_async_info->user_len_,
+        /*_optional_read_size=*/0, read_async_info->user_scratch_);
 
     // Update results in user_req.
     user_req.result = req.result;

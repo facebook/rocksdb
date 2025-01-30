@@ -30,13 +30,11 @@ using AlignedBuf = FSAllocationPtr;
 // Align the request r according to alignment and return the aligned result.
 FSReadRequest Align(const FSReadRequest& r, size_t alignment);
 
-// Try to merge src to dest if they have overlap.
-//
-// Each request represents an inclusive interval [offset, offset + len].
-// If the intervals have overlap, update offset and len to represent the
-// merged interval, and return true.
-// Otherwise, do nothing and return false.
-bool TryMerge(FSReadRequest* dest, const FSReadRequest& src);
+// Precondition: req1 and req2 are mergeable (i.e., they have overlap).
+// Returns a new request that represents the merged interval of req1 and req2.
+FSReadRequest Merge(const FSReadRequest& req1, const FSReadRequest& req2);
+
+bool CanMerge(const FSReadRequest& req1, const FSReadRequest& req2);
 
 // RandomAccessFileReader is a wrapper on top of FSRandomAccessFile. It is
 // responsible for:

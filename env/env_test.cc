@@ -3500,7 +3500,8 @@ class ReadAsyncFS : public FileSystemWrapper {
     for (size_t i = 0; i < io_handles.size(); i++) {
       MockIOHandle* handle = static_cast<MockIOHandle*>(io_handles[i]);
       if (handle->create_io_error) {
-        FSReadRequest req;
+        FSReadRequest req(/*offset=*/0, /*len=*/0, /*optional_read_size=*/0,
+                          /*scratch=*/nullptr);
         req.status = IOStatus::IOError();
         handle->cb(req, handle->cb_arg);
       }
@@ -3553,6 +3554,12 @@ class TestAsyncRead : public testing::Test {
   Env* env_;
 };
 
+struct FSReadRequestTestSummary {
+  uint64_t offset;
+  Slice result;
+  IOStatus status;
+};
+
 // Tests the default implementation of ReadAsync API.
 TEST_F(TestAsyncRead, ReadAsync) {
   EnvOptions soptions;
@@ -3584,7 +3591,8 @@ TEST_F(TestAsyncRead, ReadAsync) {
 
     IOOptions opts;
     std::vector<void*> io_handles(kNumSectors);
-    std::vector<FSReadRequest> reqs(kNumSectors);
+    std::vector<FSReadRequest> reqs;
+    reqs.reserve(kNumSectors);
     std::vector<std::unique_ptr<char, Deleter>> data;
     std::vector<size_t> vals;
     IOHandleDeleter del_fn;
@@ -3592,22 +3600,22 @@ TEST_F(TestAsyncRead, ReadAsync) {
 
     // Initialize read requests
     for (size_t i = 0; i < kNumSectors; i++) {
-      reqs[i].offset = offset;
-      reqs[i].len = kSectorSize;
       data.emplace_back(NewAligned(kSectorSize, 0));
-      reqs[i].scratch = data.back().get();
+      reqs.push_back(FSReadRequest(offset, kSectorSize, 0, data.back().get()));
       vals.push_back(i);
       offset += kSectorSize;
     }
+
+    std::vector<FSReadRequestTestSummary> req_summaries(kNumSectors);
 
     // callback function passed to async read.
     std::function<void(FSReadRequest&, void*)> callback =
         [&](FSReadRequest& req, void* cb_arg) {
           assert(cb_arg != nullptr);
           size_t i = *(reinterpret_cast<size_t*>(cb_arg));
-          reqs[i].offset = req.offset;
-          reqs[i].result = req.result;
-          reqs[i].status = req.status;
+          req_summaries[i].offset = req.offset;
+          req_summaries[i].result = req.result;
+          req_summaries[i].status = req.status;
         };
 
     // Submit asynchronous read requests.
@@ -3623,14 +3631,14 @@ TEST_F(TestAsyncRead, ReadAsync) {
     // Check the status of read requests.
     for (size_t i = 0; i < kNumSectors; i++) {
       if (i % 2) {
-        ASSERT_EQ(reqs[i].status, IOStatus::IOError());
+        ASSERT_EQ(req_summaries[i].status, IOStatus::IOError());
       } else {
         auto buf = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
         Slice expected_data(buf.get(), kSectorSize);
 
-        ASSERT_EQ(reqs[i].offset, i * kSectorSize);
-        ASSERT_OK(reqs[i].status);
-        ASSERT_EQ(expected_data.ToString(), reqs[i].result.ToString());
+        ASSERT_EQ(req_summaries[i].offset, i * kSectorSize);
+        ASSERT_OK(req_summaries[i].status);
+        ASSERT_EQ(expected_data.ToString(), req_summaries[i].result.ToString());
       }
     }
 

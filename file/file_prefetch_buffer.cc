@@ -151,12 +151,8 @@ Status FilePrefetchBuffer::ReadAsync(BufferInfo* buf, const IOOptions& opts,
   // callback for async read request.
   auto fp = std::bind(&FilePrefetchBuffer::PrefetchAsyncCallback, this,
                       std::placeholders::_1, std::placeholders::_2);
-  FSReadRequest req;
+  FSReadRequest req(start_offset, read_len, 0, buf->buffer_.BufferStart());
   Slice result;
-  req.len = read_len;
-  req.offset = start_offset;
-  req.result = result;
-  req.scratch = buf->buffer_.BufferStart();
   buf->async_req_len_ = req.len;
 
   Status s = reader->ReadAsync(req, opts, fp, buf, &(buf->io_handle_),

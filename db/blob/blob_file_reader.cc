@@ -433,9 +433,9 @@ void BlobFileReader::MultiGetBlob(
     assert(req->offset >= adjustment);
     adjustments.push_back(adjustment);
 
-    FSReadRequest read_req;
-    read_req.offset = req->offset - adjustment;
-    read_req.len = req->len + adjustment;
+    FSReadRequest read_req(/*_offset=*/req->offset - adjustment,
+                           /*len=*/req->len + adjustment,
+                           /*_optional_read_size=*/0, /*_scratch=*/nullptr);
     total_len += read_req.len;
     read_reqs.emplace_back(std::move(read_req));
   }

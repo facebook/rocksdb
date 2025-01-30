@@ -1098,11 +1098,8 @@ class PosixFileSystem : public FileSystem {
         // Reset cqe data to catch any stray reuse of it
         static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
 
-        FSReadRequest req;
-        req.scratch = posix_handle->scratch;
-        req.offset = posix_handle->offset;
-        req.len = posix_handle->len;
-
+        FSReadRequest req(posix_handle->offset, posix_handle->len,
+                          /*optional_read_size=*/0, posix_handle->scratch);
         size_t finished_len = 0;
         size_t bytes_read = 0;
         bool read_again = false;
@@ -1218,7 +1215,8 @@ class PosixFileSystem : public FileSystem {
         if (posix_handle->req_count == 2 &&
             static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
           posix_handle->is_finished = true;
-          FSReadRequest req;
+          FSReadRequest req(/*offset=*/0, /*len=*/0, /*optional_read_size=*/0,
+                            /*scratch=*/nullptr);
           req.status = IOStatus::Aborted();
           posix_handle->cb(req, posix_handle->cb_arg);
 

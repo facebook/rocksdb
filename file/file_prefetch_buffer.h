@@ -522,10 +522,8 @@ class FilePrefetchBuffer {
   IOStatus FSBufferDirectRead(RandomAccessFileReader* reader, BufferInfo* buf,
                               const IOOptions& opts, uint64_t offset, size_t n,
                               Slice& result) {
-    FSReadRequest read_req;
-    read_req.offset = offset;
-    read_req.len = n;
-    read_req.scratch = nullptr;
+    FSReadRequest read_req(offset, /*len=*/n, /*_optional_read_size=*/0,
+                           /*_scratch=*/nullptr);
     IOStatus s = reader->MultiRead(opts, &read_req, 1, nullptr);
     if (!s.ok()) {
       return s;
@@ -545,12 +543,9 @@ class FilePrefetchBuffer {
                              const IOOptions& opts, uint64_t offset,
                              size_t original_length, size_t read_length,
                              char* scratch, Slice& result) {
-    FSReadRequest read_req;
-    read_req.offset = offset;
-    read_req.len = read_length;
-    read_req.scratch = scratch;
     assert(original_length <= read_length);
-    read_req.optional_read_size = read_length - original_length;
+    size_t optional_read_size = read_length - original_length;
+    FSReadRequest read_req(offset, read_length, optional_read_size, scratch);
     IOStatus s = reader->MultiRead(opts, &read_req, 1, nullptr);
     if (!s.ok()) {
       return s;
