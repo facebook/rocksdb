@@ -25,6 +25,26 @@ namespace ROCKSDB_NAMESPACE {
 // Indexes the embedding in the specified primary column using the given
 // pre-trained faiss::IndexIVF object (which the secondary index takes ownership
 // of). Can be used to perform K-nearest-neighbors queries.
+
+// Read options for FAISS IVF secondary indices
+struct FaissIVFIndexReadOptions {
+  // The maximum number of neighbors K to return when performing a
+  // K-nearest-neighbors vector similarity search. The number of neighbors
+  // returned can be smaller if there are not enough vectors in the inverted
+  // lists probed. Must be specified and positive. See also
+  // similarity_search_probes below.
+  //
+  // Default: none
+  std::optional<size_t> similarity_search_neighbors;
+
+  // The number of inverted lists to probe when performing a K-nearest-neighbors
+  // vector similarity search. Must be specified and positive. See also
+  // similarity_search_neighbors above.
+  //
+  // Default: none
+  std::optional<size_t> similarity_search_probes;
+};
+
 class FaissIVFIndex : public SecondaryIndex {
  public:
   explicit FaissIVFIndex(std::unique_ptr<faiss::IndexIVF>&& index,
@@ -58,8 +78,8 @@ class FaissIVFIndex : public SecondaryIndex {
                                secondary_value) const override;
 
   std::unique_ptr<Iterator> NewIterator(
-      const SecondaryIndexReadOptions& read_options,
-      std::unique_ptr<Iterator>&& underlying_it) const override;
+      const FaissIVFIndexReadOptions& read_options,
+      std::unique_ptr<Iterator>&& underlying_it) const;
 
  private:
   class KNNIterator;
@@ -72,7 +92,7 @@ class FaissIVFIndex : public SecondaryIndex {
   ColumnFamilyHandle* secondary_column_family_{};
 };
 
-std::unique_ptr<FaissIVFIndex> NewFaissIVFIndex(
+std::shared_ptr<FaissIVFIndex> NewFaissIVFIndex(
     std::unique_ptr<faiss::IndexIVF>&& index, std::string primary_column_name);
 
 // Helper methods to convert embeddings from a span of floats to Slice or vice
