@@ -3300,11 +3300,14 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   GenerateNewFile(&rnd, &key_idx);
   ASSERT_EQ("1,4,8", FilesPerLevel(0));
 
-  ASSERT_EQ(matches, 12);
+  // 12 of the matches come from GetNumberCompactionSortedRuns which calls
+  // IsTrivialMove(), which then calls InputCompressionMatchesOutput()
+  ASSERT_EQ(matches, 12 + 12);
   // Currently, the test relies on the number of calls to
   // InputCompressionMatchesOutput() per compaction.
   const int kCallsToInputCompressionMatch = 2;
-  ASSERT_EQ(didnt_match, 8 * kCallsToInputCompressionMatch);
+  // Similarly, 8 of the didnt_match come from GetNumberCompactionSortedRuns
+  ASSERT_EQ(didnt_match, 8 + 8 * kCallsToInputCompressionMatch);
   ASSERT_EQ(trivial_move, 12);
   ASSERT_EQ(non_trivial, 8);
 
@@ -5856,6 +5859,18 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   options.listeners.emplace_back(collector);
   DestroyAndReopen(options);
 
+  // Verify that the internal statistics for num_running_compactions and
+  // num_running_compaction_sorted_runs start and end at valid states
+  uint64_t num_running_compactions = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                                  &num_running_compactions));
+  ASSERT_EQ(num_running_compactions, 0);
+  uint64_t num_running_compaction_sorted_runs = 0;
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kNumRunningCompactionSortedRuns,
+                          &num_running_compaction_sorted_runs));
+  ASSERT_EQ(num_running_compaction_sorted_runs, 0);
+
   for (int i = 0; i < 32; i++) {
     for (int j = 0; j < 5000; j++) {
       ASSERT_OK(Put(std::to_string(j), std::string(1, 'A')));
@@ -5869,6 +5884,15 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   ColumnFamilyData* cfd = cfh->cfd();
 
   VerifyCompactionStats(*cfd, *collector);
+  // There should be no more running compactions, and thus no more input
+  // sorted runs
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                                  &num_running_compactions));
+  ASSERT_EQ(num_running_compactions, 0);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kNumRunningCompactionSortedRuns,
+                          &num_running_compaction_sorted_runs));
+  ASSERT_EQ(num_running_compaction_sorted_runs, 0);
 }
 
 TEST_F(DBCompactionTest, SubcompactionEvent) {
