@@ -92,10 +92,9 @@ void FilePrefetchBuffer::PrepareBufferForRead(
 
 Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
                                 RandomAccessFileReader* reader,
-                                const uint64_t original_length,
                                 uint64_t read_len, uint64_t aligned_useful_len,
-                                uint64_t start_offset, bool use_fs_buffer,
-                                bool for_compaction) {
+                                uint64_t optional_read_size,
+                                uint64_t start_offset, bool use_fs_buffer) {
   Slice result;
   Status s;
   char* to_buf = nullptr;
@@ -104,11 +103,9 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
                            read_len, result);
   } else {
     to_buf = buf->buffer_.BufferStart() + aligned_useful_len;
-    bool issue_flexible_read = for_compaction && !reader->use_direct_io() &&
-                               original_length < read_len;
-    if (issue_flexible_read) {
-      s = FlexibleMultiRead(reader, opts, start_offset + aligned_useful_len,
-                            original_length, read_len, to_buf, result);
+    if (0 < optional_read_size) {
+      s = FlexibleRead(reader, opts, start_offset + aligned_useful_len,
+                       read_len, optional_read_size, to_buf, result);
     } else {
       s = reader->Read(opts, start_offset + aligned_useful_len, read_len,
                        &result, to_buf, /*aligned_buf=*/nullptr);
@@ -205,9 +202,13 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
 
   Status s;
   if (read_len > 0) {
-    s = Read(buf, opts, reader, /*original_length=*/n, read_len,
-             aligned_useful_len, rounddown_offset, use_fs_buffer,
-             /*for_compaction=*/false);
+    // Currently FilePrefetchBuffer::Prefetch is used in
+    // BlockBasedTable::PrefetchTail. Our optimization for FlexibleRead is meant
+    // for when we want to start from the beginning of the file in compaction
+    // and read the whole file sequentially. It is probably not worth setting
+    // optimal_read_size > 0 in this case.
+    s = Read(buf, opts, reader, read_len, aligned_useful_len,
+             /*optional_read_size=*/0, rounddown_offset, use_fs_buffer);
   }
 
   if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail && s.ok()) {
@@ -745,8 +746,12 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   }
 
   if (read_len1 > 0) {
-    s = Read(buf, opts, reader, original_length, read_len1, aligned_useful_len1,
-             start_offset1, use_fs_buffer, for_compaction);
+    size_t optional_read_length = for_compaction && !reader->use_direct_io() &&
+                                          original_length < read_len1
+                                      ? read_len1 - original_length
+                                      : 0;
+    s = Read(buf, opts, reader, read_len1, aligned_useful_len1,
+             optional_read_length, start_offset1, use_fs_buffer);
     if (!s.ok()) {
       AbortAllIOs();
       FreeAllBuffers();

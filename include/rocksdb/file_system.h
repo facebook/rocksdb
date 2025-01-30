@@ -818,7 +818,7 @@ struct FSReadRequest {
   // returned when the end of file has been reached or an error has occurred.
   //
   // When optional_read_size > 0, if the end of the file is not reached, the
-  // returned data can have size in the range [len - optional_read_size, len]
+  // returned data's size can be in the range [len - optional_read_size, len]
   //
   // Note that optional_read_size should never exceed len
   //
@@ -883,10 +883,11 @@ struct FSReadRequest {
   // WARNING 2: Since fs_scratch is a unique pointer, FSReadRequest's copy
   // constructor is implicitly disabled. This turns out to be very useful
   // because we want users to be explicit when setting offset, len, and
-  // optional_read_size. If you end up wanting to delete this field, be very
-  // careful and consider explicitly deleting the copy constructor, since the
-  // lack of a copy constructor is likely acting as a good protective measure
-  // against bugs
+  // optional_read_size. Consider the possibility where optional_read_size ends
+  // up exceeding the request length because it was copied over by mistake. If
+  // you end up wanting to delete this field, be very careful and consider
+  // explicitly deleting the copy constructor, since the lack of a copy
+  // constructor is likely acting as a good protective measure against bugs
   FSAllocationPtr fs_scratch;
 };
 
