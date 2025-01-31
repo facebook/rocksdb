@@ -65,12 +65,21 @@ class ArenaWrappedDBIter : public Iterator {
   void SeekToLast() override { db_iter_->SeekToLast(); }
   // 'target' does not contain timestamp, even if user timestamp feature is
   // enabled.
-  void Seek(const Slice& target) override { db_iter_->Seek(target); }
+  void Seek(const Slice& target) override {
+    MaybeAutoRefresh();
+    db_iter_->Seek(target);
+  }
   void SeekForPrev(const Slice& target) override {
     db_iter_->SeekForPrev(target);
   }
-  void Next() override { db_iter_->Next(); }
-  void Prev() override { db_iter_->Prev(); }
+  void Next() override {
+    MaybeAutoRefresh();
+    db_iter_->Next();
+  }
+  void Prev() override {
+    MaybeAutoRefresh();
+    db_iter_->Prev();
+  }
   Slice key() const override { return db_iter_->key(); }
   Slice value() const override { return db_iter_->value(); }
   const WideColumns& columns() const override { return db_iter_->columns(); }
@@ -103,6 +112,9 @@ class ArenaWrappedDBIter : public Iterator {
   }
 
  private:
+  void DoRefresh(const Snapshot* snapshot, uint64_t sv_number);
+  void MaybeAutoRefresh();
+
   DBIter* db_iter_ = nullptr;
   Arena arena_;
   uint64_t sv_number_;
@@ -111,6 +123,8 @@ class ArenaWrappedDBIter : public Iterator {
   ReadCallback* read_callback_;
   bool expose_blob_index_ = false;
   bool allow_refresh_ = true;
+  uint64_t iter_ops_since_last_auto_refresh_check = 0;
+
   // If this is nullptr, it means the mutable memtable does not contain range
   // tombstone when added under this DBIter.
   std::unique_ptr<TruncatedRangeDelIterator>* memtable_range_tombstone_iter_ =
