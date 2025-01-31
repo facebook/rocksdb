@@ -120,8 +120,11 @@ TEST_F(DBMergeOperandTest, FlushedMergeOperandReadAfterFreeBug) {
 
 TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   Options options = CurrentOptions();
+
+  int limit = 2;
   // Use only the latest two merge operands.
-  options.merge_operator = std::make_shared<LimitedStringAppendMergeOp>(2, ',');
+  options.merge_operator =
+      std::make_shared<LimitedStringAppendMergeOp>(limit, ',');
   Reopen(options);
   int num_records = 4;
   int number_of_operands = 0;
@@ -299,9 +302,25 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
                                   "k5", values.data(), &merge_operands_info,
                                   &number_of_operands));
+  ASSERT_EQ(number_of_operands, 4);
   ASSERT_EQ(values[0], "remember");
   ASSERT_EQ(values[1], "i");
   ASSERT_EQ(values[2], "am");
+  ASSERT_EQ(values[3], "rocks");
+
+  // GetMergeOperands() in ReadOnly DB
+  ASSERT_OK(Merge("k6", "better"));
+  ASSERT_OK(Merge("k6", "call"));
+  ASSERT_OK(Merge("k6", "saul"));
+
+  ASSERT_OK(ReadOnlyReopen(options));
+  std::vector<PinnableSlice> readonly_values(num_records);
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k6", readonly_values.data(),
+                                  &merge_operands_info, &number_of_operands));
+  ASSERT_EQ(number_of_operands, limit);
+  ASSERT_EQ(readonly_values[0], "call");
+  ASSERT_EQ(readonly_values[1], "saul");
 }
 
 TEST_F(DBMergeOperandTest, BlobDBGetMergeOperandsBasic) {

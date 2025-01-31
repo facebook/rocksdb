@@ -391,6 +391,8 @@ class StressTest {
                                           std::string& ts_str, Slice& ts_slice,
                                           ReadOptions& read_opts);
 
+  void CleanUpColumnFamilies();
+
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
@@ -412,9 +414,8 @@ class StressTest {
   std::atomic<bool> db_preload_finished_;
   std::shared_ptr<SstQueryFilterConfigsManager::Factory> sqfc_factory_;
 
-  // Fields used for continuous verification from another thread
-  DB* cmp_db_;
-  std::vector<ColumnFamilyHandle*> cmp_cfhs_;
+  DB* secondary_db_;
+  std::vector<ColumnFamilyHandle*> secondary_cfhs_;
   bool is_db_stopped_;
 };
 

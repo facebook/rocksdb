@@ -1,0 +1,1 @@
+`VerifyBackup` in `verify_with_checksum`=`true` mode will now evaluate checksums in parallel. As a result, unlike in case of original implementation, the API won't bail out on a very first corruption / mismatch and instead will iterate over all the backup files logging success / _degree_of_failure_ for each.

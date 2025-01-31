@@ -3409,10 +3409,6 @@ class ModelDB : public DB {
     return Status::NotSupported();
   }
 
-  Status DEPRECATED_DeleteFile(std::string /*name*/) override {
-    return Status::OK();
-  }
-
   Status GetUpdatesSince(
       ROCKSDB_NAMESPACE::SequenceNumber,
       std::unique_ptr<ROCKSDB_NAMESPACE::TransactionLogIterator>*,
@@ -5319,7 +5315,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   options.compression_per_level[0] = kNoCompression;
   // No compression for the Ln whre L0 is compacted to
   options.compression_per_level[1] = kNoCompression;
-  // Snpapy compression for Ln+1
+  // Snappy compression for Ln+1
   options.compression_per_level[2] = kSnappyCompression;
 
   OnFileDeletionListener* listener = new OnFileDeletionListener();
@@ -5373,7 +5369,10 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   db_->GetColumnFamilyMetaData(&cf_meta);
   for (const auto& file : cf_meta.levels[4].files) {
     listener->SetExpectedFileName(dbname_ + file.name);
-    ASSERT_OK(dbfull()->DEPRECATED_DeleteFile(file.name));
+    Slice start(file.smallestkey), limit(file.largestkey);
+    const RangePtr ranges(&start, &limit);
+    EXPECT_OK(dbfull()->DeleteFilesInRanges(dbfull()->DefaultColumnFamily(),
+                                            &ranges, true /* include_end */));
   }
   listener->VerifyMatchedCount(cf_meta.levels[4].files.size());
 

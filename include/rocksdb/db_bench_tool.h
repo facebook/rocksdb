@@ -5,7 +5,8 @@
 #pragma once
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/tool_hooks.h"
 
 namespace ROCKSDB_NAMESPACE {
-int db_bench_tool(int argc, char** argv);
+int db_bench_tool(int argc, char** argv, ToolHooks& hooks = defaultHooks);
 }  // namespace ROCKSDB_NAMESPACE

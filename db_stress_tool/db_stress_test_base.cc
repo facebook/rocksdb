@@ -69,7 +69,7 @@ StressTest::StressTest()
       new_column_family_name_(1),
       num_times_reopened_(0),
       db_preload_finished_(false),
-      cmp_db_(nullptr),
+      secondary_db_(nullptr),
       is_db_stopped_(false) {
   if (FLAGS_destroy_db_initially) {
     std::vector<std::string> files;
@@ -104,21 +104,26 @@ StressTest::StressTest()
 }
 
 void StressTest::CleanUp() {
-  for (auto cf : column_families_) {
-    delete cf;
-  }
-  column_families_.clear();
+  CleanUpColumnFamilies();
   if (db_) {
     db_->Close();
   }
   delete db_;
   db_ = nullptr;
 
-  for (auto* cf : cmp_cfhs_) {
+  delete secondary_db_;
+  secondary_db_ = nullptr;
+}
+
+void StressTest::CleanUpColumnFamilies() {
+  for (auto cf : column_families_) {
     delete cf;
   }
-  cmp_cfhs_.clear();
-  delete cmp_db_;
+  column_families_.clear();
+  for (auto* cf : secondary_cfhs_) {
+    delete cf;
+  }
+  secondary_cfhs_.clear();
 }
 
 std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
@@ -734,14 +739,13 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     s = db_->Flush(FlushOptions(), column_families_);
   }
   if (s.ok()) {
-    for (auto cf : column_families_) {
-      delete cf;
-    }
-    column_families_.clear();
+    CleanUpColumnFamilies();
     delete db_;
     db_ = nullptr;
     txn_db_ = nullptr;
     optimistic_txn_db_ = nullptr;
+    delete secondary_db_;
+    secondary_db_ = nullptr;
 
     db_preload_finished_.store(true);
     auto now = clock_->NowMicros();
@@ -3578,12 +3582,11 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             // clean state before executing queries.
             s = db_->GetRootDB()->WaitForCompact(WaitForCompactOptions());
             if (!s.ok()) {
-              for (auto cf : column_families_) {
-                delete cf;
-              }
-              column_families_.clear();
+              CleanUpColumnFamilies();
               delete db_;
               db_ = nullptr;
+              delete secondary_db_;
+              secondary_db_ = nullptr;
             }
           }
           if (!s.ok()) {
@@ -3696,9 +3699,10 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       tmp_opts.env = db_stress_env;
       const std::string& secondary_path = FLAGS_secondaries_base;
       s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
-                              cf_descriptors, &cmp_cfhs_, &cmp_db_);
+                              cf_descriptors, &secondary_cfhs_, &secondary_db_);
       assert(s.ok());
-      assert(cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
+      assert(secondary_cfhs_.size() ==
+             static_cast<size_t>(FLAGS_column_families));
     }
   } else {
     DBWithTTL* db_with_ttl;
@@ -3749,15 +3753,12 @@ void StressTest::Reopen(ThreadState* thread) {
   }
   assert(!write_prepared || bg_canceled);
 
-  for (auto cf : column_families_) {
-    delete cf;
-  }
-  column_families_.clear();
+  CleanUpColumnFamilies();
 
   // Currently reopen does not restore expected state
   // with potential data loss in mind like the first open before
-  // crash-recovery verification does. Therefore it always expects no data loss
-  // and we should ensure no data loss in testing.
+  // crash-recovery verification does. Therefore it always expects no data
+  // loss and we should ensure no data loss in testing.
   // TODO(hx235): eliminate the FlushWAL(true /* sync */)/SyncWAL() below
   if (!FLAGS_disable_wal) {
     Status s;
@@ -3789,6 +3790,8 @@ void StressTest::Reopen(ThreadState* thread) {
   db_ = nullptr;
   txn_db_ = nullptr;
   optimistic_txn_db_ = nullptr;
+  delete secondary_db_;
+  secondary_db_ = nullptr;
 
   num_times_reopened_++;
   auto now = clock_->NowMicros();

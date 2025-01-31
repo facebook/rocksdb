@@ -6411,6 +6411,19 @@ TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
   const int kKeysPerBuffer = 100;
   const int kNumSubcompactions = 2;
   const int kFilesPerLevel = 50;
+  SyncPoint::GetInstance()->LoadDependency({
+      // SetBackgroundThreads() only starts the bg threads. Background
+      // threads may not be immediately available after SetBackgroundThreads
+      // returns. There are some initialization before they start waiting for
+      // new jobs, see ThreadPoolImpl::Impl::BGThread(). Here is a hacky way
+      // to wait until there are at least two background threads (thread id
+      // starts from 0) start waiting to accept jobs.
+      {"ThreadPoolImpl::BGThread::Start:th1", "WaitForThreadAvailable"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  env_->SetBackgroundThreads(kNumSubcompactions, Env::LOW);
+  TEST_SYNC_POINT("WaitForThreadAvailable");
+  SyncPoint::GetInstance()->DisableProcessing();
   Options options = CurrentOptions();
   options.num_levels = 3;
   options.max_bytes_for_level_multiplier = 2;
@@ -6431,7 +6444,6 @@ TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
   options.max_background_compactions = kNumSubcompactions;
   options.max_compaction_bytes = 100000000;
   DestroyAndReopen(options);
-  env_->SetBackgroundThreads(kNumSubcompactions, Env::LOW);
 
   Random rnd(301);
   for (int lvl = 2; lvl > 0; lvl--) {

@@ -32,6 +32,10 @@ TEST(FaissIVFIndexTest, Basic) {
 
   index->train(num_vectors, embeddings.data());
 
+  const std::string primary_column_name = "embedding";
+  auto faiss_ivf_index =
+      NewFaissIVFIndex(std::move(index), primary_column_name);
+
   const std::string db_name = test::PerThreadDBPath("faiss_ivf_index_test");
   EXPECT_OK(DestroyDB(db_name, Options()));
 
@@ -39,9 +43,7 @@ TEST(FaissIVFIndexTest, Basic) {
   options.create_if_missing = true;
 
   TransactionDBOptions txn_db_options;
-  const std::string primary_column_name = "embedding";
-  txn_db_options.secondary_indices.emplace_back(
-      NewFaissIVFIndex(std::move(index), primary_column_name));
+  txn_db_options.secondary_indices.emplace_back(faiss_ivf_index);
 
   TransactionDB* db = nullptr;
   ASSERT_OK(TransactionDB::Open(options, txn_db_options, db_name, &db));
@@ -74,8 +76,7 @@ TEST(FaissIVFIndexTest, Basic) {
           cfh1, primary_key,
           WideColumns{
               {primary_column_name,
-               Slice(reinterpret_cast<const char*>(embeddings.data() + i * dim),
-                     dim * sizeof(float))}}));
+               ConvertFloatsToSlice(embeddings.data() + i * dim, dim)}}));
     }
 
     ASSERT_OK(txn->Commit());
@@ -102,10 +103,8 @@ TEST(FaissIVFIndexTest, Basic) {
 
       // Since we use IndexIVFFlat, there is no fine quantization, so the code
       // is actually just the original embedding
-      ASSERT_EQ(
-          it->value(),
-          Slice(reinterpret_cast<const char*>(embeddings.data() + id * dim),
-                dim * sizeof(float)));
+      ASSERT_EQ(it->value(),
+                ConvertFloatsToSlice(embeddings.data() + id * dim, dim));
 
       ++num_found;
     }
@@ -117,13 +116,12 @@ TEST(FaissIVFIndexTest, Basic) {
   // Query the index with some of the original embeddings
   std::unique_ptr<Iterator> underlying_it(db->NewIterator(ReadOptions(), cfh2));
 
-  SecondaryIndexReadOptions read_options;
+  FaissIVFIndexReadOptions read_options;
   read_options.similarity_search_neighbors = 8;
   read_options.similarity_search_probes = num_lists;
 
   std::unique_ptr<Iterator> it =
-      txn_db_options.secondary_indices.back()->NewIterator(
-          read_options, std::move(underlying_it));
+      faiss_ivf_index->NewIterator(read_options, std::move(underlying_it));
 
   auto get_id = [&]() -> faiss::idx_t {
     Slice key = it->key();
@@ -159,9 +157,7 @@ TEST(FaissIVFIndexTest, Basic) {
     // Search for a vector from the original set; we expect to find the vector
     // itself as the closest match, since we're performing an exhaustive search
     {
-      it->Seek(
-          Slice(reinterpret_cast<const char*>(embeddings.data() + id * dim),
-                dim * sizeof(float)));
+      it->Seek(ConvertFloatsToSlice(embeddings.data() + id * dim, dim));
       ASSERT_TRUE(it->Valid());
       ASSERT_OK(it->status());
       ASSERT_EQ(get_id(), id);
@@ -225,8 +221,7 @@ TEST(FaissIVFIndexTest, Basic) {
   ASSERT_FALSE(it->Valid());
   ASSERT_TRUE(it->status().IsNotSupported());
 
-  it->SeekForPrev(Slice(reinterpret_cast<const char*>(embeddings.data()),
-                        dim * sizeof(float)));
+  it->SeekForPrev(ConvertFloatsToSlice(embeddings.data(), dim));
   ASSERT_FALSE(it->Valid());
   ASSERT_TRUE(it->status().IsNotSupported());
 
@@ -235,7 +230,7 @@ TEST(FaissIVFIndexTest, Basic) {
   ASSERT_TRUE(it->status().IsInvalidArgument());
 
   {
-    SecondaryIndexReadOptions bad_options;
+    FaissIVFIndexReadOptions bad_options;
     bad_options.similarity_search_probes = 1;
 
     // similarity_search_neighbors not set
@@ -243,8 +238,7 @@ TEST(FaissIVFIndexTest, Basic) {
       std::unique_ptr<Iterator> bad_under_it(
           db->NewIterator(ReadOptions(), cfh2));
       std::unique_ptr<Iterator> bad_it =
-          txn_db_options.secondary_indices.back()->NewIterator(
-              bad_options, std::move(bad_under_it));
+          faiss_ivf_index->NewIterator(bad_options, std::move(bad_under_it));
       ASSERT_TRUE(bad_it->status().IsInvalidArgument());
     }
 
@@ -255,14 +249,13 @@ TEST(FaissIVFIndexTest, Basic) {
       std::unique_ptr<Iterator> bad_under_it(
           db->NewIterator(ReadOptions(), cfh2));
       std::unique_ptr<Iterator> bad_it =
-          txn_db_options.secondary_indices.back()->NewIterator(
-              bad_options, std::move(bad_under_it));
+          faiss_ivf_index->NewIterator(bad_options, std::move(bad_under_it));
       ASSERT_TRUE(bad_it->status().IsInvalidArgument());
     }
   }
 
   {
-    SecondaryIndexReadOptions bad_options;
+    FaissIVFIndexReadOptions bad_options;
     bad_options.similarity_search_neighbors = 1;
 
     // similarity_search_probes not set
@@ -270,8 +263,7 @@ TEST(FaissIVFIndexTest, Basic) {
       std::unique_ptr<Iterator> bad_under_it(
           db->NewIterator(ReadOptions(), cfh2));
       std::unique_ptr<Iterator> bad_it =
-          txn_db_options.secondary_indices.back()->NewIterator(
-              bad_options, std::move(bad_under_it));
+          faiss_ivf_index->NewIterator(bad_options, std::move(bad_under_it));
       ASSERT_TRUE(bad_it->status().IsInvalidArgument());
     }
 
@@ -282,8 +274,7 @@ TEST(FaissIVFIndexTest, Basic) {
       std::unique_ptr<Iterator> bad_under_it(
           db->NewIterator(ReadOptions(), cfh2));
       std::unique_ptr<Iterator> bad_it =
-          txn_db_options.secondary_indices.back()->NewIterator(
-              bad_options, std::move(bad_under_it));
+          faiss_ivf_index->NewIterator(bad_options, std::move(bad_under_it));
       ASSERT_TRUE(bad_it->status().IsInvalidArgument());
     }
   }
@@ -311,6 +302,9 @@ TEST(FaissIVFIndexTest, Compare) {
     index->train(num_train, embeddings_train.data());
   }
 
+  auto faiss_ivf_index =
+      NewFaissIVFIndex(std::move(index), kDefaultWideColumnName.ToString());
+
   const std::string db_name = test::PerThreadDBPath("faiss_ivf_index_test");
   EXPECT_OK(DestroyDB(db_name, Options()));
 
@@ -318,8 +312,7 @@ TEST(FaissIVFIndexTest, Compare) {
   options.create_if_missing = true;
 
   TransactionDBOptions txn_db_options;
-  txn_db_options.secondary_indices.emplace_back(
-      NewFaissIVFIndex(std::move(index), kDefaultWideColumnName.ToString()));
+  txn_db_options.secondary_indices.emplace_back(faiss_ivf_index);
 
   TransactionDB* db = nullptr;
   ASSERT_OK(TransactionDB::Open(options, txn_db_options, db_name, &db));
@@ -354,8 +347,7 @@ TEST(FaissIVFIndexTest, Compare) {
 
       const std::string primary_key = std::to_string(i);
       ASSERT_OK(db->Put(WriteOptions(), cfh1, primary_key,
-                        Slice(reinterpret_cast<const char*>(embedding),
-                              dim * sizeof(float))));
+                        ConvertFloatsToSlice(embedding, dim)));
     }
   }
 
@@ -371,13 +363,12 @@ TEST(FaissIVFIndexTest, Compare) {
         std::unique_ptr<Iterator> underlying_it(
             db->NewIterator(ReadOptions(), cfh2));
 
-        SecondaryIndexReadOptions read_options;
+        FaissIVFIndexReadOptions read_options;
         read_options.similarity_search_neighbors = neighbors;
         read_options.similarity_search_probes = probes;
 
-        std::unique_ptr<Iterator> it =
-            txn_db_options.secondary_indices.back()->NewIterator(
-                read_options, std::move(underlying_it));
+        std::unique_ptr<Iterator> it = faiss_ivf_index->NewIterator(
+            read_options, std::move(underlying_it));
 
         auto get_id = [&]() -> faiss::idx_t {
           Slice key = it->key();
@@ -413,9 +404,8 @@ TEST(FaissIVFIndexTest, Compare) {
           }
 
           size_t num_found = 0;
-          for (it->Seek(Slice(reinterpret_cast<const char*>(embedding),
-                              dim * sizeof(float)));
-               it->Valid(); it->Next()) {
+          for (it->Seek(ConvertFloatsToSlice(embedding, dim)); it->Valid();
+               it->Next()) {
             const faiss::idx_t id = get_id();
             ASSERT_GE(id, 0);
             ASSERT_LT(id, num_db);

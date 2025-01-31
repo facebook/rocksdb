@@ -14,10 +14,9 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "test_util/testutil.h"
-#include "utilities/fault_injection_env.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 namespace ROCKSDB_NAMESPACE {
-
 class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
  public:
   explicit DBSecondaryTestBase(const std::string& dbname)
@@ -329,6 +328,43 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   // if files is missing.
   //  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(OpenAndCompactOptions(),
   //  cfh, input1, &result));
+}
+
+TEST_F(DBSecondaryTest, GetMergeOperands) {
+  Options options;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.env = env_;
+  Reopen(options);
+
+  ASSERT_OK(Merge("k1", "v1"));
+  ASSERT_OK(Merge("k1", "v2"));
+  ASSERT_OK(Merge("k1", "v3"));
+  ASSERT_OK(Merge("k1", "v4"));
+
+  options.max_open_files = -1;
+  OpenSecondary(options);
+
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+
+  int num_records = 4;
+  int number_of_operands = 0;
+  std::vector<PinnableSlice> values(num_records);
+  GetMergeOperandsOptions merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands = num_records;
+
+  auto cfh = db_secondary_->DefaultColumnFamily();
+
+  const Status s = db_secondary_->GetMergeOperands(
+      ReadOptions(), cfh, "k1", values.data(), &merge_operands_info,
+      &number_of_operands);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsMergeInProgress());
+
+  ASSERT_EQ(number_of_operands, 4);
+  ASSERT_EQ(values[0].ToString(), "v1");
+  ASSERT_EQ(values[1].ToString(), "v2");
+  ASSERT_EQ(values[2].ToString(), "v3");
+  ASSERT_EQ(values[3].ToString(), "v4");
 }
 
 TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {

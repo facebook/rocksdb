@@ -692,9 +692,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_cf_opt(
     rocksdb_compactoptions_t* opt, const char* start_key, size_t start_key_len,
     const char* limit_key, size_t limit_key_len);
 
-extern ROCKSDB_LIBRARY_API void DEPRECATED_rocksdb_delete_file(
-    rocksdb_t* db, const char* name);
-
 extern ROCKSDB_LIBRARY_API const rocksdb_livefiles_t* rocksdb_livefiles(
     rocksdb_t* db);
 

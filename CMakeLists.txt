@@ -939,6 +939,7 @@ set(SOURCES
         utilities/persistent_cache/block_cache_tier_metadata.cc
         utilities/persistent_cache/persistent_cache_tier.cc
         utilities/persistent_cache/volatile_tier_impl.cc
+        utilities/secondary_index/secondary_index_iterator.cc
         utilities/simulator_cache/cache_simulator.cc
         utilities/simulator_cache/sim_cache.cc
         utilities/table_properties_collectors/compact_for_tiering_collector.cc
@@ -1571,6 +1572,7 @@ if(WITH_BENCHMARK_TOOLS)
   add_executable(db_bench${ARTIFACT_SUFFIX}
     tools/simulated_hybrid_file_system.cc
     tools/db_bench.cc
+    tools/tool_hooks.cc
     tools/db_bench_tool.cc)
   target_link_libraries(db_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})

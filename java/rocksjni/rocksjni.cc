@@ -3242,25 +3242,6 @@ jlong Java_org_rocksdb_RocksDB_getUpdatesSince(JNIEnv* env, jclass,
 
 /*
  * Class:     org_rocksdb_RocksDB
- * Method:    deprecated_deleteFile
- * Signature: (JLjava/lang/String;)V
- */
-void Java_org_rocksdb_RocksDB_deprecated_1deleteFile(JNIEnv* env, jclass,
-                                                     jlong jdb_handle,
-                                                     jstring jname) {
-  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
-  jboolean has_exception = JNI_FALSE;
-  std::string name =
-      ROCKSDB_NAMESPACE::JniUtil::copyStdString(env, jname, &has_exception);
-  if (has_exception == JNI_TRUE) {
-    // exception occurred
-    return;
-  }
-  db->DEPRECATED_DeleteFile(name);
-}
-
-/*
- * Class:     org_rocksdb_RocksDB
  * Method:    getLiveFilesMetaData
  * Signature: (J)[Lorg/rocksdb/LiveFileMetaData;
  */

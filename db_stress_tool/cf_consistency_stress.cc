@@ -1040,8 +1040,8 @@ class CfConsistencyStressTest : public StressTest {
     assert(thread);
     Status status;
 
-    DB* db_ptr = cmp_db_ ? cmp_db_ : db_;
-    const auto& cfhs = cmp_db_ ? cmp_cfhs_ : column_families_;
+    DB* db_ptr = secondary_db_ ? secondary_db_ : db_;
+    const auto& cfhs = secondary_db_ ? secondary_cfhs_ : column_families_;
 
     // Take a snapshot to preserve the state of primary db.
     ManagedSnapshot snapshot_guard(db_);
@@ -1049,8 +1049,8 @@ class CfConsistencyStressTest : public StressTest {
     SharedState* shared = thread->shared;
     assert(shared);
 
-    if (cmp_db_) {
-      status = cmp_db_->TryCatchUpWithPrimary();
+    if (secondary_db_) {
+      status = secondary_db_->TryCatchUpWithPrimary();
       if (!status.ok()) {
         fprintf(stderr, "TryCatchUpWithPrimary: %s\n",
                 status.ToString().c_str());
@@ -1083,7 +1083,7 @@ class CfConsistencyStressTest : public StressTest {
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts(FLAGS_verify_checksum, true);
     ropts.total_order_seek = true;
-    if (nullptr == cmp_db_) {
+    if (nullptr == secondary_db_) {
       ropts.snapshot = snapshot_guard.snapshot();
     }
     uint32_t crc = 0;
