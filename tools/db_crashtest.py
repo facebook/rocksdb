@@ -485,12 +485,12 @@ simple_default_params = {
     "write_buffer_size": 32 * 1024 * 1024,
     "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
-    "test_secondary": lambda: random.choice([0, 1]),
 }
 
 blackbox_simple_default_params = {
     "open_files": -1,
     "set_options_one_in": 0,
+    "test_secondary": lambda: random.choice([0, 1]),
 }
 
 whitebox_simple_default_params = {}
