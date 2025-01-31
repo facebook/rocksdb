@@ -29,7 +29,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
-#include "utilities/secondary_index/secondary_index_iterator.h"
+#include "utilities/secondary_index/secondary_index_helper.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -8182,20 +8182,8 @@ TEST_P(TransactionTest, SecondaryIndexPutDelete) {
     // Query the secondary index
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(
-        NewSecondaryIndexIterator(index.get(), std::move(underlying_it)));
-
-    it->SeekToFirst();
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->SeekToLast();
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->SeekForPrev("bar");
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
+    auto it = std::make_unique<SecondaryIndexIterator>(
+        index.get(), std::move(underlying_it));
 
     it->Seek("bar");
     ASSERT_TRUE(it->Valid());
@@ -8296,20 +8284,8 @@ TEST_P(TransactionTest, SecondaryIndexPutDelete) {
     // Query the secondary index
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(
-        NewSecondaryIndexIterator(index.get(), std::move(underlying_it)));
-
-    it->SeekToFirst();
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->SeekToLast();
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->SeekForPrev("quux");
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
+    auto it = std::make_unique<SecondaryIndexIterator>(
+        index.get(), std::move(underlying_it));
 
     it->Seek("quux");
     ASSERT_TRUE(it->Valid());
@@ -8569,20 +8545,8 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
     // Query the secondary index
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(
-        NewSecondaryIndexIterator(index.get(), std::move(underlying_it)));
-
-    it->SeekToFirst();
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->SeekToLast();
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->SeekForPrev("x");
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
+    auto it = std::make_unique<SecondaryIndexIterator>(
+        index.get(), std::move(underlying_it));
 
     it->Seek("x");
     ASSERT_TRUE(it->Valid());
@@ -8697,20 +8661,8 @@ TEST_P(TransactionTest, SecondaryIndexPutEntity) {
     // Query the secondary index
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(
-        NewSecondaryIndexIterator(index.get(), std::move(underlying_it)));
-
-    it->SeekToFirst();
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->SeekToLast();
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->SeekForPrev("t");
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
+    auto it = std::make_unique<SecondaryIndexIterator>(
+        index.get(), std::move(underlying_it));
 
     it->Seek("t");
     ASSERT_TRUE(it->Valid());
@@ -8856,8 +8808,8 @@ TEST_P(TransactionTest, SecondaryIndexOnKey) {
   {
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(
-        NewSecondaryIndexIterator(index.get(), std::move(underlying_it)));
+    auto it = std::make_unique<SecondaryIndexIterator>(
+        index.get(), std::move(underlying_it));
 
     it->Seek("foo");
     ASSERT_TRUE(it->Valid());

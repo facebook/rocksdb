@@ -38,8 +38,8 @@ faiss::idx_t DeserializeLabel(Slice label_slice) {
 class FaissIVFIndex::KNNIterator : public Iterator {
  public:
   KNNIterator(faiss::IndexIVF* index,
-              std::unique_ptr<Iterator>&& secondary_index_it, size_t k,
-              size_t probes)
+              std::unique_ptr<SecondaryIndexIterator>&& secondary_index_it,
+              size_t k, size_t probes)
       : index_(index),
         secondary_index_it_(std::move(secondary_index_it)),
         k_(k),
@@ -53,7 +53,7 @@ class FaissIVFIndex::KNNIterator : public Iterator {
     assert(probes_ > 0);
   }
 
-  Iterator* GetSecondaryIndexIterator() const {
+  SecondaryIndexIterator* GetSecondaryIndexIterator() const {
     return secondary_index_it_.get();
   }
 
@@ -176,7 +176,7 @@ class FaissIVFIndex::KNNIterator : public Iterator {
 
  private:
   faiss::IndexIVF* index_;
-  std::unique_ptr<Iterator> secondary_index_it_;
+  std::unique_ptr<SecondaryIndexIterator> secondary_index_it_;
   size_t k_;
   size_t probes_;
   std::vector<float> distances_;
@@ -319,7 +319,7 @@ class FaissIVFIndex::Adapter : public faiss::InvertedLists {
     }
 
     KNNIterator* it_;
-    Iterator* secondary_index_it_;
+    SecondaryIndexIterator* secondary_index_it_;
     size_t code_size_;
     std::optional<std::pair<faiss::idx_t, const uint8_t*>> id_and_codes_;
   };
@@ -465,7 +465,8 @@ std::unique_ptr<Iterator> FaissIVFIndex::NewIterator(
   }
 
   return std::make_unique<KNNIterator>(
-      index_.get(), NewSecondaryIndexIterator(this, std::move(underlying_it)),
+      index_.get(),
+      std::make_unique<SecondaryIndexIterator>(this, std::move(underlying_it)),
       *read_options.similarity_search_neighbors,
       *read_options.similarity_search_probes);
 }
