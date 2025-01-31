@@ -66,7 +66,8 @@ class Reader {
          bool stop_replay_for_corruption = false,
          uint64_t min_wal_number_to_keep = std::numeric_limits<uint64_t>::max(),
          const PredecessorWALInfo& observed_predecessor_wal_info =
-             PredecessorWALInfo());
+             PredecessorWALInfo(),
+         uint64_t* corrupted_wal_number = nullptr);
   // No copying allowed
   Reader(const Reader&) = delete;
   void operator=(const Reader&) = delete;
@@ -164,6 +165,7 @@ class Reader {
   bool stop_replay_for_corruption_;
   uint64_t min_wal_number_to_keep_;
   PredecessorWALInfo observed_predecessor_wal_info_;
+  uint64_t* corrupted_wal_number_;
 
   // Whether this is a recycled log file
   bool recycled_;
@@ -236,17 +238,16 @@ class Reader {
 
 class FragmentBufferedReader : public Reader {
  public:
-  FragmentBufferedReader(
-      std::shared_ptr<Logger> info_log,
-      std::unique_ptr<SequentialFileReader>&& _file, Reporter* reporter,
-      bool checksum, uint64_t log_num, bool verify_and_track_wals = false,
-      bool stop_replay_for_corruption = false,
-      uint64_t min_wal_number_to_keep = std::numeric_limits<uint64_t>::max(),
-      const PredecessorWALInfo& observed_predecessor_wal_info =
-          PredecessorWALInfo())
-      : Reader(info_log, std::move(_file), reporter, checksum, log_num,
-               verify_and_track_wals, stop_replay_for_corruption,
-               min_wal_number_to_keep, observed_predecessor_wal_info),
+  FragmentBufferedReader(std::shared_ptr<Logger> info_log,
+                         std::unique_ptr<SequentialFileReader>&& _file,
+                         Reporter* reporter, bool checksum, uint64_t log_num)
+      : Reader(
+            info_log, std::move(_file), reporter, checksum, log_num,
+            false /* verify_and_track_wals */,
+            false /* stop_replay_for_corruption */,
+            std::numeric_limits<uint64_t>::max() /* min_wal_number_to_keep */,
+            PredecessorWALInfo() /* observed_predecessor_wal_info */,
+            nullptr /* corrupted_wal_number */),
         fragments_(),
         in_fragmented_record_(false) {}
   ~FragmentBufferedReader() override {}
