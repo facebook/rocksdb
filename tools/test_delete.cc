@@ -1,6 +1,6 @@
 #include "test_delete.h"
 
-
+// Used to check the correctness of the result with a bit array whose length is equal to the entire key space
 class ResultChecker{
   public:
   ResultChecker(uint64_t key_space){
@@ -115,9 +115,6 @@ void ExcuteWorkload(rocksdb::RangeDeleteDB* db) {
   std::cout << "Complete with duration: " << timer.duration << " ms" << std::endl;
 }
 
-// else if (FLAGS_workload == "test_1" || FLAGS_workload == "test_2" || FLAGS_workload == "test_3") {
-//     ExcuteTestWorkload(db);
-//   }
 void ExcuteTestWorkload(rocksdb::RangeDeleteDB* db) {
   rocksdb::RDTimer timer;
   std::cout << "Excute workload ... " << std::endl;
@@ -229,56 +226,6 @@ void ExcuteTestWithChecker(rocksdb::RangeDeleteDB* db, ResultChecker* checker) {
         checker->DeleteRange(key_gen.Key(), FLAGS_rdelete_len);
         break;
       }
-      // case 'g': {
-      //   std::cout << "Range delete from key : " << key_gen.Key() << " to " << key_gen.Key() + FLAGS_rdelete_len << std::endl;
-      //   uint64_t key_query_rep = key_gen.Key() + 3;
-      //   std::string key_query_rep_str = key_gen.ToKeyString(key_query_rep);
-      //   auto status = db->EntryInsert(key_query_rep, key_query_rep_str, key_gen.Value());
-      //   checker->InsertKey(key_query_rep);
-
-      //   uint64_t key_query_filter = key_gen.Key() + 120;
-      //   std::string key_query_filter_str = key_gen.ToKeyString(key_query_filter);
-      //   status = db->EntryInsert(key_query_filter, key_query_filter_str, key_gen.Value());
-      //   checker->InsertKey(key_query_filter);
-      //   ///////////
-
-      //   uint64_t key_right = key_gen.Key() + FLAGS_rdelete_len;
-      //   // WF: key_right_str is for RocksDB use, for which right boundary is exclusive, so we add 1
-      //   std::string key_right_str = key_gen.ToKeyString(key_right + 1);
-      //   status = db->RangeDelete(key_gen.Key(), key_gen.KeyString(), key_right, key_right_str, &key_gen);
-      //   checker->DeleteRange(key_gen.Key(), FLAGS_rdelete_len);
-
-      //   ///////////
-      //   std::string value;
-      //   status = db->PointQuery(key_query_rep, key_query_rep_str, value);
-      //   bool check_res = checker->CheckKey(key_query_rep);
-      //   if(check_res){
-      //     if (status != rocksdb::Result::kOk && status != rocksdb::Result::kNotRangeDeleted){
-      //       std::cerr << "Fail: cannot get existing key " << key_gen.Key() << " " << status << std::endl;
-      //       exit(1);
-      //     }
-      //   } else {
-      //     if (status == rocksdb::Result::kOk){
-      //       std::cerr << "Fail: get deleted/non-exist key " << key_gen.Key() << " " << status << std::endl;
-      //       exit(1);
-      //     }
-      //   }
-      //   status = db->PointQuery(key_query_filter, key_query_filter_str, value);
-      //   check_res = checker->CheckKey(key_query_filter);
-      //   if(check_res){
-      //     if (status != rocksdb::Result::kOk && status != rocksdb::Result::kNotRangeDeleted){
-      //       std::cerr << "Fail: cannot get existing key " << key_gen.Key() << " " << status << std::endl;
-      //       exit(1);
-      //     }
-      //   } else {
-      //     if (status == rocksdb::Result::kOk){
-      //       std::cerr << "Fail: get deleted/non-exist key " << key_gen.Key() << " " << status << std::endl;
-      //       exit(1);
-      //     }
-      //   }
-      //   //////////////////////////
-      //   break;
-      // }
     }
     idx ++;
     key_gen.Next();
@@ -311,6 +258,8 @@ void PrintSetting(){
   std::cout << "workload: Write " << FLAGS_write_num << ", Point query " << FLAGS_read_num 
             << ", Range query " << FLAGS_seek_num << ", Range delete " << FLAGS_rdelete_num << " Delete length: " << FLAGS_rdelete_len << std::endl;
 }
+
+
 
 int main(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true); 

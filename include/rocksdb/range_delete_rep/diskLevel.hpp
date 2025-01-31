@@ -25,7 +25,6 @@
 #include <string>
 #include <cstring>
 #include "run.hpp"
-// #include "diskRun.hpp"
 #include "diskRTree.hpp"
 #include "RTree_util.hpp"
 #include <stdio.h>
@@ -38,14 +37,6 @@
 #include <cassert>
 #include <algorithm>
 #include <iostream>
-
-// #define LEFTCHILD(x) 2 * x + 1
-// #define RIGHTCHILD(x) 2 * x + 2
-// #define PARENT(x) (x - 1) / 2
-
-// int TOMBSTONE = INT_MIN;
-
-// using namespace std;
 
 namespace rangedelete_rep{
 
@@ -80,11 +71,11 @@ class DiskLevel {
         delete curr_read_lock;
     }
     
+    void ExcuteCompaction(vector<DiskRun<K, V> *> &runList);
+
     void AddRun(vector<DiskRun<K, V> *> &runList);
 
     void MergeToLastRun(vector<DiskRun<K, V> *> &runList);
-
-    void ExcuteCompaction(vector<DiskRun<K, V> *> &runList);
 
     void AddRunFromMem(RTreeType * mem, Point & minP, Point & maxP, uint64_t & minU);
     
@@ -100,8 +91,6 @@ class DiskLevel {
     bool level_empty(){
         return (runs_.size() == 0);
     }
-
-    bool QueryRect (const K &key);
 
     bool QueryRect (const K &key, uint64_t & rtree_cnt, uint64_t & node_cnt, uint64_t & leaf_cnt);
 
@@ -270,23 +259,6 @@ void DiskLevel<K, V>::FreeMergedRuns(vector<DiskRun<K,V> *> &toFree){
     }
 }
 
-// template <class K, class V>
-// bool DiskLevel<K, V>::QueryRect (const K &key) {
-//     int maxRunToSearch = runs_.size();
-//     if (maxRunToSearch == 0){
-//         return false;
-//     }
-//     for (int i = maxRunToSearch - 1; i >= 0; i--){
-//         if (key.max < runs_[i]->min_point_ || key.min > runs_[i]->max_point_){
-//             continue;
-//         }
-//         if (runs_[i]->query(key)) {
-//             return true;
-//         }
-//     }
-//     return false;
-// }
-
 template <class K, class V>
 bool DiskLevel<K, V>::QueryRect (const K &key, uint64_t & rtree_cnt, uint64_t & node_cnt, uint64_t & leaf_cnt) {
     int maxRunToSearch = runs_.size();
@@ -312,7 +284,7 @@ bool DiskLevel<K, V>::QueryRect (const K &key, uint64_t & rtree_cnt, uint64_t & 
     return false;
 }
 
-// obsolete
+// Used in cross checking between LSM tree & LSM Rtree: obsolete
 template <class K, class V>
 bool DiskLevel<K, V>::QueryRectAtRun(const K &key, size_t &level, size_t &run, uint64_t &sequence, uint64_t & node_cnt, uint64_t & leaf_cnt){
     bool result = false;

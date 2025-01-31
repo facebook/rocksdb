@@ -471,15 +471,17 @@ protected:
   bool LoadSubtreeBeforeUpperFull(Node* a_node, RTFileStream& a_stream, const ELEMTYPE upper, ELEMTYPE& new_upper, std::vector<ELEMTYPE>& out_min, std::vector<ELEMTYPE>& out_max);
 
   bool SaveRec(Node* a_node, RTFileStream& a_stream);
-  bool SaveFullRec(Node* a_node, RTFileStream& a_stream);
   bool LoadRec(Node* a_node, RTFileStream& a_stream);
+
+  bool SaveFullRec(Node* a_node, RTFileStream& a_stream);
   bool LoadFullRec(Node* a_node, RTFileStream& a_stream);
+
   void CopyRec(Node* current, Node* other);
   void CopyRecWithoutLeaf(Node* current, Node* other);
 
   uint64_t GetStartPosition(std::vector<int> idxs) const;
+
   bool SaveLeafRec(Node* a_node, RTFileStream& a_stream, uint32_t& leaf_idx, uint32_t& leaf_cnt);
-  bool LocateRectFromLeafFile(Node* a_node, Rect* a_rect, bool& a_found, uint64_t & node_cnt, int& cur_leaf_idx, std::vector<int>& a_starts_idx, std::vector<int>& a_ends_idx) const;
   bool QueryLeafFileSegment(Rect* a_rect, uint32_t& cur_pos, const uint32_t start_pos, const uint32_t end_pos, RTFileStream& a_stream) const;
 
   bool QueryNodeAndLeafFile(Node* a_node, Rect* a_rect, const char* a_fileName, RTFileStream& a_stream, 

@@ -16,8 +16,6 @@
 
 namespace rangedelete_rep{
 
-// typedef RTree<bool, uint64_t, 2, float, 16> RTreeType;
-
 template <class K, class V> class DiskLevel;
 
 template <class K, class V>
@@ -68,29 +66,6 @@ public:
         loaded_ = false;
     }
     
-    bool query(const K &key){
-        PrepareRTree();
-        RectForRTree rectr(key);
-        return RTree_->Cover(rectr.min, rectr.max); //search r-tree
-    }
-
-    // print the number of accessed internal nodes and leaf nodes
-    bool query(const K &key, uint64_t &node_cnt, uint64_t &leaf_cnt){ 
-        PrepareRTree();
-        RectForRTree rectr(key);
-        return RTree_->Cover(rectr.min, rectr.max); //search r-tree
-    }
-
-    // // query current RTree_
-    // bool QueryCurr(const K &key){ 
-    //     if(RTree_ == nullptr){
-    //         return false;
-    //     } else if (RTree_->IsEmpty()){
-    //         return false;
-    //     }
-    //     RectForRTree rectr(key);
-    //     return RTree_->Cover(rectr.min, rectr.max); //search r-tree
-    // }
 
     // print the number of accessed internal nodes and leaf nodes
     bool QueryDisk(const K &key, uint64_t &node_cnt, uint64_t &leaf_cnt) const{
@@ -189,6 +164,7 @@ private:
     //     RTree_->Save(filename_.c_str(), use_full_rtree_);
     // }
     
+    // load full rtree from Index_RTree_ & disk file to RTree_
     void Load(){
         struct stat buffer;
         if (stat(filename_.c_str(), &buffer) != 0){
@@ -199,6 +175,7 @@ private:
         RTree_->LoadLeafFromFile(filename_.c_str());
     }
 
+    // Load full tree to the target "tree" from Index_RTree_ & disk file
     void LoadTo(RTreeType *tree){
         struct stat buffer;
         if (stat(filename_.c_str(), &buffer) != 0){

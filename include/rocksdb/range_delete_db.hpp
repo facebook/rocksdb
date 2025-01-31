@@ -28,12 +28,9 @@ class RangeDeleteDB {
         std::cerr << "Failed to open db: " << s.ToString() << std::endl;
       }
       stat = new RDDBStat();
-      rd_filter_ = new rangedelete_filter::BucketWrapper();
-      rd_filter_->Construct(options.filter_conf);
+      rd_filter_ = new rangedelete_filter::BucketFilter(options.filter_conf);
       rd_rep_ = new rangedelete_rep::LSM<rangedelete_rep::Rectangle, bool>(options.rep_conf);
       db_->SetRangeDeleteRep(rd_rep_);
-      rangedelete_filter::BucketWrapper* filter_ = new rangedelete_filter::BucketWrapper();
-      // db_->SetRangeDeleteFilter(filter_);
     }
 
     ~RangeDeleteDB() {
@@ -76,7 +73,7 @@ class RangeDeleteDB {
     bool enable_crosscheck_;
     bool enable_rdfilter_;
     rocksdb::DB* db_;
-    rangedelete_filter::RangeDeleteFliterWrapper * rd_filter_ = nullptr;
+    rangedelete_filter::BucketFilter * rd_filter_ = nullptr;
     rangedelete_rep::LSM<rangedelete_rep::Rectangle, bool> * rd_rep_ = nullptr;   // <key_type, value_type(not used)>
     bool use_stat = false;
     // RDDBStat * stat = nullptr;
@@ -132,9 +129,10 @@ rocksdb::Result RangeDeleteDB::IsRangeDeleted(const uint64_t &key, const uint64_
       stat->rtree_cnt.emplace_back(rtree_cnt);
       stat->rtree_node_cnt.emplace_back(node_cnt);
       stat->rtree_leaf_cnt.emplace_back(leaf_cnt);
-    } else {
-      rep_res = rd_rep_->QueryRect(query_rect, true);
-    }
+    } 
+    // else {
+    //   rep_res = rd_rep_->QueryRect(query_rect, true);
+    // }
 
     if (rep_res){
       stat->filter_tp += 1;
@@ -256,23 +254,6 @@ rocksdb::Result RangeDeleteDB::RangeDelete(const uint64_t &key_left, const strin
       db_->Delete(rocksdb::WriteOptions(), it->key());
     }
     delete it;
-    //////////////////////////////
-    // rocksdb::Status s = rocksdb::Status::OK();
-    // std::string v;
-    // std::string k_str;
-    // for (uint64_t k = key_left; k <= key_right; k++)
-    // {
-    //   k_str = key_gen->ToKeyString(k);
-    //   s = db_->Get(rocksdb::ReadOptions(), k_str, &v);
-    //   if (s.ok()) {
-    //     s = db_->Delete(rocksdb::WriteOptions(), k_str);
-    //     if (!s.ok()) {
-    //       std::cerr << "Failed to delete key " << k << std::endl;
-    //       exit(1);
-    //     }
-    //   }
-    // }
-    //////////////////////////////
     if(use_stat){
       stat->op_rdelete.Pause(); 
       stat->op_rdelete.AddCount();
@@ -336,8 +317,6 @@ rocksdb::Result RangeDeleteDB::RangeLookup(const uint64_t &key_start, const stri
     uint64_t key = std::stoull(it->key().ToString());
     j += (enable_global_rd_ ? (IsRangeDeleted(key, seq) == rocksdb::Result::kNotRangeDeleted) : 1);
     
-    // std::cout << "     " << it->key().ToString() << std::endl;
-
     it->Next();
   }
   delete it;

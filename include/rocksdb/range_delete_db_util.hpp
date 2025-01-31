@@ -23,7 +23,7 @@
 #include "util/string_util.h"
 #include "rocksdb/statistics.h"
 
-#include "rocksdb/range_delete_filter/bucket_wrapper.hpp"
+#include "rocksdb/range_delete_filter/bucket_filter.hpp"
 #include "rocksdb/range_delete_rep/lsm.hpp"
 
 namespace ROCKSDB_NAMESPACE {

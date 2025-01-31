@@ -99,7 +99,7 @@ class LSM {
     // compact all files in src_level to tar_level
     void CompactRunsToLevel(size_t src_level, size_t tar_level);
 
-    bool QueryRect(K &key, bool is_point);
+    // bool QueryRect(K &key, bool is_point);
 
     bool QueryRect(K &key, bool is_point, uint64_t & rtree_cnt, uint64_t & node_cnt, uint64_t & leaf_cnt);
 
@@ -180,52 +180,6 @@ void LSM<K, V>::CompactRunsToLevel(size_t src_level, size_t tar_level) {
     if (diskLevels[tar_level - 1]->to_merge()) {
         CompactRunsToLevel(tar_level, tar_level + 1); // merge down one, recursively
     }
-}
-
-template <class K, class V>
-bool LSM<K, V>::QueryRect(K &key, bool is_point){
-    if (key.max < mem_min_point_ || key.min > mem_max_point_){
-        return false;
-    }
-    // query mem, if not, look at disk
-    if (is_point){
-        assert(key.min == key.max);
-    }
-    RectForRTree rectr(key);
-    //////////////////////////////////
-    uint64_t rtree_cnt_ = 0;
-    uint64_t node_cnt_ = 0;
-    uint64_t leaf_cnt_ = 0;
-    bool is_in_mem = mem_->Cover(rectr.min, rectr.max);
-    // std::cout << "Memtable checked ..." << std::endl;
-    // std::cout << "mem_->Cover : " << is_in_mem << ", node_cnt_ " << node_cnt_ << ", leaf_cnt_ " << leaf_cnt_ << std::endl;
-    // node_cnt += node_cnt_;
-    // leaf_cnt += leaf_cnt_;
-    // is_in_mem = mem_->Cover(rectr.min, rectr.max);
-    ////////////////////////////////////
-    if (! is_in_mem){
-        if (mergeThread.joinable()){
-            // make sure that there isn't a merge happening as you search the disk
-            mergeThread.join();
-        }
-        for (int i = 0; i < diskLevels.size(); i++){
-            rtree_cnt_ = 0;
-            node_cnt_ = 0;
-            leaf_cnt_ = 0;
-            bool res = diskLevels[i]->QueryRect(key, rtree_cnt_, node_cnt_, leaf_cnt_);
-            if (res) {
-                // std::cout << "Level " << (i+1) << " checked : found ..." << std::endl;
-                return true;
-            }
-            // std::cout << "Level " << (i+1) << " checked : not exists ..." << std::endl;
-            // if (diskLevels[i]->QueryRect(key, node_cnt_, leaf_cnt_)){
-            //     return true;
-            // }
-        }
-        return false;
-    }
-    
-    return true;
 }
 
 template <class K, class V>
