@@ -93,7 +93,7 @@ void FilePrefetchBuffer::PrepareBufferForRead(
 Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
                                 RandomAccessFileReader* reader,
                                 uint64_t read_len, uint64_t aligned_useful_len,
-                                uint64_t optional_read_size,
+                                uint64_t optional_read_len,
                                 uint64_t start_offset, bool use_fs_buffer) {
   Slice result;
   Status s;
@@ -103,9 +103,9 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
                            read_len, result);
   } else {
     to_buf = buf->buffer_.BufferStart() + aligned_useful_len;
-    if (0 < optional_read_size) {
+    if (0 < optional_read_len) {
       s = FlexibleRead(reader, opts, start_offset + aligned_useful_len,
-                       read_len, optional_read_size, to_buf, result);
+                       read_len, optional_read_len, to_buf, result);
     } else {
       s = reader->Read(opts, start_offset + aligned_useful_len, read_len,
                        &result, to_buf, /*aligned_buf=*/nullptr);
@@ -208,7 +208,7 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
     // and read the whole file sequentially. It is probably not worth setting
     // optimal_read_size > 0 in this case.
     s = Read(buf, opts, reader, read_len, aligned_useful_len,
-             /*optional_read_size=*/0, rounddown_offset, use_fs_buffer);
+             /*optional_read_len=*/0, rounddown_offset, use_fs_buffer);
   }
 
   if (usage_ == FilePrefetchBufferUsage::kTableOpenPrefetchTail && s.ok()) {

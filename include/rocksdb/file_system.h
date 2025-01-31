@@ -817,17 +817,17 @@ struct FSReadRequest {
   // read semantics are defined so that we assume that less data is only
   // returned when the end of file has been reached or an error has occurred.
   //
-  // When optional_read_size > 0, if the end of the file is not reached, the
-  // returned data's size can be in the range [len - optional_read_size, len]
+  // When optional_len > 0, if the end of the file is not reached, the
+  // returned data's size can be in the range [len - optional_len, len]
   //
-  // Note that optional_read_size should never exceed len
+  // Note that optional_len should never exceed len
   //
-  // It may be useful to set optional_read_size > 0 when prefetching is being
+  // It may be useful to set optional_len > 0 when prefetching is being
   // performed and some of the data is not needed immediately. In that case, the
   // file system has the freedom to tune the read size optimally based on its
   // storage internals.
 
-  size_t optional_read_size = 0;
+  size_t optional_len = 0;
 
   // A buffer that MultiRead() can optionally place data in. It can
   // ignore this and allocate its own buffer.
@@ -883,7 +883,7 @@ struct FSReadRequest {
   // WARNING 2: Since fs_scratch is a unique pointer, FSReadRequest's copy
   // constructor is implicitly disabled. This turns out to be very useful
   // because we want users to be explicit when setting offset, len, and
-  // optional_read_size. Consider the possibility where optional_read_size ends
+  // optional_len. Consider the possibility where optional_len ends
   // up exceeding the request length because it was copied over by mistake. If
   // you end up wanting to delete this field, be very careful and consider
   // explicitly deleting the copy constructor, since the lack of a copy

@@ -438,7 +438,7 @@ class FilePrefetchBuffer {
 
   Status Read(BufferInfo* buf, const IOOptions& opts,
               RandomAccessFileReader* reader, uint64_t read_len,
-              uint64_t aligned_useful_len, uint64_t optional_read_size,
+              uint64_t aligned_useful_len, uint64_t optional_read_len,
               uint64_t start_offset, bool use_fs_buffer);
 
   Status ReadAsync(BufferInfo* buf, const IOOptions& opts,
@@ -542,17 +542,16 @@ class FilePrefetchBuffer {
   }
 
   // FlexibleRead enables the result size to be in the range of
-  // [read_length - optional_read_size, read_length]
+  // [len - optional_len, len]
   IOStatus FlexibleRead(RandomAccessFileReader* reader, const IOOptions& opts,
-                        uint64_t offset, size_t read_length,
-                        size_t optional_read_size, char* scratch,
-                        Slice& result) {
+                        uint64_t offset, size_t len, size_t optional_len,
+                        char* scratch, Slice& result) {
     FSReadRequest read_req;
     read_req.offset = offset;
-    read_req.len = read_length;
+    read_req.len = len;
     read_req.scratch = scratch;
-    assert(optional_read_size <= read_length);
-    read_req.optional_read_size = optional_read_size;
+    assert(optional_len <= len);
+    read_req.optional_len = optional_len;
     IOStatus s = reader->MultiRead(opts, &read_req, 1, nullptr);
     if (!s.ok()) {
       return s;
