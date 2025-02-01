@@ -63,6 +63,10 @@
 #endif  // defined(ZSTD_STATIC_LINKING_ONLY)
 //  For ZDICT_* functions
 #include <zdict.h>
+// ZDICT_finalizeDictionary API is exported and stable since v1.4.5
+#if ZSTD_VERSION_NUMBER >= 10405
+#define ROCKSDB_ZDICT_FINALIZE
+#endif  // ZSTD_VERSION_NUMBER >= 10405
 #endif  // ZSTD
 
 namespace ROCKSDB_NAMESPACE {
@@ -1481,9 +1485,8 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
 }
 
 inline bool ZSTD_FinalizeDictionarySupported() {
-#ifdef ZSTD
-  // ZDICT_finalizeDictionary API is stable since v1.4.5
-  return (ZSTD_versionNumber() >= 10405);
+#ifdef ROCKSDB_ZDICT_FINALIZE
+  return true;
 #else
   return false;
 #endif
@@ -1492,36 +1495,37 @@ inline bool ZSTD_FinalizeDictionarySupported() {
 inline std::string ZSTD_FinalizeDictionary(
     const std::string& samples, const std::vector<size_t>& sample_lens,
     size_t max_dict_bytes, int level) {
-#ifdef ZSTD
-  // ZDICT_finalizeDictionary was available under its current API well before
-  // v1.4.0, so we don't need more ifdefs
-  if (ZSTD_FinalizeDictionarySupported()) {
-    assert(samples.empty() == sample_lens.empty());
-    if (samples.empty()) {
-      return "";
-    }
-    if (level == CompressionOptions::kDefaultCompressionLevel) {
-      // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
-      level = ZSTD_CLEVEL_DEFAULT;
-    }
-    std::string dict_data(max_dict_bytes, '\0');
-    size_t dict_len = ZDICT_finalizeDictionary(
-        dict_data.data(), max_dict_bytes, samples.data(),
-        std::min(static_cast<size_t>(samples.size()), max_dict_bytes),
-        samples.data(), sample_lens.data(),
-        static_cast<unsigned>(sample_lens.size()),
-        {level, 0 /* notificationLevel */, 0 /* dictID */});
-    if (ZDICT_isError(dict_len)) {
-      return "";
-    } else {
-      assert(dict_len <= max_dict_bytes);
-      dict_data.resize(dict_len);
-      return dict_data;
-    }
+#ifdef ROCKSDB_ZDICT_FINALIZE
+  assert(samples.empty() == sample_lens.empty());
+  if (samples.empty()) {
+    return "";
   }
-#endif
-  // up to v1.4.4
+  if (level == CompressionOptions::kDefaultCompressionLevel) {
+    // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
+    level = ZSTD_CLEVEL_DEFAULT;
+  }
+  std::string dict_data(max_dict_bytes, '\0');
+  size_t dict_len = ZDICT_finalizeDictionary(
+      dict_data.data(), max_dict_bytes, samples.data(),
+      std::min(static_cast<size_t>(samples.size()), max_dict_bytes),
+      samples.data(), sample_lens.data(),
+      static_cast<unsigned>(sample_lens.size()),
+      {level, 0 /* notificationLevel */, 0 /* dictID */});
+  if (ZDICT_isError(dict_len)) {
+    return "";
+  } else {
+    assert(dict_len <= max_dict_bytes);
+    dict_data.resize(dict_len);
+    return dict_data;
+  }
+#else
+  assert(false);
+  (void)samples;
+  (void)sample_lens;
+  (void)max_dict_bytes;
+  (void)level;
   return "";
+#endif  // ROCKSDB_ZDICT_FINALIZE
 }
 
 inline bool CompressData(const Slice& raw,
