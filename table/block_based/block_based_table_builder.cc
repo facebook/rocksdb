@@ -464,8 +464,10 @@ struct BlockBasedTableBuilder::Rep {
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding,
                    false /* use_value_delta_encoding */,
-                   tbo.internal_comparator.user_comparator()
-                           ->CanKeysWithDifferentByteContentsBeEqual()
+                   (tbo.internal_comparator.user_comparator()
+                    ->CanKeysWithDifferentByteContentsBeEqual() &&
+                   !tbo.internal_comparator.user_comparator()
+                   ->KeysAreBytewiseComparableOtherThanTimestamp())
                        ? BlockBasedTableOptions::kDataBlockBinarySearch
                        : table_options.data_block_index_type,
                    table_options.data_block_hash_table_util_ratio, ts_sz,
