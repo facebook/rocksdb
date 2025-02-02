@@ -2429,6 +2429,8 @@ class DBImpl : public DB {
                                const std::vector<CompactionInputFiles>& inputs,
                                bool* sfm_bookkeeping, LogBuffer* log_buffer);
 
+  size_t GetNumberCompactionInputIterators(Compaction* c);
+
   // Request compaction tasks token from compaction thread limiter.
   // It always succeeds if force = true or limiter is disable.
   bool RequestCompactionToken(ColumnFamilyData* cfd, bool force,

@@ -61,6 +61,17 @@ bool DBImpl::EnoughRoomForCompaction(
   return enough_room;
 }
 
+size_t DBImpl::GetNumberCompactionInputIterators(Compaction* c) {
+  assert(c);
+  if (c->start_level() == 0) {
+    assert(0 < c->num_input_levels());
+    size_t num_l0_files = c->num_input_files(0);
+    size_t num_non_l0_levels = c->num_input_levels() - 1;
+    return num_l0_files + num_non_l0_levels;
+  }
+  return c->num_input_levels();
+}
+
 bool DBImpl::RequestCompactionToken(ColumnFamilyData* cfd, bool force,
                                     std::unique_ptr<TaskLimiterToken>* token,
                                     LogBuffer* log_buffer) {
@@ -3720,6 +3731,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             num_files += each_level.files.size();
           }
           RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION, num_files);
+          size_t num_compaction_input_iterators =
+              GetNumberCompactionInputIterators(c.get());
+          RecordInHistogram(stats_, NUM_COMPACTION_INPUT_ITERATORS,
+                            num_compaction_input_iterators);
 
           // There are three things that can change compaction score:
           // 1) When flush or compaction finish. This case is covered by
