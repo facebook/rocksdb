@@ -200,6 +200,7 @@ const uint64_t kDefaultPeriodicCompSecs = 0xfffffffffffffffe;
 }  // anonymous namespace
 
 ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
+                                    bool read_only,
                                     const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
   size_t clamp_max = std::conditional<
@@ -435,6 +436,18 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.periodic_compaction_seconds = 0;
   }
 
+  if (read_only && (result.preserve_internal_time_seconds > 0 ||
+                    result.preclude_last_level_data_seconds > 0)) {
+    // With no writes coming in, we don't need periodic SeqnoToTime entries.
+    // Existing SST files may or may not have that info associated with them.
+    ROCKS_LOG_WARN(
+        db_options.info_log.get(),
+        "preserve_internal_time_seconds and preclude_last_level_data_seconds "
+        "are ignored in read-only DB");
+    result.preserve_internal_time_seconds = 0;
+    result.preclude_last_level_data_seconds = 0;
+  }
+
   return result;
 }
 
@@ -492,6 +505,17 @@ void SuperVersion::Init(
   imm->Ref();
   current->Ref();
   refs.store(1, std::memory_order_relaxed);
+
+  // There should be at least one mapping entry iff time tracking is enabled.
+#ifndef NDEBUG
+  MinAndMaxPreserveSeconds preserve_info{mutable_cf_options};
+  if (preserve_info.IsEnabled()) {
+    assert(seqno_to_time_mapping);
+    assert(!seqno_to_time_mapping->Empty());
+  } else {
+    assert(seqno_to_time_mapping == nullptr);
+  }
+#endif  // NDEBUG
 }
 
 namespace {
@@ -530,7 +554,7 @@ ColumnFamilyData::ColumnFamilyData(
     const FileOptions* file_options, ColumnFamilySet* column_family_set,
     BlockCacheTracer* const block_cache_tracer,
     const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
-    const std::string& db_session_id)
+    const std::string& db_session_id, bool read_only)
     : id_(id),
       name_(name),
       dummy_versions_(_dummy_versions),
@@ -540,7 +564,7 @@ ColumnFamilyData::ColumnFamilyData(
       dropped_(false),
       flush_skip_reschedule_(false),
       internal_comparator_(cf_options.comparator),
-      initial_cf_options_(SanitizeOptions(db_options, cf_options)),
+      initial_cf_options_(SanitizeOptions(db_options, read_only, cf_options)),
       ioptions_(db_options, initial_cf_options_),
       mutable_cf_options_(initial_cf_options_),
       is_delete_range_supported_(
@@ -1339,20 +1363,17 @@ bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
   return false;
 }
 
-void ColumnFamilyData::InstallSuperVersion(SuperVersionContext* sv_context,
-                                           InstrumentedMutex* db_mutex) {
-  db_mutex->AssertHeld();
-  return InstallSuperVersion(sv_context, mutable_cf_options_);
-}
-
 void ColumnFamilyData::InstallSuperVersion(
-    SuperVersionContext* sv_context,
-    const MutableCFOptions& mutable_cf_options) {
+    SuperVersionContext* sv_context, InstrumentedMutex* db_mutex,
+    std::optional<std::shared_ptr<SeqnoToTimeMapping>>
+        new_seqno_to_time_mapping) {
+  db_mutex->AssertHeld();
+
   SuperVersion* new_superversion = sv_context->new_superversion.release();
-  new_superversion->mutable_cf_options = mutable_cf_options;
+  new_superversion->mutable_cf_options = GetLatestMutableCFOptions();
   new_superversion->Init(this, mem_, imm_.current(), current_,
-                         sv_context->new_seqno_to_time_mapping
-                             ? std::move(sv_context->new_seqno_to_time_mapping)
+                         new_seqno_to_time_mapping.has_value()
+                             ? std::move(new_seqno_to_time_mapping.value())
                          : super_version_
                              ? super_version_->ShareSeqnoToTimeMapping()
                              : nullptr);
@@ -1365,7 +1386,7 @@ void ColumnFamilyData::InstallSuperVersion(
     // currently RecalculateWriteStallConditions() treats it as further slowing
     // down is needed.
     super_version_->write_stall_condition =
-        RecalculateWriteStallConditions(mutable_cf_options);
+        RecalculateWriteStallConditions(new_superversion->mutable_cf_options);
   } else {
     super_version_->write_stall_condition =
         old_superversion->write_stall_condition;
@@ -1378,8 +1399,9 @@ void ColumnFamilyData::InstallSuperVersion(
     ResetThreadLocalSuperVersions();
 
     if (old_superversion->mutable_cf_options.write_buffer_size !=
-        mutable_cf_options.write_buffer_size) {
-      mem_->UpdateWriteBufferSize(mutable_cf_options.write_buffer_size);
+        new_superversion->mutable_cf_options.write_buffer_size) {
+      mem_->UpdateWriteBufferSize(
+          new_superversion->mutable_cf_options.write_buffer_size);
     }
     if (old_superversion->write_stall_condition !=
         new_superversion->write_stall_condition) {
@@ -1680,7 +1702,8 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       dummy_cfd_(new ColumnFamilyData(
           ColumnFamilyData::kDummyColumnFamilyDataId, "", nullptr, nullptr,
           nullptr, ColumnFamilyOptions(), *db_options, &file_options_, nullptr,
-          block_cache_tracer, io_tracer, db_id, db_session_id)),
+          block_cache_tracer, io_tracer, db_id, db_session_id,
+          /*read_only*/ true)),
       default_cfd_cache_(nullptr),
       db_name_(dbname),
       db_options_(db_options),
@@ -1752,12 +1775,12 @@ size_t ColumnFamilySet::NumberOfColumnFamilies() const {
 // under a DB mutex AND write thread
 ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     const std::string& name, uint32_t id, Version* dummy_versions,
-    const ColumnFamilyOptions& options) {
+    const ColumnFamilyOptions& options, bool read_only) {
   assert(column_families_.find(name) == column_families_.end());
   ColumnFamilyData* new_cfd = new ColumnFamilyData(
       id, name, dummy_versions, table_cache_, write_buffer_manager_, options,
       *db_options_, &file_options_, this, block_cache_tracer_, io_tracer_,
-      db_id_, db_session_id_);
+      db_id_, db_session_id_, read_only);
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
   auto ucmp = new_cfd->user_comparator();

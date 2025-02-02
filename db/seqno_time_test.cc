@@ -919,10 +919,11 @@ TEST_P(SeqnoTimeTablePropTest, PrePopulateInDB) {
       ASSERT_EQ(db_->GetLatestSequenceNumber(), 0);
 
       // And even if we re-open read-write, we do not get pre-population,
-      // because that's only for new DBs.
+      // because that's only for new DBs. We just get a single bootstrap
+      // entry as a lower bound on write times of future writes.
       Reopen(track_options);
       sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
-      ASSERT_EQ(sttm.Size(), 0);
+      ASSERT_EQ(sttm.Size(), 1);
       ASSERT_EQ(db_->GetLatestSequenceNumber(), 0);
     }
   }
