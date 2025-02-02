@@ -44,8 +44,7 @@ class ColumnFamilyHandle;
 // explicit or implicit one), RocksDB will invoke any applicable SecondaryIndex
 // objects based on primary column family and column name, and it will
 // automatically add or remove any secondary index entries as needed (using
-// the same transaction). Secondary indices can also be queried using an
-// iterator API, which has implementation-specific semantics.
+// the same transaction).
 //
 // Note: the methods of SecondaryIndex implementations are expected to be
 // thread-safe with the exception of Set{Primary,Secondary}ColumnFamily (which
@@ -111,19 +110,81 @@ class SecondaryIndex {
       const = 0;
 };
 
-// Create a simple secondary index iterator that can be used to find the primary
-// keys for a given search target. Can be used as-is or as a building block for
-// more complex iterators. Querying the index can be performed by calling the
+// SecondaryIndexIterator can be used to find the primary keys for a given
+// search target. It can be used as-is or as a building block. Its interface
+// mirrors most of the Iterator API, with the exception of SeekToFirst,
+// SeekToLast, and SeekForPrev, which are not applicable to secondary indices
+// and thus not present. Querying the index can be performed by calling the
 // returned iterator's Seek API with a search target, and then using Next (and
-// potentially Prev) to iterate through the matching index entries. SeekToFirst,
-// SeekToLast, and SeekForPrev are not supported by the iterator. The iterator
-// exposes primary keys, that is, the secondary key prefix is stripped
-// from the index entries. The parameter underlying_it should point to an
-// iterator over the index's secondary column family. The returned iterator
-// takes ownership of underlying_it and uses it to read the actual secondary
-// index entries. (Providing the underlying iterator this way enables querying
-// the index as of a specific point in time for example.)
-std::unique_ptr<Iterator> NewSecondaryIndexIterator(
-    const SecondaryIndex* index, std::unique_ptr<Iterator>&& underlying_it);
+// potentially Prev) to iterate through the matching index entries. The iterator
+// exposes primary keys, that is, the secondary key prefix is stripped from the
+// index entries.
+
+class SecondaryIndexIterator {
+ public:
+  // Constructs a SecondaryIndexIterator. The SecondaryIndexIterator takes
+  // ownership of the underlying iterator.
+  // PRE: index is not nullptr
+  // PRE: underlying_it is not nullptr and points to an iterator over the
+  // index's secondary column family
+  SecondaryIndexIterator(const SecondaryIndex* index,
+                         std::unique_ptr<Iterator>&& underlying_it);
+
+  // Returns whether the iterator is valid, i.e. whether it is positioned on a
+  // secondary index entry matching the search target.
+  bool Valid() const;
+
+  // Returns the status of the iterator, which is guaranteed to be OK if the
+  // iterator is valid. Otherwise, it might be non-OK, which indicates an error,
+  // or OK, which means that the iterator has reached the end of the applicable
+  // secondary index entries.
+  Status status() const;
+
+  // Query the index with the given search target.
+  void Seek(const Slice& target);
+
+  // Move the iterator to the next entry.
+  // PRE: Valid()
+  void Next();
+
+  // Move the iterator back to the previous entry.
+  // PRE: Valid()
+  void Prev();
+
+  // Prepare the value of the current entry. Should be called before calling
+  // value() or columns() if the underlying iterator was constructed with the
+  // read option allow_unprepared_value set to true. Returns true upon success.
+  // Returns false and sets the status to non-OK upon failure.
+  // PRE: Valid()
+  bool PrepareValue();
+
+  // Returns the primary key from the current secondary index entry.
+  // PRE: Valid()
+  Slice key() const;
+
+  // Returns the value of the current secondary index entry.
+  // PRE: Valid()
+  Slice value() const;
+
+  // Returns the value of the current secondary index entry as a wide-column
+  // structure.
+  // PRE: Valid()
+  const WideColumns& columns() const;
+
+  // Returns the timestamp of the current secondary index entry.
+  // PRE: Valid()
+  Slice timestamp() const;
+
+  // Queries the given property of the underlying iterator. Returns OK on
+  // success, non-OK on failure.
+  // PRE: Valid()
+  Status GetProperty(std::string prop_name, std::string* prop) const;
+
+ private:
+  const SecondaryIndex* index_;
+  std::unique_ptr<Iterator> underlying_it_;
+  Status status_;
+  std::string prefix_;
+};
 
 }  // namespace ROCKSDB_NAMESPACE

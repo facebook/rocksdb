@@ -35,161 +35,10 @@ faiss::idx_t DeserializeLabel(Slice label_slice) {
 
 }  // namespace
 
-class FaissIVFIndex::KNNIterator : public Iterator {
- public:
-  KNNIterator(faiss::IndexIVF* index,
-              std::unique_ptr<Iterator>&& secondary_index_it, size_t k,
-              size_t probes)
-      : index_(index),
-        secondary_index_it_(std::move(secondary_index_it)),
-        k_(k),
-        probes_(probes),
-        distances_(k_, 0.0f),
-        labels_(k_, -1),
-        pos_(0) {
-    assert(index_);
-    assert(secondary_index_it_);
-    assert(k_ > 0);
-    assert(probes_ > 0);
-  }
-
-  Iterator* GetSecondaryIndexIterator() const {
-    return secondary_index_it_.get();
-  }
-
-  faiss::idx_t AddKey(std::string&& key) {
-    keys_.emplace_back(std::move(key));
-
-    return static_cast<faiss::idx_t>(keys_.size()) - 1;
-  }
-
-  bool Valid() const override {
-    assert(!labels_.empty());
-    assert(labels_.size() == k_);
-
-    return status_.ok() && pos_ >= 0 && pos_ < labels_.size() &&
-           labels_[pos_] >= 0;
-  }
-
-  void SeekToFirst() override {
-    status_ =
-        Status::NotSupported("SeekToFirst not supported for FaissIVFIndex");
-  }
-
-  void SeekToLast() override {
-    status_ =
-        Status::NotSupported("SeekToLast not supported for FaissIVFIndex");
-  }
-
-  void Seek(const Slice& target) override {
-    distances_.assign(k_, 0.0f);
-    labels_.assign(k_, -1);
-    status_ = Status::OK();
-    pos_ = 0;
-    keys_.clear();
-
-    const float* const embedding = ConvertSliceToFloats(target, index_->d);
-    if (!embedding) {
-      status_ = Status::InvalidArgument(
-          "Incorrectly sized vector passed to FaissIVFIndex");
-      return;
-    }
-
-    faiss::SearchParametersIVF params;
-    params.nprobe = probes_;
-    params.inverted_list_context = this;
-
-    constexpr faiss::idx_t n = 1;
-
-    try {
-      index_->search(n, embedding, k_, distances_.data(), labels_.data(),
-                     &params);
-    } catch (const std::exception& e) {
-      status_ = Status::InvalidArgument(e.what());
-    }
-  }
-
-  void SeekForPrev(const Slice& /* target */) override {
-    status_ =
-        Status::NotSupported("SeekForPrev not supported for FaissIVFIndex");
-  }
-
-  void Next() override {
-    assert(Valid());
-
-    ++pos_;
-  }
-
-  void Prev() override {
-    assert(Valid());
-
-    --pos_;
-  }
-
-  Status status() const override { return status_; }
-
-  Slice key() const override {
-    assert(Valid());
-    assert(labels_[pos_] >= 0 && labels_[pos_] < keys_.size());
-
-    return keys_[labels_[pos_]];
-  }
-
-  Slice value() const override {
-    assert(Valid());
-
-    return Slice();
-  }
-
-  const WideColumns& columns() const override {
-    assert(Valid());
-
-    return kNoWideColumns;
-  }
-
-  Slice timestamp() const override {
-    assert(Valid());
-
-    return Slice();
-  }
-
-  Status GetProperty(std::string prop_name, std::string* prop) override {
-    if (!prop) {
-      return Status::InvalidArgument("No property pointer provided");
-    }
-
-    if (!Valid()) {
-      return Status::InvalidArgument("Iterator is not valid");
-    }
-
-    if (prop_name == kPropertyName_) {
-      assert(!distances_.empty());
-      assert(distances_.size() == k_);
-      assert(pos_ >= 0 && pos_ < distances_.size());
-
-      *prop = std::to_string(distances_[pos_]);
-      return Status::OK();
-    }
-
-    return Iterator::GetProperty(std::move(prop_name), prop);
-  }
-
- private:
-  faiss::IndexIVF* index_;
-  std::unique_ptr<Iterator> secondary_index_it_;
-  size_t k_;
-  size_t probes_;
-  std::vector<float> distances_;
-  std::vector<faiss::idx_t> labels_;
-  Status status_;
-  faiss::idx_t pos_;
-  autovector<std::string> keys_;
-
-  static const std::string kPropertyName_;
+struct FaissIVFIndex::KNNContext {
+  SecondaryIndexIterator* it;
+  autovector<std::string> keys;
 };
-
-const std::string FaissIVFIndex::KNNIterator::kPropertyName_ =
-    "rocksdb.faiss.ivf.index.distance";
 
 class FaissIVFIndex::Adapter : public faiss::InvertedLists {
  public:
@@ -218,10 +67,11 @@ class FaissIVFIndex::Adapter : public faiss::InvertedLists {
   // Iterator-based read interface
   faiss::InvertedListsIterator* get_iterator(
       size_t list_no, void* inverted_list_context = nullptr) const override {
-    KNNIterator* const it = static_cast<KNNIterator*>(inverted_list_context);
-    assert(it);
+    KNNContext* const knn_context =
+        static_cast<KNNContext*>(inverted_list_context);
+    assert(knn_context);
 
-    return new IteratorAdapter(it, list_no, code_size);
+    return new IteratorAdapter(knn_context, list_no, code_size);
   }
 
   // Write interface; only add_entry is implemented/required for now
@@ -262,22 +112,22 @@ class FaissIVFIndex::Adapter : public faiss::InvertedLists {
  private:
   class IteratorAdapter : public faiss::InvertedListsIterator {
    public:
-    IteratorAdapter(KNNIterator* it, size_t list_no, size_t code_size)
-        : it_(it),
-          secondary_index_it_(it->GetSecondaryIndexIterator()),
+    IteratorAdapter(KNNContext* knn_context, size_t list_no, size_t code_size)
+        : knn_context_(knn_context),
+          it_(knn_context_->it),
           code_size_(code_size) {
+      assert(knn_context_);
       assert(it_);
-      assert(secondary_index_it_);
 
       const std::string label = SerializeLabel(list_no);
-      secondary_index_it_->Seek(label);
+      it_->Seek(label);
       Update();
     }
 
     bool is_available() const override { return id_and_codes_.has_value(); }
 
     void next() override {
-      secondary_index_it_->Next();
+      it_->Next();
       Update();
     }
 
@@ -291,35 +141,35 @@ class FaissIVFIndex::Adapter : public faiss::InvertedLists {
     void Update() {
       id_and_codes_.reset();
 
-      const Status status = secondary_index_it_->status();
+      const Status status = it_->status();
       if (!status.ok()) {
         throw std::runtime_error(status.ToString());
       }
 
-      if (!secondary_index_it_->Valid()) {
+      if (!it_->Valid()) {
         return;
       }
 
-      if (!secondary_index_it_->PrepareValue()) {
+      if (!it_->PrepareValue()) {
         throw std::runtime_error(
             "Failed to prepare value during iteration in FaissIVFIndex");
       }
 
-      const Slice value = secondary_index_it_->value();
+      const Slice value = it_->value();
       if (value.size() != code_size_) {
         throw std::runtime_error(
             "Code with unexpected size encountered during iteration in "
             "FaissIVFIndex");
       }
 
-      const Slice key = secondary_index_it_->key();
-      const faiss::idx_t id = it_->AddKey(key.ToString());
+      const faiss::idx_t id = knn_context_->keys.size();
+      knn_context_->keys.emplace_back(it_->key().ToString());
 
       id_and_codes_.emplace(id, reinterpret_cast<const uint8_t*>(value.data()));
     }
 
-    KNNIterator* it_;
-    Iterator* secondary_index_it_;
+    KNNContext* knn_context_;
+    SecondaryIndexIterator* it_;
     size_t code_size_;
     std::optional<std::pair<faiss::idx_t, const uint8_t*>> id_and_codes_;
   };
@@ -436,11 +286,11 @@ Status FaissIVFIndex::GetSecondaryValue(
   try {
     index_->add_core(n, embedding, xids, &label, &code_str);
   } catch (const std::exception& e) {
-    return Status::InvalidArgument(e.what());
+    return Status::Corruption(e.what());
   }
 
   if (code_str.size() != index_->code_size) {
-    return Status::InvalidArgument(
+    return Status::Corruption(
         "Code with unexpected size returned by fine quantizer");
   }
 
@@ -449,31 +299,67 @@ Status FaissIVFIndex::GetSecondaryValue(
   return Status::OK();
 }
 
-std::unique_ptr<Iterator> FaissIVFIndex::NewIterator(
-    const FaissIVFIndexReadOptions& read_options,
-    std::unique_ptr<Iterator>&& underlying_it) const {
-  if (!read_options.similarity_search_neighbors.has_value() ||
-      *read_options.similarity_search_neighbors == 0) {
-    return std::unique_ptr<Iterator>(NewErrorIterator(
-        Status::InvalidArgument("Invalid number of neighbors")));
+Status FaissIVFIndex::FindKNearestNeighbors(
+    SecondaryIndexIterator* it, const Slice& target, size_t neighbors,
+    size_t probes, std::vector<std::pair<std::string, float>>* result) const {
+  if (!it) {
+    return Status::InvalidArgument("Secondary index iterator must be provided");
   }
 
-  if (!read_options.similarity_search_probes.has_value() ||
-      *read_options.similarity_search_probes == 0) {
-    return std::unique_ptr<Iterator>(
-        NewErrorIterator(Status::InvalidArgument("Invalid number of probes")));
+  const float* const embedding = ConvertSliceToFloats(target, index_->d);
+  if (!embedding) {
+    return Status::InvalidArgument(
+        "Incorrectly sized vector passed to FaissIVFIndex");
   }
 
-  return std::make_unique<KNNIterator>(
-      index_.get(), NewSecondaryIndexIterator(this, std::move(underlying_it)),
-      *read_options.similarity_search_neighbors,
-      *read_options.similarity_search_probes);
-}
+  if (!neighbors) {
+    return Status::InvalidArgument("Invalid number of neighbors");
+  }
 
-std::shared_ptr<FaissIVFIndex> NewFaissIVFIndex(
-    std::unique_ptr<faiss::IndexIVF>&& index, std::string primary_column_name) {
-  return std::make_shared<FaissIVFIndex>(std::move(index),
-                                         std::move(primary_column_name));
+  if (!probes) {
+    return Status::InvalidArgument("Invalid number of probes");
+  }
+
+  if (!result) {
+    return Status::InvalidArgument("Result parameter must be provided");
+  }
+
+  result->clear();
+
+  std::vector<float> distances(neighbors, 0.0f);
+  std::vector<faiss::idx_t> ids(neighbors, -1);
+
+  KNNContext knn_context{it, {}};
+
+  faiss::SearchParametersIVF params;
+  params.nprobe = probes;
+  params.inverted_list_context = &knn_context;
+
+  constexpr faiss::idx_t n = 1;
+
+  try {
+    index_->search(n, embedding, neighbors, distances.data(), ids.data(),
+                   &params);
+  } catch (const std::exception& e) {
+    return Status::Corruption(e.what());
+  }
+
+  result->reserve(neighbors);
+
+  for (size_t i = 0; i < neighbors; ++i) {
+    if (ids[i] < 0) {
+      break;
+    }
+
+    if (ids[i] >= knn_context.keys.size()) {
+      result->clear();
+      return Status::Corruption("Unexpected id returned by FAISS");
+    }
+
+    result->emplace_back(knn_context.keys[ids[i]], distances[i]);
+  }
+
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

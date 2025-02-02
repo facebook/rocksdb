@@ -8,6 +8,8 @@
 
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
@@ -23,32 +25,16 @@ namespace ROCKSDB_NAMESPACE {
 //
 // A SecondaryIndex implementation that wraps a FAISS inverted file based index.
 // Indexes the embedding in the specified primary column using the given
-// pre-trained faiss::IndexIVF object (which the secondary index takes ownership
-// of). Can be used to perform K-nearest-neighbors queries.
-
-// Read options for FAISS IVF secondary indices
-struct FaissIVFIndexReadOptions {
-  // The maximum number of neighbors K to return when performing a
-  // K-nearest-neighbors vector similarity search. The number of neighbors
-  // returned can be smaller if there are not enough vectors in the inverted
-  // lists probed. Must be specified and positive. See also
-  // similarity_search_probes below.
-  //
-  // Default: none
-  std::optional<size_t> similarity_search_neighbors;
-
-  // The number of inverted lists to probe when performing a K-nearest-neighbors
-  // vector similarity search. Must be specified and positive. See also
-  // similarity_search_neighbors above.
-  //
-  // Default: none
-  std::optional<size_t> similarity_search_probes;
-};
+// pre-trained faiss::IndexIVF object. Can be used to perform
+// K-nearest-neighbors queries.
 
 class FaissIVFIndex : public SecondaryIndex {
  public:
-  explicit FaissIVFIndex(std::unique_ptr<faiss::IndexIVF>&& index,
-                         std::string primary_column_name);
+  // Constructs a FaissIVFIndex object. Takes ownership of the given
+  // faiss::IndexIVF instance.
+  // PRE: index is not nullptr
+  FaissIVFIndex(std::unique_ptr<faiss::IndexIVF>&& index,
+                std::string primary_column_name);
   ~FaissIVFIndex() override;
 
   void SetPrimaryColumnFamily(ColumnFamilyHandle* column_family) override;
@@ -77,12 +63,28 @@ class FaissIVFIndex : public SecondaryIndex {
                            std::optional<std::variant<Slice, std::string>>*
                                secondary_value) const override;
 
-  std::unique_ptr<Iterator> NewIterator(
-      const FaissIVFIndexReadOptions& read_options,
-      std::unique_ptr<Iterator>&& underlying_it) const;
+  // Performs a K-nearest-neighbors vector similarity search for the target
+  // using the given secondary index iterator, where K is given by the parameter
+  // neighbors and the number of inverted lists to search is given by the
+  // parameter probes. The resulting primary keys and distances are returned in
+  // the result output parameter. Note that the search may return less than the
+  // requested number of results if the inverted lists probed are exhausted
+  // before finding K items.
+  //
+  // The parameter it should be non-nullptr and point to a secondary index
+  // iterator corresponding to this index. The search target should be of the
+  // correct dimension (i.e. target.size() == dim * sizeof(float), where dim is
+  // the dimensionality of the index), neighbors and probes should be positive,
+  // and result should be non-nullptr.
+  //
+  // Returns OK on success, InvalidArgument if the preconditions above are not
+  // met, or some other non-OK status if there is an error during the search.
+  Status FindKNearestNeighbors(
+      SecondaryIndexIterator* it, const Slice& target, size_t neighbors,
+      size_t probes, std::vector<std::pair<std::string, float>>* result) const;
 
  private:
-  class KNNIterator;
+  struct KNNContext;
   class Adapter;
 
   std::unique_ptr<Adapter> adapter_;
@@ -91,9 +93,6 @@ class FaissIVFIndex : public SecondaryIndex {
   ColumnFamilyHandle* primary_column_family_{};
   ColumnFamilyHandle* secondary_column_family_{};
 };
-
-std::shared_ptr<FaissIVFIndex> NewFaissIVFIndex(
-    std::unique_ptr<faiss::IndexIVF>&& index, std::string primary_column_name);
 
 // Helper methods to convert embeddings from a span of floats to Slice or vice
 // versa
