@@ -969,4 +969,20 @@ class IntPropertyAggregator {
 std::unique_ptr<IntPropertyAggregator> CreateIntPropertyAggregator(
     const Slice& property);
 
+class SubcompactionState;
+class DBStatsCallback {
+ public:
+  DBStatsCallback(std::atomic<size_t>* num_sorted_runs)
+      : num_sorted_runs_(num_sorted_runs) {}
+
+  void OnSubcompactionBegin(const Compaction* c);
+
+  void OnSubcompactionEnd(const Compaction* c);
+
+ private:
+  size_t GetNumberCompactionSortedRuns(const Compaction* c);
+
+  std::atomic<size_t>* num_sorted_runs_;
+};
+
 }  // namespace ROCKSDB_NAMESPACE

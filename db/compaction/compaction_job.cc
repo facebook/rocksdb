@@ -145,7 +145,7 @@ CompactionJob::CompactionJob(
     const std::string& db_id, const std::string& db_session_id,
     std::string full_history_ts_low, std::string trim_ts,
     BlobFileCompletionCallback* blob_callback, int* bg_compaction_scheduled,
-    int* bg_bottom_compaction_scheduled)
+    int* bg_bottom_compaction_scheduled, DBStatsCallback* db_stats_callback)
     : compact_(new CompactionState(compaction)),
       compaction_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),
@@ -156,6 +156,7 @@ CompactionJob::CompactionJob(
       bottommost_level_(false),
       write_hint_(Env::WLTH_NOT_SET),
       compaction_job_stats_(compaction_job_stats),
+      db_stats_callback_(db_stats_callback),
       job_id_(job_id),
       dbname_(dbname),
       db_id_(db_id),
@@ -1075,6 +1076,10 @@ void CompactionJob::NotifyOnSubcompactionBegin(
     SubcompactionState* sub_compact) {
   Compaction* c = compact_->compaction;
 
+  if (db_stats_callback_) {
+    db_stats_callback_->OnSubcompactionBegin(c);
+  }
+
   if (db_options_.listeners.empty()) {
     return;
   }
@@ -1101,6 +1106,10 @@ void CompactionJob::NotifyOnSubcompactionBegin(
 
 void CompactionJob::NotifyOnSubcompactionCompleted(
     SubcompactionState* sub_compact) {
+  if (db_stats_callback_) {
+    db_stats_callback_->OnSubcompactionEnd(sub_compact->compaction);
+  }
+
   if (db_options_.listeners.empty()) {
     return;
   }

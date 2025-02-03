@@ -165,7 +165,8 @@ class CompactionJob {
       std::string full_history_ts_low = "", std::string trim_ts = "",
       BlobFileCompletionCallback* blob_callback = nullptr,
       int* bg_compaction_scheduled = nullptr,
-      int* bg_bottom_compaction_scheduled = nullptr);
+      int* bg_bottom_compaction_scheduled = nullptr,
+      DBStatsCallback* db_stats_callback = nullptr);
 
   virtual ~CompactionJob();
 
@@ -238,6 +239,8 @@ class CompactionJob {
   IOStatus io_status_;
 
   CompactionJobStats* compaction_job_stats_;
+
+  DBStatsCallback* db_stats_callback_;
 
  private:
   friend class CompactionJobTestBase;

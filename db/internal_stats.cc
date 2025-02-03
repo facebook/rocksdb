@@ -23,6 +23,7 @@
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_entry_stats.h"
 #include "db/column_family.h"
+#include "db/compaction/subcompaction_state.h"
 #include "db/db_impl/db_impl.h"
 #include "db/write_stall_stats.h"
 #include "port/port.h"
@@ -2216,6 +2217,38 @@ std::unique_ptr<IntPropertyAggregator> CreateIntPropertyAggregator(
   } else {
     return std::make_unique<SumPropertyAggregator>();
   }
+}
+
+void DBStatsCallback::OnSubcompactionBegin(const Compaction* c) {
+  if (c == nullptr) {
+    return;
+  }
+  size_t runs_to_add = GetNumberCompactionSortedRuns(c);
+  num_sorted_runs_->fetch_add(runs_to_add);
+}
+
+void DBStatsCallback::OnSubcompactionEnd(const Compaction* c) {
+  if (c == nullptr) {
+    return;
+  }
+  size_t runs_finished = GetNumberCompactionSortedRuns(c);
+  assert(runs_finished <= num_sorted_runs_->load(std::memory_order_relaxed));
+  num_sorted_runs_->fetch_sub(runs_finished);
+}
+
+size_t DBStatsCallback::GetNumberCompactionSortedRuns(const Compaction* c) {
+  assert(c);
+  if (c->IsTrivialMove() || c->deletion_compaction()) {
+    return 0;
+  }
+  if (c->start_level() == 0) {
+    assert(0 < c->num_input_levels());
+    assert(c->level(0) == 0);
+    size_t num_l0_files = c->num_input_files(0);
+    size_t num_non_l0_levels = c->num_input_levels() - 1;
+    return num_l0_files + num_non_l0_levels;
+  }
+  return c->num_input_levels();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

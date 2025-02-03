@@ -216,6 +216,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       bg_bottom_compaction_scheduled_(0),
       bg_compaction_scheduled_(0),
       num_running_compactions_(0),
+      stats_callback_(std::make_unique<DBStatsCallback>(
+          &num_running_compaction_sorted_runs_)),
       bg_flush_scheduled_(0),
       num_running_flushes_(0),
       bg_purge_scheduled_(0),
