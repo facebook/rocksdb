@@ -949,13 +949,6 @@ class DBImpl : public DB {
     return num_running_flushes_;
   }
 
-  // Returns the number of currently running compactions.
-  // REQUIREMENT: mutex_ must be held when calling this function.
-  int num_running_compactions() {
-    mutex_.AssertHeld();
-    return num_running_compactions_;
-  }
-
   const WriteController& write_controller() { return write_controller_; }
 
   // hollow transactions shell used for recovery.

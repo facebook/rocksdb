@@ -3522,6 +3522,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
   }
 }
 
+// Precondition: mutex_ must be held when calling this function.
 Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     JobContext* job_context,
                                     LogBuffer* log_buffer,

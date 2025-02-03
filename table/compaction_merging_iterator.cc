@@ -5,6 +5,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #include "table/compaction_merging_iterator.h"
 
+#include "db/internal_stats.h"
+
 namespace ROCKSDB_NAMESPACE {
 class CompactionMergingIterator : public InternalIterator {
  public:
@@ -13,12 +15,15 @@ class CompactionMergingIterator : public InternalIterator {
       int n, bool is_arena_mode,
       std::vector<std::pair<std::unique_ptr<TruncatedRangeDelIterator>,
                             std::unique_ptr<TruncatedRangeDelIterator>**>>&
-          range_tombstones)
+          range_tombstones,
+      InternalStats* internal_stats)
       : is_arena_mode_(is_arena_mode),
         comparator_(comparator),
         current_(nullptr),
         minHeap_(CompactionHeapItemComparator(comparator_)),
-        pinned_iters_mgr_(nullptr) {
+        pinned_iters_mgr_(nullptr),
+        internal_stats_(internal_stats),
+        num_sorted_runs_recorded_(0) {
     children_.resize(n);
     for (int i = 0; i < n; i++) {
       children_[i].level = i;
@@ -38,6 +43,17 @@ class CompactionMergingIterator : public InternalIterator {
       pinned_heap_item_[i].level = i;
       pinned_heap_item_[i].type = HeapItem::DELETE_RANGE_START;
     }
+    if (internal_stats_) {
+      TEST_SYNC_POINT("CompactionMergingIterator::UpdateInternalStats");
+      // The size of children_ or range_tombstone_iters_ (n) should not change
+      // but to be safe, we can record the size here so we decrement by the
+      // correct amount at destruction time
+      num_sorted_runs_recorded_ = n;
+      internal_stats_->IncrNumRunningCompactionSortedRuns(
+          num_sorted_runs_recorded_);
+      assert(num_sorted_runs_recorded_ <=
+             internal_stats_->NumRunningCompactionSortedRuns());
+    }
   }
 
   void considerStatus(const Status& s) {
@@ -47,6 +63,14 @@ class CompactionMergingIterator : public InternalIterator {
   }
 
   ~CompactionMergingIterator() override {
+    if (internal_stats_) {
+      assert(num_sorted_runs_recorded_ == range_tombstone_iters_.size());
+      assert(num_sorted_runs_recorded_ <=
+             internal_stats_->NumRunningCompactionSortedRuns());
+      internal_stats_->DecrNumRunningCompactionSortedRuns(
+          num_sorted_runs_recorded_);
+    }
+
     range_tombstone_iters_.clear();
 
     for (auto& child : children_) {
@@ -208,6 +232,8 @@ class CompactionMergingIterator : public InternalIterator {
   Status status_;
   CompactionMinHeap minHeap_;
   PinnedIteratorsManager* pinned_iters_mgr_;
+  InternalStats* internal_stats_;
+  uint64_t num_sorted_runs_recorded_;
   // Process a child that is not in the min heap.
   // If valid, add to the min heap. Otherwise, check status.
   void AddToMinHeapOrCheckStatus(HeapItem*);
@@ -350,7 +376,7 @@ InternalIterator* NewCompactionMergingIterator(
     std::vector<std::pair<std::unique_ptr<TruncatedRangeDelIterator>,
                           std::unique_ptr<TruncatedRangeDelIterator>**>>&
         range_tombstone_iters,
-    Arena* arena) {
+    Arena* arena, InternalStats* stats) {
   assert(n >= 0);
   if (n == 0) {
     return NewEmptyInternalIterator<Slice>(arena);
@@ -358,12 +384,12 @@ InternalIterator* NewCompactionMergingIterator(
     if (arena == nullptr) {
       return new CompactionMergingIterator(comparator, children, n,
                                            false /* is_arena_mode */,
-                                           range_tombstone_iters);
+                                           range_tombstone_iters, stats);
     } else {
       auto mem = arena->AllocateAligned(sizeof(CompactionMergingIterator));
       return new (mem) CompactionMergingIterator(comparator, children, n,
                                                  true /* is_arena_mode */,
-                                                 range_tombstone_iters);
+                                                 range_tombstone_iters, stats);
     }
   }
 }
