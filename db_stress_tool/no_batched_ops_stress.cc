@@ -2966,10 +2966,14 @@ class NonBatchedOpsStressTest : public StressTest {
                           Slice(expected_value_data, expected_value_data_size));
         return false;
       }
-    } else {
+    } else if (IsErrorInjectedAndRetryable(s) {
+      fprintf(stdout,
+              "Skipping secondary verification because error was "
+              "injected into read\n");
+      } else {
       VerificationAbort(
           shared,
-          msg_prefix + "Non-OK status" + read_u64ts.str() + s.ToString(), cf,
+          msg_prefix + ": Non-OK status" + read_u64ts.str() + s.ToString(), cf,
           key, "", Slice(expected_value_data, expected_value_data_size));
       return false;
     }
