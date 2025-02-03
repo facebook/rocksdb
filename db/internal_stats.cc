@@ -644,7 +644,6 @@ InternalStats::InternalStats(int num_levels, SystemClock* clock,
       file_read_latency_(num_levels),
       has_cf_change_since_dump_(true),
       bg_error_count_(0),
-      num_running_compaction_sorted_runs_(0),
       number_levels_(num_levels),
       clock_(clock),
       cfd_(cfd),
@@ -1277,13 +1276,8 @@ bool InternalStats::HandleNumRunningCompactions(uint64_t* value, DBImpl* db,
 bool InternalStats::HandleNumRunningCompactionSortedRuns(uint64_t* value,
                                                          DBImpl* db,
                                                          Version* /*version*/) {
-  // DB mutex should be held while iterating over ColumnFamilySet
-  InstrumentedMutexLock l(db->mutex());
-  uint64_t sorted_runs = 0;
-  for (auto* cfd : *db->versions_->GetColumnFamilySet()) {
-    sorted_runs += cfd->internal_stats()->NumRunningCompactionSortedRuns();
-  }
-  *value = sorted_runs;
+  *value =
+      db->num_running_compaction_sorted_runs_.load(std::memory_order_relaxed);
   return true;
 }
 

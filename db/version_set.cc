@@ -7110,8 +7110,7 @@ InternalIterator* VersionSet::MakeInputIterator(
   assert(num <= space);
   InternalIterator* result = NewCompactionMergingIterator(
       &c->column_family_data()->internal_comparator(), list,
-      static_cast<int>(num), range_tombstones, /*arena=*/nullptr,
-      c->column_family_data()->internal_stats());
+      static_cast<int>(num), range_tombstones);
   delete[] list;
   return result;
 }

@@ -35,12 +35,11 @@ namespace ROCKSDB_NAMESPACE {
  * two APIs for clarity.
  */
 class CompactionMergingIterator;
-class InternalStats;
 
 InternalIterator* NewCompactionMergingIterator(
     const InternalKeyComparator* comparator, InternalIterator** children, int n,
     std::vector<std::pair<std::unique_ptr<TruncatedRangeDelIterator>,
                           std::unique_ptr<TruncatedRangeDelIterator>**>>&
         range_tombstone_iters,
-    Arena* arena = nullptr, InternalStats* stats = nullptr);
+    Arena* arena = nullptr);
 }  // namespace ROCKSDB_NAMESPACE
