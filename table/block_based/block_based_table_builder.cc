@@ -500,8 +500,7 @@ struct BlockBasedTableBuilder::Rep {
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
         create_context(&table_options, &ioptions, ioptions.stats,
-                       compression_type == kZSTD ||
-                           compression_type == kZSTDNotFinalCompression,
+                       compression_type == kZSTD,
                        tbo.moptions.block_protection_bytes_per_key,
                        tbo.internal_comparator.user_comparator(),
                        !use_delta_encoding_for_index_values,
@@ -1958,9 +1957,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   }
   r->compression_dict.reset(new CompressionDict(dict, r->compression_type,
                                                 r->compression_opts.level));
-  r->verify_dict.reset(new UncompressionDict(
-      dict, r->compression_type == kZSTD ||
-                r->compression_type == kZSTDNotFinalCompression));
+  r->verify_dict.reset(
+      new UncompressionDict(dict, r->compression_type == kZSTD));
 
   auto get_iterator_for_block = [&r](size_t i) {
     auto& data_block = r->data_block_buffers[i];

@@ -835,8 +835,6 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
   }
   if (ZSTD_Supported()) {
     compression_types.push_back(kZSTD);
-  } else if (ZSTDNotFinal_Supported()) {
-    compression_types.push_back(kZSTDNotFinalCompression);
   }
   Random rnd(301);
   for (auto compression_type : compression_types) {

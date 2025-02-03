@@ -59,7 +59,7 @@ fi
 if ! test $ROCKSDB_DISABLE_ZSTD; then
   ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
   ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd${MAYBE_PIC}.a"
-  CFLAGS+=" -DZSTD"
+  CFLAGS+=" -DZSTD -DZSTD_STATIC_LINKING_ONLY"
 fi
 
 # location of gflags headers and libraries
