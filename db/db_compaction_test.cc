@@ -3305,7 +3305,7 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   // InputCompressionMatchesOutput() per compaction.
   const int kCallsToInputCompressionMatch = 2;
   // Tracking num_running_compaction_sorted_runs also results in
-  // InputCompressionMatchesOutput calls
+  // an additional 16 InputCompressionMatchesOutput calls
   ASSERT_EQ(didnt_match, 16 + 8 * kCallsToInputCompressionMatch);
   ASSERT_EQ(trivial_move, 12);
   ASSERT_EQ(non_trivial, 8);
@@ -5869,6 +5869,12 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
       db_->GetIntProperty(DB::Properties::kNumRunningCompactionSortedRuns,
                           &num_running_compaction_sorted_runs));
   ASSERT_EQ(num_running_compaction_sorted_runs, 0);
+  // Check that the stat actually gets changed some time between the start and
+  // end of compaction
+  std::atomic<bool> sorted_runs_count_incremented = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBStatsCallback::OnSubcompactionBegin",
+      [&](void*) { sorted_runs_count_incremented = true; });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -5894,6 +5900,7 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
       db_->GetIntProperty(DB::Properties::kNumRunningCompactionSortedRuns,
                           &num_running_compaction_sorted_runs));
   ASSERT_EQ(num_running_compaction_sorted_runs, 0);
+  ASSERT_TRUE(sorted_runs_count_incremented);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

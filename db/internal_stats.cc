@@ -2217,6 +2217,7 @@ void DBStatsCallback::OnSubcompactionBegin(const Compaction* c) {
   if (c == nullptr) {
     return;
   }
+  TEST_SYNC_POINT("DBStatsCallback::OnSubcompactionBegin");
   size_t runs_to_add = GetNumberCompactionSortedRuns(c);
   num_running_compaction_sorted_runs_->fetch_add(runs_to_add,
                                                  std::memory_order_relaxed);
