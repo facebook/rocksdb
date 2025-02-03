@@ -949,11 +949,12 @@ class IntPropertyAggregator {
 std::unique_ptr<IntPropertyAggregator> CreateIntPropertyAggregator(
     const Slice& property);
 
-class SubcompactionState;
+// DBStatsCallback is used to update DB-wide statistics
 class DBStatsCallback {
  public:
-  DBStatsCallback(std::atomic<size_t>* num_sorted_runs)
-      : num_sorted_runs_(num_sorted_runs) {}
+  DBStatsCallback(std::atomic<size_t>* num_running_compaction_sorted_runs)
+      : num_running_compaction_sorted_runs_(
+            num_running_compaction_sorted_runs) {}
 
   void OnSubcompactionBegin(const Compaction* c);
 
@@ -962,7 +963,7 @@ class DBStatsCallback {
  private:
   size_t GetNumberCompactionSortedRuns(const Compaction* c);
 
-  std::atomic<size_t>* num_sorted_runs_;
+  std::atomic<size_t>* num_running_compaction_sorted_runs_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
