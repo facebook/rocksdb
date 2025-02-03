@@ -2955,8 +2955,11 @@ class DBImpl : public DB {
   // stores the number of compactions are currently running
   int num_running_compactions_;
 
+  // stores the number of sorted runs being processed by currently running
+  // compactions
   std::atomic<size_t> num_running_compaction_sorted_runs_;
 
+  // helper class to update DB-wide statistics
   std::unique_ptr<DBStatsCallback> stats_callback_;
 
   // number of background memtable flush jobs, submitted to the HIGH pool

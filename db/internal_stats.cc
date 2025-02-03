@@ -2218,7 +2218,7 @@ void DBStatsCallback::OnSubcompactionBegin(const Compaction* c) {
     return;
   }
   size_t runs_to_add = GetNumberCompactionSortedRuns(c);
-  num_sorted_runs_->fetch_add(runs_to_add);
+  num_sorted_runs_->fetch_add(runs_to_add, std::memory_order_relaxed);
 }
 
 void DBStatsCallback::OnSubcompactionEnd(const Compaction* c) {
@@ -2227,7 +2227,7 @@ void DBStatsCallback::OnSubcompactionEnd(const Compaction* c) {
   }
   size_t runs_finished = GetNumberCompactionSortedRuns(c);
   assert(runs_finished <= num_sorted_runs_->load(std::memory_order_relaxed));
-  num_sorted_runs_->fetch_sub(runs_finished);
+  num_sorted_runs_->fetch_sub(runs_finished, std::memory_order_relaxed);
 }
 
 size_t DBStatsCallback::GetNumberCompactionSortedRuns(const Compaction* c) {
