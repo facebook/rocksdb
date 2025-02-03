@@ -818,7 +818,9 @@ struct FSReadRequest {
   // returned when the end of file has been reached or an error has occurred.
   //
   // When optional_len > 0, if the end of the file is not reached, the
-  // returned data's size can be in the range [len - optional_len, len]
+  // returned data's size can be in the range [len - optional_len, len]. The
+  // returned data must still begin at the same offset, so only the tail end of
+  // the request is potentially trimmed.
   //
   // Note that optional_len should never exceed len
   //

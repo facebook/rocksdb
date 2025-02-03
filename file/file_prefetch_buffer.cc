@@ -206,7 +206,7 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
     // BlockBasedTable::PrefetchTail. Our optimization for FlexibleRead is meant
     // for when we want to start from the beginning of the file in compaction
     // and read the whole file sequentially. It is probably not worth setting
-    // optimal_read_size > 0 in this case.
+    // optimal_read_len > 0 in this case.
     s = Read(buf, opts, reader, read_len, aligned_useful_len,
              /*optional_read_len=*/0, rounddown_offset, use_fs_buffer);
   }
@@ -746,6 +746,10 @@ Status FilePrefetchBuffer::PrefetchInternal(const IOOptions& opts,
   }
 
   if (read_len1 > 0) {
+    // This optimization applies for low priority reads that read the entire
+    // file in general, but for now we can focus on compaction reads. Direct IO
+    // requires the start / end offsets to be aligned so we don't want our read
+    // request to be trimmed at the end.
     size_t optional_read_length = for_compaction && !reader->use_direct_io() &&
                                           original_length < read_len1
                                       ? read_len1 - original_length
