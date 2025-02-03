@@ -2239,6 +2239,7 @@ size_t DBStatsCallback::GetNumberCompactionSortedRuns(const Compaction* c) {
   if (c->IsTrivialMove() || c->deletion_compaction()) {
     return 0;
   }
+  // Return the number of L0 files + number of non-L0 levels
   if (c->start_level() == 0) {
     assert(0 < c->num_input_levels());
     assert(c->level(0) == 0);
