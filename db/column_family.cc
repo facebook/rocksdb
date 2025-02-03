@@ -168,7 +168,7 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
   }
   if (!cf_options.memtable_factory->IsInsertConcurrentlySupported()) {
     return Status::InvalidArgument(
-        "Memtable doesn't concurrent writes (allow_concurrent_memtable_write)");
+        "Memtable doesn't allow concurrent writes (allow_concurrent_memtable_write)");
   }
   return Status::OK();
 }
