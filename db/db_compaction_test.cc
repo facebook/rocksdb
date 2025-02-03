@@ -3304,8 +3304,8 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   // Currently, the test relies on the number of calls to
   // InputCompressionMatchesOutput() per compaction.
   const int kCallsToInputCompressionMatch = 2;
-  // Tracking num_running_compaction_sorted_runs also results in
-  // an additional 16 InputCompressionMatchesOutput calls
+  // Tracking num_running_compaction_sorted_runs results in
+  // an additional 16 calls to InputCompressionMatchesOutput
   ASSERT_EQ(didnt_match, 16 + 8 * kCallsToInputCompressionMatch);
   ASSERT_EQ(trivial_move, 12);
   ASSERT_EQ(non_trivial, 8);
