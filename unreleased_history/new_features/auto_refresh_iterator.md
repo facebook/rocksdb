@@ -1,0 +1,1 @@
+Introduced new `auto_refresh_iterator_enabled` opt-in knob in `ReadOptions` that (when enabled) will instruct the iterator to automatically refresh itself to the latest superversion simultaneously preserving its' original snapshot for consistency.
