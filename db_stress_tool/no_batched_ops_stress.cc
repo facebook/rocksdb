@@ -221,14 +221,22 @@ class NonBatchedOpsStressTest : public StressTest {
             const std::string key = Key(i);
             std::string from_db;
 
+            // Temporarily disable error injection to verify the secondary
+            if (fault_fs_guard) {
+              fault_fs_guard->DisableThreadLocalErrorInjection(
+                  FaultInjectionIOType::kRead);
+              fault_fs_guard->DisableThreadLocalErrorInjection(
+                  FaultInjectionIOType::kMetadataRead);
+            }
+
             s = secondary_db_->Get(options, secondary_cfhs_[cf], key, &from_db);
 
-            if (!s.ok() && IsErrorInjectedAndRetryable(s)) {
-              fprintf(
-                  stdout,
-                  "Skipping secondary verification for key because error was "
-                  "injected into read\n");
-              continue;
+            // Re-enable error injection after verifying the secondary
+            if (fault_fs_guard) {
+              fault_fs_guard->EnableThreadLocalErrorInjection(
+                  FaultInjectionIOType::kRead);
+              fault_fs_guard->EnableThreadLocalErrorInjection(
+                  FaultInjectionIOType::kMetadataRead);
             }
 
             assert(!pre_read_expected_values.empty() &&
