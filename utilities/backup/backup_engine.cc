@@ -2235,6 +2235,9 @@ IOStatus BackupEngineImpl::VerifyBackup(BackupID backup_id,
   }
 
   // For all files registered in backup
+  std::vector<ComputeChecksumWorkItem> backup_verification_checksum_work_items;
+  std::unordered_map<std::string, std::string>
+      file_abs_path_to_checksum_hex_map;
   for (const auto& file_info : backup->GetFiles()) {
     const auto abs_path = GetAbsolutePath(file_info->filename);
     // check existence of the file
@@ -2251,25 +2254,95 @@ IOStatus BackupEngineImpl::VerifyBackup(BackupID backup_id,
                                   abs_path + ": " + size_info);
     }
     if (verify_with_checksum && !file_info->checksum_hex.empty()) {
-      // verify file checksum
-      std::string checksum_hex;
-      ROCKS_LOG_INFO(options_.info_log, "Verifying %s checksum...\n",
+      const std::string filename = file_info->GetDbFileName();
+      uint64_t number;
+      FileType type;
+      if (!ParseFileName(filename, &number, &type)) {
+        // In case of checksum verification, file parsing and its' number
+        // retrieval are not strictly required. Rather, it's just a best effort
+        // to preserve all the file related metadata within the task scope.
+        number = 0;
+      }
+
+      file_abs_path_to_checksum_hex_map[abs_path] = file_info->checksum_hex;
+      WorkItem backup_file_work_item(
+          abs_path, "" /* dst_path */, Temperature::kUnknown,
+          Temperature::kUnknown /* dst_temperature */, "" /* contents */,
+          backup_env_, nullptr /* dst_env */, EnvOptions(), false /* sync */,
+          options_.backup_rate_limiter.get(), 0 /* size_limit */,
+          nullptr /* stats */, {} /* progress_callback */,
+          kUnknownFileChecksumFuncName /* src_checksum_func_name */,
+          "" /* src_checksum_hex */, "" /* db_id */, "" /* db_session_id*/,
+          WorkItemType::ComputeChecksum);
+      ComputeChecksumWorkItem backup_file_checksum_work_item(
+          backup_file_work_item.result.get_future(), abs_path, number);
+
+      ROCKS_LOG_INFO(options_.info_log,
+                     "Scheduling checksum evaluation for %s...\n",
                      abs_path.c_str());
-      IOStatus io_s = ReadFileAndComputeChecksum(
-          abs_path, backup_fs_, EnvOptions(), 0 /* size_limit */, &checksum_hex,
-          Temperature::kUnknown);
-      if (!io_s.ok()) {
-        return io_s;
-      } else if (file_info->checksum_hex != checksum_hex) {
-        std::string checksum_info(
-            "Expected checksum is " + file_info->checksum_hex +
-            " while computed checksum is " + checksum_hex);
-        return IOStatus::Corruption("File corrupted: Checksum mismatch for " +
-                                    abs_path + ": " + checksum_info);
+      work_items_.write(std::move(backup_file_work_item));
+      backup_verification_checksum_work_items.push_back(
+          std::move(backup_file_checksum_work_item));
+    }
+  }
+
+  IOStatus io_s = IOStatus::OK();
+  if (verify_with_checksum) {
+    for (auto& item : backup_verification_checksum_work_items) {
+      // Given the limitations of the existing simple thread pooling model
+      // we deliberately decided to wait on each file checksum computation.
+      // Please refer to the comment below for more.
+      item.result.wait();
+      auto result = item.result.get();
+      if (result.io_status.ok()) {
+        auto find_it = file_abs_path_to_checksum_hex_map.find(item.file_path);
+        assert(find_it != file_abs_path_to_checksum_hex_map.end());
+        if (result.checksum_hex == find_it->second) {
+          ROCKS_LOG_INFO(options_.info_log,
+                         "Checksum successfully validated for %s\n",
+                         item.file_path.c_str());
+          continue;
+        }
+      }
+
+      std::string err_msg;
+      if (!result.io_status.ok()) {
+        err_msg =
+            "Failed to compute checksum for " + item.file_path +
+            ", IOStatus(code: ," + std::to_string(result.io_status.code()) +
+            ", subcode: " + std::to_string(result.io_status.subcode()) + ")";
+      } else {  // checksum mismatch
+        err_msg =
+            "File corruption! Checksum mismatch for " + item.file_path + ". " +
+            "Expected: " + file_abs_path_to_checksum_hex_map[item.file_path] +
+            ", got: " + result.checksum_hex;
+      }
+
+      ROCKS_LOG_WARN(options_.info_log, "%s", err_msg.c_str());
+      if (io_s.ok()) {
+        // Memoize only the first corruption for reporting purpose.
+        io_s = IOStatus::Corruption(err_msg);
+      } else {
+        // Ideally, we want to bail out as early as possible upon encountering
+        // the very first mismatch, which would not only reduce the observed
+        // user latency, but also limit (potentially remote) read IO to the
+        // absolute minimum and allow the thread pool to reclaim the resources
+        // earlier. Even better, if we could cancel all in-progress threads!
+        //
+        // Unfortunately, with our current simple thread pool implementation
+        // we do not have by-tag control / handle over running threads.
+        // Having the choice of 1) returning to the caller earlier and having
+        // dangling threads occupied in evaluating checksums in the background
+        // and 2) waiting for all threads to finish, we choose 2) for cleaner
+        // and more intuitive semantics.
+        //
+        // TODO: Reevaluate after onboarding backup engine to a more
+        //       sophisticated thread pool abstraction.
       }
     }
   }
-  return IOStatus::OK();
+
+  return io_s;
 }
 
 IOStatus BackupEngineImpl::CopyOrCreateFile(

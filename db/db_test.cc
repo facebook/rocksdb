@@ -3409,10 +3409,6 @@ class ModelDB : public DB {
     return Status::NotSupported();
   }
 
-  Status DEPRECATED_DeleteFile(std::string /*name*/) override {
-    return Status::OK();
-  }
-
   Status GetUpdatesSince(
       ROCKSDB_NAMESPACE::SequenceNumber,
       std::unique_ptr<ROCKSDB_NAMESPACE::TransactionLogIterator>*,
@@ -5294,7 +5290,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   for (int i = 0; i < kNKeys; i++) {
     keys[i] = i;
   }
-  RandomShuffle(std::begin(keys), std::end(keys));
+  RandomShuffle(std::begin(keys), std::end(keys), 301);
 
   Random rnd(301);
   Options options;
@@ -5319,7 +5315,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   options.compression_per_level[0] = kNoCompression;
   // No compression for the Ln whre L0 is compacted to
   options.compression_per_level[1] = kNoCompression;
-  // Snpapy compression for Ln+1
+  // Snappy compression for Ln+1
   options.compression_per_level[2] = kSnappyCompression;
 
   OnFileDeletionListener* listener = new OnFileDeletionListener();
@@ -5331,6 +5327,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   // be compressed, so there shouldn't be any compression.
   for (int i = 0; i < 20; i++) {
     ASSERT_OK(Put(Key(keys[i]), CompressibleString(&rnd, 4000)));
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   }
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -5351,6 +5348,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   ASSERT_EQ(num_block_compressed, 0);
   for (int i = 21; i < 120; i++) {
     ASSERT_OK(Put(Key(keys[i]), CompressibleString(&rnd, 4000)));
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   }
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -5373,7 +5371,10 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   db_->GetColumnFamilyMetaData(&cf_meta);
   for (const auto& file : cf_meta.levels[4].files) {
     listener->SetExpectedFileName(dbname_ + file.name);
-    ASSERT_OK(dbfull()->DEPRECATED_DeleteFile(file.name));
+    Slice start(file.smallestkey), limit(file.largestkey);
+    const RangePtr ranges(&start, &limit);
+    EXPECT_OK(dbfull()->DeleteFilesInRanges(dbfull()->DefaultColumnFamily(),
+                                            &ranges, true /* include_end */));
   }
   listener->VerifyMatchedCount(cf_meta.levels[4].files.size());
 

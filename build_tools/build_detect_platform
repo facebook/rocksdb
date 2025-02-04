@@ -360,9 +360,13 @@ EOF
     fi
 
     if ! test $ROCKSDB_DISABLE_ZSTD; then
-        # Test whether zstd library is installed
+        # Test whether zstd library is installed with minimum version
+        # (Keep in sync with compression.h)
         $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
           #include <zstd.h>
+          #if ZSTD_VERSION_NUMBER < 10400
+          #error "ZSTD support requires version >= 1.4.0 (libzstd-devel)"
+          #endif  // ZSTD_VERSION_NUMBER
           int main() {}
 EOF
         if [ "$?" = 0 ]; then

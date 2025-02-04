@@ -485,6 +485,7 @@ simple_default_params = {
     "write_buffer_size": 32 * 1024 * 1024,
     "level_compaction_dynamic_level_bytes": lambda: random.randint(0, 1),
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
+    "test_secondary": lambda: random.choice([0, 1]),
 }
 
 blackbox_simple_default_params = {
@@ -1017,11 +1018,18 @@ def finalize_and_sanitize(src_params):
         dest_params["use_full_merge_v1"] = 0
         dest_params["enable_pipelined_write"] = 0
         dest_params["use_attribute_group"] = 0
-    # TODO(hx235): Enable below fault injections again after resolving the apparent WAL hole
-    # that the mishandling of these faults create and is detected by `track_and_verify_wals=0`
-    if dest_params.get("track_and_verify_wals", 0) == 1:
+    # TODO(hx235): Re-enable write fault injections with pessimistic 
+    # transactions after resolving the WAL hole caused by how corrupted 
+    # WAL is handled under 2PC upon WAL write error recovery. 
+    if (
+        dest_params.get("track_and_verify_wals", 0) == 1 
+        and dest_params.get("use_optimistic_txn") == 0
+    ):
         dest_params["metadata_write_fault_one_in"] = 0
         dest_params["write_fault_one_in"] = 0
+    # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
+    if dest_params.get("test_secondary") == 1:
+        dest_params["continuous_verification_interval"] = 0
     return dest_params
 
 

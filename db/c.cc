@@ -1858,10 +1858,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_approximate_sizes_cf_with_flags(
   delete[] ranges;
 }
 
-void DEPRECATED_rocksdb_delete_file(rocksdb_t* db, const char* name) {
-  db->rep->DEPRECATED_DeleteFile(name);
-}
-
 const rocksdb_livefiles_t* rocksdb_livefiles(rocksdb_t* db) {
   rocksdb_livefiles_t* result = new rocksdb_livefiles_t;
   db->rep->GetLiveFilesMetaData(&result->rep);
