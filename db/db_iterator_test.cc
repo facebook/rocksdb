@@ -2548,7 +2548,7 @@ TEST_P(DBIteratorTest, AutoRefreshIterator) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   for (const bool auto_refresh_enabled : {false, true}) {
-    for (const bool use_snapshot : {false, true}) {
+    for (const bool explicit_snapshot : {false, true}) {
       DestroyAndReopen(options);
       // Multi dimensional iterator:
       //
@@ -2566,9 +2566,14 @@ TEST_P(DBIteratorTest, AutoRefreshIterator) {
       }
 
       ReadOptions read_options;
-      read_options.snapshot = use_snapshot ? db_->GetSnapshot() : nullptr;
+      std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+      if (explicit_snapshot) {
+        snapshot = std::make_unique<ManagedSnapshot>(db_);
+      }
+      read_options.snapshot =
+          explicit_snapshot ? snapshot->snapshot() : nullptr;
       read_options.auto_refresh_iterator_enabled = auto_refresh_enabled;
-      Iterator* iter = NewIterator(read_options);
+      std::unique_ptr<Iterator> iter(NewIterator(read_options));
 
       // This update should NOT be visible from the iterator.
       ASSERT_OK(Put(Key(5), "new val"));
@@ -2593,23 +2598,12 @@ TEST_P(DBIteratorTest, AutoRefreshIterator) {
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         ASSERT_OK(iter->status());
         it_num++;
-
         if (it_num == trigger_compact_on_it) {
           // Bump the superversion by manually scheduling flush + compaction.
           ASSERT_OK(Flush());
           ASSERT_OK(
               dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
           ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
-
-          // Flush and compaction background tasks are completed by now.
-          std::vector<LiveFileMetaData> new_files;
-          db_->GetLiveFilesMetaData(&new_files);
-
-          // We expect a single, new SST file.
-          ASSERT_EQ(new_files.size(), 1);
-          for (const auto& old_file : old_files) {
-            ASSERT_TRUE(old_file.file_number != new_files[0].file_number);
-          }
 
           // For accuracy, capture the memtables size right before consecutive
           // iterator call to Next() will update its' stale superversion ref.
@@ -2623,10 +2617,12 @@ TEST_P(DBIteratorTest, AutoRefreshIterator) {
           ASSERT_OK(iter->GetProperty("rocksdb.iterator.super-version-number",
                                       &prop_value));
           uint64_t new_superversion_number = std::stoi(prop_value);
+          Status expected_status_for_preexisting_files;
           if (!auto_refresh_enabled) {
             ASSERT_EQ(superversion_number, new_superversion_number);
             ASSERT_EQ(all_memtables_size_after_refresh,
                       all_memtables_size_before_refresh);
+            expected_status_for_preexisting_files = Status::OK();
           } else {
             // Iterator is expected to detect its' superversion staleness.
             ASSERT_LT(superversion_number, new_superversion_number);
@@ -2635,6 +2631,12 @@ TEST_P(DBIteratorTest, AutoRefreshIterator) {
             // upon automatical iterator refresh.
             ASSERT_GT(all_memtables_size_before_refresh,
                       all_memtables_size_after_refresh);
+            expected_status_for_preexisting_files = Status::NotFound();
+          }
+
+          for (const auto& file : old_files) {
+            ASSERT_EQ(env_->FileExists(file.db_path + "/" + file.name),
+                      expected_status_for_preexisting_files);
           }
         }
 
@@ -2652,11 +2654,6 @@ TEST_P(DBIteratorTest, AutoRefreshIterator) {
           val += 1000;
         }
         ASSERT_EQ(kv->second, "val" + std::to_string(val));
-      }
-
-      delete iter;
-      if (use_snapshot) {
-        db_->ReleaseSnapshot(read_options.snapshot);
       }
     }
   }
