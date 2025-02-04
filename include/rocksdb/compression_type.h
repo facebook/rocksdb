@@ -27,13 +27,6 @@ enum CompressionType : unsigned char {
   kXpressCompression = 0x6,
   kZSTD = 0x7,
 
-  // Only use kZSTDNotFinalCompression if you have to use ZSTD lib older than
-  // 0.8.0 or consider a possibility of downgrading the service or copying
-  // the database files to another service running with an older version of
-  // RocksDB that doesn't have kZSTD. Otherwise, you should use kZSTD. We will
-  // eventually remove the option from the public API.
-  kZSTDNotFinalCompression = 0x40,
-
   // kDisableCompressionOption is used to disable some compression options.
   kDisableCompressionOption = 0xff,
 };

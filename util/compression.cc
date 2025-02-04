@@ -48,7 +48,7 @@ int ZSTDStreamingCompress::Compress(const char* input, size_t input_size,
   if (input_size == 0) {
     return 0;
   }
-#ifndef ZSTD_ADVANCED
+#ifndef ZSTD
   (void)input;
   (void)input_size;
   (void)output;
@@ -77,7 +77,7 @@ int ZSTDStreamingCompress::Compress(const char* input, size_t input_size,
 }
 
 void ZSTDStreamingCompress::Reset() {
-#ifdef ZSTD_ADVANCED
+#ifdef ZSTD
   ZSTD_CCtx_reset(cctx_, ZSTD_ResetDirective::ZSTD_reset_session_only);
   input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
 #endif
@@ -91,7 +91,7 @@ int ZSTDStreamingUncompress::Uncompress(const char* input, size_t input_size,
   if (input_size == 0) {
     return 0;
   }
-#ifdef ZSTD_ADVANCED
+#ifdef ZSTD
   if (input) {
     // New input
     input_buffer_ = {input, input_size, /*pos=*/0};
@@ -113,7 +113,7 @@ int ZSTDStreamingUncompress::Uncompress(const char* input, size_t input_size,
 }
 
 void ZSTDStreamingUncompress::Reset() {
-#ifdef ZSTD_ADVANCED
+#ifdef ZSTD
   ZSTD_DCtx_reset(dctx_, ZSTD_ResetDirective::ZSTD_reset_session_only);
   input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
 #endif

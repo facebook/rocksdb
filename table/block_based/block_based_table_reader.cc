@@ -740,11 +740,8 @@ Status BlockBasedTable::Open(
 
   // Populate BlockCreateContext
   bool blocks_definitely_zstd_compressed =
-      rep->table_properties &&
-      (rep->table_properties->compression_name ==
-           CompressionTypeToString(kZSTD) ||
-       rep->table_properties->compression_name ==
-           CompressionTypeToString(kZSTDNotFinalCompression));
+      rep->table_properties && (rep->table_properties->compression_name ==
+                                CompressionTypeToString(kZSTD));
   rep->create_context = BlockCreateContext(
       &rep->table_options, &rep->ioptions, rep->ioptions.stats,
       blocks_definitely_zstd_compressed, block_protection_bytes_per_key,
