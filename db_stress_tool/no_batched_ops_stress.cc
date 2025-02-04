@@ -221,8 +221,15 @@ class NonBatchedOpsStressTest : public StressTest {
             const std::string key = Key(i);
             std::string from_db;
 
-            s = secondary_db_->Get(options, column_families_[cf], key,
-                                   &from_db);
+            s = secondary_db_->Get(options, secondary_cfhs_[cf], key, &from_db);
+
+            if (!s.ok() && IsErrorInjectedAndRetryable(s)) {
+              fprintf(
+                  stdout,
+                  "Skipping secondary verification for key because error was "
+                  "injected into read\n");
+              continue;
+            }
 
             assert(!pre_read_expected_values.empty() &&
                    static_cast<size_t>(i - start) <
@@ -232,7 +239,6 @@ class NonBatchedOpsStressTest : public StressTest {
                              pre_read_expected_values[i - start]);
           }
         }
-
       } else if (method == VerificationMethod::kGetEntity) {
         for (int64_t i = start; i < end; ++i) {
           if (thread->shared->HasVerificationFailedYet()) {
@@ -2970,7 +2976,7 @@ class NonBatchedOpsStressTest : public StressTest {
     } else {
       VerificationAbort(
           shared,
-          msg_prefix + "Non-OK status" + read_u64ts.str() + s.ToString(), cf,
+          msg_prefix + ": Non-OK status" + read_u64ts.str() + s.ToString(), cf,
           key, "", Slice(expected_value_data, expected_value_data_size));
       return false;
     }
