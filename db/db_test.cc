@@ -5290,7 +5290,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   for (int i = 0; i < kNKeys; i++) {
     keys[i] = i;
   }
-  RandomShuffle(std::begin(keys), std::end(keys));
+  RandomShuffle(std::begin(keys), std::end(keys), 301);
 
   Random rnd(301);
   Options options;
@@ -5327,6 +5327,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   // be compressed, so there shouldn't be any compression.
   for (int i = 0; i < 20; i++) {
     ASSERT_OK(Put(Key(keys[i]), CompressibleString(&rnd, 4000)));
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   }
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -5347,6 +5348,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   ASSERT_EQ(num_block_compressed, 0);
   for (int i = 21; i < 120; i++) {
     ASSERT_OK(Put(Key(keys[i]), CompressibleString(&rnd, 4000)));
+    ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   }
   ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
