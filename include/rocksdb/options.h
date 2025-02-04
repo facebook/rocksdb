@@ -1948,14 +1948,14 @@ struct ReadOptions {
 
   // EXPERIMENTAL
   //
-  // When enabled, the iterator will opportunistically check whether its current
-  // superversion number matches most recent CF counterpart during Seek(),
-  // Next() and Prev() calls. If not, it will refresh itself to the latest CF
-  // superversion preserving the very same snapshot it's been assigned to for
-  // consistency. This allows the iterator to adapt to updates such as new
-  // memtables, compactions and flushes.
+  // Long-running iterators are holding onto memory and storage resources long
+  // after they are obsolete. This setting (when enabled) will fix that problem
+  // as long as iterators periodically make some progress. The feature is
+  // engineered so that the performance impact should be negligible. We expect
+  // the default value to be true some time in the future.
   //
-  // Note: This option requires iterator to have allow_refresh_ set to `true`.
+  // Note: Does not have effect on TransactionDB with WRITE_PREPARED or
+  //       WRITE_UNPREPARED policies.
   //
   // Default: false
   bool auto_refresh_iterator_enabled = false;
