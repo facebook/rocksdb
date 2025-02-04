@@ -1,1 +1,1 @@
-Introduced new `auto_refresh_iterator_enabled` opt-in knob in `ReadOptions` that (when enabled) will instruct the iterator to automatically refresh itself to the latest superversion simultaneously preserving its' original snapshot for consistency.
+Introduced new `auto_refresh_iterator_enabled` opt-in knob in `ReadOptions` that (when enabled) will release obsolete memory and storage resources for as long as the iterator is periodically making progress.
