@@ -2544,6 +2544,124 @@ TEST_P(DBIteratorTest, RefreshWithSnapshot) {
   ASSERT_OK(db_->Close());
 }
 
+TEST_P(DBIteratorTest, AutoRefreshIterator) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  for (const bool auto_refresh_enabled : {false, true}) {
+    for (const bool use_snapshot : {false, true}) {
+      DestroyAndReopen(options);
+      // Multi dimensional iterator:
+      //
+      // L0 (level iterator): [key000000]
+      // L1 (table iterator): [key000001]
+      // Memtable           : [key000000, key000999]
+      for (int i = 0; i < 1002; i++) {
+        ASSERT_OK(Put(Key(i % 1000), "val" + std::to_string(i)));
+        if (i <= 1) {
+          ASSERT_OK(Flush());
+        }
+        if (i == 0) {
+          MoveFilesToLevel(1);
+        }
+      }
+
+      ReadOptions read_options;
+      read_options.snapshot = use_snapshot ? db_->GetSnapshot() : nullptr;
+      read_options.auto_refresh_iterator_enabled = auto_refresh_enabled;
+      Iterator* iter = NewIterator(read_options);
+
+      // This update should NOT be visible from the iterator.
+      ASSERT_OK(Put(Key(5), "new val"));
+
+      ASSERT_EQ(1, NumTableFilesAtLevel(1));
+      ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+      uint64_t all_memtables_size_before_refresh;
+      uint64_t all_memtables_size_after_refresh;
+
+      std::string prop_value;
+      ASSERT_OK(iter->GetProperty("rocksdb.iterator.super-version-number",
+                                  &prop_value));
+      int superversion_number = std::stoi(prop_value);
+
+      std::vector<LiveFileMetaData> old_files;
+      db_->GetLiveFilesMetaData(&old_files);
+
+      int it_num = 0;
+      int trigger_compact_on_it = 678;
+      std::unordered_map<std::string, std::string> kvs;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ASSERT_OK(iter->status());
+        it_num++;
+
+        if (it_num == trigger_compact_on_it) {
+          // Bump the superversion by manually scheduling flush + compaction.
+          ASSERT_OK(Flush());
+          ASSERT_OK(
+              dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+          ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
+
+          // Flush and compaction background tasks are completed by now.
+          std::vector<LiveFileMetaData> new_files;
+          db_->GetLiveFilesMetaData(&new_files);
+
+          // We expect a single, new SST file.
+          ASSERT_EQ(new_files.size(), 1);
+          for (const auto& old_file : old_files) {
+            ASSERT_TRUE(old_file.file_number != new_files[0].file_number);
+          }
+
+          // For accuracy, capture the memtables size right before consecutive
+          // iterator call to Next() will update its' stale superversion ref.
+          dbfull()->GetIntProperty("rocksdb.size-all-mem-tables",
+                                   &all_memtables_size_before_refresh);
+        }
+
+        if (it_num == trigger_compact_on_it + 1) {
+          dbfull()->GetIntProperty("rocksdb.size-all-mem-tables",
+                                   &all_memtables_size_after_refresh);
+          ASSERT_OK(iter->GetProperty("rocksdb.iterator.super-version-number",
+                                      &prop_value));
+          uint64_t new_superversion_number = std::stoi(prop_value);
+          if (!auto_refresh_enabled) {
+            ASSERT_EQ(superversion_number, new_superversion_number);
+            ASSERT_EQ(all_memtables_size_after_refresh,
+                      all_memtables_size_before_refresh);
+          } else {
+            // Iterator is expected to detect its' superversion staleness.
+            ASSERT_LT(superversion_number, new_superversion_number);
+            // ... and since our iterator was the only reference to that very
+            // superversion, we expect most of the active memory to be returned
+            // upon automatical iterator refresh.
+            ASSERT_GT(all_memtables_size_before_refresh,
+                      all_memtables_size_after_refresh);
+          }
+        }
+
+        kvs[iter->key().ToString()] = iter->value().ToString();
+      }
+      ASSERT_OK(iter->status());
+
+      // Data validation.
+      ASSERT_EQ(kvs.size(), 1000);
+      for (int i = 0; i < 1000; i++) {
+        auto kv = kvs.find(Key(i));
+        ASSERT_TRUE(kv != kvs.end());
+        int val = i;
+        if (i <= 1) {
+          val += 1000;
+        }
+        ASSERT_EQ(kv->second, "val" + std::to_string(val));
+      }
+
+      delete iter;
+      if (use_snapshot) {
+        db_->ReleaseSnapshot(read_options.snapshot);
+      }
+    }
+  }
+}
+
 TEST_P(DBIteratorTest, CreationFailure) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::NewInternalIterator:StatusCallback", [](void* arg) {
