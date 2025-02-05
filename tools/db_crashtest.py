@@ -1073,6 +1073,7 @@ def gen_cmd_params(args):
     if (
         not args.test_best_efforts_recovery
         and not args.test_tiered_storage
+        and params.get("test_secondary", 0) == 0
         and random.choice([0] * 9 + [1]) == 1
     ):
         params.update(blob_params)
