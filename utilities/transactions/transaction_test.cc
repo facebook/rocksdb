@@ -19,6 +19,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/secondary_index.h"
+#include "rocksdb/utilities/secondary_index_simple.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
@@ -8015,75 +8016,9 @@ TEST_P(TransactionTest, SecondaryIndexPutDelete) {
     return;
   }
 
-  // A basic secondary index that indexes the default column.
-  class DefaultSecondaryIndex : public SecondaryIndex {
-   public:
-    void SetPrimaryColumnFamily(ColumnFamilyHandle* cfh) override {
-      primary_cfh_ = cfh;
-    }
-
-    void SetSecondaryColumnFamily(ColumnFamilyHandle* cfh) override {
-      secondary_cfh_ = cfh;
-    }
-
-    ColumnFamilyHandle* GetPrimaryColumnFamily() const override {
-      return primary_cfh_;
-    }
-
-    ColumnFamilyHandle* GetSecondaryColumnFamily() const override {
-      return secondary_cfh_;
-    }
-
-    Slice GetPrimaryColumnName() const override {
-      return kDefaultWideColumnName;
-    }
-
-    Status UpdatePrimaryColumnValue(
-        const Slice& /* primary_key */, const Slice& /* primary_column_value */,
-        std::optional<
-            std::variant<Slice, std::string>>* /* updated_column_value */)
-        const override {
-      return Status::OK();
-    }
-
-    Status GetSecondaryKeyPrefix(
-        const Slice& /* primary_key */, const Slice& primary_column_value,
-        std::variant<Slice, std::string>* secondary_key_prefix) const override {
-      assert(secondary_key_prefix);
-
-      *secondary_key_prefix = primary_column_value;
-
-      return Status::OK();
-    }
-
-    Status FinalizeSecondaryKeyPrefix(
-        std::variant<Slice, std::string>* secondary_key_prefix) const override {
-      assert(secondary_key_prefix);
-
-      std::string prefix;
-      PutLengthPrefixedSlice(
-          &prefix, SecondaryIndexHelper::AsSlice(*secondary_key_prefix));
-
-      *secondary_key_prefix = std::move(prefix);
-
-      return Status::OK();
-    }
-
-    Status GetSecondaryValue(const Slice& /* primary_key */,
-                             const Slice& /* primary_column_value */,
-                             const Slice& /* previous_column_value */,
-                             std::optional<std::variant<Slice, std::string>>*
-                             /* secondary_value */) const override {
-      return Status::OK();
-    }
-
-   private:
-    ColumnFamilyHandle* primary_cfh_{};
-    ColumnFamilyHandle* secondary_cfh_{};
-  };
-
   txn_db_options.secondary_indices.emplace_back(
-      std::make_shared<DefaultSecondaryIndex>());
+      std::make_shared<SimpleSecondaryIndex>(
+          kDefaultWideColumnName.ToString()));
 
   ASSERT_OK(ReOpen());
 
