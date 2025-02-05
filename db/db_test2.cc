@@ -1475,8 +1475,7 @@ TEST_P(PresetCompressionDictTest, Flush) {
     // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
     // number of bytes needs to be adjusted in case the cached block is in
     // ZSTD's digested dictionary format.
-    if (compression_type_ != kZSTD &&
-        compression_type_ != kZSTDNotFinalCompression) {
+    if (compression_type_ != kZSTD) {
       // Although we limited buffering to `kBlockLen`, there may be up to two
       // blocks of data included in the dictionary since we only check limit
       // after each block is built.
@@ -1553,8 +1552,7 @@ TEST_P(PresetCompressionDictTest, CompactNonBottommost) {
     // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
     // number of bytes needs to be adjusted in case the cached block is in
     // ZSTD's digested dictionary format.
-    if (compression_type_ != kZSTD &&
-        compression_type_ != kZSTDNotFinalCompression) {
+    if (compression_type_ != kZSTD) {
       // Although we limited buffering to `kBlockLen`, there may be up to two
       // blocks of data included in the dictionary since we only check limit
       // after each block is built.
@@ -1615,8 +1613,7 @@ TEST_P(PresetCompressionDictTest, CompactBottommost) {
   // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
   // number of bytes needs to be adjusted in case the cached block is in ZSTD's
   // digested dictionary format.
-  if (compression_type_ != kZSTD &&
-      compression_type_ != kZSTDNotFinalCompression) {
+  if (compression_type_ != kZSTD) {
     // Although we limited buffering to `kBlockLen`, there may be up to two
     // blocks of data included in the dictionary since we only check limit after
     // each block is built.
@@ -8000,7 +7997,7 @@ TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   ASSERT_EQ(0, options.statistics->getTickerCount(GET_HIT_L0));
 }
 
-#if defined(ZSTD_ADVANCED)
+#if defined(ZSTD)
 TEST_F(DBTest2, ZSTDChecksum) {
   // Verify that corruption during decompression is caught.
   Options options = CurrentOptions();
