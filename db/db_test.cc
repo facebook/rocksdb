@@ -5345,7 +5345,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   // above compression settings for each level, there will be some compression.
   ASSERT_OK(options.statistics->Reset());
   ASSERT_EQ(num_block_compressed, 0);
-  for (int i = 21; i < 120; i++) {
+  for (int i = 20; i < 120; i++) {
     ASSERT_OK(Put(Key(keys[i]), CompressibleString(&rnd, 4000)));
     ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   }
@@ -5369,23 +5369,34 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
 
-  // Ensure that files are non-overlapping and encompass full key range
-  // between 'smallestkey' and 'largestkey' recorded in CF file metadata.
-  std::vector<std::pair<std::string, std::string>> no_overlap_intervals;
-  for (size_t i = 0; i < cf_meta.levels.size(); i++) {
-    for (const auto& file : cf_meta.levels[i].files) {
-      auto smallest_int_key = IdFromKey(file.smallestkey);
-      auto largest_int_key = IdFromKey(file.largestkey);
-      ASSERT_EQ(file.num_entries, largest_int_key - smallest_int_key + 1);
-
-      for (const auto& interval : no_overlap_intervals) {
-        ASSERT_FALSE(file.smallestkey <= interval.second &&
-                     file.largestkey >= interval.first);
+  // Ensure that L1+ files are non-overlapping and together with L0 encompass
+  // full key range between smallestkey and largestkey from CF file metadata.
+  int largestkey_in_prev_level = -1;
+  int keys_found = 0;
+  for (int level = (int)cf_meta.levels.size() - 1; level >= 0; level--) {
+    int files_in_level = (int)cf_meta.levels[level].files.size();
+    int largestkey_in_prev_file = -1;
+    for (int j = 0; j < files_in_level; j++) {
+      int smallestkey = IdFromKey(cf_meta.levels[level].files[j].smallestkey);
+      int largestkey = IdFromKey(cf_meta.levels[level].files[j].largestkey);
+      int num_entries = (int)cf_meta.levels[level].files[j].num_entries;
+      ASSERT_EQ(num_entries, largestkey - smallestkey + 1);
+      keys_found += num_entries;
+      if (level > 0) {
+        if (j == 0) {
+          ASSERT_GT(smallestkey, largestkey_in_prev_level);
+        }
+        if (j > 0) {
+          ASSERT_GT(smallestkey, largestkey_in_prev_file);
+        }
+        if (j == files_in_level - 1) {
+          largestkey_in_prev_level = largestkey;
+        }
       }
-      no_overlap_intervals.emplace_back(
-          std::make_pair(file.smallestkey, file.largestkey));
+      largestkey_in_prev_file = largestkey;
     }
   }
+  ASSERT_EQ(keys_found, kNKeys);
 
   for (const auto& file : cf_meta.levels[4].files) {
     listener->SetExpectedFileName(dbname_ + file.name);
