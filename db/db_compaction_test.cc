@@ -5856,6 +5856,26 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   options.listeners.emplace_back(collector);
   DestroyAndReopen(options);
 
+  // Verify that the internal statistics for num_running_compactions and
+  // num_running_compaction_sorted_runs start and end at valid states
+  uint64_t num_running_compactions = 0;
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                                  &num_running_compactions));
+  ASSERT_EQ(num_running_compactions, 0);
+  uint64_t num_running_compaction_sorted_runs = 0;
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kNumRunningCompactionSortedRuns,
+                          &num_running_compaction_sorted_runs));
+  ASSERT_EQ(num_running_compaction_sorted_runs, 0);
+  // Check that the stat actually gets changed some time between the start and
+  // end of compaction
+  std::atomic<bool> sorted_runs_count_incremented = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionMergingIterator::UpdateInternalStats",
+      [&](void*) { sorted_runs_count_incremented = true; });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
   for (int i = 0; i < 32; i++) {
     for (int j = 0; j < 5000; j++) {
       ASSERT_OK(Put(std::to_string(j), std::string(1, 'A')));
@@ -5869,6 +5889,19 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   ColumnFamilyData* cfd = cfh->cfd();
 
   VerifyCompactionStats(*cfd, *collector);
+  // There should be no more running compactions, and thus no more sorted runs
+  // to process
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                                  &num_running_compactions));
+  ASSERT_EQ(num_running_compactions, 0);
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kNumRunningCompactionSortedRuns,
+                          &num_running_compaction_sorted_runs));
+  ASSERT_EQ(num_running_compaction_sorted_runs, 0);
+  ASSERT_TRUE(sorted_runs_count_incremented);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(DBCompactionTest, SubcompactionEvent) {

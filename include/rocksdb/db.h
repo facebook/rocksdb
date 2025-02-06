@@ -1210,6 +1210,10 @@ class DB {
     //      running compactions.
     static const std::string kNumRunningCompactions;
 
+    //  "rocksdb.num-running-compaction-sorted-runs" - returns the number of
+    //  sorted runs being processed by currently running compactions.
+    static const std::string kNumRunningCompactionSortedRuns;
+
     //  "rocksdb.background-errors" - returns accumulated number of background
     //      errors.
     static const std::string kBackgroundErrors;
