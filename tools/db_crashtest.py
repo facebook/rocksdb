@@ -1032,9 +1032,6 @@ def finalize_and_sanitize(src_params):
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
         dest_params["continuous_verification_interval"] = 0
-    if dest_params.get("enable_remote_compaction", 0) == 1:
-        # TODO(jaykorean): Enable Merge Operator in Remote Compaction
-        dest_params["use_merge"] = 0
     return dest_params
 
 
