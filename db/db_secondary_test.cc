@@ -507,6 +507,32 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
   verify_db_func("new_foo_value", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, Debug) {
+  Options options;
+  options.env = env_;
+  options.sst_file_manager = nullptr;
+  Reopen(options);
+  WriteOptions wo;
+  wo.disableWAL = true;
+  ASSERT_OK(dbfull()->Put(wo, "key1", "old_value"));
+  ASSERT_OK(dbfull()->Put(wo, "key2", "old_value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->Put(wo, "key1", "new_value"));
+  ASSERT_OK(dbfull()->Put(wo, "key3", "new_value"));
+  ASSERT_OK(Flush());
+
+  Options options1;
+  options1.env = env_;
+  // options1.max_open_files = -1;
+  OpenSecondary(options1);
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  std::string value;
+  ASSERT_OK(db_secondary_->Get(ReadOptions(), "key2", &value));
+  ASSERT_EQ("old_value", value);
+}
+
 namespace {
 class TraceFileEnv : public EnvWrapper {
  public:

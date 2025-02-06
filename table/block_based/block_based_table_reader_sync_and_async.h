@@ -182,11 +182,27 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     if (s.ok()) {
       if ((req.result.size() != req.len) ||
           (req_offset + BlockSizeWithTrailer(handle) > req.result.size())) {
-        s = Status::Corruption("truncated block read from " +
+        std::size_t file_size = 0;
+        if (ioptions.env) {
+          Status get_file_size_s =
+              ioptions.env->GetFileSize(rep_->file->file_name(), &file_size);
+          if (!get_file_size_s.ok()) {
+            ROCKS_LOG_INFO(ioptions.logger,
+                           "before block fetcher truncated block read get file "
+                           "size files. %s",
+                           get_file_size_s.ToString().c_str());
+          }
+        }
+        s = Status::Corruption("sync and async truncated block read from " +
                                rep_->file->file_name() + " offset " +
                                std::to_string(handle.offset()) + ", expected " +
                                std::to_string(req.len) + " bytes, got " +
                                std::to_string(req.result.size()));
+        ROCKS_LOG_INFO(
+            ioptions.logger,
+            "sync and async truncated block read from. %s file size: %" PRIu64
+            "",
+            s.ToString().c_str(), file_size);
       }
     }
 
