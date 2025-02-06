@@ -5952,6 +5952,7 @@ Status DBImpl::IngestExternalFiles(
 
     num_running_ingest_file_ += static_cast<int>(num_cfs);
     TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
+    TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter:2");
 
     bool at_least_one_cf_need_flush = false;
     std::vector<bool> need_flush(num_cfs, false);
