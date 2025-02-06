@@ -410,7 +410,6 @@ void WriteThread::JoinBatchGroup(Writer* w) {
     SetState(w, STATE_GROUP_LEADER);
   }
 
-  TEST_SYNC_POINT("WriteThread::JoinBatchGroup::AfterLinkOne");
   TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Wait", w);
   TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Wait2", w);
 

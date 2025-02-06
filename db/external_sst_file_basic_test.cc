@@ -265,7 +265,7 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   SyncPoint::GetInstance()->LoadDependency({
       {"DBImpl::IngestExternalFile:AfterIncIngestFileCounter",
        "ExternalSSTFileBasicTest.LiveWriteStart"},
-      {"WriteThread::JoinBatchGroup::AfterLinkOne",
+      {"WriteThread::JoinBatchGroup:Wait",
        "DBImpl::IngestExternalFile:AfterIncIngestFileCounter:2"},
   });
   SyncPoint::GetInstance()->EnableProcessing();
