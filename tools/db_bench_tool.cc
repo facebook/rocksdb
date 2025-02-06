@@ -1808,6 +1808,9 @@ DEFINE_bool(track_and_verify_wals_in_manifest, false,
 
 DEFINE_bool(track_and_verify_wals, false, "See Options.track_and_verify_wals");
 
+DEFINE_bool(enable_remote_compaction, false,
+            "Enable (simulated) Remote Compaction");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
