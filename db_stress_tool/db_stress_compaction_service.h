@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "include/rocksdb/options.h"
+#include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
 
