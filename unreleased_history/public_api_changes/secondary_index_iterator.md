@@ -1,0 +1,1 @@
+Updated the query API of the experimental secondary indexing feature by removing the earlier `SecondaryIndex::NewIterator` virtual and adding a `SecondaryIndexIterator` class that can be utilized by applications to find the primary keys for a given search target.
