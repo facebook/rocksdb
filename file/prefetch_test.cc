@@ -3336,6 +3336,15 @@ TEST_F(FilePrefetchBufferTest, ForCompaction) {
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(strncmp(result.data(), content.substr(40000, 20000).c_str(), 20000),
             0);
+
+  // Try reading past end of file
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 60000 /* offset */,
+                                   10000 /* n */, &result, &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(
+      strncmp(result.data(), content.substr(60000, 64 * 1024 - 60000).c_str(),
+              64 * 1024 - 60000),
+      0);
 }
 
 class FSBufferPrefetchTest

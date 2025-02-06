@@ -865,8 +865,7 @@ bool FilePrefetchBuffer::TryReadFromCacheUntracked(
   if (copy_to_overlap_buffer) {
     buf = overlap_buf_;
   }
-  assert(buf->offset_ <= offset);
-  assert(buf->IsDataBlockInBuffer(offset, n));
+  assert(buf->IsOffsetInBuffer(offset));
   uint64_t offset_in_buffer = offset - buf->offset_;
   *result = Slice(buf->buffer_.BufferStart() + offset_in_buffer, n);
   if (prefetched) {
