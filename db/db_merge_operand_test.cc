@@ -596,6 +596,42 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBaseDeletionInImmMem) {
   }
 }
 
+TEST_F(DBMergeOperandTest, GetMergeOperandCallbackStopAtImm) {
+  Options options = CurrentOptions();
+  options.max_write_buffer_number = 10;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  ASSERT_OK(db_->PauseBackgroundWork());
+  ASSERT_OK(Merge("key", "v1"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  // Keep this merge in an immutable memtable
+  uint64_t num_imm = 0;
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kNumImmutableMemTable, &num_imm));
+  ASSERT_EQ(num_imm, 1);
+  ASSERT_OK(Merge("key", "v2"));
+
+  std::vector<PinnableSlice> merge_operands(2);
+  GetMergeOperandsOptions merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands = 2;
+  int num_fetched = 0;
+  merge_operands_info.continue_cb = [&num_fetched](Slice /* value */) {
+    num_fetched++;
+    // Stop in the first immutable memtable.
+    return num_fetched < 2;
+  };
+  int num_merge_operands = 0;
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "key", merge_operands.data(),
+                                  &merge_operands_info, &num_merge_operands));
+  ASSERT_EQ(2, num_merge_operands);
+  ASSERT_EQ(2, num_fetched);
+
+  ASSERT_EQ("v1", merge_operands[0]);
+  ASSERT_EQ("v2", merge_operands[1]);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

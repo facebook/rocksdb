@@ -2566,6 +2566,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         // Return all merge operands for get_impl_options.key
         *get_impl_options.number_of_operands =
             static_cast<int>(merge_context.GetNumOperands());
+        // OK status is returned, some merge operand is found.
+        assert(*get_impl_options.number_of_operands > 0);
         if (*get_impl_options.number_of_operands >
             get_impl_options.get_merge_operands_options
                 ->expected_max_number_of_operands) {
