@@ -3317,25 +3317,39 @@ TEST_F(FilePrefetchBufferTest, ForCompaction) {
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 0 /* offset */,
                                    3000 /* n */, &result, &s, true));
   ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(result.size(), 3000);
   ASSERT_EQ(strncmp(result.data(), content.substr(0, 3000).c_str(), 3000), 0);
 
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 3000 /* offset */,
                                    10000 /* n */, &result, &s, true));
   ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(result.size(), 10000);
   ASSERT_EQ(strncmp(result.data(), content.substr(3000, 10000).c_str(), 10000),
             0);
 
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 15000 /* offset */,
                                    4096 /* n */, &result, &s, true));
   ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(result.size(), 4096);
   ASSERT_EQ(strncmp(result.data(), content.substr(15000, 4096).c_str(), 4096),
             0);
 
   ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 40000 /* offset */,
                                    20000 /* n */, &result, &s, true));
   ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(result.size(), 20000);
   ASSERT_EQ(strncmp(result.data(), content.substr(40000, 20000).c_str(), 20000),
             0);
+
+  // Try reading past end of file
+  ASSERT_TRUE(fpb.TryReadFromCache(IOOptions(), r.get(), 60000 /* offset */,
+                                   10000 /* n */, &result, &s, true));
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(result.size(), 64 * 1024 - 60000);
+  ASSERT_EQ(
+      strncmp(result.data(), content.substr(60000, 64 * 1024 - 60000).c_str(),
+              64 * 1024 - 60000),
+      0);
 }
 
 class FSBufferPrefetchTest
@@ -3858,6 +3872,8 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
     }
     ASSERT_TRUE(could_read_from_cache);
     ASSERT_EQ(s, Status::OK());
+    ASSERT_EQ(result.size(),
+              std::min(len, content.size() - static_cast<size_t>(offset)));
     ASSERT_EQ(strncmp(result.data(),
                       content.substr(offset, offset + len).c_str(), len),
               0);
