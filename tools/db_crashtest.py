@@ -344,7 +344,7 @@ default_params = {
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     "track_and_verify_wals": lambda: random.choice([0, 1]),
-    "enable_remote_compaction": lambda: random.choice([0, 1]), 
+    "enable_remote_compaction": lambda: random.choice([0, 1]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
@@ -974,6 +974,7 @@ def finalize_and_sanitize(src_params):
         # disableWAL and recycle_log_file_num options are not mutually
         # compatible at the moment
         dest_params["recycle_log_file_num"] = 0
+        dest_params["manual_wal_flush_one_in"] = 0
     # Enabling block_align with compression is not supported
     if dest_params.get("block_align") == 1:
         dest_params["compression_type"] = "none"
