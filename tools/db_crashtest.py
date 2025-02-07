@@ -815,6 +815,10 @@ def finalize_and_sanitize(src_params):
         dest_params["sync"] = 0
         dest_params["write_fault_one_in"] = 0
         dest_params["reopen"] = 0
+        dest_params["manual_wal_flush_one_in"] = 0
+        # disableWAL and recycle_log_file_num options are not mutually
+        # compatible at the moment
+        dest_params["recycle_log_file_num"] = 0
     if dest_params.get("open_files", 1) != -1:
         # Compaction TTL and periodic compactions are only compatible
         # with open_files = -1
@@ -970,11 +974,6 @@ def finalize_and_sanitize(src_params):
             # we have a fix that allows auto recovery.
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
-    if dest_params.get("disable_wal") == 1:
-        # disableWAL and recycle_log_file_num options are not mutually
-        # compatible at the moment
-        dest_params["recycle_log_file_num"] = 0
-        dest_params["manual_wal_flush_one_in"] = 0
     # Enabling block_align with compression is not supported
     if dest_params.get("block_align") == 1:
         dest_params["compression_type"] = "none"
