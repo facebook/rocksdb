@@ -344,6 +344,7 @@ default_params = {
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     "track_and_verify_wals": lambda: random.choice([0, 1]),
+    "enable_remote_compaction": lambda: random.choice([0, 1]), 
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
