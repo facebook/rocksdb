@@ -380,9 +380,9 @@ class ColumnFamilyData {
     return mem()->GetFirstSequenceNumber() == 0 && imm()->NumNotFlushed() == 0;
   }
 
-  Version* current() { return current_; }
   Version* dummy_versions() { return dummy_versions_; }
-  void SetCurrent(Version* _current);
+  Version* current() { return current_; }  // REQUIRE: DB mutex held
+  void SetCurrent(Version* _current);      // REQUIRE: DB mutex held
   uint64_t GetNumLiveVersions() const;    // REQUIRE: DB mutex held
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
   uint64_t GetLiveSstFilesSize() const;   // REQUIRE: DB mutex held
