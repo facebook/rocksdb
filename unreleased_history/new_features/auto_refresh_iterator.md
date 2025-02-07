@@ -1,1 +1,1 @@
-Introduced new `auto_refresh_iterator_enabled` opt-in knob in `ReadOptions` that (when enabled) will release obsolete memory and storage resources for as long as the iterator is periodically making progress.
+Introduced new `auto_refresh_iterator_with_snapshot` opt-in knob that (when enabled) will periodically release obsolete memory and storage resources for as long as the iterator is making progress and its supplied `read_options.snapshot` was initialized with well-defined (non-nullptr) value.

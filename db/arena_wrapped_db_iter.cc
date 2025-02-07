@@ -64,23 +64,87 @@ void ArenaWrappedDBIter::Init(
   memtable_range_tombstone_iter_ = nullptr;
 }
 
-void ArenaWrappedDBIter::MaybeAutoRefresh() {
-  if (cfh_ != nullptr && allow_refresh_ &&
-      read_options_.auto_refresh_iterator_enabled) {
+void ArenaWrappedDBIter::MaybeAutoRefresh(std::function<void()> op,
+                                          bool is_seek,
+                                          DBIter::Direction direction) {
+  if (cfh_ != nullptr && read_options_.snapshot != nullptr && allow_refresh_ &&
+      read_options_.auto_refresh_iterator_with_snapshot) {
+    // The intent here is to capture the superversion number change
+    // reasonably soon from the time it actually happened. As such,
+    // we're fine with weaker synchronization / ordering guarantees
+    // provided by relaxed atomic (in favor of less CPU / mem overhead).
     uint64_t cur_sv_number = cfh_->cfd()->GetSuperVersionNumberRelaxed();
     if (sv_number_ != cur_sv_number) {
-      Slice key = nullptr;
-      if (db_iter_->Valid()) {
-        key = db_iter_->key();
+      // Changing iterators' direction is pretty heavy-weight operation and
+      // could have unintended consequences when it comes to prefix seek.
+      // Therefore, we need an efficient implementation that does not duplicate
+      // the effort by doing things like double seek(forprev).
+      //
+      // Auto refresh can be triggered on the following groups of operations:
+      //
+      //  1. [Seek]: Seek(), SeekForPrev()
+      //  2. [Non-Seek]: Next(), Prev()
+      //
+      // In case of 'Seek' group, procedure is fairly straightforward as we'll
+      // simply call refresh and then invoke the operation on intended target.
+      //
+      // In case of 'Non-Seek' group, we'll first advance the cursor by invoking
+      // intended user operation (Next() or Prev()), capture the target key T,
+      // refresh the iterator and then reconcile the refreshed iterator by
+      // explicitly calling [Seek(T) or SeekForPrev(T)]. Below is an example
+      // flow for Next(), but same principle applies to Prev():
+      //
+      //
+      //          T0: Before the operation     T1: Execute Next()
+      //                         |                      |
+      //                         |         -------------
+      //                         |        |   * capture the key (T)
+      //           DBIter(SV#A)  |        |
+      //          --------------\ /------\ /---------
+      //  SV #A  |     ... ->  [ X ] -> [ T ] -> ... |
+      //          -----------------------------------
+      //                                / |
+      //                               /  |
+      //                              /  T2: Refresh iterator
+      //                             /
+      //           DBIter(SV#A')    /
+      //          ----------------------------------
+      //  SV #A' |       ... ->  [ T ] -> ...       |
+      //          ----------------/ \---------------
+      //                           |
+      //                            ---- T3: Seek(T)
+      //
+      bool valid = false;
+      std::string key = "";
+      if (!is_seek) {
+        op();
+        // The key() Slice is valid until the iterator state changes.
+        // Given that refresh is heavy-weight operation it itself,
+        // we should copy the target key upfront to avoid reading bad value.
+        if (db_iter_->Valid()) {
+          valid = true;
+          key = db_iter_->key().ToString();
+        }
       }
 
       DoRefresh(read_options_.snapshot, cur_sv_number);
 
-      if (key != nullptr) {
-        db_iter_->Seek(key);
+      if (is_seek) {
+        op();
+      } else if (valid) {  // Reconcile new iterator after Next() / Prev()
+        if (direction == DBIter::kForward) {
+          db_iter_->Seek(key);
+        } else {
+          assert(direction == DBIter::kReverse);
+          db_iter_->SeekForPrev(key);
+        }
       }
+
+      return;
     }
   }
+
+  op();
 }
 
 Status ArenaWrappedDBIter::Refresh() { return Refresh(nullptr); }
