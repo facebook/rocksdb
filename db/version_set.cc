@@ -5305,6 +5305,17 @@ Status VersionSet::ProcessManifestWrites(
   // succeeds.
   SequenceNumber max_last_sequence = descriptor_last_sequence_;
 
+  bool skip_manifest_write = false;
+  if (first_writer.edit_list.front()->IsMemoryOnlyCFManipulation()) {
+    skip_manifest_write = true;
+    // Up until here, we want to treat calls that want to update Version
+    // without a manifest write and without releasing DB mutex similarly to
+    // CF manipulations, so that they aren't grouped with manifest writes. But
+    // from here, we don't want to treat like a CF manipulation so that we get a
+    // new Version. Except skip the manifest write.
+    first_writer.edit_list.front()->Clear();
+  }
+
   if (first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
     // No group commits for column family add or drop
     LogAndApplyCFHelper(first_writer.edit_list.front(), &max_last_sequence);
@@ -5467,8 +5478,9 @@ Status VersionSet::ProcessManifestWrites(
 #endif  // NDEBUG
 
   assert(pending_manifest_file_number_ == 0);
-  if (!descriptor_log_ ||
-      manifest_file_size_ > db_options_->max_manifest_file_size) {
+  if (!skip_manifest_write &&
+      (!descriptor_log_ ||
+       manifest_file_size_ > db_options_->max_manifest_file_size)) {
     TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeNewManifest");
     new_descriptor_log = true;
   } else {
@@ -5507,7 +5519,16 @@ Status VersionSet::ProcessManifestWrites(
   IOStatus io_s;
   IOStatus manifest_io_status;
   std::unique_ptr<log::Writer> new_desc_log_ptr;
-  {
+  if (skip_manifest_write) {
+    if (s.ok()) {
+      constexpr bool update_stats = true;
+      for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
+        // NOTE: normally called with DB mutex released, but we don't
+        // want to release the DB mutex in this mode of LogAndApply
+        versions[i]->PrepareAppend(read_options, update_stats);
+      }
+    }
+  } else {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
     // DB option (in file_options_) takes precedence when not kUnknown
     if (file_options_.temperature != Temperature::kUnknown) {
@@ -5750,11 +5771,13 @@ Status VersionSet::ProcessManifestWrites(
         AppendVersion(cfd, versions[i]);
       }
     }
-    assert(max_last_sequence >= descriptor_last_sequence_);
-    descriptor_last_sequence_ = max_last_sequence;
-    manifest_file_number_ = pending_manifest_file_number_;
-    manifest_file_size_ = new_manifest_file_size;
-    prev_log_number_ = first_writer.edit_list.front()->GetPrevLogNumber();
+    if (!skip_manifest_write) {
+      assert(max_last_sequence >= descriptor_last_sequence_);
+      descriptor_last_sequence_ = max_last_sequence;
+      manifest_file_number_ = pending_manifest_file_number_;
+      manifest_file_size_ = new_manifest_file_size;
+      prev_log_number_ = first_writer.edit_list.front()->GetPrevLogNumber();
+    }
   } else {
     std::string version_edits;
     for (auto& e : batch_edits) {
@@ -5877,7 +5900,8 @@ Status VersionSet::LogAndApply(
     const autovector<autovector<VersionEdit*>>& edit_lists,
     InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
     bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options,
-    const std::vector<std::function<void(const Status&)>>& manifest_wcbs) {
+    const std::vector<std::function<void(const Status&)>>& manifest_wcbs,
+    const std::function<Status()> pre_cb) {
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
@@ -5932,6 +5956,7 @@ Status VersionSet::LogAndApply(
     // should only SetBGError once.
     return first_writer.status;
   }
+  TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WakeUpAndNotDone", mu);
 
   int num_undropped_cfds = 0;
   for (auto cfd : column_family_datas) {
@@ -5940,7 +5965,17 @@ Status VersionSet::LogAndApply(
       ++num_undropped_cfds;
     }
   }
+  Status s;
   if (0 == num_undropped_cfds) {
+    s = Status::ColumnFamilyDropped();
+  }
+  // Call pre_cb once we know we have work to do and are scheduled as the
+  // exclusive manifest writer (and new Version appender)
+  if (s.ok() && pre_cb) {
+    s = pre_cb();
+  }
+  if (!s.ok()) {
+    // Revert manifest_writers_
     for (int i = 0; i != num_cfds; ++i) {
       manifest_writers_.pop_front();
     }
@@ -5948,11 +5983,12 @@ Status VersionSet::LogAndApply(
     if (!manifest_writers_.empty()) {
       manifest_writers_.front()->cv.Signal();
     }
-    return Status::ColumnFamilyDropped();
+    return s;
+  } else {
+    return ProcessManifestWrites(writers, mu, dir_contains_current_file,
+                                 new_descriptor_log, new_cf_options,
+                                 read_options, write_options);
   }
-  return ProcessManifestWrites(writers, mu, dir_contains_current_file,
-                               new_descriptor_log, new_cf_options, read_options,
-                               write_options);
 }
 
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
