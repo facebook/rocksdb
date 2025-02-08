@@ -33,9 +33,8 @@ namespace ROCKSDB_NAMESPACE {
 static void AddProperty(std::unordered_map<std::string, std::string> *props, const std::string& name) {
   size_t colon = name.find(":");
   if (colon != std::string::npos && colon > 0 && colon < name.length() - 1) {
-    // If we found a "@:", then this property was a build-time substitution that failed.  Skip it
-    size_t at = name.find("@", colon);
-    if (at != colon + 1) {
+    // If we found a ":@", then this property was a build-time substitution that failed.  Skip it
+    if (name[colon+1] != '@') {
       // Everything before the colon is the name, after is the value
       (*props)[name.substr(0, colon)] = name.substr(colon + 1);
     }
