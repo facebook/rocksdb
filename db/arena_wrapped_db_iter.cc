@@ -127,6 +127,8 @@ void ArenaWrappedDBIter::MaybeAutoRefresh(std::function<void()> op,
         }
       }
 
+      // It's perfectly fine to unref the corresponding superversion
+      // as we rely on pinning behavior of snapshot for consistency.
       DoRefresh(read_options_.snapshot, cur_sv_number);
 
       if (is_seek) {
@@ -139,7 +141,6 @@ void ArenaWrappedDBIter::MaybeAutoRefresh(std::function<void()> op,
           db_iter_->SeekForPrev(key);
         }
       }
-
       return;
     }
   }

@@ -1281,13 +1281,13 @@ DEFINE_bool(
     auto_readahead_size, false,
     "When set true, RocksDB does auto tuning of readahead size during Scans");
 
+DEFINE_bool(paranoid_memory_checks, false,
+            "Sets CF option paranoid_memory_checks");
+
 DEFINE_bool(
     auto_refresh_iterator_with_snapshot, false,
     "When set to true, RocksDB iterator will automatically refresh itself "
     "upon detecting stale superversion - preserving its' original snapshot");
-
-DEFINE_bool(paranoid_memory_checks, false,
-            "Sets CF option paranoid_memory_checks");
 
 DEFINE_bool(explicit_snapshot, false,
             "When set to true iterators will be initialized with explicit "
@@ -6871,18 +6871,17 @@ class Benchmark {
 
     Duration duration(FLAGS_duration, reads_);
     char value_buffer[256];
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (FLAGS_explicit_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db_.db);
+      options.snapshot = snapshot->snapshot();
+    } else {
+      options.snapshot = nullptr;
+    }
     while (!duration.Done(1)) {
       int64_t seek_pos = thread->rand.Next() % FLAGS_num;
       GenerateKeyFromIntForSeek(static_cast<uint64_t>(seek_pos), FLAGS_num,
                                 &key);
-      std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
-      if (FLAGS_explicit_snapshot) {
-        snapshot = std::make_unique<ManagedSnapshot>(db_.db);
-        options.snapshot = snapshot->snapshot();
-      } else {
-        options.snapshot = nullptr;
-      }
-
       if (FLAGS_max_scan_distance != 0) {
         if (FLAGS_reverse_iterator) {
           GenerateKeyFromInt(
@@ -8183,7 +8182,6 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
 
-    ReadOptions read_opts = read_options_;
     char value_buffer[256];
     while (true) {
       {
@@ -8193,17 +8191,9 @@ class Benchmark {
           break;
         }
       }
-
-      std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
       if (!FLAGS_use_tailing_iterator) {
         delete iter;
-        if (FLAGS_explicit_snapshot) {
-          snapshot = std::make_unique<ManagedSnapshot>(db_.db);
-          read_opts.snapshot = snapshot->snapshot();
-        } else {
-          read_opts.snapshot = nullptr;
-        }
-        iter = db_.db->NewIterator(read_opts);
+        iter = db_.db->NewIterator(read_options_);
       }
       // Pick a Iterator to use
 
