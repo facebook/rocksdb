@@ -27,7 +27,8 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
                Reporter* reporter, bool checksum, uint64_t log_num,
                bool track_and_verify_wals, bool stop_replay_for_corruption,
                uint64_t min_wal_number_to_keep,
-               const PredecessorWALInfo& observed_predecessor_wal_info)
+               const PredecessorWALInfo& observed_predecessor_wal_info,
+               uint64_t* corrupted_wal_number)
     : info_log_(info_log),
       file_(std::move(_file)),
       reporter_(reporter),
@@ -44,6 +45,7 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       stop_replay_for_corruption_(stop_replay_for_corruption),
       min_wal_number_to_keep_(min_wal_number_to_keep),
       observed_predecessor_wal_info_(observed_predecessor_wal_info),
+      corrupted_wal_number_(corrupted_wal_number),
       recycled_(false),
       first_record_read_(false),
       compression_type_(kNoCompression),
@@ -364,6 +366,7 @@ void Reader::MaybeVerifyPredecessorWALInfo(
       stop_replay_for_corruption_) {
     return;
   }
+  assert(corrupted_wal_number_);
   assert(recorded_predecessor_wal_info.IsInitialized());
   uint64_t recorded_predecessor_log_number =
       recorded_predecessor_wal_info.GetLogNumber();
@@ -375,6 +378,7 @@ void Reader::MaybeVerifyPredecessorWALInfo(
       std::string reason = "Missing WAL of log number " +
                            std::to_string(recorded_predecessor_log_number);
       ReportCorruption(fragment.size(), reason.c_str());
+      *corrupted_wal_number_ = recorded_predecessor_log_number;
     }
   } else {
     if (observed_predecessor_wal_info_.GetLogNumber() !=
@@ -382,6 +386,7 @@ void Reader::MaybeVerifyPredecessorWALInfo(
       std::string reason = "Missing WAL of log number " +
                            std::to_string(recorded_predecessor_log_number);
       ReportCorruption(fragment.size(), reason.c_str());
+      *corrupted_wal_number_ = recorded_predecessor_log_number;
     } else if (observed_predecessor_wal_info_.GetLastSeqnoRecorded() !=
                recorded_predecessor_wal_info.GetLastSeqnoRecorded()) {
       std::string reason =
@@ -393,6 +398,7 @@ void Reader::MaybeVerifyPredecessorWALInfo(
               observed_predecessor_wal_info_.GetLastSeqnoRecorded()) +
           ". (Last sequence number equal to 0 indicates no WAL records)";
       ReportCorruption(fragment.size(), reason.c_str());
+      *corrupted_wal_number_ = recorded_predecessor_log_number;
     } else if (observed_predecessor_wal_info_.GetSizeBytes() !=
                recorded_predecessor_wal_info.GetSizeBytes()) {
       std::string reason =
@@ -403,6 +409,7 @@ void Reader::MaybeVerifyPredecessorWALInfo(
           std::to_string(observed_predecessor_wal_info_.GetSizeBytes()) +
           " bytes.";
       ReportCorruption(fragment.size(), reason.c_str());
+      *corrupted_wal_number_ = recorded_predecessor_log_number;
     }
   }
 }

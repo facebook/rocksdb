@@ -1275,7 +1275,8 @@ Status DBImpl::ProcessLogFile(
 
   Status init_status = InitializeLogReader(
       wal_number, is_retry, fname, *stop_replay_for_corruption, min_wal_number,
-      predecessor_wal_info, &old_log_record, &status, &reporter, reader);
+      predecessor_wal_info, corrupted_wal_number, &old_log_record, &status,
+      &reporter, reader);
 
   // FIXME(hx235): Consolidate `!init_status.ok()` and `reader == nullptr` cases
   if (!init_status.ok()) {
@@ -1323,7 +1324,7 @@ Status DBImpl::ProcessLogFile(
   }
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "Recovered to log #%" PRIu64 " seq #%" PRIu64, wal_number,
+                 "Recovered to log #%" PRIu64 " next seq #%" PRIu64, wal_number,
                  *next_sequence);
 
   if (status.ok()) {
@@ -1356,9 +1357,11 @@ void DBImpl::SetupLogFileProcessing(uint64_t wal_number) {
 Status DBImpl::InitializeLogReader(
     uint64_t wal_number, bool is_retry, std::string& fname,
     bool stop_replay_for_corruption, uint64_t min_wal_number,
-    const PredecessorWALInfo& predecessor_wal_info, bool* const old_log_record,
+    const PredecessorWALInfo& predecessor_wal_info,
+    uint64_t* corrupted_wal_number, bool* const old_log_record,
     Status* const reporter_status, DBOpenLogReporter* reporter,
     std::unique_ptr<log::Reader>& reader) {
+  assert(corrupted_wal_number);
   assert(old_log_record);
   assert(reporter_status);
   assert(reporter);
@@ -1400,7 +1403,7 @@ Status DBImpl::InitializeLogReader(
       immutable_db_options_.info_log, std::move(file_reader), reporter,
       true /*checksum*/, wal_number,
       immutable_db_options_.track_and_verify_wals, stop_replay_for_corruption,
-      min_wal_number, predecessor_wal_info));
+      min_wal_number, predecessor_wal_info, corrupted_wal_number));
   return status;
 }
 
@@ -1641,7 +1644,13 @@ Status DBImpl::HandleNonOkStatusOrOldLogRecord(
     // We should ignore the error but not continue replaying
     *old_log_record = false;
     *stop_replay_for_corruption = true;
-    *corrupted_wal_number = wal_number;
+    // `*corrupted_wal_number` would have been set to the predecessor WAL of
+    // `wal_number` if a corruption in the predecessor WAL is found by verifying
+    // the `PredecessorWALInfo` in the WAL of `wal_number`. In this case, we
+    // should not override `*corrupted_wal_number` to be `wal_number`
+    if (*corrupted_wal_number == kMaxSequenceNumber) {
+      *corrupted_wal_number = wal_number;
+    }
     if (corrupted_wal_found != nullptr) {
       *corrupted_wal_found = true;
     }
