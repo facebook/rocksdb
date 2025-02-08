@@ -5305,16 +5305,8 @@ Status VersionSet::ProcessManifestWrites(
   // succeeds.
   SequenceNumber max_last_sequence = descriptor_last_sequence_;
 
-  bool skip_manifest_write = false;
-  if (first_writer.edit_list.front()->IsMemoryOnlyCFManipulation()) {
-    skip_manifest_write = true;
-    // Up until here, we want to treat calls that want to update Version
-    // without a manifest write and without releasing DB mutex similarly to
-    // CF manipulations, so that they aren't grouped with manifest writes. But
-    // from here, we don't want to treat like a CF manipulation so that we get a
-    // new Version. Except skip the manifest write.
-    first_writer.edit_list.front()->Clear();
-  }
+  bool skip_manifest_write =
+      first_writer.edit_list.front()->IsNoManifestWriteDummy();
 
   if (first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
     // No group commits for column family add or drop
@@ -5324,12 +5316,9 @@ Status VersionSet::ProcessManifestWrites(
   } else {
     auto it = manifest_writers_.cbegin();
     size_t group_start = std::numeric_limits<size_t>::max();
-    while (it != manifest_writers_.cend()) {
-      if ((*it)->edit_list.front()->IsColumnFamilyManipulation()) {
-        // no group commits for column family add or drop
-        break;
-      }
-      last_writer = *(it++);
+    for (;;) {
+      assert(!(*it)->edit_list.front()->IsColumnFamilyManipulation());
+      last_writer = *it;
       assert(last_writer != nullptr);
       assert(last_writer->cfd != nullptr);
       if (last_writer->cfd->IsDropped()) {
@@ -5364,66 +5353,80 @@ Status VersionSet::ProcessManifestWrites(
             }
           }
         }
-        continue;
-      }
-      // We do a linear search on versions because versions is small.
-      // TODO(yanqin) maybe consider unordered_map
-      Version* version = nullptr;
-      VersionBuilder* builder = nullptr;
-      for (int i = 0; i != static_cast<int>(versions.size()); ++i) {
-        uint32_t cf_id = last_writer->cfd->GetID();
-        if (versions[i]->cfd()->GetID() == cf_id) {
-          version = versions[i];
-          assert(!builder_guards.empty() &&
-                 builder_guards.size() == versions.size());
-          builder = builder_guards[i]->version_builder();
+      } else {
+        // We do a linear search on versions because versions is small.
+        // TODO(yanqin) maybe consider unordered_map
+        Version* version = nullptr;
+        VersionBuilder* builder = nullptr;
+        for (int i = 0; i != static_cast<int>(versions.size()); ++i) {
+          uint32_t cf_id = last_writer->cfd->GetID();
+          if (versions[i]->cfd()->GetID() == cf_id) {
+            version = versions[i];
+            assert(!builder_guards.empty() &&
+                   builder_guards.size() == versions.size());
+            builder = builder_guards[i]->version_builder();
+            TEST_SYNC_POINT_CALLBACK(
+                "VersionSet::ProcessManifestWrites:SameColumnFamily", &cf_id);
+            break;
+          }
+        }
+        if (version == nullptr) {
+          // WAL manipulations do not need to be applied to versions.
+          if (!last_writer->IsAllWalEdits()) {
+            version = new Version(
+                last_writer->cfd, this, file_options_,
+                last_writer->cfd ? last_writer->cfd->GetLatestMutableCFOptions()
+                                 : MutableCFOptions(*new_cf_options),
+                io_tracer_, current_version_number_++);
+            versions.push_back(version);
+            builder_guards.emplace_back(
+                new BaseReferencedVersionBuilder(last_writer->cfd));
+            builder = builder_guards.back()->version_builder();
+          }
+          assert(last_writer->IsAllWalEdits() || builder);
+          assert(last_writer->IsAllWalEdits() || version);
           TEST_SYNC_POINT_CALLBACK(
-              "VersionSet::ProcessManifestWrites:SameColumnFamily", &cf_id);
-          break;
+              "VersionSet::ProcessManifestWrites:NewVersion", version);
+        }
+        const Comparator* ucmp = last_writer->cfd->user_comparator();
+        assert(ucmp);
+        std::optional<size_t> edit_ts_sz = ucmp->timestamp_size();
+        for (const auto& e : last_writer->edit_list) {
+          if (e->IsInAtomicGroup()) {
+            if (batch_edits.empty() || !batch_edits.back()->IsInAtomicGroup() ||
+                (batch_edits.back()->IsInAtomicGroup() &&
+                 batch_edits.back()->GetRemainingEntries() == 0)) {
+              group_start = batch_edits.size();
+            }
+          } else if (group_start != std::numeric_limits<size_t>::max()) {
+            group_start = std::numeric_limits<size_t>::max();
+          }
+          Status s = LogAndApplyHelper(last_writer->cfd, builder, e,
+                                       &max_last_sequence, mu);
+          if (!s.ok()) {
+            // free up the allocated memory
+            for (auto v : versions) {
+              delete v;
+            }
+            // FIXME? manifest_writers_ still has requested updates
+            return s;
+          }
+          batch_edits.push_back(e);
+          batch_edits_ts_sz.push_back(edit_ts_sz);
         }
       }
-      if (version == nullptr) {
-        // WAL manipulations do not need to be applied to versions.
-        if (!last_writer->IsAllWalEdits()) {
-          version = new Version(
-              last_writer->cfd, this, file_options_,
-              last_writer->cfd ? last_writer->cfd->GetLatestMutableCFOptions()
-                               : MutableCFOptions(*new_cf_options),
-              io_tracer_, current_version_number_++);
-          versions.push_back(version);
-          builder_guards.emplace_back(
-              new BaseReferencedVersionBuilder(last_writer->cfd));
-          builder = builder_guards.back()->version_builder();
-        }
-        assert(last_writer->IsAllWalEdits() || builder);
-        assert(last_writer->IsAllWalEdits() || version);
-        TEST_SYNC_POINT_CALLBACK("VersionSet::ProcessManifestWrites:NewVersion",
-                                 version);
+      // Loop increment/conditions
+      ++it;
+      if (it == manifest_writers_.cend()) {
+        break;
       }
-      const Comparator* ucmp = last_writer->cfd->user_comparator();
-      assert(ucmp);
-      std::optional<size_t> edit_ts_sz = ucmp->timestamp_size();
-      for (const auto& e : last_writer->edit_list) {
-        if (e->IsInAtomicGroup()) {
-          if (batch_edits.empty() || !batch_edits.back()->IsInAtomicGroup() ||
-              (batch_edits.back()->IsInAtomicGroup() &&
-               batch_edits.back()->GetRemainingEntries() == 0)) {
-            group_start = batch_edits.size();
-          }
-        } else if (group_start != std::numeric_limits<size_t>::max()) {
-          group_start = std::numeric_limits<size_t>::max();
-        }
-        Status s = LogAndApplyHelper(last_writer->cfd, builder, e,
-                                     &max_last_sequence, mu);
-        if (!s.ok()) {
-          // free up the allocated memory
-          for (auto v : versions) {
-            delete v;
-          }
-          return s;
-        }
-        batch_edits.push_back(e);
-        batch_edits_ts_sz.push_back(edit_ts_sz);
+      if (skip_manifest_write) {
+        // no grouping when skipping manifest write
+        break;
+      }
+      if ((*it)->edit_list.front()->IsColumnFamilyManipulation()) {
+        // no group commits for column family add or drop
+        break;
       }
     }
     for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
@@ -5436,6 +5439,7 @@ Status VersionSet::ProcessManifestWrites(
         for (auto v : versions) {
           delete v;
         }
+        // FIXME? manifest_writers_ still has requested updates
         return s;
       }
     }
@@ -5474,6 +5478,10 @@ Status VersionSet::ProcessManifestWrites(
     TEST_SYNC_POINT_CALLBACK(
         "VersionSet::ProcessManifestWrites:CheckOneAtomicGroup", &tmp);
     k = i;
+  }
+  if (skip_manifest_write) {
+    // no grouping when skipping manifest write
+    assert(last_writer == &first_writer);
   }
 #endif  // NDEBUG
 
@@ -5518,6 +5526,7 @@ Status VersionSet::ProcessManifestWrites(
   Status s;
   IOStatus io_s;
   IOStatus manifest_io_status;
+  manifest_io_status.PermitUncheckedError();
   std::unique_ptr<log::Writer> new_desc_log_ptr;
   if (skip_manifest_write) {
     if (s.ok()) {
@@ -5914,6 +5923,7 @@ Status VersionSet::LogAndApply(
     for (const auto& edit_list : edit_lists) {
       for (const auto& edit : edit_list) {
         assert(!edit->IsColumnFamilyManipulation());
+        assert(!edit->IsNoManifestWriteDummy());
       }
     }
 #endif /* ! NDEBUG */

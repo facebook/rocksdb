@@ -662,40 +662,31 @@ class VersionEdit {
 
   // set column family ID by calling SetColumnFamily()
   void AddColumnFamily(const std::string& name) {
-    assert(cf_manip_ == ColumnFamilyManipulation::kNone);
+    assert(!is_column_family_drop_);
+    assert(!is_column_family_add_);
     assert(NumEntries() == 0);
-    cf_manip_ = ColumnFamilyManipulation::kAdd;
+    is_column_family_add_ = true;
     column_family_name_ = name;
   }
 
   // set column family ID by calling SetColumnFamily()
   void DropColumnFamily() {
-    assert(cf_manip_ == ColumnFamilyManipulation::kNone);
+    assert(!is_column_family_drop_);
+    assert(!is_column_family_add_);
     assert(NumEntries() == 0);
-    cf_manip_ = ColumnFamilyManipulation::kDrop;
-  }
-
-  void MemoryOnlyCFManipulation() {
-    assert(cf_manip_ == ColumnFamilyManipulation::kNone);
-    assert(NumEntries() == 0);
-    cf_manip_ = ColumnFamilyManipulation::kMemoryOnly;
+    is_column_family_drop_ = true;
   }
 
   bool IsColumnFamilyManipulation() const {
-    return cf_manip_ != ColumnFamilyManipulation::kNone;
+    return is_column_family_add_ || is_column_family_drop_;
   }
 
-  bool IsColumnFamilyAdd() const {
-    return cf_manip_ == ColumnFamilyManipulation::kAdd;
-  }
+  bool IsColumnFamilyAdd() const { return is_column_family_add_; }
 
-  bool IsColumnFamilyDrop() const {
-    return cf_manip_ == ColumnFamilyManipulation::kDrop;
-  }
+  bool IsColumnFamilyDrop() const { return is_column_family_drop_; }
 
-  bool IsMemoryOnlyCFManipulation() const {
-    return cf_manip_ == ColumnFamilyManipulation::kMemoryOnly;
-  }
+  void MarkNoManifestWriteDummy() { is_no_manifest_write_dummy_ = true; }
+  bool IsNoManifestWriteDummy() const { return is_no_manifest_write_dummy_; }
 
   void MarkAtomicGroup(uint32_t remaining_entries) {
     is_in_atomic_group_ = true;
@@ -784,23 +775,16 @@ class VersionEdit {
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)
   uint32_t column_family_ = 0;
-  // A version edit can be a single stand-along column family manipulation
-  // such as add or drop. If it's column family add, it also includes column
-  // family name.
-  enum class ColumnFamilyManipulation {
-    kNone,
-    kAdd,
-    kDrop,
-    // For dummy version edit indicating a non-groupable Version change is
-    // needed without writing to the manifest. Some logic is simplified by
-    // treating this like a CF operation.
-    kMemoryOnly,
-  };
-  ColumnFamilyManipulation cf_manip_ = ColumnFamilyManipulation::kNone;
+  // a version edit can be either column_family add or
+  // column_family drop. If it's column family add,
+  // it also includes column family name.
+  bool is_column_family_drop_ = false;
+  bool is_column_family_add_ = false;
   std::string column_family_name_;
 
-  bool is_in_atomic_group_ = false;
   uint32_t remaining_entries_ = 0;
+  bool is_in_atomic_group_ = false;
+  bool is_no_manifest_write_dummy_ = false;
 
   std::string full_history_ts_low_;
   bool persist_user_defined_timestamps_ = true;

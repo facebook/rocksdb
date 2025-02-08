@@ -85,7 +85,8 @@ void VersionEdit::Clear() {
   wal_additions_.clear();
   wal_deletion_.Reset();
   column_family_ = 0;
-  cf_manip_ = ColumnFamilyManipulation::kNone;
+  is_column_family_add_ = false;
+  is_column_family_drop_ = false;
   column_family_name_.clear();
   is_in_atomic_group_ = false;
   remaining_entries_ = 0;
@@ -291,20 +292,13 @@ bool VersionEdit::EncodeTo(std::string* dst,
     PutVarint32Varint32(dst, kColumnFamily, column_family_);
   }
 
-  switch (cf_manip_) {
-    case ColumnFamilyManipulation::kAdd:
-      PutVarint32(dst, kColumnFamilyAdd);
-      PutLengthPrefixedSlice(dst, Slice(column_family_name_));
-      break;
-    case ColumnFamilyManipulation::kDrop:
-      PutVarint32(dst, kColumnFamilyDrop);
-      break;
-    case ColumnFamilyManipulation::kMemoryOnly:
-      // Not to be serialized
-      assert(false);
-      break;
-    case ColumnFamilyManipulation::kNone:
-      break;
+  if (is_column_family_add_) {
+    PutVarint32(dst, kColumnFamilyAdd);
+    PutLengthPrefixedSlice(dst, Slice(column_family_name_));
+  }
+
+  if (is_column_family_drop_) {
+    PutVarint32(dst, kColumnFamilyDrop);
   }
 
   if (is_in_atomic_group_) {
@@ -761,7 +755,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
 
       case kColumnFamilyAdd:
         if (GetLengthPrefixedSlice(&input, &str)) {
-          cf_manip_ = ColumnFamilyManipulation::kAdd;
+          is_column_family_add_ = true;
           column_family_name_ = str.ToString();
         } else {
           if (!msg) {
@@ -771,7 +765,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
 
       case kColumnFamilyDrop:
-        cf_manip_ = ColumnFamilyManipulation::kDrop;
+        is_column_family_drop_ = true;
         break;
 
       case kInAtomicGroup:
@@ -954,19 +948,12 @@ std::string VersionEdit::DebugString(bool hex_key) const {
 
   r.append("\n  ColumnFamily: ");
   AppendNumberTo(&r, column_family_);
-  switch (cf_manip_) {
-    case ColumnFamilyManipulation::kAdd:
-      r.append("\n  ColumnFamilyAdd: ");
-      r.append(column_family_name_);
-      break;
-    case ColumnFamilyManipulation::kDrop:
-      r.append("\n  ColumnFamilyDrop");
-      break;
-    case ColumnFamilyManipulation::kMemoryOnly:
-      r.append("\n  MemoryOnly!");
-      break;
-    case ColumnFamilyManipulation::kNone:
-      break;
+  if (is_column_family_add_) {
+    r.append("\n  ColumnFamilyAdd: ");
+    r.append(column_family_name_);
+  }
+  if (is_column_family_drop_) {
+    r.append("\n  ColumnFamilyDrop");
   }
   if (is_in_atomic_group_) {
     r.append("\n  AtomicGroup: ");
@@ -1112,18 +1099,11 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
 
   jw << "ColumnFamily" << column_family_;
 
-  switch (cf_manip_) {
-    case ColumnFamilyManipulation::kAdd:
-      jw << "ColumnFamilyAdd" << column_family_name_;
-      break;
-    case ColumnFamilyManipulation::kDrop:
-      jw << "ColumnFamilyDrop" << column_family_name_;
-      break;
-    case ColumnFamilyManipulation::kMemoryOnly:
-      jw << "MemoryOnly" << column_family_name_;
-      break;
-    case ColumnFamilyManipulation::kNone:
-      break;
+  if (is_column_family_add_) {
+    jw << "ColumnFamilyAdd" << column_family_name_;
+  }
+  if (is_column_family_drop_) {
+    jw << "ColumnFamilyDrop" << column_family_name_;
   }
   if (is_in_atomic_group_) {
     jw << "AtomicGroup" << remaining_entries_;

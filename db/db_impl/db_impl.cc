@@ -1319,7 +1319,7 @@ Status DBImpl::SetOptions(
       return cb_s;
     };
     VersionEdit dummy_edit;
-    dummy_edit.MemoryOnlyCFManipulation();
+    dummy_edit.MarkNoManifestWriteDummy();
     TEST_SYNC_POINT_CALLBACK("DBImpl::SetOptions:dummy_edit", &dummy_edit);
     s = versions_->LogAndApply(
         cfd, read_options, write_options, &dummy_edit, &mutex_,
