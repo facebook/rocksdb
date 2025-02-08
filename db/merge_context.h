@@ -140,7 +140,7 @@ class MergeContext {
     }
   }
 
-  // List of operands
+  // List of operands, the order of operands depends on operands_reversed_.
   mutable std::unique_ptr<std::vector<Slice>> operand_list_;
   // Copy of operands that are not pinned.
   std::unique_ptr<std::vector<std::unique_ptr<std::string>>> copied_operands_;
