@@ -764,8 +764,9 @@ class DB {
   // Populates the `merge_operands` array with all the merge operands in the DB
   // for `key`, or a customizable suffix of merge operands when
   // `GetMergeOperandsOptions::continue_cb` is set. The `merge_operands` array
-  // will be populated in the order of insertion. The number of entries
-  // populated in `merge_operands` will be assigned to `*number_of_operands`.
+  // will be populated in the order of insertion (older insertions first). The
+  // number of entries populated in `merge_operands` will be assigned to
+  // `*number_of_operands`.
   //
   // If the number of merge operands to return for `key` is greater than
   // `merge_operands_options.expected_max_number_of_operands`,
@@ -780,6 +781,9 @@ class DB {
   // The caller should delete or `Reset()` the `merge_operands` entries when
   // they are no longer needed. All `merge_operands` entries must be destroyed
   // or `Reset()` before this DB is closed or destroyed.
+  // OK status is returned if any merge operand is found.
+  // NotFound status is returned if no merge operand is found.
+  // Error status is returned if there is an error.
   virtual Status GetMergeOperands(
       const ReadOptions& options, ColumnFamilyHandle* column_family,
       const Slice& key, PinnableSlice* merge_operands,
