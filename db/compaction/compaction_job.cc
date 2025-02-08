@@ -301,8 +301,7 @@ void CompactionJob::Prepare(
   SequenceNumber preserve_time_min_seqno = kMaxSequenceNumber;
   SequenceNumber preclude_last_level_min_seqno = kMaxSequenceNumber;
   uint64_t preserve_time_duration =
-      std::max(c->mutable_cf_options().preserve_internal_time_seconds,
-               c->mutable_cf_options().preclude_last_level_data_seconds);
+      MinAndMaxPreserveSeconds(c->mutable_cf_options()).max_preserve_seconds;
 
   if (preserve_time_duration > 0) {
     const ReadOptions read_options(Env::IOActivity::kCompaction);
