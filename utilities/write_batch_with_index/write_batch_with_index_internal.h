@@ -74,6 +74,8 @@ class BaseDeltaIterator : public Iterator {
 
  private:
   void AssertInvariants();
+  // Advance the current iterator to the next/prev key depending on forward_.
+  // If equal_keys_ is true, advance both base and delta iterators.
   void Advance();
   void AdvanceDelta();
   void AdvanceBase();
@@ -81,10 +83,17 @@ class BaseDeltaIterator : public Iterator {
   bool DeltaValid() const;
   void ResetValueAndColumns();
   void SetValueAndColumnsFromBase();
+  // Requires calling delta_iterator_->FindLatestUpdate() before this call.
+  // Will update value_ and column_ accordingly and assumes that delta iterator
+  // is visible.
   void SetValueAndColumnsFromDelta();
+  // Determine the current key and value for the iterator from base and delta
+  // iterators. Advance base or delta iters if needed.
   void UpdateCurrent();
 
   bool forward_;
+  // The non-current iterator, if valid, is at its first key that is ahead of
+  // the current iterator.
   bool current_at_base_;
   bool equal_keys_;
   bool allow_unprepared_value_;
@@ -119,9 +128,10 @@ struct WriteBatchIndexEntry {
   //                    _search_key should be null in this case.
   WriteBatchIndexEntry(const Slice* _search_key, uint32_t _column_family,
                        bool is_forward_direction, bool is_seek_to_first)
-      // For SeekForPrev(), we need to make the dummy entry larger than any
+      // For SeekForPrev(), we need to make the dummy entry no smaller than any
       // entry who has the same search key. Otherwise, we'll miss those entries.
-      : offset(is_forward_direction ? 0 : std::numeric_limits<size_t>::max()),
+      // Keys are ordered by descending offset.
+      : offset(is_forward_direction ? std::numeric_limits<size_t>::max() : 0),
         column_family(_column_family),
         has_single_del(false),
         has_overwritten_single_del(false),
@@ -141,19 +151,20 @@ struct WriteBatchIndexEntry {
     return key_size == kFlagMinInCf;
   }
 
-  // offset of an entry in write batch's string buffer. If this is a dummy
+  // The offset of an entry in write batch's string buffer. If this is a dummy
   // lookup key, in which case search_key != nullptr, offset is set to either
   // 0 or max, only for comparison purpose. Because when entries have the same
-  // key, the entry with larger offset is larger, offset = 0 will make a seek
-  // key small or equal than all the entries with the seek key, so that Seek()
-  // will find all the entries of the same key. Similarly, offset = MAX will
-  // make the entry just larger than all entries with the search key so
+  // key, the entry with larger offset is smaller, offset = MAX will make a seek
+  // key smaller than all the entries with the seek key, so that Seek()
+  // will find all the entries of the same key. Similarly, offset = 0 will
+  // make the entry larger than or equal to all entries with the seek key so
   // SeekForPrev() will see all the keys with the same key.
   size_t offset;
   uint32_t column_family;  // column family of the entry.
   bool has_single_del;     // whether single del was issued for this key
   bool has_overwritten_single_del;  // whether a single del for this key was
                                     // overwritten by another key
+  // The following two fields are used when search_key is null.
   size_t key_offset;  // offset of the key in write batch's string buffer.
   size_t key_size;    // size of the key. kFlagMinInCf indicates
                       // that this is a dummy look up entry for
@@ -354,16 +365,21 @@ class WBWIIteratorImpl final : public WBWIIterator {
   // Moves the iterator to first entry of the next key.
   void NextKey();
 
-  // Moves the iterator to the Update (Put, PutEntity or Delete) for the current
-  // key. If there is no Put/PutEntity/Delete, the Iterator will point to the
-  // first entry for this key.
-  // @return kFound if a Put/PutEntity was found for the key
-  // @return kDeleted if a delete was found for the key
-  // @return kMergeInProgress if only merges were found for the key
-  // @return kError if an unsupported operation was found for the key
-  // @return kNotFound if no operations were found for this key
+  // If the iterator's current entry equals to `key`, then
+  // - moves the iterator to the most recent update (Put, PutEntity or Delete)
+  // for `key`.
+  // - if there is no update (only Merge), the iterator will point to the last
+  // (oldest) Merge for `key`.
+  // - merge operands will be accumulated in merge_context.
+  // Else, the iterator will not move.
   //
+  // @return kFound if a Put/PutEntity was found for `key`.
+  // @return kDeleted if a Delete was found for `key`
+  // @return kMergeInProgress if only Merges were found for `key`
+  // @return kError if an unsupported operation was found for `key`
+  // @return kNotFound if no operations were found for `key`
   Result FindLatestUpdate(const Slice& key, MergeContext* merge_context);
+  // Find the latest update for iterator's current key.
   Result FindLatestUpdate(MergeContext* merge_context);
 
  protected:
