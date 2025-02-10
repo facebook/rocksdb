@@ -998,13 +998,20 @@ extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
 rocksdb_writebatch_wi_create_iterator_with_base(
     rocksdb_writebatch_wi_t* wbwi, rocksdb_iterator_t* base_iterator);
 extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
+rocksdb_writebatch_wi_create_iterator_with_base_readopts(
+    rocksdb_writebatch_wi_t* wbwi, rocksdb_iterator_t* base_iterator,
+    const rocksdb_readoptions_t* options);
+extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
 rocksdb_writebatch_wi_create_iterator_with_base_cf(
     rocksdb_writebatch_wi_t* wbwi, rocksdb_iterator_t* base_iterator,
     rocksdb_column_family_handle_t* cf);
+extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
+rocksdb_writebatch_wi_create_iterator_with_base_cf_readopts(
+    rocksdb_writebatch_wi_t* wbwi, rocksdb_iterator_t* base_iterator,
+    rocksdb_column_family_handle_t* cf, const rocksdb_readoptions_t* options);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_update_timestamps(
     rocksdb_writebatch_wi_t* wbwi, const char* ts, size_t tslen, void* state,
     size_t (*get_ts_size)(void*, uint32_t), char** errptr);
-
 /* Options utils */
 
 // Load the latest rocksdb options from the specified db_path.
