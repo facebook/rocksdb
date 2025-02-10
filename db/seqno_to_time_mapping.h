@@ -138,7 +138,7 @@ class SeqnoToTimeMapping {
   // Adds a series of mappings interpolating from from_seqno->from_time to
   // to_seqno->to_time. This can only be called on an empty object and both
   // seqno range and time range are inclusive.
-  bool PrePopulate(SequenceNumber from_seqno, SequenceNumber to_seqno,
+  void PrePopulate(SequenceNumber from_seqno, SequenceNumber to_seqno,
                    uint64_t from_time, uint64_t to_time);
 
   // Append a new entry to the list. The `seqno` should be >= all previous
@@ -147,6 +147,10 @@ class SeqnoToTimeMapping {
   // Returns false if the entry was merged into the most recent entry
   // rather than creating a new entry.
   bool Append(SequenceNumber seqno, uint64_t time);
+
+  bool Append(std::pair<SequenceNumber, uint64_t> seqno_time_pair) {
+    return Append(seqno_time_pair.first, seqno_time_pair.second);
+  }
 
   // Clear all entries and (re-)enter enforced mode if not already in that
   // state. Enforced limits are unchanged.
@@ -272,6 +276,48 @@ class SeqnoToTimeMapping {
   pair_const_iterator FindGreaterTime(uint64_t time) const;
   pair_const_iterator FindGreaterSeqno(SequenceNumber seqno) const;
   pair_const_iterator FindGreaterEqSeqno(SequenceNumber seqno) const;
+};
+
+// A struct to help combining settings across column families
+struct MinAndMaxPreserveSeconds {
+  uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
+  uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
+
+  MinAndMaxPreserveSeconds() = default;
+
+  template <class CFOpts>
+  explicit MinAndMaxPreserveSeconds(const CFOpts& opts) {
+    Combine(opts);
+  }
+
+  bool IsEnabled() const {
+    return min_preserve_seconds != std::numeric_limits<uint64_t>::max();
+  }
+
+  // Incorporate another CF's settings into the result. If preserve/preclude are
+  // disabled for this CF, they are excluded from the result.
+  template <class CFOpts>
+  void Combine(const CFOpts& opts) {
+    uint64_t preserve_seconds = std::max(opts.preserve_internal_time_seconds,
+                                         opts.preclude_last_level_data_seconds);
+    if (preserve_seconds > 0) {
+      min_preserve_seconds = std::min(preserve_seconds, min_preserve_seconds);
+      max_preserve_seconds = std::max(preserve_seconds, max_preserve_seconds);
+    }
+  }
+
+  // Choose how many seconds between mapping samples
+  uint64_t GetRecodingCadence() const {
+    if (IsEnabled()) {
+      // round up to 1 when the time_duration is smaller than
+      // kMaxSeqnoTimePairsPerCF
+      return (min_preserve_seconds + kMaxSeqnoTimePairsPerCF - 1) /
+             kMaxSeqnoTimePairsPerCF;
+    } else {
+      // disabled
+      return 0;
+    }
+  }
 };
 
 // === Utility methods used for TimedPut === //
