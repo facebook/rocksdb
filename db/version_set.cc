@@ -5424,8 +5424,11 @@ Status VersionSet::ProcessManifestWrites(
         // no grouping when skipping manifest write
         break;
       }
-      if ((*it)->edit_list.front()->IsColumnFamilyManipulation()) {
+      const auto* next = (*it)->edit_list.front();
+      if (next->IsColumnFamilyManipulation() ||
+          next->IsNoManifestWriteDummy()) {
         // no group commits for column family add or drop
+        // nor for dummy skipping manifest write
         break;
       }
     }
