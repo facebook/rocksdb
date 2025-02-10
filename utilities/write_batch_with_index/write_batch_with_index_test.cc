@@ -695,18 +695,18 @@ TEST_P(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
 
 TEST_P(WriteBatchWithIndexTest, WBWIIteratorImpl) {
   // Tests methods of WBWIIteratorImpl, with some overwrites and merges.
-  batch_->Merge("k0", "k0m0");
-  batch_->Put("k0", "k0p1");
+  ASSERT_OK(batch_->Merge("k0", "k0m0"));
+  ASSERT_OK(batch_->Put("k0", "k0p1"));
 
   // a merge and a non-merge
-  batch_->Merge("k1", "k1m0");
-  batch_->Merge("k1", "k1m1");
+  ASSERT_OK(batch_->Merge("k1", "k1m0"));
+  ASSERT_OK(batch_->Merge("k1", "k1m1"));
 
-  batch_->SingleDelete("k2");
+  ASSERT_OK(batch_->SingleDelete("k2"));
 
   // put then merge
-  batch_->Put("k3", "k3p0");
-  batch_->Merge("k3", "k3m1");
+  ASSERT_OK(batch_->Put("k3", "k3p0"));
+  ASSERT_OK(batch_->Merge("k3", "k3m1"));
 
   std::unique_ptr<WBWIIteratorImpl> iter(
       static_cast<WBWIIteratorImpl*>(batch_->NewIterator()));
