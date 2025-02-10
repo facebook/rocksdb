@@ -138,11 +138,15 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
         cached_range_tombstone_.AccessAtCore(i);
     auto new_local_cache_ref = std::make_shared<
         const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
-    std::atomic_store_explicit(
-        local_cache_ref_ptr,
-        std::shared_ptr<FragmentedRangeTombstoneListCache>(new_local_cache_ref,
-                                                           new_cache.get()),
-        std::memory_order_relaxed);
+    std::atomic<std::shared_ptr<FragmentedRangeTombstoneListCache>> r(*local_cache_ref_ptr);
+    r.store(std::shared_ptr<FragmentedRangeTombstoneListCache>(new_local_cache_ref,
+                                                               new_cache.get()),
+            std::memory_order_relaxed);
+//    std::atomic_store_explicit(
+//        local_cache_ref_ptr,
+//        std::shared_ptr<FragmentedRangeTombstoneListCache>(new_local_cache_ref,
+//                                                           new_cache.get()),
+//        std::memory_order_relaxed);
   }
   const Comparator* ucmp = cmp.user_comparator();
   assert(ucmp);
@@ -784,9 +788,12 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
   }
 
   // takes current cache
-  std::shared_ptr<FragmentedRangeTombstoneListCache> cache =
-      std::atomic_load_explicit(cached_range_tombstone_.Access(),
-                                std::memory_order_relaxed);
+  std::atomic<std::shared_ptr<FragmentedRangeTombstoneListCache>> r(*cached_range_tombstone_.Access());
+  auto cache= r.load(std::memory_order_relaxed);
+
+//  std::shared_ptr<FragmentedRangeTombstoneListCache> cache =
+//      std::atomic_load_explicit(cached_range_tombstone_.Access(),
+//                                std::memory_order_relaxed);
   // construct fragmented tombstone list if necessary
   if (!cache->initialized.load(std::memory_order_acquire)) {
     cache->reader_mutex.lock();
@@ -1063,9 +1070,8 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       // Each core will have a shared_ptr to a shared_ptr to the cached
       // fragmented range tombstones, so that ref count is maintianed locally
       // per-core using the per-core shared_ptr.
-      std::atomic_store_explicit(
-          local_cache_ref_ptr,
-          std::shared_ptr<FragmentedRangeTombstoneListCache>(
+      std::atomic<std::shared_ptr<FragmentedRangeTombstoneListCache>> r(*local_cache_ref_ptr);
+      r.store(std::shared_ptr<FragmentedRangeTombstoneListCache>(
               new_local_cache_ref, new_cache.get()),
           std::memory_order_relaxed);
     }
