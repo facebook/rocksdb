@@ -210,6 +210,7 @@ struct SuperVersion {
   ReadOnlyMemTable* mem;
   MemTableListVersion* imm;
   Version* current;
+  // TODO: do we really need this in addition to what's in current Version?
   MutableCFOptions mutable_cf_options;
   // Version number of the current SuperVersion
   uint64_t version_number;

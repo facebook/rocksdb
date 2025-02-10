@@ -1595,6 +1595,69 @@ TEST_F(DBOptionsTest, TempOptionsFailTest) {
   ASSERT_FALSE(found_temp_file);
 }
 
+TEST_F(DBOptionsTest, SetOptionsNoManifestWrite) {
+  ASSERT_OK(Put("x", "x"));
+  ASSERT_OK(Flush());
+
+  // In addition to checking manifest file, we want to ensure that SetOptions
+  // is essentially atomic, without releasing the DB mutex between applying
+  // the options to the cfd and installing new Version and SuperVersion. We
+  // probabilistically verify that by attempting to catch an inconsistency.
+  auto* const cfd =
+      static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())->cfd();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  std::optional<std::thread> t;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WakeUpAndNotDone", [&](void* arg) {
+        auto* mu = static_cast<InstrumentedMutex*>(arg);
+        // Option not yet modified
+        ASSERT_FALSE(cfd->GetLatestMutableCFOptions().disable_auto_compactions);
+        ASSERT_FALSE(
+            cfd->current()->GetMutableCFOptions().disable_auto_compactions);
+        ASSERT_FALSE(
+            cfd->GetCurrentMutableCFOptions().disable_auto_compactions);
+        t = std::thread([mu, cfd]() {
+          InstrumentedMutexLock l(mu);
+          // Assuming above correctness, we can only acquire the mutex after
+          // options fully installed.
+          ASSERT_TRUE(
+              cfd->GetLatestMutableCFOptions().disable_auto_compactions);
+          ASSERT_TRUE(
+              cfd->current()->GetMutableCFOptions().disable_auto_compactions);
+          ASSERT_TRUE(
+              cfd->GetCurrentMutableCFOptions().disable_auto_compactions);
+        });
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Baseline manifest file info
+  std::vector<std::string> live_files;
+  uint64_t orig_manifest_file_size;
+  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &orig_manifest_file_size));
+  uint64_t orig_manifest_file_num = dbfull()->TEST_Current_Manifest_FileNo();
+
+  // Although this test mostly concerns SetOptions, we also include SetDBOptions
+  // just for the added scope
+  ASSERT_OK(db_->SetDBOptions({{"max_open_files", "100"}}));
+  ASSERT_OK(db_->SetOptions({{"disable_auto_compactions", "true"}}));
+
+  // Verify that our above check was activated and completed
+  ASSERT_TRUE(t.has_value());
+  t->join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Verify manifest was not written to
+  uint64_t new_manifest_file_size;
+  ASSERT_OK(dbfull()->GetLiveFiles(live_files, &new_manifest_file_size));
+  uint64_t new_manifest_file_num = dbfull()->TEST_Current_Manifest_FileNo();
+  ASSERT_EQ(orig_manifest_file_num, new_manifest_file_num);
+  ASSERT_EQ(orig_manifest_file_size, new_manifest_file_size);
+
+  ASSERT_EQ(Get("x"), "x");
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

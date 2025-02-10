@@ -377,6 +377,14 @@ void testCountersWithFlushAndCompaction(Counters& counters, DB* db) {
       {"testCountersWithFlushAndCompaction:AfterGet",
        "testCountersWithFlushAndCompaction::bg_flush_thread:2"},
   });
+  // This test relies on old behavior of SetOptions writing to the
+  // manifest. Here we restore that old behavior for reproducer purposes.
+  // (Brief attempts to use an alternative to SetOptions failed.)
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SetOptions:dummy_edit", [&](void* arg) {
+        auto* dummy_edit = static_cast<VersionEdit*>(arg);
+        dummy_edit->Clear();
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   port::Thread set_options_thread([&]() {
