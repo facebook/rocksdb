@@ -24,6 +24,7 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/format.h"
@@ -1839,7 +1840,26 @@ class TestingContextCustomFilterPolicy
 }  // anonymous namespace
 
 TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
-  auto policy = std::make_shared<TestingContextCustomFilterPolicy>(15, 8, 5);
+  int bpk_fifo = 15;
+  int bpk_l0_other = 8;
+  int bpk_otherwise = 5;
+  auto policy = std::make_shared<TestingContextCustomFilterPolicy>(
+      bpk_fifo, bpk_l0_other, bpk_otherwise);
+
+  // Little hack to make PersistRocksDBOptions work
+  ObjectRegistry::Default()
+      ->AddLibrary("db_bloom_filter_test")
+      ->AddFactory<FilterPolicy>(
+          policy->Name(),
+          [&bpk_fifo, &bpk_l0_other, &bpk_otherwise](
+              const std::string& /*uri*/, std::unique_ptr<FilterPolicy>* guard,
+              std::string* /* errmsg */) {
+            std::unordered_map<std::string, std::string> map;
+            guard->reset(new LevelAndStyleCustomFilterPolicy(
+                bpk_fifo, bpk_l0_other, bpk_otherwise));
+            return guard->get();
+          });
+
   Options options;
   for (bool fifo : {true, false}) {
     options = CurrentOptions();

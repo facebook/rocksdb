@@ -1291,11 +1291,25 @@ Status DBImpl::SetOptions(
   InstrumentedMutexLock ol(&options_mutex_);
   MutableCFOptions new_options_copy;  // For logging outside of DB mutex
   Status s;
-  Status persist_options_status;
+  Status persist_options_status = Status::OK();
   SuperVersionContext sv_context(/* create_superversion */ true);
   {
     auto db_options = GetDBOptions();
     InstrumentedMutexLock l(&mutex_);
+    MutableCFOptions current_options = *cfd->GetCurrentMutableCFOptions();
+    s = GetMutableOptionsFromStrings(current_options, options_map,
+                                     immutable_db_options_.info_log.get(),
+                                     &new_options);
+    if (s.ok() && MutableCFOptionsAreEqual(current_options, new_options)) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "SetOptions() on column family [%s], no values to update "
+          "(All values are the same as current CFOptions). Skip updating.",
+          cfd->GetName().c_str());
+      persist_options_status.PermitUncheckedError();
+      return s;
+    }
+
     s = cfd->SetOptions(db_options, options_map);
     if (s.ok()) {
       new_options_copy = cfd->GetLatestMutableCFOptions();
@@ -1373,10 +1387,11 @@ Status DBImpl::SetDBOptions(
       new_options.bytes_per_sync = 1024 * 1024;
     }
 
-    if (MutableDBOptionsAreEqual(mutable_db_options_, new_options)) {
-      ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                     "SetDBOptions(), input option value is not changed, "
-                     "skipping updating.");
+    if (s.ok() && MutableDBOptionsAreEqual(mutable_db_options_, new_options)) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "SetDBOptions(), no values to update (All values are the same as "
+          "current DBOptions). Skip updating.");
       persist_options_status.PermitUncheckedError();
       return s;
     }

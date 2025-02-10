@@ -364,4 +364,7 @@ std::vector<std::string> TEST_GetImmutableInMutableCFOptions();
 extern bool TEST_allowSetOptionsImmutableInMutable;
 #endif
 
+bool MutableCFOptionsAreEqual(const MutableCFOptions& this_options,
+                              const MutableCFOptions& that_options);
+
 }  // namespace ROCKSDB_NAMESPACE
