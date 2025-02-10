@@ -50,8 +50,9 @@ public class TransactionLogIteratorTest {
           isEqualTo(numberOfPuts);
 
       // insert 5 writes into a cf
-      try (final ColumnFamilyHandle cfHandle = db.createColumnFamily(
-          new ColumnFamilyDescriptor("new_cf".getBytes()))) {
+
+      try (final ColumnFamilyDescriptor newCF = new ColumnFamilyDescriptor("new_cf".getBytes());
+           final ColumnFamilyHandle cfHandle = db.createColumnFamily(newCF)) {
         for (int i = 0; i < numberOfPuts; i++) {
           db.put(cfHandle, String.valueOf(i).getBytes(),
               String.valueOf(i).getBytes());
