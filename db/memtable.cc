@@ -1360,7 +1360,10 @@ static bool SaveValue(void* arg, const char* entry) {
         if (merge_context->get_merge_operands_options != nullptr &&
             merge_context->get_merge_operands_options->continue_cb != nullptr &&
             !merge_context->get_merge_operands_options->continue_cb(v)) {
-          // We were told not to continue.
+          // We were told not to continue. `status` may be MergeInProress(),
+          // overwrite to signal the end of successful get. This status
+          // will be checked at the end of GetImpl().
+          *(s->status) = Status::OK();
           *(s->found_final_value) = true;
           return false;
         }
