@@ -1217,7 +1217,7 @@ class VersionSet {
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr,
       const std::function<void(const Status&)>& manifest_wcb = {},
-      const std::function<Status()> pre_cb = {}) {
+      const std::function<Status()>& pre_cb = {}) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
     autovector<autovector<VersionEdit*>> edit_lists;
@@ -1237,7 +1237,7 @@ class VersionSet {
       FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr,
       const std::function<void(const Status&)>& manifest_wcb = {},
-      const std::function<Status()> pre_cb = {}) {
+      const std::function<Status()>& pre_cb = {}) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
     autovector<autovector<VersionEdit*>> edit_lists;
@@ -1258,7 +1258,7 @@ class VersionSet {
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr,
       const std::vector<std::function<void(const Status&)>>& manifest_wcbs = {},
-      const std::function<Status()> pre_cb = {});
+      const std::function<Status()>& pre_cb = {});
 
   void WakeUpWaitingManifestWriters();
 
@@ -1786,7 +1786,7 @@ class ReactiveVersionSet : public VersionSet {
       InstrumentedMutex* /*mu*/, FSDirectory* /*dir_contains_current_file*/,
       bool /*new_descriptor_log*/, const ColumnFamilyOptions* /*new_cf_option*/,
       const std::vector<std::function<void(const Status&)>>& /*manifest_wcbs*/,
-      const std::function<Status()> /*pre_cb*/) override {
+      const std::function<Status()>& /*pre_cb*/) override {
     return Status::NotSupported("not supported in reactive mode");
   }
 

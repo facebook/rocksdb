@@ -5913,7 +5913,7 @@ Status VersionSet::LogAndApply(
     InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
     bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options,
     const std::vector<std::function<void(const Status&)>>& manifest_wcbs,
-    const std::function<Status()> pre_cb) {
+    const std::function<Status()>& pre_cb) {
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
