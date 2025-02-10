@@ -1479,4 +1479,10 @@ DEFINE_bool(paranoid_memory_checks,
 DEFINE_uint32(commit_bypass_memtable_one_in, 0,
               "If greater than zero, transaction option will set "
               "commit_bypass_memtable to per every N transactions on average.");
+
+DEFINE_bool(
+    auto_refresh_iterator_with_snapshot,
+    ROCKSDB_NAMESPACE::ReadOptions().auto_refresh_iterator_with_snapshot,
+    "ReadOptions.auto_refresh_iterator_with_snapshot");
+
 #endif  // GFLAGS
