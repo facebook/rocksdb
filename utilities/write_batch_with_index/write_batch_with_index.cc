@@ -105,35 +105,29 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
     return false;
   } else if (!iter.MatchesKey(column_family_id, key)) {
     return false;
-  } else {
-    // Move to the end of this key (NextKey-Prev)
-    iter.NextKey();  // Move to the next key
-    if (iter.Valid()) {
-      iter.Prev();  // Move back one entry
-    } else {
-      iter.SeekToLast();
-    }
   }
-  WriteBatchIndexEntry* non_const_entry =
+  // Seek() and MatchesKey() guarantees that we are at the first entry with
+  // key == `key`, which is the most recently update to `key`.
+  WriteBatchIndexEntry* most_recent_entry =
       const_cast<WriteBatchIndexEntry*>(iter.GetRawEntry());
-  if (LIKELY(last_sub_batch_offset <= non_const_entry->offset)) {
+  if (LIKELY(last_sub_batch_offset <= most_recent_entry->offset)) {
     last_sub_batch_offset = last_entry_offset;
     sub_batch_cnt++;
   }
   if (track_cf_stat) {
-    if (non_const_entry->has_single_del &&
-        !non_const_entry->has_overwritten_single_del) {
+    if (most_recent_entry->has_single_del &&
+        !most_recent_entry->has_overwritten_single_del) {
       cf_id_to_stat[column_family_id].overwritten_sd_count++;
-      non_const_entry->has_overwritten_single_del = true;
+      most_recent_entry->has_overwritten_single_del = true;
     }
     if (type == kSingleDeleteRecord) {
-      non_const_entry->has_single_del = true;
+      most_recent_entry->has_single_del = true;
     }
   }
   if (type == kMergeRecord) {
     return false;
   } else {
-    non_const_entry->offset = last_entry_offset;
+    most_recent_entry->offset = last_entry_offset;
     return true;
   }
 }

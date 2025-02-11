@@ -415,7 +415,8 @@ class WriteBatchWithIndexTest : public WBWIBaseTest,
 };
 
 void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
-                                     WriteBatchWithIndex* batch) {
+                                     WriteBatchWithIndex* batch,
+                                     bool overwrite) {
   // In this test, we insert <key, value> to column family `data`, and
   // <value, key> to column family `index`. Then iterator them in order
   // and seek them by key.
@@ -425,8 +426,25 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
   // Sort entries by value
   std::map<std::string, std::vector<Entry*>> index_map;
   for (auto& e : entries) {
-    data_map[e.key].push_back(&e);
-    index_map[e.value].push_back(&e);
+    if (overwrite && e.type != kMergeRecord && data_map[e.key].size() > 0) {
+      data_map[e.key].back() = &e;
+    } else {
+      data_map[e.key].push_back(&e);
+    }
+
+    // index does not use Merge, so we overwrite the expected value
+    if (overwrite && index_map[e.value].size() > 0) {
+      index_map[e.value].back() = &e;
+    } else {
+      index_map[e.value].push_back(&e);
+    }
+  }
+  // Most recent update for the same key is ordered first.
+  for (auto& [_, v] : data_map) {
+    std::reverse(v.begin(), v.end());
+  }
+  for (auto& [_, v] : index_map) {
+    std::reverse(v.begin(), v.end());
   }
 
   ColumnFamilyHandleImplDummy data(6, BytewiseComparator());
@@ -554,6 +572,25 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
         ASSERT_OK(iter->status());
       }
     }
+
+    // SeekForPrev
+    for (auto pair = data_map.begin(); pair != data_map.end(); ++pair) {
+      iter->SeekForPrev(pair->first);
+      ASSERT_OK(iter->status());
+      // SeekForPrev positions iter at the last entry <= target.
+      // So we iterate updates from oldest to most recent.
+      for (auto v = pair->second.rbegin(); v != pair->second.rend(); ++v) {
+        ASSERT_TRUE(iter->Valid());
+        auto write_entry = iter->Entry();
+        ASSERT_EQ(pair->first, write_entry.key.ToString());
+        ASSERT_EQ((*v)->type, write_entry.type);
+        if (write_entry.type != kDeleteRecord) {
+          ASSERT_EQ((*v)->value, write_entry.value.ToString());
+        }
+        iter->Prev();
+        ASSERT_OK(iter->status());
+      }
+    }
   }
 
   // Seek to every index
@@ -573,6 +610,24 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
           ASSERT_EQ(v->key, write_entry.value.ToString());
         }
         iter->Next();
+        ASSERT_OK(iter->status());
+      }
+    }
+
+    // SeekForPrev
+    for (auto pair = index_map.begin(); pair != index_map.end(); ++pair) {
+      iter->SeekForPrev(pair->first);
+      ASSERT_OK(iter->status());
+      // SeekForPrev positions iter at the last entry <= target.
+      // So we iterate updates from oldest to most recent.
+      for (auto v = pair->second.rbegin(); v != pair->second.rend(); ++v) {
+        ASSERT_TRUE(iter->Valid());
+        auto write_entry = iter->Entry();
+        ASSERT_EQ(pair->first, write_entry.key.ToString());
+        if ((*v)->type != kDeleteRecord) {
+          ASSERT_EQ((*v)->key, write_entry.value.ToString());
+        }
+        iter->Prev();
         ASSERT_OK(iter->status());
       }
     }
@@ -610,7 +665,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
   }
 }
 
-TEST_F(WBWIKeepTest, TestValueAsSecondaryIndex) {
+TEST_P(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
   Entry entries[] = {
       {"aaa", "0005", kPutRecord},   {"b", "0002", kPutRecord},
       {"cdd", "0002", kMergeRecord}, {"aab", "00001", kPutRecord},
@@ -619,23 +674,138 @@ TEST_F(WBWIKeepTest, TestValueAsSecondaryIndex) {
   };
   std::vector<Entry> entries_list(entries, entries + 8);
 
-  batch_.reset(new WriteBatchWithIndex(nullptr, 20, false));
+  batch_.reset(new WriteBatchWithIndex(nullptr, 20, GetParam()));
 
-  TestValueAsSecondaryIndexHelper(entries_list, batch_.get());
+  TestValueAsSecondaryIndexHelper(entries_list, batch_.get(), GetParam());
 
   // Clear batch and re-run test with new values
   batch_->Clear();
 
   Entry new_entries[] = {
-      {"aaa", "0005", kPutRecord},   {"e", "0002", kPutRecord},
-      {"add", "0002", kMergeRecord}, {"aab", "00001", kPutRecord},
-      {"zz", "00005", kPutRecord},   {"add", "0002", kPutRecord},
-      {"aab", "0003", kPutRecord},   {"zz", "00005", kDeleteRecord},
+      {"aaa", "0005", kPutRecord}, {"e", "0002", kPutRecord},
+      {"add", "0002", kPutRecord}, {"aab", "00001", kPutRecord},
+      {"zz", "00005", kPutRecord}, {"add", "0002", kMergeRecord},
+      {"aab", "0003", kPutRecord}, {"zz", "00005", kDeleteRecord},
   };
 
   entries_list = std::vector<Entry>(new_entries, new_entries + 8);
 
-  TestValueAsSecondaryIndexHelper(entries_list, batch_.get());
+  TestValueAsSecondaryIndexHelper(entries_list, batch_.get(), GetParam());
+}
+
+TEST_P(WriteBatchWithIndexTest, WBWIIteratorImpl) {
+  // Tests methods of WBWIIteratorImpl, with some overwrites and merges.
+  ASSERT_OK(batch_->Merge("k0", "k0m0"));
+  ASSERT_OK(batch_->Put("k0", "k0p1"));
+
+  // a merge and a non-merge
+  ASSERT_OK(batch_->Merge("k1", "k1m0"));
+  ASSERT_OK(batch_->Merge("k1", "k1m1"));
+
+  ASSERT_OK(batch_->SingleDelete("k2"));
+
+  // put then merge
+  ASSERT_OK(batch_->Put("k3", "k3p0"));
+  ASSERT_OK(batch_->Merge("k3", "k3m1"));
+
+  std::unique_ptr<WBWIIteratorImpl> iter(
+      static_cast<WBWIIteratorImpl*>(batch_->NewIterator()));
+
+  auto verify_iter = [&iter](const std::string& k, const std::string& v,
+                             WriteType t, int line) {
+    SCOPED_TRACE("Called from line " + std::to_string(line));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    const auto entry = iter->Entry();
+    ASSERT_EQ(entry.key, k);
+    if (t != kDeleteRecord && t != kSingleDeleteRecord) {
+      ASSERT_EQ(entry.value, v);
+    }
+    ASSERT_EQ(entry.type, t);
+  };
+
+  // Should land on first key >= k0, recent update is ordered first
+  iter->Seek("k0");
+  verify_iter("k0", "k0p1", kPutRecord, __LINE__);
+  // Should land on the first update of the next key
+  iter->NextKey();
+  verify_iter("k1", "k1m1", kMergeRecord, __LINE__);
+  iter->NextKey();
+  verify_iter("k2", "", kSingleDeleteRecord, __LINE__);
+  iter->NextKey();
+  verify_iter("k3", "k3m1", kMergeRecord, __LINE__);
+  iter->PrevKey();
+  verify_iter("k2", "", kSingleDeleteRecord, __LINE__);
+
+  // Should land on last key <= k0, recent update is ordered first
+  iter->SeekForPrev("k3");
+  verify_iter("k3", "k3p0", kPutRecord, __LINE__);
+  iter->PrevKey();
+  verify_iter("k2", "", kSingleDeleteRecord, __LINE__);
+  iter->PrevKey();
+  verify_iter("k1", "k1m1", kMergeRecord, __LINE__);
+  iter->PrevKey();
+  verify_iter("k0", "k0p1", kPutRecord, __LINE__);
+  iter->NextKey();
+  verify_iter("k1", "k1m1", kMergeRecord, __LINE__);
+
+  // test FindLatestUpdate
+  iter->SeekToFirst();
+  verify_iter("k0", "k0p1", kPutRecord, __LINE__);
+  MergeContext merge_context;
+  // iterator is not at k1
+  ASSERT_EQ(iter->FindLatestUpdate("k1", &merge_context),
+            WBWIIteratorImpl::Result::kNotFound);
+  ASSERT_EQ(merge_context.GetNumOperands(), 0);
+  // iterator was not moved
+  verify_iter("k0", "k0p1", kPutRecord, __LINE__);
+
+  // k0's most recent update is a Put
+  ASSERT_EQ(iter->FindLatestUpdate("k0", &merge_context),
+            WBWIIteratorImpl::Result::kFound);
+  ASSERT_EQ(merge_context.GetNumOperands(), 0);
+  verify_iter("k0", "k0p1", kPutRecord, __LINE__);
+
+  iter->NextKey();
+  verify_iter("k1", "k1m1", kMergeRecord, __LINE__);
+  ASSERT_EQ(iter->FindLatestUpdate("k1", &merge_context),
+            WBWIIteratorImpl::Result::kMergeInProgress);
+  ASSERT_EQ(merge_context.GetNumOperands(), 2);
+  auto operands = merge_context.GetOperands();
+  // oldest merge is ordered first
+  ASSERT_EQ(operands[0], "k1m0");
+  ASSERT_EQ(operands[1], "k1m1");
+  // iterator moved to last merge
+  verify_iter("k1", "k1m0", kMergeRecord, __LINE__);
+  merge_context.Clear();
+
+  iter->Next();
+  verify_iter("k2", "", kSingleDeleteRecord, __LINE__);
+  ASSERT_EQ(iter->FindLatestUpdate("k2", &merge_context),
+            WBWIIteratorImpl::Result::kDeleted);
+  ASSERT_EQ(merge_context.GetNumOperands(), 0);
+  verify_iter("k2", "", kSingleDeleteRecord, __LINE__);
+
+  iter->Next();
+  verify_iter("k3", "k3m1", kMergeRecord, __LINE__);
+  // This will find latest updated of the current key
+  ASSERT_EQ(iter->FindLatestUpdate(&merge_context),
+            WBWIIteratorImpl::Result::kFound);
+  ASSERT_EQ(merge_context.GetNumOperands(), 1);
+  operands = merge_context.GetOperands();
+  ASSERT_EQ(operands[0], "k3m1");
+  // iterator moved to last merge
+  verify_iter("k3", "k3p0", kPutRecord, __LINE__);
+
+  // SeekToLast
+  iter->SeekToLast();
+  verify_iter("k3", "k3p0", kPutRecord, __LINE__);
+  // FindLatestUpdate() while we are at the older update of k3
+  ASSERT_EQ(iter->FindLatestUpdate(&merge_context),
+            WBWIIteratorImpl::Result::kFound);
+  ASSERT_EQ(merge_context.GetNumOperands(), 1);
+  operands = merge_context.GetOperands();
+  ASSERT_EQ(operands[0], "k3m1");
 }
 
 TEST_P(WriteBatchWithIndexTest, TestComparatorForCF) {
@@ -2599,7 +2769,7 @@ TEST_P(WriteBatchWithIndexTest, GetFromBatchAndDBAfterMerge) {
   ASSERT_EQ(value, "cc");
 }
 
-TEST_F(WBWIKeepTest, GetAfterPut) {
+TEST_P(WriteBatchWithIndexTest, GetAfterPut) {
   std::string value;
   ASSERT_OK(OpenDB());
   ColumnFamilyHandle* cf0 = db_->DefaultColumnFamily();
@@ -2691,7 +2861,7 @@ TEST_P(WriteBatchWithIndexTest, GetAfterMergeDelete) {
   ASSERT_EQ(value, "cc,dd");
 }
 
-TEST_F(WBWIOverwriteTest, TestBadMergeOperator) {
+TEST_P(WriteBatchWithIndexTest, TestBadMergeOperator) {
   class FailingMergeOperator : public MergeOperator {
    public:
     FailingMergeOperator() = default;
@@ -2837,15 +3007,16 @@ TEST_P(WriteBatchWithIndexTest, ColumnFamilyWithTimestamp) {
       std::string key;
       PutFixed32(&key, start);
       ASSERT_EQ(key, it->Entry().key);
-      if (!overwrite) {
-        ASSERT_EQ(WriteType::kPutRecord, it->Entry().type);
-        it->Next();
-        ASSERT_TRUE(it->Valid());
-      }
+      // For each key, most recent update (Del) is ordered first.
       if (0 == (start % 2)) {
         ASSERT_EQ(WriteType::kDeleteRecord, it->Entry().type);
       } else {
         ASSERT_EQ(WriteType::kSingleDeleteRecord, it->Entry().type);
+      }
+      if (!overwrite) {
+        it->Next();
+        ASSERT_TRUE(it->Valid());
+        ASSERT_EQ(WriteType::kPutRecord, it->Entry().type);
       }
     }
   }
