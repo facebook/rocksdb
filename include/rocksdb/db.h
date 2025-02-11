@@ -294,6 +294,13 @@ class DB {
   // delete it after use.
   //
   // Return OK on success, non-OK on failures.
+  //
+  // WARNING: Secondary databases cannot read shared SST files that have been
+  // truncated in the primary database. To avoid compatibility issues, users
+  // should refrain from using features in the primary database that can cause
+  // truncation, such as setting `rate_bytes_per_sec > 0` and
+  // `bytes_max_delete_chunk > 0` when invoking RocksDB's implementation of
+  // `NewSstFileManager()`.
   static Status OpenAsSecondary(const Options& options, const std::string& name,
                                 const std::string& secondary_path,
                                 std::unique_ptr<DB>* dbptr);
