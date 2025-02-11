@@ -1216,7 +1216,8 @@ class VersionSet {
       InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr,
-      const std::function<void(const Status&)>& manifest_wcb = {}) {
+      const std::function<void(const Status&)>& manifest_wcb = {},
+      const std::function<Status()>& pre_cb = {}) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
     autovector<autovector<VersionEdit*>> edit_lists;
@@ -1225,7 +1226,7 @@ class VersionSet {
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, read_options, write_options, edit_lists, mu,
                        dir_contains_current_file, new_descriptor_log,
-                       column_family_options, {manifest_wcb});
+                       column_family_options, {manifest_wcb}, pre_cb);
   }
   // The batch version. If edit_list.size() > 1, caller must ensure that
   // no edit in the list column family add or drop
@@ -1235,14 +1236,15 @@ class VersionSet {
       const autovector<VersionEdit*>& edit_list, InstrumentedMutex* mu,
       FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr,
-      const std::function<void(const Status&)>& manifest_wcb = {}) {
+      const std::function<void(const Status&)>& manifest_wcb = {},
+      const std::function<Status()>& pre_cb = {}) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
     autovector<autovector<VersionEdit*>> edit_lists;
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, read_options, write_options, edit_lists, mu,
                        dir_contains_current_file, new_descriptor_log,
-                       column_family_options, {manifest_wcb});
+                       column_family_options, {manifest_wcb}, pre_cb);
   }
 
   // The across-multi-cf batch version. If edit_lists contain more than
@@ -1255,8 +1257,8 @@ class VersionSet {
       InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr,
-      const std::vector<std::function<void(const Status&)>>& manifest_wcbs =
-          {});
+      const std::vector<std::function<void(const Status&)>>& manifest_wcbs = {},
+      const std::function<Status()>& pre_cb = {});
 
   void WakeUpWaitingManifestWriters();
 
@@ -1783,8 +1785,8 @@ class ReactiveVersionSet : public VersionSet {
       const autovector<autovector<VersionEdit*>>& /*edit_lists*/,
       InstrumentedMutex* /*mu*/, FSDirectory* /*dir_contains_current_file*/,
       bool /*new_descriptor_log*/, const ColumnFamilyOptions* /*new_cf_option*/,
-      const std::vector<std::function<void(const Status&)>>& /*manifest_wcbs*/)
-      override {
+      const std::vector<std::function<void(const Status&)>>& /*manifest_wcbs*/,
+      const std::function<Status()>& /*pre_cb*/) override {
     return Status::NotSupported("not supported in reactive mode");
   }
 
