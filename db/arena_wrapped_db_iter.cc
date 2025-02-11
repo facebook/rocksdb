@@ -64,8 +64,7 @@ void ArenaWrappedDBIter::Init(
   memtable_range_tombstone_iter_ = nullptr;
 }
 
-void ArenaWrappedDBIter::MaybeAutoRefresh(std::function<void()> op,
-                                          bool is_seek,
+void ArenaWrappedDBIter::MaybeAutoRefresh(bool is_seek,
                                           DBIter::Direction direction) {
   if (cfh_ != nullptr && read_options_.snapshot != nullptr && allow_refresh_ &&
       read_options_.auto_refresh_iterator_with_snapshot) {
@@ -116,24 +115,19 @@ void ArenaWrappedDBIter::MaybeAutoRefresh(std::function<void()> op,
       //
       bool valid = false;
       std::string key = "";
-      if (!is_seek) {
-        op();
+      if (!is_seek && db_iter_->Valid()) {
         // The key() Slice is valid until the iterator state changes.
         // Given that refresh is heavy-weight operation it itself,
         // we should copy the target key upfront to avoid reading bad value.
-        if (db_iter_->Valid()) {
-          valid = true;
-          key = db_iter_->key().ToString();
-        }
+        valid = true;
+        key = db_iter_->key().ToString();
       }
 
       // It's perfectly fine to unref the corresponding superversion
       // as we rely on pinning behavior of snapshot for consistency.
       DoRefresh(read_options_.snapshot, cur_sv_number);
 
-      if (is_seek) {
-        op();
-      } else if (valid) {  // Reconcile new iterator after Next() / Prev()
+      if (!is_seek && valid) {  // Reconcile new iterator after Next() / Prev()
         if (direction == DBIter::kForward) {
           db_iter_->Seek(key);
         } else {
@@ -141,11 +135,8 @@ void ArenaWrappedDBIter::MaybeAutoRefresh(std::function<void()> op,
           db_iter_->SeekForPrev(key);
         }
       }
-      return;
     }
   }
-
-  op();
 }
 
 Status ArenaWrappedDBIter::Refresh() { return Refresh(nullptr); }

@@ -66,21 +66,25 @@ class ArenaWrappedDBIter : public Iterator {
   // 'target' does not contain timestamp, even if user timestamp feature is
   // enabled.
   void Seek(const Slice& target) override {
-    MaybeAutoRefresh([&] { db_iter_->Seek(target); }, true /* is_seek */,
-                     DBIter::kForward);
+    MaybeAutoRefresh(true /* is_seek */, DBIter::kForward);
+    db_iter_->Seek(target);
   }
+
   void SeekForPrev(const Slice& target) override {
-    MaybeAutoRefresh([&] { db_iter_->SeekForPrev(target); }, true /* is_seek */,
-                     DBIter::kReverse);
+    MaybeAutoRefresh(true /* is_seek */, DBIter::kReverse);
+    db_iter_->SeekForPrev(target);
   }
+
   void Next() override {
-    MaybeAutoRefresh([&] { db_iter_->Next(); }, false /* is_seek */,
-                     DBIter::kForward);
+    db_iter_->Next();
+    MaybeAutoRefresh(false /* is_seek */, DBIter::kForward);
   }
+
   void Prev() override {
-    MaybeAutoRefresh([&] { db_iter_->Prev(); }, false /* is_seek */,
-                     DBIter::kReverse);
+    db_iter_->Prev();
+    MaybeAutoRefresh(false /* is_seek */, DBIter::kReverse);
   }
+
   Slice key() const override { return db_iter_->key(); }
   Slice value() const override { return db_iter_->value(); }
   const WideColumns& columns() const override { return db_iter_->columns(); }
@@ -114,8 +118,7 @@ class ArenaWrappedDBIter : public Iterator {
 
  private:
   void DoRefresh(const Snapshot* snapshot, uint64_t sv_number);
-  void MaybeAutoRefresh(std::function<void()> op, bool is_seek,
-                        DBIter::Direction direction);
+  void MaybeAutoRefresh(bool is_seek, DBIter::Direction direction);
 
   DBIter* db_iter_ = nullptr;
   Arena arena_;
