@@ -507,6 +507,61 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
   verify_db_func("new_foo_value", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, Debug) {
+  Options options;
+  options.env = env_;
+  options.sst_file_manager = nullptr;
+  options.use_direct_reads = true;
+  options.use_direct_io_for_flush_and_compaction = true;
+  Reopen(options);
+  WriteOptions wo;
+  wo.disableWAL = true;
+  ASSERT_OK(dbfull()->Put(wo, "key1", "old_value"));
+  ASSERT_OK(dbfull()->Put(wo, "key2", "old_value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->Put(wo, "key1", "new_value"));
+  ASSERT_OK(dbfull()->Put(wo, "key3", "new_value"));
+  ASSERT_OK(Flush());
+
+  Options options1;
+  options1.env = env_;
+  options1.max_open_files = -1;
+  options1.use_direct_reads = true;
+  options1.use_direct_io_for_flush_and_compaction = true;
+
+  // options.periodic_compaction_seconds = 1;
+  Reopen(options);
+  // corruption - not found
+  OpenSecondary(options1);
+  ROCKSDB_NAMESPACE::port::Thread t2([&] {
+    // corruption - assertion failure
+    ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+    // corruption - assertion failure
+    std::string value;
+    ASSERT_OK(db_secondary_->Get(ReadOptions(), "key2", &value));
+    ASSERT_EQ("old_value", value);
+  });
+
+  // ROCKSDB_NAMESPACE::port::Thread t3([&] {
+  //   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  //   std::string value;
+  //   ASSERT_OK(db_secondary_->Get(ReadOptions(), "key2", &value));
+  //   ASSERT_EQ("old_value", value);
+  // });
+
+  // ROCKSDB_NAMESPACE::port::Thread t4([&] {
+  //   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  //   std::string value;
+  //   ASSERT_OK(db_secondary_->Get(ReadOptions(), "key2", &value));
+  //   ASSERT_EQ("old_value", value);
+  // });
+
+  // t1.join();
+  t2.join();
+  // t3.join();
+  // t4.join();
+}
+
 namespace {
 class TraceFileEnv : public EnvWrapper {
  public:

@@ -324,11 +324,27 @@ void BlockFetcher::ReadBlock(bool retry) {
     if (use_fs_scratch_ && !read_req.status.ok()) {
       io_status_ = read_req.status;
     } else if (slice_.size() != block_size_with_trailer_) {
+      std::size_t file_size = 0;
+      if (ioptions_.env) {
+        Status get_file_size_s =
+            ioptions_.env->GetFileSize(file_->file_name(), &file_size);
+        if (!get_file_size_s.ok()) {
+          ROCKS_LOG_INFO(ioptions_.logger,
+                         "before block fetcher truncated block read get file "
+                         "size files. %s",
+                         get_file_size_s.ToString().c_str());
+        }
+      }
       io_status_ = IOStatus::Corruption(
-          "truncated block read from " + file_->file_name() + " offset " +
-          std::to_string(handle_.offset()) + ", expected " +
+          "block fetcher truncated block read from " + file_->file_name() +
+          " offset " + std::to_string(handle_.offset()) + ", expected " +
           std::to_string(block_size_with_trailer_) + " bytes, got " +
           std::to_string(slice_.size()));
+      ROCKS_LOG_INFO(
+          ioptions_.logger,
+          "block fetcher truncated block read from. %s file size: %" PRIu64 "",
+          io_status_.ToString().c_str(), file_size);
+      assert(false);
     }
   }
 

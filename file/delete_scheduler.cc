@@ -391,6 +391,9 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
             my_status = wf->Truncate(file_size - bytes_max_delete_chunk_,
                                      IOOptions(), nullptr);
             if (my_status.ok()) {
+              ROCKS_LOG_INFO(info_log_, "Truncated %s to %" PRIu64 " length",
+                             path_in_trash.c_str(),
+                             file_size - bytes_max_delete_chunk_);
               TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:Fsync");
               my_status = wf->Fsync(IOOptions(), nullptr);
             }
