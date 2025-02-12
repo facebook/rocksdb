@@ -266,6 +266,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
                                   "k3.2", values.data(), &merge_operands_info,
                                   &number_of_operands));
+  ASSERT_EQ(number_of_operands, 2);
   ASSERT_EQ(values[0], "cd");
   ASSERT_EQ(values[1], "de");
 
@@ -283,6 +284,7 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
                                   "k4", values.data(), &merge_operands_info,
                                   &number_of_operands));
+  ASSERT_EQ(number_of_operands, 4);
   ASSERT_EQ(values[0], "ba");
   ASSERT_EQ(values[1], "cb");
   ASSERT_EQ(values[2], "dc");
@@ -318,9 +320,10 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
                                   "k6", readonly_values.data(),
                                   &merge_operands_info, &number_of_operands));
-  ASSERT_EQ(number_of_operands, limit);
-  ASSERT_EQ(readonly_values[0], "call");
-  ASSERT_EQ(readonly_values[1], "saul");
+  ASSERT_EQ(number_of_operands, 3);
+  ASSERT_EQ(readonly_values[0], "better");
+  ASSERT_EQ(readonly_values[1], "call");
+  ASSERT_EQ(readonly_values[2], "saul");
 }
 
 TEST_F(DBMergeOperandTest, BlobDBGetMergeOperandsBasic) {
