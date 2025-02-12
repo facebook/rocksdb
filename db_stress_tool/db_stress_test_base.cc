@@ -1971,7 +1971,7 @@ void StressTest::VerifyIterator(
                << ", allow_unprepared_value: " << ro.allow_unprepared_value
                << ", auto_refresh_iterator_with_snapshot"
                << ro.auto_refresh_iterator_with_snapshot << ", snapshot: "
-               << ((ro.snapshot == nullptr) ? "nullptr" : "well-defined");
+               << ((ro.snapshot == nullptr) ? "nullptr" : "non-nullptr");
 
   if (iter->Valid() && !cmp_iter->Valid()) {
     if (pe != nullptr) {

@@ -1951,14 +1951,14 @@ struct ReadOptions {
   // Long-running iterators are holding onto memory and storage resources long
   // after they are obsolete. This setting (when enabled) will fix that problem
   // for as long as iterator periodically makes some progress and its supplied
-  // `read_options` was configured with explicit (non-nullptr) `snapshot` value.
+  // `read_options` was configured with non-nullptr `snapshot` value.
   // The feature is engineered so that the performance impact should be
   // negligible. We expect the default value to be true some time in the future.
   //
   // NOTE 1: Does not have effect on TransactionDB with WRITE_PREPARED or
   //         WRITE_UNPREPARED policies.
   //
-  // NOTE 2: Not recommended if your application is using UDT-IN-MEM!
+  // NOTE 2: Not recommended if your application is reading UDT timestamps.
   //
   // Default: false
   bool auto_refresh_iterator_with_snapshot = false;
