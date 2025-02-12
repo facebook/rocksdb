@@ -423,6 +423,7 @@ DECLARE_string(file_temperature_age_thresholds);
 DECLARE_uint32(commit_bypass_memtable_one_in);
 DECLARE_bool(track_and_verify_wals);
 DECLARE_bool(enable_remote_compaction);
+DECLARE_bool(auto_refresh_iterator_with_snapshot);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

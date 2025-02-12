@@ -1106,6 +1106,7 @@ class DBTestBase : public testing::Test {
     return std::string(buf);
   }
 
+  // Expects valid key created by Key().
   static int IdFromKey(const std::string& key) {
     return std::stoi(key.substr(3));
   }

@@ -29,6 +29,13 @@ class NonBatchedOpsStressTest : public StressTest {
     // This `ReadOptions` is for validation purposes. Ignore
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions options(FLAGS_verify_checksum, true);
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (FLAGS_auto_refresh_iterator_with_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db_);
+      options.snapshot = snapshot->snapshot();
+      options.auto_refresh_iterator_with_snapshot = true;
+    }
+
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
@@ -467,6 +474,13 @@ class NonBatchedOpsStressTest : public StressTest {
       ts_str = GetNowNanos();
       ts = ts_str;
       read_opts.timestamp = &ts;
+    }
+
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (FLAGS_auto_refresh_iterator_with_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db_);
+      read_opts.snapshot = snapshot->snapshot();
+      read_opts.auto_refresh_iterator_with_snapshot = true;
     }
 
     static Random64 rand64(shared->GetSeed());
@@ -1561,6 +1575,13 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
 
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (ro_copy.auto_refresh_iterator_with_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db_);
+      ro_copy.snapshot = snapshot->snapshot();
+      ro_copy.auto_refresh_iterator_with_snapshot = true;
+    }
+
     // Randomly test with `iterate_upper_bound` and `prefix_same_as_start`
     //
     // Get the next prefix first and then see if we want to set it to be the
@@ -2340,6 +2361,13 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     ReadOptions ro(read_opts);
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (ro.auto_refresh_iterator_with_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db_);
+      ro.snapshot = snapshot->snapshot();
+      ro.auto_refresh_iterator_with_snapshot = true;
+    }
+
     if (FLAGS_prefix_size > 0) {
       ro.total_order_seek = true;
     }
