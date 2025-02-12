@@ -405,10 +405,9 @@ TEST_F(BlobFileBuilderTest, Compression) {
 
   CompressionOptions opts;
   CompressionContext context(kSnappyCompression, opts);
-  constexpr uint64_t sample_for_compression = 0;
 
   CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                       kSnappyCompression, sample_for_compression);
+                       kSnappyCompression);
 
   std::string compressed_value;
   ASSERT_TRUE(Snappy_Compress(info, uncompressed_value.data(),

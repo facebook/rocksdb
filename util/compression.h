@@ -153,7 +153,8 @@ struct CompressionDict {
   std::string dict_;
 
  public:
-  CompressionDict(std::string dict, CompressionType type, int level) {
+  CompressionDict() = default;
+  CompressionDict(std::string&& dict, CompressionType type, int level) {
     dict_ = std::move(dict);
 #ifdef ZSTD
     zstd_cdict_ = nullptr;
@@ -173,6 +174,25 @@ struct CompressionDict {
 #endif  // ZSTD
   }
 
+  CompressionDict(CompressionDict&& other) {
+#ifdef ZSTD
+    zstd_cdict_ = other.zstd_cdict_;
+    other.zstd_cdict_ = nullptr;
+#endif  // ZSTD
+    dict_ = std::move(other.dict_);
+  }
+  CompressionDict& operator=(CompressionDict&& other) {
+    if (this == &other) {
+      return *this;
+    }
+#ifdef ZSTD
+    zstd_cdict_ = other.zstd_cdict_;
+    other.zstd_cdict_ = nullptr;
+#endif  // ZSTD
+    dict_ = std::move(other.dict_);
+    return *this;
+  }
+
   ~CompressionDict() {
 #ifdef ZSTD
     size_t res = 0;
@@ -189,18 +209,16 @@ struct CompressionDict {
 #endif  // ZSTD
 
   Slice GetRawDict() const { return dict_; }
+  bool empty() const { return dict_.empty(); }
 
   static const CompressionDict& GetEmptyDict() {
     static CompressionDict empty_dict{};
     return empty_dict;
   }
 
-  CompressionDict() = default;
-  // Disable copy/move
+  // Disable copy
   CompressionDict(const CompressionDict&) = delete;
   CompressionDict& operator=(const CompressionDict&) = delete;
-  CompressionDict(CompressionDict&&) = delete;
-  CompressionDict& operator=(CompressionDict&&) = delete;
 };
 
 // Holds dictionary and related data, like ZSTD's digested uncompression
@@ -225,7 +243,7 @@ struct UncompressionDict {
   ZSTD_DDict* zstd_ddict_ = nullptr;
 #endif  // ROCKSDB_ZSTD_DDICT
 
-  UncompressionDict(std::string dict, bool using_zstd)
+  UncompressionDict(std::string&& dict, bool using_zstd)
       : dict_(std::move(dict)), slice_(dict_) {
 #ifdef ROCKSDB_ZSTD_DDICT
     if (!slice_.empty() && using_zstd) {
@@ -408,31 +426,27 @@ class CompressionContext {
   CompressionContext& operator=(const CompressionContext&) = delete;
 };
 
+// TODO: rename
 class CompressionInfo {
   const CompressionOptions& opts_;
   const CompressionContext& context_;
   const CompressionDict& dict_;
   const CompressionType type_;
-  const uint64_t sample_for_compression_;
 
  public:
   CompressionInfo(const CompressionOptions& _opts,
                   const CompressionContext& _context,
-                  const CompressionDict& _dict, CompressionType _type,
-                  uint64_t _sample_for_compression)
-      : opts_(_opts),
-        context_(_context),
-        dict_(_dict),
-        type_(_type),
-        sample_for_compression_(_sample_for_compression) {}
+                  const CompressionDict& _dict, CompressionType _type)
+      : opts_(_opts), context_(_context), dict_(_dict), type_(_type) {}
 
   const CompressionOptions& options() const { return opts_; }
   const CompressionContext& context() const { return context_; }
   const CompressionDict& dict() const { return dict_; }
   CompressionType type() const { return type_; }
-  uint64_t SampleForCompression() const { return sample_for_compression_; }
 };
 
+// This is like a working area, reusable for different dicts, etc.
+// TODO: refactor / consolidate
 class UncompressionContext {
  private:
   CompressionContextCache* ctx_cache_ = nullptr;
@@ -958,7 +972,7 @@ inline bool BZip2_Compress(const CompressionInfo& /*info*/,
 
   // Initialize the output size.
   _stream.avail_out = static_cast<unsigned int>(length);
-  _stream.next_out = reinterpret_cast<char*>(&(*output)[output_header_len]);
+  _stream.next_out = output->data() + output_header_len;
 
   bool compressed = false;
   st = BZ2_bzCompress(&_stream, BZ_FINISH);
@@ -1336,6 +1350,7 @@ inline bool ZSTD_Compress(const CompressionInfo& info, const char* input,
       output, static_cast<uint32_t>(length));
 
   size_t compressBound = ZSTD_compressBound(length);
+  // TODO: use resize_and_overwrite with c++23
   output->resize(static_cast<size_t>(output_header_len + compressBound));
   size_t outlen = 0;
   ZSTD_CCtx* context = info.context().ZSTDPreallocCtx();
