@@ -391,6 +391,8 @@ void CompactionJob::Prepare(
   // seqno threshold.)
   penultimate_after_seqno_ = std::max(preclude_last_level_min_seqno,
                                       c->GetKeepInLastLevelThroughSeqno());
+
+  options_file_number_ = versions_->options_file_number();
 }
 
 uint64_t CompactionJob::GetSubcompactionsLimit() {
