@@ -1956,9 +1956,14 @@ struct ReadOptions {
   // negligible. We expect the default value to be true some time in the future.
   //
   // NOTE 1: Does not have effect on TransactionDB with WRITE_PREPARED or
-  //         WRITE_UNPREPARED policies.
+  //         WRITE_UNPREPARED policies (currently incompatible).
   //
-  // NOTE 2: Not recommended if your application is reading UDT timestamps.
+  // NOTE 2: True is not recommended if using user-defined timestamp with
+  //         persist_user_defined_timestamps=false and non-nullptr
+  //         ReadOptions::timestamp or ReadOptions::iter_start_ts, because
+  //         auto-refreshing iterator will not prevent user timestamp
+  //         information from being dropped during iteration. Auto-refresh might
+  //         be disabled for this combination in the future.
   //
   // Default: false
   bool auto_refresh_iterator_with_snapshot = false;

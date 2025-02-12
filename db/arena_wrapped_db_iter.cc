@@ -114,7 +114,7 @@ void ArenaWrappedDBIter::MaybeAutoRefresh(bool is_seek,
       //                            ---- T3: Seek(T)
       //
       bool valid = false;
-      std::string key = "";
+      std::string key;
       if (!is_seek && db_iter_->Valid()) {
         // The key() Slice is valid until the iterator state changes.
         // Given that refresh is heavy-weight operation it itself,
