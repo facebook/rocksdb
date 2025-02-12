@@ -48,10 +48,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   compaction_input.has_end = sub_compact->end.has_value();
   compaction_input.end =
       compaction_input.has_end ? sub_compact->end->ToString() : "";
-  compaction_input.options_file_number =
-      sub_compact->compaction->input_version()
-          ->version_set()
-          ->options_file_number();
+  compaction_input.options_file_number = options_file_number_;
 
   TEST_SYNC_POINT_CALLBACK(
       "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
