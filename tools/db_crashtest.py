@@ -842,7 +842,13 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0
-    if dest_params.get("sst_file_manager_bytes_per_sec", 0) == 0:
+    # Truncating SST files in primary DB is incompatible 
+    # with secondary DB since the latter can't read the shared 
+    # and truncated SST file correctly 
+    if (
+        dest_params.get("sst_file_manager_bytes_per_sec", 0) == 0
+        or dest_params.get("test_secondary") == 1
+    ):
         dest_params["sst_file_manager_bytes_per_truncate"] = 0
     if dest_params.get("prefix_size") == -1:
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
