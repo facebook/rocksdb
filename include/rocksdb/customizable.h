@@ -154,12 +154,12 @@ class Customizable : public Configurable {
   //      the name of the option that triggered the match failure.
   // @param True if the objects match, false otherwise.
   // @see Configurable::AreEquivalent for more details
-  bool AreEquivalent(const ConfigOptions& config_options,
+  ROCKSDB_LIBRARY_API bool AreEquivalent(const ConfigOptions& config_options,
                      const Configurable* other,
                      std::string* mismatch) const override;
   // Gets the value of the option associated with the input name
   // @see Configurable::GetOption for more details
-  Status GetOption(const ConfigOptions& config_options, const std::string& name,
+  ROCKSDB_LIBRARY_API Status GetOption(const ConfigOptions& config_options, const std::string& name,
                    std::string* value) const override;
   // Helper method for getting for parsing the opt_value into the corresponding
   // options for use in potentially creating a new Customizable object (this
@@ -221,8 +221,8 @@ class Customizable : public Configurable {
   // nickname.  Nicknames can be used by InstanceOf and object creation.
   virtual const char* NickName() const { return ""; }
   //  Given a name (e.g. rocksdb.my.type.opt), returns the short name (opt)
-  std::string GetOptionName(const std::string& long_name) const override;
-  std::string SerializeOptions(const ConfigOptions& options,
+  ROCKSDB_LIBRARY_API std::string GetOptionName(const std::string& long_name) const override;
+  ROCKSDB_LIBRARY_API std::string SerializeOptions(const ConfigOptions& options,
                                const std::string& prefix) const override;
 };
 
