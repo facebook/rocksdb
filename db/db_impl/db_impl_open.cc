@@ -1106,16 +1106,18 @@ bool DBImpl::InvokeWalFilterIfNeededOnWalRecord(uint64_t wal_number,
   return true;
 }
 
-void DBOpenLogReporter::Corruption(size_t bytes, const Status& s) {
+void DBOpenLogRecordReadReporter::Corruption(size_t bytes, const Status& s,
+                                             uint64_t log_number) {
   ROCKS_LOG_WARN(info_log, "%s%s: dropping %d bytes; %s",
                  (status == nullptr ? "(ignoring error) " : ""), fname,
                  static_cast<int>(bytes), s.ToString().c_str());
   if (status != nullptr && status->ok()) {
     *status = s;
+    corrupted_log_number_ = log_number;
   }
 }
 
-void DBOpenLogReporter::OldLogRecord(size_t bytes) {
+void DBOpenLogRecordReadReporter::OldLogRecord(size_t bytes) {
   if (old_log_record != nullptr) {
     *old_log_record = true;
   }
@@ -1229,7 +1231,7 @@ Status DBImpl::ProcessLogFile(
   Status status;
   bool old_log_record = false;
 
-  DBOpenLogReporter reporter;
+  DBOpenLogRecordReadReporter reporter;
   std::unique_ptr<log::Reader> reader;
 
   std::string fname =
@@ -1323,7 +1325,7 @@ Status DBImpl::ProcessLogFile(
   }
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "Recovered to log #%" PRIu64 " seq #%" PRIu64, wal_number,
+                 "Recovered to log #%" PRIu64 " next seq #%" PRIu64, wal_number,
                  *next_sequence);
 
   if (status.ok()) {
@@ -1333,7 +1335,7 @@ Status DBImpl::ProcessLogFile(
 
   if (!status.ok() || old_log_record) {
     status = HandleNonOkStatusOrOldLogRecord(
-        wal_number, next_sequence, status, &old_log_record,
+        wal_number, next_sequence, status, reporter, &old_log_record,
         stop_replay_for_corruption, corrupted_wal_number, corrupted_wal_found);
   }
 
@@ -1357,7 +1359,7 @@ Status DBImpl::InitializeLogReader(
     uint64_t wal_number, bool is_retry, std::string& fname,
     bool stop_replay_for_corruption, uint64_t min_wal_number,
     const PredecessorWALInfo& predecessor_wal_info, bool* const old_log_record,
-    Status* const reporter_status, DBOpenLogReporter* reporter,
+    Status* const reporter_status, DBOpenLogRecordReadReporter* reporter,
     std::unique_ptr<log::Reader>& reader) {
   assert(old_log_record);
   assert(reporter_status);
@@ -1408,10 +1410,11 @@ Status DBImpl::ProcessLogRecord(
     Slice record, const std::unique_ptr<log::Reader>& reader,
     const UnorderedMap<uint32_t, size_t>& running_ts_sz, uint64_t wal_number,
     const std::string& fname, bool read_only, int job_id,
-    std::function<void()> logFileDropped, DBOpenLogReporter* reporter,
-    uint64_t* record_checksum, SequenceNumber* last_seqno_observed,
-    SequenceNumber* next_sequence, bool* stop_replay_for_corruption,
-    Status* status, bool* stop_replay_by_wal_filter,
+    const std::function<void()>& logFileDropped,
+    DBOpenLogRecordReadReporter* reporter, uint64_t* record_checksum,
+    SequenceNumber* last_seqno_observed, SequenceNumber* next_sequence,
+    bool* stop_replay_for_corruption, Status* status,
+    bool* stop_replay_by_wal_filter,
     std::unordered_map<int, VersionEdit>* version_edits, bool* flushed) {
   assert(reporter);
   assert(last_seqno_observed);
@@ -1607,7 +1610,8 @@ Status DBImpl::MaybeWriteLevel0TableForRecovery(
 
 Status DBImpl::HandleNonOkStatusOrOldLogRecord(
     uint64_t wal_number, SequenceNumber const* const next_sequence,
-    Status status, bool* old_log_record, bool* stop_replay_for_corruption,
+    Status status, const DBOpenLogRecordReadReporter& reporter,
+    bool* old_log_record, bool* stop_replay_for_corruption,
     uint64_t* corrupted_wal_number, bool* corrupted_wal_found) {
   assert(!status.ok() || *old_log_record);
 
@@ -1641,7 +1645,12 @@ Status DBImpl::HandleNonOkStatusOrOldLogRecord(
     // We should ignore the error but not continue replaying
     *old_log_record = false;
     *stop_replay_for_corruption = true;
-    *corrupted_wal_number = wal_number;
+    // TODO(hx235): have a single source of corrupted WAL number once we
+    // consolidate the statuses
+    uint64_t reporter_corrupted_wal_number = reporter.GetCorruptedLogNumber();
+    *corrupted_wal_number = reporter_corrupted_wal_number != kMaxSequenceNumber
+                                ? reporter_corrupted_wal_number
+                                : wal_number;
     if (corrupted_wal_found != nullptr) {
       *corrupted_wal_found = true;
     }
