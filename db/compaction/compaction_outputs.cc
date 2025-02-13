@@ -46,11 +46,17 @@ Status CompactionOutputs::Finish(
   }
   const uint64_t current_bytes = builder_->FileSize();
   if (s.ok()) {
+    auto tp = builder_->GetTableProperties();
     meta->fd.file_size = current_bytes;
     meta->tail_size = builder_->GetTailSize();
     meta->marked_for_compaction = builder_->NeedCompact();
-    meta->user_defined_timestamps_persisted = static_cast<bool>(
-        builder_->GetTableProperties().user_defined_timestamps_persisted);
+    meta->num_entries = tp.num_entries;
+    meta->num_deletions = tp.num_deletions;
+    meta->num_range_deletions = tp.num_range_deletions;
+    meta->raw_key_size = tp.raw_key_size;
+    meta->raw_value_size = tp.raw_value_size;
+    meta->user_defined_timestamps_persisted =
+        static_cast<bool>(tp.user_defined_timestamps_persisted);
   }
   current_output().finished = true;
   stats_.bytes_written += current_bytes;
