@@ -589,6 +589,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(
       tail_prefetch_buffer->GetPrefetchOffset() > prefetch_off) {
     rep->CreateFilePrefetchBuffer(ReadaheadParams(), &prefetch_buffer,
                                   /*readaheadsize_cb*/ nullptr,
+                                  /*internal_stats=*/nullptr,
                                   /*usage=*/FilePrefetchBufferUsage::kUnknown);
 
     IOOptions opts;

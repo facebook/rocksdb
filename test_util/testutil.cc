@@ -530,7 +530,8 @@ Status CorruptFile(Env* env, const std::string& fname, int offset,
     Options options;
     options.env = env;
     EnvOptions env_options;
-    Status v = VerifySstFileChecksum(options, env_options, fname);
+    Status v = VerifySstFileChecksum(options, env_options, fname,
+                                     /*internal_stats=*/nullptr);
     assert(!v.ok());
   }
   return s;

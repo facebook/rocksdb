@@ -17,7 +17,7 @@ void BlockPrefetcher::PrefetchIfNeeded(
     const size_t readahead_size, bool is_for_compaction,
     const bool no_sequential_checking, const ReadOptions& read_options,
     const std::function<void(bool, uint64_t&, uint64_t&)>& readaheadsize_cb,
-    bool is_async_io_prefetch) {
+    bool is_async_io_prefetch, InternalStats* internal_stats) {
   if (read_options.read_tier == ReadTier::kBlockCacheTier) {
     // Disable prefetching when IO disallowed. (Note that we haven't allocated
     // any buffers yet despite the various tracked settings.)
@@ -58,16 +58,16 @@ void BlockPrefetcher::PrefetchIfNeeded(
     // implicit_auto_readahead is set.
     readahead_params.initial_readahead_size = compaction_readahead_size_;
     readahead_params.max_readahead_size = compaction_readahead_size_;
-    rep->CreateFilePrefetchBufferIfNotExists(readahead_params,
-                                             &prefetch_buffer_,
-                                             /*readaheadsize_cb=*/nullptr);
+    rep->CreateFilePrefetchBufferIfNotExists(
+        readahead_params, &prefetch_buffer_,
+        /*readaheadsize_cb=*/nullptr, internal_stats);
     return;
   }
 
   // Explicit user requested readahead.
   if (readahead_size > 0) {
     rep->CreateFilePrefetchBufferIfNotExists(
-        readahead_params, &prefetch_buffer_, readaheadsize_cb,
+        readahead_params, &prefetch_buffer_, readaheadsize_cb, internal_stats,
         /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
     return;
   }
@@ -95,7 +95,7 @@ void BlockPrefetcher::PrefetchIfNeeded(
   // will always creates the FilePrefetchBuffer.
   if (no_sequential_checking) {
     rep->CreateFilePrefetchBufferIfNotExists(
-        readahead_params, &prefetch_buffer_, readaheadsize_cb,
+        readahead_params, &prefetch_buffer_, readaheadsize_cb, internal_stats,
         /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
     return;
   }
@@ -125,7 +125,7 @@ void BlockPrefetcher::PrefetchIfNeeded(
   readahead_params.num_file_reads = num_file_reads_;
   if (rep->file->use_direct_io()) {
     rep->CreateFilePrefetchBufferIfNotExists(
-        readahead_params, &prefetch_buffer_, readaheadsize_cb,
+        readahead_params, &prefetch_buffer_, readaheadsize_cb, internal_stats,
         /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
     return;
   }
@@ -145,7 +145,7 @@ void BlockPrefetcher::PrefetchIfNeeded(
       BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_);
   if (s.IsNotSupported()) {
     rep->CreateFilePrefetchBufferIfNotExists(
-        readahead_params, &prefetch_buffer_, readaheadsize_cb,
+        readahead_params, &prefetch_buffer_, readaheadsize_cb, internal_stats,
         /*usage=*/FilePrefetchBufferUsage::kUserScanPrefetch);
     return;
   }
