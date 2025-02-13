@@ -10,6 +10,7 @@
 
 #include <string>
 
+#include "c.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
 
@@ -41,7 +42,7 @@ class CompareInterface {
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
 // including data loss, unreported corruption, deadlocks, and more.
-class Comparator : public Customizable, public CompareInterface {
+class ROCKSDB_LIBRARY_API Comparator : public Customizable, public CompareInterface {
  public:
   Comparator() : timestamp_size_(0) {}
 
@@ -184,7 +185,7 @@ class Comparator : public Customizable, public CompareInterface {
 // else and a sufficiently long string of \xFF orders after anything.
 // CanKeysWithDifferentByteContentsBeEqual() == false
 // Returns an immortal pointer that must not be deleted by the caller.
-const Comparator* BytewiseComparator();
+ROCKSDB_LIBRARY_API const Comparator* BytewiseComparator();
 
 // Return a builtin comparator that is the reverse ordering of
 // BytewiseComparator(), so the empty string is ordered after everything

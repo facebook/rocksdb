@@ -14,6 +14,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "c.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
 
@@ -41,7 +42,7 @@ struct DBOptions;
 // handled by this class without additional overrides. Otherwise, the derived
 // class will need to implement the methods for handling the corresponding
 // functionality.
-class Configurable {
+class ROCKSDB_LIBRARY_API Configurable {
  protected:
   friend class ConfigurableHelper;
   struct RegisteredOptions {
@@ -56,7 +57,7 @@ class Configurable {
   };
 
  public:
-  virtual ~Configurable() {}
+  ROCKSDB_LIBRARY_API virtual ~Configurable() {}
 
   // Returns the raw pointer of the named options that is used by this
   // object, or nullptr if this function is not supported.
@@ -288,7 +289,7 @@ class Configurable {
   // with that name is returned.
   // e.g,, RegisterOptions("X", &my_ptr, ...); GetOptionsPtr("X") returns
   // "my_ptr"
-  virtual const void* GetOptionsPtr(const std::string& name) const;
+  ROCKSDB_LIBRARY_API virtual const void* GetOptionsPtr(const std::string& name) const;
 
   // Method for allowing options to be configured outside of the normal
   // registered options framework.  Classes may override this method if they

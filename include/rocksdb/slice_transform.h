@@ -123,7 +123,7 @@ class SliceTransform : public Customizable {
 
 // The prefix is the first `prefix_len` bytes of the key, and keys shorter
 // then `prefix_len` are not InDomain.
-const SliceTransform* NewFixedPrefixTransform(size_t prefix_len);
+ROCKSDB_LIBRARY_API const SliceTransform* NewFixedPrefixTransform(size_t prefix_len);
 
 // The prefix is the first min(length(key),`cap_len`) bytes of the key, and
 // all keys are InDomain.

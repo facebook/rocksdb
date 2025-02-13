@@ -5195,7 +5195,7 @@ Status DB::ListColumnFamilies(const DBOptions& db_options,
 
 Snapshot::~Snapshot() = default;
 
-Status DestroyDB(const std::string& dbname, const Options& options,
+ROCKSDB_LIBRARY_API Status DestroyDB(const std::string& dbname, const Options& options,
                  const std::vector<ColumnFamilyDescriptor>& column_families) {
   ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
   Env* env = soptions.env;

@@ -4,6 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
+#include <rocksdb/c.h>
+
 #include <sstream>
 
 #include "monitoring/perf_context_imp.h"
@@ -169,7 +171,7 @@ struct PerfContextInt {
 // Put here just to make get_perf_context() simple without ifdef.
 PerfContext perf_context;
 #else
-thread_local PerfContext perf_context;
+ROCKSDB_LIBRARY_API thread_local PerfContext perf_context;
 #endif
 
 PerfContext* get_perf_context() {

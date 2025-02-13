@@ -128,7 +128,7 @@ using TablePropertiesCollection =
 // any external synchronization.
 // DB is an abstract base class with one primary implementation (DBImpl)
 // and a number of wrapper implementations.
-class DB {
+class ROCKSDB_LIBRARY_API DB {
  public:
   // Open the database with the specified "name" for reads and writes.
   // Stores a pointer to a heap-allocated database in *dbptr and returns
@@ -164,12 +164,12 @@ class DB {
   // will use to operate on column family column_family[i].
   // Before delete DB, you have to close All column families by calling
   // DestroyColumnFamilyHandle() with all the handles.
-  static Status Open(const DBOptions& db_options, const std::string& name,
+  ROCKSDB_LIBRARY_API static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
                      std::unique_ptr<DB>* dbptr);
   // DEPRECATED: raw pointer variant
-  static Status Open(const DBOptions& db_options, const std::string& name,
+  ROCKSDB_LIBRARY_API static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
     std::unique_ptr<DB> smart_ptr;
