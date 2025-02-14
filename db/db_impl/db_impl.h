@@ -162,15 +162,21 @@ class Directories {
   std::unique_ptr<FSDirectory> wal_dir_;
 };
 
-struct DBOpenLogReporter : public log::Reader::Reporter {
+struct DBOpenLogRecordReadReporter : public log::Reader::Reporter {
   Env* env;
   Logger* info_log;
   const char* fname;
   Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
   bool* old_log_record;
-  void Corruption(size_t bytes, const Status& s) override;
+  void Corruption(size_t bytes, const Status& s,
+                  uint64_t log_number = kMaxSequenceNumber) override;
 
   void OldLogRecord(size_t bytes) override;
+
+  uint64_t GetCorruptedLogNumber() const { return corrupted_log_number_; }
+
+ private:
+  uint64_t corrupted_log_number_ = kMaxSequenceNumber;
 };
 
 // While DB is the public interface of RocksDB, and DBImpl is the actual
@@ -2067,21 +2073,25 @@ class DBImpl : public DB {
 
   void SetupLogFileProcessing(uint64_t wal_number);
 
-  Status InitializeLogReader(
-      uint64_t wal_number, bool is_retry, std::string& fname,
+  Status InitializeLogReader(uint64_t wal_number, bool is_retry,
+                             std::string& fname,
 
-      bool stop_replay_for_corruption, uint64_t min_wal_number,
-      const PredecessorWALInfo& predecessor_wal_info,
-      bool* const old_log_record, Status* const reporter_status,
-      DBOpenLogReporter* reporter, std::unique_ptr<log::Reader>& reader);
+                             bool stop_replay_for_corruption,
+                             uint64_t min_wal_number,
+                             const PredecessorWALInfo& predecessor_wal_info,
+                             bool* const old_log_record,
+                             Status* const reporter_status,
+                             DBOpenLogRecordReadReporter* reporter,
+                             std::unique_ptr<log::Reader>& reader);
   Status ProcessLogRecord(
       Slice record, const std::unique_ptr<log::Reader>& reader,
       const UnorderedMap<uint32_t, size_t>& running_ts_sz, uint64_t wal_number,
       const std::string& fname, bool read_only, int job_id,
-      std::function<void()> logFileDropped, DBOpenLogReporter* reporter,
-      uint64_t* record_checksum, SequenceNumber* last_seqno_observed,
-      SequenceNumber* next_sequence, bool* stop_replay_for_corruption,
-      Status* status, bool* stop_replay_by_wal_filter,
+      const std::function<void()>& logFileDropped,
+      DBOpenLogRecordReadReporter* reporter, uint64_t* record_checksum,
+      SequenceNumber* last_seqno_observed, SequenceNumber* next_sequence,
+      bool* stop_replay_for_corruption, Status* status,
+      bool* stop_replay_by_wal_filter,
       std::unordered_map<int, VersionEdit>* version_edits, bool* flushed);
 
   Status InitializeWriteBatchForLogRecord(
@@ -2106,9 +2116,9 @@ class DBImpl : public DB {
 
   Status HandleNonOkStatusOrOldLogRecord(
       uint64_t wal_number, SequenceNumber const* const next_sequence,
-      Status log_read_status, bool* old_log_record,
-      bool* stop_replay_for_corruption, uint64_t* corrupted_wal_number,
-      bool* corrupted_wal_found);
+      Status status, const DBOpenLogRecordReadReporter& reporter,
+      bool* old_log_record, bool* stop_replay_for_corruption,
+      uint64_t* corrupted_wal_number, bool* corrupted_wal_found);
 
   Status UpdatePredecessorWALInfo(uint64_t wal_number,
                                   const SequenceNumber last_seqno_observed,

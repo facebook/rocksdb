@@ -1585,7 +1585,8 @@ class VersionSet {
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
-    void Corruption(size_t /*bytes*/, const Status& s) override {
+    void Corruption(size_t /*bytes*/, const Status& s,
+                    uint64_t /*log_number*/ = kMaxSequenceNumber) override {
       if (status->ok()) {
         *status = s;
       }

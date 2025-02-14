@@ -74,7 +74,8 @@ Status GetFileChecksumsFromCurrentManifest(FileSystem* fs,
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status_ptr;
-    void Corruption(size_t /*bytes*/, const Status& st) override {
+    void Corruption(size_t /*bytes*/, const Status& st,
+                    uint64_t /*log_number*/ = kMaxSequenceNumber) override {
       if (status_ptr->ok()) {
         *status_ptr = st;
       }
