@@ -18,7 +18,6 @@ class ExternalTableFactory;
 // The interface defined in this file is subject to change at any time without
 // warning!!
 
-
 // This file defines an interface for plugging in an external table reader
 // into RocksDB. The external table reader will be used instead of the
 // BlockBasedTable to load and query sst files. As of now, creating the

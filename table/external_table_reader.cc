@@ -174,6 +174,7 @@ class ExternalTableFactoryAdapter : public TableFactory {
 
   const char* Name() const override { return inner_->Name(); }
 
+  using TableFactory::NewTableReader;
   Status NewTableReader(
       const ReadOptions& ro, const TableReaderOptions& topts,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t /* file_size */,
@@ -189,6 +190,7 @@ class ExternalTableFactoryAdapter : public TableFactory {
       return status;
     }
     table_reader->reset(new ExternalTableReaderAdapter(std::move(reader)));
+    file.reset();
     return Status::OK();
   }
 
