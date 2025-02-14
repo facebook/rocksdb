@@ -62,6 +62,10 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
 
   [[maybe_unused]] SequenceNumber read_seq =
       GetInternalKeySeqno(key.internal_key());
+  // This is memtable is a single write batch, no snapshot can be taken within
+  // assigned seqnos for this memtable.
+  assert(read_seq >= assigned_seqno_.upper_bound ||
+         read_seq < assigned_seqno_.lower_bound);
   std::unique_ptr<InternalIterator> iter{NewIterator()};
   iter->Seek(key.internal_key());
   const Slice lookup_user_key = key.user_key();
