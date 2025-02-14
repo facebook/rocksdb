@@ -43,7 +43,7 @@
 #include <sys/types.h>
 #define PLATFORM_IS_LITTLE_ENDIAN (BYTE_ORDER == LITTLE_ENDIAN)
 #include <alloca.h>
-#elif defined(OS_FREEBSD) || defined(OS_OPENBSD) || defined(OS_NETBSD) || \
+#elif defined(OS_AIX) || defined(OS_FREEBSD) || defined(OS_OPENBSD) || defined(OS_NETBSD) || \
     defined(OS_DRAGONFLYBSD) || defined(OS_ANDROID)
 #include <sys/endian.h>
 #include <sys/types.h>
