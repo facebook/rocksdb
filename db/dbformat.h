@@ -498,6 +498,8 @@ class InternalKey {
   // Intended only to be used together with ConvertFromUserKey().
   std::string* rep() { return &rep_; }
 
+  const std::string* const_rep() const { return &rep_; }
+
   // Assuming that *rep() contains a user key, this method makes internal key
   // out of it in-place. This saves a memcpy compared to Set()/SetFrom().
   void ConvertFromUserKey(SequenceNumber s, ValueType t) {
