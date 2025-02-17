@@ -1325,50 +1325,13 @@ static bool SaveValue(void* arg, const char* entry) {
         return false;
       }
       case kTypeMerge: {
-        if (!merge_operator) {
-          *(s->status) = Status::InvalidArgument(
-              "merge_operator is not properly initialized.");
-          // Normally we continue the loop (return true) when we see a merge
-          // operand.  But in case of an error, we should stop the loop
-          // immediately and pretend we have found the value to stop further
-          // seek.  Otherwise, the later call will override this error status.
-          *(s->found_final_value) = true;
-          return false;
-        }
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->merge_in_progress) = true;
-        merge_context->PushOperand(
-            v, s->inplace_update_support == false /* operand_pinned */);
-        PERF_COUNTER_ADD(internal_merge_point_lookup_count, 1);
-
-        if (s->do_merge && merge_operator->ShouldMerge(
-                               merge_context->GetOperandsDirectionBackward())) {
-          if (s->value || s->columns) {
-            // `op_failure_scope` (an output parameter) is not provided (set to
-            // nullptr) since a failure must be propagated regardless of its
-            // value.
-            *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), MergeHelper::kNoBaseValue,
-                merge_context->GetOperands(), s->logger, s->statistics,
-                s->clock, /* update_num_ops_stats */ true,
-                /* op_failure_scope */ nullptr, s->value, s->columns);
-          }
-
-          *(s->found_final_value) = true;
-          return false;
-        }
-        if (merge_context->get_merge_operands_options != nullptr &&
-            merge_context->get_merge_operands_options->continue_cb != nullptr &&
-            !merge_context->get_merge_operands_options->continue_cb(v)) {
-          // We were told not to continue. `status` may be MergeInProress(),
-          // overwrite to signal the end of successful get. This status
-          // will be checked at the end of GetImpl().
-          *(s->status) = Status::OK();
-          *(s->found_final_value) = true;
-          return false;
-        }
-
-        return true;
+        *(s->found_final_value) = ReadOnlyMemTable::HandleTypeMerge(
+            s->key->user_key(), v, s->inplace_update_support == false,
+            s->do_merge, merge_context, s->merge_operator, s->clock,
+            s->statistics, s->logger, s->status, s->value, s->columns);
+        return !*(s->found_final_value);
       }
       default: {
         std::string msg("Corrupted value not expected.");

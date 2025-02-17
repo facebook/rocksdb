@@ -261,6 +261,7 @@ class WBWIMemTableIterator final : public InternalIterator {
   }
 
   void SeekToLast() override {
+    assert(!emit_overwritten_single_del_);
     it_->SeekToLast();
     UpdateKey();
   }
@@ -303,6 +304,8 @@ class WBWIMemTableIterator final : public InternalIterator {
     assert(Valid());
     if (emit_overwritten_single_del_) {
       if (it_->HasOverWrittenSingleDel() && !at_overwritten_single_del_) {
+        // Merge and SingleDelete on the same key is undefined behavior.
+        assert(it_->Entry().type != kMergeRecord);
         UpdateSingleDeleteKey();
         return;
       }
