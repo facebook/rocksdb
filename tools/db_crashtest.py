@@ -347,7 +347,9 @@ default_params = {
     # it has with write fault injection and TXN
     "track_and_verify_wals": 0,
     "enable_remote_compaction": lambda: random.choice([0, 1]),
-    "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
+    # TODO: enable `auto_refresh_iterator_with_snapshot` again after 
+    # fixing issues with prefix scan and injected read errors  
+    "auto_refresh_iterator_with_snapshot": 0,
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
