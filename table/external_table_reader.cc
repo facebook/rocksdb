@@ -122,12 +122,16 @@ class ExternalTableReaderAdapter : public TableReader {
 
   InternalIterator* NewIterator(
       const ReadOptions& read_options, const SliceTransform* prefix_extractor,
-      Arena* /* arena */, bool /* skip_filters */,
-      TableReaderCaller /* caller */,
+      Arena* arena, bool /* skip_filters */, TableReaderCaller /* caller */,
       size_t /* compaction_readahead_size */ = 0,
       bool /* allow_unprepared_value */ = false) override {
     auto iterator = reader_->NewIterator(read_options, prefix_extractor);
-    return new ExternalTableIterator(iterator);
+    if (arena == nullptr) {
+      return new ExternalTableIterator(iterator);
+    } else {
+      auto* mem = arena->AllocateAligned(sizeof(ExternalTableIterator));
+      return new (mem) ExternalTableIterator(iterator);
+    }
   }
 
   uint64_t ApproximateOffsetOf(const ReadOptions&, const Slice&,

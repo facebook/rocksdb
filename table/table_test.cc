@@ -6715,6 +6715,7 @@ TEST_F(ExternalTableReaderTest, SstReaderTest) {
   ASSERT_EQ(iter->value(), "bar");
   iter->Next();
   ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().ok());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

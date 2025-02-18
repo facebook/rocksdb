@@ -1955,12 +1955,12 @@ struct ReadOptions {
 
   // EXPERIMENTAL
   // An optional weight of values to be returned by a scan. Once the
-  // weight is exceeded the scan is terminated (i.e Next() invalidates the
-  // iterator). In the case of a DB with one of the built-in table formats,
-  // such as BlockBasedTable, the weight is simply the number of key-value
-  // pairs. In the case of an ExternalTableReader, the weight is passed
-  // through to the table reader and the interpretation is upto teh reader
-  // implementation.
+  // weight is reached or exceeded the scan is terminated (i.e Next()
+  // invalidates the iterator). In the case of a DB with one of the built-in
+  // table formats, such as BlockBasedTable, the weight is simply the number
+  // of key-value pairs. In the case of an ExternalTableReader, the weight is
+  // passed through to the table reader and the interpretation is upto the
+  // reader implementation.
   uint64_t weight = 0;
 
   // *** END options for RocksDB internal use only ***
