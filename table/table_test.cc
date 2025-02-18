@@ -6662,8 +6662,7 @@ TEST_F(ExternalTableReaderTest, BasicTest) {
   std::unique_ptr<ExternalTableReader> reader;
   std::shared_ptr<SliceTransform> prefix_extractor;
   ASSERT_OK(factory->NewTableReader(
-      {}, "", {.prefix_extractor = prefix_extractor, .comparator = nullptr},
-      &reader));
+      {}, "", ExternalTableOptions(prefix_extractor, nullptr), &reader));
 
   ReadOptions ro;
   ro.weight = 1;

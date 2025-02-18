@@ -97,6 +97,11 @@ class ExternalTableReader {
 struct ExternalTableOptions {
   const std::shared_ptr<const SliceTransform>& prefix_extractor;
   const Comparator* comparator;
+
+  ExternalTableOptions(
+      const std::shared_ptr<const SliceTransform>& _prefix_extractor,
+      const Comparator* _comparator)
+      : prefix_extractor(_prefix_extractor), comparator(_comparator) {}
 };
 
 class ExternalTableFactory : public Customizable {
