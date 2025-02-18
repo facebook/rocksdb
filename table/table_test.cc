@@ -6533,7 +6533,7 @@ class ExternalTableReaderTest : public DBTestBase {
  protected:
   class DummyExternalTableIterator : public Iterator {
    public:
-    DummyExternalTableIterator(bool empty) : empty_(empty) {}
+    explicit DummyExternalTableIterator(bool empty) : empty_(empty) {}
 
     bool Valid() const override { return empty_ ? !empty_ : valid_; }
 
@@ -6598,13 +6598,14 @@ class ExternalTableReaderTest : public DBTestBase {
   class DummyExternalTableReader : public ExternalTableReader {
    public:
     Iterator* NewIterator(const ReadOptions& read_options,
-                          const SliceTransform* /*prefix_extractor*/) {
+                          const SliceTransform* /*prefix_extractor*/) override {
       return new DummyExternalTableIterator((read_options.weight == 0) ? true
                                                                        : false);
     }
 
     Status Get(const ReadOptions& /*read_options*/, const Slice& key,
-               const SliceTransform* /*prefix_extractor*/, std::string* value) {
+               const SliceTransform* /*prefix_extractor*/,
+               std::string* value) override {
       if (!key.compare("foo")) {
         value->assign("bar");
         return Status::OK();
@@ -6616,7 +6617,7 @@ class ExternalTableReaderTest : public DBTestBase {
                   const std::vector<Slice>& keys,
                   const SliceTransform* prefix_extractor,
                   std::vector<std::string>* values,
-                  std::vector<Status>* statuses) {
+                  std::vector<Status>* statuses) override {
       values->resize(keys.size());
       statuses->resize(keys.size());
       for (size_t i = 0; i < keys.size(); ++i) {
@@ -6625,7 +6626,7 @@ class ExternalTableReaderTest : public DBTestBase {
       }
     }
 
-    std::shared_ptr<const TableProperties> GetTableProperties() const {
+    std::shared_ptr<const TableProperties> GetTableProperties() const override {
       std::shared_ptr<TableProperties> props =
           std::make_shared<TableProperties>();
       props->comparator_name.assign(BytewiseComparator()->Name());
@@ -6656,8 +6657,8 @@ const std::string
     ExternalTableReaderTest::DummyExternalTableIterator::value_str = "bar";
 
 TEST_F(ExternalTableReaderTest, BasicTest) {
-  std::shared_ptr<ExternalTableFactory> factory(
-      new DummyExternalTableFactory());
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>();
 
   std::unique_ptr<ExternalTableReader> reader;
   std::shared_ptr<SliceTransform> prefix_extractor;
@@ -6694,8 +6695,8 @@ TEST_F(ExternalTableReaderTest, SstReaderTest) {
   std::string ingest_file = dbname + "test.immutabledb";
   dbname += "_db";
 
-  std::shared_ptr<ExternalTableFactory> factory(
-      new DummyExternalTableFactory());
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>();
   options.table_factory = NewExternalTableFactory(factory);
 
   // Create a file
