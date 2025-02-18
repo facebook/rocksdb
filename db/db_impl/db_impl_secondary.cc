@@ -415,8 +415,7 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
             get_impl_options.columns, ts, &s, &merge_context,
             &max_covering_tombstone_seq, read_options,
             false /* immutable_memtable */, &read_cb,
-            /*is_blob_index=*/nullptr,
-            /*do_merge=*/get_impl_options.get_value)) {
+            /*is_blob_index=*/nullptr, /*do_merge=*/true)) {
       done = true;
       if (get_impl_options.value) {
         get_impl_options.value->PinSelf();
