@@ -77,6 +77,8 @@ class WBWIIterator {
 
   virtual void Prev() = 0;
 
+  virtual Status status() const = 0;
+
   // The returned WriteEntry is only valid until the next mutation of
   // WriteBatchWithIndex.
   virtual WriteEntry Entry() const = 0;
@@ -85,7 +87,10 @@ class WBWIIterator {
   // and it was overwritten by another update.
   virtual bool HasOverWrittenSingleDel() const { return false; }
 
-  virtual Status status() const = 0;
+  // Returns n where the current entry is the n-th update to the current key.
+  // The update count starts from 1.
+  // Only valid if WBWI is created with overwrite_key = true.
+  virtual uint32_t GetUpdateCount() const { return 0; }
 };
 
 // A WriteBatchWithIndex with a binary searchable index built for all the keys
