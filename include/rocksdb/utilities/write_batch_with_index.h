@@ -88,6 +88,7 @@ class WBWIIterator {
   virtual bool HasOverWrittenSingleDel() const { return false; }
 
   // Returns n where the current entry is the n-th update to the current key.
+  // The update count starts from 1.
   // Only valid if WBWI is created with overwrite_key = true.
   virtual uint32_t GetUpdateCount() const { return 0; }
 };
