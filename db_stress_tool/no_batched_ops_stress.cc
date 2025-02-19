@@ -550,6 +550,9 @@ class NonBatchedOpsStressTest : public StressTest {
           for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Prev()) {
           }
         }
+        if (read_opts.auto_refresh_iterator_with_snapshot) {
+          read_opts.snapshot = nullptr;
+        }
       }
     }
   }
@@ -1586,7 +1589,7 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
 
-    // There is a narrow window in iterator auto run refresh where injected read
+    // There is a narrow window in iterator auto refresh run where injected read
     // errors are simply untraceable, ex. failure to delete file as a part of
     // superversion cleanup callback invoked by the DBIter destructor.
     bool ignore_injected_read_error_in_iter =
