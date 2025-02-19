@@ -9488,7 +9488,7 @@ TEST_P(CommitBypassMemtableTest, MergeAndMultiCF) {
     TransactionOptions txn_opts;
     txn_opts.commit_bypass_memtable = true;
     Transaction* txn = txn_db->BeginTransaction(wopts, txn_opts);
-    txn->SetName("xid1");
+    ASSERT_OK(txn->SetName("xid1"));
     ASSERT_OK(txn->Put(handles_[0], "k1", "v1"));
     ASSERT_OK(txn->Merge(handles_[0], "k1", "v2"));
 
@@ -9521,7 +9521,7 @@ TEST_P(CommitBypassMemtableTest, MergeAndMultiCF) {
     // Data in mutable memtable
     txn_opts.commit_bypass_memtable = false;
     txn = txn_db->BeginTransaction(wopts, txn_opts, txn);
-    txn->SetName("xid2");
+    ASSERT_OK(txn->SetName("xid2"));
     ASSERT_OK(txn->Merge(handles_[0], "k1", "v3"));
     ASSERT_OK(txn->Merge(handles_[1], "count", buf_count));
     ASSERT_OK(txn->Prepare());
@@ -9609,7 +9609,7 @@ TEST_P(CommitBypassMemtableTest, MergeMiniStress) {
       std::unique_ptr<Transaction> txn{
           txn_db->BeginTransaction(wopts, txn_opts)};
       const int txn_count = i / kBatchSize;
-      txn->SetName("xid" + std::to_string(txn_count));
+      ASSERT_OK(txn->SetName("xid" + std::to_string(txn_count)));
 
       const Snapshot* snapshot = txn_db->GetSnapshot();
       // Remember the state for the snapshot

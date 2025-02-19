@@ -4166,26 +4166,26 @@ TEST_F(WBWIMemTableTest, WBWIMemTableWithMerge) {
   wbwi_mem->AssignSequenceNumbers(assigned_seq);
 
   // Update then Merge
-  wbwi->Put("a", "a1");
-  wbwi->Merge("a", "a2");
-  wbwi->Merge("a", "a3");
-  wbwi->Delete("b");
-  wbwi->Merge("b", "b1");
+  ASSERT_OK(wbwi->Put("a", "a1"));
+  ASSERT_OK(wbwi->Merge("a", "a2"));
+  ASSERT_OK(wbwi->Merge("a", "a3"));
+  ASSERT_OK(wbwi->Delete("b"));
+  ASSERT_OK(wbwi->Merge("b", "b1"));
 
   // Merge then Update
-  wbwi->Merge("c", "c1");
-  wbwi->Put("c", "c2");
-  wbwi->Merge("d", "d1");
-  wbwi->Merge("d", "d2");
-  wbwi->Delete("d");
+  ASSERT_OK(wbwi->Merge("c", "c1"));
+  ASSERT_OK(wbwi->Put("c", "c2"));
+  ASSERT_OK(wbwi->Merge("d", "d1"));
+  ASSERT_OK(wbwi->Merge("d", "d2"));
+  ASSERT_OK(wbwi->Delete("d"));
 
   // Just Merge
-  wbwi->Merge("e", "e1");
-  wbwi->Merge("f", "f1");
-  wbwi->Merge("f", "f2");
+  ASSERT_OK(wbwi->Merge("e", "e1"));
+  ASSERT_OK(wbwi->Merge("f", "f1"));
+  ASSERT_OK(wbwi->Merge("f", "f2"));
 
   // Just Update
-  wbwi->SingleDelete("g");
+  ASSERT_OK(wbwi->SingleDelete("g"));
 
   // key <-> val
   // Refer to the sequence number assignment method described in the comments
