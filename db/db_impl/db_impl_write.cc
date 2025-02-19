@@ -587,6 +587,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   IOStatus io_s;
   Status pre_release_cb_status;
+  size_t seq_inc = 0;
   if (status.ok()) {
     // Rules for when we can update the memtable concurrently
     // 1. supported by memtable
@@ -640,7 +641,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // disable_memtable in between; although we do not write this batch to
     // memtable it still consumes a seq. Otherwise, if !seq_per_batch_, we inc
     // the seq per valid written key to mem.
-    size_t seq_inc = seq_per_batch_ ? valid_batches : total_count;
+    seq_inc = seq_per_batch_ ? valid_batches : total_count;
     if (wbwi) {
       // Reserve sequence numbers for the ingested memtable. We need to reserve
       // at lease this amount for recovery. During recovery,
@@ -713,6 +714,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     assert(last_sequence != kMaxSequenceNumber);
     const SequenceNumber current_sequence = last_sequence + 1;
     last_sequence += seq_inc;
+    // Seqno assigned to this write are [current_sequence, last_sequence]
 
     if (log_context.need_log_sync) {
       VersionEdit synced_wals;
@@ -836,13 +838,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     if (status.ok() && w.status.ok()) {
       // w.batch contains (potentially empty) commit time batch updates,
       // only ingest wbwi if w.batch is applied to memtable successfully
-      assert(wbwi->GetWriteBatch()->Count() > 0);
-
       uint32_t memtable_update_count = w.batch->Count();
-      SequenceNumber lb = versions_->LastSequence() + memtable_update_count + 1;
-      SequenceNumber ub = versions_->LastSequence() + memtable_update_count +
-                          wbwi->GetWriteBatch()->Count();
-      assert(ub == last_sequence);
+      uint32_t wbwi_count = wbwi->GetWriteBatch()->Count();
+      // Seqno assigned to this write are [last_seq + 1 - seq_inc, last_seq].
+      // seq_inc includes w.batch (memtable updates) and wbwi
+      // w.batch gets first `memtable_update_count` sequence numbers.
+      // wbwi gets the rest `wbwi_count` sequence numbers.
+      assert(seq_inc == memtable_update_count + wbwi_count);
+      assert(wbwi_count > 0);
+      assert(last_sequence != kMaxSequenceNumber);
+      SequenceNumber lb = last_sequence + 1 - wbwi_count;
+      SequenceNumber ub = last_sequence;
       if (two_write_queues_) {
         assert(ub <= versions_->LastAllocatedSequence());
       }

@@ -456,9 +456,6 @@ class ReadOnlyMemTable {
                               SystemClock* clock, Statistics* statistics,
                               Logger* logger, Status* s, std::string* out_value,
                               PinnableWideColumns* out_columns) {
-    fprintf(stderr, "key: %s value: %s\n", lookup_user_key.ToString().c_str(),
-            value.ToString().c_str());
-
     if (!merge_operator) {
       *s = Status::InvalidArgument(
           "merge_operator is not properly initialized.");
