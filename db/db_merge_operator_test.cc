@@ -123,7 +123,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   // Tests that merge operands reach exact limit at memtable.
   ASSERT_OK(Merge("k3", "fg"));
   ASSERT_OK(db_->Get(ReadOptions(), "k3", &value));
-  ASSERT_EQ(value, "fg,de");
+  ASSERT_EQ(value, "de,fg");
 
   // All K4 values are in different levels
   ASSERT_OK(Merge("k4", "ab"));
