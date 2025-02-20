@@ -800,6 +800,10 @@ TEST_F(SstFileReaderTableMultiGetTest, Basic) {
   const Comparator* ucmp = BytewiseComparator();
   options.comparator = ucmp;
   options.disable_auto_compactions = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
 
   DestroyAndReopen(options);
 
@@ -810,6 +814,9 @@ TEST_F(SstFileReaderTableMultiGetTest, Basic) {
   const Snapshot* snapshot2 = dbfull()->GetSnapshot();
   ASSERT_OK(Put("bar", "val2"));
   ASSERT_OK(Put("baz", "val3"));
+  ASSERT_OK(Put("aaa", "val4"));
+  const Snapshot* snapshot3 = dbfull()->GetSnapshot();
+  ASSERT_OK(Merge("aaa", "val5"));
 
   ASSERT_OK(Flush());
 
@@ -830,6 +837,7 @@ TEST_F(SstFileReaderTableMultiGetTest, Basic) {
   keys.emplace_back("foo");
   keys.emplace_back("baz");
   keys.emplace_back("bar");
+  keys.emplace_back("aaa");
   auto statuses = reader.MultiGet(ReadOptions(), keys, &values);
   ASSERT_TRUE(statuses[0].IsNotFound())
       << "Failed: status=" << statuses[0].ToString() << " val=" << values[0];
@@ -839,9 +847,12 @@ TEST_F(SstFileReaderTableMultiGetTest, Basic) {
   ASSERT_TRUE(statuses[3].ok());
   ASSERT_EQ("val3", values[2]);
   ASSERT_EQ("val2", values[3]);
+  ASSERT_TRUE(statuses[4].ok());
+  ASSERT_EQ("val4,val5", values[4]);
 
   dbfull()->ReleaseSnapshot(snapshot1);
   dbfull()->ReleaseSnapshot(snapshot2);
+  dbfull()->ReleaseSnapshot(snapshot3);
   Close();
 }
 
