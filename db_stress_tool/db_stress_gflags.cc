@@ -618,8 +618,15 @@ DEFINE_string(db, "", "Use the db with the following name.");
 DEFINE_string(secondaries_base, "",
               "Use this path as the base path for secondary instances.");
 
+DEFINE_string(followers_base, "",
+              "Use this path as the base path for follower instances.");
+
 DEFINE_bool(test_secondary, false,
             "If true, start an additional secondary instance which can be used "
+            "for verification.");
+
+DEFINE_bool(test_follower, false,
+            "If true, start an additional follower instance which can be used "
             "for verification.");
 
 DEFINE_string(
