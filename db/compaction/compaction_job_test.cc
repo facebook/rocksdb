@@ -301,7 +301,7 @@ class CompactionJobTestBase : public testing::Test {
     std::unique_ptr<TableBuilder> table_builder(
         cf_options_.table_factory->NewTableBuilder(
             TableBuilderOptions(
-                *cfd_->ioptions(), mutable_cf_options_, read_options,
+                cfd_->ioptions(), mutable_cf_options_, read_options,
                 write_options, cfd_->internal_comparator(),
                 cfd_->internal_tbl_prop_coll_factories(),
                 CompressionType::kNoCompression, CompressionOptions(),
@@ -397,8 +397,8 @@ class CompactionJobTestBase : public testing::Test {
 
     mutex_.Lock();
     EXPECT_OK(versions_->LogAndApply(
-        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        read_options_, write_options_, &edit, &mutex_, nullptr));
+        versions_->GetColumnFamilySet()->GetDefault(), read_options_,
+        write_options_, &edit, &mutex_, nullptr));
     mutex_.Unlock();
   }
 
@@ -460,7 +460,7 @@ class CompactionJobTestBase : public testing::Test {
       ReadOptions read_opts;
       Status s = cf_options_.table_factory->NewTableReader(
           read_opts,
-          TableReaderOptions(*cfd->ioptions(), nullptr, FileOptions(),
+          TableReaderOptions(cfd->ioptions(), nullptr, FileOptions(),
                              cfd_->internal_comparator(),
                              0 /* block_protection_bytes_per_key */),
           std::move(freader), file_size, &table_reader, false);
@@ -645,12 +645,12 @@ class CompactionJobTestBase : public testing::Test {
     }
 
     Compaction compaction(
-        cfd->current()->storage_info(), *cfd->ioptions(),
-        *cfd->GetLatestMutableCFOptions(), mutable_db_options_,
+        cfd->current()->storage_info(), cfd->ioptions(),
+        cfd->GetLatestMutableCFOptions(), mutable_db_options_,
         compaction_input_files, output_level,
         mutable_cf_options_.target_file_size_base,
         mutable_cf_options_.max_compaction_bytes, 0, kNoCompression,
-        cfd->GetLatestMutableCFOptions()->compression_opts,
+        cfd->GetLatestMutableCFOptions().compression_opts,
         Temperature::kUnknown, max_subcompactions, grandparents,
         /*earliest_snapshot*/ std::nullopt, /*snapshot_checker*/ nullptr, true);
     compaction.FinalizeInputInfo(cfd->current());
@@ -684,8 +684,7 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_OK(compaction_job.io_status());
     mutex_.Lock();
     bool compaction_released = false;
-    ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions(),
-                                     &compaction_released));
+    ASSERT_OK(compaction_job.Install(&compaction_released));
     ASSERT_OK(compaction_job.io_status());
     mutex_.Unlock();
     log_buffer.FlushBufferToLog();

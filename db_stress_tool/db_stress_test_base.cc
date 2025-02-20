@@ -19,6 +19,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
+#include "db_stress_tool/db_stress_compaction_service.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_filters.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
@@ -69,7 +70,7 @@ StressTest::StressTest()
       new_column_family_name_(1),
       num_times_reopened_(0),
       db_preload_finished_(false),
-      cmp_db_(nullptr),
+      secondary_db_(nullptr),
       is_db_stopped_(false) {
   if (FLAGS_destroy_db_initially) {
     std::vector<std::string> files;
@@ -104,21 +105,26 @@ StressTest::StressTest()
 }
 
 void StressTest::CleanUp() {
-  for (auto cf : column_families_) {
-    delete cf;
-  }
-  column_families_.clear();
+  CleanUpColumnFamilies();
   if (db_) {
     db_->Close();
   }
   delete db_;
   db_ = nullptr;
 
-  for (auto* cf : cmp_cfhs_) {
+  delete secondary_db_;
+  secondary_db_ = nullptr;
+}
+
+void StressTest::CleanUpColumnFamilies() {
+  for (auto cf : column_families_) {
     delete cf;
   }
-  cmp_cfhs_.clear();
-  delete cmp_db_;
+  column_families_.clear();
+  for (auto* cf : secondary_cfhs_) {
+    delete cf;
+  }
+  secondary_cfhs_.clear();
 }
 
 std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
@@ -514,6 +520,8 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
   ReadOptions ropt;
   ropt.snapshot = snap_state.snapshot;
+  ropt.auto_refresh_iterator_with_snapshot =
+      FLAGS_auto_refresh_iterator_with_snapshot;
   Slice ts;
   if (!snap_state.timestamp.empty()) {
     ts = snap_state.timestamp;
@@ -734,14 +742,13 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     s = db_->Flush(FlushOptions(), column_families_);
   }
   if (s.ok()) {
-    for (auto cf : column_families_) {
-      delete cf;
-    }
-    column_families_.clear();
+    CleanUpColumnFamilies();
     delete db_;
     db_ = nullptr;
     txn_db_ = nullptr;
     optimistic_txn_db_ = nullptr;
+    delete secondary_db_;
+    secondary_db_ = nullptr;
 
     db_preload_finished_.store(true);
     auto now = clock_->NowMicros();
@@ -949,6 +956,8 @@ void StressTest::OperateDb(ThreadState* thread) {
   read_opts.fill_cache = FLAGS_fill_cache;
   read_opts.optimize_multiget_for_io = FLAGS_optimize_multiget_for_io;
   read_opts.allow_unprepared_value = FLAGS_allow_unprepared_value;
+  read_opts.auto_refresh_iterator_with_snapshot =
+      FLAGS_auto_refresh_iterator_with_snapshot;
 
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
@@ -1729,6 +1738,8 @@ Status StressTest::TestIterateImpl(ThreadState* thread,
     cmp_ro.timestamp = ro.timestamp;
     cmp_ro.iter_start_ts = ro.iter_start_ts;
     cmp_ro.snapshot = snapshot_guard.snapshot();
+    cmp_ro.auto_refresh_iterator_with_snapshot =
+        ro.auto_refresh_iterator_with_snapshot;
     cmp_ro.total_order_seek = true;
 
     ColumnFamilyHandle* const cmp_cfh =
@@ -1957,7 +1968,10 @@ void StressTest::VerifyIterator(
                << (ro.iterate_lower_bound
                        ? ro.iterate_lower_bound->ToString(true).c_str()
                        : "")
-               << ", allow_unprepared_value: " << ro.allow_unprepared_value;
+               << ", allow_unprepared_value: " << ro.allow_unprepared_value
+               << ", auto_refresh_iterator_with_snapshot"
+               << ro.auto_refresh_iterator_with_snapshot << ", snapshot: "
+               << ((ro.snapshot == nullptr) ? "nullptr" : "non-nullptr");
 
   if (iter->Valid() && !cmp_iter->Valid()) {
     if (pe != nullptr) {
@@ -2913,6 +2927,8 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
       ww_snapshot ? db_impl->GetSnapshotForWriteConflictBoundary()
                   : db_->GetSnapshot();
   ropt.snapshot = snapshot;
+  ropt.auto_refresh_iterator_with_snapshot =
+      FLAGS_auto_refresh_iterator_with_snapshot;
 
   // Ideally, we want snapshot taking and timestamp generation to be atomic
   // here, so that the snapshot corresponds to the timestamp. However, it is
@@ -3122,6 +3138,8 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
   ReadOptions ro;
   ro.snapshot = snapshot;
   ro.total_order_seek = true;
+  ro.auto_refresh_iterator_with_snapshot =
+      FLAGS_auto_refresh_iterator_with_snapshot;
   std::string ts_str;
   Slice ts;
   if (FLAGS_user_timestamp_size > 0) {
@@ -3578,12 +3596,11 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             // clean state before executing queries.
             s = db_->GetRootDB()->WaitForCompact(WaitForCompactOptions());
             if (!s.ok()) {
-              for (auto cf : column_families_) {
-                delete cf;
-              }
-              column_families_.clear();
+              CleanUpColumnFamilies();
               delete db_;
               db_ = nullptr;
+              delete secondary_db_;
+              secondary_db_ = nullptr;
             }
           }
           if (!s.ok()) {
@@ -3696,9 +3713,10 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       tmp_opts.env = db_stress_env;
       const std::string& secondary_path = FLAGS_secondaries_base;
       s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
-                              cf_descriptors, &cmp_cfhs_, &cmp_db_);
+                              cf_descriptors, &secondary_cfhs_, &secondary_db_);
       assert(s.ok());
-      assert(cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
+      assert(secondary_cfhs_.size() ==
+             static_cast<size_t>(FLAGS_column_families));
     }
   } else {
     DBWithTTL* db_with_ttl;
@@ -3749,15 +3767,12 @@ void StressTest::Reopen(ThreadState* thread) {
   }
   assert(!write_prepared || bg_canceled);
 
-  for (auto cf : column_families_) {
-    delete cf;
-  }
-  column_families_.clear();
+  CleanUpColumnFamilies();
 
   // Currently reopen does not restore expected state
   // with potential data loss in mind like the first open before
-  // crash-recovery verification does. Therefore it always expects no data loss
-  // and we should ensure no data loss in testing.
+  // crash-recovery verification does. Therefore it always expects no data
+  // loss and we should ensure no data loss in testing.
   // TODO(hx235): eliminate the FlushWAL(true /* sync */)/SyncWAL() below
   if (!FLAGS_disable_wal) {
     Status s;
@@ -3789,6 +3804,8 @@ void StressTest::Reopen(ThreadState* thread) {
   db_ = nullptr;
   txn_db_ = nullptr;
   optimistic_txn_db_ = nullptr;
+  delete secondary_db_;
+  secondary_db_ = nullptr;
 
   num_times_reopened_++;
   auto now = clock_->NowMicros();
@@ -4294,6 +4311,11 @@ void InitializeOptionsFromFlags(
       static_cast<CacheTier>(FLAGS_lowest_used_cache_tier);
   options.inplace_update_support = FLAGS_inplace_update_support;
   options.uncache_aggressiveness = FLAGS_uncache_aggressiveness;
+
+  // Remote Compaction
+  if (FLAGS_enable_remote_compaction) {
+    options.compaction_service = std::make_shared<DbStressCompactionService>();
+  }
 }
 
 void InitializeOptionsGeneral(

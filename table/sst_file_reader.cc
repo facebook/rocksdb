@@ -80,6 +80,85 @@ Status SstFileReader::Open(const std::string& file_path) {
   return s;
 }
 
+std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
+                                            const std::vector<Slice>& keys,
+                                            std::vector<std::string>* values) {
+  const auto num_keys = keys.size();
+  std::vector<Status> statuses(num_keys, Status::OK());
+  std::vector<PinnableSlice> pin_values(num_keys);
+
+  auto r = rep_.get();
+  const Comparator* user_comparator =
+      r->ioptions.internal_comparator.user_comparator();
+
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
+  autovector<GetContext, MultiGetContext::MAX_BATCH_SIZE> get_ctx;
+  autovector<MergeContext, MultiGetContext::MAX_BATCH_SIZE> merge_ctx;
+  sorted_keys.resize(num_keys);
+  for (size_t i = 0; i < num_keys; ++i) {
+    PinnableSlice* val = &pin_values[i];
+    val->Reset();
+    merge_ctx.emplace_back();
+    key_context.emplace_back(nullptr, keys[i], val, nullptr,
+                             nullptr /* timestamp */, &statuses[i]);
+    get_ctx.emplace_back(user_comparator, r->ioptions.merge_operator.get(),
+                         nullptr, nullptr, GetContext::kNotFound,
+                         *key_context[i].key, val, nullptr, nullptr, nullptr,
+                         &merge_ctx[i], true,
+                         &key_context[i].max_covering_tombstone_seq, nullptr);
+    key_context[i].get_context = &get_ctx[i];
+  }
+  for (size_t i = 0; i < num_keys; ++i) {
+    sorted_keys[i] = &key_context[i];
+  }
+
+  struct CompareKeyContext {
+    explicit CompareKeyContext(const Comparator* comp) : comparator(comp) {}
+    inline bool operator()(const KeyContext* lhs, const KeyContext* rhs) const {
+      return comparator->CompareWithoutTimestamp(*(lhs->key), false,
+                                                 *(rhs->key), false) < 0;
+    }
+    const Comparator* comparator;
+  };
+
+  std::sort(sorted_keys.begin(), sorted_keys.end(),
+            CompareKeyContext(user_comparator));
+  const auto sequence = roptions.snapshot != nullptr
+                            ? roptions.snapshot->GetSequenceNumber()
+                            : kMaxSequenceNumber;
+  MultiGetContext ctx(&sorted_keys, 0, num_keys, sequence, roptions,
+                      r->ioptions.fs.get(), nullptr);
+  MultiGetRange range = ctx.GetMultiGetRange();
+  r->table_reader->MultiGet(roptions, &range,
+                            r->moptions.prefix_extractor.get(),
+                            false /* skip filters */);
+
+  values->resize(num_keys);
+  for (size_t i = 0; i < num_keys; ++i) {
+    if (statuses[i].ok()) {
+      switch (get_ctx[i].State()) {
+        case GetContext::kFound:
+          (*values)[i].assign(pin_values[i].data(), pin_values[i].size());
+          break;
+        case GetContext::kNotFound:
+        case GetContext::kDeleted:
+          statuses[i] = Status::NotFound();
+          break;
+        case GetContext::kMerge:
+          statuses[i] = Status::MergeInProgress();
+          break;
+        case GetContext::kCorrupt:
+        case GetContext::kUnexpectedBlobIndex:
+        case GetContext::kMergeOperatorFailed:
+          statuses[i] = Status::Corruption();
+          break;
+      };
+    }
+  }
+  return statuses;
+}
+
 Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
   assert(roptions.io_activity == Env::IOActivity::kUnknown);
   auto r = rep_.get();

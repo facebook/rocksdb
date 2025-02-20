@@ -241,13 +241,21 @@ struct TransactionDBOptions {
   // user-defined timestamps so this option only applies in this case.
   bool enable_udt_validation = true;
 
-  //       / \     UNDER CONSTRUCTION
-  //      / ! \    UNDER CONSTRUCTION
-  //     /-----\   UNDER CONSTRUCTION
+  // EXPERIMENTAL
   //
   // The secondary indices to be maintained. See the SecondaryIndex interface
   // for more details.
   std::vector<std::shared_ptr<SecondaryIndex>> secondary_indices;
+
+  // EXPERIMENTAL, SUBJECT TO CHANGE
+  // This option is only valid for write committed. If the number of updates in
+  // a transaction exceeds this threshold, then the transaction commit will skip
+  // insertions into memtable as an optimization to reduce commit latency.
+  // See comment for TransactionOptions::commit_bypass_memtable for more detail.
+  // Setting TransactionOptions::commit_bypass_memtable to true takes precedence
+  // over this option.
+  uint32_t txn_commit_bypass_memtable_threshold =
+      std::numeric_limits<uint32_t>::max();
 
  private:
   // 128 entries
@@ -349,7 +357,7 @@ struct TransactionOptions {
   // DeleteRange, SingleDelete.
   bool write_batch_track_timestamp_size = false;
 
-  // EXPERIMENTAL
+  // EXPERIMENTAL, SUBJECT TO CHANGE
   // Only supports write-committed policy. If set to true, the transaction will
   // skip memtable write and ingest into the DB directly during Commit(). This
   // makes Commit() much faster for transactions with many operations.

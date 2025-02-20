@@ -330,7 +330,7 @@ class LDBCommandRunner {
 
   // Returns the status code to return. 0 is no error.
   static int RunCommand(
-      int argc, char const* const* argv, Options options,
+      int argc, char const* const* argv, const Options& options,
       const LDBOptions& ldb_options,
       const std::vector<ColumnFamilyDescriptor>* column_families);
 };

@@ -48,10 +48,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   compaction_input.has_end = sub_compact->end.has_value();
   compaction_input.end =
       compaction_input.has_end ? sub_compact->end->ToString() : "";
-  compaction_input.options_file_number =
-      sub_compact->compaction->input_version()
-          ->version_set()
-          ->options_file_number();
+  compaction_input.options_file_number = options_file_number_;
 
   TEST_SYNC_POINT_CALLBACK(
       "CompactionServiceJob::ProcessKeyValueCompactionWithCompactionService",
@@ -177,7 +174,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   for (const auto& file : compaction_result.output_files) {
     uint64_t file_num = versions_->NewFileNumber();
     auto src_file = compaction_result.output_path + "/" + file.file_name;
-    auto tgt_file = TableFileName(compaction->immutable_options()->cf_paths,
+    auto tgt_file = TableFileName(compaction->immutable_options().cf_paths,
                                   file_num, compaction->output_path_id());
     s = fs_->RenameFile(src_file, tgt_file, IOOptions(), nullptr);
     if (!s.ok()) {
@@ -269,17 +266,17 @@ CompactionServiceCompactionJob::CompactionServiceCompactionJob(
     std::string output_path,
     const CompactionServiceInput& compaction_service_input,
     CompactionServiceResult* compaction_service_result)
-    : CompactionJob(
-          job_id, compaction, db_options, mutable_db_options, file_options,
-          versions, shutting_down, log_buffer, nullptr, output_directory,
-          nullptr, stats, db_mutex, db_error_handler,
-          std::move(existing_snapshots), kMaxSequenceNumber, nullptr, nullptr,
-          std::move(table_cache), event_logger,
-          compaction->mutable_cf_options()->paranoid_file_checks,
-          compaction->mutable_cf_options()->report_bg_io_stats, dbname,
-          &(compaction_service_result->stats), Env::Priority::USER, io_tracer,
-          manual_compaction_canceled, db_id, db_session_id,
-          compaction->column_family_data()->GetFullHistoryTsLow()),
+    : CompactionJob(job_id, compaction, db_options, mutable_db_options,
+                    file_options, versions, shutting_down, log_buffer, nullptr,
+                    output_directory, nullptr, stats, db_mutex,
+                    db_error_handler, std::move(existing_snapshots),
+                    kMaxSequenceNumber, nullptr, nullptr,
+                    std::move(table_cache), event_logger,
+                    compaction->mutable_cf_options().paranoid_file_checks,
+                    compaction->mutable_cf_options().report_bg_io_stats, dbname,
+                    &(compaction_service_result->stats), Env::Priority::USER,
+                    io_tracer, manual_compaction_canceled, db_id, db_session_id,
+                    compaction->column_family_data()->GetFullHistoryTsLow()),
       output_path_(std::move(output_path)),
       compaction_input_(compaction_service_input),
       compaction_result_(compaction_service_result) {}

@@ -59,42 +59,11 @@ Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
   return Status::OK();
 }
 
-void VersionEdit::Clear() {
-  max_level_ = 0;
-  db_id_.clear();
-  comparator_.clear();
-  log_number_ = 0;
-  prev_log_number_ = 0;
-  next_file_number_ = 0;
-  max_column_family_ = 0;
-  min_log_number_to_keep_ = 0;
-  last_sequence_ = 0;
-  has_db_id_ = false;
-  has_comparator_ = false;
-  has_log_number_ = false;
-  has_prev_log_number_ = false;
-  has_next_file_number_ = false;
-  has_max_column_family_ = false;
-  has_min_log_number_to_keep_ = false;
-  has_last_sequence_ = false;
-  compact_cursors_.clear();
-  deleted_files_.clear();
-  new_files_.clear();
-  blob_file_additions_.clear();
-  blob_file_garbages_.clear();
-  wal_additions_.clear();
-  wal_deletion_.Reset();
-  column_family_ = 0;
-  is_column_family_add_ = false;
-  is_column_family_drop_ = false;
-  column_family_name_.clear();
-  is_in_atomic_group_ = false;
-  remaining_entries_ = 0;
-  full_history_ts_low_.clear();
-}
+void VersionEdit::Clear() { *this = VersionEdit(); }
 
 bool VersionEdit::EncodeTo(std::string* dst,
                            std::optional<size_t> ts_sz) const {
+  assert(!IsNoManifestWriteDummy());
   if (has_db_id_) {
     PutVarint32(dst, kDbId);
     PutLengthPrefixedSlice(dst, db_id_);

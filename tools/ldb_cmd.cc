@@ -2768,7 +2768,8 @@ void ChangeCompactionStyleCommand::DoCommand() {
 namespace {
 
 struct StdErrReporter : public log::Reader::Reporter {
-  void Corruption(size_t /*bytes*/, const Status& s) override {
+  void Corruption(size_t /*bytes*/, const Status& s,
+                  uint64_t /*log_number*/ = kMaxSequenceNumber) override {
     std::cerr << "Corruption detected in log file " << s.ToString() << "\n";
   }
 };

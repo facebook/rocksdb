@@ -2656,6 +2656,37 @@ TEST_F(CompactionPickerTest, HitCompactionLimitWhenAddFileFromInputLevel) {
   ASSERT_EQ(5U, compaction->input(1, 0)->fd.GetNumber());
 }
 
+TEST_F(CompactionPickerTest, CompactRangeMaxCompactionBytes) {
+  mutable_cf_options_.max_compaction_bytes = 800000U;
+  NewVersionStorage(6, kCompactionStyleLevel);
+  // We will first pick file 1 and 2 and then stop before file 3.
+  // Since picking file 3 will pull in file 4 and 5 from L2 and
+  // exceed max_compaction_bytes.
+  Add(1, 1U, "100", "110", 10000U);
+  Add(1, 2U, "200", "210", 10000U, 0, 0);
+  Add(1, 3U, "400", "410", 10000U, 0, 0);
+  Add(2, 4U, "300", "310", 400000U);
+  Add(2, 5U, "320", "330", 400000U);
+  UpdateVersionStorageInfo();
+
+  bool manual_conflict = false;
+  InternalKey manual_end;
+  InternalKey* manual_end_ptr = &manual_end;
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.CompactRange(
+      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+      /*input_level=*/1, /*output_level=*/2,
+      /*compact_range_options*/ {}, /*begin=*/nullptr, /*end=*/nullptr,
+      &manual_end_ptr, &manual_conflict,
+      /*max_file_num_to_ignore=*/std::numeric_limits<uint64_t>::max(),
+      /*trim_ts=*/""));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1U, compaction->num_input_levels());
+  ASSERT_EQ(2, compaction->output_level());
+  ASSERT_EQ(2U, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
+}
+
 TEST_F(CompactionPickerTest, IsTrivialMoveOn) {
   mutable_cf_options_.max_bytes_for_level_base = 10000u;
   mutable_cf_options_.max_compaction_bytes = 10001u;

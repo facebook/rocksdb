@@ -527,6 +527,9 @@ class CompactionService : public Customizable {
     return CompactionServiceJobStatus::kUseLocal;
   }
 
+  // Cancel awaiting jobs. Called by CancelAllBackgroundWork()
+  virtual void CancelAwaitingJobs() {}
+
   // Optional callback function upon Installation.
   virtual void OnInstallation(const std::string& /*scheduled_job_id*/,
                               CompactionServiceJobStatus /*status*/) {}
@@ -1064,23 +1067,6 @@ struct DBOptions {
   //
   // Dynamically changeable through SetDBOptions() API.
   size_t compaction_readahead_size = 2 * 1024 * 1024;
-
-  // This is a maximum buffer size that is used by WinMmapReadableFile in
-  // unbuffered disk I/O mode. We need to maintain an aligned buffer for
-  // reads. We allow the buffer to grow until the specified value and then
-  // for bigger requests allocate one shot buffers. In unbuffered mode we
-  // always bypass read-ahead buffer at ReadaheadRandomAccessFile
-  // When read-ahead is required we then make use of compaction_readahead_size
-  // value and always try to read ahead. With read-ahead we always
-  // pre-allocate buffer to the size instead of growing it up to a limit.
-  //
-  // This option is currently honored only on Windows
-  //
-  // Default: 1 Mb
-  //
-  // Special value: 0 - means do not maintain per instance buffer. Allocate
-  //                per request buffer and avoid locking.
-  size_t random_access_max_buffer_size = 1024 * 1024;
 
   // This is the maximum buffer size that is used by WritableFileWriter.
   // With direct IO, we need to maintain an aligned buffer for writes.
@@ -1960,12 +1946,44 @@ struct ReadOptions {
   // Default: false
   bool allow_unprepared_value = false;
 
+  // EXPERIMENTAL
+  //
+  // Long-running iterators are holding onto memory and storage resources long
+  // after they are obsolete. This setting (when enabled) will fix that problem
+  // for as long as iterator periodically makes some progress and its supplied
+  // `read_options` was configured with non-nullptr `snapshot` value.
+  // The feature is engineered so that the performance impact should be
+  // negligible. We expect the default value to be true some time in the future.
+  //
+  // NOTE 1: Does not have effect on TransactionDB with WRITE_PREPARED or
+  //         WRITE_UNPREPARED policies (currently incompatible).
+  //
+  // NOTE 2: True is not recommended if using user-defined timestamp with
+  //         persist_user_defined_timestamps=false and non-nullptr
+  //         ReadOptions::timestamp or ReadOptions::iter_start_ts, because
+  //         auto-refreshing iterator will not prevent user timestamp
+  //         information from being dropped during iteration. Auto-refresh might
+  //         be disabled for this combination in the future.
+  //
+  // Default: false
+  bool auto_refresh_iterator_with_snapshot = false;
+
   // *** END options only relevant to iterators or scans ***
 
   // *** BEGIN options for RocksDB internal use only ***
 
   // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
+
+  // EXPERIMENTAL
+  // An optional weight of values to be returned by a scan. Once the
+  // weight is reached or exceeded the scan is terminated (i.e Next()
+  // invalidates the iterator). In the case of a DB with one of the built-in
+  // table formats, such as BlockBasedTable, the weight is simply the number
+  // of key-value pairs. In the case of an ExternalTableReader, the weight is
+  // passed through to the table reader and the interpretation is upto the
+  // reader implementation.
+  uint64_t weight = 0;
 
   // *** END options for RocksDB internal use only ***
 

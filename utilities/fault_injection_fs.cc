@@ -1412,6 +1412,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
       msg << "empty result";
       ctx->message = msg.str();
       ret_fault_injected = true;
+      ret = IOStatus::IOError(ctx->message);
     } else if (!direct_io && Random::GetTLSInstance()->OneIn(7) &&
                scratch != nullptr && result->data() == scratch) {
       assert(result);
@@ -1430,6 +1431,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
       msg << "corrupt last byte";
       ctx->message = msg.str();
       ret_fault_injected = true;
+      ret = IOStatus::IOError(ctx->message);
     } else {
       msg << "error result multiget single";
       ctx->message = msg.str();

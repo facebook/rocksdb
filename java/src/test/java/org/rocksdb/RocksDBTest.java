@@ -1666,16 +1666,6 @@ public class RocksDBTest {
   }
 
   @Test
-  public void deleteFile() throws RocksDBException {
-    try (final Options options = new Options().setCreateIfMissing(true)) {
-      final String dbPath = dbFolder.getRoot().getAbsolutePath();
-      try (final RocksDB db = RocksDB.open(options, dbPath)) {
-        db.deleteFile("unknown");
-      }
-    }
-  }
-
-  @Test
   public void getLiveFilesMetaData() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true)) {
       final String dbPath = dbFolder.getRoot().getAbsolutePath();

@@ -124,8 +124,6 @@ class CompactionIterator {
     explicit RealCompaction(const Compaction* compaction)
         : compaction_(compaction) {
       assert(compaction_);
-      assert(compaction_->immutable_options());
-      assert(compaction_->mutable_cf_options());
     }
 
     int level() const override { return compaction_->level(); }
@@ -147,11 +145,11 @@ class CompactionIterator {
     }
 
     bool allow_ingest_behind() const override {
-      return compaction_->immutable_options()->allow_ingest_behind;
+      return compaction_->immutable_options().allow_ingest_behind;
     }
 
     bool allow_mmap_reads() const override {
-      return compaction_->immutable_options()->allow_mmap_reads;
+      return compaction_->immutable_options().allow_mmap_reads;
     }
 
     bool enable_blob_garbage_collection() const override {
@@ -163,7 +161,7 @@ class CompactionIterator {
     }
 
     uint64_t blob_compaction_readahead_size() const override {
-      return compaction_->mutable_cf_options()->blob_compaction_readahead_size;
+      return compaction_->mutable_cf_options().blob_compaction_readahead_size;
     }
 
     const Version* input_version() const override {

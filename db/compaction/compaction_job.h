@@ -193,8 +193,7 @@ class CompactionJob {
   // Add compaction input/output to the current version
   // Releases compaction file through Compaction::ReleaseCompactionFiles().
   // Sets *compaction_released to true if compaction is released.
-  Status Install(const MutableCFOptions& mutable_cf_options,
-                 bool* compaction_released);
+  Status Install(bool* compaction_released);
 
   // Return the IO status
   IOStatus io_status() const { return io_status_; }
@@ -282,8 +281,7 @@ class CompactionJob {
                                     const Slice& next_table_min_key,
                                     const Slice* comp_start_user_key,
                                     const Slice* comp_end_user_key);
-  Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options,
-                                  bool* compaction_released);
+  Status InstallCompactionResults(bool* compaction_released);
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact,
                                   CompactionOutputs& outputs);
 
@@ -367,6 +365,10 @@ class CompactionJob {
   // key has bigger (newer) sequence number than this, it will be precluded from
   // the last level (output to penultimate level).
   SequenceNumber penultimate_after_seqno_ = kMaxSequenceNumber;
+
+  // Options File Number used for Remote Compaction
+  // Setting this requires DBMutex.
+  uint64_t options_file_number_ = 0;
 
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.

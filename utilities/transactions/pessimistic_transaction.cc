@@ -104,8 +104,14 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   read_timestamp_ = kMaxTxnTimestamp;
   commit_timestamp_ = kMaxTxnTimestamp;
 
-  commit_bypass_memtable_ = txn_options.commit_bypass_memtable;
-  write_batch_.SetTrackPerCFStat(txn_options.commit_bypass_memtable);
+  if (txn_options.commit_bypass_memtable) {
+    commit_bypass_memtable_threshold_ = 0;
+  } else {
+    commit_bypass_memtable_threshold_ =
+        db_options.txn_commit_bypass_memtable_threshold;
+  }
+  write_batch_.SetTrackPerCFStat(commit_bypass_memtable_threshold_ <
+                                 std::numeric_limits<uint32_t>::max());
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
@@ -846,7 +852,8 @@ Status WriteCommittedTxn::CommitInternal() {
   if (!needs_ts) {
     s = WriteBatchInternal::MarkCommit(working_batch, name_);
   } else {
-    assert(!commit_bypass_memtable_);
+    assert(commit_bypass_memtable_threshold_ ==
+           std::numeric_limits<uint32_t>::max());
     assert(commit_timestamp_ != kMaxTxnTimestamp);
     char commit_ts_buf[sizeof(kMaxTxnTimestamp)];
     EncodeFixed64(commit_ts_buf, commit_timestamp_);
@@ -882,7 +889,7 @@ Status WriteCommittedTxn::CommitInternal() {
   // any operations appended to this working_batch will be ignored from WAL
   working_batch->MarkWalTerminationPoint();
 
-  const bool bypass_memtable = commit_bypass_memtable_ && wb->Count() > 0;
+  bool bypass_memtable = wb->Count() > commit_bypass_memtable_threshold_;
   if (!bypass_memtable) {
     // insert prepared batch into Memtable only skipping WAL.
     // Memtable will ignore BeginPrepare/EndPrepare markers
@@ -904,6 +911,8 @@ Status WriteCommittedTxn::CommitInternal() {
     }
   }
   assert(log_number_ > 0);
+  TEST_SYNC_POINT_CALLBACK("WriteCommittedTxn::CommitInternal:bypass_memtable",
+                           static_cast<void*>(&bypass_memtable));
   if (bypass_memtable) {
     s = db_impl_->WriteImpl(
         write_options_, working_batch, /*callback*/ nullptr,

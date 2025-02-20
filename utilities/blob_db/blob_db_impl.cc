@@ -232,12 +232,9 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
       static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->cfd();
   assert(cfd);
 
-  const ImmutableCFOptions* const ioptions = cfd->ioptions();
-  assert(ioptions);
-
   assert(env_);
 
-  for (const auto& cf_path : ioptions->cf_paths) {
+  for (const auto& cf_path : cfd->ioptions().cf_paths) {
     bool blob_dir_same_as_cf_dir = false;
     s = env_->AreFilesSame(blob_dir_, cf_path.path, &blob_dir_same_as_cf_dir);
     if (!s.ok()) {
@@ -1188,7 +1185,7 @@ Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
                            compression_type);
     Status s = UncompressBlockData(
         info, compressed_value.data(), compressed_value.size(), &contents,
-        kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
+        kBlockBasedTableVersionFormat, cfh->cfd()->ioptions());
     if (!s.ok()) {
       return Status::Corruption("Unable to decompress blob.");
     }

@@ -214,6 +214,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "table/cuckoo/cuckoo_table_builder.cc",
         "table/cuckoo/cuckoo_table_factory.cc",
         "table/cuckoo/cuckoo_table_reader.cc",
+        "table/external_table_reader.cc",
         "table/format.cc",
         "table/get_context.cc",
         "table/iterator.cc",
@@ -317,6 +318,8 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/persistent_cache/block_cache_tier_metadata.cc",
         "utilities/persistent_cache/persistent_cache_tier.cc",
         "utilities/persistent_cache/volatile_tier_impl.cc",
+        "utilities/secondary_index/secondary_index_iterator.cc",
+        "utilities/secondary_index/simple_secondary_index.cc",
         "utilities/simulator_cache/cache_simulator.cc",
         "utilities/simulator_cache/sim_cache.cc",
         "utilities/table_properties_collectors/compact_for_tiering_collector.cc",
@@ -406,6 +409,7 @@ cpp_library_wrapper(name="rocksdb_tools_lib", srcs=[
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/db_bench_tool.cc",
         "tools/simulated_hybrid_file_system.cc",
+        "tools/tool_hooks.cc",
         "tools/trace_analyzer_tool.cc",
     ], deps=[":rocksdb_lib"], headers=[], link_whole=False, extra_test_libs=False)
 

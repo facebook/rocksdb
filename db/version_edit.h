@@ -685,6 +685,9 @@ class VersionEdit {
 
   bool IsColumnFamilyDrop() const { return is_column_family_drop_; }
 
+  void MarkNoManifestWriteDummy() { is_no_manifest_write_dummy_ = true; }
+  bool IsNoManifestWriteDummy() const { return is_no_manifest_write_dummy_; }
+
   void MarkAtomicGroup(uint32_t remaining_entries) {
     is_in_atomic_group_ = true;
     remaining_entries_ = remaining_entries;
@@ -779,8 +782,9 @@ class VersionEdit {
   bool is_column_family_add_ = false;
   std::string column_family_name_;
 
-  bool is_in_atomic_group_ = false;
   uint32_t remaining_entries_ = 0;
+  bool is_in_atomic_group_ = false;
+  bool is_no_manifest_write_dummy_ = false;
 
   std::string full_history_ts_low_;
   bool persist_user_defined_timestamps_ = true;

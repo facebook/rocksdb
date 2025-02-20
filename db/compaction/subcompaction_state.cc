@@ -54,7 +54,7 @@ void SubcompactionState::Cleanup(Cache* cache) {
       // be picked up by scanning the DB directory.
       TableCache::ReleaseObsolete(
           cache, out.meta.fd.GetNumber(), nullptr /*handle*/,
-          compaction->mutable_cf_options()->uncache_aggressiveness);
+          compaction->mutable_cf_options().uncache_aggressiveness);
     }
   }
   // TODO: sub_compact.io_status is not checked like status. Not sure if thats

@@ -320,7 +320,7 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     // More details, check PR #1963
     const size_t num_skippable_boundaries_crossed =
         being_grandparent_gap_ ? 2 : 3;
-    if (compaction_->immutable_options()->compaction_style ==
+    if (compaction_->immutable_options().compaction_style ==
             kCompactionStyleLevel &&
         num_grandparent_boundaries_crossed >=
             num_skippable_boundaries_crossed &&
@@ -341,7 +341,7 @@ bool CompactionOutputs::ShouldStopBefore(const CompactionIterator& c_iter) {
     // target file size. The test shows it can generate larger files than a
     // static threshold like 75% and has a similar write amplification
     // improvement.
-    if (compaction_->immutable_options()->compaction_style ==
+    if (compaction_->immutable_options().compaction_style ==
             kCompactionStyleLevel &&
         current_output_file_size_ >=
             ((compaction_->target_output_file_size() + 99) / 100) *
@@ -752,11 +752,10 @@ Status CompactionOutputs::AddRangeDels(
 }
 
 void CompactionOutputs::FillFilesToCutForTtl() {
-  if (compaction_->immutable_options()->compaction_style !=
+  if (compaction_->immutable_options().compaction_style !=
           kCompactionStyleLevel ||
-      compaction_->immutable_options()->compaction_pri !=
-          kMinOverlappingRatio ||
-      compaction_->mutable_cf_options()->ttl == 0 ||
+      compaction_->immutable_options().compaction_pri != kMinOverlappingRatio ||
+      compaction_->mutable_cf_options().ttl == 0 ||
       compaction_->num_input_levels() < 2 || compaction_->bottommost_level()) {
     return;
   }
@@ -764,20 +763,19 @@ void CompactionOutputs::FillFilesToCutForTtl() {
   // We define new file with the oldest ancestor time to be younger than 1/4
   // TTL, and an old one to be older than 1/2 TTL time.
   int64_t temp_current_time;
-  auto get_time_status =
-      compaction_->immutable_options()->clock->GetCurrentTime(
-          &temp_current_time);
+  auto get_time_status = compaction_->immutable_options().clock->GetCurrentTime(
+      &temp_current_time);
   if (!get_time_status.ok()) {
     return;
   }
 
   auto current_time = static_cast<uint64_t>(temp_current_time);
-  if (current_time < compaction_->mutable_cf_options()->ttl) {
+  if (current_time < compaction_->mutable_cf_options().ttl) {
     return;
   }
 
   uint64_t old_age_thres =
-      current_time - compaction_->mutable_cf_options()->ttl / 2;
+      current_time - compaction_->mutable_cf_options().ttl / 2;
   const std::vector<FileMetaData*>& olevel =
       *(compaction_->inputs(compaction_->num_input_levels() - 1));
   for (FileMetaData* file : olevel) {
@@ -787,7 +785,7 @@ void CompactionOutputs::FillFilesToCutForTtl() {
     // of small files.
     if (oldest_ancester_time < old_age_thres &&
         file->fd.GetFileSize() >
-            compaction_->mutable_cf_options()->target_file_size_base / 2) {
+            compaction_->mutable_cf_options().target_file_size_base / 2) {
       files_to_cut_for_ttl_.push_back(file);
     }
   }

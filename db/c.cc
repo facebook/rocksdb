@@ -1858,10 +1858,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_approximate_sizes_cf_with_flags(
   delete[] ranges;
 }
 
-void rocksdb_delete_file(rocksdb_t* db, const char* name) {
-  db->rep->DeleteFile(name);
-}
-
 const rocksdb_livefiles_t* rocksdb_livefiles(rocksdb_t* db) {
   rocksdb_livefiles_t* result = new rocksdb_livefiles_t;
   db->rep->GetLiveFilesMetaData(&result->rep);
@@ -4998,6 +4994,35 @@ void rocksdb_compactoptions_set_target_level(rocksdb_compactoptions_t* opt,
 
 int rocksdb_compactoptions_get_target_level(rocksdb_compactoptions_t* opt) {
   return opt->rep.target_level;
+}
+
+void rocksdb_compactoptions_set_target_path_id(rocksdb_compactoptions_t* opt,
+                                               int n) {
+  opt->rep.target_path_id = n;
+}
+
+int rocksdb_compactoptions_get_target_path_id(rocksdb_compactoptions_t* opt) {
+  return opt->rep.target_path_id;
+}
+
+void rocksdb_compactoptions_set_allow_write_stall(rocksdb_compactoptions_t* opt,
+                                                  unsigned char v) {
+  opt->rep.allow_write_stall = v;
+}
+
+unsigned char rocksdb_compactoptions_get_allow_write_stall(
+    rocksdb_compactoptions_t* opt) {
+  return opt->rep.allow_write_stall;
+}
+
+void rocksdb_compactoptions_set_max_subcompactions(
+    rocksdb_compactoptions_t* opt, int n) {
+  opt->rep.max_subcompactions = n;
+}
+
+int rocksdb_compactoptions_get_max_subcompactions(
+    rocksdb_compactoptions_t* opt) {
+  return opt->rep.max_subcompactions;
 }
 
 void rocksdb_compactoptions_set_full_history_ts_low(

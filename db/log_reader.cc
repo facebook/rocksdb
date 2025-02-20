@@ -374,14 +374,16 @@ void Reader::MaybeVerifyPredecessorWALInfo(
     if (recorded_predecessor_log_number >= min_wal_number_to_keep_) {
       std::string reason = "Missing WAL of log number " +
                            std::to_string(recorded_predecessor_log_number);
-      ReportCorruption(fragment.size(), reason.c_str());
+      ReportCorruption(fragment.size(), reason.c_str(),
+                       recorded_predecessor_log_number);
     }
   } else {
     if (observed_predecessor_wal_info_.GetLogNumber() !=
         recorded_predecessor_log_number) {
       std::string reason = "Missing WAL of log number " +
                            std::to_string(recorded_predecessor_log_number);
-      ReportCorruption(fragment.size(), reason.c_str());
+      ReportCorruption(fragment.size(), reason.c_str(),
+                       recorded_predecessor_log_number);
     } else if (observed_predecessor_wal_info_.GetLastSeqnoRecorded() !=
                recorded_predecessor_wal_info.GetLastSeqnoRecorded()) {
       std::string reason =
@@ -392,7 +394,8 @@ void Reader::MaybeVerifyPredecessorWALInfo(
           std::to_string(
               observed_predecessor_wal_info_.GetLastSeqnoRecorded()) +
           ". (Last sequence number equal to 0 indicates no WAL records)";
-      ReportCorruption(fragment.size(), reason.c_str());
+      ReportCorruption(fragment.size(), reason.c_str(),
+                       recorded_predecessor_log_number);
     } else if (observed_predecessor_wal_info_.GetSizeBytes() !=
                recorded_predecessor_wal_info.GetSizeBytes()) {
       std::string reason =
@@ -402,7 +405,8 @@ void Reader::MaybeVerifyPredecessorWALInfo(
           " bytes. Observed " +
           std::to_string(observed_predecessor_wal_info_.GetSizeBytes()) +
           " bytes.";
-      ReportCorruption(fragment.size(), reason.c_str());
+      ReportCorruption(fragment.size(), reason.c_str(),
+                       recorded_predecessor_log_number);
     }
   }
 }
@@ -483,13 +487,15 @@ void Reader::UnmarkEOFInternal() {
   }
 }
 
-void Reader::ReportCorruption(size_t bytes, const char* reason) {
-  ReportDrop(bytes, Status::Corruption(reason));
+void Reader::ReportCorruption(size_t bytes, const char* reason,
+                              uint64_t log_number) {
+  ReportDrop(bytes, Status::Corruption(reason), log_number);
 }
 
-void Reader::ReportDrop(size_t bytes, const Status& reason) {
+void Reader::ReportDrop(size_t bytes, const Status& reason,
+                        uint64_t log_number) {
   if (reporter_ != nullptr) {
-    reporter_->Corruption(bytes, reason);
+    reporter_->Corruption(bytes, reason, log_number);
   }
 }
 

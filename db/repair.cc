@@ -155,7 +155,6 @@ class Repairer {
                                 cf_name + ", id=" + std::to_string(cf_id));
     }
     Options opts(db_options_, *cf_opts);
-    MutableCFOptions mut_cf_opts(opts);
 
     VersionEdit edit;
     edit.SetComparatorName(opts.comparator->Name());
@@ -171,8 +170,8 @@ class Repairer {
     Status status = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(),
                                                         &db_dir, nullptr);
     if (status.ok()) {
-      status = vset_.LogAndApply(cfd, mut_cf_opts, read_options, write_options,
-                                 &edit, &mutex_, db_dir.get(),
+      status = vset_.LogAndApply(cfd, read_options, write_options, &edit,
+                                 &mutex_, db_dir.get(),
                                  false /* new_descriptor_log */, cf_opts);
     }
     mutex_.Unlock();
@@ -357,10 +356,12 @@ class Repairer {
       Env* env;
       std::shared_ptr<Logger> info_log;
       uint64_t lognum;
-      void Corruption(size_t bytes, const Status& s) override {
+      void Corruption(size_t bytes, const Status& s,
+                      uint64_t log_number = kMaxSequenceNumber) override {
         // We print error messages for corruption, but continue repairing.
         ROCKS_LOG_ERROR(info_log, "Log #%" PRIu64 ": dropping %d bytes; %s",
-                        lognum, static_cast<int>(bytes), s.ToString().c_str());
+                        log_number == kMaxSequenceNumber ? lognum : log_number,
+                        static_cast<int>(bytes), s.ToString().c_str());
       }
     };
 
@@ -389,8 +390,7 @@ class Repairer {
 
     // Initialize per-column family memtables
     for (auto* cfd : *vset_.GetColumnFamilySet()) {
-      cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                             kMaxSequenceNumber);
+      cfd->CreateNewMemtable(kMaxSequenceNumber);
     }
     auto cf_mems = new ColumnFamilyMemTablesImpl(vset_.GetColumnFamilySet());
 
@@ -472,7 +472,7 @@ class Repairer {
       const ReadOptions read_options;
       const WriteOptions write_option(Env::IO_HIGH);
       TableBuilderOptions tboptions(
-          *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(), read_options,
+          cfd->ioptions(), cfd->GetLatestMutableCFOptions(), read_options,
           write_option, cfd->internal_comparator(),
           cfd->internal_tbl_prop_coll_factories(), kNoCompression,
           default_compression, cfd->GetID(), cfd->GetName(), -1 /* level */,
@@ -605,7 +605,7 @@ class Repairer {
       ropts.total_order_seek = true;
       InternalIterator* iter = table_cache_->NewIterator(
           ropts, file_options_, cfd->internal_comparator(), t->meta,
-          nullptr /* range_del_agg */, *cfd->GetLatestMutableCFOptions(),
+          nullptr /* range_del_agg */, cfd->GetLatestMutableCFOptions(),
           /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
           TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
           /*level=*/-1, /*max_file_size_for_l0_meta_pin=*/0,
@@ -652,7 +652,7 @@ class Repairer {
       std::unique_ptr<FragmentedRangeTombstoneIterator> r_iter;
       status = table_cache_->GetRangeTombstoneIterator(
           ropts, cfd->internal_comparator(), t->meta,
-          *cfd->GetLatestMutableCFOptions(), &r_iter);
+          cfd->GetLatestMutableCFOptions(), &r_iter);
 
       if (r_iter) {
         r_iter->SeekToFirst();
@@ -693,15 +693,15 @@ class Repairer {
 
       // Recover files' epoch number using dummy VersionStorageInfo
       VersionBuilder dummy_version_builder(
-          cfd->current()->version_set()->file_options(), cfd->ioptions(),
+          cfd->current()->version_set()->file_options(), &cfd->ioptions(),
           cfd->table_cache(), cfd->current()->storage_info(),
           cfd->current()->version_set(),
           cfd->GetFileMetadataCacheReservationManager());
       VersionStorageInfo dummy_vstorage(
           &cfd->internal_comparator(), cfd->user_comparator(),
-          cfd->NumberLevels(), cfd->ioptions()->compaction_style,
-          nullptr /* src_vstorage */, cfd->ioptions()->force_consistency_checks,
-          EpochNumberRequirement::kMightMissing, cfd->ioptions()->clock,
+          cfd->NumberLevels(), cfd->ioptions().compaction_style,
+          nullptr /* src_vstorage */, cfd->ioptions().force_consistency_checks,
+          EpochNumberRequirement::kMightMissing, cfd->ioptions().clock,
           /*bottommost_file_compaction_delay=*/0,
           cfd->current()->version_set()->offpeak_time_option());
       Status s;
@@ -733,7 +733,7 @@ class Repairer {
         VersionEdit edit;
         edit.SetComparatorName(cfd->user_comparator()->Name());
         edit.SetPersistUserDefinedTimestamps(
-            cfd->ioptions()->persist_user_defined_timestamps);
+            cfd->ioptions().persist_user_defined_timestamps);
         edit.SetLogNumber(0);
         edit.SetNextFile(next_file_number_);
         edit.SetColumnFamily(cfd->GetID());
@@ -761,9 +761,9 @@ class Repairer {
         s = env_->GetFileSystem()->NewDirectory(dbname_, IOOptions(), &db_dir,
                                                 nullptr);
         if (s.ok()) {
-          s = vset_.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                read_options, write_options, &edit, &mutex_,
-                                db_dir.get(), false /* new_descriptor_log */);
+          s = vset_.LogAndApply(cfd, read_options, write_options, &edit,
+                                &mutex_, db_dir.get(),
+                                false /* new_descriptor_log */);
         }
         mutex_.Unlock();
       }

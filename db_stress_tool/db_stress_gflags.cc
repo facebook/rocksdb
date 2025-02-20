@@ -851,6 +851,9 @@ DEFINE_bool(track_and_verify_wals,
             ROCKSDB_NAMESPACE::Options().track_and_verify_wals,
             "See Options::track_and_verify_wals");
 
+DEFINE_bool(enable_remote_compaction, false,
+            "Enable (simulated) Remote Compaction");
+
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value < 0 || value > 100) {
     fprintf(stderr, "Invalid value for --%s: %d, 0<= pct <=100 \n", flagname,
@@ -1476,4 +1479,10 @@ DEFINE_bool(paranoid_memory_checks,
 DEFINE_uint32(commit_bypass_memtable_one_in, 0,
               "If greater than zero, transaction option will set "
               "commit_bypass_memtable to per every N transactions on average.");
+
+DEFINE_bool(
+    auto_refresh_iterator_with_snapshot,
+    ROCKSDB_NAMESPACE::ReadOptions().auto_refresh_iterator_with_snapshot,
+    "ReadOptions.auto_refresh_iterator_with_snapshot");
+
 #endif  // GFLAGS

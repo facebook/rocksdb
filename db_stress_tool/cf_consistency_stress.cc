@@ -776,6 +776,11 @@ class CfConsistencyStressTest : public StressTest {
     Slice ub_slice;
 
     ReadOptions ro_copy = readoptions;
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (ro_copy.auto_refresh_iterator_with_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db_);
+      ro_copy.snapshot = snapshot->snapshot();
+    }
 
     // Get the next prefix first and then see if we want to set upper bound.
     // We'll use the next prefix in an assertion later on
@@ -858,6 +863,8 @@ class CfConsistencyStressTest : public StressTest {
 
     ManagedSnapshot snapshot_guard(db_);
     options.snapshot = snapshot_guard.snapshot();
+    options.auto_refresh_iterator_with_snapshot =
+        FLAGS_auto_refresh_iterator_with_snapshot;
 
     const size_t num = column_families_.size();
 
@@ -1040,8 +1047,8 @@ class CfConsistencyStressTest : public StressTest {
     assert(thread);
     Status status;
 
-    DB* db_ptr = cmp_db_ ? cmp_db_ : db_;
-    const auto& cfhs = cmp_db_ ? cmp_cfhs_ : column_families_;
+    DB* db_ptr = secondary_db_ ? secondary_db_ : db_;
+    const auto& cfhs = secondary_db_ ? secondary_cfhs_ : column_families_;
 
     // Take a snapshot to preserve the state of primary db.
     ManagedSnapshot snapshot_guard(db_);
@@ -1049,8 +1056,8 @@ class CfConsistencyStressTest : public StressTest {
     SharedState* shared = thread->shared;
     assert(shared);
 
-    if (cmp_db_) {
-      status = cmp_db_->TryCatchUpWithPrimary();
+    if (secondary_db_) {
+      status = secondary_db_->TryCatchUpWithPrimary();
       if (!status.ok()) {
         fprintf(stderr, "TryCatchUpWithPrimary: %s\n",
                 status.ToString().c_str());
@@ -1083,8 +1090,9 @@ class CfConsistencyStressTest : public StressTest {
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts(FLAGS_verify_checksum, true);
     ropts.total_order_seek = true;
-    if (nullptr == cmp_db_) {
+    if (nullptr == secondary_db_ || FLAGS_auto_refresh_iterator_with_snapshot) {
       ropts.snapshot = snapshot_guard.snapshot();
+      ropts.auto_refresh_iterator_with_snapshot = true;
     }
     uint32_t crc = 0;
     {

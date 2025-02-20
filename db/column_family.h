@@ -210,6 +210,7 @@ struct SuperVersion {
   ReadOnlyMemTable* mem;
   MemTableListVersion* imm;
   Version* current;
+  // TODO: do we really need this in addition to what's in current Version?
   MutableCFOptions mutable_cf_options;
   // Version number of the current SuperVersion
   uint64_t version_number;
@@ -221,7 +222,8 @@ struct SuperVersion {
   // enable UDT feature, this is an empty string.
   std::string full_history_ts_low;
 
-  // A shared copy of the DB's seqno to time mapping.
+  // An immutable snapshot of the DB's seqno to time mapping, usually shared
+  // between SuperVersions.
   std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping{nullptr};
 
   // should be called outside the mutex
@@ -342,17 +344,17 @@ class ColumnFamilyData {
 
   // thread-safe
   const FileOptions* soptions() const;
-  const ImmutableOptions* ioptions() const { return &ioptions_; }
+  const ImmutableOptions& ioptions() const { return ioptions_; }
   // REQUIRES: DB mutex held
   // This returns the MutableCFOptions used by current SuperVersion
   // You should use this API to reference MutableCFOptions most of the time.
-  const MutableCFOptions* GetCurrentMutableCFOptions() const {
-    return &(super_version_->mutable_cf_options);
+  const MutableCFOptions& GetCurrentMutableCFOptions() const {
+    return super_version_->mutable_cf_options;
   }
   // REQUIRES: DB mutex held
   // This returns the latest MutableCFOptions, which may be not in effect yet.
-  const MutableCFOptions* GetLatestMutableCFOptions() const {
-    return &mutable_cf_options_;
+  const MutableCFOptions& GetLatestMutableCFOptions() const {
+    return mutable_cf_options_;
   }
 
   // REQUIRES: DB mutex held
@@ -379,9 +381,9 @@ class ColumnFamilyData {
     return mem()->GetFirstSequenceNumber() == 0 && imm()->NumNotFlushed() == 0;
   }
 
-  Version* current() { return current_; }
   Version* dummy_versions() { return dummy_versions_; }
-  void SetCurrent(Version* _current);
+  Version* current() { return current_; }  // REQUIRE: DB mutex held
+  void SetCurrent(Version* _current);      // REQUIRE: DB mutex held
   uint64_t GetNumLiveVersions() const;    // REQUIRE: DB mutex held
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
   uint64_t GetLiveSstFilesSize() const;   // REQUIRE: DB mutex held
@@ -400,10 +402,11 @@ class ColumnFamilyData {
   uint64_t OldestLogToKeep();
 
   // See Memtable constructor for explanation of earliest_seq param.
+  // `mutable_cf_options` might need to be a saved copy if calling this without
+  // holding the DB mutex.
   MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
                                  SequenceNumber earliest_seq);
-  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options,
-                         SequenceNumber earliest_seq);
+  void CreateNewMemtable(SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
   BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }
@@ -480,6 +483,9 @@ class ColumnFamilyData {
   // thread-safe
   uint64_t GetSuperVersionNumber() const {
     return super_version_number_.load();
+  }
+  uint64_t GetSuperVersionNumberRelaxed() const {
+    return super_version_number_.load(std::memory_order_relaxed);
   }
   // will return a pointer to SuperVersion* if previous SuperVersion
   // if its reference count is zero and needs deletion or nullptr if not

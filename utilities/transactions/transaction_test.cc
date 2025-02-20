@@ -19,6 +19,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/secondary_index.h"
+#include "rocksdb/utilities/secondary_index_simple.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
@@ -29,7 +30,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
-#include "utilities/secondary_index/secondary_index_iterator.h"
+#include "utilities/secondary_index/secondary_index_helper.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -5651,13 +5652,13 @@ TEST_P(TransactionTest, ToggleAutoCompactionTest) {
   ASSERT_OK(s);
 
   auto cfh_default = static_cast_with_check<ColumnFamilyHandleImpl>(handles[0]);
-  auto opt_default = *cfh_default->cfd()->GetLatestMutableCFOptions();
+  auto& opt_default = cfh_default->cfd()->GetLatestMutableCFOptions();
 
   auto cfh_a = static_cast_with_check<ColumnFamilyHandleImpl>(handles[1]);
-  auto opt_a = *cfh_a->cfd()->GetLatestMutableCFOptions();
+  auto& opt_a = cfh_a->cfd()->GetLatestMutableCFOptions();
 
   auto cfh_b = static_cast_with_check<ColumnFamilyHandleImpl>(handles[2]);
-  auto opt_b = *cfh_b->cfd()->GetLatestMutableCFOptions();
+  auto& opt_b = cfh_b->cfd()->GetLatestMutableCFOptions();
 
   ASSERT_EQ(opt_default.disable_auto_compactions, false);
   ASSERT_EQ(opt_a.disable_auto_compactions, true);
@@ -8008,7 +8009,270 @@ TEST_P(TransactionTest, AttributeGroupIteratorSanityChecks) {
   }
 }
 
-TEST_P(TransactionTest, SecondaryIndex) {
+TEST_P(TransactionTest, SecondaryIndexPutDelete) {
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
+  if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
+    ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
+    return;
+  }
+
+  txn_db_options.secondary_indices.emplace_back(
+      std::make_shared<SimpleSecondaryIndex>(
+          kDefaultWideColumnName.ToString()));
+
+  ASSERT_OK(ReOpen());
+
+  ColumnFamilyOptions cf1_opts;
+  ColumnFamilyHandle* cfh1 = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(cf1_opts, "cf1", &cfh1));
+  std::unique_ptr<ColumnFamilyHandle> cfh1_guard(cfh1);
+
+  ColumnFamilyOptions cf2_opts;
+  ColumnFamilyHandle* cfh2 = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(cf2_opts, "cf2", &cfh2));
+  std::unique_ptr<ColumnFamilyHandle> cfh2_guard(cfh2);
+
+  auto& index = txn_db_options.secondary_indices.back();
+  index->SetPrimaryColumnFamily(cfh1);
+  index->SetSecondaryColumnFamily(cfh2);
+
+  {
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+
+    // Default CF => OK but not indexed
+    ASSERT_OK(txn->Put(db->DefaultColumnFamily(), "key0", "foo"));
+
+    // CF1 but no default column => OK but not indexed
+    ASSERT_OK(txn->PutEntity(cfh1, "key1", {{"hello", "world"}}));
+
+    // CF1, "bar" in the default column => OK and indexed
+    ASSERT_OK(txn->Put(cfh1, "key2", "bar"));
+
+    // CF1, "baz" in the default column => OK and indexed
+    ASSERT_OK(txn->Put(cfh1, "key3", "baz"));
+
+    ASSERT_OK(txn->Commit());
+  }
+
+  // Expected keys: "key0" in the default CF; "key1", "key2", "key3" in CF1;
+  // secondary index entries for "key2" and "key3" in CF2
+  {
+    std::unique_ptr<Iterator> it(
+        db->NewIterator(ReadOptions(), db->DefaultColumnFamily()));
+
+    it->SeekToFirst();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key0");
+    ASSERT_EQ(it->value(), "foo");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh1));
+
+    it->SeekToFirst();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key1");
+    WideColumns expected1{{"hello", "world"}};
+    ASSERT_EQ(it->columns(), expected1);
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key2");
+    ASSERT_EQ(it->value(), "bar");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key3");
+    ASSERT_EQ(it->value(), "baz");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    // Read the raw secondary index entries from CF2
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh2));
+
+    it->SeekToFirst();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "\3barkey2");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "\3bazkey3");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    // Query the secondary index
+    std::unique_ptr<Iterator> underlying_it(
+        db->NewIterator(ReadOptions(), cfh2));
+    auto it = std::make_unique<SecondaryIndexIterator>(
+        index.get(), std::move(underlying_it));
+
+    it->Seek("bar");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key2");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+
+    it->Seek("baz");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key3");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  // Make some updates to the key-values indexed above through the database
+  // interface (i.e. using implicit transactions)
+
+  // Add a default column to "key1" which previously had none
+  ASSERT_OK(
+      db->PutEntity(WriteOptions(), cfh1, "key1",
+                    {{"hello", "world"}, {kDefaultWideColumnName, "quux"}}));
+
+  // Change the value of the default column in "key2"
+  ASSERT_OK(db->Put(WriteOptions(), cfh1, "key2", "quux"));
+
+  // Remove the default column from "key3"
+  ASSERT_OK(db->PutEntity(WriteOptions(), cfh1, "key3", {{"1", "2"}}));
+
+  // Expected keys: "key0" in the default CF; "key1", "key2", "key3" in CF1;
+  // secondary index entries for "key1" and "key2" in CF2
+  {
+    std::unique_ptr<Iterator> it(
+        db->NewIterator(ReadOptions(), db->DefaultColumnFamily()));
+
+    it->SeekToFirst();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key0");
+    ASSERT_EQ(it->value(), "foo");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh1));
+
+    it->SeekToFirst();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key1");
+    WideColumns expected1{{kDefaultWideColumnName, "quux"}, {"hello", "world"}};
+    ASSERT_EQ(it->columns(), expected1);
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key2");
+    ASSERT_EQ(it->value(), "quux");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "key3");
+    WideColumns expected3{{"1", "2"}};
+    ASSERT_EQ(it->columns(), expected3);
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    // Read the raw secondary index entries from CF2
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh2));
+
+    it->SeekToFirst();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "\4quuxkey1");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ(it->key(), "\4quuxkey2");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    // Query the secondary index
+    std::unique_ptr<Iterator> underlying_it(
+        db->NewIterator(ReadOptions(), cfh2));
+    auto it = std::make_unique<SecondaryIndexIterator>(
+        index.get(), std::move(underlying_it));
+
+    it->Seek("quux");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key1");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "key2");
+    ASSERT_TRUE(it->value().empty());
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  // Delete/SingleDelete "key1" and "key3" via an explicit transaction and
+  // "key2" and a non-existing "key4" via the DB interface (i.e. an implicit
+  // transaction)
+  {
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+
+    ASSERT_OK(txn->Delete(cfh1, "key1"));
+    ASSERT_OK(txn->SingleDelete(cfh1, "key3"));
+
+    ASSERT_OK(txn->Commit());
+  }
+
+  ASSERT_OK(db->SingleDelete(WriteOptions(), cfh1, "key2"));
+  ASSERT_OK(db->Delete(WriteOptions(), cfh1, "key4"));
+
+  // cfh1 and cfh2 are expected to be empty
+  {
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh1));
+
+    it->SeekToFirst();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  {
+    std::unique_ptr<Iterator> it(db->NewIterator(ReadOptions(), cfh2));
+
+    it->SeekToFirst();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+}
+
+TEST_P(TransactionTest, SecondaryIndexPutEntity) {
   const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
   if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
     ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
@@ -8054,7 +8318,7 @@ TEST_P(TransactionTest, SecondaryIndex) {
     }
 
     Status GetSecondaryKeyPrefix(
-        const Slice& primary_column_value,
+        const Slice& /* primary_key */, const Slice& primary_column_value,
         std::variant<Slice, std::string>* secondary_key_prefix) const override {
       assert(secondary_key_prefix);
 
@@ -8068,7 +8332,17 @@ TEST_P(TransactionTest, SecondaryIndex) {
       return Status::OK();
     }
 
-    Status GetSecondaryValue(const Slice& primary_column_value,
+    Status FinalizeSecondaryKeyPrefix(
+        std::variant<Slice, std::string>* secondary_key_prefix) const override {
+      if (SecondaryIndexHelper::AsSlice(*secondary_key_prefix) == "!") {
+        return Status::Corruption();
+      }
+
+      return Status::OK();
+    }
+
+    Status GetSecondaryValue(const Slice& /* primary_key */,
+                             const Slice& primary_column_value,
                              const Slice& previous_column_value,
                              std::optional<std::variant<Slice, std::string>>*
                                  secondary_value) const override {
@@ -8081,13 +8355,6 @@ TEST_P(TransactionTest, SecondaryIndex) {
       *secondary_value = value;
 
       return Status::OK();
-    }
-
-    std::unique_ptr<Iterator> NewIterator(
-        const SecondaryIndexReadOptions& /* read_options */,
-        std::unique_ptr<Iterator>&& underlying_it) const override {
-      return std::make_unique<SecondaryIndexIterator>(this,
-                                                      std::move(underlying_it));
     }
 
    private:
@@ -8137,9 +8404,12 @@ TEST_P(TransactionTest, SecondaryIndex) {
     // CF1, empty value in the "foo" column => GetSecondaryKeyPrefix errors out
     ASSERT_TRUE(txn->PutEntity(cfh1, "key5", {{"foo", ""}}).IsNotFound());
 
+    // CF1, "!!!" in the "foo" column => FinalizeSecondaryKeyPrefix errors out
+    ASSERT_TRUE(txn->PutEntity(cfh1, "key6", {{"foo", "!!!"}}).IsCorruption());
+
     // CF1, "corge" in the "foo" column => GetSecondaryValue errors out
     ASSERT_TRUE(
-        txn->PutEntity(cfh1, "key6", {{"foo", "corge"}}).IsNotSupported());
+        txn->PutEntity(cfh1, "key7", {{"foo", "corge"}}).IsNotSupported());
 
     ASSERT_OK(txn->Commit());
   }
@@ -8210,22 +8480,10 @@ TEST_P(TransactionTest, SecondaryIndex) {
     // Query the secondary index
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
-                                                    std::move(underlying_it)));
+    auto it = std::make_unique<SecondaryIndexIterator>(
+        index.get(), std::move(underlying_it));
 
-    it->SeekToFirst();
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->SeekToLast();
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->SeekForPrev("box");
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->Seek("box");  // last character used for indexing: x
+    it->Seek("x");
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ(it->key(), "key3");
@@ -8253,7 +8511,7 @@ TEST_P(TransactionTest, SecondaryIndex) {
     ASSERT_FALSE(it->Valid());
     ASSERT_OK(it->status());
 
-    it->Seek("toy");  // last character used for indexing: y
+    it->Seek("y");
     ASSERT_FALSE(it->Valid());
     ASSERT_OK(it->status());
   }
@@ -8338,22 +8596,10 @@ TEST_P(TransactionTest, SecondaryIndex) {
     // Query the secondary index
     std::unique_ptr<Iterator> underlying_it(
         db->NewIterator(ReadOptions(), cfh2));
-    std::unique_ptr<Iterator> it(index->NewIterator(SecondaryIndexReadOptions(),
-                                                    std::move(underlying_it)));
+    auto it = std::make_unique<SecondaryIndexIterator>(
+        index.get(), std::move(underlying_it));
 
-    it->SeekToFirst();
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->SeekToLast();
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->SeekForPrev("bot");
-    ASSERT_FALSE(it->Valid());
-    ASSERT_TRUE(it->status().IsNotSupported());
-
-    it->Seek("bot");  // last character used for indexing: t
+    it->Seek("t");
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ(it->key(), "key1");
@@ -8363,11 +8609,204 @@ TEST_P(TransactionTest, SecondaryIndex) {
     ASSERT_FALSE(it->Valid());
     ASSERT_OK(it->status());
 
-    it->Seek("toy");  // last character used for indexing: y
+    it->Seek("y");
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ(it->key(), "key3");
     ASSERT_EQ(it->value(), "ylprag");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+}
+
+TEST_P(TransactionTest, SecondaryIndexOnKey) {
+  const TxnDBWritePolicy write_policy = std::get<2>(GetParam());
+  if (write_policy != TxnDBWritePolicy::WRITE_COMMITTED) {
+    ROCKSDB_GTEST_BYPASS("Test only WriteCommitted for now");
+    return;
+  }
+
+  // A secondary index that removes the first three characters of the primary
+  // key and indexes the rest.
+  class KeySecondaryIndex : public SecondaryIndex {
+   public:
+    void SetPrimaryColumnFamily(ColumnFamilyHandle* cfh) override {
+      primary_cfh_ = cfh;
+    }
+
+    void SetSecondaryColumnFamily(ColumnFamilyHandle* cfh) override {
+      secondary_cfh_ = cfh;
+    }
+
+    ColumnFamilyHandle* GetPrimaryColumnFamily() const override {
+      return primary_cfh_;
+    }
+
+    ColumnFamilyHandle* GetSecondaryColumnFamily() const override {
+      return secondary_cfh_;
+    }
+
+    Slice GetPrimaryColumnName() const override {
+      return kDefaultWideColumnName;
+    }
+
+    Status UpdatePrimaryColumnValue(
+        const Slice& /* primary_key */, const Slice& /* primary_column_value */,
+        std::optional<
+            std::variant<Slice, std::string>>* /* updated_column_value */)
+        const override {
+      return Status::OK();
+    }
+
+    Status GetSecondaryKeyPrefix(
+        const Slice& primary_key, const Slice& /* primary_column_value */,
+        std::variant<Slice, std::string>* secondary_key_prefix) const override {
+      assert(secondary_key_prefix);
+
+      constexpr size_t prefix_len = 3;
+
+      if (primary_key.size() < prefix_len) {
+        return Status::InvalidArgument();
+      }
+
+      Slice transformed_key = primary_key;
+      transformed_key.remove_prefix(prefix_len);
+
+      *secondary_key_prefix = transformed_key;
+
+      return Status::OK();
+    }
+
+    Status FinalizeSecondaryKeyPrefix(
+        std::variant<Slice, std::string>* /* secondary_key_prefix */)
+        const override {
+      return Status::OK();
+    }
+
+    Status GetSecondaryValue(const Slice& primary_key,
+                             const Slice& /* primary_column_value */,
+                             const Slice& /* previous_column_value */,
+                             std::optional<std::variant<Slice, std::string>>*
+                                 secondary_value) const override {
+      assert(secondary_value);
+
+      std::string index_value = primary_key.ToString();
+      std::reverse(index_value.begin(), index_value.end());
+
+      *secondary_value = std::move(index_value);
+
+      return Status::OK();
+    }
+
+   private:
+    ColumnFamilyHandle* primary_cfh_{};
+    ColumnFamilyHandle* secondary_cfh_{};
+  };
+
+  txn_db_options.secondary_indices.emplace_back(
+      std::make_shared<KeySecondaryIndex>());
+
+  ASSERT_OK(ReOpen());
+
+  ColumnFamilyOptions cf1_opts;
+  ColumnFamilyHandle* cfh1 = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(cf1_opts, "cf1", &cfh1));
+  std::unique_ptr<ColumnFamilyHandle> cfh1_guard(cfh1);
+
+  ColumnFamilyOptions cf2_opts;
+  ColumnFamilyHandle* cfh2 = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(cf2_opts, "cf2", &cfh2));
+  std::unique_ptr<ColumnFamilyHandle> cfh2_guard(cfh2);
+
+  auto& index = txn_db_options.secondary_indices.back();
+  index->SetPrimaryColumnFamily(cfh1);
+  index->SetSecondaryColumnFamily(cfh2);
+
+  {
+    std::unique_ptr<Transaction> txn(db->BeginTransaction(WriteOptions()));
+
+    ASSERT_OK(txn->Put(cfh1, "123foo", "a"));
+    ASSERT_OK(txn->Put(cfh1, "123bar", "b"));
+    ASSERT_OK(txn->Put(cfh1, "123baz", "c"));
+    ASSERT_OK(txn->Put(cfh1, "456foo", "d"));
+    ASSERT_OK(txn->Put(cfh1, "456bar", "e"));
+    ASSERT_OK(txn->Put(cfh1, "456baz", "f"));
+    ASSERT_OK(txn->Put(cfh1, "789foo", "g"));
+    ASSERT_OK(txn->Put(cfh1, "789bar", "h"));
+    ASSERT_OK(txn->Put(cfh1, "789baz", "i"));
+
+    ASSERT_OK(txn->Commit());
+  }
+
+  {
+    std::unique_ptr<Iterator> underlying_it(
+        db->NewIterator(ReadOptions(), cfh2));
+    auto it = std::make_unique<SecondaryIndexIterator>(
+        index.get(), std::move(underlying_it));
+
+    it->Seek("foo");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "123foo");
+    ASSERT_EQ(it->value(), "oof321");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "456foo");
+    ASSERT_EQ(it->value(), "oof654");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "789foo");
+    ASSERT_EQ(it->value(), "oof987");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+
+    it->Seek("bar");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "123bar");
+    ASSERT_EQ(it->value(), "rab321");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "456bar");
+    ASSERT_EQ(it->value(), "rab654");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "789bar");
+    ASSERT_EQ(it->value(), "rab987");
+
+    it->Next();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+
+    it->Seek("baz");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "123baz");
+    ASSERT_EQ(it->value(), "zab321");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "456baz");
+    ASSERT_EQ(it->value(), "zab654");
+
+    it->Next();
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_EQ(it->key(), "789baz");
+    ASSERT_EQ(it->value(), "zab987");
 
     it->Next();
     ASSERT_FALSE(it->Valid());
@@ -8481,7 +8920,8 @@ class CommitBypassMemtableTest : public DBTestBase,
   Options options;
   TransactionDBOptions txn_db_opts;
 
-  void SetUpTransactionDB() {
+  void SetUpTransactionDB(
+      uint32_t threshold = std::numeric_limits<uint32_t>::max()) {
     options = CurrentOptions();
     options.create_if_missing = true;
     options.allow_2pc = true;
@@ -8493,6 +8933,7 @@ class CommitBypassMemtableTest : public DBTestBase,
     Destroy(options, true);
 
     txn_db_opts.write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
+    txn_db_opts.txn_commit_bypass_memtable_threshold = threshold;
     ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
     ASSERT_NE(txn_db, nullptr);
     db_ = txn_db;
@@ -8946,6 +9387,67 @@ TEST_P(CommitBypassMemtableTest, Recovery) {
   db_ = txn_db;
 
   VerifyDBFromMap(expected);
+}
+
+TEST_P(CommitBypassMemtableTest, ThresholdTxnDBOption) {
+  // Tests TransactionDBOptions::txn_commit_bypass_memtable_threshold
+  const uint32_t threshold = 10;
+  SetUpTransactionDB(/*threshold=*/threshold);
+  bool commit_bypass_memtable = false;
+  // TODO: add and use stats for this
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteCommittedTxn::CommitInternal:bypass_memtable",
+      [&](void* arg) { commit_bypass_memtable = *(static_cast<bool*>(arg)); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // TransactionOptions::commit_bypass_memtable takes precedence
+  WriteOptions wopts;
+  TransactionOptions txn_opts;
+  txn_opts.commit_bypass_memtable = true;
+  Transaction* txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_OK(txn1->SetName("xid1"));
+  ASSERT_OK(txn1->Put("k2", "v2"));
+  ASSERT_OK(txn1->Put("k1", "v1"));
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_OK(txn1->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+
+  // Below threshold
+  for (auto num_ops : {threshold, threshold + 1}) {
+    commit_bypass_memtable = false;
+    txn_opts.commit_bypass_memtable = false;
+    auto txn = txn_db->BeginTransaction(wopts, txn_opts, txn1);
+    txn1 = nullptr;
+    ASSERT_OK(txn->SetName("xid" + std::to_string(num_ops)));
+    for (uint32_t i = 0; i < num_ops; ++i) {
+      ASSERT_OK(
+          txn->Put("key" + std::to_string(i), "value" + std::to_string(i)));
+    }
+    ASSERT_OK(txn->Prepare());
+    ASSERT_OK(txn->Commit());
+    ASSERT_EQ(commit_bypass_memtable, num_ops > threshold);
+    delete txn;
+  }
+
+  // Repeat the same test with updates to two CFs
+  std::vector<std::string> cfs = {"pk", "sk"};
+  CreateColumnFamilies(cfs, options);
+
+  // Below threshold
+  for (auto num_ops : {threshold, threshold + 1}) {
+    commit_bypass_memtable = false;
+    txn_opts.commit_bypass_memtable = false;
+    auto txn_cf = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+    ASSERT_OK(txn_cf->SetName("xid_cf" + std::to_string(num_ops)));
+    for (uint32_t i = 0; i < num_ops; ++i) {
+      ASSERT_OK(txn_cf->Put(handles_[i % 2], "key" + std::to_string(i),
+                            "value" + std::to_string(i)));
+    }
+    ASSERT_OK(txn_cf->Prepare());
+    ASSERT_OK(txn_cf->Commit());
+    ASSERT_EQ(commit_bypass_memtable, num_ops > threshold);
+    delete txn_cf;
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -27,6 +27,10 @@ class StackableDB : public DB {
   explicit StackableDB(std::shared_ptr<DB> db)
       : db_(db.get()), shared_db_ptr_(db) {}
 
+  // StackableDB take sole ownership of the underlying db.
+  explicit StackableDB(std::unique_ptr<DB>&& db)
+      : db_(db.get()), shared_db_ptr_(std::move(db)) {}
+
   ~StackableDB() override {
     if (shared_db_ptr_ == nullptr) {
       delete db_;
@@ -513,15 +517,6 @@ class StackableDB : public DB {
   Status GetCreationTimeOfOldestFile(uint64_t* creation_time) override {
     return db_->GetCreationTimeOfOldestFile(creation_time);
   }
-
-  // WARNING: This API is planned for removal in RocksDB 7.0 since it does not
-  // operate at the proper level of abstraction for a key-value store, and its
-  // contract/restrictions are poorly documented. For example, it returns non-OK
-  // `Status` for non-bottommost files and files undergoing compaction. Since we
-  // do not plan to maintain it, the contract will likely remain underspecified
-  // until its removal. Any user is encouraged to read the implementation
-  // carefully and migrate away from it when possible.
-  Status DeleteFile(std::string name) override { return db_->DeleteFile(name); }
 
   Status GetDbIdentity(std::string& identity) const override {
     return db_->GetDbIdentity(identity);

@@ -129,7 +129,8 @@ class LogTest
     std::string message_;
 
     ReportCollector() : dropped_bytes_(0) {}
-    void Corruption(size_t bytes, const Status& status) override {
+    void Corruption(size_t bytes, const Status& status,
+                    uint64_t /*log_number*/ = kMaxSequenceNumber) override {
       dropped_bytes_ += bytes;
       message_.append(status.ToString());
     }
@@ -825,7 +826,8 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
     std::string message_;
 
     ReportCollector() : dropped_bytes_(0) {}
-    void Corruption(size_t bytes, const Status& status) override {
+    void Corruption(size_t bytes, const Status& status,
+                    uint64_t /*log_number*/ = kMaxSequenceNumber) override {
       dropped_bytes_ += bytes;
       message_.append(status.ToString());
     }

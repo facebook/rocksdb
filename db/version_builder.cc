@@ -1831,7 +1831,7 @@ BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     ColumnFamilyData* cfd, VersionEditHandler* version_edit_handler,
     bool track_found_and_missing_files, bool allow_incomplete_valid_version)
     : version_builder_(new VersionBuilder(
-          cfd->current()->version_set()->file_options(), cfd->ioptions(),
+          cfd->current()->version_set()->file_options(), &cfd->ioptions(),
           cfd->table_cache(), cfd->current()->storage_info(),
           cfd->current()->version_set(),
           cfd->GetFileMetadataCacheReservationManager(), cfd,
@@ -1845,7 +1845,7 @@ BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     ColumnFamilyData* cfd, Version* v, VersionEditHandler* version_edit_handler,
     bool track_found_and_missing_files, bool allow_incomplete_valid_version)
     : version_builder_(new VersionBuilder(
-          cfd->current()->version_set()->file_options(), cfd->ioptions(),
+          cfd->current()->version_set()->file_options(), &cfd->ioptions(),
           cfd->table_cache(), v->storage_info(), v->version_set(),
           cfd->GetFileMetadataCacheReservationManager(), cfd,
           version_edit_handler, track_found_and_missing_files,
