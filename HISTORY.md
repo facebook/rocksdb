@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 9.11.1 (02/19/2025)
+### New Features
+* Added the ability to plug-in a custom table reader implementation. See include/rocksdb/external_table_reader.h for more details.
+
 ## 9.11.0 (01/17/2025)
 ### New Features
 * Introduce CancelAwaitingJobs() in CompactionService interface which will allow users to implement cancellation of running remote compactions from the primary instance
