@@ -343,13 +343,11 @@ default_params = {
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
-    # TODO(hx235): enable `track_and_verify_wals` again after resolving the issues 
+    # TODO(hx235): enable `track_and_verify_wals` again after resolving the issues
     # it has with write fault injection and TXN
     "track_and_verify_wals": 0,
     "enable_remote_compaction": lambda: random.choice([0, 1]),
-    # TODO: enable `auto_refresh_iterator_with_snapshot` again after 
-    # fixing issues with prefix scan and injected read errors  
-    "auto_refresh_iterator_with_snapshot": 0,
+    "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
@@ -846,9 +844,9 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0
-    # Truncating SST files in primary DB is incompatible 
-    # with secondary DB since the latter can't read the shared 
-    # and truncated SST file correctly 
+    # Truncating SST files in primary DB is incompatible
+    # with secondary DB since the latter can't read the shared
+    # and truncated SST file correctly
     if (
         dest_params.get("sst_file_manager_bytes_per_sec", 0) == 0
         or dest_params.get("test_secondary") == 1

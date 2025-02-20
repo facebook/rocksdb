@@ -67,7 +67,7 @@ void ArenaWrappedDBIter::Init(
 void ArenaWrappedDBIter::MaybeAutoRefresh(bool is_seek,
                                           DBIter::Direction direction) {
   if (cfh_ != nullptr && read_options_.snapshot != nullptr && allow_refresh_ &&
-      read_options_.auto_refresh_iterator_with_snapshot) {
+      read_options_.auto_refresh_iterator_with_snapshot && status().ok()) {
     // The intent here is to capture the superversion number change
     // reasonably soon from the time it actually happened. As such,
     // we're fine with weaker synchronization / ordering guarantees
@@ -144,7 +144,15 @@ Status ArenaWrappedDBIter::Refresh() { return Refresh(nullptr); }
 void ArenaWrappedDBIter::DoRefresh(const Snapshot* snapshot,
                                    [[maybe_unused]] uint64_t sv_number) {
   Env* env = db_iter_->env();
+
+  // NOTE:
+  //
+  // Errors like file deletion (as a part of SV cleanup in ~DBIter) will be
+  // present in the error log, but won't be reflected in the iterator status.
+  // This is by design as we expect compaction to clean up those obsolete files
+  // eventually.
   db_iter_->~DBIter();
+
   arena_.~Arena();
   new (&arena_) Arena();
 

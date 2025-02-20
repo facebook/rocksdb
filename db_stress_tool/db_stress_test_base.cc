@@ -1969,9 +1969,14 @@ void StressTest::VerifyIterator(
                        ? ro.iterate_lower_bound->ToString(true).c_str()
                        : "")
                << ", allow_unprepared_value: " << ro.allow_unprepared_value
-               << ", auto_refresh_iterator_with_snapshot"
-               << ro.auto_refresh_iterator_with_snapshot << ", snapshot: "
-               << ((ro.snapshot == nullptr) ? "nullptr" : "non-nullptr");
+               << ", auto_refresh_iterator_with_snapshot: "
+               << ro.auto_refresh_iterator_with_snapshot
+               << ", snapshot: " << (ro.snapshot ? "non-nullptr" : "nullptr")
+               << ", timestamp: "
+               << (ro.timestamp ? ro.timestamp->ToString(true).c_str() : "")
+               << ", iter_start_ts: "
+               << (ro.iter_start_ts ? ro.iter_start_ts->ToString(true).c_str()
+                                    : "");
 
   if (iter->Valid() && !cmp_iter->Valid()) {
     if (pe != nullptr) {
