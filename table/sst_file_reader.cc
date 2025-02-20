@@ -84,7 +84,7 @@ std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
                                             const std::vector<Slice>& keys,
                                             std::vector<std::string>* values) {
   const auto num_keys = keys.size();
-  std::vector<Status> statuses(num_keys, Status::IOError());
+  std::vector<Status> statuses(num_keys, Status::OK());
   std::vector<PinnableSlice> pin_values(num_keys);
 
   auto r = rep_.get();
@@ -94,15 +94,18 @@ std::vector<Status> SstFileReader::MultiGet(const ReadOptions& roptions,
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   autovector<GetContext, MultiGetContext::MAX_BATCH_SIZE> get_ctx;
+  autovector<MergeContext, MultiGetContext::MAX_BATCH_SIZE> merge_ctx;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
     PinnableSlice* val = &pin_values[i];
     val->Reset();
+    merge_ctx.emplace_back();
     key_context.emplace_back(nullptr, keys[i], val, nullptr,
                              nullptr /* timestamp */, &statuses[i]);
-    get_ctx.emplace_back(user_comparator, nullptr, nullptr, nullptr,
-                         GetContext::kNotFound, *key_context[i].key, val,
-                         nullptr, nullptr, nullptr, nullptr, true,
+    get_ctx.emplace_back(user_comparator, r->ioptions.merge_operator.get(),
+                         nullptr, nullptr, GetContext::kNotFound,
+                         *key_context[i].key, val, nullptr, nullptr, nullptr,
+                         &merge_ctx[i], true,
                          &key_context[i].max_covering_tombstone_seq, nullptr);
     key_context[i].get_context = &get_ctx[i];
   }
