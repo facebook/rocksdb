@@ -30,6 +30,11 @@ class SstFileReader {
   // If "snapshot" is nullptr, the iterator returns only the latest keys.
   Iterator* NewIterator(const ReadOptions& options);
 
+  // MultiGet to fetch a set of keys from the SST
+  std::vector<Status> MultiGet(const ReadOptions& options,
+                               const std::vector<Slice>& keys,
+                               std::vector<std::string>* values);
+
   // Returns a new iterator over the table contents as a raw table iterator,
   // a.k.a a `TableIterator`that iterates all point data entries in the table
   // including logically invisible entries like delete entries.

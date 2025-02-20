@@ -110,9 +110,10 @@ class BaseDeltaIterator : public Iterator {
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
 struct WriteBatchIndexEntry {
-  WriteBatchIndexEntry(size_t o, uint32_t c, size_t ko, size_t ksz)
+  WriteBatchIndexEntry(size_t o, uint32_t c, size_t ko, size_t ksz, uint32_t uc)
       : offset(o),
         column_family(c),
+        update_count(uc),
         has_single_del(false),
         has_overwritten_single_del(false),
         key_offset(ko),
@@ -133,6 +134,7 @@ struct WriteBatchIndexEntry {
       // Keys are ordered by descending offset.
       : offset(is_forward_direction ? std::numeric_limits<size_t>::max() : 0),
         column_family(_column_family),
+        update_count(1),
         has_single_del(false),
         has_overwritten_single_del(false),
         key_offset(0),
@@ -161,6 +163,10 @@ struct WriteBatchIndexEntry {
   // SeekForPrev() will see all the keys with the same key.
   size_t offset;
   uint32_t column_family;  // column family of the entry.
+  // The following three fields are only maintained when the WBWI is created
+  // with overwrite_key = true.
+  uint32_t update_count;   // The number of updates (1-based) for this key up to
+                           // this entry.
   bool has_single_del;     // whether single del was issued for this key
   bool has_overwritten_single_del;  // whether a single del for this key was
                                     // overwritten by another key
@@ -346,6 +352,11 @@ class WBWIIteratorImpl final : public WBWIIterator {
   bool HasOverWrittenSingleDel() const override {
     assert(Valid());
     return skip_list_iter_.key()->has_overwritten_single_del;
+  }
+
+  uint32_t GetUpdateCount() const override {
+    assert(Valid());
+    return skip_list_iter_.key()->update_count;
   }
 
   Status status() const override {

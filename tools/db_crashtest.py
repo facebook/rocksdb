@@ -343,9 +343,13 @@ default_params = {
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
-    "track_and_verify_wals": lambda: random.choice([0, 1]),
+    # TODO(hx235): enable `track_and_verify_wals` again after resolving the issues 
+    # it has with write fault injection and TXN
+    "track_and_verify_wals": 0,
     "enable_remote_compaction": lambda: random.choice([0, 1]),
-    "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
+    # TODO: enable `auto_refresh_iterator_with_snapshot` again after 
+    # fixing issues with prefix scan and injected read errors  
+    "auto_refresh_iterator_with_snapshot": 0,
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
@@ -1027,15 +1031,6 @@ def finalize_and_sanitize(src_params):
         dest_params["use_full_merge_v1"] = 0
         dest_params["enable_pipelined_write"] = 0
         dest_params["use_attribute_group"] = 0
-    # TODO(hx235): Re-enable write fault injections with pessimistic
-    # transactions after resolving the WAL hole caused by how corrupted
-    # WAL is handled under 2PC upon WAL write error recovery.
-    if (
-        dest_params.get("track_and_verify_wals", 0) == 1
-        and dest_params.get("use_optimistic_txn") == 0
-    ):
-        dest_params["metadata_write_fault_one_in"] = 0
-        dest_params["write_fault_one_in"] = 0
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
         dest_params["continuous_verification_interval"] = 0

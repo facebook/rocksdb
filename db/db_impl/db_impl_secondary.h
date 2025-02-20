@@ -52,7 +52,8 @@ class LogReaderContainer {
     Logger* info_log;
     std::string fname;
     Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
-    void Corruption(size_t bytes, const Status& s) override {
+    void Corruption(size_t bytes, const Status& s,
+                    uint64_t /*log_number*/ = kMaxSequenceNumber) override {
       ROCKS_LOG_WARN(info_log, "%s%s: dropping %d bytes; %s",
                      (this->status == nullptr ? "(ignoring error) " : ""),
                      fname.c_str(), static_cast<int>(bytes),
