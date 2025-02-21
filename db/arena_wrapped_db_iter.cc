@@ -67,13 +67,13 @@ void ArenaWrappedDBIter::Init(
 void ArenaWrappedDBIter::MaybeAutoRefresh(bool is_seek,
                                           DBIter::Direction direction) {
   if (cfh_ != nullptr && read_options_.snapshot != nullptr && allow_refresh_ &&
-      read_options_.auto_refresh_iterator_with_snapshot && status().ok()) {
+      read_options_.auto_refresh_iterator_with_snapshot) {
     // The intent here is to capture the superversion number change
     // reasonably soon from the time it actually happened. As such,
     // we're fine with weaker synchronization / ordering guarantees
     // provided by relaxed atomic (in favor of less CPU / mem overhead).
     uint64_t cur_sv_number = cfh_->cfd()->GetSuperVersionNumberRelaxed();
-    if (sv_number_ != cur_sv_number) {
+    if ((sv_number_ != cur_sv_number) && status().ok()) {
       // Changing iterators' direction is pretty heavy-weight operation and
       // could have unintended consequences when it comes to prefix seek.
       // Therefore, we need an efficient implementation that does not duplicate
