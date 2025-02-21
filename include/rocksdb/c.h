@@ -58,13 +58,14 @@
 #define ROCKSDB_LIBRARY_API
 #endif
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 
 /* Exported types */
 
