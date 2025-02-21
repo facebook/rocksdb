@@ -1025,8 +1025,6 @@ def finalize_and_sanitize(src_params):
         dest_params["use_put_entity_one_in"] = 0
         dest_params["use_get_entity"] = 0
         dest_params["use_multi_get_entity"] = 0
-        dest_params["use_merge"] = 0
-        dest_params["use_full_merge_v1"] = 0
         dest_params["enable_pipelined_write"] = 0
         dest_params["use_attribute_group"] = 0
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest

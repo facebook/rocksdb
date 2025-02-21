@@ -9450,6 +9450,212 @@ TEST_P(CommitBypassMemtableTest, ThresholdTxnDBOption) {
   }
 }
 
+TEST_P(CommitBypassMemtableTest, MergeAndMultiCF) {
+  // disable_flush allows testing Get path with memtables.
+  for (bool disable_flush : {false, true}) {
+    SCOPED_TRACE("disable_flush: " + std::to_string(disable_flush));
+    SetUpTransactionDB();
+    if (disable_flush) {
+      ASSERT_OK(txn_db->PauseBackgroundWork());
+    }
+
+    std::vector<std::string> cfs = {"appendmerge"};
+    Options opts;
+    opts.max_write_buffer_number = 8;
+    opts.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+    CreateColumnFamilies(cfs, opts);
+
+    cfs = {"uint64addmerge"};
+    opts.merge_operator = MergeOperators::CreateFromStringId("uint64add");
+    CreateColumnFamilies(cfs, opts);
+
+    cfs = {"data"};
+    opts.merge_operator = nullptr;
+    CreateColumnFamilies(cfs, opts);
+    ASSERT_TRUE(handles_.size() == 3);
+
+    std::string buf_count;
+    PutFixed64(&buf_count, 1);
+    // Some base data in SST or memtable
+    ASSERT_OK(db_->Merge({}, handles_[1], "count", buf_count));
+    ASSERT_OK(db_->Put({}, handles_[0], "k5", "5v1"));
+    ASSERT_OK(db_->Merge({}, handles_[0], "k7", "7v1"));
+    if (!disable_flush) {
+      ASSERT_OK(db_->Flush({}, handles_[1]));
+    }
+
+    WriteOptions wopts;
+    TransactionOptions txn_opts;
+    txn_opts.commit_bypass_memtable = true;
+    Transaction* txn = txn_db->BeginTransaction(wopts, txn_opts);
+    ASSERT_OK(txn->SetName("xid1"));
+    ASSERT_OK(txn->Put(handles_[0], "k1", "v1"));
+    ASSERT_OK(txn->Merge(handles_[0], "k1", "v2"));
+
+    ASSERT_OK(txn->Delete(handles_[0], "k2"));
+    ASSERT_OK(txn->Merge(handles_[0], "k2", "v1"));
+
+    ASSERT_OK(txn->Merge(handles_[0], "k3", "v1"));
+    ASSERT_OK(txn->Delete(handles_[0], "k3"));
+
+    ASSERT_OK(txn->Merge(handles_[0], "k4", "v1"));
+    ASSERT_OK(txn->Put(handles_[0], "k4", "v4"));
+
+    ASSERT_OK(txn->Merge(handles_[0], "k5", "5v2"));
+
+    ASSERT_OK(txn->Merge(handles_[0], "k6", "6v1"));
+    ASSERT_OK(txn->Merge(handles_[0], "k6", "6v2"));
+
+    ASSERT_OK(txn->Merge(handles_[0], "k7", "7v2"));
+    ASSERT_OK(txn->Merge(handles_[0], "k7", "7v3"));
+
+    ASSERT_OK(txn->Merge(handles_[1], "count", buf_count));
+    ASSERT_OK(txn->Merge(handles_[1], "count", buf_count));
+
+    ASSERT_OK(txn->Put(handles_[2], "a", "a1"));
+    ASSERT_OK(txn->Put(handles_[2], "c", "c1"));
+
+    ASSERT_OK(txn->Prepare());
+    ASSERT_OK(txn->Commit());
+
+    // Data in mutable memtable
+    txn_opts.commit_bypass_memtable = false;
+    txn = txn_db->BeginTransaction(wopts, txn_opts, txn);
+    ASSERT_OK(txn->SetName("xid2"));
+    ASSERT_OK(txn->Merge(handles_[0], "k1", "v3"));
+    ASSERT_OK(txn->Merge(handles_[1], "count", buf_count));
+    ASSERT_OK(txn->Prepare());
+    ASSERT_OK(txn->Commit());
+    delete txn;
+
+    std::map<std::string, std::string> expected_cf0 = {
+        {"k1", "v1,v2,v3"}, {"k2", "v1"},      {"k4", "v4"},
+        {"k5", "5v1,5v2"},  {"k6", "6v1,6v2"}, {"k7", "7v1,7v2,7v3"},
+    };
+    std::unordered_set<std::string> not_found_cf0 = {"k3"};
+    VerifyDBFromMap(expected_cf0, nullptr, false, nullptr, handles_[0],
+                    &not_found_cf0);
+
+    std::string count;
+    PutFixed64(&count, 4);
+    std::map<std::string, std::string> expected_cf1 = {
+        {"count", count},
+    };
+    VerifyDBFromMap(expected_cf1, nullptr, false, nullptr, handles_[1]);
+
+    std::map<std::string, std::string> expected_cf2 = {
+        {"a", "a1"},
+        {"c", "c1"},
+    };
+    VerifyDBFromMap(expected_cf2, nullptr, false, nullptr, handles_[2]);
+
+    // Verify all data is flushed
+    if (disable_flush) {
+      uint64_t num_imm_mems = 0;
+      ASSERT_TRUE(txn_db->GetIntProperty(
+          handles_[0], DB::Properties::kNumImmutableMemTable, &num_imm_mems));
+      ASSERT_EQ(2,
+                num_imm_mems);  // 1 imm mem before WBWI, 1 imm is WBWI itself
+
+      // Test GetMergeOperands() for CF0
+      std::vector<PinnableSlice> merge_operands(4);
+      GetMergeOperandsOptions merge_operand_opts;
+      merge_operand_opts.expected_max_number_of_operands = 4;
+      int num_operands = 0;
+      ASSERT_OK(db_->GetMergeOperands({}, handles_[0], "k1",
+                                      merge_operands.data(),
+                                      &merge_operand_opts, &num_operands));
+      ASSERT_EQ(num_operands, 3);
+      ASSERT_EQ(merge_operands[0], "v1");
+      ASSERT_EQ(merge_operands[1], "v2");
+      ASSERT_EQ(merge_operands[2], "v3");
+
+      ASSERT_OK(db_->ContinueBackgroundWork());
+      ASSERT_OK(db_->Flush({}, {handles_[0], handles_[1], handles_[2]}));
+    } else {
+      ASSERT_OK(db_->WaitForCompact({}));
+    }
+
+    VerifyDBFromMap(expected_cf0, nullptr, false, nullptr, handles_[0],
+                    &not_found_cf0);
+    VerifyDBFromMap(expected_cf1, nullptr, false, nullptr, handles_[1]);
+    VerifyDBFromMap(expected_cf2, nullptr, false, nullptr, handles_[2]);
+  }
+}
+
+TEST_P(CommitBypassMemtableTest, MergeMiniStress) {
+  // To test the merge path with various LSM shapes
+  std::string key_prefix = "key";
+  std::string value_prefix = "val";
+  Random* rnd = Random::GetTLSInstance();
+  const int kBatchSize = 50;
+  for (int num_memtable_to_merge : {1, 4}) {
+    SetUpTransactionDB();
+    std::vector<std::string> cfs = {"appendmerge"};
+    Options opts;
+    opts.max_write_buffer_number = 10;
+    // Exercise read path of memtables.
+    opts.min_write_buffer_number_to_merge = num_memtable_to_merge;
+    opts.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+    CreateColumnFamilies(cfs, opts);
+    ASSERT_TRUE(handles_.size() == 1);
+
+    std::map<std::string, std::string> expected_cf;
+    std::unordered_set<std::string> not_found_cf;
+    for (int i = 0; i < 10000; i += kBatchSize) {
+      WriteOptions wopts;
+      TransactionOptions txn_opts;
+      txn_opts.commit_bypass_memtable = rnd->OneIn(2);
+      std::unique_ptr<Transaction> txn{
+          txn_db->BeginTransaction(wopts, txn_opts)};
+      const int txn_count = i / kBatchSize;
+      ASSERT_OK(txn->SetName("xid" + std::to_string(txn_count)));
+
+      const Snapshot* snapshot = txn_db->GetSnapshot();
+      // Remember the state for the snapshot
+      auto expected_cf_snapshot = expected_cf;
+      auto not_found_cf_snapshot = not_found_cf;
+
+      for (int j = 0; j < kBatchSize; ++j) {
+        std::string key = key_prefix + std::to_string(rnd->Uniform(1000));
+        std::string value = value_prefix + std::to_string(i + j);
+        int operation = rnd->Uniform(10);
+        if (operation < 8) {  // 80% probability for Merge
+          ASSERT_OK(txn->Merge(handles_[0], key, value));
+          if (expected_cf.find(key) != expected_cf.end()) {
+            expected_cf[key] += "," + value;
+          } else {
+            expected_cf[key] = value;
+          }
+          not_found_cf.erase(key);
+        } else if (operation == 8) {  // 10% probability for PUT
+          ASSERT_OK(txn->Put(handles_[0], key, value));
+          expected_cf[key] = value;
+          not_found_cf.erase(key);
+        } else {  // 10% probability for DEL
+          ASSERT_OK(txn->Delete(handles_[0], key));
+          expected_cf.erase(key);
+          not_found_cf.insert(key);
+        }
+      }
+      ASSERT_OK(txn->Prepare());
+      ASSERT_OK(txn->Commit());
+
+      if (txn_count % 10 == 0) {
+        VerifyDBFromMap(expected_cf, nullptr, false, nullptr, handles_[0],
+                        &not_found_cf);
+        // Verify read at snapshot
+        ReadOptions ro;
+        ro.snapshot = snapshot;
+        VerifyDBFromMap(expected_cf_snapshot, nullptr, false, &ro, handles_[0],
+                        &not_found_cf_snapshot);
+      }
+      txn_db->ReleaseSnapshot(snapshot);
+    }
+
+    VerifyDBFromMap(expected_cf, nullptr, false, nullptr, handles_[0]);
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
