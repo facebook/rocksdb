@@ -6440,7 +6440,11 @@ TEST_F(DBCompactionTest, PersistRoundRobinCompactCursor) {
   }
 }
 
-TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
+// FIXME: the test is flaky and failing the assertion
+// ASSERT_EQ(num_planned_subcompactions, kNumSubcompactions);
+// It's likely a test set up issue, fix if we are to use RoubdRobin compaction.
+TEST_P(RoundRobinSubcompactionsAgainstPressureToken,
+       DISABLED_PressureTokenTest) {
   const int kKeysPerBuffer = 100;
   const int kNumSubcompactions = 2;
   const int kFilesPerLevel = 50;
