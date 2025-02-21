@@ -72,9 +72,20 @@ class NonBatchedOpsStressTest : public StressTest {
       constexpr int num_methods =
           static_cast<int>(VerificationMethod::kNumberOfMethods);
 
-      const VerificationMethod method =
+      VerificationMethod method =
           static_cast<VerificationMethod>(thread->rand.Uniform(
               (FLAGS_user_timestamp_size > 0) ? num_methods - 1 : num_methods));
+
+      if (method == VerificationMethod::kGetEntity && !FLAGS_use_get_entity) {
+        method = VerificationMethod::kGet;
+      }
+      if (method == VerificationMethod::kMultiGetEntity &&
+          !FLAGS_use_multi_get_entity) {
+        method = VerificationMethod::kMultiGet;
+      }
+      if (method == VerificationMethod::kMultiGet && !FLAGS_use_multiget) {
+        method = VerificationMethod::kGet;
+      }
 
       if (method == VerificationMethod::kIterator) {
         std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
