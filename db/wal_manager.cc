@@ -456,6 +456,14 @@ Status WalManager::GetLiveWalFile(uint64_t number,
   return Status::OK();
 }
 
+Status WalManager::GetLiveWalFiles(SequenceNumber seq_start, VectorWalPtr& live_log_files) {
+  if (Status s = GetSortedWalsOfType(wal_dir_, live_log_files, kAliveLogFile, true);
+      !s.ok()) {
+    return s;
+  }
+  return RetainProbableWalFiles(live_log_files, seq_start);
+}
+
 // the function returns status.ok() and sequence == 0 if the file exists, but is
 // empty
 Status WalManager::ReadFirstLine(const std::string& fname,
