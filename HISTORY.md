@@ -8,6 +8,7 @@
 * Experimental feature: RocksDB now supports FAISS inverted file based indices via the secondary indexing framework. Applications can use FAISS secondary indices to automatically quantize embeddings and perform K-nearest-neighbors similarity searches. See `FaissIVFIndex` and `SecondaryIndex` for more details. Note: the FAISS integration currently requires using the BUCK build.
 * Add new DB property `num_running_compaction_sorted_runs` that tracks the number of sorted runs being processed by currently running compactions
 * Experimental feature: added support for simple secondary indices that index the specified column as-is. See `SimpleSecondaryIndex` and `SecondaryIndex` for more details.
+* Added new `TransactionDBOptions::txn_commit_bypass_memtable_threshold`, which enables optimized transaction commit (see `TransactionOptions::commit_bypass_memtable`) when the transaction size exceeds a configured threshold.
 
 ### Public API Changes
 * Updated the query API of the experimental secondary indexing feature by removing the earlier `SecondaryIndex::NewIterator` virtual and adding a `SecondaryIndexIterator` class that can be utilized by applications to find the primary keys for a given search target.
@@ -17,6 +18,7 @@
 ### Behavior Changes
 * `VerifyBackup` in `verify_with_checksum`=`true` mode will now evaluate checksums in parallel. As a result, unlike in case of original implementation, the API won't bail out on a very first corruption / mismatch and instead will iterate over all the backup files logging success / _degree_of_failure_ for each.
 * Reversed the order of updates to the same key in WriteBatchWithIndex. This means if there are multiple updates to the same key, the most recent update is ordered first. This affects the output of WBWIIterator. When WriteBatchWithIndex is created with `overwrite_key=true`, this affects the output only if Merge is used (#13387).
+* Added support for Merge operations in transactions using option `TransactionOptions::commit_bypass_memtable`.
 
 ### Bug Fixes
 * Fixed GetMergeOperands() API in ReadOnlyDB and SecondaryDB
