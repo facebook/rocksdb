@@ -387,32 +387,30 @@ std::unordered_map<std::string, CompressionType>
 const std::vector<CompressionType>& GetSupportedCompressions() {
   static std::vector<CompressionType> supported_compressions = []() {
     // std::set internally to deduplicate potential name aliases
-    std::set<CompressionType> supported_compressions;
+    std::set<CompressionType> comp_set;
     for (const auto& comp_to_name :
          OptionsHelper::compression_type_string_map) {
       CompressionType t = comp_to_name.second;
       if (t != kDisableCompressionOption && CompressionTypeSupported(t)) {
-        supported_compressions.insert(t);
+        comp_set.insert(t);
       }
     }
-    return std::vector<CompressionType>(supported_compressions.begin(),
-                                        supported_compressions.end());
+    return std::vector<CompressionType>(comp_set.begin(), comp_set.end());
   }();
   return supported_compressions;
 }
 
 const std::vector<CompressionType>& GetSupportedDictCompressions() {
   static std::vector<CompressionType> supported_dict_compressions = []() {
-    std::set<CompressionType> dict_compression_types;
+    std::set<CompressionType> comp_set;
     for (const auto& comp_to_name :
          OptionsHelper::compression_type_string_map) {
       CompressionType t = comp_to_name.second;
       if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
-        dict_compression_types.insert(t);
+        comp_set.insert(t);
       }
     }
-    return std::vector<CompressionType>(dict_compression_types.begin(),
-                                        dict_compression_types.end());
+    return std::vector<CompressionType>(comp_set.begin(), comp_set.end());
   }();
   return supported_dict_compressions;
 }
