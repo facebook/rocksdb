@@ -73,7 +73,7 @@ void ArenaWrappedDBIter::MaybeAutoRefresh(bool is_seek,
     // we're fine with weaker synchronization / ordering guarantees
     // provided by relaxed atomic (in favor of less CPU / mem overhead).
     uint64_t cur_sv_number = cfh_->cfd()->GetSuperVersionNumberRelaxed();
-    if (sv_number_ != cur_sv_number) {
+    if ((sv_number_ != cur_sv_number) && status().ok()) {
       // Changing iterators' direction is pretty heavy-weight operation and
       // could have unintended consequences when it comes to prefix seek.
       // Therefore, we need an efficient implementation that does not duplicate
@@ -144,7 +144,15 @@ Status ArenaWrappedDBIter::Refresh() { return Refresh(nullptr); }
 void ArenaWrappedDBIter::DoRefresh(const Snapshot* snapshot,
                                    [[maybe_unused]] uint64_t sv_number) {
   Env* env = db_iter_->env();
+
+  // NOTE:
+  //
+  // Errors like file deletion (as a part of SV cleanup in ~DBIter) will be
+  // present in the error log, but won't be reflected in the iterator status.
+  // This is by design as we expect compaction to clean up those obsolete files
+  // eventually.
   db_iter_->~DBIter();
+
   arena_.~Arena();
   new (&arena_) Arena();
 

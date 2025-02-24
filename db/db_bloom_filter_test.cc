@@ -2244,6 +2244,54 @@ TEST_F(DBBloomFilterTest, MemtableWholeKeyBloomFilterMultiGet) {
 
   db_->ReleaseSnapshot(snapshot);
 }
+
+TEST_F(DBBloomFilterTest, TestMemtableBloomAndWBM) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4096;
+  options.write_buffer_size = 4000000;
+  std::shared_ptr<Cache> cache = NewLRUCache(LRUCacheOptions(
+      options.write_buffer_size * 3 /* capacity */, 1 /* num_shard_bits */,
+      false /* strict_capacity_limit */, 0.0 /* high_pri_pool_ratio */,
+      nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+      kDontChargeCacheMetadata));
+
+  options.write_buffer_manager.reset(
+      new WriteBufferManager(options.write_buffer_size, cache));
+  Reopen(options);
+  ASSERT_OK(Put("foo", "bar"));
+
+  const auto kDummyEntrySize =
+      CacheReservationManagerImpl<CacheEntryRole::kMisc>::GetDummyEntrySize();
+
+  // Just the start of a memtable, no Bloom
+  ASSERT_GE(cache->GetUsage(), options.arena_block_size);
+  ASSERT_LE(cache->GetUsage(), kDummyEntrySize);
+
+  // Now enable memtable bloom filter
+  const double kRatio = 0.25;
+  options.memtable_prefix_bloom_size_ratio = kRatio;
+  options.memtable_whole_key_filtering = true;
+  Reopen(options);
+  ASSERT_OK(Put("foo2", "bar2"));
+
+  // Expecting a memtable Bloom of ratio times write_buffer_size, memory tracked
+  auto bloom_size = static_cast<size_t>(kRatio * options.write_buffer_size);
+  ASSERT_GE(cache->GetUsage(), bloom_size);
+  ASSERT_LE(cache->GetUsage(), bloom_size + 2U * kDummyEntrySize);
+
+  // Now get another memtable and test
+  // Pin this memtable with an iterator
+  std::unique_ptr<Iterator> iter{db_->NewIterator({})};
+  iter->Seek("foo2");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo2", "bar2"));
+
+  // Expecting twice as much
+  ASSERT_GE(cache->GetUsage(), 2U * bloom_size);
+  ASSERT_LE(cache->GetUsage(), 2U * bloom_size + 2U * kDummyEntrySize);
+}
+
 namespace {
 std::pair<uint64_t, uint64_t> GetBloomStat(const Options& options, bool sst) {
   if (sst) {

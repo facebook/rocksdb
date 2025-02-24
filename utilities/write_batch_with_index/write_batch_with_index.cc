@@ -136,7 +136,12 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
       most_recent_entry->has_single_del = true;
     }
   }
+  // Some sanity check for using Merge and SD on the same key.
+  if (iter.Entry().type == kSingleDeleteRecord) {
+    assert(type != kMergeRecord);
+  }
   if (type == kMergeRecord) {
+    assert(iter.Entry().type != kSingleDeleteRecord);
     return false;
   } else {
     // We still increment the update count when updating in-place. This is

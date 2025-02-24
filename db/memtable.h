@@ -186,10 +186,13 @@ class ReadOnlyMemTable {
                                               SequenceNumber read_seq,
                                               size_t ts_sz) = 0;
 
-  // Used to Get value associated with key or Get Merge Operands associated
-  // with key.
-  // Keys are considered if they are no larger than the parameter `key` in
+  // Used to get value associated with `key`, or Merge operands associated
+  // with key, or get the latest sequence number of `key` (e.g. transaction
+  // conflict checking).
+  //
+  // Keys are considered if they are no smaller than the parameter `key` in
   // the order defined by comparator and share the save user key with `key`.
+  //
   // If do_merge = true the default behavior which is Get value for key is
   // executed. Expected behavior is described right below.
   // If memtable contains a value for key, store it in *value and return true.
@@ -207,6 +210,7 @@ class ReadOnlyMemTable {
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
   // On success, *s may be set to OK, NotFound, or MergeInProgress.  Any other
   // status returned indicates a corruption or other unexpected error.
+  //
   // If do_merge = false then any Merge Operands encountered for key are simply
   // stored in merge_context.operands_list and never actually merged to get a
   // final value. The raw Merge Operands are eventually returned to the user.
@@ -215,6 +219,9 @@ class ReadOnlyMemTable {
   // @param column If not null and memtable contains a value/WideColumn for key,
   // `column` will be set to the result value/WideColumn.
   // Note: only one of `value` and `column` can be non-nullptr.
+  // To only query for key existence or the latest sequence number of a key,
+  // `value` and `column` can be both nullptr. In this case, returned status can
+  // be OK, NotFound or MergeInProgress if a key is found.
   // @param immutable_memtable Whether this memtable is immutable. Used
   // internally by NewRangeTombstoneIterator(). See comment above
   // NewRangeTombstoneIterator() for more detail.
@@ -394,7 +401,6 @@ class ReadOnlyMemTable {
       // can also be retained.
       merge_context->PushOperand(value, value_pinned);
     } else if (merge_in_progress) {
-      assert(do_merge);
       // `op_failure_scope` (an output parameter) is not provided (set to
       // nullptr) since a failure must be propagated regardless of its
       // value.
@@ -440,6 +446,54 @@ class ReadOnlyMemTable {
     } else {
       *s = Status::NotFound();
     }
+  }
+
+  // Returns if a final value is found.
+  static bool HandleTypeMerge(const Slice& lookup_user_key, const Slice& value,
+                              bool value_pinned, bool do_merge,
+                              MergeContext* merge_context,
+                              const MergeOperator* merge_operator,
+                              SystemClock* clock, Statistics* statistics,
+                              Logger* logger, Status* s, std::string* out_value,
+                              PinnableWideColumns* out_columns) {
+    if (!merge_operator) {
+      *s = Status::InvalidArgument(
+          "merge_operator is not properly initialized.");
+      // Normally we continue the loop (return true) when we see a merge
+      // operand.  But in case of an error, we should stop the loop
+      // immediately and pretend we have found the value to stop further
+      // seek.  Otherwise, the later call will override this error status.
+      return true;
+    }
+    merge_context->PushOperand(value, value_pinned /* operand_pinned */);
+    PERF_COUNTER_ADD(internal_merge_point_lookup_count, 1);
+
+    if (do_merge && merge_operator->ShouldMerge(
+                        merge_context->GetOperandsDirectionBackward())) {
+      if (out_value || out_columns) {
+        // `op_failure_scope` (an output parameter) is not provided (set to
+        // nullptr) since a failure must be propagated regardless of its
+        // value.
+        *s = MergeHelper::TimedFullMerge(
+            merge_operator, lookup_user_key, MergeHelper::kNoBaseValue,
+            merge_context->GetOperands(), logger, statistics, clock,
+            /* update_num_ops_stats */ true,
+            /* op_failure_scope */ nullptr, out_value, out_columns);
+      }
+      return true;
+    }
+    if (merge_context->get_merge_operands_options != nullptr &&
+        merge_context->get_merge_operands_options->continue_cb != nullptr &&
+        !merge_context->get_merge_operands_options->continue_cb(value)) {
+      // We were told not to continue. `status` may be MergeInProress(),
+      // overwrite to signal the end of successful get. This status
+      // will be checked at the end of GetImpl().
+      *s = Status::OK();
+      return true;
+    }
+
+    // no final value found yet
+    return false;
   }
 
  protected:

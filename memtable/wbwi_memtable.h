@@ -12,7 +12,7 @@ namespace ROCKSDB_NAMESPACE {
 // of the given write batch with index (WBWI) object. This can be used to ingest
 // a transaction (which is based on WBWI) into the DB as an immutable memtable.
 //
-// REQUIRE overwrite_key to be true for the WBWI
+// REQUIRES: overwrite_key to be true for the WBWI
 // Since the keys in WBWI do not have sequence number, this class is responsible
 // for assigning sequence numbers to the keys. This memtable needs to be
 // assigned a range of sequence numbers through AssignSequenceNumbers(seqno)
@@ -23,10 +23,13 @@ namespace ROCKSDB_NAMESPACE {
 // sequence number assigned is seqno.lower_bound + update_count - 1. So more
 // recent updates will have higher sequence number.
 //
-// WBWI with overwrite mode keeps track of the most recent update for each key,
-// so this memtable contains one update per key usually. However, there is a
-// special case where this memtable needs to emit an extra SingleDelete even
-// when the SD is overwritten by another update.
+// Since WBWI with overwrite mode keeps track of the most recent update for
+// each key, this memtable contains one update per key usually. However, there
+// are two exceptions:
+// 1. Merge operations: Each Merge operation do not overwrite existing entries,
+// if a user uses Merge, multiple entries may be kept.
+// 2. Overwriten SingleDelete: this memtable needs to emit an extra
+// SingleDelete even when the SD is overwritten by another update.
 // Consider the following scenario:
 // - WBWI has SD(k) then PUT(k, v1)
 // - DB has PUT(k, v2) in L1
@@ -261,6 +264,7 @@ class WBWIMemTableIterator final : public InternalIterator {
   }
 
   void SeekToLast() override {
+    assert(!emit_overwritten_single_del_);
     it_->SeekToLast();
     UpdateKey();
   }
@@ -303,6 +307,8 @@ class WBWIMemTableIterator final : public InternalIterator {
     assert(Valid());
     if (emit_overwritten_single_del_) {
       if (it_->HasOverWrittenSingleDel() && !at_overwritten_single_del_) {
+        // Merge and SingleDelete on the same key is undefined behavior.
+        assert(it_->Entry().type != kMergeRecord);
         UpdateSingleDeleteKey();
         return;
       }

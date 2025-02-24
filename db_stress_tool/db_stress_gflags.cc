@@ -831,13 +831,15 @@ DEFINE_uint64(snapshot_hold_ops, 0,
 DEFINE_bool(long_running_snapshots, false,
             "If set, hold on some some snapshots for much longer time.");
 
+// The following three options affect both regular read operations during the
+// test and initial/final database verification through VerifyDB.
 DEFINE_bool(use_multiget, false,
-            "If set, use the batched MultiGet API for reads");
+            "If set, use the batched MultiGet API for reads.");
 
-DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads");
+DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads.");
 
 DEFINE_bool(use_multi_get_entity, false,
-            "If set, use the MultiGetEntity API for reads");
+            "If set, use the MultiGetEntity API for reads.");
 
 DEFINE_int32(test_ingest_standalone_range_deletion_one_in, 0,
              "If non-zero, file ingestion flow will test standalone range "
