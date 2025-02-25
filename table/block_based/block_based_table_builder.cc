@@ -1254,7 +1254,7 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
       // If zstd is in the mix, the compression_name table property needs to be
       // set to it, for proper handling of context and dictionaries.
       assert(!ZSTD_Supported() || r->compression_type == kZSTD);
-      auto compressions = GetSupportedCompressions();
+      const auto& compressions = GetSupportedCompressions();
       auto counter =
           g_hack_mixed_compression_in_block_based_table.FetchAddRelaxed(1);
       *type = compressions[counter % compressions.size()];
