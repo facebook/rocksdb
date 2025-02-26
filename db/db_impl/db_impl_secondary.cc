@@ -913,6 +913,10 @@ Status DBImplSecondary::CompactWithoutInstallation(
   Status s = cfd->compaction_picker()->GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, vstorage, comp_options);
   if (!s.ok()) {
+    ROCKS_LOG_ERROR(
+        immutable_db_options_.info_log,
+        "GetCompactionInputsFromFileNumbers() failed - %s.\n DebugString: %s",
+        s.ToString().c_str(), version->DebugString().c_str());
     return s;
   }
 
