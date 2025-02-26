@@ -835,6 +835,7 @@ set(SOURCES
         table/cuckoo/cuckoo_table_builder.cc
         table/cuckoo/cuckoo_table_factory.cc
         table/cuckoo/cuckoo_table_reader.cc
+        table/external_table_reader.cc
         table/format.cc
         table/get_context.cc
         table/iterator.cc
@@ -940,6 +941,7 @@ set(SOURCES
         utilities/persistent_cache/persistent_cache_tier.cc
         utilities/persistent_cache/volatile_tier_impl.cc
         utilities/secondary_index/secondary_index_iterator.cc
+        utilities/secondary_index/simple_secondary_index.cc
         utilities/simulator_cache/cache_simulator.cc
         utilities/simulator_cache/sim_cache.cc
         utilities/table_properties_collectors/compact_for_tiering_collector.cc

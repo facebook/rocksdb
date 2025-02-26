@@ -1,1 +1,0 @@
-Added back the ability to leverage the primary key when building secondary index entries. This involved changes to the signatures of `SecondaryIndex::GetSecondary{KeyPrefix,Value}` as well as the addition of a new method `SecondaryIndex::FinalizeSecondaryKeyPrefix`. See the API comments for more details.

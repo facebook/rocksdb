@@ -5305,6 +5305,9 @@ Status VersionSet::ProcessManifestWrites(
   // succeeds.
   SequenceNumber max_last_sequence = descriptor_last_sequence_;
 
+  bool skip_manifest_write =
+      first_writer.edit_list.front()->IsNoManifestWriteDummy();
+
   if (first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
     // No group commits for column family add or drop
     LogAndApplyCFHelper(first_writer.edit_list.front(), &max_last_sequence);
@@ -5313,12 +5316,9 @@ Status VersionSet::ProcessManifestWrites(
   } else {
     auto it = manifest_writers_.cbegin();
     size_t group_start = std::numeric_limits<size_t>::max();
-    while (it != manifest_writers_.cend()) {
-      if ((*it)->edit_list.front()->IsColumnFamilyManipulation()) {
-        // no group commits for column family add or drop
-        break;
-      }
-      last_writer = *(it++);
+    for (;;) {
+      assert(!(*it)->edit_list.front()->IsColumnFamilyManipulation());
+      last_writer = *it;
       assert(last_writer != nullptr);
       assert(last_writer->cfd != nullptr);
       if (last_writer->cfd->IsDropped()) {
@@ -5353,66 +5353,83 @@ Status VersionSet::ProcessManifestWrites(
             }
           }
         }
-        continue;
-      }
-      // We do a linear search on versions because versions is small.
-      // TODO(yanqin) maybe consider unordered_map
-      Version* version = nullptr;
-      VersionBuilder* builder = nullptr;
-      for (int i = 0; i != static_cast<int>(versions.size()); ++i) {
-        uint32_t cf_id = last_writer->cfd->GetID();
-        if (versions[i]->cfd()->GetID() == cf_id) {
-          version = versions[i];
-          assert(!builder_guards.empty() &&
-                 builder_guards.size() == versions.size());
-          builder = builder_guards[i]->version_builder();
+      } else {
+        // We do a linear search on versions because versions is small.
+        // TODO(yanqin) maybe consider unordered_map
+        Version* version = nullptr;
+        VersionBuilder* builder = nullptr;
+        for (int i = 0; i != static_cast<int>(versions.size()); ++i) {
+          uint32_t cf_id = last_writer->cfd->GetID();
+          if (versions[i]->cfd()->GetID() == cf_id) {
+            version = versions[i];
+            assert(!builder_guards.empty() &&
+                   builder_guards.size() == versions.size());
+            builder = builder_guards[i]->version_builder();
+            TEST_SYNC_POINT_CALLBACK(
+                "VersionSet::ProcessManifestWrites:SameColumnFamily", &cf_id);
+            break;
+          }
+        }
+        if (version == nullptr) {
+          // WAL manipulations do not need to be applied to versions.
+          if (!last_writer->IsAllWalEdits()) {
+            version = new Version(
+                last_writer->cfd, this, file_options_,
+                last_writer->cfd ? last_writer->cfd->GetLatestMutableCFOptions()
+                                 : MutableCFOptions(*new_cf_options),
+                io_tracer_, current_version_number_++);
+            versions.push_back(version);
+            builder_guards.emplace_back(
+                new BaseReferencedVersionBuilder(last_writer->cfd));
+            builder = builder_guards.back()->version_builder();
+          }
+          assert(last_writer->IsAllWalEdits() || builder);
+          assert(last_writer->IsAllWalEdits() || version);
           TEST_SYNC_POINT_CALLBACK(
-              "VersionSet::ProcessManifestWrites:SameColumnFamily", &cf_id);
-          break;
+              "VersionSet::ProcessManifestWrites:NewVersion", version);
+        }
+        const Comparator* ucmp = last_writer->cfd->user_comparator();
+        assert(ucmp);
+        std::optional<size_t> edit_ts_sz = ucmp->timestamp_size();
+        for (const auto& e : last_writer->edit_list) {
+          if (e->IsInAtomicGroup()) {
+            if (batch_edits.empty() || !batch_edits.back()->IsInAtomicGroup() ||
+                (batch_edits.back()->IsInAtomicGroup() &&
+                 batch_edits.back()->GetRemainingEntries() == 0)) {
+              group_start = batch_edits.size();
+            }
+          } else if (group_start != std::numeric_limits<size_t>::max()) {
+            group_start = std::numeric_limits<size_t>::max();
+          }
+          Status s = LogAndApplyHelper(last_writer->cfd, builder, e,
+                                       &max_last_sequence, mu);
+          if (!s.ok()) {
+            // free up the allocated memory
+            for (auto v : versions) {
+              delete v;
+            }
+            // FIXME? manifest_writers_ still has requested updates
+            return s;
+          }
+          batch_edits.push_back(e);
+          batch_edits_ts_sz.push_back(edit_ts_sz);
         }
       }
-      if (version == nullptr) {
-        // WAL manipulations do not need to be applied to versions.
-        if (!last_writer->IsAllWalEdits()) {
-          version = new Version(
-              last_writer->cfd, this, file_options_,
-              last_writer->cfd ? last_writer->cfd->GetLatestMutableCFOptions()
-                               : MutableCFOptions(*new_cf_options),
-              io_tracer_, current_version_number_++);
-          versions.push_back(version);
-          builder_guards.emplace_back(
-              new BaseReferencedVersionBuilder(last_writer->cfd));
-          builder = builder_guards.back()->version_builder();
-        }
-        assert(last_writer->IsAllWalEdits() || builder);
-        assert(last_writer->IsAllWalEdits() || version);
-        TEST_SYNC_POINT_CALLBACK("VersionSet::ProcessManifestWrites:NewVersion",
-                                 version);
+      // Loop increment/conditions
+      ++it;
+      if (it == manifest_writers_.cend()) {
+        break;
       }
-      const Comparator* ucmp = last_writer->cfd->user_comparator();
-      assert(ucmp);
-      std::optional<size_t> edit_ts_sz = ucmp->timestamp_size();
-      for (const auto& e : last_writer->edit_list) {
-        if (e->IsInAtomicGroup()) {
-          if (batch_edits.empty() || !batch_edits.back()->IsInAtomicGroup() ||
-              (batch_edits.back()->IsInAtomicGroup() &&
-               batch_edits.back()->GetRemainingEntries() == 0)) {
-            group_start = batch_edits.size();
-          }
-        } else if (group_start != std::numeric_limits<size_t>::max()) {
-          group_start = std::numeric_limits<size_t>::max();
-        }
-        Status s = LogAndApplyHelper(last_writer->cfd, builder, e,
-                                     &max_last_sequence, mu);
-        if (!s.ok()) {
-          // free up the allocated memory
-          for (auto v : versions) {
-            delete v;
-          }
-          return s;
-        }
-        batch_edits.push_back(e);
-        batch_edits_ts_sz.push_back(edit_ts_sz);
+      if (skip_manifest_write) {
+        // no grouping when skipping manifest write
+        break;
+      }
+      const auto* next = (*it)->edit_list.front();
+      if (next->IsColumnFamilyManipulation() ||
+          next->IsNoManifestWriteDummy()) {
+        // no group commits for column family add or drop
+        // nor for dummy skipping manifest write
+        break;
       }
     }
     for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
@@ -5425,6 +5442,7 @@ Status VersionSet::ProcessManifestWrites(
         for (auto v : versions) {
           delete v;
         }
+        // FIXME? manifest_writers_ still has requested updates
         return s;
       }
     }
@@ -5464,11 +5482,16 @@ Status VersionSet::ProcessManifestWrites(
         "VersionSet::ProcessManifestWrites:CheckOneAtomicGroup", &tmp);
     k = i;
   }
+  if (skip_manifest_write) {
+    // no grouping when skipping manifest write
+    assert(last_writer == &first_writer);
+  }
 #endif  // NDEBUG
 
   assert(pending_manifest_file_number_ == 0);
-  if (!descriptor_log_ ||
-      manifest_file_size_ > db_options_->max_manifest_file_size) {
+  if (!skip_manifest_write &&
+      (!descriptor_log_ ||
+       manifest_file_size_ > db_options_->max_manifest_file_size)) {
     TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeNewManifest");
     new_descriptor_log = true;
   } else {
@@ -5506,8 +5529,18 @@ Status VersionSet::ProcessManifestWrites(
   Status s;
   IOStatus io_s;
   IOStatus manifest_io_status;
+  manifest_io_status.PermitUncheckedError();
   std::unique_ptr<log::Writer> new_desc_log_ptr;
-  {
+  if (skip_manifest_write) {
+    if (s.ok()) {
+      constexpr bool update_stats = true;
+      for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
+        // NOTE: normally called with DB mutex released, but we don't
+        // want to release the DB mutex in this mode of LogAndApply
+        versions[i]->PrepareAppend(read_options, update_stats);
+      }
+    }
+  } else {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
     // DB option (in file_options_) takes precedence when not kUnknown
     if (file_options_.temperature != Temperature::kUnknown) {
@@ -5750,11 +5783,13 @@ Status VersionSet::ProcessManifestWrites(
         AppendVersion(cfd, versions[i]);
       }
     }
-    assert(max_last_sequence >= descriptor_last_sequence_);
-    descriptor_last_sequence_ = max_last_sequence;
-    manifest_file_number_ = pending_manifest_file_number_;
-    manifest_file_size_ = new_manifest_file_size;
-    prev_log_number_ = first_writer.edit_list.front()->GetPrevLogNumber();
+    if (!skip_manifest_write) {
+      assert(max_last_sequence >= descriptor_last_sequence_);
+      descriptor_last_sequence_ = max_last_sequence;
+      manifest_file_number_ = pending_manifest_file_number_;
+      manifest_file_size_ = new_manifest_file_size;
+      prev_log_number_ = first_writer.edit_list.front()->GetPrevLogNumber();
+    }
   } else {
     std::string version_edits;
     for (auto& e : batch_edits) {
@@ -5877,7 +5912,8 @@ Status VersionSet::LogAndApply(
     const autovector<autovector<VersionEdit*>>& edit_lists,
     InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
     bool new_descriptor_log, const ColumnFamilyOptions* new_cf_options,
-    const std::vector<std::function<void(const Status&)>>& manifest_wcbs) {
+    const std::vector<std::function<void(const Status&)>>& manifest_wcbs,
+    const std::function<Status()>& pre_cb) {
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
@@ -5890,6 +5926,7 @@ Status VersionSet::LogAndApply(
     for (const auto& edit_list : edit_lists) {
       for (const auto& edit : edit_list) {
         assert(!edit->IsColumnFamilyManipulation());
+        assert(!edit->IsNoManifestWriteDummy());
       }
     }
 #endif /* ! NDEBUG */
@@ -5932,6 +5969,7 @@ Status VersionSet::LogAndApply(
     // should only SetBGError once.
     return first_writer.status;
   }
+  TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WakeUpAndNotDone", mu);
 
   int num_undropped_cfds = 0;
   for (auto cfd : column_family_datas) {
@@ -5940,7 +5978,17 @@ Status VersionSet::LogAndApply(
       ++num_undropped_cfds;
     }
   }
+  Status s;
   if (0 == num_undropped_cfds) {
+    s = Status::ColumnFamilyDropped();
+  }
+  // Call pre_cb once we know we have work to do and are scheduled as the
+  // exclusive manifest writer (and new Version appender)
+  if (s.ok() && pre_cb) {
+    s = pre_cb();
+  }
+  if (!s.ok()) {
+    // Revert manifest_writers_
     for (int i = 0; i != num_cfds; ++i) {
       manifest_writers_.pop_front();
     }
@@ -5948,11 +5996,12 @@ Status VersionSet::LogAndApply(
     if (!manifest_writers_.empty()) {
       manifest_writers_.front()->cv.Signal();
     }
-    return Status::ColumnFamilyDropped();
+    return s;
+  } else {
+    return ProcessManifestWrites(writers, mu, dir_contains_current_file,
+                                 new_descriptor_log, new_cf_options,
+                                 read_options, write_options);
   }
-  return ProcessManifestWrites(writers, mu, dir_contains_current_file,
-                               new_descriptor_log, new_cf_options, read_options,
-                               write_options);
 }
 
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
@@ -7110,7 +7159,8 @@ InternalIterator* VersionSet::MakeInputIterator(
   assert(num <= space);
   InternalIterator* result = NewCompactionMergingIterator(
       &c->column_family_data()->internal_comparator(), list,
-      static_cast<int>(num), range_tombstones);
+      static_cast<int>(num), range_tombstones, /*arena=*/nullptr,
+      c->column_family_data()->internal_stats());
   delete[] list;
   return result;
 }

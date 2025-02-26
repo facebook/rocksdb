@@ -122,6 +122,10 @@ class CompactionOptionsUniversal {
         stop_style(kCompactionStopStyleTotalSize),
         allow_trivial_move(false),
         incremental(false) {}
+
+#if __cplusplus >= 202002L
+  bool operator==(const CompactionOptionsUniversal& rhs) const = default;
+#endif
 };
 
 }  // namespace ROCKSDB_NAMESPACE

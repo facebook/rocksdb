@@ -102,7 +102,8 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
           get_impl_options.value ? get_impl_options.value->GetSelf() : nullptr,
           get_impl_options.columns, ts, &s, &merge_context,
           &max_covering_tombstone_seq, read_options,
-          false /* immutable_memtable */, &read_cb)) {
+          false /* immutable_memtable */, &read_cb,
+          /*is_blob_index=*/nullptr, /*do_merge=*/get_impl_options.get_value)) {
     if (get_impl_options.value) {
       get_impl_options.value->PinSelf();
     }
@@ -116,7 +117,7 @@ Status DBImplReadOnly::GetImpl(const ReadOptions& read_options,
         /*value_found*/ nullptr,
         /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb,
         /*is_blob*/ nullptr,
-        /*do_merge*/ true);
+        /*do_merge=*/get_impl_options.get_value);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {

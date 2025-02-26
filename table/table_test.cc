@@ -36,6 +36,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/external_table_reader.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
@@ -44,6 +45,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/trace_record.h"
@@ -6522,6 +6524,200 @@ TEST_F(CacheUsageOptionsOverridesTest, SanitizeAndValidateOptions) {
               std::string::npos);
   Destroy(options);
 }
+
+class ExternalTableReaderTest : public DBTestBase {
+ public:
+  ExternalTableReaderTest()
+      : DBTestBase("external_table_reader_test", /*env_do_fsync=*/false) {}
+
+ protected:
+  class DummyExternalTableIterator : public Iterator {
+   public:
+    explicit DummyExternalTableIterator(bool empty) : empty_(empty) {}
+
+    bool Valid() const override { return empty_ ? !empty_ : valid_; }
+
+    void SeekToFirst() override {
+      valid_ = true;
+      status_ = Status::OK();
+    }
+
+    void SeekToLast() override {
+      valid_ = true;
+      status_ = Status::OK();
+    }
+
+    void Seek(const Slice& target) override {
+      if (target.compare(key_str) <= 0) {
+        valid_ = true;
+      } else {
+        valid_ = false;
+      }
+      status_ = Status::OK();
+    }
+
+    void SeekForPrev(const Slice& /*target*/) override {
+      valid_ = false;
+      status_ = Status::NotSupported();
+    }
+
+    void Next() override {
+      valid_ = false;
+      // status_ is still ok. valid_ indicates end of scan
+    }
+
+    void Prev() override {
+      valid_ = false;
+      status_ = Status::NotSupported();
+    }
+
+    Slice key() const override {
+      // If valid_ is false or status_ is non-ok, behavior is indeterminate
+      return Slice(key_str);
+    }
+
+    Status status() const override {
+      // status_ gets overwritten by next Seek
+      return status_;
+    }
+
+    Slice value() const override {
+      // If valid_ is false or status_ is non-ok, behavior is indeterminate
+      return Slice(value_str);
+    }
+
+   private:
+    static const std::string key_str;
+    static const std::string value_str;
+
+    bool valid_ = false;
+    bool empty_;
+    Status status_ = Status::OK();
+  };
+
+  class DummyExternalTableReader : public ExternalTableReader {
+   public:
+    Iterator* NewIterator(const ReadOptions& read_options,
+                          const SliceTransform* /*prefix_extractor*/) override {
+      return new DummyExternalTableIterator((read_options.weight == 0) ? true
+                                                                       : false);
+    }
+
+    Status Get(const ReadOptions& /*read_options*/, const Slice& key,
+               const SliceTransform* /*prefix_extractor*/,
+               std::string* value) override {
+      if (!key.compare("foo")) {
+        value->assign("bar");
+        return Status::OK();
+      }
+      return Status::NotFound();
+    }
+
+    void MultiGet(const ReadOptions& read_options,
+                  const std::vector<Slice>& keys,
+                  const SliceTransform* prefix_extractor,
+                  std::vector<std::string>* values,
+                  std::vector<Status>* statuses) override {
+      values->resize(keys.size());
+      statuses->resize(keys.size());
+      for (size_t i = 0; i < keys.size(); ++i) {
+        statuses->at(i) =
+            Get(read_options, keys[i], prefix_extractor, &values->at(i));
+      }
+    }
+
+    std::shared_ptr<const TableProperties> GetTableProperties() const override {
+      std::shared_ptr<TableProperties> props =
+          std::make_shared<TableProperties>();
+      props->comparator_name.assign(BytewiseComparator()->Name());
+      props->num_entries = 1;
+      props->raw_key_size = 3;
+      props->raw_value_size = 3;
+      return props;
+    }
+  };
+
+  class DummyExternalTableFactory : public ExternalTableFactory {
+   public:
+    const char* Name() const override { return "DummyExternalTableFactory"; }
+
+    Status NewTableReader(
+        const ReadOptions& /*read_options*/, const std::string& /*file_path*/,
+        const ExternalTableOptions& /*topts*/,
+        std::unique_ptr<ExternalTableReader>* table_reader) override {
+      table_reader->reset(new DummyExternalTableReader());
+      return Status::OK();
+    }
+  };
+};
+
+const std::string ExternalTableReaderTest::DummyExternalTableIterator::key_str =
+    "foo";
+const std::string
+    ExternalTableReaderTest::DummyExternalTableIterator::value_str = "bar";
+
+TEST_F(ExternalTableReaderTest, BasicTest) {
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>();
+
+  std::unique_ptr<ExternalTableReader> reader;
+  std::shared_ptr<SliceTransform> prefix_extractor;
+  ASSERT_OK(factory->NewTableReader(
+      {}, "", ExternalTableOptions(prefix_extractor, nullptr), &reader));
+
+  ReadOptions ro;
+  ro.weight = 1;
+  std::unique_ptr<Iterator> iter(reader->NewIterator(ro, nullptr));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->value(), "bar");
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  std::string val;
+  ASSERT_OK(reader->Get({}, "foo", nullptr, &val));
+  ASSERT_EQ(val, "bar");
+
+  std::vector<std::string> vals;
+  std::vector<Status> statuses;
+  reader->MultiGet({}, {"foo", "bar"}, nullptr, &vals, &statuses);
+  ASSERT_EQ(vals.size(), 2);
+  ASSERT_EQ(statuses.size(), 2);
+  ASSERT_EQ(vals[0], "bar");
+  ASSERT_EQ(statuses[0], Status::OK());
+  ASSERT_EQ(statuses[1], Status::NotFound());
+}
+
+TEST_F(ExternalTableReaderTest, SstReaderTest) {
+  Options options = GetDefaultOptions();
+  std::string dbname = test::PerThreadDBPath("external_table_reader_test");
+  std::string ingest_file = dbname + "test.immutabledb";
+  dbname += "_db";
+
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>();
+  options.table_factory = NewExternalTableFactory(factory);
+
+  // Create a file
+  ASSERT_OK(WriteStringToFile(options.env, "Hello World", ingest_file,
+                              /*should_sync=*/true));
+
+  std::unique_ptr<SstFileReader> reader(new SstFileReader(options));
+  ASSERT_OK(reader->Open(ingest_file));
+
+  ReadOptions ro;
+  ro.weight = 1;
+  std::unique_ptr<Iterator> iter(reader->NewIterator(ro));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->value(), "bar");
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().ok());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

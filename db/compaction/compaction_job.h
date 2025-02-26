@@ -366,6 +366,10 @@ class CompactionJob {
   // the last level (output to penultimate level).
   SequenceNumber penultimate_after_seqno_ = kMaxSequenceNumber;
 
+  // Options File Number used for Remote Compaction
+  // Setting this requires DBMutex.
+  uint64_t options_file_number_ = 0;
+
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.
   virtual std::string GetTableFileName(uint64_t file_number);

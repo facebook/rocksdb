@@ -1285,7 +1285,9 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
     ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
     EXPECT_NE(cfd, nullptr);
 
+    test_->dbfull()->TEST_LockMutex();
     Version* const current = cfd->current();
+    test_->dbfull()->TEST_UnlockMutex();
     EXPECT_NE(current, nullptr);
 
     const VersionStorageInfo* const storage_info = current->storage_info();
@@ -1325,10 +1327,9 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
   }
 
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
-    call_count_++;
-
     {
       std::lock_guard<std::mutex> lock(mutex_);
+      IncreaseCallCount(/*mutex_locked*/ true);
       flushed_files_.push_back(info.file_path);
     }
 
@@ -1339,7 +1340,7 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
 
   void OnCompactionCompleted(DB* /*db*/,
                              const CompactionJobInfo& info) override {
-    call_count_++;
+    IncreaseCallCount(/*mutex_locked*/ false);
 
     EXPECT_EQ(info.blob_compression_type, kNoCompression);
 
@@ -1355,12 +1356,31 @@ class BlobDBJobLevelEventListenerTest : public EventListener {
     }
   }
 
+  void IncreaseCallCount(bool mutex_locked) {
+    if (!mutex_locked) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      call_count_++;
+    } else {
+      call_count_++;
+    }
+  }
+
+  uint32_t GetCallCount() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return call_count_;
+  }
+
+  void ResetCallCount() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    call_count_ = 0;
+  }
+
   EventListenerTest* test_;
-  uint32_t call_count_;
 
  private:
-  std::vector<std::string> flushed_files_;
   std::mutex mutex_;
+  std::vector<std::string> flushed_files_;
+  uint32_t call_count_;
 };
 
 // Test OnFlushCompleted EventListener called for blob files
@@ -1389,7 +1409,7 @@ TEST_F(EventListenerTest, BlobDBOnFlushCompleted) {
   ASSERT_EQ(Get("Key2"), "blob_value2");
   ASSERT_EQ(Get("Key3"), "blob_value3");
 
-  ASSERT_GT(blob_event_listener->call_count_, 0U);
+  ASSERT_GT(blob_event_listener->GetCallCount(), 0U);
 }
 
 // Test OnCompactionCompleted EventListener called for blob files
@@ -1423,7 +1443,7 @@ TEST_F(EventListenerTest, BlobDBOnCompactionCompleted) {
   ASSERT_OK(Put("Key6", "blob_value6"));
   ASSERT_OK(Flush());
 
-  blob_event_listener->call_count_ = 0;
+  blob_event_listener->ResetCallCount();
   constexpr Slice* begin = nullptr;
   constexpr Slice* end = nullptr;
 
@@ -1432,7 +1452,7 @@ TEST_F(EventListenerTest, BlobDBOnCompactionCompleted) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
   // Make sure, OnCompactionCompleted is called.
-  ASSERT_GT(blob_event_listener->call_count_, 0U);
+  ASSERT_GT(blob_event_listener->GetCallCount(), 0U);
 }
 
 // Test CompactFiles calls OnCompactionCompleted EventListener for blob files

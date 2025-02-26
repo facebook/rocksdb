@@ -62,23 +62,35 @@ class WBWIIterator {
 
   virtual void SeekToLast() = 0;
 
-  virtual void Seek(const Slice& key) = 0;
+  // Move to the first entry with key >= target.
+  // If there are multiple updates to the same key, the most recent update is
+  // ordered first. If `overwrite_key` is true for this WBWI, this should only
+  // affect iterator output if the write batch contains Merge.
+  virtual void Seek(const Slice& target) = 0;
 
-  virtual void SeekForPrev(const Slice& key) = 0;
+  // Move to the last entry with key <= target.
+  // If there are multiple updates to the same key, this will move iterator
+  // to the last entry, which is the oldest update.
+  virtual void SeekForPrev(const Slice& target) = 0;
 
   virtual void Next() = 0;
 
   virtual void Prev() = 0;
 
-  // the return WriteEntry is only valid until the next mutation of
-  // WriteBatchWithIndex
+  virtual Status status() const = 0;
+
+  // The returned WriteEntry is only valid until the next mutation of
+  // WriteBatchWithIndex.
   virtual WriteEntry Entry() const = 0;
 
   // For this user key, there is a single delete in this write batch,
   // and it was overwritten by another update.
   virtual bool HasOverWrittenSingleDel() const { return false; }
 
-  virtual Status status() const = 0;
+  // Returns n where the current entry is the n-th update to the current key.
+  // The update count starts from 1.
+  // Only valid if WBWI is created with overwrite_key = true.
+  virtual uint32_t GetUpdateCount() const { return 0; }
 };
 
 // A WriteBatchWithIndex with a binary searchable index built for all the keys
@@ -87,6 +99,8 @@ class WBWIIterator {
 // time, indexes will be built. By calling GetWriteBatch(), a user will get the
 // WriteBatch for the data they inserted, which can be used for DB::Write(). A
 // user can call NewIterator() to create an iterator.
+// If there are multiple updates to the same key, the most recent update is
+// ordered first (i.e. the iterator will return the most recent update first).
 class WriteBatchWithIndex : public WriteBatchBase {
  public:
   // backup_index_comparator: the backup comparator used to compare keys
@@ -98,6 +112,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // overwrite_key: if true, overwrite the key in the index when inserting
   //                the same key as previously, so iterator will never
   //                show two entries with the same key.
+  //                Note that for Merge, it's added as a new update instead
+  //                of overwriting the existing one.
   explicit WriteBatchWithIndex(
       const Comparator* backup_index_comparator = BytewiseComparator(),
       size_t reserved_bytes = 0, bool overwrite_key = false,
@@ -195,8 +211,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // if overwrite_key=false, then each update will be returned as a separate
   // entry, in the order of update time.
   // if overwrite_key=true, then one entry per key will be returned. Merge
-  // updates on the same key will be returned as separate entries.
-  //
+  // updates on the same key will be returned as separate entries, with most
+  // recent update ordered first.
   // The returned iterator should be deleted by the caller.
   WBWIIterator* NewIterator(ColumnFamilyHandle* column_family);
   // Create an iterator of the default column family.
@@ -229,7 +245,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
   // Similar to previous function but does not require a column_family.
   // Note:  An InvalidArgument status will be returned if there are any Merge
-  // operators for this key.  Use previous method instead.
+  // operators for this key. Use previous method instead.
   Status GetFromBatch(const DBOptions& options, const Slice& key,
                       std::string* value) {
     return GetFromBatch(nullptr, options, key, value);

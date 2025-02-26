@@ -24,6 +24,7 @@
 #include "rocksdb/table.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
+#include "util/atomic.h"
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -204,5 +205,11 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
                     bool do_sample, std::string* compressed_output,
                     std::string* sampled_output_fast,
                     std::string* sampled_output_slow);
+
+#ifndef NDEBUG
+// 0 == disable the hack
+// > 0 => counter for rotating through compression types
+extern RelaxedAtomic<uint64_t> g_hack_mixed_compression_in_block_based_table;
+#endif
 
 }  // namespace ROCKSDB_NAMESPACE
