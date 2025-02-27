@@ -396,7 +396,7 @@ void BlockBasedTableIterator::InitDataBlock() {
           rep, data_block_handle, read_options_.readahead_size,
           is_for_compaction,
           /*no_sequential_checking=*/false, read_options_, readaheadsize_cb,
-          read_options_.async_io);
+          read_options_.async_io, internal_stats_);
 
       Status s;
       table_->NewDataBlockIterator<DataBlockIter>(
@@ -456,7 +456,8 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
       block_prefetcher_.PrefetchIfNeeded(
           rep, data_block_handle, read_options_.readahead_size,
           is_for_compaction, /*no_sequential_checking=*/read_options_.async_io,
-          read_options_, readaheadsize_cb, read_options_.async_io);
+          read_options_, readaheadsize_cb, read_options_.async_io,
+          internal_stats_);
 
       Status s;
       table_->NewDataBlockIterator<DataBlockIter>(
