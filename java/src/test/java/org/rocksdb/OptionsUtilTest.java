@@ -366,10 +366,6 @@ public class OptionsUtilTest {
     assertThat(actual.enableIndexCompression()).isEqualTo(expected.enableIndexCompression());
     assertThat(actual.blockAlign()).isEqualTo(expected.blockAlign());
     assertThat(actual.indexShortening()).isEqualTo(expected.indexShortening());
-    if (expected.filterPolicy() == null) {
-      assertThat(actual.filterPolicy()).isNull();
-    } else {
-      assertThat(expected.filterPolicy().equals(actual.filterPolicy()));
-    }
+    assertThat(expected.filterPolicy()).isEqualTo(actual.filterPolicy());
   }
 }
