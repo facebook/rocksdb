@@ -348,7 +348,14 @@ void MultiOpsTxnsStressTest::ReopenAndPreloadDbIfNeeded(SharedState* shared) {
   (void)shared;
   bool db_empty = false;
   {
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    ReadOptions ropt;
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (FLAGS_auto_refresh_iterator_with_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db_);
+      ropt.snapshot = snapshot->snapshot();
+      ropt.auto_refresh_iterator_with_snapshot = true;
+    }
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ropt));
     iter->SeekToFirst();
     if (!iter->Valid()) {
       db_empty = true;
@@ -767,6 +774,8 @@ Status MultiOpsTxnsStressTest::SecondaryKeyUpdateTxn(ThreadState* thread,
   Slice iter_ub = iter_ub_str;
   ReadOptions ropts;
   ropts.snapshot = txn->GetSnapshot();
+  ropts.auto_refresh_iterator_with_snapshot =
+      FLAGS_auto_refresh_iterator_with_snapshot;
   ropts.total_order_seek = true;
   ropts.iterate_upper_bound = &iter_ub;
   ropts.rate_limiter_priority =
@@ -1136,6 +1145,8 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts;
     ropts.snapshot = snapshot;
+    ropts.auto_refresh_iterator_with_snapshot =
+        FLAGS_auto_refresh_iterator_with_snapshot;
     ropts.total_order_seek = true;
     ropts.iterate_upper_bound = &iter_ub;
     if (FLAGS_use_sqfc_for_range_queries) {
@@ -1191,6 +1202,8 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts;
     ropts.snapshot = snapshot;
+    ropts.auto_refresh_iterator_with_snapshot =
+        FLAGS_auto_refresh_iterator_with_snapshot;
     ropts.total_order_seek = true;
 
     std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
@@ -1289,6 +1302,8 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(const ReadOptions& read_options,
   // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
   ReadOptions ropts;
   ropts.snapshot = snapshot;
+  ropts.auto_refresh_iterator_with_snapshot =
+      FLAGS_auto_refresh_iterator_with_snapshot;
   ropts.total_order_seek = true;
   ropts.io_activity = read_options.io_activity;
 
@@ -1643,6 +1658,13 @@ void MultiOpsTxnsStressTest::ScanExistingDb(SharedState* shared, int threads) {
 
   assert(db_);
   ReadOptions ropts;
+  std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+  if (FLAGS_auto_refresh_iterator_with_snapshot) {
+    snapshot = std::make_unique<ManagedSnapshot>(db_);
+    ropts.snapshot = snapshot->snapshot();
+    ropts.auto_refresh_iterator_with_snapshot = true;
+  }
+
   std::vector<KeySet> existing_a_uniqs(threads);
   std::vector<KeySet> non_existing_a_uniqs(threads);
   std::vector<KeySet> existing_c_uniqs(threads);

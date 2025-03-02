@@ -265,8 +265,8 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   SyncPoint::GetInstance()->LoadDependency({
       {"DBImpl::IngestExternalFile:AfterIncIngestFileCounter",
        "ExternalSSTFileBasicTest.LiveWriteStart"},
-      {"ExternalSSTFileBasicTest.LiveWriteStart",
-       "DBImpl::IngestExternalFiles:InstallSVForFirstCF:0"},
+      {"WriteThread::JoinBatchGroup:Wait",
+       "DBImpl::IngestExternalFile:AfterIncIngestFileCounter:2"},
   });
   SyncPoint::GetInstance()->EnableProcessing();
   PerfContext* write_thread_perf_context;

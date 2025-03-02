@@ -407,31 +407,55 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   bool done = false;
 
   // Look up starts here
-  if (super_version->mem->Get(
-          lkey,
-          get_impl_options.value ? get_impl_options.value->GetSelf() : nullptr,
-          get_impl_options.columns, ts, &s, &merge_context,
-          &max_covering_tombstone_seq, read_options,
-          false /* immutable_memtable */, &read_cb)) {
-    done = true;
-    if (get_impl_options.value) {
-      get_impl_options.value->PinSelf();
+  if (get_impl_options.get_value) {
+    if (super_version->mem->Get(
+            lkey,
+            get_impl_options.value ? get_impl_options.value->GetSelf()
+                                   : nullptr,
+            get_impl_options.columns, ts, &s, &merge_context,
+            &max_covering_tombstone_seq, read_options,
+            false /* immutable_memtable */, &read_cb,
+            /*is_blob_index=*/nullptr, /*do_merge=*/true)) {
+      done = true;
+      if (get_impl_options.value) {
+        get_impl_options.value->PinSelf();
+      }
+      RecordTick(stats_, MEMTABLE_HIT);
+    } else if ((s.ok() || s.IsMergeInProgress()) &&
+               super_version->imm->Get(
+                   lkey,
+                   get_impl_options.value ? get_impl_options.value->GetSelf()
+                                          : nullptr,
+                   get_impl_options.columns, ts, &s, &merge_context,
+                   &max_covering_tombstone_seq, read_options, &read_cb)) {
+      done = true;
+      if (get_impl_options.value) {
+        get_impl_options.value->PinSelf();
+      }
+      RecordTick(stats_, MEMTABLE_HIT);
     }
-    RecordTick(stats_, MEMTABLE_HIT);
-  } else if ((s.ok() || s.IsMergeInProgress()) &&
-             super_version->imm->Get(
-                 lkey,
-                 get_impl_options.value ? get_impl_options.value->GetSelf()
-                                        : nullptr,
-                 get_impl_options.columns, ts, &s, &merge_context,
-                 &max_covering_tombstone_seq, read_options, &read_cb)) {
-    done = true;
-    if (get_impl_options.value) {
-      get_impl_options.value->PinSelf();
+  } else {
+    // GetMergeOperands
+    if (super_version->mem->Get(
+            lkey,
+            get_impl_options.value ? get_impl_options.value->GetSelf()
+                                   : nullptr,
+            get_impl_options.columns, ts, &s, &merge_context,
+            &max_covering_tombstone_seq, read_options,
+            false /* immutable_memtable */, &read_cb,
+            /*is_blob_index=*/nullptr, /*do_merge=*/false)) {
+      done = true;
+      RecordTick(stats_, MEMTABLE_HIT);
+    } else if ((s.ok() || s.IsMergeInProgress()) &&
+               super_version->imm->GetMergeOperands(lkey, &s, &merge_context,
+                                                    &max_covering_tombstone_seq,
+                                                    read_options)) {
+      done = true;
+      RecordTick(stats_, MEMTABLE_HIT);
     }
-    RecordTick(stats_, MEMTABLE_HIT);
   }
-  if (!done && !s.ok() && !s.IsMergeInProgress()) {
+  if (!s.ok() && !s.IsMergeInProgress() && !s.IsNotFound()) {
+    assert(done);
     ReturnAndCleanupSuperVersion(cfd, super_version);
     return s;
   }
@@ -889,6 +913,10 @@ Status DBImplSecondary::CompactWithoutInstallation(
   Status s = cfd->compaction_picker()->GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, vstorage, comp_options);
   if (!s.ok()) {
+    ROCKS_LOG_ERROR(
+        immutable_db_options_.info_log,
+        "GetCompactionInputsFromFileNumbers() failed - %s.\n DebugString: %s",
+        s.ToString().c_str(), version->DebugString().c_str());
     return s;
   }
 

@@ -49,22 +49,28 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
                        SequenceNumber* out_seq, const ReadOptions&,
                        bool immutable_memtable, ReadCallback* callback,
                        bool* is_blob_index, bool do_merge) {
+  assert(s->ok() || s->IsMergeInProgress());
   (void)immutable_memtable;
   (void)timestamp;
   (void)columns;
   assert(immutable_memtable);
   assert(!timestamp);  // TODO: support UDT
-  assert(!columns);    // TODO: support WideColumn
   assert(assigned_seqno_.upper_bound != kMaxSequenceNumber);
   assert(assigned_seqno_.lower_bound != kMaxSequenceNumber);
   // WBWI does not support DeleteRange yet.
   assert(!wbwi_->GetWriteBatch()->HasDeleteRange());
+  assert(merge_context);
 
   [[maybe_unused]] SequenceNumber read_seq =
       GetInternalKeySeqno(key.internal_key());
+  // This is memtable is a single write batch, no snapshot can be taken within
+  // assigned seqnos for this memtable.
+  assert(read_seq >= assigned_seqno_.upper_bound ||
+         read_seq < assigned_seqno_.lower_bound);
   std::unique_ptr<InternalIterator> iter{NewIterator()};
   iter->Seek(key.internal_key());
   const Slice lookup_user_key = key.user_key();
+  bool merge_in_progress = s->IsMergeInProgress();
 
   while (iter->Valid() && comparator_->EqualWithoutTimestamp(
                               ExtractUserKey(iter->key()), lookup_user_key)) {
@@ -77,7 +83,6 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
     assert(type != kTypeWideColumnEntity);
     assert(type != kTypeValuePreferredSeqno);
     assert(type != kTypeDeletionWithTimestamp);
-    assert(type != kTypeMerge);
     if (!callback || callback->IsVisible(seq)) {
       if (*out_seq == kMaxSequenceNumber) {
         *out_seq = std::max(seq, *max_covering_tombstone_seq);
@@ -88,7 +93,7 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
       switch (type) {
         case kTypeValue: {
           HandleTypeValue(lookup_user_key, iter->value(), iter->IsValuePinned(),
-                          do_merge, s->IsMergeInProgress(), merge_context,
+                          do_merge, merge_in_progress, merge_context,
                           moptions_.merge_operator, clock_,
                           moptions_.statistics, moptions_.info_log, s, value,
                           columns, is_blob_index);
@@ -98,16 +103,29 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
         case kTypeDeletion:
         case kTypeSingleDeletion:
         case kTypeRangeDeletion: {
-          HandleTypeDeletion(lookup_user_key, s->IsMergeInProgress(),
-                             merge_context, moptions_.merge_operator, clock_,
+          HandleTypeDeletion(lookup_user_key, merge_in_progress, merge_context,
+                             moptions_.merge_operator, clock_,
                              moptions_.statistics, moptions_.info_log, s, value,
                              columns);
           assert(seq <= read_seq);
           return /*found_final_value=*/true;
         }
+        case kTypeMerge: {
+          merge_in_progress = true;
+          if (ReadOnlyMemTable::HandleTypeMerge(
+                  lookup_user_key, iter->value(), iter->IsValuePinned(),
+                  do_merge, merge_context, moptions_.merge_operator, clock_,
+                  moptions_.statistics, moptions_.info_log, s, value,
+                  columns)) {
+            return true;
+          }
+          break;
+        }
         default: {
-          std::string msg("Unrecognized or unsupported value type: " +
-                          std::to_string(static_cast<int>(type)) + ". ");
+          std::string msg(
+              "Unrecognized or unsupported value type for "
+              "WBWI-based memtable: " +
+              std::to_string(static_cast<int>(type)) + ". ");
           msg.append("User key: " +
                      ExtractUserKey(iter->key()).ToString(/*hex=*/true) + ". ");
           msg.append("seq: " + std::to_string(seq) + ".");
@@ -116,8 +134,8 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
         }
       }
     }
-    // Current key not visible or we read a merge key
-    assert(s->IsMergeInProgress() || (callback && !callback->IsVisible(seq)));
+    // Current key is a merge key or not visible
+    assert(merge_in_progress || (callback && !callback->IsVisible(seq)));
     iter->Next();
   }
   if (!iter->status().ok() &&
@@ -125,6 +143,10 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
     *s = iter->status();
     // stop further look up
     return true;
+  }
+  if (merge_in_progress) {
+    assert(s->ok() || s->IsMergeInProgress());
+    *s = Status::MergeInProgress();
   }
   return /*found_final_value=*/false;
 }

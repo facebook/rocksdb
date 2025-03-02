@@ -14,6 +14,9 @@
 #  SHORT_TEST=1 - Test only the oldest branch for each kind of test. This is
 #    a good choice for PR validation as it is relatively fast and will find
 #    most issues.
+#  LONG_TEST=1 - Test all branches known to build for this test, rather than
+#    the default of randomly sampling the branches that aren't the oldest in
+#    each set.
 #  USE_SSH=1 - Connect to GitHub with ssh instead of https
 
 if ! git diff-index --quiet HEAD; then
@@ -86,19 +89,26 @@ mkdir -p $bak_test_dir
 
 python_bin=$(which python3 || which python || echo python3)
 
-# Generate random files.
-for i in {1..6}
+if [ "$J" == "" ]; then
+  # make parallelism
+  J=32
+fi
+
+# Generate random files. We want enough files to cover a variety of compression
+# settings and low enough entropy in the files to make compression highly
+# likely, including for index blocks.
+for i in {1..8}
 do
   input_data[$i]=$input_data_path/data$i
   echo == Generating random input file ${input_data[$i]}
   $python_bin - <<EOF
 import random
 random.seed($i)
-symbols=['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+symbols=['a', 'b', 'c', 'd', 'e', 'f', 'g']
 with open('${input_data[$i]}', 'w') as f:
   for i in range(1,1024):
     k = ""
-    for j in range(1, random.randint(1,32)):
+    for j in range(1, random.randint(1,80)):
       k=k + symbols[random.randint(0, len(symbols) - 1)]
     vb = ""
     for j in range(1, random.randint(0,128)):
@@ -125,7 +135,7 @@ EOF
 
 # To check for DB forward compatibility with loading options (old version
 # reading data from new), as well as backward compatibility
-declare -a db_forward_with_options_refs=("8.6.fb" "8.7.fb" "8.8.fb" "8.9.fb" "8.10.fb" "8.11.fb" "9.0.fb" "9.1.fb" "9.2.fb" "9.3.fb" "9.4.fb" "9.5.fb" "9.6.fb" "9.7.fb" "9.8.fb" "9.9.fb" "9.10.fb" "9.11.fb")
+declare -a db_forward_with_options_refs=("8.6.fb" "8.7.fb" "8.8.fb" "8.9.fb" "8.10.fb" "8.11.fb" "9.0.fb" "9.1.fb" "9.2.fb" "9.3.fb" "9.4.fb" "9.5.fb" "9.6.fb" "9.7.fb" "9.8.fb" "9.9.fb" "9.10.fb" "9.11.fb" "10.0.fb")
 # To check for DB forward compatibility without loading options (in addition
 # to the "with loading options" set), as well as backward compatibility
 declare -a db_forward_no_options_refs=() # N/A at the moment
@@ -148,7 +158,7 @@ declare -a bak_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_wi
 # Branches (git refs) to check for DB backward compatibility (new version
 # reading data from old) (in addition to the "forward compatible" list)
 # NOTE: 2.7.fb.branch shows assertion violation in some configurations
-declare -a db_backward_only_refs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.7.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
+declare -a db_backward_only_refs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
 
 if [ "$SHORT_TEST" ]; then
   # Use only the first (if exists) of each list
@@ -163,13 +173,27 @@ fi
 
 # De-duplicate & accumulate
 declare -a checkout_refs=()
-for checkout_ref in "${db_backward_only_refs[@]}" "${db_forward_no_options_refs[@]}" "${db_forward_with_options_refs[@]}" "${ext_backward_only_refs[@]}" "${ext_forward_refs[@]}" "${bak_backward_only_refs[@]}" "${bak_forward_refs[@]}"
+# Always include first release on each list
+for checkout_ref in "${db_backward_only_refs[0]}" "${db_forward_no_options_refs[0]}" "${db_forward_with_options_refs[0]}" "${ext_backward_only_refs[0]}" "${ext_forward_refs[0]}" "${bak_backward_only_refs[0]}" "${bak_forward_refs[0]}"
 do
   if [ ! -e $db_test_dir/$checkout_ref ]; then
     mkdir -p $db_test_dir/$checkout_ref
     checkout_refs+=($checkout_ref)
   fi
 done
+# Maybe include rest if not short test
+if [ "$SHORT_TEST" == "" ]; then
+  for checkout_ref in "${db_backward_only_refs[@]}" "${db_forward_no_options_refs[@]}" "${db_forward_with_options_refs[@]}" "${ext_backward_only_refs[@]}" "${ext_forward_refs[@]}" "${bak_backward_only_refs[@]}" "${bak_forward_refs[@]}"
+  do
+    if [ ! -e $db_test_dir/$checkout_ref ]; then
+      mkdir -p $db_test_dir/$checkout_ref
+      # Randomly sample remaining releases, unless long test
+      if [ "$LONG_TEST" ] || [ "$(($RANDOM % 3))" == "0" ]; then
+        checkout_refs+=($checkout_ref)
+      fi
+    fi
+  done
+fi
 
 generate_db()
 {
@@ -250,6 +274,10 @@ force_no_fbcode()
   # Not all branches recognize ROCKSDB_NO_FBCODE and we should not need
   # to patch old branches for changes to available FB compilers.
   sed -i -e 's|-d /mnt/gvfs/third-party|"$ROCKSDB_FORCE_FBCODE"|' build_tools/build_detect_platform
+  # Fix a build issue affecting at least 4.2.fb
+  if [ -e include/rocksdb/delete_scheduler.h ]; then
+    sed -i -e 's|pragma once|pragma once\n#include <memory>|' include/rocksdb/delete_scheduler.h
+  fi
 }
 
 # General structure from here:
@@ -270,7 +298,7 @@ echo "== Building $current_checkout_name debug"
 git checkout -B $tmp_branch $current_checkout_hash
 force_no_fbcode
 make clean
-DISABLE_WARNING_AS_ERROR=1 make ldb -j32
+DISABLE_WARNING_AS_ERROR=1 make ldb -j$J
 
 echo "== Using $current_checkout_name, generate DB with extern SST and ingest"
 current_ext_test_dir=$ext_test_dir"/current"
@@ -291,7 +319,7 @@ do
   git reset --hard $tmp_origin/$checkout_ref
   force_no_fbcode
   make clean
-  DISABLE_WARNING_AS_ERROR=1 make ldb -j32
+  DISABLE_WARNING_AS_ERROR=1 make ldb -j$J
 
   # We currently assume DB backward compatibility for every branch listed
   echo "== Use $checkout_ref to generate a DB ..."
@@ -349,7 +377,7 @@ echo "== Building $current_checkout_name debug (again, final)"
 git reset --hard $current_checkout_hash
 force_no_fbcode
 make clean
-DISABLE_WARNING_AS_ERROR=1 make ldb -j32
+DISABLE_WARNING_AS_ERROR=1 make ldb -j$J
 
 for checkout_ref in "${checkout_refs[@]}"
 do

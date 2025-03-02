@@ -1153,6 +1153,7 @@ TEST_F(DBWALTest, FullPurgePreservesRecycledLog) {
     dbfull()->FindObsoleteFiles(&job_context, true /* force */);
     dbfull()->TEST_UnlockMutex();
     dbfull()->PurgeObsoleteFiles(job_context);
+    job_context.Clean();
 
     if (i == 0) {
       ASSERT_OK(

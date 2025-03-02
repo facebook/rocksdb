@@ -1296,18 +1296,42 @@ Status DBImpl::SetOptions(
   {
     auto db_options = GetDBOptions();
     InstrumentedMutexLock l(&mutex_);
-    s = cfd->SetOptions(db_options, options_map);
-    if (s.ok()) {
-      new_options_copy = cfd->GetLatestMutableCFOptions();
-      // Append new version to recompute compaction score.
-      VersionEdit dummy_edit;
-      s = versions_->LogAndApply(cfd, read_options, write_options, &dummy_edit,
-                                 &mutex_, directories_.GetDbDir());
-      if (!versions_->io_status().ok()) {
-        assert(!s.ok());
-        error_handler_.SetBGError(versions_->io_status(),
-                                  BackgroundErrorReason::kManifestWrite);
+    // Manifest writers + Version appenders like flush and compaction use
+    // LogAndApply, which releases DB mutex to wait for other manifest writers
+    // and for the manifest write. We need to append a Version for the options
+    // to take full effect (e.g. compaction scores), but we don't want to
+    // interleave with other callers of LogAndApply, which could at least
+    // temporarily roll back option changes. Thus, we use a special call to
+    // LogAndApply that allows us to
+    //
+    // (a) Apply the options update when we know we are the exclusive version
+    // appender + (fake) manifest writer, and
+    //
+    // (b) Append a new Version without manifest write nor DB mutex release
+    //
+    // Thus aren't releasing the DB mutex again until the end of this block,
+    // after installing the new SuperVersion.
+    auto pre_cb = [&]() -> Status {
+      Status cb_s = cfd->SetOptions(db_options, options_map);
+      if (cb_s.ok()) {
+        new_options_copy = cfd->GetLatestMutableCFOptions();
       }
+      return cb_s;
+    };
+    VersionEdit dummy_edit;
+    dummy_edit.MarkNoManifestWriteDummy();
+    TEST_SYNC_POINT_CALLBACK("DBImpl::SetOptions:dummy_edit", &dummy_edit);
+    s = versions_->LogAndApply(
+        cfd, read_options, write_options, &dummy_edit, &mutex_,
+        directories_.GetDbDir(), false /*new_descriptor_log=*/,
+        nullptr /*new_opts*/, {} /*manifest_wcb*/, pre_cb);
+    if (!versions_->io_status().ok()) {
+      assert(!s.ok());
+      error_handler_.SetBGError(versions_->io_status(),
+                                BackgroundErrorReason::kManifestWrite);
+    }
+
+    if (s.ok()) {
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
@@ -1315,6 +1339,14 @@ Status DBImpl::SetOptions(
       persist_options_status =
           WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
       bg_cv_.SignalAll();
+
+#if __cplusplus >= 202002L
+      assert(new_options_copy == cfd->GetLatestMutableCFOptions());
+      assert(cfd->GetLatestMutableCFOptions() ==
+             cfd->GetCurrentMutableCFOptions());
+      assert(cfd->GetCurrentMutableCFOptions() ==
+             cfd->current()->GetMutableCFOptions());
+#endif
     }
   }
   sv_context.Clean();
@@ -2566,6 +2598,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         // Return all merge operands for get_impl_options.key
         *get_impl_options.number_of_operands =
             static_cast<int>(merge_context.GetNumOperands());
+        // OK status is returned, some merge operand is found.
+        assert(*get_impl_options.number_of_operands > 0);
         if (*get_impl_options.number_of_operands >
             get_impl_options.get_merge_operands_options
                 ->expected_max_number_of_operands) {
@@ -5952,6 +5986,7 @@ Status DBImpl::IngestExternalFiles(
 
     num_running_ingest_file_ += static_cast<int>(num_cfs);
     TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
+    TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter:2");
 
     bool at_least_one_cf_need_flush = false;
     std::vector<bool> need_flush(num_cfs, false);

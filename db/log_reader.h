@@ -45,7 +45,8 @@ class Reader {
 
     // Some corruption was detected.  "size" is the approximate number
     // of bytes dropped due to the corruption.
-    virtual void Corruption(size_t bytes, const Status& status) = 0;
+    virtual void Corruption(size_t bytes, const Status& status,
+                            uint64_t log_number = kMaxSequenceNumber) = 0;
 
     virtual void OldLogRecord(size_t /*bytes*/) {}
   };
@@ -220,8 +221,10 @@ class Reader {
 
   // Reports dropped bytes to the reporter.
   // buffer_ must be updated to remove the dropped bytes prior to invocation.
-  void ReportCorruption(size_t bytes, const char* reason);
-  void ReportDrop(size_t bytes, const Status& reason);
+  void ReportCorruption(size_t bytes, const char* reason,
+                        uint64_t log_number = kMaxSequenceNumber);
+  void ReportDrop(size_t bytes, const Status& reason,
+                  uint64_t log_number = kMaxSequenceNumber);
   void ReportOldLogRecord(size_t bytes);
 
   void InitCompression(const CompressionTypeRecord& compression_record);
@@ -236,17 +239,14 @@ class Reader {
 
 class FragmentBufferedReader : public Reader {
  public:
-  FragmentBufferedReader(
-      std::shared_ptr<Logger> info_log,
-      std::unique_ptr<SequentialFileReader>&& _file, Reporter* reporter,
-      bool checksum, uint64_t log_num, bool verify_and_track_wals = false,
-      bool stop_replay_for_corruption = false,
-      uint64_t min_wal_number_to_keep = std::numeric_limits<uint64_t>::max(),
-      const PredecessorWALInfo& observed_predecessor_wal_info =
-          PredecessorWALInfo())
+  FragmentBufferedReader(std::shared_ptr<Logger> info_log,
+                         std::unique_ptr<SequentialFileReader>&& _file,
+                         Reporter* reporter, bool checksum, uint64_t log_num)
       : Reader(info_log, std::move(_file), reporter, checksum, log_num,
-               verify_and_track_wals, stop_replay_for_corruption,
-               min_wal_number_to_keep, observed_predecessor_wal_info),
+               false /*verify_and_track_wals*/,
+               false /*stop_replay_for_corruption*/,
+               std::numeric_limits<uint64_t>::max() /*min_wal_number_to_keep*/,
+               PredecessorWALInfo() /*observed_predecessor_wal_info*/),
         fragments_(),
         in_fragmented_record_(false) {}
   ~FragmentBufferedReader() override {}

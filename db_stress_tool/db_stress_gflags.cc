@@ -831,13 +831,15 @@ DEFINE_uint64(snapshot_hold_ops, 0,
 DEFINE_bool(long_running_snapshots, false,
             "If set, hold on some some snapshots for much longer time.");
 
+// The following three options affect both regular read operations during the
+// test and initial/final database verification through VerifyDB.
 DEFINE_bool(use_multiget, false,
-            "If set, use the batched MultiGet API for reads");
+            "If set, use the batched MultiGet API for reads.");
 
-DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads");
+DEFINE_bool(use_get_entity, false, "If set, use the GetEntity API for reads.");
 
 DEFINE_bool(use_multi_get_entity, false,
-            "If set, use the MultiGetEntity API for reads");
+            "If set, use the MultiGetEntity API for reads.");
 
 DEFINE_int32(test_ingest_standalone_range_deletion_one_in, 0,
              "If non-zero, file ingestion flow will test standalone range "
@@ -850,6 +852,9 @@ DEFINE_bool(allow_unprepared_value,
 DEFINE_bool(track_and_verify_wals,
             ROCKSDB_NAMESPACE::Options().track_and_verify_wals,
             "See Options::track_and_verify_wals");
+
+DEFINE_bool(enable_remote_compaction, false,
+            "Enable (simulated) Remote Compaction");
 
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value < 0 || value > 100) {
@@ -1476,4 +1481,10 @@ DEFINE_bool(paranoid_memory_checks,
 DEFINE_uint32(commit_bypass_memtable_one_in, 0,
               "If greater than zero, transaction option will set "
               "commit_bypass_memtable to per every N transactions on average.");
+
+DEFINE_bool(
+    auto_refresh_iterator_with_snapshot,
+    ROCKSDB_NAMESPACE::ReadOptions().auto_refresh_iterator_with_snapshot,
+    "ReadOptions.auto_refresh_iterator_with_snapshot");
+
 #endif  // GFLAGS
