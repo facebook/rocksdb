@@ -835,7 +835,7 @@ set(SOURCES
         table/cuckoo/cuckoo_table_builder.cc
         table/cuckoo/cuckoo_table_factory.cc
         table/cuckoo/cuckoo_table_reader.cc
-        table/external_table_reader.cc
+        table/external_table.cc
         table/format.cc
         table/get_context.cc
         table/iterator.cc
