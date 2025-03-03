@@ -2753,6 +2753,8 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
     // sure.
     constexpr int num_retries = 3;
     for (int i = 0; i < num_retries; ++i) {
+      // When reading from kPersistedTier, we want a consistent view into CFs.
+      // So we take mutex to prevent any SV change in any CF.
       acquire_mutex = ((i == num_retries - 1) && !read_options.snapshot) ||
                       read_options.read_tier == kPersistedTier;
       bool retry = false;
