@@ -6836,6 +6836,8 @@ TEST_F(ExternalTableReaderTest, SstReaderTest) {
   std::string dbname = test::PerThreadDBPath("external_table_reader_test");
   std::string ingest_file = dbname + "test.immutabledb";
   dbname += "_db";
+  // This test doesn't work with some custom Envs, like EncryptedEnv
+  options.env = Env::Default();
 
   std::shared_ptr<ExternalTableFactory> factory =
       std::make_shared<DummyExternalTableFactory>();
