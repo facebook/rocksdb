@@ -4,6 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
+
+#ifdef LUA
 // lua headers
 extern "C" {
 #include <lauxlib.h>
@@ -11,7 +13,6 @@ extern "C" {
 #include <lualib.h>
 }
 
-#ifdef LUA
 #include <string>
 #include <vector>
 
