@@ -490,7 +490,7 @@ bool SeqnoToTimeMapping::Append(SequenceNumber seqno, uint64_t time) {
   return added;
 }
 
-bool SeqnoToTimeMapping::PrePopulate(SequenceNumber from_seqno,
+void SeqnoToTimeMapping::PrePopulate(SequenceNumber from_seqno,
                                      SequenceNumber to_seqno,
                                      uint64_t from_time, uint64_t to_time) {
   assert(Empty());
@@ -505,8 +505,6 @@ bool SeqnoToTimeMapping::PrePopulate(SequenceNumber from_seqno,
                                  (to_seqno - from_seqno);
     pairs_.emplace_back(i, t);
   }
-
-  return /*success*/ true;
 }
 
 std::string SeqnoToTimeMapping::ToHumanString() const {
