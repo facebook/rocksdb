@@ -2669,51 +2669,83 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
   }
 }
 
-TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevel) {
-  Options options = GetDefaultOptions();
+TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
+  for (bool disallow_memtable : {false, true}) {
+    Options options = GetDefaultOptions();
 
-  std::string file_path = sst_files_dir_ + std::to_string(1);
-  SstFileWriter sfw(EnvOptions(), options);
+    // First test with universal compaction
+    options.create_if_missing = true;
+    options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+    DestroyAndReopen(options);
 
-  ASSERT_OK(sfw.Open(file_path));
-  ASSERT_OK(sfw.Put("b", "dontcare"));
-  ASSERT_OK(sfw.Finish());
+    // And a CF potentially disallowing memtable write
+    options.disallow_memtable_writes = disallow_memtable;
+    CreateColumnFamilies({"cf0"}, options);
+    ASSERT_EQ(db_->GetOptions(handles_[0]).disallow_memtable_writes,
+              disallow_memtable);
 
-  // Test universal compaction + ingest with snapshot consistency
-  options.create_if_missing = true;
-  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
-  DestroyAndReopen(options);
-  {
-    const Snapshot* snapshot = db_->GetSnapshot();
-    ManagedSnapshot snapshot_guard(db_, snapshot);
-    IngestExternalFileOptions ifo;
-    ifo.fail_if_not_bottommost_level = true;
-    ifo.snapshot_consistency = true;
-    const Status s = db_->IngestExternalFile({file_path}, ifo);
-    ASSERT_TRUE(s.ok());
-  }
+    // Ingest with snapshot consistency
+    std::string file_path = sst_files_dir_ + std::to_string(1);
+    SstFileWriter sfw(EnvOptions(), options);
 
-  // Test level compaction
-  options.compaction_style = CompactionStyle::kCompactionStyleLevel;
-  options.num_levels = 2;
-  DestroyAndReopen(options);
-  ASSERT_OK(db_->Put(WriteOptions(), "a", "dontcare"));
-  ASSERT_OK(db_->Put(WriteOptions(), "c", "dontcare"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
+    ASSERT_OK(sfw.Open(file_path));
+    ASSERT_OK(sfw.Put("b", "dontcare"));
+    ASSERT_OK(sfw.Finish());
 
-  ASSERT_OK(db_->Put(WriteOptions(), "b", "dontcare"));
-  ASSERT_OK(db_->Put(WriteOptions(), "d", "dontcare"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
+    {
+      const Snapshot* snapshot = db_->GetSnapshot();
+      ManagedSnapshot snapshot_guard(db_, snapshot);
+      IngestExternalFileOptions ifo;
+      ifo.fail_if_not_bottommost_level = true;
+      ifo.snapshot_consistency = true;
+      ASSERT_OK(db_->IngestExternalFile(handles_[0], {file_path}, ifo));
+    }
 
-  {
-    CompactRangeOptions cro;
-    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    // Test level compaction
+    options.compaction_style = CompactionStyle::kCompactionStyleLevel;
+    options.num_levels = 2;
+    CreateColumnFamilies({"cf1"}, options);
+    ASSERT_EQ(db_->GetOptions(handles_[1]).disallow_memtable_writes,
+              disallow_memtable);
 
-    IngestExternalFileOptions ifo;
-    ifo.fail_if_not_bottommost_level = true;
-    const Status s = db_->IngestExternalFile({file_path}, ifo);
-    ASSERT_TRUE(s.IsTryAgain());
+    if (!disallow_memtable) {
+      ASSERT_OK(Put(1, "a", "1"));
+      ASSERT_OK(Put(1, "c", "3"));
+      ASSERT_OK(Flush(1));
+
+      ASSERT_OK(Put(1, "b", "2"));
+      ASSERT_OK(Put(1, "d", "4"));
+      ASSERT_OK(Flush(1));
+    } else {
+      // Memtable write disallowed
+      EXPECT_EQ(Put(1, "a", "1").code(), Status::Code::kInvalidArgument);
+
+      // Use ingestion to get to the same state as above
+      std::string file_path2 = sst_files_dir_ + std::to_string(2);
+
+      ASSERT_OK(sfw.Open(file_path2));
+      ASSERT_OK(sfw.Put("a", "1"));
+      ASSERT_OK(sfw.Put("c", "3"));
+      ASSERT_OK(sfw.Finish());
+      ASSERT_OK(db_->IngestExternalFile(handles_[1], {file_path2}, {}));
+
+      ASSERT_OK(sfw.Open(file_path2));
+      ASSERT_OK(sfw.Put("b", "2"));
+      ASSERT_OK(sfw.Put("d", "4"));
+      ASSERT_OK(sfw.Finish());
+      ASSERT_OK(db_->IngestExternalFile(handles_[1], {file_path2}, {}));
+    }
+
+    {
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(db_->CompactRange(cro, handles_[1], nullptr, nullptr));
+
+      IngestExternalFileOptions ifo;
+      ifo.fail_if_not_bottommost_level = true;
+      const Status s = db_->IngestExternalFile(handles_[1], {file_path}, ifo);
+      ASSERT_TRUE(s.IsTryAgain());
+    }
   }
 }
 

@@ -5057,6 +5057,97 @@ TEST_F(DBBasicTest, VerifyFileChecksumsReadahead) {
             (sst_size + alignment - 1) / (alignment));
 }
 
+TEST_F(DBBasicTest, DisallowMemtableWrite) {
+  // This test is mostly about what you can't do with memtable writes
+  // disallowed. For what you can do, see
+  // ExternalSSTFileBasicTest.FailIfNotBottommostLevelAndDisallowMemtable
+  Options options_allow = GetDefaultOptions();
+  options_allow.create_if_missing = true;
+  Options options_disallow = options_allow;
+  options_disallow.disallow_memtable_writes = true;
+
+  DestroyAndReopen(options_allow);
+  // CFs allowing and disallowing memtable write
+  CreateColumnFamilies({"cf1", "cf2"}, options_allow);
+  CreateColumnFamilies({"cf3"}, options_disallow);
+  // XXX: needed to get consistent handles_ mappings
+  ReopenWithColumnFamilies(
+      {"default", "cf1", "cf2", "cf3"},
+      {options_allow, options_allow, options_allow, options_disallow});
+
+  EXPECT_EQ(Put(0, "a0", "1").code(), Status::Code::kOk);
+  EXPECT_EQ(Put(1, "a1", "1").code(), Status::Code::kOk);
+  EXPECT_EQ(Put(2, "a2", "1").code(), Status::Code::kOk);
+  EXPECT_EQ(Put(3, "a3", "1").code(), Status::Code::kInvalidArgument);
+
+  EXPECT_EQ(Get(0, "a0"), "1");
+  EXPECT_EQ(Get(1, "a1"), "1");
+  EXPECT_EQ(Get(2, "a2"), "1");
+  EXPECT_EQ(Get(3, "a3"), "NOT_FOUND");
+
+  EXPECT_EQ(Delete(0, "z0").code(), Status::Code::kOk);
+  EXPECT_EQ(Delete(1, "z1").code(), Status::Code::kOk);
+  EXPECT_EQ(Delete(2, "z2").code(), Status::Code::kOk);
+  EXPECT_EQ(Delete(3, "z3").code(), Status::Code::kInvalidArgument);
+
+  WriteBatch wb;
+  EXPECT_EQ(wb.Put(handles_[0], "b0", "2").code(), Status::Code::kOk);
+  EXPECT_EQ(wb.Put(handles_[1], "b1", "2").code(), Status::Code::kOk);
+  EXPECT_EQ(wb.Put(handles_[2], "b2", "2").code(), Status::Code::kOk);
+  EXPECT_EQ(wb.Put(handles_[3], "b3", "2").code(),
+            Status::Code::kInvalidArgument);
+  ASSERT_OK(db_->Write({}, &wb));
+  wb.Clear();
+
+  EXPECT_EQ(Get(0, "b0"), "2");
+  EXPECT_EQ(Get(1, "b1"), "2");
+  EXPECT_EQ(Get(2, "b2"), "2");
+  EXPECT_EQ(Get(3, "b3"), "NOT_FOUND");
+
+  // When the DB is re-opened with WAL entries for a CF that is newly setting
+  // disallow_memtable_writes, we detect that and fail the open gracefully.
+  ASSERT_EQ(TryReopenWithColumnFamilies(
+                {"default", "cf1", "cf2", "cf3"},
+                {options_allow, options_allow, options_disallow, options_allow})
+                .code(),
+            Status::Code::kInvalidArgument);
+
+  // Successfully opening with allow creates L0 files from the WAL
+  ReopenWithColumnFamilies({"default", "cf1", "cf2", "cf3"}, options_allow);
+
+  EXPECT_EQ(Get(0, "a0"), "1");
+  EXPECT_EQ(Get(1, "a1"), "1");
+  EXPECT_EQ(Get(2, "a2"), "1");
+  EXPECT_EQ(Get(3, "a3"), "NOT_FOUND");
+
+  // Now able to disallow on CF2 because no relevant WAL entries
+  ReopenWithColumnFamilies(
+      {"default", "cf1", "cf2", "cf3"},
+      {options_allow, options_allow, options_disallow, options_allow});
+
+  EXPECT_EQ(Get(0, "a0"), "1");
+  EXPECT_EQ(Get(1, "a1"), "1");
+  EXPECT_EQ(Get(2, "a2"), "1");
+  EXPECT_EQ(Get(3, "a3"), "NOT_FOUND");
+
+  // Now able to write to CF 3 but not CF 2
+  EXPECT_EQ(Put(0, "c0", "3").code(), Status::Code::kOk);
+  EXPECT_EQ(Put(1, "c1", "3").code(), Status::Code::kOk);
+  EXPECT_EQ(Put(2, "c2", "3").code(), Status::Code::kInvalidArgument);
+  EXPECT_EQ(Put(3, "c3", "3").code(), Status::Code::kOk);
+
+  EXPECT_EQ(Get(0, "c0"), "3");
+  EXPECT_EQ(Get(1, "c1"), "3");
+  EXPECT_EQ(Get(2, "c2"), "NOT_FOUND");
+  EXPECT_EQ(Get(3, "c3"), "3");
+
+  // disallow_memtable_writes not supported on default column family.
+  // (Would be complicated to make a WriteBatch aware of the setting in order
+  // to reject the write before entering the write path.)
+  Destroy(options_allow);
+  EXPECT_EQ(TryReopen(options_disallow).code(), Status::Code::kInvalidArgument);
+}
+
 // TODO: re-enable after we provide finer-grained control for WAL tracking to
 // meet the needs of different use cases, durability levels and recovery modes.
 TEST_F(DBBasicTest, DISABLED_ManualWalSync) {

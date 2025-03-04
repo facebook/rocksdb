@@ -68,6 +68,8 @@ struct ImmutableCFOptions {
 
   bool force_consistency_checks;
 
+  bool disallow_memtable_writes;
+
   Temperature default_temperature;
 
   std::shared_ptr<const SliceTransform>

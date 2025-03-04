@@ -224,6 +224,12 @@ Status DBImpl::ValidateOptions(
     if (!s.ok()) {
       return s;
     }
+    if (cfd.name == kDefaultColumnFamilyName) {
+      if (cfd.options.disallow_memtable_writes) {
+        return Status::InvalidArgument(
+            "Default column family cannot use disallow_memtable_writes=true");
+      }
+    }
   }
   s = ValidateOptions(db_options);
   return s;

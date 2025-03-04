@@ -90,6 +90,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       paranoid_file_checks(options.paranoid_file_checks),
       force_consistency_checks(options.force_consistency_checks),
       report_bg_io_stats(options.report_bg_io_stats),
+      disallow_memtable_writes(options.disallow_memtable_writes),
       ttl(options.ttl),
       periodic_compaction_seconds(options.periodic_compaction_seconds),
       sample_for_compression(options.sample_for_compression),
@@ -395,6 +396,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    force_consistency_checks);
   ROCKS_LOG_HEADER(log, "               Options.report_bg_io_stats: %d",
                    report_bg_io_stats);
+  ROCKS_LOG_HEADER(log, "               Options.disallow_memtable_writes: %d",
+                   disallow_memtable_writes);
   ROCKS_LOG_HEADER(log, "                              Options.ttl: %" PRIu64,
                    ttl);
   ROCKS_LOG_HEADER(log,
