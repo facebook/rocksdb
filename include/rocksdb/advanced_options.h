@@ -721,7 +721,9 @@ struct AdvancedColumnFamilyOptions {
 
   // Setting this option to true disallows ordinary writes to the column family
   // and it can only be populated through import and ingestion. It is intended
-  // to protect "ingestion only" column families.
+  // to protect "ingestion only" column families. This option is not currently
+  // supported on the default column family because of error handling challenges
+  // analogous to https://github.com/facebook/rocksdb/issues/13429
   //
   // This option is not mutable with SetOptions(). It can be changed between
   // DB::Open() calls, but open will fail if recovering WAL writes to a CF with
