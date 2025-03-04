@@ -22,6 +22,9 @@ namespace ROCKSDB_NAMESPACE {
 class MemTable;
 struct SuperVersion;
 
+// The purpose of this struct is to simplify pushing work such as
+// allocation/construction, de-allocation/destruction, and notifications to
+// outside of holding the DB mutex.
 struct SuperVersionContext {
   struct WriteStallNotification {
     WriteStallInfo write_stall_info;

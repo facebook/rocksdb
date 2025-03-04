@@ -1233,8 +1233,9 @@ Status DBImpl::SetOptions(
     //
     // (b) Append a new Version without manifest write nor DB mutex release
     //
-    // Thus aren't releasing the DB mutex again until the end of this block,
-    // after installing the new SuperVersion.
+    // Thus aren't releasing the DB mutex from LogAndApply calling pre_cb,
+    // through installing the new Version until the end of this block, after
+    // installing the new SuperVersion.
     auto pre_cb = [&]() -> Status {
       Status cb_s = cfd->SetOptions(db_options, options_map);
       if (cb_s.ok()) {
@@ -3465,7 +3466,7 @@ void DBImpl::MultiGetEntityWithCallback(
 }
 
 Status DBImpl::WrapUpCreateColumnFamilies(
-    const ReadOptions& /*read_options*/, const WriteOptions& write_options,
+    const WriteOptions& write_options,
     const std::vector<const ColumnFamilyOptions*>& cf_options) {
   options_mutex_.AssertHeld();
 
@@ -3497,8 +3498,7 @@ Status DBImpl::CreateColumnFamily(const ReadOptions& read_options,
   Status s = CreateColumnFamilyImpl(read_options, write_options, cf_options,
                                     column_family, handle);
   if (s.ok()) {
-    s.UpdateIfOk(
-        WrapUpCreateColumnFamilies(read_options, write_options, {&cf_options}));
+    s.UpdateIfOk(WrapUpCreateColumnFamilies(write_options, {&cf_options}));
   }
   return s;
 }
@@ -3525,8 +3525,7 @@ Status DBImpl::CreateColumnFamilies(
     success_once = true;
   }
   if (success_once) {
-    s.UpdateIfOk(
-        WrapUpCreateColumnFamilies(read_options, write_options, {&cf_options}));
+    s.UpdateIfOk(WrapUpCreateColumnFamilies(write_options, {&cf_options}));
   }
   return s;
 }
@@ -3556,8 +3555,7 @@ Status DBImpl::CreateColumnFamilies(
     cf_opts.push_back(&column_families[i].options);
   }
   if (success_once) {
-    s.UpdateIfOk(
-        WrapUpCreateColumnFamilies(read_options, write_options, cf_opts));
+    s.UpdateIfOk(WrapUpCreateColumnFamilies(write_options, cf_opts));
   }
   return s;
 }

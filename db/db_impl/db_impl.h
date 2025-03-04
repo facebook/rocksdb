@@ -1970,7 +1970,7 @@ class DBImpl : public DB {
 
   // Follow-up work to user creating a column family or (families)
   Status WrapUpCreateColumnFamilies(
-      const ReadOptions& read_options, const WriteOptions& write_options,
+      const WriteOptions& write_options,
       const std::vector<const ColumnFamilyOptions*>& cf_options);
 
   Status DropColumnFamilyImpl(ColumnFamilyHandle* column_family);
