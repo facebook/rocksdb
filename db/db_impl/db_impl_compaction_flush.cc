@@ -4290,7 +4290,8 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   if (UNLIKELY(sv_context->new_superversion == nullptr)) {
     sv_context->NewSuperVersion();
   }
-  cfd->InstallSuperVersion(sv_context, &mutex_, new_seqno_to_time_mapping);
+  cfd->InstallSuperVersion(sv_context, &mutex_,
+                           std::move(new_seqno_to_time_mapping));
 
   // There may be a small data race here. The snapshot tricking bottommost
   // compaction may already be released here. But assuming there will always be

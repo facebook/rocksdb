@@ -6788,7 +6788,7 @@ void DBImpl::InstallSuperVersionForConfigChange(
     new_seqno_to_time_mapping->CopyFrom(seqno_to_time_mapping_);
   }
   InstallSuperVersionAndScheduleWork(cfd, sv_context,
-                                     new_seqno_to_time_mapping);
+                                     std::move(new_seqno_to_time_mapping));
 }
 
 void DBImpl::RecordSeqnoToTimeMapping() {
