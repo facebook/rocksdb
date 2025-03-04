@@ -134,8 +134,8 @@ class SkipList {
   // i up to max_height_ is the predecessor of prev_[0] and prev_height_
   // is the height of prev_[0].  prev_[0] can only be equal to head before
   // insertion, in which case max_height_ and prev_height_ are 1.
-  Node** prev_;
   int32_t prev_height_;
+  Node** prev_;
 
   inline int GetMaxHeight() const {
     return max_height_.load(std::memory_order_relaxed);
