@@ -16,7 +16,8 @@ namespace {
 
 class ExternalTableIterator : public InternalIterator {
  public:
-  explicit ExternalTableIterator(Iterator* iterator) : iterator_(iterator) {}
+  explicit ExternalTableIterator(Iterator* iterator)
+      : iterator_(iterator), valid_(false) {}
 
   // No copying allowed
   ExternalTableIterator(const ExternalTableIterator&) = delete;
@@ -24,7 +25,7 @@ class ExternalTableIterator : public InternalIterator {
 
   ~ExternalTableIterator() override {}
 
-  bool Valid() const override { return iterator_ && iterator_->Valid(); }
+  bool Valid() const override { return valid_; }
 
   void SeekToFirst() override {
     status_ = Status::OK();
@@ -94,17 +95,23 @@ class ExternalTableIterator : public InternalIterator {
     return Slice();
   }
 
-  Status status() const override {
-    return !status_.ok() ? status_
-                         : (iterator_ ? iterator_->status() : Status::OK());
-  }
+  Status status() const override { return status_; }
 
  private:
   std::unique_ptr<Iterator> iterator_;
   InternalKey key_;
+  bool valid_;
   Status status_;
 
-  void UpdateKey() { key_.Set(iterator_->key(), 0, ValueType::kTypeValue); }
+  void UpdateKey() {
+    if (iterator_) {
+      valid_ = iterator_->Valid();
+      status_ = iterator_->status();
+      if (valid_ && status_.ok()) {
+        key_.Set(iterator_->key(), 0, ValueType::kTypeValue);
+      }
+    }
+  }
 };
 
 class ExternalTableReaderAdapter : public TableReader {
