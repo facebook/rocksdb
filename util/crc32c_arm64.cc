@@ -10,7 +10,7 @@
 #if defined(__linux__)
 #include <asm/hwcap.h>
 #endif
-#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT) || defined(__linux__)
+#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
 #include <sys/auxv.h>
 #endif
 #ifndef HWCAP_CRC32
@@ -52,10 +52,9 @@
 extern bool pmull_runtime_flag;
 
 uint32_t crc32c_runtime_check(void) {
-#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT) || defined(__FreeBSD__) || \
-    defined(__linux__)
+#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT) || defined(__FreeBSD__)
   uint64_t auxv = 0;
-#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT) || defined(__linux__)
+#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
   auxv = getauxval(AT_HWCAP);
 #elif defined(__FreeBSD__)
   elf_aux_info(AT_HWCAP, &auxv, sizeof(auxv));
@@ -82,10 +81,9 @@ uint32_t crc32c_runtime_check(void) {
 }
 
 bool crc32c_pmull_runtime_check(void) {
-#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT) || defined(__FreeBSD__) || \
-    defined(__linux__)
+#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT) || defined(__FreeBSD__)
   uint64_t auxv = 0;
-#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT) || defined(__linux__)
+#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
   auxv = getauxval(AT_HWCAP);
 #elif defined(__FreeBSD__)
   elf_aux_info(AT_HWCAP, &auxv, sizeof(auxv));
