@@ -1284,6 +1284,15 @@ DEFINE_bool(
 DEFINE_bool(paranoid_memory_checks, false,
             "Sets CF option paranoid_memory_checks");
 
+DEFINE_bool(
+    auto_refresh_iterator_with_snapshot, false,
+    "When set to true, RocksDB iterator will automatically refresh itself "
+    "upon detecting stale superversion - preserving its' original snapshot");
+
+DEFINE_bool(explicit_snapshot, false,
+            "When set to true iterators will be initialized with explicit "
+            "snapshot");
+
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
@@ -3490,6 +3499,8 @@ class Benchmark {
       read_options_.async_io = FLAGS_async_io;
       read_options_.optimize_multiget_for_io = FLAGS_optimize_multiget_for_io;
       read_options_.auto_readahead_size = FLAGS_auto_readahead_size;
+      read_options_.auto_refresh_iterator_with_snapshot =
+          FLAGS_auto_refresh_iterator_with_snapshot;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;
@@ -5897,6 +5908,13 @@ class Benchmark {
     options.adaptive_readahead = FLAGS_adaptive_readahead;
     options.async_io = FLAGS_async_io;
     options.auto_readahead_size = FLAGS_auto_readahead_size;
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (FLAGS_explicit_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db);
+      options.snapshot = snapshot->snapshot();
+    } else {
+      options.snapshot = nullptr;
+    }
 
     Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
@@ -6853,6 +6871,13 @@ class Benchmark {
 
     Duration duration(FLAGS_duration, reads_);
     char value_buffer[256];
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (FLAGS_explicit_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db_.db);
+      options.snapshot = snapshot->snapshot();
+    } else {
+      options.snapshot = nullptr;
+    }
     while (!duration.Done(1)) {
       int64_t seek_pos = thread->rand.Next() % FLAGS_num;
       GenerateKeyFromIntForSeek(static_cast<uint64_t>(seek_pos), FLAGS_num,
@@ -7181,6 +7206,13 @@ class Benchmark {
       ts_guard.reset(new char[user_timestamp_size_]);
       ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
       read_options.timestamp = &ts;
+    }
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (FLAGS_explicit_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db_.db);
+      read_options.snapshot = snapshot->snapshot();
+    } else {
+      read_options.snapshot = nullptr;
     }
     Iterator* iter = db_.db->NewIterator(read_options);
 
@@ -7796,6 +7828,13 @@ class Benchmark {
       ts_guard.reset(new char[user_timestamp_size_]);
       ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
       read_opts.timestamp = &ts;
+    }
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (FLAGS_explicit_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db);
+      read_opts.snapshot = snapshot->snapshot();
+    } else {
+      read_opts.snapshot = nullptr;
     }
     std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
 

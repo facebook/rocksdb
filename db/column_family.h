@@ -210,6 +210,7 @@ struct SuperVersion {
   ReadOnlyMemTable* mem;
   MemTableListVersion* imm;
   Version* current;
+  // TODO: do we really need this in addition to what's in current Version?
   MutableCFOptions mutable_cf_options;
   // Version number of the current SuperVersion
   uint64_t version_number;
@@ -381,13 +382,13 @@ class ColumnFamilyData {
     return mem()->GetFirstSequenceNumber() == 0 && imm()->NumNotFlushed() == 0;
   }
 
-  Version* current() { return current_; }
   Version* dummy_versions() { return dummy_versions_; }
-  void SetCurrent(Version* _current);
-  uint64_t GetNumLiveVersions() const;    // REQUIRE: DB mutex held
-  uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
-  uint64_t GetLiveSstFilesSize() const;   // REQUIRE: DB mutex held
-  uint64_t GetTotalBlobFileSize() const;  // REQUIRE: DB mutex held
+  Version* current() { return current_; }  // REQUIRE: DB mutex held
+  void SetCurrent(Version* _current);      // REQUIRE: DB mutex held
+  uint64_t GetNumLiveVersions() const;     // REQUIRE: DB mutex held
+  uint64_t GetTotalSstFilesSize() const;   // REQUIRE: DB mutex held
+  uint64_t GetLiveSstFilesSize() const;    // REQUIRE: DB mutex held
+  uint64_t GetTotalBlobFileSize() const;   // REQUIRE: DB mutex held
   // REQUIRE: DB mutex held
   void SetMemtable(MemTable* new_mem) {
     AssignMemtableID(new_mem);
@@ -483,6 +484,9 @@ class ColumnFamilyData {
   // thread-safe
   uint64_t GetSuperVersionNumber() const {
     return super_version_number_.load();
+  }
+  uint64_t GetSuperVersionNumberRelaxed() const {
+    return super_version_number_.load(std::memory_order_relaxed);
   }
   // Only intended for use by DBImpl::InstallSuperVersion() and variants
   void InstallSuperVersion(SuperVersionContext* sv_context,

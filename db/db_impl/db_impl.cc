@@ -1220,18 +1220,42 @@ Status DBImpl::SetOptions(
   {
     auto db_options = GetDBOptions();
     InstrumentedMutexLock l(&mutex_);
-    s = cfd->SetOptions(db_options, options_map);
-    if (s.ok()) {
-      new_options_copy = cfd->GetLatestMutableCFOptions();
-      // Append new version to recompute compaction score.
-      VersionEdit dummy_edit;
-      s = versions_->LogAndApply(cfd, read_options, write_options, &dummy_edit,
-                                 &mutex_, directories_.GetDbDir());
-      if (!versions_->io_status().ok()) {
-        assert(!s.ok());
-        error_handler_.SetBGError(versions_->io_status(),
-                                  BackgroundErrorReason::kManifestWrite);
+    // Manifest writers + Version appenders like flush and compaction use
+    // LogAndApply, which releases DB mutex to wait for other manifest writers
+    // and for the manifest write. We need to append a Version for the options
+    // to take full effect (e.g. compaction scores), but we don't want to
+    // interleave with other callers of LogAndApply, which could at least
+    // temporarily roll back option changes. Thus, we use a special call to
+    // LogAndApply that allows us to
+    //
+    // (a) Apply the options update when we know we are the exclusive version
+    // appender + (fake) manifest writer, and
+    //
+    // (b) Append a new Version without manifest write nor DB mutex release
+    //
+    // Thus aren't releasing the DB mutex again until the end of this block,
+    // after installing the new SuperVersion.
+    auto pre_cb = [&]() -> Status {
+      Status cb_s = cfd->SetOptions(db_options, options_map);
+      if (cb_s.ok()) {
+        new_options_copy = cfd->GetLatestMutableCFOptions();
       }
+      return cb_s;
+    };
+    VersionEdit dummy_edit;
+    dummy_edit.MarkNoManifestWriteDummy();
+    TEST_SYNC_POINT_CALLBACK("DBImpl::SetOptions:dummy_edit", &dummy_edit);
+    s = versions_->LogAndApply(
+        cfd, read_options, write_options, &dummy_edit, &mutex_,
+        directories_.GetDbDir(), false /*new_descriptor_log=*/,
+        nullptr /*new_opts*/, {} /*manifest_wcb*/, pre_cb);
+    if (!versions_->io_status().ok()) {
+      assert(!s.ok());
+      error_handler_.SetBGError(versions_->io_status(),
+                                BackgroundErrorReason::kManifestWrite);
+    }
+
+    if (s.ok()) {
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
@@ -1239,6 +1263,14 @@ Status DBImpl::SetOptions(
       persist_options_status =
           WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
       bg_cv_.SignalAll();
+
+#if __cplusplus >= 202002L
+      assert(new_options_copy == cfd->GetLatestMutableCFOptions());
+      assert(cfd->GetLatestMutableCFOptions() ==
+             cfd->GetCurrentMutableCFOptions());
+      assert(cfd->GetCurrentMutableCFOptions() ==
+             cfd->current()->GetMutableCFOptions());
+#endif
     }
   }
   sv_context.Clean();
@@ -2489,6 +2521,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         // Return all merge operands for get_impl_options.key
         *get_impl_options.number_of_operands =
             static_cast<int>(merge_context.GetNumOperands());
+        // OK status is returned, some merge operand is found.
+        assert(*get_impl_options.number_of_operands > 0);
         if (*get_impl_options.number_of_operands >
             get_impl_options.get_merge_operands_options
                 ->expected_max_number_of_operands) {
@@ -2593,7 +2627,7 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
     }
   };
 
-  bool last_try = false;
+  bool acquire_mutex = false;
   if (cf_list->size() == 1) {
     // Fast path for a single column family. We can simply get the thread local
     // super version
@@ -2642,29 +2676,32 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
     // sure.
     constexpr int num_retries = 3;
     for (int i = 0; i < num_retries; ++i) {
-      last_try = (i == num_retries - 1);
+      // When reading from kPersistedTier, we want a consistent view into CFs.
+      // So we take mutex to prevent any SV change in any CF.
+      acquire_mutex = ((i == num_retries - 1) && !read_options.snapshot) ||
+                      read_options.read_tier == kPersistedTier;
       bool retry = false;
 
       if (i > 0) {
         sv_cleanup_func();
       }
       if (read_options.snapshot == nullptr) {
-        if (last_try) {
-          TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::LastTry");
-          // We're close to max number of retries. For the last retry,
-          // acquire the lock so we're sure to succeed
-          mutex_.Lock();
-        }
         *snapshot = GetLastPublishedSequence();
       } else {
         *snapshot =
             static_cast_with_check<const SnapshotImpl>(read_options.snapshot)
                 ->number_;
       }
+      if (acquire_mutex) {
+        TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::LastTry");
+        // We're close to max number of retries. For the last retry,
+        // acquire the lock so we're sure to succeed
+        mutex_.Lock();
+      }
       for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
            ++cf_iter) {
         auto node = iter_deref_func(cf_iter);
-        if (!last_try) {
+        if (!acquire_mutex) {
           if (extra_sv_ref) {
             node->super_version = node->cfd->GetReferencedSuperVersion(this);
           } else {
@@ -2688,7 +2725,7 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
           }
         }
         TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot");
-        if (read_options.snapshot != nullptr || last_try) {
+        if (read_options.snapshot != nullptr || acquire_mutex) {
           // If user passed a snapshot, then we don't care if a memtable is
           // sealed or compaction happens because the snapshot would ensure
           // that older key versions are kept around. If this is the last
@@ -2699,7 +2736,7 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
         // memtables, which will include immutable memtables as well, but that
         // might be tricky to maintain in case we decide, in future, to do
         // memtable compaction.
-        if (!last_try) {
+        if (!acquire_mutex) {
           SequenceNumber seq =
               node->super_version->mem->GetEarliestSequenceNumber();
           if (seq > *snapshot) {
@@ -2709,19 +2746,20 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
         }
       }
       if (!retry) {
-        if (last_try) {
+        if (acquire_mutex) {
           mutex_.Unlock();
           TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::AfterLastTryRefSV");
         }
         break;
       }
+      assert(!acquire_mutex);
     }
   }
 
   TEST_SYNC_POINT("DBImpl::MultiCFSnapshot:AfterGetSeqNum1");
   TEST_SYNC_POINT("DBImpl::MultiCFSnapshot:AfterGetSeqNum2");
   PERF_TIMER_STOP(get_snapshot_time);
-  *sv_from_thread_local = !last_try;
+  *sv_from_thread_local = !acquire_mutex;
   if (!s.ok()) {
     sv_cleanup_func();
   }
@@ -5872,6 +5910,7 @@ Status DBImpl::IngestExternalFiles(
 
     num_running_ingest_file_ += static_cast<int>(num_cfs);
     TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter");
+    TEST_SYNC_POINT("DBImpl::IngestExternalFile:AfterIncIngestFileCounter:2");
 
     bool at_least_one_cf_need_flush = false;
     std::vector<bool> need_flush(num_cfs, false);

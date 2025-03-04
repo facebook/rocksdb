@@ -98,7 +98,8 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
-    void Corruption(size_t bytes, const Status& s) override {
+    void Corruption(size_t bytes, const Status& s,
+                    uint64_t /*log_number*/ = kMaxSequenceNumber) override {
       ROCKS_LOG_ERROR(info_log, "dropping %" ROCKSDB_PRIszt " bytes; %s", bytes,
                       s.ToString().c_str());
     }

@@ -604,6 +604,20 @@ class InternalStats {
     ++cf_stats_count_[type];
   }
 
+  void IncrNumRunningCompactionSortedRuns(uint64_t value) {
+    num_running_compaction_sorted_runs_.fetch_add(value,
+                                                  std::memory_order_relaxed);
+  }
+
+  void DecrNumRunningCompactionSortedRuns(uint64_t value) {
+    num_running_compaction_sorted_runs_.fetch_sub(value,
+                                                  std::memory_order_relaxed);
+  }
+
+  uint64_t NumRunningCompactionSortedRuns() {
+    return num_running_compaction_sorted_runs_.load(std::memory_order_relaxed);
+  }
+
   void AddDBStats(InternalDBStatsType type, uint64_t value,
                   bool concurrent = false) {
     auto& v = db_stats_[type];
@@ -847,6 +861,8 @@ class InternalStats {
   bool HandleCompactionPending(uint64_t* value, DBImpl* db, Version* version);
   bool HandleNumRunningCompactions(uint64_t* value, DBImpl* db,
                                    Version* version);
+  bool HandleNumRunningCompactionSortedRuns(uint64_t* value, DBImpl* db,
+                                            Version* version);
   bool HandleBackgroundErrors(uint64_t* value, DBImpl* db, Version* version);
   bool HandleCurSizeActiveMemTable(uint64_t* value, DBImpl* db,
                                    Version* version);
@@ -920,6 +936,12 @@ class InternalStats {
   // resources, or input file corruption. Failing when retrying the same flush
   // or compaction will cause the counter to increase too.
   uint64_t bg_error_count_;
+
+  // This is a rolling count of the number of sorted runs being processed by
+  // currently running compactions. Other metrics are only incremented, but this
+  // metric is also decremented. Additionally, we also do not want to reset this
+  // count to zero at a periodic interval.
+  std::atomic<uint64_t> num_running_compaction_sorted_runs_;
 
   const int number_levels_;
   SystemClock* clock_;

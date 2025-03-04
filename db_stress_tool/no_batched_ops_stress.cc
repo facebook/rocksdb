@@ -49,6 +49,10 @@ class NonBatchedOpsStressTest : public StressTest {
       end = max_key;
     }
 
+    if (FLAGS_auto_refresh_iterator_with_snapshot) {
+      options.auto_refresh_iterator_with_snapshot = true;
+    }
+
     for (size_t cf = 0; cf < column_families_.size(); ++cf) {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
@@ -68,11 +72,28 @@ class NonBatchedOpsStressTest : public StressTest {
       constexpr int num_methods =
           static_cast<int>(VerificationMethod::kNumberOfMethods);
 
-      const VerificationMethod method =
+      VerificationMethod method =
           static_cast<VerificationMethod>(thread->rand.Uniform(
               (FLAGS_user_timestamp_size > 0) ? num_methods - 1 : num_methods));
 
+      if (method == VerificationMethod::kGetEntity && !FLAGS_use_get_entity) {
+        method = VerificationMethod::kGet;
+      }
+      if (method == VerificationMethod::kMultiGetEntity &&
+          !FLAGS_use_multi_get_entity) {
+        method = VerificationMethod::kMultiGet;
+      }
+      if (method == VerificationMethod::kMultiGet && !FLAGS_use_multiget) {
+        method = VerificationMethod::kGet;
+      }
+
       if (method == VerificationMethod::kIterator) {
+        std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+        if (options.auto_refresh_iterator_with_snapshot) {
+          snapshot = std::make_unique<ManagedSnapshot>(db_);
+          options.snapshot = snapshot->snapshot();
+        }
+
         std::unique_ptr<Iterator> iter(
             db_->NewIterator(options, column_families_[cf]));
 
@@ -133,6 +154,10 @@ class NonBatchedOpsStressTest : public StressTest {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
                           from_db.data(), from_db.size());
           }
+        }
+
+        if (options.auto_refresh_iterator_with_snapshot) {
+          options.snapshot = nullptr;
         }
       } else if (method == VerificationMethod::kGet) {
         for (int64_t i = start; i < end; ++i) {
@@ -469,6 +494,13 @@ class NonBatchedOpsStressTest : public StressTest {
       read_opts.timestamp = &ts;
     }
 
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (FLAGS_auto_refresh_iterator_with_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db_);
+      read_opts.snapshot = snapshot->snapshot();
+      read_opts.auto_refresh_iterator_with_snapshot = true;
+    }
+
     static Random64 rand64(shared->GetSeed());
 
     {
@@ -495,6 +527,10 @@ class NonBatchedOpsStressTest : public StressTest {
         s.PermitUncheckedError();
       } else {
         // Use range scan
+        if (read_opts.auto_refresh_iterator_with_snapshot) {
+          snapshot = std::make_unique<ManagedSnapshot>(db_);
+          read_opts.snapshot = snapshot->snapshot();
+        }
         std::unique_ptr<Iterator> iter(
             secondary_db_->NewIterator(read_opts, handle));
         uint32_t rnd = (thread->rand.Next()) % 4;
@@ -524,6 +560,9 @@ class NonBatchedOpsStressTest : public StressTest {
           iter->SeekForPrev(key_str);
           for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Prev()) {
           }
+        }
+        if (read_opts.auto_refresh_iterator_with_snapshot) {
+          read_opts.snapshot = nullptr;
         }
       }
     }
@@ -1561,6 +1600,12 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
 
+    // There is a narrow window in iterator auto refresh run where injected read
+    // errors are simply untraceable, ex. failure to delete file as a part of
+    // superversion cleanup callback invoked by the DBIter destructor.
+    bool ignore_injected_read_error_in_iter =
+        ro_copy.auto_refresh_iterator_with_snapshot;
+
     // Randomly test with `iterate_upper_bound` and `prefix_same_as_start`
     //
     // Get the next prefix first and then see if we want to set it to be the
@@ -1590,6 +1635,12 @@ class NonBatchedOpsStressTest : public StressTest {
       SharedState::ignore_read_error = false;
     }
 
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (ro_copy.snapshot == nullptr &&
+        ro_copy.auto_refresh_iterator_with_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db_);
+      ro_copy.snapshot = snapshot->snapshot();
+    }
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro_copy, cfh));
 
     uint64_t count = 0;
@@ -1647,7 +1698,8 @@ class NonBatchedOpsStressTest : public StressTest {
               FaultInjectionIOType::kRead),
           fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kMetadataRead));
-      if (!SharedState::ignore_read_error && injected_error_count > 0 &&
+      if (!ignore_injected_read_error_in_iter &&
+          !SharedState::ignore_read_error && injected_error_count > 0 &&
           s.ok()) {
         // Grab mutex so multiple thread don't try to print the
         // stack trace at the same time
@@ -2340,6 +2392,7 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     ReadOptions ro(read_opts);
+
     if (FLAGS_prefix_size > 0) {
       ro.total_order_seek = true;
     }
@@ -2381,6 +2434,16 @@ class NonBatchedOpsStressTest : public StressTest {
       pre_read_expected_values.push_back(
           shared->Get(rand_column_family, i + lb));
     }
+
+    // Snapshot initialization timing plays a crucial role here.
+    // We want the iterator to reflect the state of the DB between
+    // reading `pre_read_expected_values` and `post_read_expected_values`.
+    std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
+    if (ro.auto_refresh_iterator_with_snapshot) {
+      snapshot = std::make_unique<ManagedSnapshot>(db_);
+      ro.snapshot = snapshot->snapshot();
+    }
+
     std::unique_ptr<Iterator> iter;
     if (FLAGS_use_multi_cf_iterator) {
       std::vector<ColumnFamilyHandle*> cfhs;
@@ -2623,7 +2686,11 @@ class NonBatchedOpsStressTest : public StressTest {
         pre_read_expected_values.push_back(
             shared->Get(rand_column_family, i + lb));
       }
-      Status rs = iter->Refresh();
+      if (ro.auto_refresh_iterator_with_snapshot) {
+        snapshot = std::make_unique<ManagedSnapshot>(db_);
+        ro.snapshot = snapshot->snapshot();
+      }
+      Status rs = iter->Refresh(ro.snapshot);
       if (!rs.ok() && IsErrorInjectedAndRetryable(rs)) {
         return rs;
       }

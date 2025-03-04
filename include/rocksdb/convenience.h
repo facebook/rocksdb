@@ -410,7 +410,7 @@ Status GetStringFromColumnFamilyOptions(std::string* opts_str,
 Status GetStringFromCompressionType(std::string* compression_str,
                                     CompressionType compression_type);
 
-std::vector<CompressionType> GetSupportedCompressions();
+const std::vector<CompressionType>& GetSupportedCompressions();
 
 Status GetBlockBasedTableOptionsFromString(
     const ConfigOptions& config_options,

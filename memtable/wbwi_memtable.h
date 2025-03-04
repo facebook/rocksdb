@@ -12,13 +12,25 @@ namespace ROCKSDB_NAMESPACE {
 // of the given write batch with index (WBWI) object. This can be used to ingest
 // a transaction (which is based on WBWI) into the DB as an immutable memtable.
 //
-// REQUIRE overwrite_key to be true for the WBWI
-// Since the keys in WBWI do not have sequence number, the memtable needs to be
+// REQUIRES: overwrite_key to be true for the WBWI
+// Since the keys in WBWI do not have sequence number, this class is responsible
+// for assigning sequence numbers to the keys. This memtable needs to be
 // assigned a range of sequence numbers through AssignSequenceNumbers(seqno)
 // before being available for reads.
-// With overwrite_key = true, WBWI keeps track of the most recent update for
-// each key, and each such key will be assigned seqno.upper_bound during reads.
-// One exception is during flush, consider the following scenario:
+//
+// The sequence number assignment uses the update count for each key
+// tracked in WBWI (see WBWIIterator::GetUpdateCount()). For each key, the
+// sequence number assigned is seqno.lower_bound + update_count - 1. So more
+// recent updates will have higher sequence number.
+//
+// Since WBWI with overwrite mode keeps track of the most recent update for
+// each key, this memtable contains one update per key usually. However, there
+// are two exceptions:
+// 1. Merge operations: Each Merge operation do not overwrite existing entries,
+// if a user uses Merge, multiple entries may be kept.
+// 2. Overwriten SingleDelete: this memtable needs to emit an extra
+// SingleDelete even when the SD is overwritten by another update.
+// Consider the following scenario:
 // - WBWI has SD(k) then PUT(k, v1)
 // - DB has PUT(k, v2) in L1
 // - flush WBWI adds PUT(k, v1) into L0
@@ -26,8 +38,7 @@ namespace ROCKSDB_NAMESPACE {
 // - flush live memtable and compact it with L0 will drop SD(k) and PUT(k, v1)
 // - the PUT(k, v2) in L1 incorrectly becomes visible
 // So during flush, iterator from this memtable will need emit overwritten
-// single deletion. These single deletion entries will be
-// assigned seqno.upper_bound - 1.
+// single deletion. This SD will be assigned seqno.lower_bound.
 class WBWIMemTable final : public ReadOnlyMemTable {
  public:
   struct SeqnoRange {
@@ -253,59 +264,51 @@ class WBWIMemTableIterator final : public InternalIterator {
   }
 
   void SeekToLast() override {
+    assert(!emit_overwritten_single_del_);
     it_->SeekToLast();
     UpdateKey();
   }
 
   void Seek(const Slice& target) override {
+    // `emit_overwritten_single_del_` is only used for flush, which does
+    // sequential forward scan from the beginning.
+    assert(!emit_overwritten_single_del_);
     Slice target_user_key = ExtractUserKey(target);
+    // Moves to first update >= target_user_key
     it_->Seek(target_user_key);
-    if (it_->Valid()) {
-      // compare seqno
-      SequenceNumber seqno = GetInternalKeySeqno(target);
-      assert(!emit_overwritten_single_del_);
-      // For now all keys are assigned seqno_ub_, this may change after merge
-      // is supported.
-      assert(seqno <= assigned_seqno_.lower_bound ||
-             seqno >= assigned_seqno_.upper_bound);
-      if (seqno < assigned_seqno_.upper_bound &&
-          comparator_->Compare(it_->Entry().key, target_user_key) == 0) {
-        it_->Next();
-        // TODO: cannot assume distinct keys once Merge is supported
-        if (it_->Valid()) {
-          assert(comparator_->Compare(it_->Entry().key, target_user_key) > 0);
-        }
-      }
+    SequenceNumber target_seqno = GetInternalKeySeqno(target);
+    // Move to the first entry with seqno <= target_seqno for the same
+    // user key or a different user key.
+    while (it_->Valid() &&
+           comparator_->Compare(it_->Entry().key, target_user_key) == 0 &&
+           target_seqno < CurrentKeySeqno()) {
+      it_->Next();
     }
     UpdateKey();
   }
 
   void SeekForPrev(const Slice& target) override {
+    assert(!emit_overwritten_single_del_);
     Slice target_user_key = ExtractUserKey(target);
+    // Moves to last update <= target_user_key
     it_->SeekForPrev(target_user_key);
-    if (it_->Valid()) {
-      SequenceNumber seqno = GetInternalKeySeqno(target);
-      assert(seqno <= assigned_seqno_.lower_bound ||
-             seqno >= assigned_seqno_.upper_bound);
-      if (seqno > assigned_seqno_.upper_bound &&
-          comparator_->Compare(it_->Entry().key, target_user_key) == 0) {
-        it_->Prev();
-        if (it_->Valid()) {
-          // TODO: cannot assume distinct keys once Merge is supported
-          assert(comparator_->Compare(it_->Entry().key, target_user_key) < 0);
-        }
-      }
+    SequenceNumber target_seqno = GetInternalKeySeqno(target);
+    // Move to the first entry with seqno >= target_seqno for the same
+    // user key or a different user key.
+    while (it_->Valid() &&
+           comparator_->Compare(it_->Entry().key, target_user_key) == 0 &&
+           CurrentKeySeqno() < target_seqno) {
+      it_->Prev();
     }
     UpdateKey();
   }
 
   void Next() override {
-    // Only need to emit single deletion during flush. Since Flush does
-    // sequential forward scan, we only need to emit single deletion in Next(),
-    // and do not need to consider iterator direction change.
     assert(Valid());
     if (emit_overwritten_single_del_) {
       if (it_->HasOverWrittenSingleDel() && !at_overwritten_single_del_) {
+        // Merge and SingleDelete on the same key is undefined behavior.
+        assert(it_->Entry().type != kMergeRecord);
         UpdateSingleDeleteKey();
         return;
       }
@@ -329,6 +332,7 @@ class WBWIMemTableIterator final : public InternalIterator {
   }
 
   void Prev() override {
+    assert(!emit_overwritten_single_del_);
     assert(Valid());
     it_->Prev();
     UpdateKey();
@@ -341,7 +345,6 @@ class WBWIMemTableIterator final : public InternalIterator {
 
   Slice value() const override {
     assert(Valid());
-    // TODO: it_->Entry() is not trivial, cache it
     return it_->Entry().value;
   }
 
@@ -355,6 +358,16 @@ class WBWIMemTableIterator final : public InternalIterator {
  private:
   static const std::unordered_map<WriteType, ValueType> WriteTypeToValueTypeMap;
 
+  SequenceNumber CurrentKeySeqno() {
+    assert(it_->Valid());
+    assert(it_->GetUpdateCount() >= 1);
+    auto seq = assigned_seqno_.lower_bound + it_->GetUpdateCount() - 1;
+    assert(seq <= assigned_seqno_.upper_bound);
+    return seq;
+  }
+
+  // If it_ is valid, udate key_ to an internal key containing it_ current
+  // key, CurrentKeySeqno() and a type corresponding to it_ current entry type.
   void UpdateKey() {
     valid_ = it_->Valid();
     if (!Valid()) {
@@ -370,16 +383,16 @@ class WBWIMemTableIterator final : public InternalIterator {
                               std::to_string(it_->Entry().type));
       return;
     }
-    key_buf_.SetInternalKey(it_->Entry().key, assigned_seqno_.upper_bound,
-                            t->second);
+    key_buf_.SetInternalKey(it_->Entry().key, CurrentKeySeqno(), t->second);
     key_ = key_buf_.GetInternalKey();
   }
 
   void UpdateSingleDeleteKey() {
     assert(it_->Valid());
     assert(Valid());
-    assert(assigned_seqno_.lower_bound < assigned_seqno_.upper_bound);
-    key_buf_.SetInternalKey(it_->Entry().key, assigned_seqno_.upper_bound - 1,
+    // The key that overwrites this SingleDelete will be assigned at least
+    // seqno lower_bound + 1 (see CurrentKeySeqno()).
+    key_buf_.SetInternalKey(it_->Entry().key, assigned_seqno_.lower_bound,
                             kTypeSingleDeletion);
     key_ = key_buf_.GetInternalKey();
     at_overwritten_single_del_ = true;

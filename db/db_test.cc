@@ -5290,7 +5290,6 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   for (int i = 0; i < kNKeys; i++) {
     keys[i] = i;
   }
-  RandomShuffle(std::begin(keys), std::end(keys), 301);
 
   Random rnd(301);
   Options options;
@@ -5346,7 +5345,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   // above compression settings for each level, there will be some compression.
   ASSERT_OK(options.statistics->Reset());
   ASSERT_EQ(num_block_compressed, 0);
-  for (int i = 21; i < 120; i++) {
+  for (int i = 20; i < 120; i++) {
     ASSERT_OK(Put(Key(keys[i]), CompressibleString(&rnd, 4000)));
     ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   }
@@ -5369,10 +5368,43 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   }));
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
+
+  // Ensure that L1+ files are non-overlapping and together with L0 encompass
+  // full key range between smallestkey and largestkey from CF file metadata.
+  int largestkey_in_prev_level = -1;
+  int keys_found = 0;
+  for (int level = (int)cf_meta.levels.size() - 1; level >= 0; level--) {
+    int files_in_level = (int)cf_meta.levels[level].files.size();
+    int largestkey_in_prev_file = -1;
+    for (int j = 0; j < files_in_level; j++) {
+      int smallestkey = IdFromKey(cf_meta.levels[level].files[j].smallestkey);
+      int largestkey = IdFromKey(cf_meta.levels[level].files[j].largestkey);
+      int num_entries = (int)cf_meta.levels[level].files[j].num_entries;
+      ASSERT_EQ(num_entries, largestkey - smallestkey + 1);
+      keys_found += num_entries;
+      if (level > 0) {
+        if (j == 0) {
+          ASSERT_GT(smallestkey, largestkey_in_prev_level);
+        }
+        if (j > 0) {
+          ASSERT_GT(smallestkey, largestkey_in_prev_file);
+        }
+        if (j == files_in_level - 1) {
+          largestkey_in_prev_level = largestkey;
+        }
+      }
+      largestkey_in_prev_file = largestkey;
+    }
+  }
+  ASSERT_EQ(keys_found, kNKeys);
+
   for (const auto& file : cf_meta.levels[4].files) {
     listener->SetExpectedFileName(dbname_ + file.name);
     Slice start(file.smallestkey), limit(file.largestkey);
     const RangePtr ranges(&start, &limit);
+    // Given verification from above, we're guaranteed that by deleting all the
+    // files in [<smallestkey>, <largestkey>] range, we're effectively deleting
+    // that very single file and nothing more.
     EXPECT_OK(dbfull()->DeleteFilesInRanges(dbfull()->DefaultColumnFamily(),
                                             &ranges, true /* include_end */));
   }

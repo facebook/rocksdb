@@ -372,6 +372,11 @@ struct TransactionOptions {
   // without indexing (e.g. added directly to the transaction underlying
   // write batch through Transaction::GetWriteBatch()->GetWriteBatch())
   // are not supported. They will not be applied to the DB.
+  //
+  // NOTE: since WBWI keep track of the most recent update per key, a Put
+  // followed by a SingleDelete will be written to DB as a SingleDelete. This
+  // can cause flush/compaction to report `num_single_del_mismatch` due to
+  // consecutive SingleDeletes.
   bool commit_bypass_memtable = false;
 };
 

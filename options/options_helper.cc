@@ -384,38 +384,47 @@ std::unordered_map<std::string, CompressionType>
         {"kZSTD", kZSTD},
         {"kDisableCompressionOption", kDisableCompressionOption}};
 
-std::vector<CompressionType> GetSupportedCompressions() {
-  // std::set internally to deduplicate potential name aliases
-  std::set<CompressionType> supported_compressions;
-  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
-    CompressionType t = comp_to_name.second;
-    if (t != kDisableCompressionOption && CompressionTypeSupported(t)) {
-      supported_compressions.insert(t);
+const std::vector<CompressionType>& GetSupportedCompressions() {
+  static std::vector<CompressionType> supported_compressions = []() {
+    // std::set internally to deduplicate potential name aliases
+    std::set<CompressionType> comp_set;
+    for (const auto& comp_to_name :
+         OptionsHelper::compression_type_string_map) {
+      CompressionType t = comp_to_name.second;
+      if (t != kDisableCompressionOption && CompressionTypeSupported(t)) {
+        comp_set.insert(t);
+      }
     }
-  }
-  return std::vector<CompressionType>(supported_compressions.begin(),
-                                      supported_compressions.end());
+    return std::vector<CompressionType>(comp_set.begin(), comp_set.end());
+  }();
+  return supported_compressions;
 }
 
-std::vector<CompressionType> GetSupportedDictCompressions() {
-  std::set<CompressionType> dict_compression_types;
-  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
-    CompressionType t = comp_to_name.second;
-    if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
-      dict_compression_types.insert(t);
+const std::vector<CompressionType>& GetSupportedDictCompressions() {
+  static std::vector<CompressionType> supported_dict_compressions = []() {
+    std::set<CompressionType> comp_set;
+    for (const auto& comp_to_name :
+         OptionsHelper::compression_type_string_map) {
+      CompressionType t = comp_to_name.second;
+      if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
+        comp_set.insert(t);
+      }
     }
-  }
-  return std::vector<CompressionType>(dict_compression_types.begin(),
-                                      dict_compression_types.end());
+    return std::vector<CompressionType>(comp_set.begin(), comp_set.end());
+  }();
+  return supported_dict_compressions;
 }
 
-std::vector<ChecksumType> GetSupportedChecksums() {
-  std::set<ChecksumType> checksum_types;
-  for (const auto& e : OptionsHelper::checksum_type_string_map) {
-    checksum_types.insert(e.second);
-  }
-  return std::vector<ChecksumType>(checksum_types.begin(),
-                                   checksum_types.end());
+const std::vector<ChecksumType>& GetSupportedChecksums() {
+  static std::vector<ChecksumType> supported_checksums = []() {
+    std::set<ChecksumType> checksum_types;
+    for (const auto& e : OptionsHelper::checksum_type_string_map) {
+      checksum_types.insert(e.second);
+    }
+    return std::vector<ChecksumType>(checksum_types.begin(),
+                                     checksum_types.end());
+  }();
+  return supported_checksums;
 }
 
 static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,

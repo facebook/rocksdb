@@ -39,6 +39,7 @@
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
+#include "table/block_based/block_based_table_builder.h"
 #include "table/sst_file_dumper.h"
 #include "tools/ldb_cmd_impl.h"
 #include "util/cast_util.h"
@@ -805,26 +806,78 @@ bool LDBCommand::ParseCompressionTypeOption(
       value = kNoCompression;
       return true;
     } else if (comp == "snappy") {
-      value = kSnappyCompression;
-      return true;
+      if (!Snappy_Supported()) {
+        exec_state = LDBCommandExecuteResult::Failed(
+            "Snappy compression is not supported in this build.");
+      } else {
+        value = kSnappyCompression;
+        return true;
+      }
     } else if (comp == "zlib") {
-      value = kZlibCompression;
-      return true;
+      if (!Zlib_Supported()) {
+        exec_state = LDBCommandExecuteResult::Failed(
+            "zlib compression is not supported in this build.");
+      } else {
+        value = kZlibCompression;
+        return true;
+      }
     } else if (comp == "bzip2") {
-      value = kBZip2Compression;
-      return true;
+      if (!BZip2_Supported()) {
+        exec_state = LDBCommandExecuteResult::Failed(
+            "bzip2 compression is not supported in this build.");
+      } else {
+        value = kBZip2Compression;
+        return true;
+      }
     } else if (comp == "lz4") {
-      value = kLZ4Compression;
-      return true;
+      if (!LZ4_Supported()) {
+        exec_state = LDBCommandExecuteResult::Failed(
+            "lz4 compression is not supported in this build.");
+      } else {
+        value = kLZ4Compression;
+        return true;
+      }
     } else if (comp == "lz4hc") {
-      value = kLZ4HCCompression;
-      return true;
+      if (!LZ4_Supported()) {
+        exec_state = LDBCommandExecuteResult::Failed(
+            "lz4hc compression is not supported in this build.");
+      } else {
+        value = kLZ4HCCompression;
+        return true;
+      }
     } else if (comp == "xpress") {
-      value = kXpressCompression;
-      return true;
+      if (!XPRESS_Supported()) {
+        exec_state = LDBCommandExecuteResult::Failed(
+            "xpress compression is not supported in this build.");
+      } else {
+        value = kXpressCompression;
+        return true;
+      }
     } else if (comp == "zstd") {
-      value = kZSTD;
+      if (!ZSTD_Supported()) {
+        exec_state = LDBCommandExecuteResult::Failed(
+            "zstd compression is not supported in this build.");
+      } else {
+        value = kZSTD;
+        return true;
+      }
+#ifndef NDEBUG
+    } else if (comp == "mixed" && option == ARG_COMPRESSION_TYPE) {
+      if (GetSupportedCompressions().empty()) {
+        exec_state = LDBCommandExecuteResult::Failed(
+            "No compressions are supported in this build for \"mixed\".");
+        return false;
+      }
+      // A temporary hack to generate an SST file with a mix of compression
+      // types, as this has been *de facto* supported for a long time on the
+      // read side with no code to generate them on the write side. We can test
+      // that functionality, e.g. in check_format_compatible.sh, with this hack
+      g_hack_mixed_compression_in_block_based_table.StoreRelaxed(1);
+      // Need to list zstd in compression_name table property if it's
+      // potentially in the mix, for proper handling of context and dictionary.
+      value = ZSTD_Supported() ? kZSTD : GetSupportedCompressions()[0];
       return true;
+#endif  // !NDEBUG
     } else {
       // Unknown compression.
       exec_state = LDBCommandExecuteResult::Failed(
@@ -2768,7 +2821,8 @@ void ChangeCompactionStyleCommand::DoCommand() {
 namespace {
 
 struct StdErrReporter : public log::Reader::Reporter {
-  void Corruption(size_t /*bytes*/, const Status& s) override {
+  void Corruption(size_t /*bytes*/, const Status& s,
+                  uint64_t /*log_number*/ = kMaxSequenceNumber) override {
     std::cerr << "Corruption detected in log file " << s.ToString() << "\n";
   }
 };
