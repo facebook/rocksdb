@@ -22,6 +22,9 @@ namespace ROCKSDB_NAMESPACE {
 class MemTable;
 struct SuperVersion;
 
+// The purpose of this struct is to simplify pushing work such as
+// allocation/construction, de-allocation/destruction, and notifications to
+// outside of holding the DB mutex.
 struct SuperVersionContext {
   struct WriteStallNotification {
     WriteStallInfo write_stall_info;
@@ -34,12 +37,6 @@ struct SuperVersionContext {
 #endif
   std::unique_ptr<SuperVersion>
       new_superversion;  // if nullptr no new superversion
-
-  // If not nullptr, a new seqno to time mapping is available to be installed.
-  // Otherwise, make a shared copy of the one in the existing SuperVersion and
-  // carry it over to the new SuperVersion. This is moved to the SuperVersion
-  // during installation.
-  std::shared_ptr<const SeqnoToTimeMapping> new_seqno_to_time_mapping{nullptr};
 
   explicit SuperVersionContext(bool create_superversion = false)
       : new_superversion(create_superversion ? new SuperVersion() : nullptr) {}

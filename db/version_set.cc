@@ -5741,7 +5741,8 @@ Status VersionSet::ProcessManifestWrites(
       assert(new_cf_options != nullptr);
       assert(max_last_sequence == descriptor_last_sequence_);
       CreateColumnFamily(*new_cf_options, read_options,
-                         first_writer.edit_list.front());
+                         first_writer.edit_list.front(),
+                         /*read_only*/ false);
     } else if (first_writer.edit_list.front()->IsColumnFamilyDrop()) {
       assert(batch_edits.size() == 1);
       assert(max_last_sequence == descriptor_last_sequence_);
@@ -7294,7 +7295,7 @@ uint64_t VersionSet::GetObsoleteSstFilesSize() const {
 
 ColumnFamilyData* VersionSet::CreateColumnFamily(
     const ColumnFamilyOptions& cf_options, const ReadOptions& read_options,
-    const VersionEdit* edit) {
+    const VersionEdit* edit, bool read_only) {
   assert(edit->IsColumnFamilyAdd());
 
   MutableCFOptions dummy_cf_options;
@@ -7305,7 +7306,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   dummy_versions->Ref();
   auto new_cfd = column_family_set_->CreateColumnFamily(
       edit->GetColumnFamilyName(), edit->GetColumnFamily(), dummy_versions,
-      cf_options);
+      cf_options, read_only);
 
   Version* v = new Version(new_cfd, this, file_options_,
                            new_cfd->GetLatestMutableCFOptions(), io_tracer_,

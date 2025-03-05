@@ -1267,27 +1267,18 @@ class DBImpl : public DB {
   // flush LOG out of application buffer
   void FlushInfoLog();
 
-  // record current sequence number to time mapping. If
-  // populate_historical_seconds > 0 then pre-populate all the
-  // sequence numbers from [1, last] to map to [now minus
-  // populate_historical_seconds, now].
-  void RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds);
+  // For the background timer job
+  void RecordSeqnoToTimeMapping();
 
-  // Everytime DB's seqno to time mapping changed (which already hold the db
-  // mutex), we install a new SuperVersion in each column family with a shared
-  // copy of the new mapping while holding the db mutex.
-  // This is done for all column families even though the column family does not
-  // explicitly enabled the
-  // `preclude_last_level_data_seconds` or `preserve_internal_time_seconds`
-  // features.
-  // This mapping supports iterators to fulfill the
-  // "rocksdb.iterator.write-time" iterator property for entries in memtables.
-  //
-  // Since this new SuperVersion doesn't involve an LSM tree shape change, we
-  // don't schedule work after installing this SuperVersion. It returns the used
-  // `SuperVersionContext` for clean up after release mutex.
-  void InstallSeqnoToTimeMappingInSV(
-      std::vector<SuperVersionContext>* sv_contexts);
+  // REQUIRES: DB mutex held
+  std::pair<SequenceNumber, uint64_t> GetSeqnoToTimeSample() const;
+
+  // REQUIRES: DB mutex held or during open
+  void EnsureSeqnoToTimeMapping(const MinAndMaxPreserveSeconds& preserve_secs);
+
+  // Only called during open
+  void PrepopulateSeqnoToTimeMapping(
+      const MinAndMaxPreserveSeconds& preserve_secs);
 
   // Interface to block and signal the DB in case of stalling writes by
   // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
@@ -1979,7 +1970,7 @@ class DBImpl : public DB {
 
   // Follow-up work to user creating a column family or (families)
   Status WrapUpCreateColumnFamilies(
-      const ReadOptions& read_options, const WriteOptions& write_options,
+      const WriteOptions& write_options,
       const std::vector<const ColumnFamilyOptions*>& cf_options);
 
   Status DropColumnFamilyImpl(ColumnFamilyHandle* column_family);
@@ -2450,9 +2441,7 @@ class DBImpl : public DB {
   // Cancel scheduled periodic tasks
   Status CancelPeriodicTaskScheduler();
 
-  Status RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
-                                       const WriteOptions& write_options,
-                                       bool is_new_db);
+  Status RegisterRecordSeqnoTimeWorker();
 
   void PrintStatistics();
 
@@ -2518,12 +2507,21 @@ class DBImpl : public DB {
 
   // Background threads call this function, which is just a wrapper around
   // the InstallSuperVersion() function. Background threads carry
-  // sv_context which can have new_superversion already
-  // allocated.
+  // sv_context to allow allocation of SuperVersion object outside of holding
+  // the DB mutex.
   // All ColumnFamily state changes go through this function. Here we analyze
   // the new state and we schedule background work if we detect that the new
   // state needs flush or compaction.
-  void InstallSuperVersionAndScheduleWork(ColumnFamilyData* cfd,
+  // See also InstallSuperVersionForConfigChange().
+  void InstallSuperVersionAndScheduleWork(
+      ColumnFamilyData* cfd, SuperVersionContext* sv_context,
+      std::optional<std::shared_ptr<SeqnoToTimeMapping>>
+          new_seqno_to_time_mapping = {});
+
+  // A variant of InstallSuperVersionAndScheduleWork() that must be used for
+  // new CFs or for changes to mutable_cf_options. This is so that it can
+  // update seqno_to_time_mapping cached for the new SuperVersion as relevant.
+  void InstallSuperVersionForConfigChange(ColumnFamilyData* cfd,
                                           SuperVersionContext* sv_context);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,

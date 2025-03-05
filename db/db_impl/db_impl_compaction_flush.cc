@@ -4273,9 +4273,10 @@ void DBImpl::BuildCompactionJobInfo(
 // for superversion_to_free
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
-    ColumnFamilyData* cfd, SuperVersionContext* sv_context) {
+    ColumnFamilyData* cfd, SuperVersionContext* sv_context,
+    std::optional<std::shared_ptr<SeqnoToTimeMapping>>
+        new_seqno_to_time_mapping) {
   mutex_.AssertHeld();
-  const auto& mutable_cf_options = cfd->GetLatestMutableCFOptions();
 
   // Update max_total_in_memory_state_
   size_t old_memtable_size = 0;
@@ -4289,7 +4290,8 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   if (UNLIKELY(sv_context->new_superversion == nullptr)) {
     sv_context->NewSuperVersion();
   }
-  cfd->InstallSuperVersion(sv_context, mutable_cf_options);
+  cfd->InstallSuperVersion(sv_context, &mutex_,
+                           std::move(new_seqno_to_time_mapping));
 
   // There may be a small data race here. The snapshot tricking bottommost
   // compaction may already be released here. But assuming there will always be
@@ -4316,9 +4318,10 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   MaybeScheduleFlushOrCompaction();
 
   // Update max_total_in_memory_state_
-  max_total_in_memory_state_ = max_total_in_memory_state_ - old_memtable_size +
-                               mutable_cf_options.write_buffer_size *
-                                   mutable_cf_options.max_write_buffer_number;
+  max_total_in_memory_state_ =
+      max_total_in_memory_state_ - old_memtable_size +
+      cfd->GetLatestMutableCFOptions().write_buffer_size *
+          cfd->GetLatestMutableCFOptions().max_write_buffer_number;
 }
 
 // ShouldPurge is called by FindObsoleteFiles when doing a full scan,
