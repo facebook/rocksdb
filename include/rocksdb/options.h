@@ -454,6 +454,7 @@ extern const char* kHostnameForDbHostId;
 enum class CompactionServiceJobStatus : char {
   kSuccess,
   kFailure,
+  kAborted,
   kUseLocal,
 };
 
