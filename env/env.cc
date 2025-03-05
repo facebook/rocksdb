@@ -732,6 +732,37 @@ std::string Env::PriorityToString(Env::Priority priority) {
   return "Invalid";
 }
 
+std::string Env::IOActivityToString(IOActivity activity) {
+  switch (activity) {
+    case Env::IOActivity::kFlush:
+      return "Flush";
+    case Env::IOActivity::kCompaction:
+      return "Compaction";
+    case Env::IOActivity::kDBOpen:
+      return "DBOpen";
+    case Env::IOActivity::kGet:
+      return "Get";
+    case Env::IOActivity::kMultiGet:
+      return "MultiGet";
+    case Env::IOActivity::kDBIterator:
+      return "DBIterator";
+    case Env::IOActivity::kVerifyDBChecksum:
+      return "VerifyDBChecksum";
+    case Env::IOActivity::kVerifyFileChecksums:
+      return "VerifyFileChecksums";
+    case Env::IOActivity::kGetEntity:
+      return "GetEntity";
+    case Env::IOActivity::kMultiGetEntity:
+      return "MultiGetEntity";
+    case Env::IOActivity::kReadManifest:
+      return "ReadManifest";
+    case Env::IOActivity::kUnknown:
+      return "Unknown";
+  };
+  assert(false);
+  return "Invalid";
+}
+
 uint64_t Env::GetThreadID() const {
   std::hash<std::thread::id> hasher;
   return hasher(std::this_thread::get_id());
