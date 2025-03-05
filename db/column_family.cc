@@ -168,7 +168,8 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
   }
   if (!cf_options.memtable_factory->IsInsertConcurrentlySupported()) {
     return Status::InvalidArgument(
-        "Memtable doesn't allow concurrent writes (allow_concurrent_memtable_write)");
+        "Memtable doesn't allow concurrent writes "
+        "(allow_concurrent_memtable_write)");
   }
   return Status::OK();
 }
@@ -239,6 +240,10 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
         "disabled, which is a common setting for atomic flush");
 
     result.min_write_buffer_number_to_merge = 1;
+  }
+  if (result.disallow_memtable_writes) {
+    // A simple memtable that enforces MarkReadOnly (unlike skip list)
+    result.memtable_factory = std::make_shared<VectorRepFactory>();
   }
 
   if (result.num_levels < 1) {

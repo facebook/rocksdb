@@ -393,6 +393,9 @@ class ColumnFamilyData {
   void SetMemtable(MemTable* new_mem) {
     AssignMemtableID(new_mem);
     mem_ = new_mem;
+    if (ioptions_.disallow_memtable_writes) {
+      mem_->MarkImmutable();
+    }
   }
 
   void AssignMemtableID(ReadOnlyMemTable* new_imm) {
