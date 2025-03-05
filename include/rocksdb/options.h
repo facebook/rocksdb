@@ -1989,7 +1989,7 @@ struct ReadOptions {
   // external table reader. This is completely opaque to RocksDB and is
   // ignored by the natively supported table readers like block based and plain
   // table. This is only useful for Iterator.
-  std::unordered_map<std::string, std::string> property_bag;
+  std::optional<std::unordered_map<std::string, std::string>> property_bag;
 
   // *** END options for RocksDB internal use only ***
 
