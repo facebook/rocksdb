@@ -3354,6 +3354,69 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
                      keys.data(), values.data(), statuses.data(), true);
 }
 
+TEST_F(DBBasicTest, MultiGetWithSnapshotsAndPersistedTier) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = true;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"cf1", "cf2"}, options);
+
+  // Insert initial data
+  ASSERT_OK(Put(0, "key1", "value1_cf0"));
+  ASSERT_OK(Put(1, "key1", "value1_cf1"));
+  ASSERT_OK(Put(2, "key1", "value1_cf2"));
+  ASSERT_OK(Flush({0, 1, 2}));
+  for (auto cf : {0, 1, 2}) {
+    ASSERT_EQ(1, NumTableFilesAtLevel(0, cf));
+  }
+
+  ASSERT_OK(Put(0, "key1", "value2_cf0"));
+  ASSERT_OK(Put(1, "key1", "value2_cf1"));
+  ASSERT_OK(Put(2, "key1", "value2_cf2"));
+
+  // Prepare for concurrent atomic flush
+  std::atomic<bool> flush_done(false);
+  std::thread flush_thread([&]() {
+    ASSERT_OK(Flush({0, 1, 2}));
+    flush_done.store(true);
+  });
+
+  // Perform MultiGet with snapshot and read_tier = kPersistentTier
+  ReadOptions ro;
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ro.snapshot = snapshot;
+  ro.read_tier = kPersistedTier;
+
+  std::string k = "key1";
+  std::vector<Slice> keys(3, Slice(k));
+  std::vector<Status> statuses(keys.size());
+  std::vector<ColumnFamilyHandle*> cfs(keys.size());
+  std::vector<Slice> new_keys(keys.size());
+  std::vector<PinnableSlice> pin_values(keys.size());
+  for (size_t i = 0; i < keys.size(); ++i) {
+    cfs[i] = handles_[i];
+  }
+  db_->MultiGet(ro, cfs.size(), cfs.data(), keys.data(), pin_values.data(),
+                statuses.data());
+  for (const auto& s : statuses) {
+    ASSERT_OK(s);
+  }
+
+  if (pin_values[0] == "value1_cf0") {
+    // Check if the first value matches expected value
+    ASSERT_EQ(pin_values[1], "value1_cf1");
+    ASSERT_EQ(pin_values[2], "value1_cf2");
+  } else {
+    // If first value doesn't match, check if we got the updated values
+    ASSERT_EQ(pin_values[0], "value2_cf0");
+    ASSERT_EQ(pin_values[1], "value2_cf1");
+    ASSERT_EQ(pin_values[2], "value2_cf2");
+  }
+
+  flush_thread.join();
+  db_->ReleaseSnapshot(snapshot);
+}
+
 TEST_F(DBBasicTest, IncrementalRecoveryNoCorrupt) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);

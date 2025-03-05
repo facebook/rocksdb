@@ -2704,7 +2704,7 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
     }
   };
 
-  bool last_try = false;
+  bool acquire_mutex = false;
   if (cf_list->size() == 1) {
     // Fast path for a single column family. We can simply get the thread local
     // super version
@@ -2753,29 +2753,32 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
     // sure.
     constexpr int num_retries = 3;
     for (int i = 0; i < num_retries; ++i) {
-      last_try = (i == num_retries - 1);
+      // When reading from kPersistedTier, we want a consistent view into CFs.
+      // So we take mutex to prevent any SV change in any CF.
+      acquire_mutex = ((i == num_retries - 1) && !read_options.snapshot) ||
+                      read_options.read_tier == kPersistedTier;
       bool retry = false;
 
       if (i > 0) {
         sv_cleanup_func();
       }
       if (read_options.snapshot == nullptr) {
-        if (last_try) {
-          TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::LastTry");
-          // We're close to max number of retries. For the last retry,
-          // acquire the lock so we're sure to succeed
-          mutex_.Lock();
-        }
         *snapshot = GetLastPublishedSequence();
       } else {
         *snapshot =
             static_cast_with_check<const SnapshotImpl>(read_options.snapshot)
                 ->number_;
       }
+      if (acquire_mutex) {
+        TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::LastTry");
+        // We're close to max number of retries. For the last retry,
+        // acquire the lock so we're sure to succeed
+        mutex_.Lock();
+      }
       for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
            ++cf_iter) {
         auto node = iter_deref_func(cf_iter);
-        if (!last_try) {
+        if (!acquire_mutex) {
           if (extra_sv_ref) {
             node->super_version = node->cfd->GetReferencedSuperVersion(this);
           } else {
@@ -2799,7 +2802,7 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
           }
         }
         TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot");
-        if (read_options.snapshot != nullptr || last_try) {
+        if (read_options.snapshot != nullptr || acquire_mutex) {
           // If user passed a snapshot, then we don't care if a memtable is
           // sealed or compaction happens because the snapshot would ensure
           // that older key versions are kept around. If this is the last
@@ -2810,7 +2813,7 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
         // memtables, which will include immutable memtables as well, but that
         // might be tricky to maintain in case we decide, in future, to do
         // memtable compaction.
-        if (!last_try) {
+        if (!acquire_mutex) {
           SequenceNumber seq =
               node->super_version->mem->GetEarliestSequenceNumber();
           if (seq > *snapshot) {
@@ -2820,19 +2823,20 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
         }
       }
       if (!retry) {
-        if (last_try) {
+        if (acquire_mutex) {
           mutex_.Unlock();
           TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::AfterLastTryRefSV");
         }
         break;
       }
+      assert(!acquire_mutex);
     }
   }
 
   TEST_SYNC_POINT("DBImpl::MultiCFSnapshot:AfterGetSeqNum1");
   TEST_SYNC_POINT("DBImpl::MultiCFSnapshot:AfterGetSeqNum2");
   PERF_TIMER_STOP(get_snapshot_time);
-  *sv_from_thread_local = !last_try;
+  *sv_from_thread_local = !acquire_mutex;
   if (!s.ok()) {
     sv_cleanup_func();
   }
