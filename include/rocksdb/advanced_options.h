@@ -719,6 +719,17 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool report_bg_io_stats = false;
 
+  // Setting this option to true disallows ordinary writes to the column family
+  // and it can only be populated through import and ingestion. It is intended
+  // to protect "ingestion only" column families. This option is not currently
+  // supported on the default column family because of error handling challenges
+  // analogous to https://github.com/facebook/rocksdb/issues/13429
+  //
+  // This option is not mutable with SetOptions(). It can be changed between
+  // DB::Open() calls, but open will fail if recovering WAL writes to a CF with
+  // this option set.
+  bool disallow_memtable_writes = false;
+
   // This option has different meanings for different compaction styles:
   //
   // Leveled: Non-bottom-level files with all keys older than TTL will go

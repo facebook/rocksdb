@@ -736,6 +736,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions, force_consistency_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"disallow_memtable_writes",
+         {offsetof(struct ImmutableCFOptions, disallow_memtable_writes),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"default_temperature",
          {offsetof(struct ImmutableCFOptions, default_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
@@ -998,6 +1002,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
+      disallow_memtable_writes(cf_options.disallow_memtable_writes),
       default_temperature(cf_options.default_temperature),
       memtable_insert_with_hint_prefix_extractor(
           cf_options.memtable_insert_with_hint_prefix_extractor),
