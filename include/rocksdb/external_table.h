@@ -21,10 +21,10 @@ class ExternalTableFactory;
 
 // This file defines an interface for plugging in an external table
 // into RocksDB. The external table reader will be used instead of the
-// BlockBasedTable to load and query sst files. As of now, creating the
-// the near future. The external table files can be created using an
-// SstFileWriter. Eventually external tables will be allowed to be ingested
-// into a RocksDB instance using the IngestExternalFIle() API.
+// BlockBasedTable to load and query sst files.
+// The external table files can be created using an SstFileWriter. Eventually
+// external tables will be allowed to be ingested into a RocksDB instance
+// using the IngestExternalFIle() API.
 //
 // Initial support is for writing and querying the files using an
 // SstFileWriter and SstFileReader. We will add support for ingestion of an
@@ -128,7 +128,7 @@ class ExternalTableBuilder {
   virtual Status Finish() = 0;
 
   // Delete the partial file and release any allocated resources. Either this
-  // Finish() will be called, but not both.
+  // or Finish() will be called, but not both.
   virtual void Abandon() = 0;
 
   // Return the size of the table file. Will be called at the end, after
