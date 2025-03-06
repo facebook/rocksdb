@@ -1985,6 +1985,12 @@ struct ReadOptions {
   // reader implementation.
   uint64_t weight = 0;
 
+  // A map of name,value pairs that can be passed by the user to an
+  // external table reader. This is completely opaque to RocksDB and is
+  // ignored by the natively supported table readers like block based and plain
+  // table. This is only useful for Iterator.
+  std::optional<std::unordered_map<std::string, std::string>> property_bag;
+
   // *** END options for RocksDB internal use only ***
 
   ReadOptions() {}
