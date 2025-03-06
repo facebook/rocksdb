@@ -160,6 +160,7 @@ TEST_F(DBSecondaryTest, NonExistingDb) {
 TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   Options options;
   options.env = env_;
+  options.preserve_internal_time_seconds = 300;
   Reopen(options);
   ASSERT_OK(Put("foo", "foo_value"));
   ASSERT_OK(Put("bar", "bar_value"));

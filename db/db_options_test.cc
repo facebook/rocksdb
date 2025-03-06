@@ -71,7 +71,7 @@ class DBOptionsTest : public DBTestBase {
     ImmutableDBOptions db_options(options);
     test::RandomInitCFOptions(&options, options, rnd);
     auto sanitized_options =
-        SanitizeOptions(db_options, /*read_only*/ false, options);
+        SanitizeCfOptions(db_options, /*read_only*/ false, options);
     auto opt_map = GetMutableCFOptionsMap(sanitized_options);
     delete options.compaction_filter;
     return opt_map;

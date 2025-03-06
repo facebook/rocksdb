@@ -5114,7 +5114,7 @@ VersionSet::VersionSet(
     BlockCacheTracer* const block_cache_tracer,
     const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
     const std::string& db_session_id, const std::string& daily_offpeak_time_utc,
-    ErrorHandler* const error_handler, const bool read_only)
+    ErrorHandler* error_handler, bool unchanging)
     : column_family_set_(new ColumnFamilySet(
           dbname, _db_options, storage_options, table_cache,
           write_buffer_manager, write_controller, block_cache_tracer, io_tracer,
@@ -5143,12 +5143,12 @@ VersionSet::VersionSet(
       db_session_id_(db_session_id),
       offpeak_time_option_(OffpeakTimeOption(daily_offpeak_time_utc)),
       error_handler_(error_handler),
-      read_only_(read_only),
+      unchanging_(unchanging),
       closed_(false) {}
 
 Status VersionSet::Close(FSDirectory* db_dir, InstrumentedMutex* mu) {
   Status s;
-  if (closed_ || read_only_ || !manifest_file_number_ || !descriptor_log_) {
+  if (closed_ || unchanging_ || !manifest_file_number_ || !descriptor_log_) {
     return s;
   }
 
@@ -7297,6 +7297,8 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
     const ColumnFamilyOptions& cf_options, const ReadOptions& read_options,
     const VersionEdit* edit, bool read_only) {
   assert(edit->IsColumnFamilyAdd());
+  // Unchanging LSM tree implies no writes to the CF
+  assert(!unchanging_ || read_only);
 
   MutableCFOptions dummy_cf_options;
   Version* dummy_versions =
@@ -7430,7 +7432,7 @@ ReactiveVersionSet::ReactiveVersionSet(
                  write_buffer_manager, write_controller,
                  /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
                  /*db_session_id*/ "", /*daily_offpeak_time_utc*/ "",
-                 /*error_handler=*/nullptr, /*read_only=*/true) {}
+                 /*error_handler=*/nullptr, /*unchanging=*/false) {}
 
 ReactiveVersionSet::~ReactiveVersionSet() = default;
 
