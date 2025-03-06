@@ -36,7 +36,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/external_table_reader.h"
+#include "rocksdb/external_table.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/filter_policy.h"
@@ -6531,28 +6531,112 @@ class ExternalTableReaderTest : public DBTestBase {
       : DBTestBase("external_table_reader_test", /*env_do_fsync=*/false) {}
 
  protected:
+  class DummyExternalTableFile {
+   public:
+    explicit DummyExternalTableFile(const std::string& file_path)
+        : file_path_(file_path), file_size_(0) {
+      props_.comparator_name = BytewiseComparator()->Name();
+    }
+
+    Status Serialize(
+        const std::vector<std::pair<std::string, std::string>>& kv_vec) {
+      for (auto& kv : kv_vec) {
+        SerializeOne(kv.first, kv.second);
+        props_.raw_key_size += kv.first.length();
+        props_.raw_value_size += kv.second.length();
+      }
+      props_.num_entries = kv_vec.size();
+      file_size_ = buf_.length();
+      return WriteStringToFile(Env::Default(), buf_, file_path_);
+    }
+
+    Status Deserialize(std::map<std::string, std::string>& kv_map) {
+      Status s = ReadFileToString(Env::Default(), file_path_, &buf_);
+      if (!s.ok()) {
+        return s;
+      }
+
+      while (buf_.length() > 0) {
+        std::pair<std::string, std::string> kv;
+        s = DeserializeOne(kv);
+        if (!s.ok()) {
+          break;
+        }
+        size_t key_size = kv.first.length();
+        size_t value_size = kv.second.length();
+        kv_map.emplace(std::move(kv));
+        props_.raw_key_size += key_size;
+        props_.raw_value_size += value_size;
+      }
+      props_.num_entries = kv_map.size();
+      return s;
+    }
+
+    TableProperties GetTableProperties() const { return props_; }
+
+    uint64_t FileSize() const { return file_size_; }
+
+   private:
+    struct ItemHeader {
+      uint32_t key_size;
+      uint32_t value_size;
+    };
+
+    void SerializeOne(const Slice& key, const Slice& value) {
+      ItemHeader hdr;
+      hdr.key_size = static_cast<uint32_t>(key.size());
+      hdr.value_size = static_cast<uint32_t>(value.size());
+      buf_.append(static_cast<char*>(static_cast<void*>(&hdr)), sizeof(hdr));
+      buf_.append(key.data(), key.size());
+      buf_.append(value.data(), value.size());
+    }
+
+    Status DeserializeOne(std::pair<std::string, std::string>& kv) {
+      ItemHeader hdr;
+      size_t copied =
+          buf_.copy(static_cast<char*>(static_cast<void*>(&hdr)), sizeof(hdr));
+      if (copied < sizeof(hdr)) {
+        return Status::Corruption();
+      }
+      buf_.erase(0, sizeof(hdr));
+      if (buf_.length() < hdr.key_size + hdr.value_size) {
+        return Status::Corruption();
+      }
+      kv.first.assign(std::string_view(buf_.data(), hdr.key_size));
+      buf_.erase(0, hdr.key_size);
+      kv.second.assign(std::string_view(buf_.data(), hdr.value_size));
+      buf_.erase(0, hdr.value_size);
+      return Status::OK();
+    }
+
+    std::string file_path_;
+    std::string buf_;
+    TableProperties props_;
+    uint64_t file_size_;
+  };
+
   class DummyExternalTableIterator : public Iterator {
    public:
-    explicit DummyExternalTableIterator(bool empty) : empty_(empty) {}
+    explicit DummyExternalTableIterator(
+        const ReadOptions& ro, const std::map<std::string, std::string>& kv_map)
+        : weight_(ro.weight), kv_map_(kv_map), valid_(false) {}
 
-    bool Valid() const override { return empty_ ? !empty_ : valid_; }
+    bool Valid() const override { return valid_; }
 
     void SeekToFirst() override {
-      valid_ = true;
+      iter_ = kv_map_.begin();
+      valid_ = iter_ != kv_map_.end();
       status_ = Status::OK();
     }
 
     void SeekToLast() override {
-      valid_ = true;
-      status_ = Status::OK();
+      valid_ = false;
+      status_ = Status::NotSupported();
     }
 
     void Seek(const Slice& target) override {
-      if (target.compare(key_str) <= 0) {
-        valid_ = true;
-      } else {
-        valid_ = false;
-      }
+      iter_ = kv_map_.find(target.ToString());
+      valid_ = iter_ != kv_map_.end();
       status_ = Status::OK();
     }
 
@@ -6562,7 +6646,9 @@ class ExternalTableReaderTest : public DBTestBase {
     }
 
     void Next() override {
-      valid_ = false;
+      iter_++;
+      weight_--;
+      valid_ = iter_ != kv_map_.end() && weight_ > 0;
       // status_ is still ok. valid_ indicates end of scan
     }
 
@@ -6573,7 +6659,7 @@ class ExternalTableReaderTest : public DBTestBase {
 
     Slice key() const override {
       // If valid_ is false or status_ is non-ok, behavior is indeterminate
-      return Slice(key_str);
+      return Slice(iter_->first);
     }
 
     Status status() const override {
@@ -6583,31 +6669,36 @@ class ExternalTableReaderTest : public DBTestBase {
 
     Slice value() const override {
       // If valid_ is false or status_ is non-ok, behavior is indeterminate
-      return Slice(value_str);
+      return Slice(iter_->second);
     }
 
    private:
-    static const std::string key_str;
-    static const std::string value_str;
-
+    uint64_t weight_;
+    std::map<std::string, std::string> kv_map_;
     bool valid_ = false;
-    bool empty_;
     Status status_ = Status::OK();
+    std::map<std::string, std::string>::iterator iter_;
   };
 
   class DummyExternalTableReader : public ExternalTableReader {
    public:
+    explicit DummyExternalTableReader(const std::string& file_path)
+        : file_(file_path) {
+      Status s = file_.Deserialize(kv_map_);
+      EXPECT_OK(s);
+    }
+
     Iterator* NewIterator(const ReadOptions& read_options,
                           const SliceTransform* /*prefix_extractor*/) override {
-      return new DummyExternalTableIterator((read_options.weight == 0) ? true
-                                                                       : false);
+      return new DummyExternalTableIterator(read_options, kv_map_);
     }
 
     Status Get(const ReadOptions& /*read_options*/, const Slice& key,
                const SliceTransform* /*prefix_extractor*/,
                std::string* value) override {
-      if (!key.compare("foo")) {
-        value->assign("bar");
+      auto iter = kv_map_.find(key.ToString());
+      if (iter != kv_map_.end()) {
+        value->assign(iter->second);
         return Status::OK();
       }
       return Status::NotFound();
@@ -6635,6 +6726,43 @@ class ExternalTableReaderTest : public DBTestBase {
       props->raw_value_size = 3;
       return props;
     }
+
+   private:
+    std::map<std::string, std::string> kv_map_;
+    DummyExternalTableFile file_;
+  };
+
+  class DummyExternalTableBuilder : public ExternalTableBuilder {
+   public:
+    explicit DummyExternalTableBuilder(const std::string& file_path)
+        : file_(file_path) {}
+
+    void Add(const Slice& key, const Slice& value) override {
+      if (!kv_vec_.empty()) {
+        ASSERT_LT(BytewiseComparator()->Compare(kv_vec_.back().first, key), 0);
+      }
+      kv_vec_.emplace_back(key.ToString(), value.ToString());
+    }
+
+    Status Finish() override {
+      status_ = file_.Serialize(kv_vec_);
+      return status_;
+    }
+
+    void Abandon() override { kv_vec_.clear(); }
+
+    uint64_t FileSize() const override { return file_.FileSize(); }
+
+    TableProperties GetTableProperties() const override {
+      return file_.GetTableProperties();
+    }
+
+    Status status() const override { return status_; }
+
+   private:
+    std::vector<std::pair<std::string, std::string>> kv_vec_;
+    DummyExternalTableFile file_;
+    Status status_;
   };
 
   class DummyExternalTableFactory : public ExternalTableFactory {
@@ -6642,28 +6770,42 @@ class ExternalTableReaderTest : public DBTestBase {
     const char* Name() const override { return "DummyExternalTableFactory"; }
 
     Status NewTableReader(
-        const ReadOptions& /*read_options*/, const std::string& /*file_path*/,
+        const ReadOptions& /*read_options*/, const std::string& file_path,
         const ExternalTableOptions& /*topts*/,
-        std::unique_ptr<ExternalTableReader>* table_reader) override {
-      table_reader->reset(new DummyExternalTableReader());
+        std::unique_ptr<ExternalTableReader>* table_reader) const override {
+      table_reader->reset(new DummyExternalTableReader(file_path));
       return Status::OK();
+    }
+
+    ExternalTableBuilder* NewTableBuilder(
+        const ExternalTableBuilderOptions& /*opts*/,
+        const std::string& file_path) const override {
+      return new DummyExternalTableBuilder(file_path);
     }
   };
 };
-
-const std::string ExternalTableReaderTest::DummyExternalTableIterator::key_str =
-    "foo";
-const std::string
-    ExternalTableReaderTest::DummyExternalTableIterator::value_str = "bar";
 
 TEST_F(ExternalTableReaderTest, BasicTest) {
   std::shared_ptr<ExternalTableFactory> factory =
       std::make_shared<DummyExternalTableFactory>();
 
+  std::string file_path = test::PerThreadDBPath("external_table");
+  {
+    std::unique_ptr<ExternalTableBuilder> builder;
+    builder.reset(factory->NewTableBuilder(
+        ExternalTableBuilderOptions(ReadOptions(), WriteOptions(),
+                                    std::shared_ptr<const SliceTransform>(),
+                                    BytewiseComparator(), "default",
+                                    TableFileCreationReason::kMisc),
+        file_path));
+    builder->Add("foo", "bar");
+    ASSERT_OK(builder->Finish());
+  }
+
   std::unique_ptr<ExternalTableReader> reader;
   std::shared_ptr<SliceTransform> prefix_extractor;
   ASSERT_OK(factory->NewTableReader(
-      {}, "", ExternalTableOptions(prefix_extractor, nullptr), &reader));
+      {}, file_path, ExternalTableOptions(prefix_extractor, nullptr), &reader));
 
   ReadOptions ro;
   ro.weight = 1;
@@ -6694,14 +6836,19 @@ TEST_F(ExternalTableReaderTest, SstReaderTest) {
   std::string dbname = test::PerThreadDBPath("external_table_reader_test");
   std::string ingest_file = dbname + "test.immutabledb";
   dbname += "_db";
+  // This test doesn't work with some custom Envs, like EncryptedEnv
+  options.env = Env::Default();
 
   std::shared_ptr<ExternalTableFactory> factory =
       std::make_shared<DummyExternalTableFactory>();
   options.table_factory = NewExternalTableFactory(factory);
 
-  // Create a file
-  ASSERT_OK(WriteStringToFile(options.env, "Hello World", ingest_file,
-                              /*should_sync=*/true));
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("foo", "bar"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
 
   std::unique_ptr<SstFileReader> reader(new SstFileReader(options));
   ASSERT_OK(reader->Open(ingest_file));
