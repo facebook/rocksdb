@@ -1,7 +1,7 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
-## 10.1.0 (03/05/2025)
+## 10.0.1 (03/05/2025)
 ### Public API Changes
 * Add an unordered map of name/value pairs, ReadOptions::property_bag, to pass opaque options through to an external table when creating an Iterator.
 * Introduced CompactionServiceJobStatus::kAborted to allow handling aborted scenario in Schedule(), Wait() or OnInstallation() APIs in Remote Compactions.
