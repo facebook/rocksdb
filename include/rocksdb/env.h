@@ -459,6 +459,8 @@ class Env : public Customizable {
     kUnknown,  // Keep last for easy array of non-unknowns
   };
 
+  static std::string IOActivityToString(IOActivity activity);
+
   // Arrange to run "(*function)(arg)" once in a background thread, in
   // the thread pool specified by pri. By default, jobs go to the 'LOW'
   // priority thread pool.
