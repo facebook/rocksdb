@@ -1471,6 +1471,40 @@ TEST_F(CompactionServiceTest, FallbackLocalManual) {
   VerifyTestData();
 }
 
+TEST_F(CompactionServiceTest, AbortedWhileWait) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+
+  GenerateTestData();
+  VerifyTestData();
+
+  auto my_cs = GetCompactionService();
+  Statistics* compactor_statistics = GetCompactorStatistics();
+  Statistics* primary_statistics = GetPrimaryStatistics();
+
+  my_cs->ResetOverride();
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+
+  // Override Wait() result with kAborted
+  my_cs->OverrideWaitStatus(CompactionServiceJobStatus::kAborted);
+  start_str = Key(120);
+  start = start_str;
+
+  Status s = db_->CompactRange(CompactRangeOptions(), &start, nullptr);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsAborted());
+  // no remote compaction is run
+  ASSERT_EQ(my_cs->GetCompactionNum(), 0);
+  // make sure the compaction statistics is not recorded any side
+  ASSERT_EQ(primary_statistics->getTickerCount(COMPACT_WRITE_BYTES), 0);
+  ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES), 0);
+  ASSERT_EQ(compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES), 0);
+}
+
 TEST_F(CompactionServiceTest, RemoteEventListener) {
   class RemoteEventListenerTest : public EventListener {
    public:

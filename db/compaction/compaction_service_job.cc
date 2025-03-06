@@ -83,6 +83,14 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   switch (response.status) {
     case CompactionServiceJobStatus::kSuccess:
       break;
+    case CompactionServiceJobStatus::kAborted:
+      sub_compact->status =
+          Status::Aborted("Scheduling a remote compaction job was aborted");
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "[%s] [JOB %d] Remote compaction was aborted at Schedule()",
+          compaction->column_family_data()->GetName().c_str(), job_id_);
+      return response.status;
     case CompactionServiceJobStatus::kFailure:
       sub_compact->status = Status::Incomplete(
           "CompactionService failed to schedule a remote compaction job.");
@@ -115,6 +123,16 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
         db_options_.info_log,
         "[%s] [JOB %d] Remote compaction fallback to local by API (Wait)",
         compaction->column_family_data()->GetName().c_str(), job_id_);
+    return compaction_status;
+  }
+
+  if (compaction_status == CompactionServiceJobStatus::kAborted) {
+    sub_compact->status =
+        Status::Aborted("Waiting a remote compaction job was aborted");
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "[%s] [JOB %d] Remote compaction was aborted during Wait()",
+                   compaction->column_family_data()->GetName().c_str(),
+                   job_id_);
     return compaction_status;
   }
 

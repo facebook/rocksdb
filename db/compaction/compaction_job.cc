@@ -1129,8 +1129,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   if (db_options_.compaction_service) {
     CompactionServiceJobStatus comp_status =
         ProcessKeyValueCompactionWithCompactionService(sub_compact);
-    if (comp_status == CompactionServiceJobStatus::kSuccess ||
-        comp_status == CompactionServiceJobStatus::kFailure) {
+    if (comp_status != CompactionServiceJobStatus::kUseLocal) {
       return;
     }
     // fallback to local compaction
