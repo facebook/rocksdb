@@ -1030,9 +1030,6 @@ def finalize_and_sanitize(src_params):
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
         dest_params["continuous_verification_interval"] = 0
-        # FIXME: temporarily broken combination
-        dest_params["preserve_internal_time_seconds"] = 0
-        dest_params["preclude_last_level_data_seconds"] = 0
     return dest_params
 
 

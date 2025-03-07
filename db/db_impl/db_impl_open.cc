@@ -35,8 +35,8 @@ Options SanitizeOptions(const std::string& dbname, const Options& src,
   auto db_options =
       SanitizeOptions(dbname, DBOptions(src), read_only, logger_creation_s);
   ImmutableDBOptions immutable_db_options(db_options);
-  auto cf_options = SanitizeOptions(immutable_db_options, read_only,
-                                    ColumnFamilyOptions(src));
+  auto cf_options = SanitizeCfOptions(immutable_db_options, read_only,
+                                      ColumnFamilyOptions(src));
   return Options(db_options, cf_options);
 }
 

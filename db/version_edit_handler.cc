@@ -408,7 +408,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       if (cfd->IsDropped()) {
         continue;
       }
-      if (read_only_) {
+      if (version_set_->unchanging()) {
         cfd->table_cache()->SetTablesAreImmortal();
       }
       *s = LoadTables(cfd, /*prefetch_index_and_filter_in_cache=*/false,
