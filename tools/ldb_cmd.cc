@@ -1776,7 +1776,7 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false /* is_read_only */,
+    : LDBCommand(options, flags, true /* is_read_only */,
                  BuildCmdLineOptions({ARG_PATH, ARG_HEX})) {
   auto itr = options.find(ARG_PATH);
   if (itr != options.end()) {
@@ -1964,7 +1964,7 @@ DropColumnFamilyCommand::DropColumnFamilyCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true /* is_read_only */, {ARG_DB}) {
+    : LDBCommand(options, flags, false /* is_read_only */, {ARG_DB}) {
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
         "The name of column family to drop must be specified");
