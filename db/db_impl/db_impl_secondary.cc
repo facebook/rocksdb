@@ -994,6 +994,7 @@ Status DB::OpenAndCompact(
   DBOptions db_options;
   ConfigOptions config_options;
   config_options.env = override_options.env;
+  config_options.ignore_unknown_options = true;
   std::vector<ColumnFamilyDescriptor> all_column_families;
 
   TEST_SYNC_POINT_CALLBACK(
