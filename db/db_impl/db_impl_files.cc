@@ -394,11 +394,13 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
         job_id, fname.c_str(), type, number,
         file_deletion_status.ToString().c_str());
   } else {
+    IGNORE_STATUS_IF_ERROR(file_deletion_status);
     ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                     "[JOB %d] Failed to delete %s type=%d #%" PRIu64 " -- %s\n",
                     job_id, fname.c_str(), type, number,
                     file_deletion_status.ToString().c_str());
   }
+
   if (type == kTableFile) {
     EventHelpers::LogAndNotifyTableFileDeletion(
         &event_logger_, job_id, number, fname, file_deletion_status, GetName(),
@@ -701,6 +703,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
               "-- %s\n",
               state.job_id, to_delete.c_str(), s.ToString().c_str());
         } else {
+          IGNORE_STATUS_IF_ERROR(s);
           ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                           "[JOB %d] Delete info log file %s FAILED -- %s\n",
                           state.job_id, to_delete.c_str(),

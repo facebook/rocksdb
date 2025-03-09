@@ -171,6 +171,7 @@ void WalManager::PurgeObsoleteWALFiles() {
   std::vector<std::string> files;
   s = env_->GetChildren(archival_dir, &files);
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     ROCKS_LOG_ERROR(db_options_.info_log, "Can't get archive files: %s",
                     s.ToString().c_str());
     return;
@@ -187,6 +188,7 @@ void WalManager::PurgeObsoleteWALFiles() {
         uint64_t file_m_time;
         s = env_->GetFileModificationTime(file_path, &file_m_time);
         if (!s.ok()) {
+          IGNORE_STATUS_IF_ERROR(s);
           ROCKS_LOG_WARN(db_options_.info_log,
                          "Can't get file mod time: %s: %s", file_path.c_str(),
                          s.ToString().c_str());
@@ -196,6 +198,7 @@ void WalManager::PurgeObsoleteWALFiles() {
           s = DeleteDBFile(&db_options_, file_path, archival_dir, false,
                            /*force_fg=*/!wal_in_db_path_);
           if (!s.ok()) {
+            IGNORE_STATUS_IF_ERROR(s);
             ROCKS_LOG_WARN(db_options_.info_log, "Can't delete file: %s: %s",
                            file_path.c_str(), s.ToString().c_str());
             continue;
@@ -211,6 +214,7 @@ void WalManager::PurgeObsoleteWALFiles() {
         uint64_t file_size;
         s = env_->GetFileSize(file_path, &file_size);
         if (!s.ok()) {
+          IGNORE_STATUS_IF_ERROR(s);
           ROCKS_LOG_ERROR(db_options_.info_log,
                           "Unable to get file size: %s: %s", file_path.c_str(),
                           s.ToString().c_str());
@@ -223,6 +227,7 @@ void WalManager::PurgeObsoleteWALFiles() {
             s = DeleteDBFile(&db_options_, file_path, archival_dir, false,
                              /*force_fg=*/!wal_in_db_path_);
             if (!s.ok()) {
+              IGNORE_STATUS_IF_ERROR(s);
               ROCKS_LOG_WARN(db_options_.info_log,
                              "Unable to delete file: %s: %s", file_path.c_str(),
                              s.ToString().c_str());
@@ -252,6 +257,7 @@ void WalManager::PurgeObsoleteWALFiles() {
   s = GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile,
                           /*need_seqno=*/false);
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     ROCKS_LOG_WARN(db_options_.info_log,
                    "Unable to get archived WALs from: %s: %s",
                    archival_dir.c_str(), s.ToString().c_str());
@@ -268,6 +274,7 @@ void WalManager::PurgeObsoleteWALFiles() {
     s = DeleteDBFile(&db_options_, wal_dir_ + "/" + file_path, wal_dir_, false,
                      /*force_fg=*/!wal_in_db_path_);
     if (!s.ok()) {
+      IGNORE_STATUS_IF_ERROR(s);
       ROCKS_LOG_WARN(db_options_.info_log, "Unable to delete file: %s: %s",
                      file_path.c_str(), s.ToString().c_str());
       continue;
@@ -283,6 +290,7 @@ void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
   // The sync point below is used in (DBTest,TransactionLogIteratorRace)
   TEST_SYNC_POINT("WalManager::PurgeObsoleteFiles:1");
   Status s = env_->RenameFile(fname, archived_log_name);
+  IGNORE_STATUS_IF_ERROR(s);
   // The sync point below is used in (DBTest,TransactionLogIteratorRace)
   TEST_SYNC_POINT("WalManager::PurgeObsoleteFiles:2");
   // The sync point below is used in

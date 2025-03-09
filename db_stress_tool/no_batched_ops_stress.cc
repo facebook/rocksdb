@@ -1600,12 +1600,6 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
 
-    // There is a narrow window in iterator auto refresh run where injected read
-    // errors are simply untraceable, ex. failure to delete file as a part of
-    // superversion cleanup callback invoked by the DBIter destructor.
-    bool ignore_injected_read_error_in_iter =
-        ro_copy.auto_refresh_iterator_with_snapshot;
-
     // Randomly test with `iterate_upper_bound` and `prefix_same_as_start`
     //
     // Get the next prefix first and then see if we want to set it to be the
@@ -1698,8 +1692,7 @@ class NonBatchedOpsStressTest : public StressTest {
               FaultInjectionIOType::kRead),
           fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kMetadataRead));
-      if (!ignore_injected_read_error_in_iter &&
-          !SharedState::ignore_read_error && injected_error_count > 0 &&
+      if (!SharedState::ignore_read_error && injected_error_count > 0 &&
           s.ok()) {
         // Grab mutex so multiple thread don't try to print the
         // stack trace at the same time
