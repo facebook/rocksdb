@@ -586,7 +586,8 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
                          internal_comparator,
                          0 /* block_protection_bytes_per_key */, !kSkipFilters,
                          !kImmortal, level_),
-      std::move(file_reader), sink->contents().size(), &table_reader));
+      std::move(file_reader), sink->contents().size(), &table_reader,
+      /*internal_stats=*/nullptr));
   // Search using Get()
   ReadOptions ro;
 
