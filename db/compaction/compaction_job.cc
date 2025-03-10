@@ -840,7 +840,6 @@ Status CompactionJob::Run() {
   TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources:0");
   TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources:1");
 
-  TablePropertiesCollection tp;
   for (const auto& state : compact_->sub_compact_states) {
     for (const auto& output : state.GetOutputs()) {
       auto fn =
@@ -895,6 +894,56 @@ Status CompactionJob::Run() {
       }
     }
   }
+
+  // Verify number of output records
+  if (status.ok()) {
+    // TODO: is it possible tp is not populated?
+    uint64_t total_output_num = 0;
+    for (const auto& state : compact_->sub_compact_states) {
+      for (const auto& output : state.GetOutputs()) {
+        total_output_num += output.table_properties->num_entries -
+                            output.table_properties->num_range_deletions;
+      }
+    }
+
+    uint64_t expected = compaction_stats_.stats.num_output_records;
+    if (compaction_stats_.has_penultimate_level_output) {
+      expected += compaction_stats_.penultimate_level_stats.num_output_records;
+    }
+    // Print the expected number of records from stats and
+    // penultimate_level_stats
+    fprintf(stdout,
+            "Expected output records: %" PRIu64 " (main level: %" PRIu64
+            ", penultimate level: %" PRIu64 ")\n",
+            expected, compaction_stats_.stats.num_output_records,
+            compaction_stats_.penultimate_level_stats.num_output_records);
+
+    if (expected != total_output_num) {
+      // Print both numbers for debugging
+      fprintf(stdout,
+              "Output record count mismatch: expected %" PRIu64
+              ", actual %" PRIu64 "\n",
+              expected, total_output_num);
+
+      char scratch[2345];
+      compact_->compaction->Summary(scratch, sizeof(scratch));
+      std::string msg =
+          "Number of keys in compaction output SST files does not match "
+          "number of keys added. Expected " +
+          std::to_string(expected) + " but there are " +
+          std::to_string(total_output_num) +
+          " in output SST files. Compaction summary: " + scratch;
+      ROCKS_LOG_WARN(
+          db_options_.info_log, "[%s] [JOB %d] Compaction with status: %s",
+          compact_->compaction->column_family_data()->GetName().c_str(),
+          job_context_->job_id, msg.c_str());
+      if (db_options_.compaction_verify_record_count) {
+        status = Status::Corruption(msg);
+      }
+    }
+    assert(expected == total_output_num);
+  }
+
   RecordCompactionIOStats();
   LogFlush(db_options_.info_log);
   TEST_SYNC_POINT("CompactionJob::Run():End");
