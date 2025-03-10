@@ -860,6 +860,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate(
     rocksdb_writebatch_t*, void* state,
     void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
     void (*deleted)(void*, const char* k, size_t klen));
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate_log(
+    rocksdb_writebatch_t*, void* state,
+    void (*log_data)(void*, const char* d, size_t dlen));
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate_cf(
     rocksdb_writebatch_t*, void* state,
     void (*put_cf)(void*, uint32_t cfid, const char* k, size_t klen,
