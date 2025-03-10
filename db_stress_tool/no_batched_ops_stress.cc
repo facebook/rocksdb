@@ -1685,6 +1685,10 @@ class NonBatchedOpsStressTest : public StressTest {
       s = iter->status();
     }
 
+    if (ro_copy.auto_refresh_iterator_with_snapshot) {
+      std::this_thread::sleep_for(std::chrono::microseconds(3 * 1000 * 1000));
+    }
+
     int injected_error_count = 0;
     if (fault_fs_guard) {
       injected_error_count = GetMinInjectedErrorCount(
