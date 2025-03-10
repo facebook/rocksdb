@@ -446,6 +446,16 @@ Status ExternalSstFileIngestionJob::Run() {
   }
 
   CreateEquivalentFileIngestingCompactions();
+
+  if (ingestion_options_.replace_cf_data) {
+    // Mark all existing files for removal
+    auto* vstorage = super_version->current->storage_info();
+    for (int lvl = 0; lvl < cfd_->NumberLevels(); lvl++) {
+      for (auto file : vstorage->LevelFiles(lvl)) {
+        edit_.DeleteFile(lvl, file->fd.GetNumber());
+      }
+    }
+  }
   return status;
 }
 
@@ -1104,6 +1114,10 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     if (lvl > 0 && lvl < vstorage->base_level()) {
       continue;
     }
+    if (ingestion_options_.replace_cf_data) {
+      target_level = lvl;
+      continue;
+    }
     if (cfd_->RangeOverlapWithCompaction(file_to_ingest->start_ukey,
                                          file_to_ingest->limit_ukey, lvl)) {
       // We must use L0 or any level higher than `lvl` to be able to overwrite
@@ -1133,6 +1147,15 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     // if our file can fit in it
     if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
       target_level = lvl;
+    }
+  }
+
+  if (ingestion_options_.replace_cf_data) {
+    if (cfd_->compaction_picker()->IsCompactionInProgress()) {
+      status = Status::TryAgain(
+          "Ingesting with replace_cf_data=true cannot proceed while CF " +
+          cfd_->GetName() + " has a compaction in progress.");
+      return status;
     }
   }
 
@@ -1172,6 +1195,8 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 
 Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
     IngestedFileInfo* file_to_ingest) {
+  assert(!ingestion_options_.replace_cf_data);
+
   auto* vstorage = cfd_->current()->storage_info();
   // First, check if new files fit in the last level
   int last_lvl = cfd_->NumberLevels() - 1;
