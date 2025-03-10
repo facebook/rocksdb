@@ -153,27 +153,34 @@ WriteStallStatsMapKeys::CFL0FileCountLimitStopsWithOngoingCompaction() {
   return ret;
 }
 
-std::string WriteStallStatsMapKeys::CauseConditionCount(
-    WriteStallCause cause, WriteStallCondition condition) {
-  std::string cause_condition_count_name;
-
-  std::string cause_name;
-  if (isCFScopeWriteStallCause(cause) || isDBScopeWriteStallCause(cause)) {
-    cause_name = WriteStallCauseToHyphenString(cause);
-  } else {
-    assert(false);
-    return "";
+Status WriteStallStatsMapKeys::CauseConditionCount(
+    WriteStallCause cause, WriteStallCondition condition, std::string& key) {
+  key.clear();
+  bool is_cf_scope = isCFScopeWriteStallCause(cause);
+  bool is_db_scope = isDBScopeWriteStallCause(cause);
+  if (!is_cf_scope && !is_db_scope) {
+    return Status::InvalidArgument("Invalid write stall cause");
+  }
+  if (is_cf_scope && InternalCFStat(cause, condition) ==
+                         InternalStats::INTERNAL_CF_STATS_ENUM_MAX) {
+    return Status::InvalidArgument(
+        "Invalid combination of write stall cause and condition");
+  }
+  if (is_db_scope &&
+      InternalDBStat(cause, condition) == InternalStats::kIntStatsNumMax) {
+    return Status::InvalidArgument(
+        "Invalid combination of write stall cause and condition");
   }
 
+  const std::string& cause_name = WriteStallCauseToHyphenString(cause);
   const std::string& condition_name =
       WriteStallConditionToHyphenString(condition);
 
-  cause_condition_count_name.reserve(cause_name.size() + 1 +
-                                     condition_name.size());
-  cause_condition_count_name.append(cause_name);
-  cause_condition_count_name.append("-");
-  cause_condition_count_name.append(condition_name);
+  key.reserve(cause_name.size() + 1 + condition_name.size());
+  key.append(cause_name);
+  key.append("-");
+  key.append(condition_name);
 
-  return cause_condition_count_name;
+  return Status::OK();
 }
 }  // namespace ROCKSDB_NAMESPACE
