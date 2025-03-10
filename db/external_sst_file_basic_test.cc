@@ -2689,7 +2689,7 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
     SstFileWriter sfw(EnvOptions(), options);
 
     ASSERT_OK(sfw.Open(file_path));
-    ASSERT_OK(sfw.Put("b", "dontcare"));
+    ASSERT_OK(sfw.Put("b", "0"));
     ASSERT_OK(sfw.Finish());
 
     {
@@ -2700,6 +2700,7 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
       ifo.snapshot_consistency = true;
       ASSERT_OK(db_->IngestExternalFile(handles_[0], {file_path}, ifo));
     }
+    ASSERT_EQ(Get(0, "b"), "0");
 
     // Test level compaction
     options.compaction_style = CompactionStyle::kCompactionStyleLevel;
@@ -2735,16 +2736,55 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
       ASSERT_OK(sfw.Finish());
       ASSERT_OK(db_->IngestExternalFile(handles_[1], {file_path2}, {}));
     }
+    ASSERT_EQ(Get(1, "a"), "1");
+    ASSERT_EQ(Get(1, "b"), "2");
+    ASSERT_EQ(Get(1, "c"), "3");
+    ASSERT_EQ(Get(1, "d"), "4");
 
     {
       CompactRangeOptions cro;
       cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
       ASSERT_OK(db_->CompactRange(cro, handles_[1], nullptr, nullptr));
 
+      // Test fail_if_not_bottommost_level
       IngestExternalFileOptions ifo;
+      ASSERT_FALSE(ifo.fail_if_not_bottommost_level);
       ifo.fail_if_not_bottommost_level = true;
-      const Status s = db_->IngestExternalFile(handles_[1], {file_path}, ifo);
-      ASSERT_TRUE(s.IsTryAgain());
+      Status s = db_->IngestExternalFile(handles_[1], {file_path}, ifo);
+      ASSERT_EQ(s.code(), Status::Code::kTryAgain);
+
+      ASSERT_EQ(Get(1, "a"), "1");
+      ASSERT_EQ(Get(1, "b"), "2");
+      ASSERT_EQ(Get(1, "c"), "3");
+      ASSERT_EQ(Get(1, "d"), "4");
+    }
+
+    if (!disallow_memtable) {
+      // Test allow_blocking_flush=false (fail because of memtable overlap)
+      IngestExternalFileOptions ifo;
+      ASSERT_TRUE(ifo.allow_blocking_flush);
+      ifo.allow_blocking_flush = false;
+      ASSERT_OK(Put(1, "b", "42"));
+      Status s = db_->IngestExternalFile(handles_[1], {file_path}, ifo);
+      ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
+
+      ASSERT_EQ(Get(1, "a"), "1");
+      ASSERT_EQ(Get(1, "b"), "42");
+      ASSERT_EQ(Get(1, "c"), "3");
+      ASSERT_EQ(Get(1, "d"), "4");
+    }
+
+    {
+      // Test replace_cf_data
+      IngestExternalFileOptions ifo;
+      ifo.replace_cf_data = true;
+      ifo.snapshot_consistency = false;
+      ASSERT_OK(db_->IngestExternalFile(handles_[1], {file_path}, ifo));
+
+      ASSERT_EQ(Get(1, "a"), "NOT_FOUND");
+      ASSERT_EQ(Get(1, "b"), "0");
+      ASSERT_EQ(Get(1, "c"), "NOT_FOUND");
+      ASSERT_EQ(Get(1, "d"), "NOT_FOUND");
     }
   }
 }
