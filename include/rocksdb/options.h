@@ -2339,6 +2339,8 @@ struct IngestExternalFileOptions {
   // only recommended with kCompactionStyleNone or disable_auto_compactions.
   // Because this option breaks snapshot consistency, it requires setting
   // snapshot_consistency=false. Incompatible with ingest_behind.
+  // WART: data in the memtable that doesn't overlap with the ingested files
+  // may be kept without being replaced. See allow_blocking_flush.
   bool replace_cf_data = false;
 };
 
