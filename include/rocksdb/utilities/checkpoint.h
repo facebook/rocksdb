@@ -42,12 +42,15 @@ class Checkpoint {
   // sequence_number_ptr: if it is not nullptr, the value it points to will be
   // set to a sequence number guaranteed to be part of the DB, not necessarily
   // the latest. The default value of this parameter is nullptr.
-  // NOTE: db_paths and cf_paths are not supported for creating checkpoints
-  // and NotSupported will be returned when the DB (without WALs) uses more
-  // than one directory.
+  // compact_manifest_file: if it is true, compact the manifest file to keep
+  // only the latest version and make it's file size as small as possible. The
+  // default value is false. NOTE: db_paths and cf_paths are not supported for
+  // creating checkpoints and NotSupported will be returned when the DB (without
+  // WALs) uses more than one directory.
   virtual Status CreateCheckpoint(const std::string& checkpoint_dir,
                                   uint64_t log_size_for_flush = 0,
-                                  uint64_t* sequence_number_ptr = nullptr);
+                                  uint64_t* sequence_number_ptr = nullptr,
+                                  bool compact_manifest_file = false);
 
   // Exports all live SST files of a specified Column Family onto export_dir,
   // returning SST files information in metadata.
