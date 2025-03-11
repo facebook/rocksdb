@@ -144,6 +144,7 @@ class CuckooReaderTest : public testing::Test {
     ASSERT_OK(reader.status());
     InternalIterator* it = reader.NewIterator(
         ReadOptions(), /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+        /*internal_stats=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized);
     ASSERT_OK(it->status());
     ASSERT_TRUE(!it->Valid());
@@ -184,6 +185,7 @@ class CuckooReaderTest : public testing::Test {
 
     Arena arena;
     it = reader.NewIterator(ReadOptions(), /*prefix_extractor=*/nullptr, &arena,
+                            /*internal_stats=*/nullptr,
                             /*skip_filters=*/false,
                             TableReaderCaller::kUncategorized);
     ASSERT_OK(it->status());
