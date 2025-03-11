@@ -376,6 +376,11 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_OK(
       RocksDBOptionsParser::VerifyDBOptions(loose, base_db_opt, new_db_opt));
 
+  db_options_map["max_open_files"] = "32";
+  s = GetDBOptionsFromMap(exact, base_db_opt, db_options_map, &new_db_opt);
+  ASSERT_OK(s);
+  ASSERT_FALSE(s.IsInvalidArgument());
+
   // unknow options should fail parsing without ignore_unknown_options = true
   db_options_map["unknown_db_option"] = "1";
   s = GetDBOptionsFromMap(exact, base_db_opt, db_options_map, &new_db_opt);
