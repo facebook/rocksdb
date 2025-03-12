@@ -431,8 +431,7 @@ struct CompactionServiceOutputFile {
   bool marked_for_compaction;
   UniqueId64x2 unique_id{};
   TableProperties table_properties;
-  // TODO: clean up the rest of the "proximal" naming in the codebase
-  bool is_proximal_level_output;  // == is_proximal_level_output
+  bool is_proximal_level_output;
   Temperature file_temperature;
 
   CompactionServiceOutputFile() = default;
