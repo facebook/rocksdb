@@ -30,13 +30,16 @@ class CompactionOutputs {
   // compaction output file
   struct Output {
     Output(FileMetaData&& _meta, const InternalKeyComparator& _icmp,
-           bool _enable_hash, bool _finished, uint64_t precalculated_hash)
+           bool _enable_hash, bool _finished, uint64_t precalculated_hash,
+           bool _is_penultimate_level)
         : meta(std::move(_meta)),
           validator(_icmp, _enable_hash, precalculated_hash),
-          finished(_finished) {}
+          finished(_finished),
+          is_penultimate_level(_is_penultimate_level) {}
     FileMetaData meta;
     OutputValidator validator;
     bool finished;
+    bool is_penultimate_level;
     std::shared_ptr<const TableProperties> table_properties;
   };
 
@@ -52,7 +55,7 @@ class CompactionOutputs {
                  bool enable_hash, bool finished = false,
                  uint64_t precalculated_hash = 0) {
     outputs_.emplace_back(std::move(meta), icmp, enable_hash, finished,
-                          precalculated_hash);
+                          precalculated_hash, is_penultimate_level_);
   }
 
   // Set new table builder for the current output

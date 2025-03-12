@@ -1682,7 +1682,8 @@ TEST_F(CompactionJobTest, ResultSerialization) {
         file_checksum /* file_checksum */,
         file_checksum_func_name /* file_checksum_func_name */,
         rnd64.Uniform(UINT64_MAX) /* paranoid_hash */,
-        rnd.OneIn(2) /* marked_for_compaction */, id /* unique_id */, tp);
+        rnd.OneIn(2) /* marked_for_compaction */, id /* unique_id */, tp,
+        false /* is_proximal_level_output */, Temperature::kHot);
   }
   result.output_level = rnd.Uniform(10);
   result.output_path = rnd.RandomString(rnd.Uniform(kStrMaxLen));
@@ -1736,6 +1737,8 @@ TEST_F(CompactionJobTest, ResultSerialization) {
     ASSERT_EQ(deserialized_tmp.output_files[0].file_checksum, file_checksum);
     ASSERT_EQ(deserialized_tmp.output_files[0].file_checksum_func_name,
               file_checksum_func_name);
+    ASSERT_EQ(deserialized_tmp.output_files[0].file_temperature,
+              Temperature::kHot);
   }
 
   // Test unknown field

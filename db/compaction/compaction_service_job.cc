@@ -239,12 +239,15 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.file_checksum_func_name = file.file_checksum_func_name;
     meta.marked_for_compaction = file.marked_for_compaction;
     meta.unique_id = file.unique_id;
+    meta.temperature = file.file_temperature;
 
     auto cfd = compaction->column_family_data();
-    sub_compact->Current().AddOutput(std::move(meta),
-                                     cfd->internal_comparator(), false, true,
-                                     file.paranoid_hash);
-    sub_compact->Current().UpdateTableProperties(file.table_properties);
+    CompactionOutputs* compaction_outputs =
+        sub_compact->Outputs(file.is_proximal_level_output);
+    assert(compaction_outputs);
+    compaction_outputs->AddOutput(std::move(meta), cfd->internal_comparator(),
+                                  false, true, file.paranoid_hash);
+    compaction_outputs->UpdateTableProperties(file.table_properties);
   }
   sub_compact->compaction_job_stats = compaction_result.stats;
   sub_compact->Current().SetNumOutputRecords(
@@ -273,14 +276,12 @@ void CompactionServiceCompactionJob::RecordCompactionIOStats() {
 
 void CompactionServiceCompactionJob::UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const {
-  compaction_job_stats_->elapsed_micros = stats.micros;
-
   // output information only in remote compaction
-  compaction_job_stats_->total_output_bytes = stats.bytes_written;
-  compaction_job_stats_->total_output_bytes_blob = stats.bytes_written_blob;
-  compaction_job_stats_->num_output_records = stats.num_output_records;
-  compaction_job_stats_->num_output_files = stats.num_output_files;
-  compaction_job_stats_->num_output_files_blob = stats.num_output_files_blob;
+  compaction_job_stats_->total_output_bytes += stats.bytes_written;
+  compaction_job_stats_->total_output_bytes_blob += stats.bytes_written_blob;
+  compaction_job_stats_->num_output_records += stats.num_output_records;
+  compaction_job_stats_->num_output_files += stats.num_output_files;
+  compaction_job_stats_->num_output_files_blob += stats.num_output_files_blob;
 }
 
 CompactionServiceCompactionJob::CompactionServiceCompactionJob(
@@ -344,15 +345,15 @@ Status CompactionServiceCompactionJob::Run() {
 
   ProcessKeyValueCompaction(sub_compact);
 
-  compaction_stats_.stats.micros =
+  compaction_job_stats_->elapsed_micros =
       db_options_.clock->NowMicros() - start_micros;
-  compaction_stats_.stats.cpu_micros =
+  compaction_job_stats_->cpu_micros =
       sub_compact->compaction_job_stats.cpu_micros;
 
   RecordTimeToHistogram(stats_, COMPACTION_TIME,
-                        compaction_stats_.stats.micros);
+                        compaction_job_stats_->elapsed_micros);
   RecordTimeToHistogram(stats_, COMPACTION_CPU_TIME,
-                        compaction_stats_.stats.cpu_micros);
+                        compaction_job_stats_->cpu_micros);
 
   Status status = sub_compact->status;
   IOStatus io_s = sub_compact->io_status;
@@ -390,6 +391,9 @@ Status CompactionServiceCompactionJob::Run() {
   // 2. Update the Output information in the Compaction Job Stats with
   // aggregated Internal Compaction Stats.
   UpdateCompactionJobStats(compaction_stats_.stats);
+  if (compaction_stats_.has_penultimate_level_output) {
+    UpdateCompactionJobStats(compaction_stats_.penultimate_level_stats);
+  }
 
   // 3. Set fields that are not propagated as part of aggregations above
   compaction_result_->stats.is_manual_compaction = c->is_manual_compaction();
@@ -413,7 +417,8 @@ Status CompactionServiceCompactionJob::Run() {
           meta.file_creation_time, meta.epoch_number, meta.file_checksum,
           meta.file_checksum_func_name, output_file.validator.GetHash(),
           meta.marked_for_compaction, meta.unique_id,
-          *output_file.table_properties);
+          *output_file.table_properties, output_file.is_penultimate_level,
+          meta.temperature);
     }
   }
 
@@ -585,7 +590,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
             const auto this_one = static_cast<const TableProperties*>(addr1);
             const auto that_one = static_cast<const TableProperties*>(addr2);
             return this_one->AreEqual(opts, that_one, mismatch);
-          }}}};
+          }}},
+        {"is_proximal_level_output",
+         {offsetof(struct CompactionServiceOutputFile,
+                   is_proximal_level_output),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"file_temperature",
+         {offsetof(struct CompactionServiceOutputFile, file_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     compaction_job_stats_type_info = {

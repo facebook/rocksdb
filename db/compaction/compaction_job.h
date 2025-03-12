@@ -431,6 +431,9 @@ struct CompactionServiceOutputFile {
   bool marked_for_compaction;
   UniqueId64x2 unique_id{};
   TableProperties table_properties;
+  // TODO: clean up the rest of the "penultimate" naming in the codebase
+  bool is_proximal_level_output;  // == is_penultimate_level_output
+  Temperature file_temperature;
 
   CompactionServiceOutputFile() = default;
   CompactionServiceOutputFile(
@@ -440,7 +443,8 @@ struct CompactionServiceOutputFile {
       uint64_t _epoch_number, const std::string& _file_checksum,
       const std::string& _file_checksum_func_name, uint64_t _paranoid_hash,
       bool _marked_for_compaction, UniqueId64x2 _unique_id,
-      const TableProperties& _table_properties)
+      const TableProperties& _table_properties, bool _is_proximal_level_output,
+      Temperature _file_temperature)
       : file_name(name),
         smallest_seqno(smallest),
         largest_seqno(largest),
@@ -454,7 +458,9 @@ struct CompactionServiceOutputFile {
         paranoid_hash(_paranoid_hash),
         marked_for_compaction(_marked_for_compaction),
         unique_id(std::move(_unique_id)),
-        table_properties(_table_properties) {}
+        table_properties(_table_properties),
+        is_proximal_level_output(_is_proximal_level_output),
+        file_temperature(_file_temperature) {}
 };
 
 // CompactionServiceResult contains the compaction result from a different db

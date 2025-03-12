@@ -169,6 +169,15 @@ class SubcompactionState {
     return *current_outputs_;
   }
 
+  CompactionOutputs* Outputs(bool is_penultimate_level) {
+    assert(compaction);
+    if (is_penultimate_level) {
+      assert(compaction->SupportsPerKeyPlacement());
+      return &penultimate_level_outputs_;
+    }
+    return &compaction_outputs_;
+  }
+
   CompactionRangeDelAggregator* RangeDelAgg() const {
     return range_del_agg_.get();
   }
