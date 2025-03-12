@@ -205,6 +205,7 @@ Status TableCache::FindTable(
       RecordTick(ioptions_.stats, NO_FILE_ERRORS);
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
+      IGNORE_STATUS_IF_ERROR(s);
     } else {
       s = cache_.Insert(key, table_reader.get(), 1, handle);
       if (s.ok()) {
