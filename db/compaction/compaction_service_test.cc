@@ -1206,6 +1206,15 @@ TEST_F(CompactionServiceTest, PrecludeLastLevel) {
       ASSERT_EQ(Get(Key(j * kNumTrigger + i)), "v" + std::to_string(i));
     }
   }
+
+  // Verify Output Stats
+  auto my_cs = GetCompactionService();
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  ASSERT_GT(result.stats.cpu_micros, 0);
+  ASSERT_GT(result.stats.elapsed_micros, 0);
+  ASSERT_EQ(result.stats.num_output_records, kNumTrigger * kNumKeys);
+  ASSERT_EQ(result.stats.num_output_files, 2);
 }
 
 TEST_F(CompactionServiceTest, ConcurrentCompaction) {
