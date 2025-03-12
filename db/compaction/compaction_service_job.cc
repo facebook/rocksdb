@@ -243,7 +243,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
 
     auto cfd = compaction->column_family_data();
     CompactionOutputs* compaction_outputs =
-        sub_compact->GetOutputs(file.is_penultimate_level_output);
+        sub_compact->Outputs(file.is_proximal_level_output);
     assert(compaction_outputs);
     compaction_outputs->AddOutput(std::move(meta), cfd->internal_comparator(),
                                   false, true, file.paranoid_hash);
@@ -408,45 +408,17 @@ Status CompactionServiceCompactionJob::Run() {
   compaction_result_->output_level = compact_->compaction->output_level();
   compaction_result_->output_path = output_path_;
   if (status.ok()) {
-    if (sub_compact->compaction->SupportsPerKeyPlacement()) {
-      for (const auto& output_file :
-           sub_compact->GetPenultimateLevelOutputs()) {
-        auto& meta = output_file.meta;
-        compaction_result_->output_files.emplace_back(
-            MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
-            meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
-            meta.largest.Encode().ToString(), meta.oldest_ancester_time,
-            meta.file_creation_time, meta.epoch_number, meta.file_checksum,
-            meta.file_checksum_func_name, output_file.validator.GetHash(),
-            meta.marked_for_compaction, meta.unique_id,
-            *output_file.table_properties, true /*is_penultimate_level_output*/,
-            meta.temperature);
-      }
-      for (const auto& output_file : sub_compact->GetLastLevelOutputs()) {
-        auto& meta = output_file.meta;
-        compaction_result_->output_files.emplace_back(
-            MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
-            meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
-            meta.largest.Encode().ToString(), meta.oldest_ancester_time,
-            meta.file_creation_time, meta.epoch_number, meta.file_checksum,
-            meta.file_checksum_func_name, output_file.validator.GetHash(),
-            meta.marked_for_compaction, meta.unique_id,
-            *output_file.table_properties,
-            false /*is_penultimate_level_output*/, meta.temperature);
-      }
-    } else {
-      for (const auto& output_file : sub_compact->GetOutputs()) {
-        auto& meta = output_file.meta;
-        compaction_result_->output_files.emplace_back(
-            MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
-            meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
-            meta.largest.Encode().ToString(), meta.oldest_ancester_time,
-            meta.file_creation_time, meta.epoch_number, meta.file_checksum,
-            meta.file_checksum_func_name, output_file.validator.GetHash(),
-            meta.marked_for_compaction, meta.unique_id,
-            *output_file.table_properties,
-            false /*is_penultimate_level_output*/, meta.temperature);
-      }
+    for (const auto& output_file : sub_compact->GetOutputs()) {
+      auto& meta = output_file.meta;
+      compaction_result_->output_files.emplace_back(
+          MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
+          meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
+          meta.largest.Encode().ToString(), meta.oldest_ancester_time,
+          meta.file_creation_time, meta.epoch_number, meta.file_checksum,
+          meta.file_checksum_func_name, output_file.validator.GetHash(),
+          meta.marked_for_compaction, meta.unique_id,
+          *output_file.table_properties, output_file.is_penultimate_level,
+          meta.temperature);
     }
   }
 
@@ -619,9 +591,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
             const auto that_one = static_cast<const TableProperties*>(addr2);
             return this_one->AreEqual(opts, that_one, mismatch);
           }}},
-        {"is_penultimate_level_output",
+        {"is_proximal_level_output",
          {offsetof(struct CompactionServiceOutputFile,
-                   is_penultimate_level_output),
+                   is_proximal_level_output),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"file_temperature",
