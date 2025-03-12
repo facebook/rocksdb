@@ -81,6 +81,21 @@ class SubcompactionState {
   // it returns both the last level outputs and penultimate level outputs.
   OutputIterator GetOutputs() const;
 
+  // Get penultimate outputs (applicable to per_key_placement compaction only)
+  OutputIterator GetPenultimateLevelOutputs() const {
+    assert(compaction);
+    assert(compaction->SupportsPerKeyPlacement());
+    return OutputIterator({}, penultimate_level_outputs_.outputs_);
+  }
+
+  // Get last level outputs only (applicable to per_key_placement compaction
+  // only)
+  OutputIterator GetLastLevelOutputs() const {
+    assert(compaction);
+    assert(compaction->SupportsPerKeyPlacement());
+    return OutputIterator({}, compaction_outputs_.outputs_);
+  }
+
   // Assign range dels aggregator. The various tombstones will potentially
   // be filtered to different outputs.
   void AssignRangeDelAggregator(
@@ -167,6 +182,15 @@ class SubcompactionState {
   CompactionOutputs& Current() const {
     assert(current_outputs_);
     return *current_outputs_;
+  }
+
+  CompactionOutputs* GetOutputs(bool is_penultimate_level) {
+    assert(compaction);
+    if (is_penultimate_level) {
+      assert(compaction->SupportsPerKeyPlacement());
+      return &penultimate_level_outputs_;
+    }
+    return &compaction_outputs_;
   }
 
   CompactionRangeDelAggregator* RangeDelAgg() const {

@@ -239,12 +239,15 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.file_checksum_func_name = file.file_checksum_func_name;
     meta.marked_for_compaction = file.marked_for_compaction;
     meta.unique_id = file.unique_id;
+    meta.temperature = file.file_temperature;
 
     auto cfd = compaction->column_family_data();
-    sub_compact->Current().AddOutput(std::move(meta),
-                                     cfd->internal_comparator(), false, true,
-                                     file.paranoid_hash);
-    sub_compact->Current().UpdateTableProperties(file.table_properties);
+    CompactionOutputs* compaction_outputs =
+        sub_compact->GetOutputs(file.is_penultimate_level_output);
+    assert(compaction_outputs);
+    compaction_outputs->AddOutput(std::move(meta), cfd->internal_comparator(),
+                                  false, true, file.paranoid_hash);
+    compaction_outputs->UpdateTableProperties(file.table_properties);
   }
   sub_compact->compaction_job_stats = compaction_result.stats;
   sub_compact->Current().SetNumOutputRecords(
@@ -404,16 +407,45 @@ Status CompactionServiceCompactionJob::Run() {
   compaction_result_->output_level = compact_->compaction->output_level();
   compaction_result_->output_path = output_path_;
   if (status.ok()) {
-    for (const auto& output_file : sub_compact->GetOutputs()) {
-      auto& meta = output_file.meta;
-      compaction_result_->output_files.emplace_back(
-          MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
-          meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
-          meta.largest.Encode().ToString(), meta.oldest_ancester_time,
-          meta.file_creation_time, meta.epoch_number, meta.file_checksum,
-          meta.file_checksum_func_name, output_file.validator.GetHash(),
-          meta.marked_for_compaction, meta.unique_id,
-          *output_file.table_properties);
+    if (sub_compact->compaction->SupportsPerKeyPlacement()) {
+      for (const auto& output_file :
+           sub_compact->GetPenultimateLevelOutputs()) {
+        auto& meta = output_file.meta;
+        compaction_result_->output_files.emplace_back(
+            MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
+            meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
+            meta.largest.Encode().ToString(), meta.oldest_ancester_time,
+            meta.file_creation_time, meta.epoch_number, meta.file_checksum,
+            meta.file_checksum_func_name, output_file.validator.GetHash(),
+            meta.marked_for_compaction, meta.unique_id,
+            *output_file.table_properties, true /*is_penultimate_level_output*/,
+            meta.temperature);
+      }
+      for (const auto& output_file : sub_compact->GetLastLevelOutputs()) {
+        auto& meta = output_file.meta;
+        compaction_result_->output_files.emplace_back(
+            MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
+            meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
+            meta.largest.Encode().ToString(), meta.oldest_ancester_time,
+            meta.file_creation_time, meta.epoch_number, meta.file_checksum,
+            meta.file_checksum_func_name, output_file.validator.GetHash(),
+            meta.marked_for_compaction, meta.unique_id,
+            *output_file.table_properties,
+            false /*is_penultimate_level_output*/, meta.temperature);
+      }
+    } else {
+      for (const auto& output_file : sub_compact->GetOutputs()) {
+        auto& meta = output_file.meta;
+        compaction_result_->output_files.emplace_back(
+            MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
+            meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
+            meta.largest.Encode().ToString(), meta.oldest_ancester_time,
+            meta.file_creation_time, meta.epoch_number, meta.file_checksum,
+            meta.file_checksum_func_name, output_file.validator.GetHash(),
+            meta.marked_for_compaction, meta.unique_id,
+            *output_file.table_properties,
+            false /*is_penultimate_level_output*/, meta.temperature);
+      }
     }
   }
 
@@ -585,7 +617,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
             const auto this_one = static_cast<const TableProperties*>(addr1);
             const auto that_one = static_cast<const TableProperties*>(addr2);
             return this_one->AreEqual(opts, that_one, mismatch);
-          }}}};
+          }}},
+        {"is_penultimate_level_output",
+         {offsetof(struct CompactionServiceOutputFile,
+                   is_penultimate_level_output),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"file_temperature",
+         {offsetof(struct CompactionServiceOutputFile, file_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     compaction_job_stats_type_info = {
