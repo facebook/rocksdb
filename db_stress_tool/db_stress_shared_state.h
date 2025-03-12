@@ -137,7 +137,7 @@ class SharedState {
     for (int i = 0; i < FLAGS_column_families; ++i) {
       key_locks_[i].reset(new port::Mutex[num_locks]);
     }
-    if (FLAGS_read_fault_one_in) {
+    if (FLAGS_read_fault_one_in || FLAGS_metadata_read_fault_one_in) {
 #ifdef NDEBUG
       // Unsupported in release mode because it relies on
       // `IGNORE_STATUS_IF_ERROR` to distinguish faults not expected to lead to

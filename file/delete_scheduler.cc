@@ -130,6 +130,7 @@ Status DeleteScheduler::AddFileToDeletionQueue(const std::string& file_path,
                  s.ToString().c_str());
 
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     ROCKS_LOG_ERROR(info_log_, "Failed to mark %s as trash -- %s",
                     file_path.c_str(), s.ToString().c_str());
     s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
@@ -151,6 +152,7 @@ Status DeleteScheduler::AddFileToDeletionQueue(const std::string& file_path,
     if (io_s.ok()) {
       total_trash_size_.fetch_add(trash_file_size);
     }
+    IGNORE_STATUS_IF_ERROR(s);
   }
   //**TODO: What should we do if we failed to
   // get the file size?
