@@ -1211,6 +1211,7 @@ TEST_F(CompactionServiceTest, PrecludeLastLevel) {
   auto my_cs = GetCompactionService();
   CompactionServiceResult result;
   my_cs->GetResult(&result);
+  ASSERT_OK(result.status);
   ASSERT_GT(result.stats.cpu_micros, 0);
   ASSERT_GT(result.stats.elapsed_micros, 0);
   ASSERT_EQ(result.stats.num_output_records, kNumTrigger * kNumKeys);
