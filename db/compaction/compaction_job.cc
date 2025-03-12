@@ -2231,7 +2231,7 @@ void CompactionJob::LogCompaction() {
                    ? int64_t{-1}  // Use -1 for "none"
                    : static_cast<int64_t>(existing_snapshots_[0]));
     if (compaction->SupportsPerKeyPlacement()) {
-      stream << "prenultimate_after_seqno" << proximal_after_seqno_;
+      stream << "proximal_after_seqno" << proximal_after_seqno_;
       stream << "preserve_seqno_after" << preserve_seqno_after_;
       stream << "proximal_output_level" << compaction->GetProximalLevel();
       stream << "proximal_output_range"
