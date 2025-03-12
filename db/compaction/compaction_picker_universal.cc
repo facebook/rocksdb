@@ -996,7 +996,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
 
   if (output_level != 0 && picker_->FilesRangeOverlapWithCompaction(
                                inputs, output_level,
-                               Compaction::EvaluatePenultimateLevel(
+                               Compaction::EvaluateProximalLevel(
                                    vstorage_, mutable_cf_options_, ioptions_,
                                    start_level, output_level))) {
     return nullptr;
@@ -1345,7 +1345,7 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
   // intra L0 compactions outputs could have overlap
   if (output_level != 0 && picker_->FilesRangeOverlapWithCompaction(
                                inputs, output_level,
-                               Compaction::EvaluatePenultimateLevel(
+                               Compaction::EvaluateProximalLevel(
                                    vstorage_, mutable_cf_options_, ioptions_,
                                    start_level, output_level))) {
     return nullptr;
@@ -1486,9 +1486,9 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       }
       if (picker_->FilesRangeOverlapWithCompaction(
               inputs, output_level,
-              Compaction::EvaluatePenultimateLevel(
-                  vstorage_, mutable_cf_options_, ioptions_, start_level,
-                  output_level))) {
+              Compaction::EvaluateProximalLevel(vstorage_, mutable_cf_options_,
+                                                ioptions_, start_level,
+                                                output_level))) {
         return nullptr;
       }
 
@@ -1590,7 +1590,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
   // intra L0 compactions outputs could have overlap
   if (output_level != 0 && picker_->FilesRangeOverlapWithCompaction(
                                inputs, output_level,
-                               Compaction::EvaluatePenultimateLevel(
+                               Compaction::EvaluateProximalLevel(
                                    vstorage_, mutable_cf_options_, ioptions_,
                                    start_level, output_level))) {
     return nullptr;

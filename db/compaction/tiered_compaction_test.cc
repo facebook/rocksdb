@@ -215,8 +215,8 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  // the penultimate level file temperature is not cold, all data are output to
-  // the penultimate level.
+  // the proximal level file temperature is not cold, all data are output to
+  // the proximal level.
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
@@ -230,7 +230,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   ResetAllStats(expect_stats, expect_pl_stats);
 
   // move forward the cold_seq to split the file into 2 levels, so should have
-  // both the last level stats and the output_to_penultimate_level stats
+  // both the last level stats and the output_to_proximal_level stats
   latest_cold_seq = seq_history[0];
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
@@ -246,7 +246,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   expect_pl_stats.ResetCompactionReason(CompactionReason::kManualCompaction);
   VerifyCompactionStats(expect_stats, expect_pl_stats);
 
-  // delete all cold data, so all data will be on penultimate level
+  // delete all cold data, so all data will be on proximal level
   for (int i = 0; i < 10; i++) {
     ASSERT_OK(Delete(Key(i)));
   }
@@ -364,7 +364,7 @@ TEST_F(TieredCompactionTest, DISABLED_RangeBasedTieredStorageUniversal) {
       "CompactionIterator::PrepareOutput.context", [&](void* arg) {
         auto context = static_cast<PerKeyPlacementContext*>(arg);
         MutexLock l(&mutex);
-        context->output_to_penultimate_level =
+        context->output_to_proximal_level =
             cmp->Compare(context->key, hot_start) >= 0 &&
             cmp->Compare(context->key, hot_end) < 0;
       });
@@ -393,7 +393,7 @@ TEST_F(TieredCompactionTest, DISABLED_RangeBasedTieredStorageUniversal) {
 
   ResetAllStats(expect_stats, expect_pl_stats);
 
-  // change to all cold, no output_to_penultimate_level output
+  // change to all cold, no output_to_proximal_level output
   {
     MutexLock l(&mutex);
     hot_start = Key(100);
@@ -421,7 +421,7 @@ TEST_F(TieredCompactionTest, DISABLED_RangeBasedTieredStorageUniversal) {
   }
 
   // No data is moved from cold tier to hot tier because no input files from L5
-  // or higher, it's not safe to move data to output_to_penultimate_level level.
+  // or higher, it's not safe to move data to output_to_proximal_level level.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
 
@@ -567,7 +567,7 @@ TEST_F(TieredCompactionTest, LevelColdRangeDelete) {
 
   // 20->30 will be marked as cold data, but it cannot be placed to cold tier
   // (bottommost) otherwise, it will be "deleted" by the range del in
-  // output_to_penultimate_level level verify that these data will be able to
+  // output_to_proximal_level level verify that these data will be able to
   // queried
   for (int i = 20; i < 30; i++) {
     ASSERT_OK(Put(Key(i), "value" + std::to_string(i)));
@@ -677,17 +677,17 @@ TEST_F(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
   std::vector<std::vector<FileMetaData>> level_to_files;
   dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
                                   &level_to_files);
-  // range tombstone is in the penultimate level
-  const int penultimate_level = kNumLevels - 2;
-  ASSERT_EQ(level_to_files[penultimate_level].size(), 1);
-  ASSERT_EQ(level_to_files[penultimate_level][0].num_entries, 1);
-  ASSERT_EQ(level_to_files[penultimate_level][0].num_deletions, 1);
-  ASSERT_EQ(level_to_files[penultimate_level][0].temperature,
+  // range tombstone is in the proximal level
+  const int proximal_level = kNumLevels - 2;
+  ASSERT_EQ(level_to_files[proximal_level].size(), 1);
+  ASSERT_EQ(level_to_files[proximal_level][0].num_entries, 1);
+  ASSERT_EQ(level_to_files[proximal_level][0].num_deletions, 1);
+  ASSERT_EQ(level_to_files[proximal_level][0].temperature,
             Temperature::kUnknown);
 
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
   ASSERT_EQ("0,1,10",
-            FilesPerLevel());  // one file is at the penultimate level which
+            FilesPerLevel());  // one file is at the proximal level which
                                // only contains a range delete
 
   // Add 2 hot keys, each is a new SST, they will be placed in the same level as
@@ -701,7 +701,7 @@ TEST_F(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
 
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,2,10",
-            FilesPerLevel());  // one file is at the penultimate level
+            FilesPerLevel());  // one file is at the proximal level
                                // which only contains a range delete
   std::vector<LiveFileMetaData> live_file_meta;
   db_->GetLiveFilesMetaData(&live_file_meta);
@@ -711,7 +711,7 @@ TEST_F(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
     if (meta.num_deletions > 0) {
       // found SST with del, which has 2 entries, one for data one for range del
       ASSERT_EQ(meta.level,
-                kNumLevels - 2);  // output to penultimate level
+                kNumLevels - 2);  // output to proximal level
       ASSERT_EQ(meta.num_entries, 2);
       ASSERT_EQ(meta.num_deletions, 1);
       found_sst_with_del = true;
@@ -722,7 +722,7 @@ TEST_F(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
 
   // release the first snapshot and compact, which should compact the range del
   // but new inserted key `0` and `6` are still hot data which will be placed on
-  // the penultimate level
+  // the proximal level
   db_->ReleaseSnapshot(snap);
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,2,7", FilesPerLevel());
@@ -738,7 +738,7 @@ TEST_F(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
   ASSERT_FALSE(found_sst_with_del);
 
   // Now make all data cold, key 0 will be moved to the last level, but key 6 is
-  // still in snap2, so it will be kept at the penultimate level
+  // still in snap2, so it will be kept at the proximal level
   latest_cold_seq = dbfull()->GetLatestSequenceNumber();
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,1,8", FilesPerLevel());
@@ -783,7 +783,7 @@ TEST_F(TieredCompactionTest, UniversalRangeDelete) {
   }
   ASSERT_OK(Flush());
 
-  // compact to the penultimate level with 10 files
+  // compact to the proximal level with 10 files
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
@@ -810,7 +810,7 @@ TEST_F(TieredCompactionTest, UniversalRangeDelete) {
 
   ASSERT_EQ("0,0,0,0,0,0,8", FilesPerLevel());
 
-  // range del with snapshot should be preserved in the penultimate level
+  // range del with snapshot should be preserved in the proximal level
   auto snap = db_->GetSnapshot();
 
   start = Key(6);
@@ -841,7 +841,7 @@ TEST_F(TieredCompactionTest, UniversalRangeDelete) {
     if (meta.num_deletions > 0) {
       // found SST with del, which has 2 entries, one for data one for range del
       ASSERT_EQ(meta.level,
-                kNumLevels - 2);  // output_to_penultimate_level level
+                kNumLevels - 2);  // output_to_proximal_level level
       ASSERT_EQ(meta.num_entries, 2);
       ASSERT_EQ(meta.num_deletions, 1);
       found_sst_with_del = true;
@@ -1138,7 +1138,7 @@ TEST_F(TieredCompactionTest, DISABLED_RangeBasedTieredStorageLevel) {
       "CompactionIterator::PrepareOutput.context", [&](void* arg) {
         auto context = static_cast<PerKeyPlacementContext*>(arg);
         MutexLock l(&mutex);
-        context->output_to_penultimate_level =
+        context->output_to_proximal_level =
             cmp->Compare(context->key, hot_start) >= 0 &&
             cmp->Compare(context->key, hot_end) < 0;
       });
@@ -1221,10 +1221,10 @@ TEST_F(TieredCompactionTest, DISABLED_RangeBasedTieredStorageLevel) {
       options.statistics->getTickerCount(COMPACTION_RANGE_DEL_DROP_OBSOLETE),
       1);
 
-  // Tests that we only compact keys up to penultimate level
-  // that are within penultimate level input's internal key range.
-  // UPDATE: this functionality has changed. With penultimate-enabled
-  // compaction, the expanded potential output range in the penultimate
+  // Tests that we only compact keys up to proximal level
+  // that are within proximal level input's internal key range.
+  // UPDATE: this functionality has changed. With proximal-enabled
+  // compaction, the expanded potential output range in the proximal
   // level is reserved so should be safe to use.
   {
     MutexLock l(&mutex);
@@ -1376,7 +1376,7 @@ TEST_P(PrecludeLastLevelTest, MigrationFromPreserveTimeManualCompaction) {
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
-  // all data is moved up to the penultimate level
+  // all data is moved up to the proximal level
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
@@ -1448,7 +1448,7 @@ TEST_P(PrecludeLastLevelTest, MigrationFromPreserveTimeAutoCompaction) {
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 
-  // all data is moved up to the penultimate level
+  // all data is moved up to the proximal level
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
@@ -1579,9 +1579,9 @@ TEST_P(PrecludeLastLevelTest, SmallPrecludeTime) {
 }
 
 TEST_P(PrecludeLastLevelTest, CheckInternalKeyRange) {
-  // When compacting keys from the last level to penultimate level,
-  // output to penultimate level should be within internal key range
-  // of input files from penultimate level.
+  // When compacting keys from the last level to proximal level,
+  // output to proximal level should be within internal key range
+  // of input files from proximal level.
   // Set up:
   // L5:
   //  File 1: DeleteRange[1, 3)@4, File 2: [3@5, 100@6]
@@ -1719,8 +1719,8 @@ TEST_P(PrecludeWithCompactStyleTest, RangeTombstoneSnapshotMigrateFromLast) {
 
   ApplyConfigChange(&options, {{"preclude_last_level_data_seconds", "10000"}});
 
-  // To exercise the WithinPenultimateLevelOutputRange feature, we want files
-  // around the middle file to be compacted on the penultimate level
+  // To exercise the WithinProximalLevelOutputRange feature, we want files
+  // around the middle file to be compacted on the proximal level
   ASSERT_OK(Put(Key(0), "val0"));
   ASSERT_OK(Flush());
   ASSERT_OK(Put(Key(3), "val3"));
@@ -1777,9 +1777,9 @@ TEST_P(PrecludeWithCompactStyleTest, RangeTombstoneSnapshotMigrateFromLast) {
   EXPECT_EQ("0,0,0,0,0,3,1", FilesPerLevel());
   VerifyLogicalState(__LINE__);
 
-  // Compact everything, but some data still goes to both penultimate and last
+  // Compact everything, but some data still goes to both proximal and last
   // levels. A full-range compaction should be safe to "migrate" data from the
-  // last level to penultimate (because of preclude setting change).
+  // last level to proximal (because of preclude setting change).
   ASSERT_OK(CompactRange({}, {}, {}));
   EXPECT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   VerifyLogicalState(__LINE__);
@@ -1898,7 +1898,7 @@ TEST_P(TimedPutPrecludeLastLevelTest, InterleavedTimedPutAndPut) {
   Close();
 }
 
-TEST_P(TimedPutPrecludeLastLevelTest, PreserveTimedPutOnPenultimateLevel) {
+TEST_P(TimedPutPrecludeLastLevelTest, PreserveTimedPutOnProximalLevel) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.disable_auto_compactions = true;
@@ -1924,14 +1924,14 @@ TEST_P(TimedPutPrecludeLastLevelTest, PreserveTimedPutOnPenultimateLevel) {
   ASSERT_OK(TimedPut(0, Key(2), "v2", kMockStartTime - 1 * 24 * 60 * 60, wo));
   ASSERT_OK(Flush());
 
-  // Should still be in penultimate level.
+  // Should still be in proximal level.
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kHot), 0);
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 
   // Wait one more day and release snapshot. Data's preferred seqno should be
-  // swapped in, but data should still stay in penultimate level. SST file's
+  // swapped in, but data should still stay in proximal level. SST file's
   // seqno to time mapping should continue to cover preferred seqno after
   // compaction.
   db_->ReleaseSnapshot(snap1);
@@ -2253,13 +2253,13 @@ TEST_P(PrecludeLastLevelOptionalTest, LastLevelOnlyCompactionNoPreclude) {
   Close();
 }
 
-TEST_P(PrecludeLastLevelOptionalTest, PeriodicCompactionToPenultimateLevel) {
+TEST_P(PrecludeLastLevelOptionalTest, PeriodicCompactionToProximalLevel) {
   // Test the last level only periodic compaction should also be blocked by an
-  // ongoing compaction in penultimate level if tiered compaction is enabled
+  // ongoing compaction in proximal level if tiered compaction is enabled
   // otherwise, the periodic compaction should just run for the last level.
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
-  const int kPenultimateLevel = kNumLevels - 2;
+  const int kProximalLevel = kNumLevels - 2;
   const int kKeyPerSec = 1;
   const int kNumKeys = 100;
 
@@ -2301,13 +2301,13 @@ TEST_P(PrecludeLastLevelOptionalTest, PeriodicCompactionToPenultimateLevel) {
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::ProcessKeyValueCompaction()::Processing", [&](void* arg) {
         auto compaction = static_cast<Compaction*>(arg);
-        if (compaction->output_level() == kPenultimateLevel) {
+        if (compaction->output_level() == kProximalLevel) {
           is_size_ratio_compaction_running = true;
           TEST_SYNC_POINT(
-              "PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:"
+              "PrecludeLastLevelTest::PeriodicCompactionToProximalLevel:"
               "SizeRatioCompaction1");
           TEST_SYNC_POINT(
-              "PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:"
+              "PrecludeLastLevelTest::PeriodicCompactionToProximalLevel:"
               "SizeRatioCompaction2");
           is_size_ratio_compaction_running = false;
         }
@@ -2329,17 +2329,17 @@ TEST_P(PrecludeLastLevelOptionalTest, PeriodicCompactionToPenultimateLevel) {
           verified_last_level_compaction = true;
         }
         TEST_SYNC_POINT(
-            "PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:"
+            "PrecludeLastLevelTest::PeriodicCompactionToProximalLevel:"
             "AutoCompactionPicked");
       });
 
   SyncPoint::GetInstance()->LoadDependency({
-      {"PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:"
+      {"PrecludeLastLevelTest::PeriodicCompactionToProximalLevel:"
        "SizeRatioCompaction1",
-       "PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:DoneWrite"},
-      {"PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:"
+       "PrecludeLastLevelTest::PeriodicCompactionToProximalLevel:DoneWrite"},
+      {"PrecludeLastLevelTest::PeriodicCompactionToProximalLevel:"
        "AutoCompactionPicked",
-       "PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:"
+       "PrecludeLastLevelTest::PeriodicCompactionToProximalLevel:"
        "SizeRatioCompaction2"},
   });
 
@@ -2356,11 +2356,11 @@ TEST_P(PrecludeLastLevelOptionalTest, PeriodicCompactionToPenultimateLevel) {
   }
 
   TEST_SYNC_POINT(
-      "PrecludeLastLevelTest::PeriodicCompactionToPenultimateLevel:DoneWrite");
+      "PrecludeLastLevelTest::PeriodicCompactionToProximalLevel:DoneWrite");
 
   // wait for periodic compaction time and flush to trigger the periodic
   // compaction, which should be blocked by ongoing compaction in the
-  // penultimate level
+  // proximal level
   mock_clock_->MockSleepForSeconds(10000);
   for (int i = 0; i < 3 * kNumKeys; i++) {
     ASSERT_OK(Put(Key(i), rnd.RandomString(10)));
@@ -2423,7 +2423,7 @@ class ThreeRangesPartitionerFactory : public SstPartitionerFactory {
   }
 };
 
-TEST_P(PrecludeLastLevelTest, PartialPenultimateLevelCompaction) {
+TEST_P(PrecludeLastLevelTest, PartialProximalLevelCompaction) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kKeyPerSec = 10;
@@ -2593,8 +2593,8 @@ TEST_P(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
       "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
         auto compaction = static_cast<Compaction*>(arg);
         if (compaction->SupportsPerKeyPlacement()) {
-          ASSERT_EQ(compaction->GetPenultimateOutputRangeType(),
-                    Compaction::PenultimateOutputRangeType::kNonLastRange);
+          ASSERT_EQ(compaction->GetProximalOutputRangeType(),
+                    Compaction::ProximalOutputRangeType::kNonLastRange);
           per_key_comp_num++;
         }
       });
@@ -2650,7 +2650,7 @@ TEST_P(PrecludeLastLevelTest, RangeDelsCauseFileEndpointsToOverlap) {
   ASSERT_EQ(3, per_key_comp_num);
   verify_db();
 
-  // Finish off the penultimate level.
+  // Finish off the proximal level.
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,0,0,0,0,0,3", FilesPerLevel());
   verify_db();
