@@ -525,12 +525,8 @@ struct BlockBasedTableOptions {
   uint32_t read_amp_bytes_per_bit = 0;
 
   // We currently have these versions:
-  // 0 -- This version can be read by really old RocksDB's. Doesn't support
-  // changing checksum type (default is CRC32).
-  // 1 -- Can be read by RocksDB's versions since 3.0. Supports non-default
-  // checksum, like xxHash. It is written by RocksDB when
-  // BlockBasedTableOptions::checksum is something other than kCRC32c. (version
-  // 0 is silently upconverted)
+  // 0 - 1 -- Unsupported for writing new files. Read support is deprecated
+  // and could be removed in the future.
   // 2 -- Can be read by RocksDB's versions since 3.10. Changes the way we
   // encode compressed blocks with LZ4, BZip2 and Zlib compression. If you
   // don't plan to run RocksDB before version 3.10, you should probably use

@@ -467,6 +467,20 @@ void BlockBasedTableFactory::InitializeOptions() {
       options_overrides_iter->second.charged = options.charged;
     }
   }
+
+  if (table_options_.format_version < kMinSupportedFormatVersion) {
+    if (AllowUnsupportedFormatVersion()) {
+      // Allow old format version for testing.
+      // And relevant old sanitization.
+      if (table_options_.format_version == 0 &&
+          table_options_.checksum != kCRC32c) {
+        // silently convert format_version to 1 to support non-CRC32c checksum
+        table_options_.format_version = 1;
+      }
+    } else {
+      table_options_.format_version = kMinSupportedFormatVersion;
+    }
+  }
 }
 
 Status BlockBasedTableFactory::PrepareOptions(const ConfigOptions& opts) {
@@ -908,6 +922,11 @@ Status BlockBasedTableFactory::ParseOption(const ConfigOptions& config_options,
     }
   }
   return status;
+}
+
+bool& BlockBasedTableFactory::AllowUnsupportedFormatVersion() {
+  static bool allow = false;
+  return allow;
 }
 
 Status GetBlockBasedTableOptionsFromString(
