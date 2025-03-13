@@ -1474,7 +1474,7 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
                 /* expected_oldest_blob_file_numbers */ {19});
 }
 
-TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
+TEST_F(CompactionJobTest, VerifyProximalLevelOutput) {
   cf_options_.last_level_temperature = Temperature::kCold;
   SyncPoint::GetInstance()->SetCallBack(
       "Compaction::SupportsPerKeyPlacement:Enabled", [&](void* arg) {
@@ -1487,8 +1487,7 @@ TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionIterator::PrepareOutput.context", [&](void* arg) {
         auto context = static_cast<PerKeyPlacementContext*>(arg);
-        context->output_to_penultimate_level =
-            context->seq_num > latest_cold_seq;
+        context->output_to_proximal_level = context->seq_num > latest_cold_seq;
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1534,11 +1533,11 @@ TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
       /*verify_func=*/[&](Compaction& comp) {
         for (char c = 'a'; c <= 'z'; c++) {
           if (c == 'a') {
-            comp.TEST_AssertWithinPenultimateLevelOutputRange(
+            comp.TEST_AssertWithinProximalLevelOutputRange(
                 "a", true /*expect_failure*/);
           } else {
             std::string c_str{c};
-            comp.TEST_AssertWithinPenultimateLevelOutputRange(c_str);
+            comp.TEST_AssertWithinProximalLevelOutputRange(c_str);
           }
         }
       });

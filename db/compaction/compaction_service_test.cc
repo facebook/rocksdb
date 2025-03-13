@@ -1194,7 +1194,7 @@ TEST_F(CompactionServiceTest, PrecludeLastLevel) {
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  // Data split between penultimate (kUnknown) and last (kCold) levels
+  // Data split between proximal (kUnknown) and last (kCold) levels
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);

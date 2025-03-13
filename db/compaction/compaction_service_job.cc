@@ -391,8 +391,8 @@ Status CompactionServiceCompactionJob::Run() {
   // 2. Update the Output information in the Compaction Job Stats with
   // aggregated Internal Compaction Stats.
   UpdateCompactionJobStats(compaction_stats_.stats);
-  if (compaction_stats_.has_penultimate_level_output) {
-    UpdateCompactionJobStats(compaction_stats_.penultimate_level_stats);
+  if (compaction_stats_.has_proximal_level_output) {
+    UpdateCompactionJobStats(compaction_stats_.proximal_level_stats);
   }
 
   // 3. Set fields that are not propagated as part of aggregations above
@@ -417,7 +417,7 @@ Status CompactionServiceCompactionJob::Run() {
           meta.file_creation_time, meta.epoch_number, meta.file_checksum,
           meta.file_checksum_func_name, output_file.validator.GetHash(),
           meta.marked_for_compaction, meta.unique_id,
-          *output_file.table_properties, output_file.is_penultimate_level,
+          *output_file.table_properties, output_file.is_proximal_level,
           meta.temperature);
     }
   }
