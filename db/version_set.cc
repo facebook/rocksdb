@@ -4761,7 +4761,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
             cur_level_size <= base_bytes_min &&
             (options.preclude_last_level_data_seconds == 0 ||
              i < num_levels_ - 2)) {
-          // When per_key_placement is enabled, the penultimate level is
+          // When per_key_placement is enabled, the proximal level is
           // necessary.
           lowest_unnecessary_level_ = i;
         }

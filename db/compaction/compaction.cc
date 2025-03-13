@@ -338,16 +338,16 @@ Compaction::Compaction(
                   _blob_garbage_collection_age_cutoff > 1
               ? mutable_cf_options().blob_garbage_collection_age_cutoff
               : _blob_garbage_collection_age_cutoff),
-      penultimate_level_(
-          // For simplicity, we don't support the concept of "penultimate level"
+      proximal_level_(
+          // For simplicity, we don't support the concept of "proximal level"
           // with `CompactionReason::kExternalSstIngestion` and
           // `CompactionReason::kRefitLevel`
           _compaction_reason == CompactionReason::kExternalSstIngestion ||
                   _compaction_reason == CompactionReason::kRefitLevel
               ? Compaction::kInvalidLevel
-              : EvaluatePenultimateLevel(vstorage, mutable_cf_options_,
-                                         immutable_options_, start_level_,
-                                         output_level_)) {
+              : EvaluateProximalLevel(vstorage, mutable_cf_options_,
+                                      immutable_options_, start_level_,
+                                      output_level_)) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
@@ -405,10 +405,10 @@ Compaction::Compaction(
     }
   }
 
-  PopulatePenultimateLevelOutputRange();
+  PopulateProximalLevelOutputRange();
 }
 
-void Compaction::PopulatePenultimateLevelOutputRange() {
+void Compaction::PopulateProximalLevelOutputRange() {
   if (!SupportsPerKeyPlacement()) {
     assert(keep_in_last_level_through_seqno_ == kMaxSequenceNumber);
     return;
@@ -417,46 +417,42 @@ void Compaction::PopulatePenultimateLevelOutputRange() {
   // exclude the last level, the range of all input levels is the safe range
   // of keys that can be moved up.
   int exclude_level = number_levels_ - 1;
-  penultimate_output_range_type_ = PenultimateOutputRangeType::kNonLastRange;
+  proximal_output_range_type_ = ProximalOutputRangeType::kNonLastRange;
 
-  // For universal compaction, the penultimate_output_range could be extended if
-  // all penultimate level files are included in the compaction (which includes
-  // the case that the penultimate level is empty).
+  // For universal compaction, the proximal_output_range could be extended if
+  // all proximal level files are included in the compaction (which includes
+  // the case that the proximal level is empty).
   if (immutable_options_.compaction_style == kCompactionStyleUniversal) {
     exclude_level = kInvalidLevel;
-    penultimate_output_range_type_ = PenultimateOutputRangeType::kFullRange;
-    std::set<uint64_t> penultimate_inputs;
+    proximal_output_range_type_ = ProximalOutputRangeType::kFullRange;
+    std::set<uint64_t> proximal_inputs;
     for (const auto& input_lvl : inputs_) {
-      if (input_lvl.level == penultimate_level_) {
+      if (input_lvl.level == proximal_level_) {
         for (const auto& file : input_lvl.files) {
-          penultimate_inputs.emplace(file->fd.GetNumber());
+          proximal_inputs.emplace(file->fd.GetNumber());
         }
       }
     }
-    auto penultimate_files = input_vstorage_->LevelFiles(penultimate_level_);
-    for (const auto& file : penultimate_files) {
-      if (penultimate_inputs.find(file->fd.GetNumber()) ==
-          penultimate_inputs.end()) {
+    auto proximal_files = input_vstorage_->LevelFiles(proximal_level_);
+    for (const auto& file : proximal_files) {
+      if (proximal_inputs.find(file->fd.GetNumber()) == proximal_inputs.end()) {
         exclude_level = number_levels_ - 1;
-        penultimate_output_range_type_ =
-            PenultimateOutputRangeType::kNonLastRange;
+        proximal_output_range_type_ = ProximalOutputRangeType::kNonLastRange;
         break;
       }
     }
   }
 
-  // FIXME: should make use of `penultimate_output_range_type_`.
+  // FIXME: should make use of `proximal_output_range_type_`.
   // FIXME: when last level's input range does not overlap with
-  //  penultimate level, and penultimate level input is empty,
-  //  this call will not set penultimate_level_smallest_ or
-  //  penultimate_level_largest_. No keys will be compacted up.
-  GetBoundaryInternalKeys(input_vstorage_, inputs_,
-                          &penultimate_level_smallest_,
-                          &penultimate_level_largest_, exclude_level);
+  //  proximal level, and proximal level input is empty,
+  //  this call will not set proximal_level_smallest_ or
+  //  proximal_level_largest_. No keys will be compacted up.
+  GetBoundaryInternalKeys(input_vstorage_, inputs_, &proximal_level_smallest_,
+                          &proximal_level_largest_, exclude_level);
 
-  if (penultimate_output_range_type_ !=
-      PenultimateOutputRangeType::kFullRange) {
-    // If not full range in penultimate level, must keep everything already
+  if (proximal_output_range_type_ != ProximalOutputRangeType::kFullRange) {
+    // If not full range in proximal level, must keep everything already
     // in the last level there, because moving it back up might cause
     // overlap/placement issues that are difficult to resolve properly in the
     // presence of range deletes
@@ -486,23 +482,23 @@ Compaction::~Compaction() {
 }
 
 bool Compaction::SupportsPerKeyPlacement() const {
-  return penultimate_level_ != kInvalidLevel;
+  return proximal_level_ != kInvalidLevel;
 }
 
-int Compaction::GetPenultimateLevel() const { return penultimate_level_; }
+int Compaction::GetProximalLevel() const { return proximal_level_; }
 
 // smallest_key and largest_key include timestamps if user-defined timestamp is
 // enabled.
-bool Compaction::OverlapPenultimateLevelOutputRange(
+bool Compaction::OverlapProximalLevelOutputRange(
     const Slice& smallest_key, const Slice& largest_key) const {
   if (!SupportsPerKeyPlacement()) {
     return false;
   }
 
-  // See FIXME in Compaction::PopulatePenultimateLevelOutputRange().
+  // See FIXME in Compaction::PopulateProximalLevelOutputRange().
   // We do not compact any key up in this case.
-  if (penultimate_level_smallest_.size() == 0 ||
-      penultimate_level_largest_.size() == 0) {
+  if (proximal_level_smallest_.size() == 0 ||
+      proximal_level_largest_.size() == 0) {
     return false;
   }
 
@@ -510,13 +506,13 @@ bool Compaction::OverlapPenultimateLevelOutputRange(
       input_vstorage_->InternalComparator()->user_comparator();
 
   return ucmp->CompareWithoutTimestamp(
-             smallest_key, penultimate_level_largest_.user_key()) <= 0 &&
+             smallest_key, proximal_level_largest_.user_key()) <= 0 &&
          ucmp->CompareWithoutTimestamp(
-             largest_key, penultimate_level_smallest_.user_key()) >= 0;
+             largest_key, proximal_level_smallest_.user_key()) >= 0;
 }
 
 // key includes timestamp if user-defined timestamp is enabled.
-void Compaction::TEST_AssertWithinPenultimateLevelOutputRange(
+void Compaction::TEST_AssertWithinProximalLevelOutputRange(
     const Slice& user_key, bool expect_failure) const {
 #ifdef NDEBUG
   (void)user_key;
@@ -524,15 +520,15 @@ void Compaction::TEST_AssertWithinPenultimateLevelOutputRange(
 #else
   assert(SupportsPerKeyPlacement());
 
-  assert(penultimate_level_smallest_.size() > 0);
-  assert(penultimate_level_largest_.size() > 0);
+  assert(proximal_level_smallest_.size() > 0);
+  assert(proximal_level_largest_.size() > 0);
 
   auto* cmp = input_vstorage_->user_comparator();
 
   // op_type of a key can change during compaction, e.g. Merge -> Put.
-  if (!(cmp->Compare(user_key, penultimate_level_smallest_.user_key()) >= 0)) {
+  if (!(cmp->Compare(user_key, proximal_level_smallest_.user_key()) >= 0)) {
     assert(expect_failure);
-  } else if (!(cmp->Compare(user_key, penultimate_level_largest_.user_key()) <=
+  } else if (!(cmp->Compare(user_key, proximal_level_largest_.user_key()) <=
                0)) {
     assert(expect_failure);
   } else {
@@ -1018,7 +1014,7 @@ uint64_t Compaction::MinInputFileEpochNumber() const {
   return min_epoch_number;
 }
 
-int Compaction::EvaluatePenultimateLevel(
+int Compaction::EvaluateProximalLevel(
     const VersionStorageInfo* vstorage,
     const MutableCFOptions& mutable_cf_options,
     const ImmutableOptions& immutable_options, const int start_level,
@@ -1033,21 +1029,21 @@ int Compaction::EvaluatePenultimateLevel(
     return kInvalidLevel;
   }
 
-  int penultimate_level = output_level - 1;
-  assert(penultimate_level < immutable_options.num_levels);
-  if (penultimate_level <= 0) {
+  int proximal_level = output_level - 1;
+  assert(proximal_level < immutable_options.num_levels);
+  if (proximal_level <= 0) {
     return kInvalidLevel;
   }
 
-  // If the penultimate level is not within input level -> output level range
-  // check if the penultimate output level is empty, if it's empty, it could
-  // also be locked for the penultimate output.
+  // If the proximal level is not within input level -> output level range
+  // check if the proximal output level is empty, if it's empty, it could
+  // also be locked for the proximal output.
   // TODO: ideally, it only needs to check if there's a file within the
   //  compaction output key range. For simplicity, it just check if there's any
-  //  file on the penultimate level.
+  //  file on the proximal level.
   if (start_level == immutable_options.num_levels - 1 &&
       (immutable_options.compaction_style != kCompactionStyleUniversal ||
-       !vstorage->LevelFiles(penultimate_level).empty())) {
+       !vstorage->LevelFiles(proximal_level).empty())) {
     return kInvalidLevel;
   }
 
@@ -1061,7 +1057,7 @@ int Compaction::EvaluatePenultimateLevel(
     return kInvalidLevel;
   }
 
-  return penultimate_level;
+  return proximal_level;
 }
 
 void Compaction::FilterInputsForCompactionIterator() {

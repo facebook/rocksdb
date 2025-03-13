@@ -104,9 +104,9 @@ class SubcompactionState;
 //    logging and public metrics.
 //    Internally, it's an aggregation of stats_ from each `SubcompactionState`.
 //    It has 2 parts, normal stats about the main compaction information and
-//    the penultimate level output stats.
-//    `SubcompactionState` maintains the CompactionOutputs for normal output and
-//    the penultimate level output if exists, the per_level stats is
+//    the proximal level output stats.
+//    `SubcompactionState` maintains the CompactionOutputs for ordinary level
+//    output and the proximal level output if exists, the per_level stats is
 //    stored with the outputs.
 //                                                +---------------------------+
 //                                                | SubcompactionState        |
@@ -119,7 +119,7 @@ class SubcompactionState;
 //                                            |   |                           |
 //                                            |   | +----------------------+  |
 // +--------------------------------+         |   | | CompactionOutputs    |  |
-// | CompactionJob                  |         |   | | (penultimate_level)  |  |
+// | CompactionJob                  |         |   | | (proximal_level)     |  |
 // |                                |    +--------->|   stats_             |  |
 // |   compaction_stats_            |    |    |   | +----------------------+  |
 // |    +-------------------------+ |    |    |   |                           |
@@ -127,7 +127,7 @@ class SubcompactionState;
 // |    +-------------------------+ |    |    |
 // |                                |    |    |
 // |    +-------------------------+ |    |    |   +---------------------------+
-// |    |penultimate_level_stats  +------+    |   | SubcompactionState        |
+// |    |proximal_level_stats     |------+    |   | SubcompactionState        |
 // |    +-------------------------+ |    |    |   |                           |
 // |                                |    |    |   | +----------------------+  |
 // |                                |    |    |   | | CompactionOutputs    |  |
@@ -137,7 +137,7 @@ class SubcompactionState;
 //                                       |        |                           |
 //                                       |        | +----------------------+  |
 //                                       |        | | CompactionOutputs    |  |
-//                                       |        | | (penultimate_level)  |  |
+//                                       |        | | (proximal_level)     |  |
 //                                       +--------->|   stats_             |  |
 //                                                | +----------------------+  |
 //                                                |                           |
@@ -363,8 +363,8 @@ class CompactionJob {
 
   // Minimal sequence number to preclude the data from the last level. If the
   // key has bigger (newer) sequence number than this, it will be precluded from
-  // the last level (output to penultimate level).
-  SequenceNumber penultimate_after_seqno_ = kMaxSequenceNumber;
+  // the last level (output to proximal level).
+  SequenceNumber proximal_after_seqno_ = kMaxSequenceNumber;
 
   // Options File Number used for Remote Compaction
   // Setting this requires DBMutex.
@@ -431,6 +431,8 @@ struct CompactionServiceOutputFile {
   bool marked_for_compaction;
   UniqueId64x2 unique_id{};
   TableProperties table_properties;
+  bool is_proximal_level_output;
+  Temperature file_temperature;
 
   CompactionServiceOutputFile() = default;
   CompactionServiceOutputFile(
@@ -440,7 +442,8 @@ struct CompactionServiceOutputFile {
       uint64_t _epoch_number, const std::string& _file_checksum,
       const std::string& _file_checksum_func_name, uint64_t _paranoid_hash,
       bool _marked_for_compaction, UniqueId64x2 _unique_id,
-      const TableProperties& _table_properties)
+      const TableProperties& _table_properties, bool _is_proximal_level_output,
+      Temperature _file_temperature)
       : file_name(name),
         smallest_seqno(smallest),
         largest_seqno(largest),
@@ -454,7 +457,9 @@ struct CompactionServiceOutputFile {
         paranoid_hash(_paranoid_hash),
         marked_for_compaction(_marked_for_compaction),
         unique_id(std::move(_unique_id)),
-        table_properties(_table_properties) {}
+        table_properties(_table_properties),
+        is_proximal_level_output(_is_proximal_level_output),
+        file_temperature(_file_temperature) {}
 };
 
 // CompactionServiceResult contains the compaction result from a different db

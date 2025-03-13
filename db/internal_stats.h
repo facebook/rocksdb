@@ -474,33 +474,33 @@ class InternalStats {
   };
 
   // Compaction stats, for per_key_placement compaction, it includes 2 levels
-  // stats: the last level and the penultimate level.
+  // stats: the last level and the proximal level.
   struct CompactionStatsFull {
     // the stats for the target primary output level
     CompactionStats stats;
 
-    // stats for penultimate level output if exist
-    bool has_penultimate_level_output = false;
-    CompactionStats penultimate_level_stats;
+    // stats for proximal level output if exist
+    bool has_proximal_level_output = false;
+    CompactionStats proximal_level_stats;
 
-    explicit CompactionStatsFull() : stats(), penultimate_level_stats() {}
+    explicit CompactionStatsFull() : stats(), proximal_level_stats() {}
 
     explicit CompactionStatsFull(CompactionReason reason, int c)
-        : stats(reason, c), penultimate_level_stats(reason, c) {}
+        : stats(reason, c), proximal_level_stats(reason, c) {}
 
     uint64_t TotalBytesWritten() const {
       uint64_t bytes_written = stats.bytes_written + stats.bytes_written_blob;
-      if (has_penultimate_level_output) {
-        bytes_written += penultimate_level_stats.bytes_written +
-                         penultimate_level_stats.bytes_written_blob;
+      if (has_proximal_level_output) {
+        bytes_written += proximal_level_stats.bytes_written +
+                         proximal_level_stats.bytes_written_blob;
       }
       return bytes_written;
     }
 
     uint64_t DroppedRecords() {
       uint64_t output_records = stats.num_output_records;
-      if (has_penultimate_level_output) {
-        output_records += penultimate_level_stats.num_output_records;
+      if (has_proximal_level_output) {
+        output_records += proximal_level_stats.num_output_records;
       }
       if (stats.num_input_records > output_records) {
         return stats.num_input_records - output_records;
@@ -510,12 +510,12 @@ class InternalStats {
 
     void SetMicros(uint64_t val) {
       stats.micros = val;
-      penultimate_level_stats.micros = val;
+      proximal_level_stats.micros = val;
     }
 
     void AddCpuMicros(uint64_t val) {
       stats.cpu_micros += val;
-      penultimate_level_stats.cpu_micros += val;
+      proximal_level_stats.cpu_micros += val;
     }
   };
 
@@ -588,9 +588,8 @@ class InternalStats {
   void AddCompactionStats(int level, Env::Priority thread_pri,
                           const CompactionStatsFull& comp_stats_full) {
     AddCompactionStats(level, thread_pri, comp_stats_full.stats);
-    if (comp_stats_full.has_penultimate_level_output) {
-      per_key_placement_comp_stats_.Add(
-          comp_stats_full.penultimate_level_stats);
+    if (comp_stats_full.has_proximal_level_output) {
+      per_key_placement_comp_stats_.Add(comp_stats_full.proximal_level_stats);
     }
   }
 
