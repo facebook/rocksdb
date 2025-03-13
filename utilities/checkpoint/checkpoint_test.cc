@@ -10,6 +10,10 @@
 // Syncpoint prevents us building and running tests in release
 #include "rocksdb/utilities/checkpoint.h"
 
+#include <gtest/gtest.h>
+
+#include <tuple>
+
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -265,7 +269,13 @@ class CheckpointTest : public testing::Test {
   }
 };
 
-TEST_F(CheckpointTest, GetSnapshotLink) {
+class CheckpointBasiTestWithParams : public CheckpointTest,
+                                     public testing::WithParamInterface<bool> {
+ public:
+  bool GetCompactManifestFile() { return GetParam(); }
+};
+
+TEST_P(CheckpointBasiTestWithParams, GetSnapshotLink) {
   for (uint64_t log_size_for_flush : {0, 1000000}) {
     Options options;
     DB* snapshotDB;
@@ -285,7 +295,8 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
     ASSERT_OK(Put(key, "v1"));
     // Take a snapshot
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, log_size_for_flush));
+    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, log_size_for_flush,
+                                           nullptr, GetCompactManifestFile()));
     ASSERT_OK(Put(key, "v2"));
     ASSERT_EQ("v2", Get(key));
     ASSERT_OK(Flush());
@@ -318,7 +329,7 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
   }
 }
 
-TEST_F(CheckpointTest, CheckpointWithBlob) {
+TEST_P(CheckpointBasiTestWithParams, CheckpointWithBlob) {
   // Create a database with a blob file
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -339,7 +350,8 @@ TEST_F(CheckpointTest, CheckpointWithBlob) {
 
   std::unique_ptr<Checkpoint> checkpoint_guard(checkpoint);
 
-  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 0, nullptr,
+                                         GetCompactManifestFile()));
 
   // Make sure it contains the blob file
   std::vector<std::string> files;
@@ -372,7 +384,7 @@ TEST_F(CheckpointTest, CheckpointWithBlob) {
   ASSERT_EQ(value, blob);
 }
 
-TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
+TEST_P(CheckpointBasiTestWithParams, ExportColumnFamilyWithLinks) {
   // Create a database
   auto options = CurrentOptions();
   options.create_if_missing = true;
@@ -439,7 +451,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
   }
 }
 
-TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
+TEST_P(CheckpointBasiTestWithParams, ExportColumnFamilyNegativeTest) {
   // Create a database
   auto options = CurrentOptions();
   options.create_if_missing = true;
@@ -466,7 +478,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
   delete checkpoint;
 }
 
-TEST_F(CheckpointTest, CheckpointCF) {
+TEST_P(CheckpointBasiTestWithParams, CheckpointCF) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"one", "two", "three", "four", "five"}, options);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
@@ -491,7 +503,8 @@ TEST_F(CheckpointTest, CheckpointCF) {
   ROCKSDB_NAMESPACE::port::Thread t([&]() {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 0, nullptr,
+                                           GetCompactManifestFile()));
     delete checkpoint;
   });
   TEST_SYNC_POINT("CheckpointTest::CheckpointCF:1");
@@ -534,7 +547,7 @@ TEST_F(CheckpointTest, CheckpointCF) {
   snapshotDB = nullptr;
 }
 
-TEST_F(CheckpointTest, CheckpointCFNoFlush) {
+TEST_P(CheckpointBasiTestWithParams, CheckpointCFNoFlush) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"one", "two", "three", "four", "five"}, options);
 
@@ -559,7 +572,8 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 1000000));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 1000000, nullptr,
+                                         GetCompactManifestFile()));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   delete checkpoint;
@@ -593,7 +607,7 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
   snapshotDB = nullptr;
 }
 
-TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
+TEST_P(CheckpointBasiTestWithParams, CurrentFileModifiedWhileCheckpointing) {
   Options options = CurrentOptions();
   options.max_manifest_file_size = 0;  // always rollover manifest for file add
   Reopen(options);
@@ -615,7 +629,8 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
   ROCKSDB_NAMESPACE::port::Thread t([&]() {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 0, nullptr,
+                                           GetCompactManifestFile()));
     delete checkpoint;
   });
   TEST_SYNC_POINT(
@@ -634,7 +649,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
   snapshotDB = nullptr;
 }
 
-TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
+TEST_P(CheckpointBasiTestWithParams, CurrentFileModifiedWhileCheckpointing2PC) {
   Close();
   const std::string dbname = test::PerThreadDBPath("transaction_testdb");
   ASSERT_OK(DestroyDB(dbname, CurrentOptions()));
@@ -696,7 +711,8 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
   ROCKSDB_NAMESPACE::port::Thread t([&]() {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(txdb, &checkpoint));
-    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 0, nullptr,
+                                           GetCompactManifestFile()));
     delete checkpoint;
   });
   TEST_SYNC_POINT(
@@ -748,7 +764,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
   delete txdb;
 }
 
-TEST_F(CheckpointTest, CheckpointInvalidDirectoryName) {
+TEST_P(CheckpointBasiTestWithParams, CheckpointInvalidDirectoryName) {
   for (std::string checkpoint_dir : {"", "/", "////"}) {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
@@ -758,37 +774,44 @@ TEST_F(CheckpointTest, CheckpointInvalidDirectoryName) {
   }
 }
 
-TEST_F(CheckpointTest, CheckpointWithParallelWrites) {
+TEST_P(CheckpointBasiTestWithParams, CheckpointWithParallelWrites) {
   // When run with TSAN, this exposes the data race fixed in
   // https://github.com/facebook/rocksdb/pull/3603
   ASSERT_OK(Put("key1", "val1"));
   port::Thread thread([this]() { ASSERT_OK(Put("key2", "val2")); });
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 0, nullptr,
+                                         GetCompactManifestFile()));
   delete checkpoint;
   thread.join();
 }
 
+INSTANTIATE_TEST_CASE_P(CheckpointTestWithWalParams2,
+                        CheckpointBasiTestWithParams,
+                        ::testing::Values(true, false));
+
 class CheckpointTestWithWalParams
     : public CheckpointTest,
       public testing::WithParamInterface<
-          std::tuple<uint64_t, bool, bool, bool>> {
+          std::tuple<uint64_t, bool, bool, bool, bool>> {
  public:
   uint64_t GetLogSizeForFlush() { return std::get<0>(GetParam()); }
   bool GetWalsInManifest() { return std::get<1>(GetParam()); }
   bool GetManualWalFlush() { return std::get<2>(GetParam()); }
   bool GetBackgroundCloseInactiveWals() { return std::get<3>(GetParam()); }
+  bool GetCompactManifestFile() { return std::get<4>(GetParam()); }
 };
 
 INSTANTIATE_TEST_CASE_P(NormalWalParams, CheckpointTestWithWalParams,
                         ::testing::Combine(::testing::Values(0U, 100000000U),
                                            ::testing::Bool(), ::testing::Bool(),
-                                           ::testing::Values(false)));
+                                           ::testing::Values(false),
+                                           ::testing::Bool()));
 
 INSTANTIATE_TEST_CASE_P(DeprecatedWalParams, CheckpointTestWithWalParams,
                         ::testing::Values(std::make_tuple(100000000U, true,
-                                                          false, true)));
+                                                          false, true, true)));
 
 TEST_P(CheckpointTestWithWalParams, CheckpointWithUnsyncedDataDropped) {
   Options options = CurrentOptions();
@@ -847,7 +870,7 @@ TEST_P(CheckpointTestWithWalParams, CheckpointWithUnsyncedDataDropped) {
   db_ = nullptr;
 }
 
-TEST_F(CheckpointTest, CheckpointOptionsFileFailedToPersist) {
+TEST_P(CheckpointBasiTestWithParams, CheckpointOptionsFileFailedToPersist) {
   // Regression test for a bug where checkpoint failed on a DB where persisting
   // OPTIONS file failed and the DB was opened with
   // `fail_if_options_file_error == false`.
@@ -879,7 +902,8 @@ TEST_F(CheckpointTest, CheckpointOptionsFileFailedToPersist) {
   ASSERT_OK(Put("key1", "val1"));
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 0, nullptr,
+                                         GetCompactManifestFile()));
   delete checkpoint;
 
   // Make sure it's usable.
@@ -895,7 +919,7 @@ TEST_F(CheckpointTest, CheckpointOptionsFileFailedToPersist) {
   db_ = nullptr;
 }
 
-TEST_F(CheckpointTest, CheckpointReadOnlyDB) {
+TEST_P(CheckpointBasiTestWithParams, CheckpointReadOnlyDB) {
   ASSERT_OK(Put("foo", "foo_value"));
   ASSERT_OK(Flush());
   Close();
@@ -903,7 +927,8 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDB) {
   ASSERT_OK(ReadOnlyReopen(options));
   Checkpoint* checkpoint = nullptr;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 0, nullptr,
+                                         GetCompactManifestFile()));
   delete checkpoint;
   checkpoint = nullptr;
   Close();
@@ -916,7 +941,7 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDB) {
   delete snapshot_db;
 }
 
-TEST_F(CheckpointTest, CheckpointWithLockWAL) {
+TEST_P(CheckpointBasiTestWithParams, CheckpointWithLockWAL) {
   Options options = CurrentOptions();
   ASSERT_OK(Put("foo", "foo_value"));
 
@@ -924,7 +949,8 @@ TEST_F(CheckpointTest, CheckpointWithLockWAL) {
 
   Checkpoint* checkpoint = nullptr;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 0, nullptr,
+                                         GetCompactManifestFile()));
   delete checkpoint;
   checkpoint = nullptr;
 
@@ -940,7 +966,8 @@ TEST_F(CheckpointTest, CheckpointWithLockWAL) {
   delete snapshot_db;
 }
 
-TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
+TEST_P(CheckpointBasiTestWithParams,
+       CheckpointReadOnlyDBWithMultipleColumnFamilies) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   for (int i = 0; i != 3; ++i) {
@@ -953,7 +980,8 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
   ASSERT_OK(s);
   Checkpoint* checkpoint = nullptr;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 0, nullptr,
+                                         GetCompactManifestFile()));
   delete checkpoint;
   checkpoint = nullptr;
   Close();
@@ -982,7 +1010,7 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
   delete snapshot_db;
 }
 
-TEST_F(CheckpointTest, CheckpointWithDbPath) {
+TEST_P(CheckpointBasiTestWithParams, CheckpointWithDbPath) {
   Options options = CurrentOptions();
   options.db_paths.emplace_back(dbname_ + "_2", 0);
   Reopen(options);
@@ -991,11 +1019,14 @@ TEST_F(CheckpointTest, CheckpointWithDbPath) {
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
   // Currently not supported
-  ASSERT_TRUE(checkpoint->CreateCheckpoint(snapshot_name_).IsNotSupported());
+  ASSERT_TRUE(checkpoint
+                  ->CreateCheckpoint(snapshot_name_, 0, nullptr,
+                                     GetCompactManifestFile())
+                  .IsNotSupported());
   delete checkpoint;
 }
 
-TEST_F(CheckpointTest, CheckpointWithArchievedLog) {
+TEST_P(CheckpointBasiTestWithParams, CheckpointWithArchievedLog) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"WalManager::ArchiveWALFile",
         "CheckpointTest:CheckpointWithArchievedLog"}});
@@ -1013,7 +1044,8 @@ TEST_F(CheckpointTest, CheckpointWithArchievedLog) {
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
   TEST_SYNC_POINT("CheckpointTest:CheckpointWithArchievedLog");
-  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 1024 * 1024));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 1024 * 1024, nullptr,
+                                         GetCompactManifestFile()));
   // unflushed log size < 1024 * 1024 < total file size including archived log,
   // so flush shouldn't occur, there is only one file at level 0
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);

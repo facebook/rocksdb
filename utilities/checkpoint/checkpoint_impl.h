@@ -19,7 +19,8 @@ class CheckpointImpl : public Checkpoint {
 
   Status CreateCheckpoint(const std::string& checkpoint_dir,
                           uint64_t log_size_for_flush,
-                          uint64_t* sequence_number_ptr) override;
+                          uint64_t* sequence_number_ptr,
+                          bool compact_manifest_file) override;
 
   Status ExportColumnFamily(ColumnFamilyHandle* handle,
                             const std::string& export_dir,
@@ -55,6 +56,9 @@ class CheckpointImpl : public Checkpoint {
       std::function<Status(const std::string& src_dirname,
                            const std::string& fname)>
           copy_file_cb);
+
+  // Compact the manifest file int the checkpoint_dir.
+  Status CompactManifestFile(const std::string& checkpoint_dir);
 
  private:
   DB* db_;
