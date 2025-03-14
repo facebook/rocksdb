@@ -394,12 +394,26 @@ Status CompactionServiceCompactionJob::Run() {
   // For remote compaction, there's only one subcompaction.
   compact_->AggregateCompactionStats(internal_stats_, *job_stats_);
 
-  // 2. Update internal_stats_.output_level_stats with input stats
+  // 2. Update the following stats in internal_stats_.output_level_stats
+  // - num_input_files_in_non_output_levels
+  // - num_input_files_in_output_level
+  // - bytes_read_non_output_levels
+  // - bytes_read_output_level
+  // - num_input_records
+  // - bytes_read_blob
+  // - num_dropped_records
   uint64_t num_input_range_del = 0;
-  UpdateOutputLevelCompactionStats(&num_input_range_del);
+  const bool ok = UpdateOutputLevelCompactionStats(&num_input_range_del);
+  if (status.ok() && ok && job_stats_->has_num_input_records) {
+    // Consider verify record count optionally here
+    // This verification will be done on the primary side later before
+    // installation anyway, but in case we want to fail early
+    assert(job_stats_->num_input_records > 0);
+  }
 
   // 3. Aggregate per-level stats into job-level stats and
-  // Set fields that are not propagated as part of the aggregation
+  // set fields that are not propagated as part of the aggregation
+  //
   // Please note that this step is done again on the primary side.
   // Continuing to populate this for backward compatibility.
   // Consider deprecating this from the compaction_result since this can be
