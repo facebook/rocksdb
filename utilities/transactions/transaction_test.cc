@@ -2558,6 +2558,9 @@ TEST_P(TransactionTest, FlushTest2) {
       case 0:
         break;
       case 1:
+        // Skip verifying record count against TableProperties for
+        // MockTables
+        options.compaction_verify_record_count = false;
         options.table_factory.reset(new mock::MockTableFactory());
         break;
       case 2: {
