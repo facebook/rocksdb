@@ -839,6 +839,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct InternalStats::CompactionStats, count),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"counts", OptionTypeInfo::Array<
+                       int, static_cast<int>(CompactionReason::kNumOfReasons)>(
+                       offsetof(struct InternalStats::CompactionStats, counts),
+                       OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+                       {0, OptionType::kInt})},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
