@@ -153,23 +153,6 @@ class InternalStats {
 
   InternalStats(int num_levels, SystemClock* clock, ColumnFamilyData* cfd);
 
-  // Per level compaction stats
-  struct CompactionOutputsStats {
-    uint64_t num_output_records = 0;
-    uint64_t bytes_written = 0;
-    uint64_t bytes_written_blob = 0;
-    uint64_t num_output_files = 0;
-    uint64_t num_output_files_blob = 0;
-
-    void Add(const CompactionOutputsStats& stats) {
-      this->num_output_records += stats.num_output_records;
-      this->bytes_written += stats.bytes_written;
-      this->bytes_written_blob += stats.bytes_written_blob;
-      this->num_output_files += stats.num_output_files;
-      this->num_output_files_blob += stats.num_output_files_blob;
-    }
-  };
-
   // Per level compaction stats.  comp_stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
   struct CompactionStats {
@@ -418,15 +401,6 @@ class InternalStats {
       for (int i = 0; i < num_of_reasons; i++) {
         counts[i] += c.counts[i];
       }
-    }
-
-    void Add(const CompactionOutputsStats& stats) {
-      this->num_output_files += static_cast<int>(stats.num_output_files);
-      this->num_output_records += stats.num_output_records;
-      this->bytes_written += stats.bytes_written;
-      this->bytes_written_blob += stats.bytes_written_blob;
-      this->num_output_files_blob +=
-          static_cast<int>(stats.num_output_files_blob);
     }
 
     void Subtract(const CompactionStats& c) {

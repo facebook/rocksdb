@@ -98,7 +98,8 @@ class CompactionOutputs {
 
   void UpdateBlobStats() {
     assert(!is_proximal_level_);
-    stats_.num_output_files_blob = blob_file_additions_.size();
+    stats_.num_output_files_blob =
+        static_cast<int>(blob_file_additions_.size());
     for (const auto& blob : blob_file_additions_) {
       stats_.bytes_written_blob += blob.GetTotalBlobBytes();
     }
@@ -302,8 +303,8 @@ class CompactionOutputs {
   std::vector<BlobFileAddition> blob_file_additions_;
   std::unique_ptr<BlobGarbageMeter> blob_garbage_meter_;
 
-  // Basic compaction output stats for this level's outputs
-  InternalStats::CompactionOutputsStats stats_;
+  // Per level's output stat
+  InternalStats::CompactionStats stats_;
 
   // indicate if this CompactionOutputs obj for proximal_level, should always
   // be false if per_key_placement feature is not enabled.

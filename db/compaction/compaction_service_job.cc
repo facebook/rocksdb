@@ -250,16 +250,22 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     compaction_outputs->UpdateTableProperties(file.table_properties);
   }
 
+  // Set per-level stats
+  auto compaction_output_stats =
+      sub_compact->OutputStats(false /* is_proximal_level */);
+  assert(compaction_output_stats);
+  compaction_output_stats->Add(
+      compaction_result.internal_stats.output_level_stats);
+  if (compaction->SupportsPerKeyPlacement()) {
+    compaction_output_stats =
+        sub_compact->OutputStats(true /* is_proximal_level */);
+    assert(compaction_output_stats);
+    compaction_output_stats->Add(
+        compaction_result.internal_stats.proximal_level_stats);
+  }
+
   // Set job stats
   sub_compact->compaction_job_stats = compaction_result.stats;
-
-  // Set per-level stats
-  internal_stats_.output_level_stats =
-      compaction_result.internal_stats.output_level_stats;
-  internal_stats_.proximal_level_stats =
-      compaction_result.internal_stats.proximal_level_stats;
-  internal_stats_.has_proximal_level_output =
-      compaction_result.internal_stats.has_proximal_level_output;
 
   RecordTick(stats_, REMOTE_COMPACT_READ_BYTES, compaction_result.bytes_read);
   RecordTick(stats_, REMOTE_COMPACT_WRITE_BYTES,
@@ -378,11 +384,17 @@ Status CompactionServiceCompactionJob::Run() {
 
   // Build Compaction Job Stats
 
-  // 1. Aggregate CompactionOutputStats for subcompaction.
-  // (For remote compaction, there's only one subcompaction)
+  // 1. Aggregate for all subcompactions
+  // per-level stats: sub_compact.proximal_level_outputs_.stats and
+  //                  sub_compact.compaction_outputs_.stats into
+  //                  internal_stats_.output_level_stats and
+  //                  internal_stats_.proximal_level_stats
+  // job-level stats: sub_compact.job_level_stats_ into compact.job_level_stats_
+  //
+  // For remote compaction, there's only one subcompaction.
   compact_->AggregateCompactionStats(internal_stats_, *job_stats_);
 
-  // 2. Update internal_stats_.output_level_stats
+  // 2. Update internal_stats_.output_level_stats with input stats
   uint64_t num_input_range_del = 0;
   UpdateOutputLevelCompactionStats(&num_input_range_del);
 
