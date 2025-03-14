@@ -477,11 +477,18 @@ struct CompactionServiceResult {
   uint64_t bytes_read = 0;
   uint64_t bytes_written = 0;
 
-  // Job-level Compaction Stats
+  // Job-level Compaction Stats.
+  //
+  // NOTE: Job level stats cannot be rebuilt from scatch by simply aggregating
+  // per-level stats due to some fields populated directly during compaction
+  // (e.g. RecordDroppedKeys()). This is why we need both job-level stats and
+  // per-level in the serialized result. If rebuilding job-level stats from
+  // per-level stats become possible in the future, consider deprecating this
+  // field.
   CompactionJobStats stats;
 
-  // Per-level Compaction Stats
-  // for both output_level_stats and proximal_level_stats
+  // Per-level Compaction Stats for both output_level_stats and
+  // proximal_level_stats
   InternalStats::CompactionStatsFull internal_stats;
 
   // serialization interface to read and write the object

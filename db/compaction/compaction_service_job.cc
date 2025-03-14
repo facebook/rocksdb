@@ -405,19 +405,12 @@ Status CompactionServiceCompactionJob::Run() {
   uint64_t num_input_range_del = 0;
   const bool ok = UpdateOutputLevelCompactionStats(&num_input_range_del);
   if (status.ok() && ok && job_stats_->has_num_input_records) {
-    // Consider verify record count optionally here
-    // This verification will be done on the primary side later before
-    // installation anyway, but in case we want to fail early
+    // TODO(jaykorean) - verify record count
     assert(job_stats_->num_input_records > 0);
   }
 
   // 3. Aggregate per-level stats into job-level stats and
   // set fields that are not propagated as part of the aggregation
-  //
-  // Please note that this step is done again on the primary side.
-  // Continuing to populate this for backward compatibility.
-  // Consider deprecating this from the compaction_result since this can be
-  // rebuilt from per-level stats on the primary side
   UpdateCompactionJobStats(internal_stats_);
   compaction_result_->stats.is_manual_compaction = c->is_manual_compaction();
   compaction_result_->stats.is_full_compaction = c->is_full_compaction();
