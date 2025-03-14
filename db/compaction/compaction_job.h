@@ -104,9 +104,9 @@ class SubcompactionState;
 //    logging and public metrics.
 //    Internally, it's an aggregation of stats_ from each `SubcompactionState`.
 //    It has 2 parts, normal stats about the main compaction information and
-//    the penultimate level output stats.
-//    `SubcompactionState` maintains the CompactionOutputs for normal output and
-//    the penultimate level output if exists, the per_level stats is
+//    the proximal level output stats.
+//    `SubcompactionState` maintains the CompactionOutputs for ordinary level
+//    output and the proximal level output if exists, the per_level stats is
 //    stored with the outputs.
 //                                                +---------------------------+
 //                                                | SubcompactionState        |
@@ -119,7 +119,7 @@ class SubcompactionState;
 //                                            |   |                           |
 //                                            |   | +----------------------+  |
 // +--------------------------------+         |   | | CompactionOutputs    |  |
-// | CompactionJob                  |         |   | | (penultimate_level)  |  |
+// | CompactionJob                  |         |   | | (proximal_level)     |  |
 // |                                |    +--------->|   stats_             |  |
 // |   compaction_stats_            |    |    |   | +----------------------+  |
 // |    +-------------------------+ |    |    |   |                           |
@@ -127,7 +127,7 @@ class SubcompactionState;
 // |    +-------------------------+ |    |    |
 // |                                |    |    |
 // |    +-------------------------+ |    |    |   +---------------------------+
-// |    |penultimate_level_stats  +------+    |   | SubcompactionState        |
+// |    |proximal_level_stats     |------+    |   | SubcompactionState        |
 // |    +-------------------------+ |    |    |   |                           |
 // |                                |    |    |   | +----------------------+  |
 // |                                |    |    |   | | CompactionOutputs    |  |
@@ -137,7 +137,7 @@ class SubcompactionState;
 //                                       |        |                           |
 //                                       |        | +----------------------+  |
 //                                       |        | | CompactionOutputs    |  |
-//                                       |        | | (penultimate_level)  |  |
+//                                       |        | | (proximal_level)     |  |
 //                                       +--------->|   stats_             |  |
 //                                                | +----------------------+  |
 //                                                |                           |
@@ -363,8 +363,8 @@ class CompactionJob {
 
   // Minimal sequence number to preclude the data from the last level. If the
   // key has bigger (newer) sequence number than this, it will be precluded from
-  // the last level (output to penultimate level).
-  SequenceNumber penultimate_after_seqno_ = kMaxSequenceNumber;
+  // the last level (output to proximal level).
+  SequenceNumber proximal_after_seqno_ = kMaxSequenceNumber;
 
   // Options File Number used for Remote Compaction
   // Setting this requires DBMutex.
@@ -431,8 +431,7 @@ struct CompactionServiceOutputFile {
   bool marked_for_compaction;
   UniqueId64x2 unique_id{};
   TableProperties table_properties;
-  // TODO: clean up the rest of the "penultimate" naming in the codebase
-  bool is_proximal_level_output;  // == is_penultimate_level_output
+  bool is_proximal_level_output;
   Temperature file_temperature;
 
   CompactionServiceOutputFile() = default;

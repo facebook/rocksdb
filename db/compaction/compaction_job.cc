@@ -109,16 +109,16 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
   }
 }
 
-const char* GetCompactionPenultimateOutputRangeTypeString(
-    Compaction::PenultimateOutputRangeType range_type) {
+const char* GetCompactionProximalOutputRangeTypeString(
+    Compaction::ProximalOutputRangeType range_type) {
   switch (range_type) {
-    case Compaction::PenultimateOutputRangeType::kNotSupported:
+    case Compaction::ProximalOutputRangeType::kNotSupported:
       return "NotSupported";
-    case Compaction::PenultimateOutputRangeType::kFullRange:
+    case Compaction::ProximalOutputRangeType::kFullRange:
       return "FullRange";
-    case Compaction::PenultimateOutputRangeType::kNonLastRange:
+    case Compaction::ProximalOutputRangeType::kNonLastRange:
       return "NonLastRange";
-    case Compaction::PenultimateOutputRangeType::kDisabled:
+    case Compaction::ProximalOutputRangeType::kDisabled:
       return "Disabled";
     default:
       assert(false);
@@ -378,8 +378,8 @@ void CompactionJob::Prepare(
   }
   // Now combine what we would like to preclude from last level with what we
   // can safely support without dangerously moving data back up the LSM tree,
-  // to get the final seqno threshold for penultimate vs. last. In particular,
-  // when the reserved output key range for the penultimate level does not
+  // to get the final seqno threshold for proximal vs. last. In particular,
+  // when the reserved output key range for the proximal level does not
   // include the entire last level input key range, we need to keep entries
   // already in the last level there. (Even allowing within-range entries to
   // move back up could cause problems with range tombstones. Perhaps it
@@ -388,8 +388,8 @@ void CompactionJob::Prepare(
   // tracking and complexity to CompactionIterator that is probably not
   // worthwhile overall. Correctness is also more clear when splitting by
   // seqno threshold.)
-  penultimate_after_seqno_ = std::max(preclude_last_level_min_seqno,
-                                      c->GetKeepInLastLevelThroughSeqno());
+  proximal_after_seqno_ = std::max(preclude_last_level_min_seqno,
+                                   c->GetKeepInLastLevelThroughSeqno());
 
   options_file_number_ = versions_->options_file_number();
 }
@@ -993,16 +993,16 @@ Status CompactionJob::Install(bool* compaction_released) {
         blob_files.back()->GetBlobFileNumber());
   }
 
-  if (compaction_stats_.has_penultimate_level_output) {
-    ROCKS_LOG_BUFFER(
-        log_buffer_,
-        "[%s] has Penultimate Level output: %" PRIu64
-        ", level %d, number of files: %" PRIu64 ", number of records: %" PRIu64,
-        column_family_name.c_str(),
-        compaction_stats_.penultimate_level_stats.bytes_written,
-        compact_->compaction->GetPenultimateLevel(),
-        compaction_stats_.penultimate_level_stats.num_output_files,
-        compaction_stats_.penultimate_level_stats.num_output_records);
+  if (compaction_stats_.has_proximal_level_output) {
+    ROCKS_LOG_BUFFER(log_buffer_,
+                     "[%s] has Proximal Level output: %" PRIu64
+                     ", level %d, number of files: %" PRIu64
+                     ", number of records: %" PRIu64,
+                     column_family_name.c_str(),
+                     compaction_stats_.proximal_level_stats.bytes_written,
+                     compact_->compaction->GetProximalLevel(),
+                     compaction_stats_.proximal_level_stats.num_output_files,
+                     compaction_stats_.proximal_level_stats.num_output_records);
   }
 
   UpdateCompactionJobStats(stats);
@@ -1055,16 +1055,16 @@ Status CompactionJob::Install(bool* compaction_released) {
     stream << "blob_file_tail" << blob_files.back()->GetBlobFileNumber();
   }
 
-  if (compaction_stats_.has_penultimate_level_output) {
+  if (compaction_stats_.has_proximal_level_output) {
     InternalStats::CompactionStats& pl_stats =
-        compaction_stats_.penultimate_level_stats;
-    stream << "penultimate_level_num_output_files" << pl_stats.num_output_files;
-    stream << "penultimate_level_bytes_written" << pl_stats.bytes_written;
-    stream << "penultimate_level_num_output_records"
+        compaction_stats_.proximal_level_stats;
+    stream << "proximal_level_num_output_files" << pl_stats.num_output_files;
+    stream << "proximal_level_bytes_written" << pl_stats.bytes_written;
+    stream << "proximal_level_num_output_records"
            << pl_stats.num_output_records;
-    stream << "penultimate_level_num_output_files_blob"
+    stream << "proximal_level_num_output_files_blob"
            << pl_stats.num_output_files_blob;
-    stream << "penultimate_level_bytes_written_blob"
+    stream << "proximal_level_bytes_written_blob"
            << pl_stats.bytes_written_blob;
   }
 
@@ -1312,7 +1312,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   std::vector<std::string> blob_file_paths;
 
-  // TODO: BlobDB to support output_to_penultimate_level compaction, which needs
+  // TODO: BlobDB to support output_to_proximal_level compaction, which needs
   //  2 builders, so may need to move to `CompactionOutputs`
   std::unique_ptr<BlobFileBuilder> blob_file_builder(
       (mutable_cf_options.enable_blob_files &&
@@ -1397,30 +1397,30 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
 
     const auto& ikey = c_iter->ikey();
-    bool use_penultimate_output = ikey.sequence > penultimate_after_seqno_;
+    bool use_proximal_output = ikey.sequence > proximal_after_seqno_;
 #ifndef NDEBUG
     if (sub_compact->compaction->SupportsPerKeyPlacement()) {
       // Could be overridden by unittest
       PerKeyPlacementContext context(sub_compact->compaction->output_level(),
                                      ikey.user_key, c_iter->value(),
-                                     ikey.sequence, use_penultimate_output);
+                                     ikey.sequence, use_proximal_output);
       TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput.context",
                                &context);
-      if (use_penultimate_output) {
-        // Verify that entries sent to the penultimate level are within the
+      if (use_proximal_output) {
+        // Verify that entries sent to the proximal level are within the
         // allowed range (because the input key range of the last level could
-        // be larger than the allowed output key range of the penultimate
+        // be larger than the allowed output key range of the proximal
         // level). This check uses user keys (ignores sequence numbers) because
         // compaction boundaries are a "clean cut" between user keys (see
         // CompactionPicker::ExpandInputsToCleanCut()), which is especially
         // important when preferred sequence numbers has been swapped in for
         // kTypeValuePreferredSeqno / TimedPut.
-        sub_compact->compaction->TEST_AssertWithinPenultimateLevelOutputRange(
+        sub_compact->compaction->TEST_AssertWithinProximalLevelOutputRange(
             c_iter->user_key());
       }
     } else {
-      assert(penultimate_after_seqno_ == kMaxSequenceNumber);
-      assert(!use_penultimate_output);
+      assert(proximal_after_seqno_ == kMaxSequenceNumber);
+      assert(!use_proximal_output);
     }
 #endif  // NDEBUG
 
@@ -1429,7 +1429,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // and `close_file_func`.
     // TODO: it would be better to have the compaction file open/close moved
     // into `CompactionOutputs` which has the output file information.
-    status = sub_compact->AddToOutput(*c_iter, use_penultimate_output,
+    status = sub_compact->AddToOutput(*c_iter, use_proximal_output,
                                       open_file_func, close_file_func);
     if (!status.ok()) {
       break;
@@ -1641,15 +1641,15 @@ Status CompactionJob::FinishCompactionOutputFile(
     std::pair<SequenceNumber, SequenceNumber> keep_seqno_range{
         0, kMaxSequenceNumber};
     if (sub_compact->compaction->SupportsPerKeyPlacement()) {
-      if (outputs.IsPenultimateLevel()) {
-        keep_seqno_range.first = penultimate_after_seqno_;
+      if (outputs.IsProximalLevel()) {
+        keep_seqno_range.first = proximal_after_seqno_;
       } else {
-        keep_seqno_range.second = penultimate_after_seqno_;
+        keep_seqno_range.second = proximal_after_seqno_;
       }
     }
     CompactionIterationStats range_del_out_stats;
     // NOTE1: Use `bottommost_level_ = true` for both bottommost and
-    // output_to_penultimate_level compaction here, as it's only used to decide
+    // output_to_proximal_level compaction here, as it's only used to decide
     // if range dels could be dropped. (Logically, we are taking a single sorted
     // run returned from CompactionIterator and physically splitting it between
     // two output levels.)
@@ -1812,14 +1812,14 @@ Status CompactionJob::InstallCompactionResults(bool* compaction_released) {
 
   {
     Compaction::InputLevelSummaryBuffer inputs_summary;
-    if (compaction_stats_.has_penultimate_level_output) {
+    if (compaction_stats_.has_proximal_level_output) {
       ROCKS_LOG_BUFFER(
           log_buffer_,
-          "[%s] [JOB %d] Compacted %s => output_to_penultimate_level: %" PRIu64
+          "[%s] [JOB %d] Compacted %s => output_to_proximal_level: %" PRIu64
           " bytes + last: %" PRIu64 " bytes. Total: %" PRIu64 " bytes",
           compaction->column_family_data()->GetName().c_str(), job_id_,
           compaction->InputLevelSummary(&inputs_summary),
-          compaction_stats_.penultimate_level_stats.bytes_written,
+          compaction_stats_.proximal_level_stats.bytes_written,
           compaction_stats_.stats.bytes_written,
           compaction_stats_.TotalBytesWritten());
     } else {
@@ -1946,8 +1946,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   // Here last_level_temperature supersedes default_write_temperature, when
   // enabled and applicable
   if (last_level_temp != Temperature::kUnknown &&
-      sub_compact->compaction->is_last_level() &&
-      !outputs.IsPenultimateLevel()) {
+      sub_compact->compaction->is_last_level() && !outputs.IsProximalLevel()) {
     temperature = last_level_temp;
   }
   fo_copy.temperature = temperature;
@@ -2061,7 +2060,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       bottommost_level_, TableFileCreationReason::kCompaction,
       0 /* oldest_key_time */, current_time, db_id_, db_session_id_,
       sub_compact->compaction->max_output_file_size(), file_number,
-      penultimate_after_seqno_ /*last_level_inclusive_max_seqno_threshold*/);
+      proximal_after_seqno_ /*last_level_inclusive_max_seqno_threshold*/);
 
   outputs.NewBuilder(tboptions);
 
@@ -2232,19 +2231,19 @@ void CompactionJob::LogCompaction() {
                    ? int64_t{-1}  // Use -1 for "none"
                    : static_cast<int64_t>(existing_snapshots_[0]));
     if (compaction->SupportsPerKeyPlacement()) {
-      stream << "prenultimate_after_seqno" << penultimate_after_seqno_;
+      stream << "proximal_after_seqno" << proximal_after_seqno_;
       stream << "preserve_seqno_after" << preserve_seqno_after_;
-      stream << "penultimate_output_level" << compaction->GetPenultimateLevel();
-      stream << "penultimate_output_range"
-             << GetCompactionPenultimateOutputRangeTypeString(
-                    compaction->GetPenultimateOutputRangeType());
+      stream << "proximal_output_level" << compaction->GetProximalLevel();
+      stream << "proximal_output_range"
+             << GetCompactionProximalOutputRangeTypeString(
+                    compaction->GetProximalOutputRangeType());
 
-      if (compaction->GetPenultimateOutputRangeType() ==
-          Compaction::PenultimateOutputRangeType::kDisabled) {
+      if (compaction->GetProximalOutputRangeType() ==
+          Compaction::ProximalOutputRangeType::kDisabled) {
         ROCKS_LOG_WARN(
             db_options_.info_log,
-            "[%s] [JOB %d] Penultimate level output is disabled, likely "
-            "because of the range conflict in the penultimate level",
+            "[%s] [JOB %d] Proximal level output is disabled, likely "
+            "because of the range conflict in the proximal level",
             cfd->GetName().c_str(), job_id_);
       }
     }

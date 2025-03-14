@@ -792,8 +792,8 @@ void CompactionOutputs::FillFilesToCutForTtl() {
 }
 
 CompactionOutputs::CompactionOutputs(const Compaction* compaction,
-                                     const bool is_penultimate_level)
-    : compaction_(compaction), is_penultimate_level_(is_penultimate_level) {
+                                     const bool is_proximal_level)
+    : compaction_(compaction), is_proximal_level_(is_proximal_level) {
   partitioner_ = compaction->output_level() == 0
                      ? nullptr
                      : compaction->CreateSstPartitioner();
