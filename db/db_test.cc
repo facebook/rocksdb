@@ -6088,7 +6088,7 @@ TEST_F(DBTest, L0L1L2AndUpHitCounter) {
 TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
   bool& allow_unsupported_fv =
       BlockBasedTableFactory::AllowUnsupportedFormatVersion();
-  SaveAndRestore blah(&allow_unsupported_fv);
+  SaveAndRestore guard(&allow_unsupported_fv);
   ASSERT_FALSE(allow_unsupported_fv);
 
   // iter 0 -- zlib
