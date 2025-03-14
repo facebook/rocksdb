@@ -161,7 +161,7 @@ class SubcompactionState {
   void Cleanup(Cache* cache);
 
   void AggregateCompactionOutputStats(
-      InternalStats::CompactionStatsFull& compaction_stats) const;
+      InternalStats::CompactionStatsFull& internal_stats) const;
 
   CompactionOutputs& Current() const {
     assert(current_outputs_);

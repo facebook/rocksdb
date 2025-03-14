@@ -69,6 +69,8 @@ class TieredCompactionTest : public DBTestBase {
 
   std::atomic_bool enable_per_key_placement = true;
 
+  CompactionJobStats job_stats;
+
   void SetUp() override {
     SyncPoint::GetInstance()->SetCallBack(
         "Compaction::SupportsPerKeyPlacement:Enabled", [&](void* arg) {
@@ -109,11 +111,13 @@ class TieredCompactionTest : public DBTestBase {
   // Verify the compaction stats, the stats are roughly compared
   void VerifyCompactionStats(
       const std::vector<InternalStats::CompactionStats>& expect_stats,
-      const InternalStats::CompactionStats& expect_pl_stats) {
+      const InternalStats::CompactionStats& expect_pl_stats,
+      size_t output_level) {
     const std::vector<InternalStats::CompactionStats>& stats =
         GetCompactionStats();
     const size_t kLevels = expect_stats.size();
     ASSERT_EQ(kLevels, stats.size());
+    ASSERT_TRUE(output_level < kLevels);
 
     for (auto it = stats.begin(), expect = expect_stats.begin();
          it != stats.end(); it++, expect++) {
@@ -123,6 +127,19 @@ class TieredCompactionTest : public DBTestBase {
     const InternalStats::CompactionStats& pl_stats =
         GetPerKeyPlacementCompactionStats();
     VerifyCompactionStats(pl_stats, expect_pl_stats);
+
+    const auto& output_level_stats = stats[output_level];
+    CompactionJobStats expected_job_stats;
+    expected_job_stats.cpu_micros = output_level_stats.cpu_micros;
+    expected_job_stats.num_input_files =
+        output_level_stats.num_input_files_in_output_level +
+        output_level_stats.num_input_files_in_non_output_levels;
+    expected_job_stats.num_input_records = output_level_stats.num_input_records;
+    expected_job_stats.num_output_files =
+        output_level_stats.num_output_files + pl_stats.num_output_files;
+    expected_job_stats.num_output_records =
+        output_level_stats.num_output_records + pl_stats.num_output_records;
+    VerifyCompactionJobStats(job_stats, expected_job_stats);
   }
 
   void ResetAllStats(std::vector<InternalStats::CompactionStats>& stats,
@@ -175,6 +192,15 @@ class TieredCompactionTest : public DBTestBase {
       ASSERT_EQ(stats.counts[i], expect_stats.counts[i]);
     }
   }
+
+  void VerifyCompactionJobStats(const CompactionJobStats& stats,
+                                const CompactionJobStats& expected_stats) {
+    ASSERT_EQ(stats.cpu_micros, expected_stats.cpu_micros);
+    ASSERT_EQ(stats.num_input_files, expected_stats.num_input_files);
+    ASSERT_EQ(stats.num_input_records, expected_stats.num_input_records);
+    ASSERT_EQ(job_stats.num_output_files, expected_stats.num_output_files);
+    ASSERT_EQ(job_stats.num_output_records, expected_stats.num_output_records);
+  }
 };
 
 TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
@@ -198,6 +224,11 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
       "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
       [&](void* arg) {
         *static_cast<SequenceNumber*>(arg) = latest_cold_seq.load();
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Install:AfterUpdateCompactionJobStats", [&](void* arg) {
+        job_stats.Reset();
+        job_stats.Add(*(static_cast<CompactionJobStats*>(arg)));
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -225,7 +256,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   expect_stats[kLastLevel].Add(kBasicCompStats);
   expect_pl_stats.Add(kBasicPerKeyPlacementCompStats);
 
-  VerifyCompactionStats(expect_stats, expect_pl_stats);
+  VerifyCompactionStats(expect_stats, expect_pl_stats, kLastLevel);
 
   ResetAllStats(expect_stats, expect_pl_stats);
 
@@ -244,7 +275,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   last_stats.num_dropped_records = 0;
   expect_pl_stats.Add(kBasicPerKeyPlacementCompStats);
   expect_pl_stats.ResetCompactionReason(CompactionReason::kManualCompaction);
-  VerifyCompactionStats(expect_stats, expect_pl_stats);
+  VerifyCompactionStats(expect_stats, expect_pl_stats, kLastLevel);
 
   // delete all cold data, so all data will be on proximal level
   for (int i = 0; i < 10; i++) {
@@ -265,7 +296,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   last_stats.num_input_files_in_output_level = kHasValue;
   expect_pl_stats.Add(kBasicPerKeyPlacementCompStats);
   expect_pl_stats.ResetCompactionReason(CompactionReason::kManualCompaction);
-  VerifyCompactionStats(expect_stats, expect_pl_stats);
+  VerifyCompactionStats(expect_stats, expect_pl_stats, kLastLevel);
 
   // move forward the cold_seq again with range delete, take a snapshot to keep
   // the range dels in both cold and hot SSTs
@@ -288,7 +319,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   last_stats.ResetCompactionReason(CompactionReason::kManualCompaction);
   expect_pl_stats.Add(kBasicPerKeyPlacementCompStats);
   expect_pl_stats.ResetCompactionReason(CompactionReason::kManualCompaction);
-  VerifyCompactionStats(expect_stats, expect_pl_stats);
+  VerifyCompactionStats(expect_stats, expect_pl_stats, kLastLevel);
 
   // verify data
   std::string value;
@@ -389,7 +420,7 @@ TEST_F(TieredCompactionTest, DISABLED_RangeBasedTieredStorageUniversal) {
   last_stats.Add(kBasicCompStats);
   last_stats.Add(kBasicPerLevelStats);
   expect_pl_stats.Add(kBasicPerKeyPlacementCompStats);
-  VerifyCompactionStats(expect_stats, expect_pl_stats);
+  VerifyCompactionStats(expect_stats, expect_pl_stats, kLastLevel);
 
   ResetAllStats(expect_stats, expect_pl_stats);
 
@@ -410,7 +441,7 @@ TEST_F(TieredCompactionTest, DISABLED_RangeBasedTieredStorageUniversal) {
   last_stats.num_dropped_records = 0;
   last_stats.bytes_read_output_level = kHasValue;
   last_stats.num_input_files_in_output_level = kHasValue;
-  VerifyCompactionStats(expect_stats, expect_pl_stats);
+  VerifyCompactionStats(expect_stats, expect_pl_stats, kLastLevel);
 
   // change to all hot, universal compaction support moving data to up level if
   // it's within compaction level range.
@@ -890,6 +921,8 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   const int kNumKeys = 100;
   const int kLastLevel = kNumLevels - 1;
 
+  int output_level = 0;
+
   auto options = CurrentOptions();
   SetColdTemperature(options);
   options.level0_file_num_compaction_trigger = kNumTrigger;
@@ -905,6 +938,16 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
       "CompactionJob::PrepareTimes():preclude_last_level_min_seqno",
       [&](void* arg) {
         *static_cast<SequenceNumber*>(arg) = latest_cold_seq.load();
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Install:AfterUpdateCompactionJobStats", [&](void* arg) {
+        job_stats.Reset();
+        job_stats.Add(*(static_cast<CompactionJobStats*>(arg)));
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompaction()::Processing", [&](void* arg) {
+        auto compaction = static_cast<Compaction*>(arg);
+        output_level = compaction->output_level();
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -929,7 +972,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   expect_stats[1].Add(kBasicCompStats);
   expect_stats[1].Add(kBasicPerLevelStats);
   expect_stats[1].ResetCompactionReason(CompactionReason::kLevelL0FilesNum);
-  VerifyCompactionStats(expect_stats, expect_pl_stats);
+  VerifyCompactionStats(expect_stats, expect_pl_stats, output_level);
 
   // move all data to the last level
   MoveFilesToLevel(kLastLevel);
@@ -952,7 +995,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   last_stats.bytes_read_output_level = kHasValue;
   last_stats.num_input_files_in_output_level = kHasValue;
   last_stats.ResetCompactionReason(CompactionReason::kManualCompaction);
-  VerifyCompactionStats(expect_stats, expect_pl_stats);
+  VerifyCompactionStats(expect_stats, expect_pl_stats, output_level);
 
   // Add new data, which is all hot and overriding all existing data
   latest_cold_seq = dbfull()->GetLatestSequenceNumber();
@@ -986,7 +1029,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   last_stats.ResetCompactionReason(CompactionReason::kManualCompaction);
   expect_pl_stats.Add(kBasicPerKeyPlacementCompStats);
   expect_pl_stats.ResetCompactionReason(CompactionReason::kManualCompaction);
-  VerifyCompactionStats(expect_stats, expect_pl_stats);
+  VerifyCompactionStats(expect_stats, expect_pl_stats, output_level);
 
   // move forward the cold_seq, try to split the data into cold and hot, but in
   // this case it's unsafe to split the data

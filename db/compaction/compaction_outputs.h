@@ -66,11 +66,6 @@ class CompactionOutputs {
     file_writer_.reset(writer);
   }
 
-  // TODO: Remove it when remote compaction support tiered compaction
-  void AddBytesWritten(uint64_t bytes) { stats_.bytes_written += bytes; }
-  void SetNumOutputRecords(uint64_t num) { stats_.num_output_records = num; }
-  void SetNumOutputFiles(uint64_t num) { stats_.num_output_files = num; }
-
   // TODO: Move the BlobDB builder into CompactionOutputs
   const std::vector<BlobFileAddition>& GetBlobFileAdditions() const {
     if (is_proximal_level_) {

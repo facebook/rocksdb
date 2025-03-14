@@ -357,11 +357,12 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   } else {
     ASSERT_OK(result.status);
   }
-  ASSERT_GE(result.stats.elapsed_micros, 1);
-  ASSERT_GE(result.stats.cpu_micros, 1);
+  ASSERT_GE(result.internal_stats.output_level_stats.micros, 1);
+  ASSERT_GE(result.internal_stats.output_level_stats.cpu_micros, 1);
 
-  ASSERT_EQ(20, result.stats.num_output_records);
-  ASSERT_EQ(result.output_files.size(), result.stats.num_output_files);
+  ASSERT_EQ(20, result.internal_stats.output_level_stats.num_output_records);
+  ASSERT_EQ(result.output_files.size(),
+            result.internal_stats.output_level_stats.num_output_files);
 
   uint64_t total_size = 0;
   for (auto output_file : result.output_files) {
@@ -372,7 +373,7 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
     ASSERT_GT(file_size, 0);
     total_size += file_size;
   }
-  ASSERT_EQ(total_size, result.stats.total_output_bytes);
+  ASSERT_EQ(total_size, result.internal_stats.TotalBytesWritten());
 
   ASSERT_TRUE(result.stats.is_remote_compaction);
   ASSERT_TRUE(result.stats.is_manual_compaction);
@@ -1212,10 +1213,14 @@ TEST_F(CompactionServiceTest, PrecludeLastLevel) {
   CompactionServiceResult result;
   my_cs->GetResult(&result);
   ASSERT_OK(result.status);
-  ASSERT_GT(result.stats.cpu_micros, 0);
-  ASSERT_GT(result.stats.elapsed_micros, 0);
-  ASSERT_EQ(result.stats.num_output_records, kNumTrigger * kNumKeys);
-  ASSERT_EQ(result.stats.num_output_files, 2);
+  ASSERT_GT(result.internal_stats.output_level_stats.cpu_micros, 0);
+  ASSERT_GT(result.internal_stats.output_level_stats.micros, 0);
+  ASSERT_EQ(result.internal_stats.output_level_stats.num_output_records +
+                result.internal_stats.proximal_level_stats.num_output_records,
+            kNumTrigger * kNumKeys);
+  ASSERT_EQ(result.internal_stats.output_level_stats.num_output_files +
+                result.internal_stats.proximal_level_stats.num_output_files,
+            2);
 }
 
 TEST_F(CompactionServiceTest, ConcurrentCompaction) {
