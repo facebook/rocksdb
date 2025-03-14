@@ -232,6 +232,11 @@ class CompactionJobTestBase : public testing::Test {
     // set default for the tests
     mutable_cf_options_.target_file_size_base = 1024 * 1024;
     mutable_cf_options_.max_compaction_bytes = 10 * 1024 * 1024;
+
+    // Turn off compaction_verify_record_count MockTables
+    if (table_type == TableTypeForTest::kMockTable) {
+      db_options_.compaction_verify_record_count = false;
+    }
   }
 
   void SetUp() override {
