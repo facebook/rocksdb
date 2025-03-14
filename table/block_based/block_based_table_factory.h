@@ -87,6 +87,12 @@ class BlockBasedTableFactory : public TableFactory {
     return &shared_state_->tail_prefetch_stats;
   }
 
+  static constexpr int kMinSupportedFormatVersion = 2;
+
+  // Set to true to allow unit testing of writing unsupported block-based table
+  // format versions (to test read side)
+  static bool& AllowUnsupportedFormatVersion();
+
  protected:
   const void* GetOptionsPtr(const std::string& name) const override;
   Status ParseOption(const ConfigOptions& config_options,
