@@ -64,7 +64,7 @@ class TieredCompactionTest : public DBTestBase {
 
   InternalStats::CompactionStats kBasicCompStats;
   InternalStats::CompactionStats kBasicPerKeyPlacementCompStats;
-  InternalStats::CompactionOutputsStats kBasicPerLevelStats;
+  InternalStats::CompactionStats kBasicPerLevelStats;
   InternalStats::CompactionStats kBasicFlushStats;
 
   std::atomic_bool enable_per_key_placement = true;

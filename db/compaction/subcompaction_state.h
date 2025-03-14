@@ -177,6 +177,16 @@ class SubcompactionState {
     return &compaction_outputs_;
   }
 
+  // Per-level stats for the output
+  InternalStats::CompactionStats* OutputStats(bool is_proximal_level) {
+    assert(compaction);
+    if (is_proximal_level) {
+      assert(compaction->SupportsPerKeyPlacement());
+      return &proximal_level_outputs_.stats_;
+    }
+    return &compaction_outputs_.stats_;
+  }
+
   CompactionRangeDelAggregator* RangeDelAgg() const {
     return range_del_agg_.get();
   }

@@ -54,7 +54,7 @@ Status CompactionOutputs::Finish(
   }
   current_output().finished = true;
   stats_.bytes_written += current_bytes;
-  stats_.num_output_files = outputs_.size();
+  stats_.num_output_files = static_cast<int>(outputs_.size());
 
   return s;
 }
