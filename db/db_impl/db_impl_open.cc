@@ -1203,6 +1203,12 @@ Status DBImpl::ProcessLogFiles(
   PredecessorWALInfo predecessor_wal_info;
 
   for (auto wal_number : wal_numbers) {
+    // Detecting early break on the next iteration after `wal_number` has been
+    // advanced since this `wal_number` doesn't affect follow-up handling after
+    // breaking out of the for loop.
+    if (!status.ok()) {
+      break;
+    }
     SequenceNumber prev_next_sequence = *next_sequence;
     if (status.ok()) {
       status = ProcessLogFile(
