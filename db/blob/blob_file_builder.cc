@@ -211,6 +211,8 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
 
   assert(file);
   file->SetIOPriority(write_options_->rate_limiter_priority);
+  // Subsequent attempts to override the hint via SetWriteLifeTimeHint
+  // with the very same value will be ignored by the fs.
   file->SetWriteLifeTimeHint(fo_copy.write_hint);
   FileTypeSet tmp_set = immutable_options_->checksum_handoff_file_types;
   Statistics* const statistics = immutable_options_->stats;

@@ -2286,6 +2286,8 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
   }
 
   if (io_s.ok()) {
+    // Subsequent attempts to override the hint via SetWriteLifeTimeHint
+    // with the very same value will be ignored by the fs.
     lfile->SetWriteLifeTimeHint(opt_file_options.write_hint);
     lfile->SetPreallocationBlockSize(preallocate_block_size);
 

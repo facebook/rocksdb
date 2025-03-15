@@ -165,6 +165,8 @@ Status BuildTable(
       table_file_created = true;
       FileTypeSet tmp_set = ioptions.checksum_handoff_file_types;
       file->SetIOPriority(tboptions.write_options.rate_limiter_priority);
+      // Subsequent attempts to override the hint via SetWriteLifeTimeHint
+      // with the very same value will be ignored by the fs.
       file->SetWriteLifeTimeHint(fo_copy.write_hint);
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, ioptions.clock, io_tracer,

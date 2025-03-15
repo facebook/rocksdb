@@ -2036,6 +2036,8 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   }
 
   writable_file->SetIOPriority(GetRateLimiterPriority());
+  // Subsequent attempts to override the hint via SetWriteLifeTimeHint
+  // with the very same value will be ignored by the fs.
   writable_file->SetWriteLifeTimeHint(fo_copy.write_hint);
   FileTypeSet tmp_set = db_options_.checksum_handoff_file_types;
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
