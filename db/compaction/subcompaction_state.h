@@ -161,7 +161,7 @@ class SubcompactionState {
   void Cleanup(Cache* cache);
 
   void AggregateCompactionOutputStats(
-      InternalStats::CompactionStatsFull& compaction_stats) const;
+      InternalStats::CompactionStatsFull& internal_stats) const;
 
   CompactionOutputs& Current() const {
     assert(current_outputs_);
@@ -175,6 +175,16 @@ class SubcompactionState {
       return &proximal_level_outputs_;
     }
     return &compaction_outputs_;
+  }
+
+  // Per-level stats for the output
+  InternalStats::CompactionStats* OutputStats(bool is_proximal_level) {
+    assert(compaction);
+    if (is_proximal_level) {
+      assert(compaction->SupportsPerKeyPlacement());
+      return &proximal_level_outputs_.stats_;
+    }
+    return &compaction_outputs_.stats_;
   }
 
   CompactionRangeDelAggregator* RangeDelAgg() const {
