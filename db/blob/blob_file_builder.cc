@@ -188,10 +188,12 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   }
 
   std::unique_ptr<FSWritableFile> file;
-
+  FileOptions fo_copy;
   {
     assert(file_options_);
-    Status s = NewWritableFile(fs_, blob_file_path, &file, *file_options_);
+    fo_copy = *file_options_;
+    fo_copy.write_hint = write_hint_;
+    Status s = NewWritableFile(fs_, blob_file_path, &file, fo_copy);
 
     TEST_SYNC_POINT_CALLBACK(
         "BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile", &s);
@@ -209,7 +211,9 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
 
   assert(file);
   file->SetIOPriority(write_options_->rate_limiter_priority);
-  file->SetWriteLifeTimeHint(write_hint_);
+  // Subsequent attempts to override the hint via SetWriteLifeTimeHint
+  // with the very same value will be ignored by the fs.
+  file->SetWriteLifeTimeHint(fo_copy.write_hint);
   FileTypeSet tmp_set = immutable_options_->checksum_handoff_file_types;
   Statistics* const statistics = immutable_options_->stats;
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
