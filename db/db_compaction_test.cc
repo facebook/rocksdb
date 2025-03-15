@@ -5912,6 +5912,9 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       ASSERT_EQ(running_compactions_.find(ci.job_id),
                 running_compactions_.end());
       running_compactions_.emplace(ci.job_id, std::unordered_set<int>());
+      if (expected_num_l0_files_pre_compaction_ != -1) {
+        ASSERT_EQ(expected_num_l0_files_pre_compaction_, ci.num_l0_files);
+      }
     }
 
     void OnCompactionCompleted(DB* /*db*/,
@@ -5921,6 +5924,9 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       ASSERT_NE(it, running_compactions_.end());
       ASSERT_EQ(it->second.size(), 0);
       running_compactions_.erase(it);
+      if (expected_num_l0_files_post_compaction_ != -1) {
+        ASSERT_EQ(expected_num_l0_files_post_compaction_, ci.num_l0_files);
+      }
     }
 
     void OnSubcompactionBegin(const SubcompactionJobInfo& si) override {
@@ -5950,10 +5956,25 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       return total_subcompaction_cnt_;
     }
 
+    void SetExpectedNumL0FilesPreCompaction(int num) {
+      expected_num_l0_files_pre_compaction_ = num;
+    }
+
+    void SetExpectedNumL0FilesPostCompaction(int num) {
+      expected_num_l0_files_post_compaction_ = num;
+    }
+
+    void ResetExpectedNumL0Files() {
+      SetExpectedNumL0FilesPreCompaction(-1);
+      SetExpectedNumL0FilesPostCompaction(-1);
+    }
+
    private:
     InstrumentedMutex mutex_;
     std::unordered_map<int, std::unordered_set<int>> running_compactions_;
     size_t total_subcompaction_cnt_ = 0;
+    int expected_num_l0_files_pre_compaction_ = -1;
+    int expected_num_l0_files_post_compaction_ = -1;
   };
 
   Options options = CurrentOptions();
@@ -5973,6 +5994,7 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
     ASSERT_OK(Flush());
   }
   MoveFilesToLevel(2);
+  ASSERT_EQ(FilesPerLevel(), "0,0,4");
 
   // generate 2 files @ L1 which overlaps with L2 files
   for (int i = 0; i < 2; i++) {
@@ -5982,11 +6004,18 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
     }
     ASSERT_OK(Flush());
   }
+  listener->SetExpectedNumL0FilesPreCompaction(2 /* num */);
+  listener->SetExpectedNumL0FilesPostCompaction(0 /* num */);
+
   MoveFilesToLevel(1);
   ASSERT_EQ(FilesPerLevel(), "0,2,4");
 
+  listener->ResetExpectedNumL0Files();
+
   CompactRangeOptions comp_opts;
   comp_opts.max_subcompactions = 4;
+
+  listener->SetExpectedNumL0FilesPreCompaction(0 /* num */);
   Status s = dbfull()->CompactRange(comp_opts, nullptr, nullptr);
   ASSERT_OK(s);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -5994,6 +6023,8 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
   ASSERT_EQ(listener->GetRunningCompactionCount(), 0);
   // and sub compaction is triggered
   ASSERT_GT(listener->GetTotalSubcompactionCount(), 0);
+
+  listener->ResetExpectedNumL0Files();
 }
 
 TEST_F(DBCompactionTest, CompactFilesOutputRangeConflict) {

@@ -1695,11 +1695,13 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
   }
 
   c->SetNotifyOnCompactionCompleted();
+  int num_l0_files = c->input_version()->storage_info()->NumLevelFiles(0);
   // release lock while notifying events
   mutex_.Unlock();
   TEST_SYNC_POINT("DBImpl::NotifyOnCompactionBegin::UnlockMutex");
   {
     CompactionJobInfo info{};
+    info.num_l0_files = num_l0_files;
     BuildCompactionJobInfo(cfd, c, st, job_stats, job_id, &info);
     for (const auto& listener : immutable_db_options_.listeners) {
       listener->OnCompactionBegin(this, info);
@@ -1724,11 +1726,13 @@ void DBImpl::NotifyOnCompactionCompleted(
     return;
   }
 
+  int num_l0_files = cfd->current()->storage_info()->NumLevelFiles(0);
   // release lock while notifying events
   mutex_.Unlock();
   TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
   {
     CompactionJobInfo info{};
+    info.num_l0_files = num_l0_files;
     BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, &info);
     for (const auto& listener : immutable_db_options_.listeners) {
       listener->OnCompactionCompleted(this, info);
