@@ -5799,6 +5799,17 @@ Status DBImpl::IngestExternalFiles(
             "timestamps enabled doesn't support ingest behind.");
       }
     }
+    if (ingest_opts.replace_cf_data) {
+      if (ingest_opts.ingest_behind) {
+        return Status::InvalidArgument(
+            "Can't combine replace_cf_data with ingest_behind.");
+      }
+      if (ingest_opts.snapshot_consistency) {
+        return Status::InvalidArgument(
+            "replace_cf_data=true requires snapshot_consistency=false");
+      }
+    }
+
     if (ingest_opts.allow_db_generated_files) {
       if (ingest_opts.write_global_seqno) {
         return Status::NotSupported(
