@@ -4424,6 +4424,29 @@ Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
   return s;
 }
 
+Status DBImpl::GetPropertiesOfTablesForLevels(
+    ColumnFamilyHandle* column_family,
+    std::vector<std::unique_ptr<TablePropertiesCollection>>* levels_props) {
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto cfd = cfh->cfd();
+
+  // Increment the ref count
+  mutex_.Lock();
+  auto version = cfd->current();
+  version->Ref();
+  mutex_.Unlock();
+
+  const ReadOptions read_options;
+  auto s = version->GetPropertiesOfTablesForLevels(read_options, levels_props);
+
+  // Decrement the ref count
+  mutex_.Lock();
+  version->Unref();
+  mutex_.Unlock();
+
+  return s;
+}
+
 const std::string& DBImpl::GetName() const { return dbname_; }
 
 Env* DBImpl::GetEnv() const { return env_; }

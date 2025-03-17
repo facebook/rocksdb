@@ -3182,6 +3182,15 @@ class ModelDB : public DB {
     return Status();
   }
 
+  using DB::GetPropertiesOfTablesForLevels;
+  Status GetPropertiesOfTablesForLevels(
+      ColumnFamilyHandle* /* column_family */,
+      std::vector<
+          std::unique_ptr<TablePropertiesCollection>>* /* levels_props */)
+      override {
+    return Status();
+  }
+
   using DB::KeyMayExist;
   bool KeyMayExist(const ReadOptions& /*options*/,
                    ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
