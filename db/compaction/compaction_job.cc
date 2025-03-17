@@ -930,7 +930,6 @@ Status CompactionJob::Run() {
           job_context_->job_id, msg.c_str());
       status = Status::Corruption(msg);
     }
-    assert(expected == total_output_num);
   }
 
   RecordCompactionIOStats();
