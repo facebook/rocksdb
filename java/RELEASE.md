@@ -10,7 +10,7 @@ Building a cross-platform JAR requires:
 
 Once you have these items, run this make command from RocksDB's root source directory:
 
-    make jclean clean rocksdbjavastaticreleasedocker
+    make jclean clean rocksdbjava static release docker
 
 This command will build RocksDB natively on OSX, and will then spin up docker containers to build RocksDB for 32-bit and 64-bit Linux with glibc, and 32-bit and 64-bit Linux with musl libc.
 
@@ -48,7 +48,7 @@ Set ~/.m2/settings.xml to contain:
 
 From RocksDB's root directory, first build the Java static JARs:
 
-    make jclean clean rocksdbjavastaticpublish
+    make jclean clean rocksdbjava static publish
 
 This command will [stage the JAR artifacts on the Sonatype staging repository](http://central.sonatype.org/pages/manual-staging-bundle-creation-and-deployment.html). To release the staged artifacts.
 
