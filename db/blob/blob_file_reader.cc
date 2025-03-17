@@ -69,10 +69,9 @@ Status BlobFileReader::Create(
     }
   }
 
-  blob_file_reader->reset(
-      new BlobFileReader(std::move(file_reader), file_size, compression_type,
-                         immutable_options.clock, statistics,
-                         immutable_options.user_comparator));
+  blob_file_reader->reset(new BlobFileReader(
+      std::move(file_reader), file_size, compression_type,
+      immutable_options.clock, statistics, immutable_options.user_comparator));
 
   return Status::OK();
 }
@@ -366,7 +365,8 @@ Status BlobFileReader::GetBlob(
                            &record_slice);
 
   if (read_options.verify_checksums) {
-    const Status s = VerifyBlob(record_slice, user_key, value_size, user_comparator_);
+    const Status s =
+        VerifyBlob(record_slice, user_key, value_size, user_comparator_);
     if (!s.ok()) {
       return s;
     }
@@ -515,8 +515,8 @@ void BlobFileReader::MultiGetBlob(
 
     // Verify checksums if enabled
     if (read_options.verify_checksums) {
-      *req->status = VerifyBlob(record_slice, *req->user_key, 
-        req->len, user_comparator_);
+      *req->status =
+          VerifyBlob(record_slice, *req->user_key, req->len, user_comparator_);
       if (!req->status->ok()) {
         continue;
       }
@@ -537,8 +537,9 @@ void BlobFileReader::MultiGetBlob(
   }
 }
 
-Status BlobFileReader::VerifyBlob(const Slice& record_slice, const Slice& user_key, 
-                        uint64_t value_size, const Comparator* user_comparator) {
+Status BlobFileReader::VerifyBlob(const Slice& record_slice,
+                                  const Slice& user_key, uint64_t value_size,
+                                  const Comparator* user_comparator) {
   PERF_TIMER_GUARD(blob_checksum_time);
 
   BlobLogRecord record;

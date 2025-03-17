@@ -2264,6 +2264,7 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   FileOptions opt_file_options =
       fs_->OptimizeForLogWrite(file_options_, db_options);
+  opt_file_options.write_hint = CalculateWALWriteHint();
   // DB option takes precedence when not kUnknown
   if (immutable_db_options_.wal_write_temperature != Temperature::kUnknown) {
     opt_file_options.temperature = immutable_db_options_.wal_write_temperature;
@@ -2285,7 +2286,9 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
   }
 
   if (io_s.ok()) {
-    lfile->SetWriteLifeTimeHint(CalculateWALWriteHint());
+    // Subsequent attempts to override the hint via SetWriteLifeTimeHint
+    // with the very same value will be ignored by the fs.
+    lfile->SetWriteLifeTimeHint(opt_file_options.write_hint);
     lfile->SetPreallocationBlockSize(preallocate_block_size);
 
     const auto& listeners = immutable_db_options_.listeners;

@@ -6868,6 +6868,10 @@ TEST_F(ExternalTableReaderTest, SstReaderTest) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  // Opt-in this whole test file
+  ROCKSDB_NAMESPACE::BlockBasedTableFactory::AllowUnsupportedFormatVersion() =
+      true;
+
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

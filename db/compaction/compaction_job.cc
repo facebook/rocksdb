@@ -1950,6 +1950,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
     temperature = last_level_temp;
   }
   fo_copy.temperature = temperature;
+  fo_copy.write_hint = write_hint_;
 
   Status s;
   IOStatus io_s = NewWritableFile(fs_.get(), fname, &writable_file, fo_copy);
@@ -2035,7 +2036,9 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   }
 
   writable_file->SetIOPriority(GetRateLimiterPriority());
-  writable_file->SetWriteLifeTimeHint(write_hint_);
+  // Subsequent attempts to override the hint via SetWriteLifeTimeHint
+  // with the very same value will be ignored by the fs.
+  writable_file->SetWriteLifeTimeHint(fo_copy.write_hint);
   FileTypeSet tmp_set = db_options_.checksum_handoff_file_types;
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
