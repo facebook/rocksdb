@@ -479,7 +479,7 @@ struct CompactionServiceResult {
 
   // Job-level Compaction Stats.
   //
-  // NOTE: Job level stats cannot be rebuilt from scatch by simply aggregating
+  // NOTE: Job level stats cannot be rebuilt from scratch by simply aggregating
   // per-level stats due to some fields populated directly during compaction
   // (e.g. RecordDroppedKeys()). This is why we need both job-level stats and
   // per-level in the serialized result. If rebuilding job-level stats from
