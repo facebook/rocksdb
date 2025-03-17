@@ -851,8 +851,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
   options.env = env_.get();
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
-  // Bypass record count verification so that the test reaches
-  // paranoid file check later in the process
+  // Skip verifying record count against TableProperties for
+  // MockTables
   options.compaction_verify_record_count = false;
   Status s;
   for (const auto& mode : corruption_modes) {
