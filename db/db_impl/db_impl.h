@@ -2130,7 +2130,7 @@ class DBImpl : public DB {
       RecoveryContext* recovery_ctx);
 
   // Check that DB sequence number is not set back during recovery between
-  // replaying of WAL files and replaying of WriteBatches.
+  // replaying of WAL files and between replaying of WriteBatches.
   Status CheckSeqnoNotSetBackDuringRecovery(SequenceNumber prev_next_seqno,
                                             SequenceNumber current_next_seqno);
 
