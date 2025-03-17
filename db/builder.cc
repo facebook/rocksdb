@@ -145,7 +145,9 @@ Status BuildTable(
       bool use_direct_writes = file_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
-      IOStatus io_s = NewWritableFile(fs, fname, &file, file_options);
+      FileOptions fo_copy = file_options;
+      fo_copy.write_hint = write_hint;
+      IOStatus io_s = NewWritableFile(fs, fname, &file, fo_copy);
       assert(s.ok());
       s = io_s;
       if (io_status->ok()) {
@@ -163,7 +165,9 @@ Status BuildTable(
       table_file_created = true;
       FileTypeSet tmp_set = ioptions.checksum_handoff_file_types;
       file->SetIOPriority(tboptions.write_options.rate_limiter_priority);
-      file->SetWriteLifeTimeHint(write_hint);
+      // Subsequent attempts to override the hint via SetWriteLifeTimeHint
+      // with the very same value will be ignored by the fs.
+      file->SetWriteLifeTimeHint(fo_copy.write_hint);
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, ioptions.clock, io_tracer,
           ioptions.stats, Histograms::SST_WRITE_MICROS, ioptions.listeners,

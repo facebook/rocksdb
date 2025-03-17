@@ -980,16 +980,6 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const BlockBasedTableOptions& table_options, const TableBuilderOptions& tbo,
     WritableFileWriter* file) {
   BlockBasedTableOptions sanitized_table_options(table_options);
-  if (sanitized_table_options.format_version == 0 &&
-      sanitized_table_options.checksum != kCRC32c) {
-    ROCKS_LOG_WARN(
-        tbo.ioptions.logger,
-        "Silently converting format_version to 1 because checksum is "
-        "non-default");
-    // silently convert format_version to 1 to keep consistent with current
-    // behavior
-    sanitized_table_options.format_version = 1;
-  }
   auto ucmp = tbo.internal_comparator.user_comparator();
   assert(ucmp);
   (void)ucmp;  // avoids unused variable error.

@@ -300,7 +300,7 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
 
   // compress_format_version can have two values:
   // compress_format_version == 1 -- decompressed size is not included in the
-  // block header.
+  // block header. DEPRECATED
   // compress_format_version == 2 -- decompressed size is included in the block
   // header in varint32 format.
   uint32_t compress_format_version = 2;
