@@ -130,15 +130,19 @@ class TieredCompactionTest : public DBTestBase {
     ASSERT_EQ(stats.micros > 0, expect_stats.micros > 0);
     ASSERT_EQ(stats.cpu_micros > 0, expect_stats.cpu_micros > 0);
 
-    // FIXME: Change to exact value comparison
-    ASSERT_EQ(stats.bytes_read_non_output_levels > 0,
-              expect_stats.bytes_read_non_output_levels > 0);
-    ASSERT_EQ(stats.bytes_read_output_level > 0,
-              expect_stats.bytes_read_output_level > 0);
-    ASSERT_EQ(stats.bytes_read_non_output_levels > 0,
-              expect_stats.bytes_read_non_output_levels > 0);
-    ASSERT_EQ(stats.bytes_read_blob > 0, expect_stats.bytes_read_blob > 0);
-    ASSERT_EQ(stats.bytes_written > 0, expect_stats.bytes_written > 0);
+    // Hard to get consistent byte sizes of SST files.
+    // Use ASSERT_NEAR for comparison
+    ASSERT_NEAR(stats.bytes_read_non_output_levels * 1.0f,
+                expect_stats.bytes_read_non_output_levels * 1.0f,
+                stats.bytes_read_non_output_levels * 0.5f);
+    ASSERT_NEAR(stats.bytes_read_output_level * 1.0f,
+                expect_stats.bytes_read_output_level * 1.0f,
+                stats.bytes_read_output_level * 0.5f);
+    ASSERT_NEAR(stats.bytes_read_blob * 1.0f,
+                expect_stats.bytes_read_blob * 1.0f,
+                stats.bytes_read_blob * 0.5f);
+    ASSERT_NEAR(stats.bytes_written * 1.0f, expect_stats.bytes_written * 1.0f,
+                stats.bytes_written * 0.5f);
 
     ASSERT_EQ(stats.bytes_moved, expect_stats.bytes_moved);
     ASSERT_EQ(stats.num_input_files_in_non_output_levels,
@@ -230,6 +234,10 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 
+  uint64_t bytes_written_penultimate_level =
+      GetPerKeyPlacementCompactionStats().bytes_written;
+
+  // TODO - Use designated initializer when c++20 support is required
   {
     InternalStats::CompactionStats last_level_compaction_stats(
         CompactionReason::kUniversalSizeAmplification, 1);
@@ -253,13 +261,12 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
     penultimate_level_compaction_stats.cpu_micros = 1;
     penultimate_level_compaction_stats.micros = 1;
     penultimate_level_compaction_stats.bytes_written =
-        bytes_per_file * kNumTrigger;
+        bytes_written_penultimate_level;
     penultimate_level_compaction_stats.num_output_files = 1;
     penultimate_level_compaction_stats.num_output_records =
         total_output_key_count;
     expect_pl_stats.Add(penultimate_level_compaction_stats);
   }
-
   VerifyCompactionStats(expect_stats, expect_pl_stats, kLastLevel);
 
   ResetAllStats(expect_stats, expect_pl_stats);
@@ -277,10 +284,14 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   // Now update the input count to be the total count from the previous
   total_input_key_count = total_output_key_count;
   int moved_to_last_level_key_count = 10;
-  uint64_t bytes_read_in_non_output_level = bytes_per_file * kNumTrigger;
+
+  // bytes read in non output = bytes written in penultimate level from previous
+  uint64_t bytes_read_in_non_output_level = bytes_written_penultimate_level;
   uint64_t bytes_written_output_level =
       GetCompactionStats()[kLastLevel].bytes_written;
-  uint64_t bytes_written_penultimate_level =
+
+  // Now get the new bytes written in penultimate level
+  bytes_written_penultimate_level =
       GetPerKeyPlacementCompactionStats().bytes_written;
   {
     InternalStats::CompactionStats last_level_compaction_stats(
