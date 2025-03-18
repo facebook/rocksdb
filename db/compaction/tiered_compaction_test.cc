@@ -130,7 +130,7 @@ class TieredCompactionTest : public DBTestBase {
     ASSERT_EQ(stats.micros > 0, expect_stats.micros > 0);
     ASSERT_EQ(stats.cpu_micros > 0, expect_stats.cpu_micros > 0);
 
-    // FIXME: Changes to exact comparison
+    // FIXME: Change to exact value comparison
     ASSERT_EQ(stats.bytes_read_non_output_levels > 0,
               expect_stats.bytes_read_non_output_levels > 0);
     ASSERT_EQ(stats.bytes_read_output_level > 0,
@@ -140,7 +140,6 @@ class TieredCompactionTest : public DBTestBase {
     ASSERT_EQ(stats.bytes_read_blob > 0, expect_stats.bytes_read_blob > 0);
     ASSERT_EQ(stats.bytes_written > 0, expect_stats.bytes_written > 0);
 
-    // Exact Comparison
     ASSERT_EQ(stats.bytes_moved, expect_stats.bytes_moved);
     ASSERT_EQ(stats.num_input_files_in_non_output_levels,
               expect_stats.num_input_files_in_non_output_levels);
@@ -202,8 +201,8 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   InternalStats::CompactionStats expect_pl_stats;
 
   // Put keys in the following way to create overlaps
-  // First file from 0 ~ 100
-  // Second file from 10 ~ 110
+  // First file from 0 ~ 99
+  // Second file from 10 ~ 109
   // ...
   size_t bytes_per_file = 1952;
   int total_input_key_count = kNumTrigger * kNumKeys;
@@ -388,7 +387,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 
-  // Previous output + one delete rangei
+  // Previous output + one delete range
   total_input_key_count = total_output_key_count + 1;
   moved_to_last_level_key_count = 20;
 
@@ -1049,8 +1048,8 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   InternalStats::CompactionStats expect_pl_stats;
 
   // Put keys in the following way to create overlaps
-  // First file from 0 ~ 100
-  // Second file from 10 ~ 110
+  // First file from 0 ~ 99
+  // Second file from 10 ~ 109
   // ...
   size_t bytes_per_file = 1952;
   int total_input_key_count = kNumTrigger * kNumKeys;
