@@ -35,8 +35,8 @@ Options SanitizeOptions(const std::string& dbname, const Options& src,
   auto db_options =
       SanitizeOptions(dbname, DBOptions(src), read_only, logger_creation_s);
   ImmutableDBOptions immutable_db_options(db_options);
-  auto cf_options = SanitizeOptions(immutable_db_options, read_only,
-                                    ColumnFamilyOptions(src));
+  auto cf_options = SanitizeCfOptions(immutable_db_options, read_only,
+                                      ColumnFamilyOptions(src));
   return Options(db_options, cf_options);
 }
 
@@ -1203,12 +1203,23 @@ Status DBImpl::ProcessLogFiles(
   PredecessorWALInfo predecessor_wal_info;
 
   for (auto wal_number : wal_numbers) {
+    // Detecting early break on the next iteration after `wal_number` has been
+    // advanced since this `wal_number` doesn't affect follow-up handling after
+    // breaking out of the for loop.
+    if (!status.ok()) {
+      break;
+    }
+    SequenceNumber prev_next_sequence = *next_sequence;
     if (status.ok()) {
       status = ProcessLogFile(
           wal_number, min_wal_number, is_retry, read_only, job_id,
           next_sequence, &stop_replay_for_corruption,
           &stop_replay_by_wal_filter, &corrupted_wal_number,
           corrupted_wal_found, version_edits, &flushed, predecessor_wal_info);
+    }
+    if (status.ok()) {
+      status = CheckSeqnoNotSetBackDuringRecovery(prev_next_sequence,
+                                                  *next_sequence);
     }
   }
 
@@ -1317,6 +1328,7 @@ Status DBImpl::ProcessLogFile(
     }
 
     // FIXME(hx235): consolidate `process_status` and `status`
+    SequenceNumber prev_next_sequence = *next_sequence;
     Status process_status = ProcessLogRecord(
         record, reader, running_ts_sz, wal_number, fname, read_only, job_id,
         logFileDropped, &reporter, &record_checksum, &last_seqno_observed,
@@ -1325,6 +1337,12 @@ Status DBImpl::ProcessLogFile(
 
     if (!process_status.ok()) {
       return process_status;
+    } else if (Status seqno_check_status = CheckSeqnoNotSetBackDuringRecovery(
+                   prev_next_sequence, *next_sequence);
+               !seqno_check_status.ok()) {
+      // Sequence number being set back indicates a serious software bug, the DB
+      // should not be opened in this case.
+      return seqno_check_status;
     } else if (*stop_replay_for_corruption) {
       break;
     }
@@ -1863,6 +1881,20 @@ Status DBImpl::MaybeFlushFinalMemtableOrRestoreActiveLogFiles(
   return status;
 }
 
+Status DBImpl::CheckSeqnoNotSetBackDuringRecovery(
+    SequenceNumber prev_next_seqno, SequenceNumber current_next_seqno) {
+  if (prev_next_seqno == kMaxSequenceNumber ||
+      prev_next_seqno <= current_next_seqno) {
+    return Status::OK();
+  }
+  std::string msg =
+      "Sequence number is being set backwards during recovery, this is likely "
+      "a software bug or a data corruption. Prev next seqno: " +
+      std::to_string(prev_next_seqno) +
+      " , current next seqno: " + std::to_string(current_next_seqno);
+  return Status::Corruption(msg);
+}
+
 void DBImpl::FinishLogFilesRecovery(int job_id, const Status& status) {
   event_logger_.Log() << "job" << job_id << "event"
                       << (status.ok() ? "recovery_finished" : "recovery_failed")
@@ -2264,6 +2296,7 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   FileOptions opt_file_options =
       fs_->OptimizeForLogWrite(file_options_, db_options);
+  opt_file_options.write_hint = CalculateWALWriteHint();
   // DB option takes precedence when not kUnknown
   if (immutable_db_options_.wal_write_temperature != Temperature::kUnknown) {
     opt_file_options.temperature = immutable_db_options_.wal_write_temperature;
@@ -2285,7 +2318,9 @@ IOStatus DBImpl::CreateWAL(const WriteOptions& write_options,
   }
 
   if (io_s.ok()) {
-    lfile->SetWriteLifeTimeHint(CalculateWALWriteHint());
+    // Subsequent attempts to override the hint via SetWriteLifeTimeHint
+    // with the very same value will be ignored by the fs.
+    lfile->SetWriteLifeTimeHint(opt_file_options.write_hint);
     lfile->SetPreallocationBlockSize(preallocate_block_size);
 
     const auto& listeners = immutable_db_options_.listeners;

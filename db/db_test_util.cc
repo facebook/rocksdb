@@ -11,6 +11,7 @@
 
 #include "cache/cache_reservation_manager.h"
 #include "db/forward_iterator.h"
+#include "env/fs_readonly.h"
 #include "env/mock_env.h"
 #include "port/lang.h"
 #include "rocksdb/cache.h"
@@ -714,6 +715,17 @@ Status DBTestBase::ReadOnlyReopen(const Options& options) {
   Close();
   MaybeInstallTimeElapseOnlySleep(options);
   return DB::OpenForReadOnly(options, dbname_, &db_);
+}
+
+Status DBTestBase::EnforcedReadOnlyReopen(const Options& options) {
+  Close();
+  Options options_copy = options;
+  MaybeInstallTimeElapseOnlySleep(options_copy);
+  auto fs_read_only =
+      std::make_shared<ReadOnlyFileSystem>(env_->GetFileSystem());
+  env_read_only_ = std::make_shared<CompositeEnvWrapper>(env_, fs_read_only);
+  options_copy.env = env_read_only_.get();
+  return DB::OpenForReadOnly(options_copy, dbname_, &db_);
 }
 
 Status DBTestBase::TryReopen(const Options& options) {

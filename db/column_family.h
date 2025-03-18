@@ -281,9 +281,9 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options);
 Status CheckCFPathsSupported(const DBOptions& db_options,
                              const ColumnFamilyOptions& cf_options);
 
-ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
-                                    bool read_only,
-                                    const ColumnFamilyOptions& src);
+ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
+                                      bool read_only,
+                                      const ColumnFamilyOptions& src);
 // Wrap user defined table properties collector factories `from cf_options`
 // into internal ones in internal_tbl_prop_coll_factories. Add a system internal
 // one too.

@@ -161,6 +161,7 @@ TEST_F(DBBasicTest, UniqueSession) {
 
   ASSERT_EQ(sid2, sid3);
 
+  DestroyAndReopen(options);
   CreateAndReopenWithCF({"goku"}, options);
   ASSERT_OK(db_->GetDbSessionId(sid1));
   ASSERT_OK(Put("bar", "e1"));
@@ -179,6 +180,7 @@ TEST_F(DBBasicTest, UniqueSession) {
 TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
+  ASSERT_OK(Flush());
   ASSERT_OK(Put("foo", "v3"));
   Close();
 
@@ -208,10 +210,11 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
 
   auto options = CurrentOptions();
   assert(options.env == env_);
-  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_OK(EnforcedReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
   verify_all_iters();
+  ASSERT_EQ(Flush().code(), Status::Code::kNotSupported);
   Close();
 
   // Reopen and flush memtable.
@@ -219,26 +222,38 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Flush());
   Close();
   // Now check keys in read only mode.
-  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_OK(EnforcedReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
   verify_all_iters();
-  ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
+  ASSERT_EQ(db_->SyncWAL().code(), Status::Code::kNotSupported);
+
+  // More ops that should fail
+  std::vector<ColumnFamilyHandle*> cfhs{{}};
+  ASSERT_EQ(db_->CreateColumnFamily(options, "blah", &cfhs[0]).code(),
+            Status::Code::kNotSupported);
+
+  ASSERT_EQ(db_->CreateColumnFamilies(options, {"blah"}, &cfhs).code(),
+            Status::Code::kNotSupported);
+
+  std::vector<ColumnFamilyDescriptor> cfds;
+  cfds.push_back({"blah", options});
+  ASSERT_EQ(db_->CreateColumnFamilies(cfds, &cfhs).code(),
+            Status::Code::kNotSupported);
 }
 
-// TODO akanksha: Update the test to check that combination
-// does not actually write to FS (use open read-only with
-// CompositeEnvWrapper+ReadOnlyFileSystem).
-TEST_F(DBBasicTest, DISABLED_ReadOnlyDBWithWriteDBIdToManifestSet) {
+TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
+  auto options = CurrentOptions();
+  options.write_dbid_to_manifest = false;
+  DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
   ASSERT_OK(Put("foo", "v3"));
   Close();
 
-  auto options = CurrentOptions();
   options.write_dbid_to_manifest = true;
   assert(options.env == env_);
-  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_OK(EnforcedReadOnlyReopen(options));
   std::string db_id1;
   ASSERT_OK(db_->GetDbIdentity(db_id1));
   ASSERT_EQ("v3", Get("foo"));
@@ -258,7 +273,7 @@ TEST_F(DBBasicTest, DISABLED_ReadOnlyDBWithWriteDBIdToManifestSet) {
   ASSERT_OK(Flush());
   Close();
   // Now check keys in read only mode.
-  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_OK(EnforcedReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());

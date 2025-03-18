@@ -1474,7 +1474,7 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
                 /* expected_oldest_blob_file_numbers */ {19});
 }
 
-TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
+TEST_F(CompactionJobTest, VerifyProximalLevelOutput) {
   cf_options_.last_level_temperature = Temperature::kCold;
   SyncPoint::GetInstance()->SetCallBack(
       "Compaction::SupportsPerKeyPlacement:Enabled", [&](void* arg) {
@@ -1487,8 +1487,7 @@ TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionIterator::PrepareOutput.context", [&](void* arg) {
         auto context = static_cast<PerKeyPlacementContext*>(arg);
-        context->output_to_penultimate_level =
-            context->seq_num > latest_cold_seq;
+        context->output_to_proximal_level = context->seq_num > latest_cold_seq;
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1534,11 +1533,11 @@ TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
       /*verify_func=*/[&](Compaction& comp) {
         for (char c = 'a'; c <= 'z'; c++) {
           if (c == 'a') {
-            comp.TEST_AssertWithinPenultimateLevelOutputRange(
+            comp.TEST_AssertWithinProximalLevelOutputRange(
                 "a", true /*expect_failure*/);
           } else {
             std::string c_str{c};
-            comp.TEST_AssertWithinPenultimateLevelOutputRange(c_str);
+            comp.TEST_AssertWithinProximalLevelOutputRange(c_str);
           }
         }
       });
@@ -1682,7 +1681,8 @@ TEST_F(CompactionJobTest, ResultSerialization) {
         file_checksum /* file_checksum */,
         file_checksum_func_name /* file_checksum_func_name */,
         rnd64.Uniform(UINT64_MAX) /* paranoid_hash */,
-        rnd.OneIn(2) /* marked_for_compaction */, id /* unique_id */, tp);
+        rnd.OneIn(2) /* marked_for_compaction */, id /* unique_id */, tp,
+        false /* is_proximal_level_output */, Temperature::kHot);
   }
   result.output_level = rnd.Uniform(10);
   result.output_path = rnd.RandomString(rnd.Uniform(kStrMaxLen));
@@ -1736,6 +1736,8 @@ TEST_F(CompactionJobTest, ResultSerialization) {
     ASSERT_EQ(deserialized_tmp.output_files[0].file_checksum, file_checksum);
     ASSERT_EQ(deserialized_tmp.output_files[0].file_checksum_func_name,
               file_checksum_func_name);
+    ASSERT_EQ(deserialized_tmp.output_files[0].file_temperature,
+              Temperature::kHot);
   }
 
   // Test unknown field

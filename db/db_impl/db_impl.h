@@ -2129,6 +2129,11 @@ class DBImpl : public DB {
       bool flushed, std::unordered_map<int, VersionEdit>* version_edits,
       RecoveryContext* recovery_ctx);
 
+  // Check that DB sequence number is not set back during recovery between
+  // replaying of WAL files and between replaying of WriteBatches.
+  Status CheckSeqnoNotSetBackDuringRecovery(SequenceNumber prev_next_seqno,
+                                            SequenceNumber current_next_seqno);
+
   void FinishLogFilesRecovery(int job_id, const Status& status);
   // The following two methods are used to flush a memtable to
   // storage. The first one is used at database RecoveryTime (when the
