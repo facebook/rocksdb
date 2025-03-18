@@ -384,12 +384,12 @@ Status CompactionServiceCompactionJob::Run() {
 
   // Build Compaction Job Stats
 
-  // 1. Aggregate for all subcompactions
-  // per-level stats: sub_compact.proximal_level_outputs_.stats and
-  //                  sub_compact.compaction_outputs_.stats into
-  //                  internal_stats_.output_level_stats and
-  //                  internal_stats_.proximal_level_stats
-  // job-level stats: sub_compact.job_level_stats_ into compact.job_level_stats_
+  // 1. Aggregate internal stats and job stats for all subcompactions
+  // internal stats: sub_compact.proximal_level_outputs_.stats and
+  //                 sub_compact.compaction_outputs_.stats into
+  //                 internal_stats_.output_level_stats and
+  //                 internal_stats_.proximal_level_stats
+  // job-level stats: sub_compact.compaction_job_stats into compact.job_stats_
   //
   // For remote compaction, there's only one subcompaction.
   compact_->AggregateCompactionStats(internal_stats_, *job_stats_);
@@ -409,14 +409,14 @@ Status CompactionServiceCompactionJob::Run() {
     assert(job_stats_->num_input_records > 0);
   }
 
-  // 3. Aggregate per-level stats into job-level stats and
-  // set fields that are not propagated as part of the aggregation
+  // 3. Update job-level stats with the aggregated internal_stats_
   UpdateCompactionJobStats(internal_stats_);
+  // and set fields that are not propagated as part of the update
   compaction_result_->stats.is_manual_compaction = c->is_manual_compaction();
   compaction_result_->stats.is_full_compaction = c->is_full_compaction();
   compaction_result_->stats.is_remote_compaction = true;
 
-  // 4. Update IO Stats that are not part of the aggregations above
+  // 4. Update IO Stats that are not part of the the update above
   // (bytes_read, bytes_written)
   RecordCompactionIOStats();
 

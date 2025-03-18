@@ -98,16 +98,13 @@ class SubcompactionState;
 //                                +--------->+                        |
 //                                           +------------------------+
 //
-// 2. CompactionStatsFull compaction_stats_
+// 2. CompactionStatsFull internal_stats_
 //    `CompactionStatsFull` is an internal stats about the compaction, which
 //    is eventually sent to `ColumnFamilyData::internal_stats_` and used for
 //    logging and public metrics.
 //    Internally, it's an aggregation of stats_ from each `SubcompactionState`.
-//    It has 2 parts, normal stats about the main compaction information and
-//    the proximal level output stats.
-//    `SubcompactionState` maintains the CompactionOutputs for ordinary level
-//    output and the proximal level output if exists, the per_level stats is
-//    stored with the outputs.
+//    It has 2 parts, ordinary output level stats and the proximal level output
+//    stats.
 //                                                +---------------------------+
 //                                                | SubcompactionState        |
 //                                                |                           |
@@ -121,7 +118,7 @@ class SubcompactionState;
 // +--------------------------------+         |   | | CompactionOutputs    |  |
 // | CompactionJob                  |         |   | | (proximal_level)     |  |
 // |                                |    +--------->|   stats_             |  |
-// |   compaction_stats_            |    |    |   | +----------------------+  |
+// |   internal_stats_              |    |    |   | +----------------------+  |
 // |    +-------------------------+ |    |    |   |                           |
 // |    |output_level_stats       |------|----+   +---------------------------+
 // |    +-------------------------+ |    |    |

@@ -30,7 +30,7 @@ class CompactionState {
 
   void AggregateCompactionStats(
       InternalStats::CompactionStatsFull& internal_stats,
-      CompactionJobStats& job_level_stats);
+      CompactionJobStats& job_stats);
 
   explicit CompactionState(Compaction* c) : compaction(c) {}
 
