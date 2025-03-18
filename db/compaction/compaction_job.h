@@ -67,7 +67,7 @@ class SubcompactionState;
 // if needed.
 //
 // CompactionJob has 2 main stats:
-// 1. CompactionJobStats compaction_job_stats_
+// 1. CompactionJobStats job_stats_
 //    CompactionJobStats is a public data structure which is part of Compaction
 //    event listener that rocksdb share the job stats with the user.
 //    Internally it's an aggregation of all the compaction_job_stats from each
@@ -81,7 +81,7 @@ class SubcompactionState;
 // +------------------------+     |
 // | CompactionJob          |     |          +------------------------+
 // |                        |     |          | SubcompactionState     |
-// |   compaction_job_stats +-----+          |                        |
+// |   job_stats            +-----+          |                        |
 // |                        |     +--------->|   compaction_job_stats |
 // |                        |     |          |                        |
 // +------------------------+     |          +------------------------+
@@ -98,16 +98,13 @@ class SubcompactionState;
 //                                +--------->+                        |
 //                                           +------------------------+
 //
-// 2. CompactionStatsFull compaction_stats_
+// 2. CompactionStatsFull internal_stats_
 //    `CompactionStatsFull` is an internal stats about the compaction, which
 //    is eventually sent to `ColumnFamilyData::internal_stats_` and used for
 //    logging and public metrics.
 //    Internally, it's an aggregation of stats_ from each `SubcompactionState`.
-//    It has 2 parts, normal stats about the main compaction information and
-//    the proximal level output stats.
-//    `SubcompactionState` maintains the CompactionOutputs for ordinary level
-//    output and the proximal level output if exists, the per_level stats is
-//    stored with the outputs.
+//    It has 2 parts, ordinary output level stats and the proximal level output
+//    stats.
 //                                                +---------------------------+
 //                                                | SubcompactionState        |
 //                                                |                           |
@@ -121,9 +118,9 @@ class SubcompactionState;
 // +--------------------------------+         |   | | CompactionOutputs    |  |
 // | CompactionJob                  |         |   | | (proximal_level)     |  |
 // |                                |    +--------->|   stats_             |  |
-// |   compaction_stats_            |    |    |   | +----------------------+  |
+// |   internal_stats_              |    |    |   | +----------------------+  |
 // |    +-------------------------+ |    |    |   |                           |
-// |    |stats (normal)           |------|----+   +---------------------------+
+// |    |output_level_stats       |------|----+   +---------------------------+
 // |    +-------------------------+ |    |    |
 // |                                |    |    |
 // |    +-------------------------+ |    |    |   +---------------------------+
@@ -199,7 +196,7 @@ class CompactionJob {
   IOStatus io_status() const { return io_status_; }
 
  protected:
-  // Update the following stats in compaction_stats_.stats
+  // Update the following stats in internal_stats_.output_level_stats
   // - num_input_files_in_non_output_levels
   // - num_input_files_in_output_level
   // - bytes_read_non_output_levels
@@ -211,11 +208,12 @@ class CompactionJob {
   // @param num_input_range_del if non-null, will be set to the number of range
   // deletion entries in this compaction input.
   //
-  // Returns true iff compaction_stats_.stats.num_input_records and
+  // Returns true iff internal_stats_.output_level_stats.num_input_records and
   // num_input_range_del are calculated successfully.
-  bool UpdateCompactionStats(uint64_t* num_input_range_del = nullptr);
-  virtual void UpdateCompactionJobStats(
-      const InternalStats::CompactionStats& stats) const;
+  bool UpdateOutputLevelCompactionStats(
+      uint64_t* num_input_range_del = nullptr);
+  void UpdateCompactionJobStats(
+      const InternalStats::CompactionStatsFull& internal_stats) const;
   void LogCompaction();
   virtual void RecordCompactionIOStats();
   void CleanupCompaction();
@@ -224,7 +222,7 @@ class CompactionJob {
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
 
   CompactionState* compact_;
-  InternalStats::CompactionStatsFull compaction_stats_;
+  InternalStats::CompactionStatsFull internal_stats_;
   const ImmutableDBOptions& db_options_;
   const MutableDBOptions mutable_db_options_copy_;
   LogBuffer* log_buffer_;
@@ -237,7 +235,7 @@ class CompactionJob {
 
   IOStatus io_status_;
 
-  CompactionJobStats* compaction_job_stats_;
+  CompactionJobStats* job_stats_;
 
  private:
   friend class CompactionJobTestBase;
@@ -475,7 +473,20 @@ struct CompactionServiceResult {
 
   uint64_t bytes_read = 0;
   uint64_t bytes_written = 0;
+
+  // Job-level Compaction Stats.
+  //
+  // NOTE: Job level stats cannot be rebuilt from scratch by simply aggregating
+  // per-level stats due to some fields populated directly during compaction
+  // (e.g. RecordDroppedKeys()). This is why we need both job-level stats and
+  // per-level in the serialized result. If rebuilding job-level stats from
+  // per-level stats become possible in the future, consider deprecating this
+  // field.
   CompactionJobStats stats;
+
+  // Per-level Compaction Stats for both output_level_stats and
+  // proximal_level_stats
+  InternalStats::CompactionStatsFull internal_stats;
 
   // serialization interface to read and write the object
   static Status Read(const std::string& data_str, CompactionServiceResult* obj);
@@ -521,9 +532,6 @@ class CompactionServiceCompactionJob : private CompactionJob {
 
  protected:
   void RecordCompactionIOStats() override;
-
-  void UpdateCompactionJobStats(
-      const InternalStats::CompactionStats& stats) const override;
 
  private:
   // Get table file name in output_path
