@@ -10503,7 +10503,7 @@ TEST_F(DBCompactionTest, NumberOfSubcompactions) {
   }
 }
 
-TEST_F(DBCompactionTest, VerifyRecordCount) {
+TEST_F(DBCompactionTest, VerifyInputRecordCount) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.level0_file_num_compaction_trigger = 3;
@@ -10538,6 +10538,103 @@ TEST_F(DBCompactionTest, VerifyRecordCount) {
   const char* expect =
       "Compaction number of input keys does not match number of keys "
       "processed.";
+  ASSERT_TRUE(std::strstr(s.getState(), expect));
+}
+
+TEST_F(DBCompactionTest, VerifyOutputRecordCountBlockBasedTable) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  options.compaction_verify_record_count = true;
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // Create 2 overlapping L0 files
+  for (int i = 1; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), Key(10), Key(15)));
+
+  for (int i = 0; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  // Skip adding every 7th key in the output table
+  int num_iter = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::Add::skip", [&](void* skip) {
+        num_iter++;
+        if (num_iter % 7 == 0) {
+          *(bool*)skip = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption());
+  const char* expect =
+      "Number of keys in compaction output SST files does not match number of "
+      "keys added.";
+  ASSERT_TRUE(std::strstr(s.getState(), expect));
+}
+
+TEST_F(DBCompactionTest, VerifyOutputRecordCountPlainTable) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  options.compaction_verify_record_count = true;
+
+  PlainTableOptions plain_table_options;
+  plain_table_options.user_key_len = 0;
+  plain_table_options.bloom_bits_per_key = 2;
+  plain_table_options.hash_table_ratio = 0.8;
+  plain_table_options.index_sparseness = 3;
+  plain_table_options.huge_page_tlb_size = 0;
+  plain_table_options.encoding_type = kPrefix;
+  plain_table_options.full_scan_mode = false;
+  plain_table_options.store_index_in_file = false;
+
+  options.table_factory.reset(NewPlainTableFactory(plain_table_options));
+  options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true));
+
+  options.prefix_extractor.reset(NewFixedPrefixTransform(8));
+  options.allow_mmap_reads = false;
+  options.allow_concurrent_memtable_write = false;
+  options.unordered_write = false;
+
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // Create 2 overlapping L0 files
+  for (int i = 1; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  // Skip adding every 7th key in the output table
+  int num_iter = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "PlainTableBuilder::Add::skip", [&](void* skip) {
+        num_iter++;
+        if (num_iter % 7 == 0) {
+          *(bool*)skip = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption());
+  const char* expect =
+      "Number of keys in compaction output SST files does not match number of "
+      "keys added.";
   ASSERT_TRUE(std::strstr(s.getState(), expect));
 }
 

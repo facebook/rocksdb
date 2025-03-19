@@ -839,7 +839,6 @@ Status CompactionJob::Run() {
   TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources:0");
   TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources:1");
 
-  TablePropertiesCollection tp;
   for (const auto& state : compact_->sub_compact_states) {
     for (const auto& output : state.GetOutputs()) {
       auto fn =
@@ -899,6 +898,37 @@ Status CompactionJob::Run() {
           }
         }
       }
+    }
+  }
+
+  // Verify number of output records
+  if (status.ok() && db_options_.compaction_verify_record_count) {
+    uint64_t total_output_num = 0;
+    for (const auto& state : compact_->sub_compact_states) {
+      for (const auto& output : state.GetOutputs()) {
+        total_output_num += output.table_properties->num_entries -
+                            output.table_properties->num_range_deletions;
+      }
+    }
+
+    uint64_t expected = internal_stats_.output_level_stats.num_output_records;
+    if (internal_stats_.has_proximal_level_output) {
+      expected += internal_stats_.proximal_level_stats.num_output_records;
+    }
+    if (expected != total_output_num) {
+      char scratch[2345];
+      compact_->compaction->Summary(scratch, sizeof(scratch));
+      std::string msg =
+          "Number of keys in compaction output SST files does not match "
+          "number of keys added. Expected " +
+          std::to_string(expected) + " but there are " +
+          std::to_string(total_output_num) +
+          " in output SST files. Compaction summary: " + scratch;
+      ROCKS_LOG_WARN(
+          db_options_.info_log, "[%s] [JOB %d] Compaction with status: %s",
+          compact_->compaction->column_family_data()->GetName().c_str(),
+          job_context_->job_id, msg.c_str());
+      status = Status::Corruption(msg);
     }
   }
 

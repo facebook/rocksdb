@@ -1018,6 +1018,11 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
     if (r->props.num_entries > r->props.num_range_deletions) {
       assert(r->internal_comparator.Compare(ikey, Slice(r->last_ikey)) > 0);
     }
+    bool skip = false;
+    TEST_SYNC_POINT_CALLBACK("BlockBasedTableBuilder::Add::skip", (void*)&skip);
+    if (skip) {
+      return;
+    }
 #endif  // !NDEBUG
 
     auto should_flush = r->flush_block_policy->Update(ikey, value);
