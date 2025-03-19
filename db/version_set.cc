@@ -4903,8 +4903,14 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
 }
 
 Env::WriteLifeTimeHint VersionStorageInfo::CalculateSSTWriteHint(
-    int level) const {
-  if (compaction_style_ != kCompactionStyleLevel) {
+    int level, int compaction_style_bitmap) const {
+  if (compaction_style_ != kCompactionStyleLevel &&
+      compaction_style_ != kCompactionStyleUniversal) {
+    return Env::WLTH_NOT_SET;
+  }
+
+  // Conditionally support kCompactionStyleLevel and kCompactionStyleUniversal.
+  if ((compaction_style_bitmap & (1 << (int)compaction_style_)) == 0) {
     return Env::WLTH_NOT_SET;
   }
   if (level == 0) {

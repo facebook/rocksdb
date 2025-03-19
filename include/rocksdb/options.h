@@ -1620,6 +1620,30 @@ struct DBOptions {
   // `kUnknown`, this overrides any temperature set by OptimizeForLogWrite
   // functions.
   Temperature wal_write_temperature = Temperature::kUnknown;
+
+  // Bitmap indicative of which compaction styles SST write lifetime hint
+  // calculation is allowed on. Today, RocksDB provides native support for
+  // kCompactionStyleLevel and kCompactionStyleUniversal (experimental version).
+  // Other compaction styles, even when enabled in the bitmap, won't have any
+  // effect in the default PosixWritableFile file implementation.
+  //
+  // Bits in the map reflect the natural order of CompactionStyle enum members:
+  //
+  //  Bit 0: kCompactionStyleLevel
+  //  Bit 1: kCompactionStyleUniversal
+  //  Bit 2: kCompactionStyleFIFO
+  //
+  // The are numerous benefits coming from employing the hints including
+  // reduction in write amplification caused by OS file movement during
+  // garbage collection, reduction in wear-leveling (SSDs), etc. However,
+  // as currently implemented, SST write lifetime hints are calculated in a
+  // static way and solely based on the level, which might not be suitable for
+  // non-uniform workloads with dynamic / high-variance lifespan of data across
+  // the levels. In those cases (or when the performance is not satisfactory),
+  // it's recommended to disable the hints by setting the bitmap to 0.
+  //
+  // Default: 1 (kCompactionStyleLevel)
+  int calculate_sst_write_lifetime_hint_bitmap = 1 << kCompactionStyleLevel;
   // End EXPERIMENTAL
 };
 
