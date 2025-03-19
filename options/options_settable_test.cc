@@ -471,7 +471,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "background_close_inactive_wals=true;"
                              "write_dbid_to_manifest=true;"
                              "write_identity_file=true;"
-                             "prefix_seek_opt_in_only=true;",
+                             "prefix_seek_opt_in_only=true;"
+                             "calculate_sst_write_lifetime_hint_bitmap=1;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
