@@ -4913,6 +4913,17 @@ Env::WriteLifeTimeHint VersionStorageInfo::CalculateSSTWriteHint(
   if ((compaction_style_bitmap & (1 << (int)compaction_style_)) == 0) {
     return Env::WLTH_NOT_SET;
   }
+
+  if (compaction_style_ == kCompactionStyleUniversal) {
+    if (level == 0) {
+      return Env::WLTH_SHORT;
+    }
+    if (level == 1) {
+      return Env::WLTH_MEDIUM;
+    }
+    return Env::WLTH_LONG;
+  }
+
   if (level == 0) {
     return Env::WLTH_MEDIUM;
   }
