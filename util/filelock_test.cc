@@ -69,7 +69,7 @@ class LockTest : public testing::Test {
       int fd = open(file_.c_str(), O_RDWR | O_CREAT, 0644);
       if (fd < 0) {
         // could not open file, could not check if it was locked
-        fprintf(stderr, "Open on on file %s failed.\n", file_.c_str());
+        fprintf(stderr, "Open on file %s failed.\n", file_.c_str());
         exit(exit_val);
       }
 
