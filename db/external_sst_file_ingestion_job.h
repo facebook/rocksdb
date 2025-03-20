@@ -61,9 +61,10 @@ class ExternalFileRangeChecker {
   bool Overlaps(const KeyRangeInfo& range1, const InternalKey& range2_smallest,
                 const InternalKey& range2_largest,
                 bool known_sorted = false) const {
-    if (range1.unset() || range2_smallest.unset() || range2_largest.unset()) {
-      constexpr bool unset_ranges_in_overlap_check = true;
-      assert(!unset_ranges_in_overlap_check);
+    bool any_unset =
+        range1.unset() || range2_smallest.unset() || range2_largest.unset();
+    if (any_unset) {
+      assert(!any_unset);
       return false;
     }
     if (known_sorted) {
@@ -83,9 +84,10 @@ class ExternalFileRangeChecker {
   }
   bool Contains(const KeyRangeInfo& range1, const InternalKey& range2_smallest,
                 const InternalKey& range2_largest) {
-    if (range1.unset() || range2_smallest.unset() || range2_largest.unset()) {
-      constexpr bool unset_ranges_in_contains_check = true;
-      assert(!unset_ranges_in_contains_check);
+    bool any_unset =
+        range1.unset() || range2_smallest.unset() || range2_largest.unset();
+    if (any_unset) {
+      assert(!any_unset);
       return false;
     }
     return sstableKeyCompare(ucmp_, range1.smallest_internal_key,
