@@ -1954,11 +1954,33 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
     SstFileWriter sst_file_writer(EnvOptions(), options);
     std::string file3 = sst_files_dir_ + "file3.sst";
     ASSERT_OK(sst_file_writer.Open(file3));
-    ASSERT_OK(sst_file_writer.Put("j", "j1"));
+    ASSERT_OK(sst_file_writer.Put("k", "k1"));
     ASSERT_OK(sst_file_writer.Put("m", "m1"));
     ExternalSstFileInfo file3_info;
     ASSERT_OK(sst_file_writer.Finish(&file3_info));
     files.push_back(std::move(file3));
+  }
+
+  // This could be ingested to the same level as file3 and file4, but the
+  // greedy/simple overlap check relegates it to a later level
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file4 = sst_files_dir_ + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    ASSERT_OK(sst_file_writer.Put("j", "j1"));
+    ExternalSstFileInfo file4_info;
+    ASSERT_OK(sst_file_writer.Finish(&file4_info));
+    files.push_back(std::move(file4));
+  }
+
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file5 = sst_files_dir_ + "file5.sst";
+    ASSERT_OK(sst_file_writer.Open(file5));
+    ASSERT_OK(sst_file_writer.Put("i", "i3"));
+    ExternalSstFileInfo file5_info;
+    ASSERT_OK(sst_file_writer.Finish(&file5_info));
+    files.push_back(std::move(file5));
   }
 
   IngestExternalFileOptions ifo;
@@ -1967,8 +1989,9 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
   ifo.allow_global_seqno = true;
   ASSERT_OK(db_->IngestExternalFile(files, ifo));
   ASSERT_EQ(Get("a"), "a1");
-  ASSERT_EQ(Get("i"), "i2");
+  ASSERT_EQ(Get("i"), "i3");
   ASSERT_EQ(Get("j"), "j1");
+  ASSERT_EQ(Get("k"), "k1");
   ASSERT_EQ(Get("m"), "m1");
 
   int total_keys = 0;
@@ -1979,10 +2002,11 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
   }
   ASSERT_OK(iter->status());
   delete iter;
-  ASSERT_EQ(total_keys, 4);
+  ASSERT_EQ(total_keys, 5);
 
   ASSERT_EQ(1, NumTableFilesAtLevel(6));
   ASSERT_EQ(2, NumTableFilesAtLevel(5));
+  ASSERT_EQ(2, NumTableFilesAtLevel(4));
 }
 
 class CompactionJobStatsCheckerForFilteredFiles : public EventListener {
