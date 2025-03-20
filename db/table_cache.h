@@ -34,6 +34,7 @@ class Arena;
 struct FileDescriptor;
 class GetContext;
 class HistogramImpl;
+class InternalStats;
 
 // Manages caching for TableReader objects for a column family. The actual
 // cache is allocated separately and passed to the constructor. TableCache
@@ -93,9 +94,9 @@ class TableCache {
       const InternalKeyComparator& internal_comparator,
       const FileMetaData& file_meta, RangeDelAggregator* range_del_agg,
       const MutableCFOptions& mutable_cf_options,
-      TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
-      TableReaderCaller caller, Arena* arena, bool skip_filters, int level,
-      size_t max_file_size_for_l0_meta_pin,
+      TableReader** table_reader_ptr, InternalStats* internal_stats,
+      HistogramImpl* file_read_hist, TableReaderCaller caller, Arena* arena,
+      bool skip_filters, int level, size_t max_file_size_for_l0_meta_pin,
       const InternalKey* smallest_compaction_key,
       const InternalKey* largest_compaction_key, bool allow_unprepared_value,
       const SequenceNumber* range_del_read_seqno = nullptr,
@@ -181,6 +182,7 @@ class TableCache {
                    const MutableCFOptions& mutable_cf_options,
                    const bool no_io = false,
                    HistogramImpl* file_read_hist = nullptr,
+                   InternalStats* internal_stats = nullptr,
                    bool skip_filters = false, int level = -1,
                    bool prefetch_index_and_filter_in_cache = true,
                    size_t max_file_size_for_l0_meta_pin = 0,
@@ -249,6 +251,7 @@ class TableCache {
                         const InternalKeyComparator& internal_comparator,
                         const FileMetaData& file_meta, bool sequential_mode,
                         HistogramImpl* file_read_hist,
+                        InternalStats* internal_stats,
                         std::unique_ptr<TableReader>* table_reader,
                         const MutableCFOptions& mutable_cf_options,
                         bool skip_filters = false, int level = -1,
