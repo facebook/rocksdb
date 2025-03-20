@@ -862,20 +862,16 @@ Status CompactionJob::Run() {
   bool ok = BuildStatsFromInputTableProperties(&num_input_range_del);
   // (Sub)compactions returned ok, do sanity check on the number of input
   // keys.
-  if (status.ok() && ok && job_stats_->has_num_input_records) {
-    status = VerifyInputRecordCount(num_input_range_del);
-    if (!status.ok()) {
-      ROCKS_LOG_WARN(
-          db_options_.info_log, "[%s] [JOB %d] Compaction with status: %s",
-          compact_->compaction->column_family_data()->GetName().c_str(),
-          job_context_->job_id, status.ToString().c_str());
+  if (status.ok() && ok) {
+    if (job_stats_->has_num_input_records) {
+      status = VerifyInputRecordCount(num_input_range_del);
+      if (!status.ok()) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log, "[%s] [JOB %d] Compaction with status: %s",
+            compact_->compaction->column_family_data()->GetName().c_str(),
+            job_context_->job_id, status.ToString().c_str());
+      }
     }
-  }
-
-  // job_stats_ may not have accurate input records if
-  // compaction_iterator's must_count_input_entries is false. If that's the
-  // case, copy the stats from internal_stats_
-  if (job_stats_->has_num_input_records == false) {
     UpdateCompactionJobInputStats(internal_stats_, num_input_range_del);
   }
   UpdateCompactionJobOutputStats(internal_stats_);
