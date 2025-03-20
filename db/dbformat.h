@@ -83,6 +83,8 @@ extern const ValueType kValueTypeForSeekForPrev;
 
 // A range of user keys used internally by RocksDB. Also see `Range` used by
 // public APIs.
+// TODO: merge with Range in pubic API, but this is generally inclusive limit
+// and it is maybe exclusive limit
 struct UserKeyRange {
   // In case of user_defined timestamp, if enabled, `start` and `limit` should
   // include user_defined timestamps.
@@ -469,6 +471,7 @@ class InternalKey {
 
   Slice user_key() const { return ExtractUserKey(rep_); }
   size_t size() const { return rep_.size(); }
+  bool unset() const { return rep_.empty(); }
 
   void Set(const Slice& _user_key, SequenceNumber s, ValueType t) {
     SetFrom(ParsedInternalKey(_user_key, s, t));

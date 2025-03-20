@@ -2332,16 +2332,6 @@ struct IngestExternalFileOptions {
   // When ingesting to multiple families, this option should be the same across
   // ingestion options.
   bool fill_cache = true;
-
-  // If set to true, all existing table files in the column family are removed
-  // to be atomically swapped with the ingested files. Ingestion will fail if
-  // any of the existing table files are being compacted, so this option is
-  // only recommended with kCompactionStyleNone or disable_auto_compactions.
-  // Because this option breaks snapshot consistency, it requires setting
-  // snapshot_consistency=false. Incompatible with ingest_behind.
-  // WART: data in the memtable that doesn't overlap with the ingested files
-  // may be kept without being replaced. See allow_blocking_flush.
-  bool replace_cf_data = false;
 };
 
 enum TraceFilterType : uint64_t {

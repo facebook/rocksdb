@@ -31,13 +31,15 @@ struct KeyRangeInfo {
   // Largest internal key in an external file or for a batch of external files.
   InternalKey largest_internal_key;
 
-  bool empty() const {
-    return smallest_internal_key.size() == 0 &&
-           largest_internal_key.size() == 0;
+  bool unset() const {
+    // Legal internal keys are at least 8 bytes.
+    return smallest_internal_key.unset() || largest_internal_key.unset();
   }
 };
 
 // Helper class to apply SST file key range checks to the external files.
+// XXX: using sstableKeyCompare with user comparator on internal keys is
+// very broken
 class ExternalFileRangeChecker {
  public:
   explicit ExternalFileRangeChecker(const Comparator* ucmp) : ucmp_(ucmp) {}
@@ -51,26 +53,45 @@ class ExternalFileRangeChecker {
                              range->smallest_internal_key) < 0;
   }
 
-  // Check whether `range` overlaps with `prev_range`. `ranges_sorted` can be
-  // set to true when the inputs are already sorted based on the sorting logic
-  // provided by this checker's operator(), which can help simplify the check.
-  bool OverlapsWithPrev(const KeyRangeInfo* prev_range,
-                        const KeyRangeInfo* range,
-                        bool ranges_sorted = false) const {
-    assert(prev_range);
-    assert(range);
-    if (prev_range->empty() || range->empty()) {
+  bool Overlaps(const KeyRangeInfo& range1, const KeyRangeInfo& range2,
+                bool known_sorted = false) const {
+    return Overlaps(range1, range2.smallest_internal_key,
+                    range2.largest_internal_key, known_sorted);
+  }
+  bool Overlaps(const KeyRangeInfo& range1, const InternalKey& range2_smallest,
+                const InternalKey& range2_largest,
+                bool known_sorted = false) const {
+    if (range1.unset() || range2_smallest.unset() || range2_largest.unset()) {
+      constexpr bool unset_ranges_in_overlap_check = true;
+      assert(!unset_ranges_in_overlap_check);
       return false;
     }
-    if (ranges_sorted) {
-      return sstableKeyCompare(ucmp_, prev_range->largest_internal_key,
-                               range->smallest_internal_key) >= 0;
+    if (known_sorted) {
+      return sstableKeyCompare(ucmp_, range1.largest_internal_key,
+                               range2_smallest) >= 0;
     }
 
-    return sstableKeyCompare(ucmp_, prev_range->largest_internal_key,
-                             range->smallest_internal_key) >= 0 &&
-           sstableKeyCompare(ucmp_, prev_range->smallest_internal_key,
-                             range->largest_internal_key) <= 0;
+    return sstableKeyCompare(ucmp_, range1.largest_internal_key,
+                             range2_smallest) >= 0 &&
+           sstableKeyCompare(ucmp_, range1.smallest_internal_key,
+                             range2_largest) <= 0;
+  }
+
+  bool Contains(const KeyRangeInfo& range1, const KeyRangeInfo& range2) {
+    return Contains(range1, range2.smallest_internal_key,
+                    range2.largest_internal_key);
+  }
+  bool Contains(const KeyRangeInfo& range1, const InternalKey& range2_smallest,
+                const InternalKey& range2_largest) {
+    if (range1.unset() || range2_smallest.unset() || range2_largest.unset()) {
+      constexpr bool unset_ranges_in_contains_check = true;
+      assert(!unset_ranges_in_contains_check);
+      return false;
+    }
+    return sstableKeyCompare(ucmp_, range1.smallest_internal_key,
+                             range2_smallest) <= 0 &&
+           sstableKeyCompare(ucmp_, range1.largest_internal_key,
+                             range2_largest) >= 0;
   }
 
   void MaybeUpdateRange(const InternalKey& start_key,
@@ -218,6 +239,7 @@ class ExternalSstFileIngestionJob {
   Status Prepare(const std::vector<std::string>& external_files_paths,
                  const std::vector<std::string>& files_checksums,
                  const std::vector<std::string>& files_checksum_func_names,
+                 const std::optional<Range>& atomic_replace_range,
                  const Temperature& file_temperature, uint64_t next_file_number,
                  SuperVersion* sv);
 
@@ -362,6 +384,7 @@ class ExternalSstFileIngestionJob {
   autovector<IngestedFileInfo> files_to_ingest_;
   std::vector<FileBatchInfo> file_batches_to_ingest_;
   const IngestExternalFileOptions& ingestion_options_;
+  std::optional<KeyRangeInfo> atomic_replace_range_;
   Directories* directories_;
   EventLogger* event_logger_;
   VersionEdit edit_;

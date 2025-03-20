@@ -5799,14 +5799,16 @@ Status DBImpl::IngestExternalFiles(
             "timestamps enabled doesn't support ingest behind.");
       }
     }
-    if (ingest_opts.replace_cf_data) {
+    if (arg.atomic_replace_range.has_value()) {
       if (ingest_opts.ingest_behind) {
         return Status::InvalidArgument(
-            "Can't combine replace_cf_data with ingest_behind.");
+            "Can't combine atomic_replace_range with ingest_behind.");
       }
       if (ingest_opts.snapshot_consistency) {
-        return Status::InvalidArgument(
-            "replace_cf_data=true requires snapshot_consistency=false");
+        // TODO: support generating and ingesting a big tombstone file
+        return Status::NotSupported(
+            "atomic_replace_range not yet supported with "
+            "snapshot_consistency.");
       }
     }
 
@@ -5858,8 +5860,8 @@ Status DBImpl::IngestExternalFiles(
             this);
     Status es = ingestion_jobs[i].Prepare(
         args[i].external_files, args[i].files_checksums,
-        args[i].files_checksum_func_names, args[i].file_temperature,
-        start_file_number, super_version);
+        args[i].files_checksum_func_names, args[i].atomic_replace_range,
+        args[i].file_temperature, start_file_number, super_version);
     // capture first error only
     if (!es.ok() && status.ok()) {
       status = es;
@@ -5874,8 +5876,8 @@ Status DBImpl::IngestExternalFiles(
             this);
     Status es = ingestion_jobs[0].Prepare(
         args[0].external_files, args[0].files_checksums,
-        args[0].files_checksum_func_names, args[0].file_temperature,
-        next_file_number, super_version);
+        args[0].files_checksum_func_names, args[0].atomic_replace_range,
+        args[0].file_temperature, next_file_number, super_version);
     if (!es.ok()) {
       status = es;
     }
