@@ -858,48 +858,23 @@ Status CompactionJob::Run() {
   // Finish up all bookkeeping to unify the subcompaction results.
   compact_->AggregateCompactionStats(internal_stats_, *job_stats_);
 
-  // For remote compactions, internal_stats_.output_level_stats were part of the
-  // compaction_result already. No need to re-update it.
-  if (job_stats_->is_remote_compaction == false) {
-    uint64_t num_input_range_del = 0;
-    bool ok = UpdateOutputLevelCompactionStats(&num_input_range_del);
-    // (Sub)compactions returned ok, do sanity check on the number of input
-    // keys.
-    if (status.ok() && ok && job_stats_->has_num_input_records) {
-      size_t ts_sz = compact_->compaction->column_family_data()
-                         ->user_comparator()
-                         ->timestamp_size();
-      // When trim_ts_ is non-empty, CompactionIterator takes
-      // HistoryTrimmingIterator as input iterator and sees a trimmed view of
-      // input keys. So the number of keys it processed is not suitable for
-      // verification here.
-      // TODO: support verification when trim_ts_ is non-empty.
-      if (!(ts_sz > 0 && !trim_ts_.empty())) {
-        assert(internal_stats_.output_level_stats.num_input_records > 0);
-        // TODO: verify the number of range deletion entries.
-        uint64_t expected =
-            internal_stats_.output_level_stats.num_input_records -
-            num_input_range_del;
-        uint64_t actual = job_stats_->num_input_records;
-        if (expected != actual) {
-          char scratch[2345];
-          compact_->compaction->Summary(scratch, sizeof(scratch));
-          std::string msg =
-              "Compaction number of input keys does not match "
-              "number of keys processed. Expected " +
-              std::to_string(expected) + " but processed " +
-              std::to_string(actual) + ". Compaction summary: " + scratch;
-          ROCKS_LOG_WARN(
-              db_options_.info_log, "[%s] [JOB %d] Compaction with status: %s",
-              compact_->compaction->column_family_data()->GetName().c_str(),
-              job_context_->job_id, msg.c_str());
-          if (db_options_.compaction_verify_record_count) {
-            status = Status::Corruption(msg);
-          }
-        }
+  uint64_t num_input_range_del = 0;
+  bool ok = BuildStatsFromInputTableProperties(&num_input_range_del);
+  // (Sub)compactions returned ok, do sanity check on the number of input
+  // keys.
+  if (status.ok() && ok) {
+    if (job_stats_->has_num_input_records) {
+      status = VerifyInputRecordCount(num_input_range_del);
+      if (!status.ok()) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log, "[%s] [JOB %d] Compaction with status: %s",
+            compact_->compaction->column_family_data()->GetName().c_str(),
+            job_context_->job_id, status.ToString().c_str());
       }
     }
+    UpdateCompactionJobInputStats(internal_stats_, num_input_range_del);
   }
+  UpdateCompactionJobOutputStats(internal_stats_);
 
   // Verify number of output records
   if (status.ok() && db_options_.compaction_verify_record_count) {
@@ -1042,7 +1017,6 @@ Status CompactionJob::Install(bool* compaction_released) {
                      internal_stats_.proximal_level_stats.num_output_records);
   }
 
-  UpdateCompactionJobStats(internal_stats_);
   TEST_SYNC_POINT_CALLBACK(
       "CompactionJob::Install:AfterUpdateCompactionJobStats", job_stats_);
 
@@ -2125,7 +2099,7 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 }
 }  // namespace
 
-bool CompactionJob::UpdateOutputLevelCompactionStats(
+bool CompactionJob::BuildStatsFromInputTableProperties(
     uint64_t* num_input_range_del) {
   assert(compact_);
 
@@ -2199,27 +2173,25 @@ bool CompactionJob::UpdateOutputLevelCompactionStats(
     }
   }
 
+  // TODO - find a better place to set these two
   assert(job_stats_);
   internal_stats_.output_level_stats.bytes_read_blob =
       job_stats_->total_blob_bytes_read;
-
   internal_stats_.output_level_stats.num_dropped_records =
       internal_stats_.DroppedRecords();
   return !has_error;
 }
 
-void CompactionJob::UpdateCompactionJobStats(
-    const InternalStats::CompactionStatsFull& internal_stats) const {
+void CompactionJob::UpdateCompactionJobInputStats(
+    const InternalStats::CompactionStatsFull& internal_stats,
+    uint64_t num_input_range_del) const {
   assert(job_stats_);
-  job_stats_->elapsed_micros = internal_stats.output_level_stats.micros;
-  job_stats_->cpu_micros = internal_stats.output_level_stats.cpu_micros;
-
   // input information
   job_stats_->total_input_bytes =
       internal_stats.output_level_stats.bytes_read_non_output_levels +
       internal_stats.output_level_stats.bytes_read_output_level;
   job_stats_->num_input_records =
-      internal_stats.output_level_stats.num_input_records;
+      internal_stats.output_level_stats.num_input_records - num_input_range_del;
   job_stats_->num_input_files =
       internal_stats.output_level_stats.num_input_files_in_non_output_levels +
       internal_stats.output_level_stats.num_input_files_in_output_level;
@@ -2237,19 +2209,6 @@ void CompactionJob::UpdateCompactionJobStats(
       internal_stats.output_level_stats.bytes_skipped_non_output_levels +
       internal_stats.output_level_stats.bytes_skipped_output_level;
 
-  // output information
-  job_stats_->total_output_bytes =
-      internal_stats.output_level_stats.bytes_written;
-  job_stats_->total_output_bytes_blob =
-      internal_stats.output_level_stats.bytes_written_blob;
-  job_stats_->num_output_records =
-      internal_stats.output_level_stats.num_output_records;
-  job_stats_->num_output_files =
-      internal_stats.output_level_stats.num_output_files;
-  job_stats_->num_output_files_blob =
-      internal_stats.output_level_stats.num_output_files_blob;
-
-  // If proximal level output exists
   if (internal_stats.has_proximal_level_output) {
     job_stats_->total_input_bytes +=
         internal_stats.proximal_level_stats.bytes_read_non_output_levels +
@@ -2273,7 +2232,28 @@ void CompactionJob::UpdateCompactionJobStats(
     job_stats_->total_skipped_input_bytes +=
         internal_stats.proximal_level_stats.bytes_skipped_non_output_levels +
         internal_stats.proximal_level_stats.bytes_skipped_output_level;
+  }
+}
 
+void CompactionJob::UpdateCompactionJobOutputStats(
+    const InternalStats::CompactionStatsFull& internal_stats) const {
+  assert(job_stats_);
+  job_stats_->elapsed_micros = internal_stats.output_level_stats.micros;
+  job_stats_->cpu_micros = internal_stats.output_level_stats.cpu_micros;
+
+  // output information
+  job_stats_->total_output_bytes =
+      internal_stats.output_level_stats.bytes_written;
+  job_stats_->total_output_bytes_blob =
+      internal_stats.output_level_stats.bytes_written_blob;
+  job_stats_->num_output_records =
+      internal_stats.output_level_stats.num_output_records;
+  job_stats_->num_output_files =
+      internal_stats.output_level_stats.num_output_files;
+  job_stats_->num_output_files_blob =
+      internal_stats.output_level_stats.num_output_files_blob;
+
+  if (internal_stats.has_proximal_level_output) {
     job_stats_->total_output_bytes +=
         internal_stats.proximal_level_stats.bytes_written;
     job_stats_->total_output_bytes_blob +=
@@ -2364,6 +2344,38 @@ Env::IOPriority CompactionJob::GetRateLimiterPriority() {
   }
 
   return Env::IO_LOW;
+}
+
+Status CompactionJob::VerifyInputRecordCount(
+    uint64_t num_input_range_del) const {
+  size_t ts_sz = compact_->compaction->column_family_data()
+                     ->user_comparator()
+                     ->timestamp_size();
+  // When trim_ts_ is non-empty, CompactionIterator takes
+  // HistoryTrimmingIterator as input iterator and sees a trimmed view of
+  // input keys. So the number of keys it processed is not suitable for
+  // verification here.
+  // TODO: support verification when trim_ts_ is non-empty.
+  if (!(ts_sz > 0 && !trim_ts_.empty())) {
+    assert(internal_stats_.output_level_stats.num_input_records > 0);
+    // TODO: verify the number of range deletion entries.
+    uint64_t expected = internal_stats_.output_level_stats.num_input_records -
+                        num_input_range_del;
+    uint64_t actual = job_stats_->num_input_records;
+    if (expected != actual) {
+      char scratch[2345];
+      compact_->compaction->Summary(scratch, sizeof(scratch));
+      std::string msg =
+          "Compaction number of input keys does not match "
+          "number of keys processed. Expected " +
+          std::to_string(expected) + " but processed " +
+          std::to_string(actual) + ". Compaction summary: " + scratch;
+      if (db_options_.compaction_verify_record_count) {
+        return Status::Corruption(msg);
+      }
+    }
+  }
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
