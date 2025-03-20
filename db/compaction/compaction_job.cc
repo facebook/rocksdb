@@ -870,9 +870,15 @@ Status CompactionJob::Run() {
           compact_->compaction->column_family_data()->GetName().c_str(),
           job_context_->job_id, status.ToString().c_str());
     }
-    UpdateCompactionJobInputStats(internal_stats_, num_input_range_del);
-    UpdateCompactionJobOutputStats(internal_stats_);
   }
+
+  // job_stats_ may not have accurate input records if
+  // compaction_iterator's must_count_input_entries is false. If that's the
+  // case, copy the stats from internal_stats_
+  if (job_stats_->has_num_input_records == false) {
+    UpdateCompactionJobInputStats(internal_stats_, num_input_range_del);
+  }
+  UpdateCompactionJobOutputStats(internal_stats_);
 
   // Verify number of output records
   if (status.ok() && db_options_.compaction_verify_record_count) {
@@ -2175,7 +2181,6 @@ bool CompactionJob::BuildStatsFromInputTableProperties(
   assert(job_stats_);
   internal_stats_.output_level_stats.bytes_read_blob =
       job_stats_->total_blob_bytes_read;
-
   internal_stats_.output_level_stats.num_dropped_records =
       internal_stats_.DroppedRecords();
   return !has_error;
