@@ -153,23 +153,6 @@ class InternalStats {
 
   InternalStats(int num_levels, SystemClock* clock, ColumnFamilyData* cfd);
 
-  // Per level compaction stats
-  struct CompactionOutputsStats {
-    uint64_t num_output_records = 0;
-    uint64_t bytes_written = 0;
-    uint64_t bytes_written_blob = 0;
-    uint64_t num_output_files = 0;
-    uint64_t num_output_files_blob = 0;
-
-    void Add(const CompactionOutputsStats& stats) {
-      this->num_output_records += stats.num_output_records;
-      this->bytes_written += stats.bytes_written;
-      this->bytes_written_blob += stats.bytes_written_blob;
-      this->num_output_files += stats.num_output_files;
-      this->num_output_files_blob += stats.num_output_files_blob;
-    }
-  };
-
   // Per level compaction stats.  comp_stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
   struct CompactionStats {
@@ -420,15 +403,6 @@ class InternalStats {
       }
     }
 
-    void Add(const CompactionOutputsStats& stats) {
-      this->num_output_files += static_cast<int>(stats.num_output_files);
-      this->num_output_records += stats.num_output_records;
-      this->bytes_written += stats.bytes_written;
-      this->bytes_written_blob += stats.bytes_written_blob;
-      this->num_output_files_blob +=
-          static_cast<int>(stats.num_output_files_blob);
-    }
-
     void Subtract(const CompactionStats& c) {
       this->micros -= c.micros;
       this->cpu_micros -= c.cpu_micros;
@@ -473,23 +447,25 @@ class InternalStats {
     }
   };
 
-  // Compaction stats, for per_key_placement compaction, it includes 2 levels
-  // stats: the last level and the proximal level.
+  // Compaction internal stats, for per_key_placement compaction, it includes 2
+  // levels stats: the last level and the proximal level.
   struct CompactionStatsFull {
     // the stats for the target primary output level
-    CompactionStats stats;
+    CompactionStats output_level_stats;
 
     // stats for proximal level output if exist
     bool has_proximal_level_output = false;
     CompactionStats proximal_level_stats;
 
-    explicit CompactionStatsFull() : stats(), proximal_level_stats() {}
+    explicit CompactionStatsFull()
+        : output_level_stats(), proximal_level_stats() {}
 
     explicit CompactionStatsFull(CompactionReason reason, int c)
-        : stats(reason, c), proximal_level_stats(reason, c) {}
+        : output_level_stats(reason, c), proximal_level_stats(reason, c) {}
 
     uint64_t TotalBytesWritten() const {
-      uint64_t bytes_written = stats.bytes_written + stats.bytes_written_blob;
+      uint64_t bytes_written = output_level_stats.bytes_written +
+                               output_level_stats.bytes_written_blob;
       if (has_proximal_level_output) {
         bytes_written += proximal_level_stats.bytes_written +
                          proximal_level_stats.bytes_written_blob;
@@ -498,23 +474,23 @@ class InternalStats {
     }
 
     uint64_t DroppedRecords() {
-      uint64_t output_records = stats.num_output_records;
+      uint64_t output_records = output_level_stats.num_output_records;
       if (has_proximal_level_output) {
         output_records += proximal_level_stats.num_output_records;
       }
-      if (stats.num_input_records > output_records) {
-        return stats.num_input_records - output_records;
+      if (output_level_stats.num_input_records > output_records) {
+        return output_level_stats.num_input_records - output_records;
       }
       return 0;
     }
 
     void SetMicros(uint64_t val) {
-      stats.micros = val;
+      output_level_stats.micros = val;
       proximal_level_stats.micros = val;
     }
 
     void AddCpuMicros(uint64_t val) {
-      stats.cpu_micros += val;
+      output_level_stats.cpu_micros += val;
       proximal_level_stats.cpu_micros += val;
     }
   };
@@ -587,7 +563,7 @@ class InternalStats {
 
   void AddCompactionStats(int level, Env::Priority thread_pri,
                           const CompactionStatsFull& comp_stats_full) {
-    AddCompactionStats(level, thread_pri, comp_stats_full.stats);
+    AddCompactionStats(level, thread_pri, comp_stats_full.output_level_stats);
     if (comp_stats_full.has_proximal_level_output) {
       per_key_placement_comp_stats_.Add(comp_stats_full.proximal_level_stats);
     }

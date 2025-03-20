@@ -455,7 +455,7 @@ class Env : public Customizable {
     kVerifyFileChecksums = 7,
     kGetEntity = 8,
     kMultiGetEntity = 9,
-    kReadManifest = 10,
+    kGetFileChecksumsFromCurrentManifest = 10,
     kUnknown,  // Keep last for easy array of non-unknowns
   };
 

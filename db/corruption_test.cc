@@ -851,6 +851,9 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
   options.env = env_.get();
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
+  // Skip verifying record count against TableProperties for
+  // MockTables
+  options.compaction_verify_record_count = false;
   Status s;
   for (const auto& mode : corruption_modes) {
     delete db_;
@@ -863,7 +866,6 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
     ASSERT_OK(DB::Open(options, dbname_, &db_));
     assert(db_ != nullptr);  // suppress false clang-analyze report
     Build(100, 2);
-    // ASSERT_OK(db_->Flush(FlushOptions()));
     DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
     ASSERT_OK(dbi->TEST_FlushMemTable());
     mock->SetCorruptionMode(mode);
