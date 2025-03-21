@@ -16,6 +16,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "db/version_util.h"
 #include "db/wal_manager.h"
 #include "file/file_util.h"
 #include "file/filename.h"
@@ -25,6 +26,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
+#include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/checkpoint.h"
@@ -41,7 +43,8 @@ Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
 
 Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
                                     uint64_t /*log_size_for_flush*/,
-                                    uint64_t* /*sequence_number_ptr*/) {
+                                    uint64_t* /*sequence_number_ptr*/,
+                                    bool /*comapct_manifest_file*/) {
   return Status::NotSupported("");
 }
 
@@ -91,7 +94,8 @@ Status Checkpoint::ExportColumnFamily(
 // Builds an openable snapshot of RocksDB
 Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
                                         uint64_t log_size_for_flush,
-                                        uint64_t* sequence_number_ptr) {
+                                        uint64_t* sequence_number_ptr,
+                                        bool compact_manifest_file) {
   DBOptions db_options = db_->GetDBOptions();
 
   Status file_exists_s = db_->GetEnv()->FileExists(checkpoint_dir);
@@ -212,6 +216,10 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
                    "Clean files or directory we might have created %s: %s",
                    full_private_path.c_str(), del_s.ToString().c_str());
     del_s.PermitUncheckedError();
+  }
+
+  if (s.ok() && compact_manifest_file) {
+    s = CompactManifestFile(checkpoint_dir);
   }
   return s;
 }
@@ -495,6 +503,50 @@ Status CheckpointImpl::ExportFilesInMetaData(
   ROCKS_LOG_INFO(db_options.info_log, "Number of table files %" ROCKSDB_PRIszt,
                  num_files);
 
+  return s;
+}
+
+Status CheckpointImpl::CompactManifestFile(const std::string& checkpoint_dir) {
+  DBOptions options;
+  OfflineManifestWriter w(options, checkpoint_dir);
+  std::vector<std::string> cf_names;
+
+  Status s = DB::ListColumnFamilies(options, checkpoint_dir, &cf_names);
+  if (!s.ok()) {
+    return s;
+  }
+  // Recover version set from checkpoint dir.
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (std::string& cf_name : cf_names) {
+    column_families.emplace_back(cf_name, ColumnFamilyOptions());
+  }
+
+  s = w.Recover(column_families);
+  if (!s.ok()) {
+    return s;
+  }
+
+  uint64_t old_manifest_number = w.Versions().manifest_file_number();
+  VersionEdit edit;
+  std::unique_ptr<FSDirectory> db_dir;
+  // Log a version edit to trigger switching manifest file.
+  s = w.LogAndApply(ReadOptions(), WriteOptions(),
+                    w.Versions().GetColumnFamilySet()->GetDefault(), &edit,
+                    db_dir.get());
+  if (!s.ok()) {
+    return Status::Corruption("Failed to apply new version in " +
+                              checkpoint_dir);
+  }
+
+  std::string old_descriptor_fname =
+      DescriptorFileName(checkpoint_dir, old_manifest_number);
+  assert(old_manifest_number != w.Versions().manifest_file_number());
+  // Try to remove old manifest file.
+  s = db_->GetEnv()->DeleteFile(old_descriptor_fname);
+  if (!s.ok()) {
+    return Status::Corruption("Could not to remove old descriptor file " +
+                              old_descriptor_fname + " " + s.ToString());
+  }
   return s;
 }
 }  // namespace ROCKSDB_NAMESPACE
