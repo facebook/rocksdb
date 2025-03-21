@@ -4220,8 +4220,6 @@ void DBImpl::BuildCompactionJobInfo(
                                                output_table_properties.end());
   compaction_job_info->compaction_reason = c->compaction_reason();
   compaction_job_info->compression = c->output_compression();
-  compaction_job_info->compaction_execution_type =
-      c->compaction_execution_type();
 
   const ReadOptions read_options(Env::IOActivity::kCompaction);
   for (size_t i = 0; i < c->num_input_levels(); ++i) {
@@ -4235,6 +4233,14 @@ void DBImpl::BuildCompactionJobInfo(
           static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
     }
   }
+  // Note this field is only populated on the CompactionJobStats that ended up
+  // delivered to user's event listener. Not the internal CompactionJobStats
+  // that CompactionJob is holding onto.
+  compaction_job_info->stats.num_input_files_trivially_moved =
+      c->compaction_execution_type() ==
+              CompactionExecutionType::kTrivialMoveCompaction
+          ? compaction_job_info->input_files.size()
+          : 0;
 
   for (const auto& newf : c->edit()->GetNewFiles()) {
     const FileMetaData& meta = newf.second;

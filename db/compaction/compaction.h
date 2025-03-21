@@ -74,6 +74,21 @@ struct CompactionInputFiles {
   inline FileMetaData* operator[](size_t i) const { return files[i]; }
 };
 
+enum class CompactionExecutionType : int {
+  kUnknown = 0,
+  // The compaction is executed by simply removing input files.
+  kDeletionCompaction,
+  // The compaction is executed by trivially moving input files to a different
+  // level.
+  kTrivialMoveCompaction,
+  // The compaction is executed by reading and merging input files and create
+  // new output file(s) at the output level.
+  kNormalCompaction,
+  // Total number of compaction execution types, new execution type must be
+  // added above this.
+  kNumberOfExecutionTypes,
+};
+
 class Version;
 class ColumnFamilyData;
 class VersionStorageInfo;
