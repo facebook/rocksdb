@@ -2029,7 +2029,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     {
       auto write_hint = cfd->current()->storage_info()->CalculateSSTWriteHint(
           /*level=*/0,
-          immutable_db_options_.calculate_sst_write_lifetime_hint_bitmap);
+          immutable_db_options_.calculate_sst_write_lifetime_hint_set);
       mutex_.Unlock();
 
       SequenceNumber earliest_write_conflict_snapshot;

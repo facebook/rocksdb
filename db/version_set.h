@@ -631,7 +631,7 @@ class VersionStorageInfo {
                                      int last_level, int last_l0_idx);
 
   Env::WriteLifeTimeHint CalculateSSTWriteHint(
-      int level, int compaction_style_bitmap) const;
+      int level, CompactionStyleSet compaction_style_set) const;
 
   const Comparator* user_comparator() const { return user_comparator_; }
 

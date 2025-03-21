@@ -141,6 +141,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           std::shared_ptr<Statistics> statistics;
           std::vector<DbPath> db_paths;
           FileTypeSet checksum_handoff_file_types;
+          CompactionStyleSet calculate_sst_write_lifetime_hint_set;
          */
         {"advise_random_on_open",
          {offsetof(struct ImmutableDBOptions, advise_random_on_open),
@@ -595,11 +596,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, wal_write_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-        {"calculate_sst_write_lifetime_hint_bitmap",
-         {offsetof(struct ImmutableDBOptions,
-                   calculate_sst_write_lifetime_hint_bitmap),
-          OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -807,8 +803,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       follower_catchup_retry_wait_ms(options.follower_catchup_retry_wait_ms),
       metadata_write_temperature(options.metadata_write_temperature),
       wal_write_temperature(options.wal_write_temperature),
-      calculate_sst_write_lifetime_hint_bitmap(
-          options.calculate_sst_write_lifetime_hint_bitmap) {
+      calculate_sst_write_lifetime_hint_set(
+          options.calculate_sst_write_lifetime_hint_set) {
   fs = env->GetFileSystem();
   clock = env->GetSystemClock().get();
   logger = info_log.get();
@@ -994,10 +990,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    temperature_to_string[metadata_write_temperature].c_str());
   ROCKS_LOG_HEADER(log, "            Options.wal_write_temperature: %s",
                    temperature_to_string[wal_write_temperature].c_str());
-  ROCKS_LOG_HEADER(
-      log,
-      "                Options.calculate_sst_write_lifetime_hint_bitmap: %d",
-      calculate_sst_write_lifetime_hint_bitmap);
 }
 
 bool ImmutableDBOptions::IsWalDirSameAsDBPath() const {
