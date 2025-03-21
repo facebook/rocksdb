@@ -458,8 +458,9 @@ class Repairer {
       meta.file_creation_time = current_time;
       SnapshotChecker* snapshot_checker = DisableGCSnapshotChecker::Instance();
 
-      auto write_hint =
-          cfd->current()->storage_info()->CalculateSSTWriteHint(/*level=*/0);
+      auto write_hint = cfd->current()->storage_info()->CalculateSSTWriteHint(
+          /*level=*/0, db_options_.calculate_sst_write_lifetime_hint_set);
+
       std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
           range_del_iters;
       auto range_del_iter = mem->NewRangeTombstoneIterator(

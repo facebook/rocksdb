@@ -2027,8 +2027,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     meta.oldest_ancester_time = current_time;
     meta.epoch_number = cfd->NewEpochNumber();
     {
-      auto write_hint =
-          cfd->current()->storage_info()->CalculateSSTWriteHint(/*level=*/0);
+      auto write_hint = cfd->current()->storage_info()->CalculateSSTWriteHint(
+          /*level=*/0,
+          immutable_db_options_.calculate_sst_write_lifetime_hint_set);
       mutex_.Unlock();
 
       SequenceNumber earliest_write_conflict_snapshot;
