@@ -134,6 +134,8 @@ struct IngestExternalFileArg {
   // EXPERIMENTAL: When specified, existing keys in the given range will be
   // cleared atomically as part of the ingestion, where the ingested files are
   // logically applied on top of the cleared key range.
+  // * If both `start` and `limit` are nullptr, the entire column family is
+  // cleared; however, setting just one bound to nullptr is not yet supported.
   // * When a range is specified, all the external files in this batch must
   //   be contained in that key range.
   // * Checks for memtable overlap and possible blocking flush will apply
@@ -150,7 +152,7 @@ struct IngestExternalFileArg {
   // BUG: the upper bound of the range may be interpreted as inclusive or
   // exclusive, so it is best not to depend on one or the other until it is
   // sorted out.
-  std::optional<Range> atomic_replace_range;
+  std::optional<RangePtr> atomic_replace_range;
 };
 
 struct GetMergeOperandsOptions {

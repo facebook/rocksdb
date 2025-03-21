@@ -5805,10 +5805,18 @@ Status DBImpl::IngestExternalFiles(
             "Can't combine atomic_replace_range with ingest_behind.");
       }
       if (ingest_opts.snapshot_consistency) {
-        // TODO: support generating and ingesting a big tombstone file
+        // TODO: support generating and ingesting a big tombstone file, which
+        // might depend on non-nullptr start and limit
         return Status::NotSupported(
             "atomic_replace_range not yet supported with "
             "snapshot_consistency.");
+      } else {
+        if ((arg.atomic_replace_range->start == nullptr) ^
+            (arg.atomic_replace_range->limit == nullptr)) {
+          return Status::NotSupported(
+              "Only one of atomic_replace_range.{start,limit} == nullptr is "
+              "not supported.");
+        }
       }
     }
 

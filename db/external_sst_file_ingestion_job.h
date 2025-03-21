@@ -27,8 +27,10 @@ class SystemClock;
 
 struct KeyRangeInfo {
   // Smallest internal key in an external file or for a batch of external files.
+  // unset() could be either invalid or "before all keys"
   InternalKey smallest_internal_key;
   // Largest internal key in an external file or for a batch of external files.
+  // unset() could be either invalid or "after all keys"
   InternalKey largest_internal_key;
 
   bool unset() const {
@@ -45,12 +47,14 @@ class ExternalFileRangeChecker {
   explicit ExternalFileRangeChecker(const Comparator* ucmp) : ucmp_(ucmp) {}
 
   // Operator used for sorting ranges.
-  bool operator()(const KeyRangeInfo* prev_range,
-                  const KeyRangeInfo* range) const {
-    assert(prev_range);
-    assert(range);
-    return sstableKeyCompare(ucmp_, prev_range->smallest_internal_key,
-                             range->smallest_internal_key) < 0;
+  bool operator()(const KeyRangeInfo* range1,
+                  const KeyRangeInfo* range2) const {
+    assert(range1);
+    assert(range2);
+    assert(!range1->unset());
+    assert(!range2->unset());
+    return sstableKeyCompare(ucmp_, range1->smallest_internal_key,
+                             range2->smallest_internal_key) < 0;
   }
 
   bool Overlaps(const KeyRangeInfo& range1, const KeyRangeInfo& range2,
@@ -241,7 +245,7 @@ class ExternalSstFileIngestionJob {
   Status Prepare(const std::vector<std::string>& external_files_paths,
                  const std::vector<std::string>& files_checksums,
                  const std::vector<std::string>& files_checksum_func_names,
-                 const std::optional<Range>& atomic_replace_range,
+                 const std::optional<RangePtr>& atomic_replace_range,
                  const Temperature& file_temperature, uint64_t next_file_number,
                  SuperVersion* sv);
 
