@@ -342,6 +342,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, compaction_service),
        sizeof(std::shared_ptr<CompactionService>)},
       {offsetof(struct DBOptions, daily_offpeak_time_utc), sizeof(std::string)},
+      {offsetof(struct DBOptions, calculate_sst_write_lifetime_hint_set),
+       sizeof(CompactionStyleSet)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];
@@ -471,8 +473,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "background_close_inactive_wals=true;"
                              "write_dbid_to_manifest=true;"
                              "write_identity_file=true;"
-                             "prefix_seek_opt_in_only=true;"
-                             "calculate_sst_write_lifetime_hint_set=1;",
+                             "prefix_seek_opt_in_only=true;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
