@@ -81,7 +81,7 @@ class TieredCompactionTest : public DBTestBase {
   void VerifyCompactionStats(
       const std::vector<InternalStats::CompactionStats>& expected_stats,
       const InternalStats::CompactionStats& expected_pl_stats,
-      size_t output_level) {
+      size_t output_level, uint64_t num_input_range_del = 0) {
     const std::vector<InternalStats::CompactionStats>& stats =
         GetCompactionStats();
     const size_t kLevels = expected_stats.size();
@@ -102,7 +102,8 @@ class TieredCompactionTest : public DBTestBase {
     expected_job_stats.num_input_files =
         output_level_stats.num_input_files_in_output_level +
         output_level_stats.num_input_files_in_non_output_levels;
-    expected_job_stats.num_input_records = output_level_stats.num_input_records;
+    expected_job_stats.num_input_records =
+        output_level_stats.num_input_records - num_input_range_del;
     expected_job_stats.num_output_files =
         output_level_stats.num_output_files + pl_stats.num_output_files;
     expected_job_stats.num_output_records =
@@ -209,8 +210,8 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   // Second file from 10 ~ 109
   // ...
   size_t bytes_per_file = 1952;
-  int total_input_key_count = kNumTrigger * kNumKeys;
-  int total_output_key_count = 130;  // 0 ~ 129
+  uint64_t total_input_key_count = kNumTrigger * kNumKeys;
+  uint64_t total_output_key_count = 130;  // 0 ~ 129
 
   for (int i = 0; i < kNumTrigger; i++) {
     for (int j = 0; j < kNumKeys; j++) {
@@ -283,7 +284,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
 
   // Now update the input count to be the total count from the previous
   total_input_key_count = total_output_key_count;
-  int moved_to_last_level_key_count = 10;
+  uint64_t moved_to_last_level_key_count = 10;
 
   // bytes read in non output = bytes written in penultimate level from previous
   uint64_t bytes_read_in_non_output_level = bytes_written_penultimate_level;
@@ -390,6 +391,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   ASSERT_OK(
       db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end));
   ASSERT_OK(Flush());
+  uint64_t num_input_range_del = 1;
 
   ResetAllStats(expect_stats, expect_pl_stats);
 
@@ -399,7 +401,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 
   // Previous output + one delete range
-  total_input_key_count = total_output_key_count + 1;
+  total_input_key_count = total_output_key_count + num_input_range_del;
   moved_to_last_level_key_count = 20;
 
   last_level_stats = GetCompactionStats()[kLastLevel];
@@ -420,7 +422,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
     last_level_compaction_stats.num_input_files_in_output_level = 0;
     last_level_compaction_stats.num_input_records = total_input_key_count;
     last_level_compaction_stats.num_dropped_records =
-        1;  // delete range tombstone
+        num_input_range_del;  // delete range tombstone
     last_level_compaction_stats.num_output_records =
         moved_to_last_level_key_count;
     last_level_compaction_stats.num_output_files = 1;
@@ -435,10 +437,12 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
         bytes_written_penultimate_level;
     penultimate_level_compaction_stats.num_output_files = 1;
     penultimate_level_compaction_stats.num_output_records =
-        total_input_key_count - moved_to_last_level_key_count - 1;
+        total_input_key_count - moved_to_last_level_key_count -
+        num_input_range_del;
     expect_pl_stats.Add(penultimate_level_compaction_stats);
   }
-  VerifyCompactionStats(expect_stats, expect_pl_stats, kLastLevel);
+  VerifyCompactionStats(expect_stats, expect_pl_stats, kLastLevel,
+                        num_input_range_del);
 
   // verify data
   std::string value;
@@ -1063,8 +1067,8 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   // Second file from 10 ~ 109
   // ...
   size_t bytes_per_file = 1952;
-  int total_input_key_count = kNumTrigger * kNumKeys;
-  int total_output_key_count = 130;  // 0 ~ 129
+  uint64_t total_input_key_count = kNumTrigger * kNumKeys;
+  uint64_t total_output_key_count = 130;  // 0 ~ 129
 
   for (int i = 0; i < kNumTrigger; i++) {
     for (int j = 0; j < kNumKeys; j++) {
