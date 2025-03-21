@@ -1514,7 +1514,6 @@ Status DBImpl::CompactFilesImpl(
 
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->deletion_compaction());
-  c->SetCompactionExecutionType(CompactionExecutionType::kNormalCompaction);
 
   std::vector<SequenceNumber> snapshot_seqs;
   SequenceNumber earliest_write_conflict_snapshot;
@@ -3763,7 +3762,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     assert(c->column_family_data()->ioptions().compaction_style ==
            kCompactionStyleFIFO);
 
-    c->SetCompactionExecutionType(CompactionExecutionType::kDeletionCompaction);
     compaction_job_stats.num_input_files = c->num_input_files(0);
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
@@ -3801,11 +3799,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ThreadStatusUtil::SetColumnFamily(c->column_family_data());
     ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
 
-    c->SetCompactionExecutionType(
-        CompactionExecutionType::kTrivialMoveCompaction);
     compaction_job_stats.num_input_files = c->num_input_files(0);
     // Trivial moves do not get compacted remotely
     compaction_job_stats.is_remote_compaction = false;
+    compaction_job_stats.num_input_files_trivially_moved =
+        compaction_job_stats.num_input_files;
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
@@ -3910,7 +3908,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:BeforeCompaction",
                              c->column_family_data());
     int output_level __attribute__((__unused__));
-    c->SetCompactionExecutionType(CompactionExecutionType::kNormalCompaction);
     output_level = c->output_level();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:NonTrivial",
                              &output_level);
@@ -4233,14 +4230,6 @@ void DBImpl::BuildCompactionJobInfo(
           static_cast<int>(i), file_number, fmd->oldest_blob_file_number});
     }
   }
-  // Note this field is only populated on the CompactionJobStats that ended up
-  // delivered to user's event listener. Not the internal CompactionJobStats
-  // that CompactionJob is holding onto.
-  compaction_job_info->stats.num_input_files_trivially_moved =
-      c->compaction_execution_type() ==
-              CompactionExecutionType::kTrivialMoveCompaction
-          ? compaction_job_info->input_files.size()
-          : 0;
 
   for (const auto& newf : c->edit()->GetNewFiles()) {
     const FileMetaData& meta = newf.second;
