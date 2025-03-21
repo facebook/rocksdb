@@ -62,6 +62,8 @@ struct Options;
 struct DbPath;
 
 using FileTypeSet = SmallEnumSet<FileType, FileType::kBlobFile>;
+using CompactionStyleSet =
+    SmallEnumSet<CompactionStyle, CompactionStyle::kCompactionStyleNone>;
 
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // The function recovers options to a previous version. Only 4.6 or later
@@ -1620,6 +1622,24 @@ struct DBOptions {
   // `kUnknown`, this overrides any temperature set by OptimizeForLogWrite
   // functions.
   Temperature wal_write_temperature = Temperature::kUnknown;
+
+  // Enum set indicative of which compaction styles SST write lifetime hint
+  // calculation is allowed on. Today, RocksDB provides native support for
+  // kCompactionStyleLevel and kCompactionStyleUniversal (experimental version).
+  // Other compaction styles, even when enabled in the set, won't have any
+  // effect in the default PosixWritableFile file implementation. There are
+  // numerous benefits coming from employing the hints including reduction in
+  // write amplification caused by OS file movement during garbage collection,
+  // and reduction in wear-leveling (SSDs). However, as currently implemented,
+  // SST write lifetime hints are calculated in a static way and solely based on
+  // the level, which might not be suitable for non-uniform workloads with
+  // dynamic / high-variance lifespan of data within the same level. In those
+  // cases (or when the performance is not satisfactory), it's recommended to
+  // disable the hints by assigning the setting to the empty set (= {});
+  //
+  // Default: Enabled in kCompactionStyleLevel mode.
+  CompactionStyleSet calculate_sst_write_lifetime_hint_set = {
+      CompactionStyle::kCompactionStyleLevel};
   // End EXPERIMENTAL
 };
 

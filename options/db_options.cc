@@ -141,6 +141,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           std::shared_ptr<Statistics> statistics;
           std::vector<DbPath> db_paths;
           FileTypeSet checksum_handoff_file_types;
+          CompactionStyleSet calculate_sst_write_lifetime_hint_set;
          */
         {"advise_random_on_open",
          {offsetof(struct ImmutableDBOptions, advise_random_on_open),
@@ -801,7 +802,9 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       follower_catchup_retry_count(options.follower_catchup_retry_count),
       follower_catchup_retry_wait_ms(options.follower_catchup_retry_wait_ms),
       metadata_write_temperature(options.metadata_write_temperature),
-      wal_write_temperature(options.wal_write_temperature) {
+      wal_write_temperature(options.wal_write_temperature),
+      calculate_sst_write_lifetime_hint_set(
+          options.calculate_sst_write_lifetime_hint_set) {
   fs = env->GetFileSystem();
   clock = env->GetSystemClock().get();
   logger = info_log.get();

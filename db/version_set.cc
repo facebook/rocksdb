@@ -4903,24 +4903,38 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
 }
 
 Env::WriteLifeTimeHint VersionStorageInfo::CalculateSSTWriteHint(
-    int level) const {
-  if (compaction_style_ != kCompactionStyleLevel) {
+    int level, CompactionStyleSet compaction_style_set) const {
+  if (!compaction_style_set.Contains(compaction_style_)) {
     return Env::WLTH_NOT_SET;
   }
-  if (level == 0) {
-    return Env::WLTH_MEDIUM;
-  }
 
-  // L1: medium, L2: long, ...
-  if (level - base_level_ >= 2) {
-    return Env::WLTH_EXTREME;
-  } else if (level < base_level_) {
-    // There is no restriction which prevents level passed in to be smaller
-    // than base_level.
-    return Env::WLTH_MEDIUM;
+  switch (compaction_style_) {
+    case kCompactionStyleLevel:
+      if (level == 0) {
+        return Env::WLTH_MEDIUM;
+      }
+
+      // L1: medium, L2: long, ...
+      if (level - base_level_ >= 2) {
+        return Env::WLTH_EXTREME;
+      } else if (level < base_level_) {
+        // There is no restriction which prevents level passed in to be smaller
+        // than base_level.
+        return Env::WLTH_MEDIUM;
+      }
+      return static_cast<Env::WriteLifeTimeHint>(
+          level - base_level_ + static_cast<int>(Env::WLTH_MEDIUM));
+    case kCompactionStyleUniversal:
+      if (level == 0) {
+        return Env::WLTH_SHORT;
+      }
+      if (level == 1) {
+        return Env::WLTH_MEDIUM;
+      }
+      return Env::WLTH_LONG;
+    default:
+      return Env::WLTH_NOT_SET;
   }
-  return static_cast<Env::WriteLifeTimeHint>(
-      level - base_level_ + static_cast<int>(Env::WLTH_MEDIUM));
 }
 
 void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,

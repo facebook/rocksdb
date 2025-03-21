@@ -630,7 +630,8 @@ class VersionStorageInfo {
                                      const Slice& largest_user_key,
                                      int last_level, int last_l0_idx);
 
-  Env::WriteLifeTimeHint CalculateSSTWriteHint(int level) const;
+  Env::WriteLifeTimeHint CalculateSSTWriteHint(
+      int level, CompactionStyleSet compaction_style_set) const;
 
   const Comparator* user_comparator() const { return user_comparator_; }
 

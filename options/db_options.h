@@ -107,6 +107,7 @@ struct ImmutableDBOptions {
   uint64_t follower_catchup_retry_wait_ms;
   Temperature metadata_write_temperature;
   Temperature wal_write_temperature;
+  CompactionStyleSet calculate_sst_write_lifetime_hint_set;
 
   // Beginning convenience/helper objects that are not part of the base
   // DBOptions

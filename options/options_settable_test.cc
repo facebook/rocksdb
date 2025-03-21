@@ -342,6 +342,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, compaction_service),
        sizeof(std::shared_ptr<CompactionService>)},
       {offsetof(struct DBOptions, daily_offpeak_time_utc), sizeof(std::string)},
+      {offsetof(struct DBOptions, calculate_sst_write_lifetime_hint_set),
+       sizeof(CompactionStyleSet)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];

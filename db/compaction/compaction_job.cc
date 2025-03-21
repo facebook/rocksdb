@@ -259,7 +259,8 @@ void CompactionJob::Prepare(
   assert(storage_info);
   assert(storage_info->NumLevelFiles(compact_->compaction->level()) > 0);
 
-  write_hint_ = storage_info->CalculateSSTWriteHint(c->output_level());
+  write_hint_ = storage_info->CalculateSSTWriteHint(
+      c->output_level(), db_options_.calculate_sst_write_lifetime_hint_set);
   bottommost_level_ = c->bottommost_level();
 
   if (!known_single_subcompact.has_value() && c->ShouldFormSubcompactions()) {
