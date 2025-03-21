@@ -229,7 +229,7 @@ TEST_F(DBTablePropertiesTest, CreateOnDeletionCollectorFactory) {
   ASSERT_EQ(0.5, del_factory->GetDeletionRatio());
 }
 
-TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesForLevelsTest) {
+TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesByLevelTest) {
   Random rnd(202);
   Options options;
   options.level_compaction_dynamic_level_bytes = false;
@@ -268,8 +268,8 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesForLevelsTest) {
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
   std::vector<std::unique_ptr<TablePropertiesCollection>> levels_props;
-  ASSERT_OK(db_->GetPropertiesOfTablesForLevels(db_->DefaultColumnFamily(),
-                                                &levels_props));
+  ASSERT_OK(db_->GetPropertiesOfTablesByLevel(db_->DefaultColumnFamily(),
+                                              &levels_props));
   for (int i = 0; i < 8; i++) {
     const std::unique_ptr<TablePropertiesCollection>& level_props =
         levels_props[i];
