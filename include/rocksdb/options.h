@@ -2267,8 +2267,11 @@ struct IngestExternalFileOptions {
   // during file ingestion in the DB (the conditions under which a global_seqno
   // must be assigned to the ingested file).
   bool allow_global_seqno = true;
-  // If set to false and the file key range overlaps with the memtable key range
-  // (memtable flush required), IngestExternalFile will fail.
+  // Normally (true), IngestExternalFile() will trigger and block for flushing
+  // memtable(s) if there is overlap between ingested files and memtable(s). If
+  // allow_blocking_flush is set to false, IngestExternalFile() will fail if the
+  // file key range overlaps with the memtable key range (memtable flush
+  // required).
   bool allow_blocking_flush = true;
   // Set to true if you would like duplicate keys in the file being ingested
   // to be skipped rather than overwriting existing data under that key.
