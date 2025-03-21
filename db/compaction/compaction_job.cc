@@ -878,32 +878,12 @@ Status CompactionJob::Run() {
 
   // Verify number of output records
   if (status.ok() && db_options_.compaction_verify_record_count) {
-    uint64_t total_output_num = 0;
-    for (const auto& state : compact_->sub_compact_states) {
-      for (const auto& output : state.GetOutputs()) {
-        total_output_num += output.table_properties->num_entries -
-                            output.table_properties->num_range_deletions;
-      }
-    }
-
-    uint64_t expected = internal_stats_.output_level_stats.num_output_records;
-    if (internal_stats_.has_proximal_level_output) {
-      expected += internal_stats_.proximal_level_stats.num_output_records;
-    }
-    if (expected != total_output_num) {
-      char scratch[2345];
-      compact_->compaction->Summary(scratch, sizeof(scratch));
-      std::string msg =
-          "Number of keys in compaction output SST files does not match "
-          "number of keys added. Expected " +
-          std::to_string(expected) + " but there are " +
-          std::to_string(total_output_num) +
-          " in output SST files. Compaction summary: " + scratch;
+    status = VerifyOutputRecordCount();
+    if (!status.ok()) {
       ROCKS_LOG_WARN(
           db_options_.info_log, "[%s] [JOB %d] Compaction with status: %s",
           compact_->compaction->column_family_data()->GetName().c_str(),
-          job_context_->job_id, msg.c_str());
-      status = Status::Corruption(msg);
+          job_context_->job_id, status.ToString().c_str());
     }
   }
 
@@ -2374,6 +2354,41 @@ Status CompactionJob::VerifyInputRecordCount(
         return Status::Corruption(msg);
       }
     }
+  }
+  return Status::OK();
+}
+
+Status CompactionJob::VerifyOutputRecordCount() const {
+  uint64_t total_output_num = 0;
+  for (const auto& state : compact_->sub_compact_states) {
+    for (const auto& output : state.GetOutputs()) {
+      total_output_num += output.table_properties->num_entries -
+                          output.table_properties->num_range_deletions;
+    }
+  }
+  uint64_t expected = internal_stats_.output_level_stats.num_output_records;
+  if (internal_stats_.has_proximal_level_output) {
+    expected += internal_stats_.proximal_level_stats.num_output_records;
+  }
+  // If the remote worker does not have the fix in
+  // https://github.com/facebook/rocksdb/pull/13464,
+  // internal_stats_ won't be populated for remote compactions.
+  // Skip the check if expected is 0 and is_remote_compaction is true
+  // TODO(jaykorean) - Remove this check in 10.2 or later version
+  if (expected == 0 && job_stats_ && job_stats_->is_remote_compaction) {
+    return Status::OK();
+  }
+
+  if (expected != total_output_num) {
+    char scratch[2345];
+    compact_->compaction->Summary(scratch, sizeof(scratch));
+    std::string msg =
+        "Number of keys in compaction output SST files does not match "
+        "number of keys added. Expected " +
+        std::to_string(expected) + " but there are " +
+        std::to_string(total_output_num) +
+        " in output SST files. Compaction summary: " + scratch;
+    return Status::Corruption(msg);
   }
   return Status::OK();
 }
