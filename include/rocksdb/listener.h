@@ -161,6 +161,21 @@ enum class CompactionReason : int {
   kNumOfReasons,
 };
 
+enum class CompactionExecutionType : int {
+  kUnknown = 0,
+  // The compaction is executed by simply removing input files.
+  kDeletionCompaction,
+  // The compaction is executed by trivially moving input files to a different
+  // level.
+  kTrivialMoveCompaction,
+  // The compaction is executed by reading and merging input files and create
+  // new output file(s) at the output level.
+  kNormalCompaction,
+  // Total number of compaction execution types, new execution type must be
+  // added above this.
+  kNumberOfExecutionTypes,
+};
+
 const char* GetCompactionReasonString(CompactionReason compaction_reason);
 
 // When adding flush reason, make sure to also update `GetFlushReasonString()`.
@@ -488,6 +503,9 @@ struct CompactionJobInfo {
   // Information about blob files deleted during compaction in Integrated
   // BlobDB.
   std::vector<BlobFileGarbageInfo> blob_file_garbage_infos;
+
+  // How the compaction is executed.
+  CompactionExecutionType compaction_execution_type;
 };
 
 struct MemTableInfo {

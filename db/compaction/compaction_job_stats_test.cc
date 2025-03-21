@@ -407,6 +407,12 @@ class CompactionJobStatsChecker : public EventListener {
 
   void set_verify_next_comp_io_stats(bool v) { verify_next_comp_io_stats_ = v; }
 
+  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
+    ASSERT_NE(ci.compaction_execution_type, CompactionExecutionType::kUnknown);
+    std::lock_guard<std::mutex> lock(mutex_);
+    compaction_execution_type_ = ci.compaction_execution_type;
+  }
+
   // Once a compaction completed, this function will verify the returned
   // CompactionJobInfo with the oldest CompactionJobInfo added earlier
   // in "expected_stats_" which has not yet being used for verification.
@@ -424,6 +430,7 @@ class CompactionJobStatsChecker : public EventListener {
       Verify(ci.stats, expected_stats_.front());
       expected_stats_.pop();
     }
+    ASSERT_EQ(ci.compaction_execution_type, compaction_execution_type_);
   }
 
   // A helper function which verifies whether two CompactionJobStats
@@ -489,6 +496,7 @@ class CompactionJobStatsChecker : public EventListener {
   std::queue<CompactionJobStats> expected_stats_;
   bool compression_enabled_;
   bool verify_next_comp_io_stats_;
+  CompactionExecutionType compaction_execution_type_;
 };
 
 // An EventListener which helps verify the compaction statistics in

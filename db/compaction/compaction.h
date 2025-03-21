@@ -268,6 +268,22 @@ class Compaction {
   // Was this compaction triggered manually by the client?
   bool is_manual_compaction() const { return is_manual_compaction_; }
 
+  // Sets the compaction execution type. This should only be called once while
+  // DB mutex is held.
+  void SetCompactionExecutionType(
+      CompactionExecutionType compaction_execution_type) {
+    assert(compaction_execution_type_ == CompactionExecutionType::kUnknown);
+    assert(compaction_execution_type != CompactionExecutionType::kUnknown);
+    compaction_execution_type_ = compaction_execution_type;
+  }
+
+  // Gets the compaction execution type. This should only be called after the
+  // compaction execution type is already set.
+  CompactionExecutionType compaction_execution_type() const {
+    assert(compaction_execution_type_ != CompactionExecutionType::kUnknown);
+    return compaction_execution_type_;
+  }
+
   std::string trim_ts() const { return trim_ts_; }
 
   // Used when allow_trivial_move option is set in
@@ -601,6 +617,10 @@ class Compaction {
 
   // Reason for compaction
   CompactionReason compaction_reason_;
+
+  // The compaction execution type.
+  CompactionExecutionType compaction_execution_type_ =
+      CompactionExecutionType::kUnknown;
 
   // Notify on compaction completion only if listener was notified on compaction
   // begin.
