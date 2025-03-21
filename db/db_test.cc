@@ -3182,11 +3182,11 @@ class ModelDB : public DB {
     return Status();
   }
 
-  using DB::GetPropertiesOfTablesForLevels;
-  Status GetPropertiesOfTablesForLevels(
+  using DB::GetPropertiesOfTablesByLevel;
+  Status GetPropertiesOfTablesByLevel(
       ColumnFamilyHandle* /* column_family */,
       std::vector<
-          std::unique_ptr<TablePropertiesCollection>>* /* levels_props */)
+          std::unique_ptr<TablePropertiesCollection>>* /* props_by_level */)
       override {
     return Status();
   }

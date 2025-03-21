@@ -554,12 +554,12 @@ class StackableDB : public DB {
     return db_->GetPropertiesOfTablesInRange(column_family, range, n, props);
   }
 
-  using DB::GetPropertiesOfTablesForLevels;
-  Status GetPropertiesOfTablesForLevels(
+  using DB::GetPropertiesOfTablesByLevel;
+  Status GetPropertiesOfTablesByLevel(
       ColumnFamilyHandle* column_family,
-      std::vector<std::unique_ptr<TablePropertiesCollection>>* levels_props)
+      std::vector<std::unique_ptr<TablePropertiesCollection>>* props_by_level)
       override {
-    return db_->GetPropertiesOfTablesForLevels(column_family, levels_props);
+    return db_->GetPropertiesOfTablesByLevel(column_family, props_by_level);
   }
 
   Status GetUpdatesSince(

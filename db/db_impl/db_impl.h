@@ -651,9 +651,9 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) override;
 
-  Status GetPropertiesOfTablesForLevels(
+  Status GetPropertiesOfTablesByLevel(
       ColumnFamilyHandle* column_family,
-      std::vector<std::unique_ptr<TablePropertiesCollection>>* levels_props)
+      std::vector<std::unique_ptr<TablePropertiesCollection>>* props_by_level)
       override;
 
   // ---- End of implementations of the DB interface ----

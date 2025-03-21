@@ -1753,16 +1753,16 @@ Status Version::GetPropertiesOfTablesInRange(
   return Status::OK();
 }
 
-Status Version::GetPropertiesOfTablesForLevels(
+Status Version::GetPropertiesOfTablesByLevel(
     const ReadOptions& read_options,
-    std::vector<std::unique_ptr<TablePropertiesCollection>>* levels_props)
+    std::vector<std::unique_ptr<TablePropertiesCollection>>* props_by_level)
     const {
   Status s;
 
-  levels_props->reserve(storage_info_.num_levels_);
+  props_by_level->reserve(storage_info_.num_levels_);
   for (int level = 0; level < storage_info_.num_levels_; level++) {
-    levels_props->push_back(std::make_unique<TablePropertiesCollection>());
-    s = GetPropertiesOfAllTables(read_options, levels_props->back().get(),
+    props_by_level->push_back(std::make_unique<TablePropertiesCollection>());
+    s = GetPropertiesOfAllTables(read_options, props_by_level->back().get(),
                                  level);
     if (!s.ok()) {
       return s;

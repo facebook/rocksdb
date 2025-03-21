@@ -1005,9 +1005,9 @@ class Version {
   Status GetPropertiesOfTablesInRange(const ReadOptions& read_options,
                                       const autovector<UserKeyRange>& ranges,
                                       TablePropertiesCollection* props) const;
-  Status GetPropertiesOfTablesForLevels(
+  Status GetPropertiesOfTablesByLevel(
       const ReadOptions& read_options,
-      std::vector<std::unique_ptr<TablePropertiesCollection>>* levels_props)
+      std::vector<std::unique_ptr<TablePropertiesCollection>>* props_by_level)
       const;
 
   // Print summary of range delete tombstones in SST files into out_str,

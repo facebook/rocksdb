@@ -4424,9 +4424,9 @@ Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
   return s;
 }
 
-Status DBImpl::GetPropertiesOfTablesForLevels(
+Status DBImpl::GetPropertiesOfTablesByLevel(
     ColumnFamilyHandle* column_family,
-    std::vector<std::unique_ptr<TablePropertiesCollection>>* levels_props) {
+    std::vector<std::unique_ptr<TablePropertiesCollection>>* props_by_level) {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
 
@@ -4437,7 +4437,7 @@ Status DBImpl::GetPropertiesOfTablesForLevels(
   mutex_.Unlock();
 
   const ReadOptions read_options;
-  auto s = version->GetPropertiesOfTablesForLevels(read_options, levels_props);
+  auto s = version->GetPropertiesOfTablesByLevel(read_options, props_by_level);
 
   // Decrement the ref count
   mutex_.Lock();

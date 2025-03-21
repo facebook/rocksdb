@@ -1,1 +1,1 @@
-Implemented API DB::GetPropertiesOfTablesForLevels that retrieves table properties for files in each LSM tree level
+Implemented API DB::GetPropertiesOfTablesByLevel that retrieves table properties for files in each LSM tree level
