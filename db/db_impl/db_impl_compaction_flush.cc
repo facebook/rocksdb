@@ -3802,6 +3802,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     compaction_job_stats.num_input_files = c->num_input_files(0);
     // Trivial moves do not get compacted remotely
     compaction_job_stats.is_remote_compaction = false;
+    compaction_job_stats.num_input_files_trivially_moved =
+        compaction_job_stats.num_input_files;
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
