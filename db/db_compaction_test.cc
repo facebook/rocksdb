@@ -2117,13 +2117,10 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
     auto begin_str1 = Key(0), end_str1 = Key(100);
     auto begin_str2 = Key(100), end_str2 = Key(200);
     auto begin_str3 = Key(200), end_str3 = Key(299);
-    Slice begin1(begin_str1), end1(end_str1);
-    Slice begin2(begin_str2), end2(end_str2);
-    Slice begin3(begin_str3), end3(end_str3);
-    std::vector<RangePtr> ranges;
-    ranges.emplace_back(&begin1, &end1);
-    ranges.emplace_back(&begin2, &end2);
-    ranges.emplace_back(&begin3, &end3);
+    std::vector<RangeOpt> ranges;
+    ranges.emplace_back(begin_str1, end_str1);
+    ranges.emplace_back(begin_str2, end_str2);
+    ranges.emplace_back(begin_str3, end_str3);
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
                                   ranges.data(), ranges.size()));
     ASSERT_EQ("0,3,7", FilesPerLevel(0));
@@ -2171,7 +2168,7 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
 
   // Delete all files.
   {
-    RangePtr range;
+    RangeOpt range;
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(), &range, 1));
     ASSERT_EQ("", FilesPerLevel(0));
 

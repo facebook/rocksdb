@@ -5411,8 +5411,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
 
   for (const auto& file : cf_meta.levels[4].files) {
     listener->SetExpectedFileName(dbname_ + file.name);
-    Slice start(file.smallestkey), limit(file.largestkey);
-    const RangePtr ranges(&start, &limit);
+    const RangeOpt ranges(file.smallestkey, file.largestkey);
     // Given verification from above, we're guaranteed that by deleting all the
     // files in [<smallestkey>, <largestkey>] range, we're effectively deleting
     // that very single file and nothing more.

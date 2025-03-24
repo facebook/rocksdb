@@ -2814,8 +2814,7 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
       IngestExternalFileArg arg;
       arg.column_family = handles_[1];
       arg.external_files = {file_path};
-      Range replace_rng{"a", "zzz"};
-      arg.atomic_replace_range = {{&replace_rng.start, &replace_rng.limit}};
+      arg.atomic_replace_range = {{"a", "zzz"}};
 
       // start with some failure cases
       // TODO: support snapshot consistency with tombstone file
@@ -2834,23 +2833,21 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
       arg.options.fail_if_not_bottommost_level = true;
 
       // one-sided ranges not yet supported
-      arg.atomic_replace_range = {{nullptr, &replace_rng.limit}};
+      arg.atomic_replace_range = {{{}, "zzz"}};
       s = db_->IngestExternalFiles({arg});
       ASSERT_EQ(s.code(), Status::Code::kNotSupported);
 
-      arg.atomic_replace_range = {{&replace_rng.start, nullptr}};
+      arg.atomic_replace_range = {{"a", {}}};
       s = db_->IngestExternalFiles({arg});
       ASSERT_EQ(s.code(), Status::Code::kNotSupported);
-
-      arg.atomic_replace_range = {{&replace_rng.start, &replace_rng.limit}};
 
       // rejected because doesn't cover ingested file
-      replace_rng = {"x", "z"};
+      arg.atomic_replace_range = {{"x", "z"}};
       s = db_->IngestExternalFiles({arg});
       ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
 
       // rejected because of partial file overlap
-      replace_rng = {"a", "c"};
+      arg.atomic_replace_range = {{"a", "c"}};
       s = db_->IngestExternalFiles({arg});
       ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
 
@@ -2860,7 +2857,7 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
         arg.options.allow_blocking_flush = false;
 
         // rejected because of memtable overlap
-        replace_rng = {"a", "z"};
+        arg.atomic_replace_range = {{"a", "z"}};
         s = db_->IngestExternalFiles({arg});
         ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
 
@@ -2869,27 +2866,25 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
         s = db_->IngestExternalFiles({arg});
         ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
 
-        arg.atomic_replace_range = {{&replace_rng.start, &replace_rng.limit}};
-
         // FIXME: upper bound should be exclusive (DeleteRange semantics).
         // currently rejected because of documented bug
-        replace_rng = {"a", "e"};
+        arg.atomic_replace_range = {{"a", "e"}};
         s = db_->IngestExternalFiles({arg});
         ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
 
         // work-around ensuring no memtable overlap
-        replace_rng = {"a", "d2"};
+        arg.atomic_replace_range = {{"a", "d2"}};
         ASSERT_OK(db_->IngestExternalFiles({arg}));
 
         ASSERT_EQ(Get(1, "e"), "5");
       } else {
         // rejected because of partial file overlap
-        replace_rng = {"b", "z"};
+        arg.atomic_replace_range = {{"b", "z"}};
         s = db_->IngestExternalFiles({arg});
         ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
 
         // no memtable complications
-        replace_rng = {"a", "z"};
+        arg.atomic_replace_range = {{"a", "z"}};
         ASSERT_OK(db_->IngestExternalFiles({arg}));
 
         ASSERT_EQ(Get(1, "e"), "NOT_FOUND");
@@ -2917,7 +2912,7 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
 
       if (!disallow_memtable) {
         // rejected because of memtable overlap with range
-        replace_rng = {"e", "z"};
+        arg.atomic_replace_range = {{"e", "z"}};
         s = db_->IngestExternalFiles({arg});
         ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
 
@@ -2953,7 +2948,7 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
         arg.external_files = {file_path2, file_path};
 
         // rejected because of overlap in files to ingest with fail_if_ = true
-        replace_rng = {"e", "z"};
+        arg.atomic_replace_range = {{"e", "z"}};
         s = db_->IngestExternalFiles({arg});
         ASSERT_EQ(s.code(), Status::Code::kTryAgain);
 
@@ -2961,13 +2956,13 @@ TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
 
         // rejected because range doesn't cover ingested files
         // FIXME: upper bound should be exclusive "g" instead
-        replace_rng = {"e", "f2"};
+        arg.atomic_replace_range = {{"e", "f2"}};
         s = db_->IngestExternalFiles({arg});
         ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
 
         // Loaded into different levels, and the file with just "b" is not
         // replaced
-        replace_rng = {"e", "z"};
+        arg.atomic_replace_range = {{"e", "z"}};
         ASSERT_OK(db_->IngestExternalFiles({arg}));
 
         ASSERT_EQ(Get(1, "b"), "0");

@@ -53,7 +53,7 @@ std::string KeyVersion::GetTypeName() const {
   }
 }
 
-Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
+Status GetAllKeyVersions(DB* db, OptSlice begin_key, OptSlice end_key,
                          size_t max_num_ikeys,
                          std::vector<KeyVersion>* key_versions) {
   if (nullptr == db) {
@@ -63,8 +63,8 @@ Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
                            max_num_ikeys, key_versions);
 }
 
-Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
-                         Slice end_key, size_t max_num_ikeys,
+Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, OptSlice begin_key,
+                         OptSlice end_key, size_t max_num_ikeys,
                          std::vector<KeyVersion>* key_versions) {
   if (nullptr == db) {
     return Status::InvalidArgument("db cannot be null.");
@@ -87,15 +87,10 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
   const Comparator* ucmp = icmp.user_comparator();
   size_t ts_sz = ucmp->timestamp_size();
 
-  Slice from_slice = begin_key;
-  bool has_begin = !begin_key.empty();
-  Slice end_slice = end_key;
-  bool has_end = !end_key.empty();
   std::string begin_key_buf, end_key_buf;
-  auto [from, end] = MaybeAddTimestampsToRange(
-      has_begin ? &from_slice : nullptr, has_end ? &end_slice : nullptr, ts_sz,
-      &begin_key_buf, &end_key_buf);
-  if (has_begin) {
+  auto [from, end] = MaybeAddTimestampsToRange(begin_key, end_key, ts_sz,
+                                               &begin_key_buf, &end_key_buf);
+  if (begin_key.has_value()) {
     assert(from.has_value());
     InternalKey ikey;
     ikey.SetMinPossibleForUserKey(from.value());
@@ -113,7 +108,7 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
       return pik_status;
     }
 
-    if (has_end && end.has_value() &&
+    if (end_key.has_value() && end.has_value() &&
         icmp.user_comparator()->Compare(ikey.user_key, end.value()) > 0) {
       break;
     }
