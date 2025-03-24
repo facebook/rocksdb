@@ -41,6 +41,7 @@ Status ExternalSstFileIngestionJob::Prepare(
   Status status;
 
   // Read the information of files we are ingesting
+  int standalone_range_deletion_files = 0;
   for (const std::string& file_path : external_files_paths) {
     IngestedFileInfo file_to_ingest;
     // For temperature, first assume it matches provided hint
@@ -70,18 +71,17 @@ Status ExternalSstFileIngestionJob::Prepare(
         !file_to_ingest.largest_internal_key.Valid()) {
       return Status::Corruption("Generated table have corrupted keys");
     }
-
-    if (FileContainsSameDataAsLastPreparedFile(file_to_ingest)) {
-      ROCKS_LOG_INFO(db_options_.info_log,
-                     "File %s contains the exact same data as file %s. The "
-                     "former is skipped from ingestion.",
-                     file_to_ingest.external_file_path.c_str(),
-                     files_to_ingest_.back().external_file_path.c_str());
-      continue;
+    if (IsStandAloneRangeDeletionFile(file_to_ingest)) {
+      standalone_range_deletion_files += 1;
     }
     files_to_ingest_.emplace_back(std::move(file_to_ingest));
   }
 
+  if (standalone_range_deletion_files > 0) {
+    RemoveRedundantFilesBeforeIngestion();
+  }
+
+  // Then iterate from front to end, and dedupe.
   auto num_files = files_to_ingest_.size();
   if (num_files == 0) {
     return Status::InvalidArgument("The list of files is empty");
@@ -393,19 +393,73 @@ Status ExternalSstFileIngestionJob::Prepare(
   return status;
 }
 
-bool ExternalSstFileIngestionJob::FileContainsSameDataAsLastPreparedFile(
-    const IngestedFileInfo& file) const {
-  if (files_to_ingest_.size() == 0) {
-    return false;
+void ExternalSstFileIngestionJob::RemoveRedundantFilesBeforeIngestion() {
+  [[maybe_unused]] size_t redundant_files_count = 0;
+  autovector<IngestedFileInfo> duplicate_files_removed;
+  for (size_t file_idx = 0; file_idx < files_to_ingest_.size(); file_idx++) {
+    if (file_idx == 0 ||
+        !FileIsTheSameRangeDeletionAsPrevFile(duplicate_files_removed.back(),
+                                              files_to_ingest_[file_idx])) {
+      duplicate_files_removed.emplace_back(files_to_ingest_[file_idx]);
+    } else {
+      ROCKS_LOG_INFO(
+          db_options_.info_log,
+          "File %s contains the exact same range deletion as prev file %s. The "
+          "former is skipped from ingestion.",
+          files_to_ingest_[file_idx].external_file_path.c_str(),
+          duplicate_files_removed.back().external_file_path.c_str());
+      redundant_files_count += 1;
+    }
   }
 
+  autovector<IngestedFileInfo> deleted_files_removed;
+  for (size_t file_idx = 0; file_idx < duplicate_files_removed.size();
+       file_idx++) {
+    if (file_idx == duplicate_files_removed.size() - 1 ||
+        !FileIsRangeDeletedByFollowupFiles(duplicate_files_removed, file_idx)) {
+      deleted_files_removed.emplace_back(duplicate_files_removed[file_idx]);
+    } else {
+      ROCKS_LOG_INFO(
+          db_options_.info_log,
+          "File %s is deleted by follow up file. It is skipped from "
+          "ingestion.",
+          duplicate_files_removed[file_idx].external_file_path.c_str());
+      redundant_files_count += 1;
+    }
+  }
+
+  assert(redundant_files_count ==
+         files_to_ingest_.size() - deleted_files_removed.size());
+  if (deleted_files_removed.size() != files_to_ingest_.size()) {
+    files_to_ingest_.clear();
+    files_to_ingest_ = std::move(deleted_files_removed);
+  }
+}
+
+bool ExternalSstFileIngestionJob::FileIsTheSameRangeDeletionAsPrevFile(
+    const IngestedFileInfo& prev_file, const IngestedFileInfo& file) const {
   if (!IsStandAloneRangeDeletionFile(file)) {
     return false;
   }
-  if (!IsStandAloneRangeDeletionFile(files_to_ingest_.back())) {
+  if (!IsStandAloneRangeDeletionFile(prev_file)) {
     return false;
   }
-  return file_range_checker_.Equals(files_to_ingest_.back(), file);
+  return file_range_checker_.Equals(prev_file, file);
+}
+
+bool ExternalSstFileIngestionJob::FileIsRangeDeletedByFollowupFiles(
+    const autovector<IngestedFileInfo>& files, size_t file_idx) const {
+  for (size_t range_deletion_candidate = file_idx + 1;
+       range_deletion_candidate < files.size(); range_deletion_candidate++) {
+    if (!IsStandAloneRangeDeletionFile(files[range_deletion_candidate])) {
+      continue;
+    }
+    if (file_range_checker_.Contains(files[range_deletion_candidate],
+                                     files[file_idx])) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void ExternalSstFileIngestionJob::DivideInputFilesIntoBatches() {
