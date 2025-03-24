@@ -2047,6 +2047,64 @@ class CompactionJobStatsCheckerForFilteredFiles : public EventListener {
   uint64_t expected_compaction_skipped_file_size_ = 0;
 };
 
+TEST_F(ExternalSSTFileBasicTest, IngestDuplicatedStandAloneRangeDeletionFiles) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+  std::vector<std::string> files;
+
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file1 = sst_files_dir_ + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    ASSERT_OK(sst_file_writer.DeleteRange("a", "z"));
+    ExternalSstFileInfo file1_info;
+    ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    files.push_back(std::move(file1));
+
+    std::string file2 = sst_files_dir_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.DeleteRange("a", "z"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+
+    std::string file3 = sst_files_dir_ + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    ASSERT_OK(sst_file_writer.DeleteRange("a", "b"));
+    ExternalSstFileInfo file3_info;
+    ASSERT_OK(sst_file_writer.Finish(&file3_info));
+    files.push_back(std::move(file3));
+
+    std::string file4 = sst_files_dir_ + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    ASSERT_OK(sst_file_writer.Put("a", "a1"));
+    ASSERT_OK(sst_file_writer.Put("b", "b1"));
+    ExternalSstFileInfo file4_info;
+    ASSERT_OK(sst_file_writer.Finish(&file4_info));
+    files.push_back(std::move(file4));
+  }
+
+  IngestExternalFileOptions ifo;
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  ASSERT_EQ(Get("a"), "a1");
+  ASSERT_EQ(Get("b"), "b1");
+  ASSERT_EQ(FilesPerLevel(0), "0,0,0,0,1,1,1");
+  std::vector<FileMetaData*> l4_files = GetLevelFileMetadatas(4, 0);
+  ASSERT_EQ(l4_files.size(), 1);
+  ASSERT_EQ(l4_files[0]->num_entries, 2);
+  ASSERT_EQ(l4_files[0]->num_range_deletions, 0);
+  std::vector<FileMetaData*> l5_files = GetLevelFileMetadatas(5, 0);
+  ASSERT_EQ(l5_files.size(), 1);
+  ASSERT_EQ(l5_files[0]->num_range_deletions, 1);
+  ASSERT_EQ(l5_files[0]->largest.user_key(), "b");
+  std::vector<FileMetaData*> l6_files = GetLevelFileMetadatas(6, 0);
+  ASSERT_EQ(l6_files.size(), 1);
+  ASSERT_EQ(l6_files[0]->num_range_deletions, 1);
+  ASSERT_EQ(l6_files[0]->largest.user_key(), "z");
+}
+
 TEST_F(ExternalSSTFileBasicTest, AtomicReplaceDataWithStandaloneRangeDeletion) {
   Options options = CurrentOptions();
   options.compaction_style = CompactionStyle::kCompactionStyleUniversal;

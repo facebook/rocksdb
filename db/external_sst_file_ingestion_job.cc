@@ -24,6 +24,12 @@
 #include "util/udt_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+bool IsStandAloneRangeDeletionFile(const IngestedFileInfo& file) {
+  return file.num_range_deletions == 1 &&
+         file.num_range_deletions == file.num_entries;
+}
+}  // namespace
 
 Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
@@ -65,6 +71,14 @@ Status ExternalSstFileIngestionJob::Prepare(
       return Status::Corruption("Generated table have corrupted keys");
     }
 
+    if (FileContainsSameDataAsLastPreparedFile(file_to_ingest)) {
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "File %s contains the exact same data as file %s. The "
+                     "former is skipped from ingestion.",
+                     file_to_ingest.external_file_path.c_str(),
+                     files_to_ingest_.back().external_file_path.c_str());
+      continue;
+    }
     files_to_ingest_.emplace_back(std::move(file_to_ingest));
   }
 
@@ -377,6 +391,21 @@ Status ExternalSstFileIngestionJob::Prepare(
   }
 
   return status;
+}
+
+bool ExternalSstFileIngestionJob::FileContainsSameDataAsLastPreparedFile(
+    const IngestedFileInfo& file) const {
+  if (files_to_ingest_.size() == 0) {
+    return false;
+  }
+
+  if (!IsStandAloneRangeDeletionFile(file)) {
+    return false;
+  }
+  if (!IsStandAloneRangeDeletionFile(files_to_ingest_.back())) {
+    return false;
+  }
+  return file_range_checker_.Equals(files_to_ingest_.back(), file);
 }
 
 void ExternalSstFileIngestionJob::DivideInputFilesIntoBatches() {

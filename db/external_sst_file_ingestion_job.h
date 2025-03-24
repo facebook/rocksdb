@@ -57,6 +57,13 @@ class ExternalFileRangeChecker {
                              range2->smallest_internal_key) < 0;
   }
 
+  bool Equals(const KeyRangeInfo& range1, const KeyRangeInfo& range2) const {
+    return sstableKeyCompare(ucmp_, range1.smallest_internal_key,
+                             range2.smallest_internal_key) == 0 &&
+           sstableKeyCompare(ucmp_, range1.largest_internal_key,
+                             range2.largest_internal_key) == 0;
+  }
+
   bool Overlaps(const KeyRangeInfo& range1, const KeyRangeInfo& range2,
                 bool known_sorted = false) const {
     return Overlaps(range1, range2.smallest_internal_key,
@@ -314,6 +321,16 @@ class ExternalSstFileIngestionJob {
                              uint64_t new_file_number,
                              IngestedFileInfo* file_to_ingest,
                              SuperVersion* sv);
+
+  // Returns true if `file` contains exactly the same data as the last prepared
+  // file. This is an attempt to deduplicate redundant files that are ingested.
+  // There is no user visible difference whether a redundant file ends up
+  // getting ingested or left out.
+  // Going through all the data to check if one file contains exactly the same
+  // data as another is expensive. This only deduplicates duplicated standalone
+  // range deletion file.
+  bool FileContainsSameDataAsLastPreparedFile(
+      const IngestedFileInfo& file) const;
 
   // If the input files' key range overlaps themselves, this function divides
   // them in the user specified order into multiple batches. Where the files
