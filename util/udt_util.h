@@ -278,11 +278,10 @@ void GetFullHistoryTsLowFromU64CutoffTs(Slice* cutoff_ts,
 // `start` is the inclusive lower user key bound without user-defined timestamp.
 // `end` is the upper user key bound without user-defined timestamp.
 // By default, `end` is treated as being exclusive. If `exclusive_end` is set to
-// false, it's treated as an inclusive upper bound.
-// If any of these two bounds is nullptr, an empty std::optional<Slice> is
-// returned for that bound.
-std::tuple<std::optional<Slice>, std::optional<Slice>>
-MaybeAddTimestampsToRange(const Slice* start, const Slice* end, size_t ts_sz,
-                          std::string* start_with_ts, std::string* end_with_ts,
-                          bool exclusive_end = true);
+// false, it's treated as an inclusive upper bound. For either bound that has no
+// value, a "no value" OptSlice is returned for that bound.
+std::tuple<OptSlice, OptSlice> MaybeAddTimestampsToRange(
+    const OptSlice& start, const OptSlice& end, size_t ts_sz,
+    std::string* start_with_ts, std::string* end_with_ts,
+    bool exclusive_end = true);
 }  // namespace ROCKSDB_NAMESPACE

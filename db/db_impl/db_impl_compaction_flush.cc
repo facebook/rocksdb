@@ -981,7 +981,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
 
   std::string begin_str, end_str;
   auto [begin, end] =
-      MaybeAddTimestampsToRange(begin_without_ts, end_without_ts, ts_sz,
+      MaybeAddTimestampsToRange(OptSlice::CopyFromPtr(begin_without_ts),
+                                OptSlice::CopyFromPtr(end_without_ts), ts_sz,
                                 &begin_str, &end_str, false /*exclusive_end*/);
 
   return CompactRangeInternal(

@@ -80,6 +80,7 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
@@ -4407,7 +4408,7 @@ Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
   // Add timestamp if needed
   for (size_t i = 0; i < n; i++) {
     auto [start, limit] = MaybeAddTimestampsToRange(
-        &range[i].start, &range[i].limit, ts_sz, &keys.emplace_back(),
+        range[i].start, range[i].limit, ts_sz, &keys.emplace_back(),
         &keys.emplace_back(), /*exclusive_end=*/false);
     assert(start.has_value());
     assert(limit.has_value());
@@ -4747,7 +4748,7 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
   // Add timestamp if needed
   std::string start_with_ts, limit_with_ts;
   auto [start, limit] = MaybeAddTimestampsToRange(
-      &range.start, &range.limit, ts_sz, &start_with_ts, &limit_with_ts);
+      range.start, range.limit, ts_sz, &start_with_ts, &limit_with_ts);
   assert(start.has_value());
   assert(limit.has_value());
   // Convert user_key into a corresponding internal key.
@@ -4785,9 +4786,8 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   for (int i = 0; i < n; i++) {
     // Add timestamp if needed
     std::string start_with_ts, limit_with_ts;
-    auto [start, limit] =
-        MaybeAddTimestampsToRange(&range[i].start, &range[i].limit, ts_sz,
-                                  &start_with_ts, &limit_with_ts);
+    auto [start, limit] = MaybeAddTimestampsToRange(
+        range[i].start, range[i].limit, ts_sz, &start_with_ts, &limit_with_ts);
     assert(start.has_value());
     assert(limit.has_value());
     // Convert user_key into a corresponding internal key.
@@ -4863,7 +4863,7 @@ Status DBImpl::GetUpdatesSince(
 }
 
 Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
-                                   const RangePtr* ranges, size_t n,
+                                   const RangeOpt* ranges, size_t n,
                                    bool include_end) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
@@ -4875,7 +4875,7 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
   const Comparator* ucmp = cfd->user_comparator();
   assert(ucmp);
   const size_t ts_sz = ucmp->timestamp_size();
-  autovector<UserKeyRangePtr> ukey_ranges;
+  autovector<UserKeyRangeOpt> ukey_ranges;
   std::vector<std::string> keys;
   std::vector<Slice> key_slices;
   ukey_ranges.reserve(n);
@@ -4885,8 +4885,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     auto [start, limit] = MaybeAddTimestampsToRange(
         ranges[i].start, ranges[i].limit, ts_sz, &keys.emplace_back(),
         &keys.emplace_back(), !include_end);
-    assert((ranges[i].start != nullptr) == start.has_value());
-    assert((ranges[i].limit != nullptr) == limit.has_value());
+    assert(ranges[i].start.has_value() == start.has_value());
+    assert(ranges[i].limit.has_value() == limit.has_value());
     ukey_ranges.emplace_back(start, limit);
   }
 
@@ -5834,10 +5834,10 @@ Status DBImpl::IngestExternalFiles(
             "atomic_replace_range not yet supported with "
             "snapshot_consistency.");
       } else {
-        if ((arg.atomic_replace_range->start == nullptr) ^
-            (arg.atomic_replace_range->limit == nullptr)) {
+        if (arg.atomic_replace_range->start.has_value() ^
+            arg.atomic_replace_range->limit.has_value()) {
           return Status::NotSupported(
-              "Only one of atomic_replace_range.{start,limit} == nullptr is "
+              "Only one of atomic_replace_range.{start,limit}.has_value() is "
               "not supported.");
         }
       }
@@ -6299,9 +6299,9 @@ Status DBImpl::ClipColumnFamily(ColumnFamilyHandle* column_family,
 
   if (status.ok()) {
     // DeleteFilesInRanges non-overlap files except L0
-    std::vector<RangePtr> ranges;
-    ranges.emplace_back(nullptr, &begin_key);
-    ranges.emplace_back(&end_key, nullptr);
+    std::vector<RangeOpt> ranges;
+    ranges.emplace_back(OptSlice{}, begin_key);
+    ranges.emplace_back(end_key, OptSlice{});
     status = DeleteFilesInRanges(column_family, ranges.data(), ranges.size());
   }
 

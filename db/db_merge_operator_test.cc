@@ -971,7 +971,7 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
 
   // No base value
   {
-    constexpr char key[] = "key1";
+    const std::string key = "key1";
 
     ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, foo));
     ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, bar));
@@ -994,7 +994,7 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
 
   // Plain base value
   {
-    constexpr char key[] = "key2";
+    const std::string key = "key2";
 
     ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), key, foo));
     ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), key, bar));
@@ -1019,7 +1019,7 @@ TEST_F(DBMergeOperatorTest, MaxSuccessiveMergesBaseValues) {
 
   // Wide-column base value
   {
-    constexpr char key[] = "key3";
+    const std::string key = "key3";
     const WideColumns columns{{kDefaultWideColumnName, foo}, {bar, baz}};
 
     ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(), key,

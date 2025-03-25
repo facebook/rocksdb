@@ -95,18 +95,17 @@ struct UserKeyRange {
   UserKeyRange(const Slice& s, const Slice& l) : start(s), limit(l) {}
 };
 
-// A range of user keys used internally by RocksDB. Also see `RangePtr` used by
+// A range of user keys used internally by RocksDB. Also see `RangeOpt` used by
 // public APIs.
-struct UserKeyRangePtr {
+struct UserKeyRangeOpt {
   // In case of user_defined timestamp, if enabled, `start` and `limit` should
   // point to key with timestamp part.
   // An optional range start, if missing, indicating a start before all keys.
-  std::optional<Slice> start;
+  OptSlice start;
   // An optional range end, if missing, indicating an end after all keys.
-  std::optional<Slice> limit;
+  OptSlice limit;
 
-  UserKeyRangePtr(const std::optional<Slice>& s, const std::optional<Slice>& l)
-      : start(s), limit(l) {}
+  UserKeyRangeOpt(const OptSlice& s, const OptSlice& l) : start(s), limit(l) {}
 };
 
 // Checks whether a type is an inline value type

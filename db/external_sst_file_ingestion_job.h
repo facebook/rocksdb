@@ -245,7 +245,7 @@ class ExternalSstFileIngestionJob {
   Status Prepare(const std::vector<std::string>& external_files_paths,
                  const std::vector<std::string>& files_checksums,
                  const std::vector<std::string>& files_checksum_func_names,
-                 const std::optional<RangePtr>& atomic_replace_range,
+                 const std::optional<RangeOpt>& atomic_replace_range,
                  const Temperature& file_temperature, uint64_t next_file_number,
                  SuperVersion* sv);
 

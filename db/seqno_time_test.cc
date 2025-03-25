@@ -792,8 +792,7 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   }
   ASSERT_GT(num_seqno_zeroing, 0);
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
-                              std::numeric_limits<size_t>::max(),
+  ASSERT_OK(GetAllKeyVersions(db_, {}, {}, std::numeric_limits<size_t>::max(),
                               &key_versions));
   // make sure there're more than 300 keys and first 100 keys are having seqno
   // zeroed out, the last 100 key seqno not zeroed out

@@ -29,7 +29,7 @@ Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
     const std::vector<std::string>& files_checksums,
     const std::vector<std::string>& files_checksum_func_names,
-    const std::optional<RangePtr>& atomic_replace_range,
+    const std::optional<RangeOpt>& atomic_replace_range,
     const Temperature& file_temperature, uint64_t next_file_number,
     SuperVersion* sv) {
   Status status;
@@ -114,9 +114,9 @@ Status ExternalSstFileIngestionJob::Prepare(
         }
       }
     } else {
-      // Currently if either bound is nullptr, both must be
-      assert(atomic_replace_range->start == nullptr);
-      assert(atomic_replace_range->limit == nullptr);
+      // Currently if either bound is not present, both must be
+      assert(atomic_replace_range->start.has_value() == false);
+      assert(atomic_replace_range->limit.has_value() == false);
       assert(atomic_replace_range_->smallest_internal_key.unset());
       assert(atomic_replace_range_->largest_internal_key.unset());
     }

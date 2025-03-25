@@ -342,7 +342,7 @@ class DBTablePropertiesInRangeTest : public DBTestBase,
     keys.reserve(range_size * 2);
     for (auto& r : ranges) {
       auto [start, limit] = MaybeAddTimestampsToRange(
-          &r.start, &r.limit, ts_sz, &keys.emplace_back(), &keys.emplace_back(),
+          r.start, r.limit, ts_sz, &keys.emplace_back(), &keys.emplace_back(),
           /*exclusive_end=*/false);
       EXPECT_TRUE(start.has_value());
       EXPECT_TRUE(limit.has_value());

@@ -20,6 +20,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -127,6 +128,46 @@ class Slice {
   size_t size_;
 
   // Intentionally copyable
+};
+
+// A likely more efficient alternative to std::optional<Slice>. For example,
+// an empty key might be distinct from "not specified" (and Slice* as an
+// optional is more troublesome to deal with).
+class OptSlice {
+ public:
+  OptSlice() : slice_(nullptr, SIZE_MAX) {}
+  /*implicit*/ OptSlice(const Slice& s) : slice_(s) {}
+  /*implicit*/ OptSlice(const std::string& s) : slice_(s) {}
+  /*implicit*/ OptSlice(const std::string_view& sv) : slice_(sv) {}
+  /*implicit*/ OptSlice(const char* c_str) : slice_(c_str) {}
+  // For easier migrating from APIs uing Slice* as an optional type.
+  // CAUTION: OptSlice{nullptr} is "no value" while Slice{nullptr} is "empty"
+  /*implicit*/ OptSlice(std::nullptr_t) : OptSlice() {}
+
+  bool has_value() const noexcept { return slice_.size() != SIZE_MAX; }
+  explicit operator bool() const noexcept { return has_value(); }
+
+  const Slice& value() const noexcept {
+    assert(has_value());
+    return slice_;
+  }
+  const Slice& operator*() const noexcept { return value(); }
+  const Slice* operator->() const noexcept { return &value(); }
+
+  const Slice* AsPtr() const noexcept {
+    return has_value() ? &slice_ : nullptr;
+  }
+  // Populate from an optional pointer. This is a very explicit conversion
+  // to minimize risk of bugs as in
+  //   Slice start, limit;
+  //   RangeOpt rng = {&start, &limit};
+  //   start = ...;  // BUG: would not affect rng
+  static OptSlice CopyFromPtr(const Slice* ptr) {
+    return ptr ? OptSlice{*ptr} : OptSlice{};
+  }
+
+ protected:
+  Slice slice_;
 };
 
 /**

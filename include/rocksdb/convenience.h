@@ -451,6 +451,22 @@ Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
 // Delete files in a lot of ranges one at a time can be slow, use this API for
 // better performance in that case.
 Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
+                           const RangeOpt* ranges, size_t n,
+                           bool include_end = true);
+
+// DEPRECATED
+struct RangePtr {
+  // In case of user_defined timestamp, if enabled, `start` and `limit` should
+  // point to key without timestamp part.
+  const Slice* start;
+  const Slice* limit;
+
+  RangePtr() : start(nullptr), limit(nullptr) {}
+  RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) {}
+};
+
+// DEPRECATED
+Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
                            const RangePtr* ranges, size_t n,
                            bool include_end = true);
 

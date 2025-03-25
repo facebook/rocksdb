@@ -2245,6 +2245,29 @@ struct CompactRangeOptions {
   double blob_garbage_collection_age_cutoff = -1;
 };
 
+// A range of keys. In case of user_defined timestamp, if enabled, `start` and
+// `limit` should point to key without timestamp part.
+struct Range {
+  Slice start;
+  Slice limit;
+
+  Range() {}
+  Range(const Slice& s, const Slice& l) : start(s), limit(l) {}
+};
+
+// A key range with optional endpoints. In case of user_defined timestamp, if
+// enabled, `start` and `limit` should point to key without timestamp part.
+struct RangeOpt {
+  // When start.has_value() == false, refers to starting before every key
+  OptSlice start;
+  // When limit.has_value() == false, refers to ending after every key
+  OptSlice limit;
+
+  RangeOpt() {}
+  RangeOpt(const OptSlice& s, const OptSlice& l) : start(s), limit(l) {}
+  // RangeOpt(const Slice& s, const Slice& l) : start(s), limit(l) {}
+};
+
 // IngestExternalFileOptions is used by IngestExternalFile()
 struct IngestExternalFileOptions {
   // Can be set to true to move the files instead of copying them.
@@ -2352,6 +2375,44 @@ struct IngestExternalFileOptions {
   // When ingesting to multiple families, this option should be the same across
   // ingestion options.
   bool fill_cache = true;
+};
+
+// It is valid that files_checksums and files_checksum_func_names are both
+// empty (no checksum information is provided for ingestion). Otherwise,
+// their sizes should be the same as external_files. The file order should
+// be the same in three vectors and guaranteed by the caller.
+// Note that, we assume the temperatures of this batch of files to be
+// ingested are the same.
+struct IngestExternalFileArg {
+  ColumnFamilyHandle* column_family = nullptr;
+  std::vector<std::string> external_files;
+  IngestExternalFileOptions options;
+  std::vector<std::string> files_checksums;
+  std::vector<std::string> files_checksum_func_names;
+  // A hint as to the temperature for *reading* the files to be ingested.
+  Temperature file_temperature = Temperature::kUnknown;
+  // EXPERIMENTAL: When specified, existing keys in the given range will be
+  // cleared atomically as part of the ingestion, where the ingested files are
+  // logically applied on top of the cleared key range.
+  // * If both `start` and `limit` are nullptr, the entire column family is
+  // cleared; however, setting just one bound to nullptr is not yet supported.
+  // * When a range is specified, all the external files in this batch must
+  //   be contained in that key range.
+  // * Checks for memtable overlap and possible blocking flush will apply
+  //   to this range (not just the file ranges).
+  // * Not compatible with ingest_behind=true.
+  // * When options.snapshot_consistency = false, the range is cleared
+  // similarly to DeleteFilesInRange, but fails if any files overlap the range
+  // only partially.
+  //   * It is recommended to use fail_if_not_bottommost_level=true to ensure
+  //     data in the key range is ingested to a single compacted level (the
+  //     last level). (fail_if_not_bottommost_level=false allows overlap between
+  //     the ingested files.)
+  // * options.snapshot_consistency = true is not yet supported.
+  // BUG: the upper bound of the range may be interpreted as inclusive or
+  // exclusive, so it is best not to depend on one or the other until it is
+  // sorted out.
+  std::optional<RangeOpt> atomic_replace_range;
 };
 
 enum TraceFilterType : uint64_t {
