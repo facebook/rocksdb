@@ -5,38 +5,17 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// A range of keys
-struct Range {
-  // In case of user_defined timestamp, if enabled, `start` and `limit` should
-  // point to key without timestamp part.
-  Slice start;
-  Slice limit;
-
-  Range() {}
-  Range(const Slice& s, const Slice& l) : start(s), limit(l) {}
-};
-
-struct RangePtr {
-  // In case of user_defined timestamp, if enabled, `start` and `limit` should
-  // point to key without timestamp part.
-  const Slice* start;
-  const Slice* limit;
-
-  RangePtr() : start(nullptr), limit(nullptr) {}
-  RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) {}
-};
-
 // Descriptor for a RocksDB scan request. Only forward scans for now.
 // We may add other options such as prefix scan in the future.
 struct ScanDesc {
-  RangePtr range;
+  RangeOpt range;
   std::optional<std::unordered_map<std::string, std::string>> property_bag;
 
   // An unbounded scan with a start key
-  ScanDesc(const Slice* _start) : range(_start, nullptr) {}
+  ScanDesc(const Slice& _start) : range(_start, OptSlice()) {}
 
   // A bounded scan with a start key and upper bound
-  ScanDesc(const Slice* _start, const Slice* _upper_bound)
+  ScanDesc(const Slice& _start, const Slice& _upper_bound)
       : range(_start, _upper_bound) {}
 };
 
