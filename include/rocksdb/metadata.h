@@ -6,12 +6,9 @@
 #pragma once
 
 #include <cstdint>
-#include <limits>
-#include <memory>
 #include <string>
 #include <vector>
 
-#include "rocksdb/options.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {

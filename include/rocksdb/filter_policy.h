@@ -19,13 +19,8 @@
 
 #pragma once
 
-#include <stdlib.h>
-
-#include <algorithm>
 #include <memory>
-#include <stdexcept>
 #include <string>
-#include <vector>
 
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/customizable.h"

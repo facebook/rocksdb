@@ -13,6 +13,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/types.h"
 #include "rocksdb/universal_compaction.h"
 
 namespace ROCKSDB_NAMESPACE {
