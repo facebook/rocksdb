@@ -9,6 +9,8 @@
 
 #include "rocksdb/options.h"
 
+#include <rocksdb/c.h>
+
 #include <cinttypes>
 #include <limits>
 
