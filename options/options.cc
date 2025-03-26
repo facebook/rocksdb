@@ -43,8 +43,6 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
     : max_write_buffer_number(options.max_write_buffer_number),
       min_write_buffer_number_to_merge(
           options.min_write_buffer_number_to_merge),
-      max_write_buffer_number_to_maintain(
-          options.max_write_buffer_number_to_maintain),
       max_write_buffer_size_to_maintain(
           options.max_write_buffer_size_to_maintain),
       inplace_update_support(options.inplace_update_support),
@@ -192,8 +190,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.num_levels: %d", num_levels);
   ROCKS_LOG_HEADER(log, "       Options.min_write_buffer_number_to_merge: %d",
                    min_write_buffer_number_to_merge);
-  ROCKS_LOG_HEADER(log, "    Options.max_write_buffer_number_to_maintain: %d",
-                   max_write_buffer_number_to_maintain);
   ROCKS_LOG_HEADER(log,
                    "    Options.max_write_buffer_size_to_maintain: %" PRIu64,
                    max_write_buffer_size_to_maintain);

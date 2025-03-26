@@ -171,15 +171,6 @@ struct AdvancedColumnFamilyOptions {
   // Default: 1
   int min_write_buffer_number_to_merge = 1;
 
-  // DEPRECATED
-  // The total maximum number of write buffers to maintain in memory including
-  // copies of buffers that have already been flushed.  Unlike
-  // max_write_buffer_number, this parameter does not affect flushing.
-  // This parameter is being replaced by max_write_buffer_size_to_maintain.
-  // If both parameters are set to non-zero values, this parameter will be
-  // ignored.
-  int max_write_buffer_number_to_maintain = 0;
-
   // The target number of write history bytes to hold in memory. Write history
   // comprises the latest write buffers (memtables). To reach the target, write
   // buffers that were most recently flushed to SST files may be retained in

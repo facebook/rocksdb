@@ -262,15 +262,10 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
   if (result.max_write_buffer_number < 2) {
     result.max_write_buffer_number = 2;
   }
-  // fall back max_write_buffer_number_to_maintain if
-  // max_write_buffer_size_to_maintain is not set
   if (result.max_write_buffer_size_to_maintain < 0) {
     result.max_write_buffer_size_to_maintain =
         result.max_write_buffer_number *
         static_cast<int64_t>(result.write_buffer_size);
-  } else if (result.max_write_buffer_size_to_maintain == 0 &&
-             result.max_write_buffer_number_to_maintain < 0) {
-    result.max_write_buffer_number_to_maintain = result.max_write_buffer_number;
   }
   // bloom filter size shouldn't exceed 1/4 of memtable size.
   if (result.memtable_prefix_bloom_size_ratio > 0.25) {
@@ -577,7 +572,6 @@ ColumnFamilyData::ColumnFamilyData(
       write_buffer_manager_(write_buffer_manager),
       mem_(nullptr),
       imm_(ioptions_.min_write_buffer_number_to_merge,
-           ioptions_.max_write_buffer_number_to_maintain,
            ioptions_.max_write_buffer_size_to_maintain),
       super_version_(nullptr),
       super_version_number_(0),
