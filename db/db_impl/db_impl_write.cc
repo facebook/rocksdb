@@ -524,7 +524,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           assert(tmp_s.ok());
         }
       }
-      versions_->SetLastSequence(last_sequence);
+      if (w.status.ok()) {  // Don't publish a partial batch write
+        versions_->SetLastSequence(last_sequence);
+      }
       MemTableInsertStatusCheck(w.status);
       write_thread_.ExitAsBatchGroupFollower(&w);
     }
@@ -873,7 +875,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
       // Note: if we are to resume after non-OK statuses we need to revisit how
       // we react to non-OK statuses here.
-      versions_->SetLastSequence(last_sequence);
+      if (w.status.ok()) {  // Don't publish a partial batch write
+        versions_->SetLastSequence(last_sequence);
+      }
     }
     MemTableInsertStatusCheck(w.status);
     write_thread_.ExitAsBatchGroupLeader(write_group, status);
@@ -1032,7 +1036,11 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
           &flush_scheduler_, &trim_history_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
           false /*concurrent_memtable_writes*/, seq_per_batch_, batch_per_txn_);
-      versions_->SetLastSequence(memtable_write_group.last_sequence);
+      MemTableInsertStatusCheck(memtable_write_group.status);
+      if (memtable_write_group.status
+              .ok()) {  // Don't publish a partial batch write
+        versions_->SetLastSequence(memtable_write_group.last_sequence);
+      }
       write_thread_.ExitAsMemTableWriter(&w, memtable_write_group);
     }
   } else {
@@ -1062,7 +1070,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       MemTableInsertStatusCheck(w.status);
-      versions_->SetLastSequence(w.write_group->last_sequence);
+      if (w.status.ok()) {  // Don't publish a partial batch write
+        versions_->SetLastSequence(w.write_group->last_sequence);
+      }
       write_thread_.ExitAsMemTableWriter(&w, *w.write_group);
     }
   }
@@ -1815,11 +1825,14 @@ Status DBImpl::WriteRecoverableState() {
         0 /*recovery_log_number*/, this, false /* concurrent_memtable_writes */,
         &next_seq, &dont_care_bool, seq_per_batch_);
     auto last_seq = next_seq - 1;
-    if (two_write_queues_) {
-      versions_->FetchAddLastAllocatedSequence(last_seq - seq);
-      versions_->SetLastPublishedSequence(last_seq);
+    MemTableInsertStatusCheck(status);
+    if (status.ok()) {  // Don't publish a partial batch write
+      if (two_write_queues_) {
+        versions_->FetchAddLastAllocatedSequence(last_seq - seq);
+        versions_->SetLastPublishedSequence(last_seq);
+      }
+      versions_->SetLastSequence(last_seq);
     }
-    versions_->SetLastSequence(last_seq);
     if (two_write_queues_) {
       log_write_mutex_.Unlock();
     }
