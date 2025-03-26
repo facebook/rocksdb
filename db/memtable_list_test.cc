@@ -220,7 +220,7 @@ class MemTableListTest : public testing::Test {
 
 TEST_F(MemTableListTest, Empty) {
   // Create an empty MemTableList and validate basic functions.
-  MemTableList list(1, 0, 0);
+  MemTableList list(1, 0);
 
   ASSERT_EQ(0, list.NumNotFlushed());
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
@@ -239,10 +239,8 @@ TEST_F(MemTableListTest, Empty) {
 TEST_F(MemTableListTest, GetTest) {
   // Create MemTableList
   int min_write_buffer_number_to_merge = 2;
-  int max_write_buffer_number_to_maintain = 0;
   int64_t max_write_buffer_size_to_maintain = 0;
   MemTableList list(min_write_buffer_number_to_merge,
-                    max_write_buffer_number_to_maintain,
                     max_write_buffer_size_to_maintain);
 
   SequenceNumber seq = 1;
@@ -407,10 +405,8 @@ TEST_F(MemTableListTest, GetTest) {
 TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Create MemTableList
   int min_write_buffer_number_to_merge = 2;
-  int max_write_buffer_number_to_maintain = 2;
   int64_t max_write_buffer_size_to_maintain = 2 * Arena::kInlineSize;
   MemTableList list(min_write_buffer_number_to_merge,
-                    max_write_buffer_number_to_maintain,
                     max_write_buffer_size_to_maintain);
 
   SequenceNumber seq = 1;
@@ -653,11 +649,9 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   // Create MemTableList
   int min_write_buffer_number_to_merge = 3;
-  int max_write_buffer_number_to_maintain = 7;
   int64_t max_write_buffer_size_to_maintain =
       7 * static_cast<int>(options.write_buffer_size);
   MemTableList list(min_write_buffer_number_to_merge,
-                    max_write_buffer_number_to_maintain,
                     max_write_buffer_size_to_maintain);
 
   // Create some MemTables
@@ -949,13 +943,11 @@ TEST_F(MemTableListTest, AtomicFlushTest) {
 
   // Create MemTableLists
   int min_write_buffer_number_to_merge = 3;
-  int max_write_buffer_number_to_maintain = 7;
   int64_t max_write_buffer_size_to_maintain =
       7 * static_cast<int64_t>(options.write_buffer_size);
   autovector<MemTableList*> lists;
   for (int i = 0; i != num_cfs; ++i) {
     lists.emplace_back(new MemTableList(min_write_buffer_number_to_merge,
-                                        max_write_buffer_number_to_maintain,
                                         max_write_buffer_size_to_maintain));
   }
 
@@ -1104,11 +1096,9 @@ TEST_F(MemTableListWithTimestampTest, GetTableNewestUDT) {
 
   // Create MemTableList
   int min_write_buffer_number_to_merge = 1;
-  int max_write_buffer_number_to_maintain = 4;
   int64_t max_write_buffer_size_to_maintain =
       4 * static_cast<int>(options.write_buffer_size);
   MemTableList list(min_write_buffer_number_to_merge,
-                    max_write_buffer_number_to_maintain,
                     max_write_buffer_size_to_maintain);
 
   // Create some MemTables

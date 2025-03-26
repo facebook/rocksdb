@@ -40,8 +40,6 @@ struct ImmutableCFOptions {
 
   int min_write_buffer_number_to_merge;
 
-  int max_write_buffer_number_to_maintain;
-
   int64_t max_write_buffer_size_to_maintain;
 
   bool inplace_update_support;

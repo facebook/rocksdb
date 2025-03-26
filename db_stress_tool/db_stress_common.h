@@ -106,7 +106,6 @@ DECLARE_uint64(db_write_buffer_size);
 DECLARE_int32(write_buffer_size);
 DECLARE_int32(max_write_buffer_number);
 DECLARE_int32(min_write_buffer_number_to_merge);
-DECLARE_int32(max_write_buffer_number_to_maintain);
 DECLARE_int64(max_write_buffer_size_to_maintain);
 DECLARE_bool(use_write_buffer_manager);
 DECLARE_double(memtable_prefix_bloom_size_ratio);

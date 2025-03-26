@@ -2456,28 +2456,6 @@ void Java_org_rocksdb_Options_setMinWriteBufferNumberToMerge(
       ->min_write_buffer_number_to_merge =
       static_cast<int>(jmin_write_buffer_number_to_merge);
 }
-/*
- * Class:     org_rocksdb_Options
- * Method:    maxWriteBufferNumberToMaintain
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_maxWriteBufferNumberToMaintain(JNIEnv*, jclass,
-                                                             jlong jhandle) {
-  return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
-      ->max_write_buffer_number_to_maintain;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setMaxWriteBufferNumberToMaintain
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setMaxWriteBufferNumberToMaintain(
-    JNIEnv*, jclass, jlong jhandle, jint jmax_write_buffer_number_to_maintain) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
-      ->max_write_buffer_number_to_maintain =
-      static_cast<int>(jmax_write_buffer_number_to_maintain);
-}
 
 /*
  * Class:     org_rocksdb_Options
@@ -4494,29 +4472,6 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMinWriteBufferNumberToMerge(
   reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
       ->min_write_buffer_number_to_merge =
       static_cast<int>(jmin_write_buffer_number_to_merge);
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    maxWriteBufferNumberToMaintain
- * Signature: (J)I
- */
-jint Java_org_rocksdb_ColumnFamilyOptions_maxWriteBufferNumberToMaintain(
-    JNIEnv*, jclass, jlong jhandle) {
-  return reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
-      ->max_write_buffer_number_to_maintain;
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    setMaxWriteBufferNumberToMaintain
- * Signature: (JI)V
- */
-void Java_org_rocksdb_ColumnFamilyOptions_setMaxWriteBufferNumberToMaintain(
-    JNIEnv*, jclass, jlong jhandle, jint jmax_write_buffer_number_to_maintain) {
-  reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
-      ->max_write_buffer_number_to_maintain =
-      static_cast<int>(jmax_write_buffer_number_to_maintain);
 }
 
 /*

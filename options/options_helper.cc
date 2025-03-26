@@ -313,8 +313,6 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->compaction_filter_factory = ioptions.compaction_filter_factory;
   cf_opts->min_write_buffer_number_to_merge =
       ioptions.min_write_buffer_number_to_merge;
-  cf_opts->max_write_buffer_number_to_maintain =
-      ioptions.max_write_buffer_number_to_maintain;
   cf_opts->max_write_buffer_size_to_maintain =
       ioptions.max_write_buffer_size_to_maintain;
   cf_opts->inplace_update_support = ioptions.inplace_update_support;
