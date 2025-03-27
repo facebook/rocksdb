@@ -6615,29 +6615,63 @@ class ExternalTableReaderTest : public DBTestBase {
     uint64_t file_size_;
   };
 
-  class DummyExternalTableIterator : public Iterator {
+  class DummyExternalTableIterator : public ExternalTableIterator {
    public:
     explicit DummyExternalTableIterator(
         const ReadOptions& ro, const std::map<std::string, std::string>& kv_map)
-        : weight_(ro.weight), kv_map_(kv_map), valid_(false) {}
+        : ro_(ro), weight_(ro.weight), scan_idx_(0), kv_map_(kv_map),
+          valid_(false) {
+            if (!weight_) {
+              weight_ = ULONG_MAX;
+            }
+          }
 
     bool Valid() const override { return valid_; }
 
     void SeekToFirst() override {
-      iter_ = kv_map_.begin();
-      valid_ = iter_ != kv_map_.end();
-      status_ = Status::OK();
+      if (ro_.scan_descriptors.has_value()) {
+        status_ = Status::InvalidArgument();
+      } else {
+        iter_ = kv_map_.begin();
+        valid_ = iter_ != kv_map_.end();
+        status_ = Status::OK();
+      }
     }
 
     void SeekToLast() override {
-      valid_ = false;
-      status_ = Status::NotSupported();
+      if (ro_.scan_descriptors.has_value()) {
+        status_ = Status::InvalidArgument();
+      } else {
+        if (!kv_map_.empty()) {
+          iter_ = kv_map_.begin();
+          for (uint64_t i = 0; i < kv_map_.size() - 1; ++i) {
+            iter_++;
+          }
+          valid_ = true;
+        } else {
+          valid_ = false;
+        }
+        status_ = Status::OK();
+      }
     }
 
     void Seek(const Slice& target) override {
-      iter_ = kv_map_.find(target.ToString());
-      valid_ = iter_ != kv_map_.end();
-      status_ = Status::OK();
+      if (status_.ok()) {
+        iter_ = kv_map_.find(target.ToString());
+        valid_ = iter_ != kv_map_.end();
+        eof_ = iter_ == kv_map_.end();
+      }
+      if (ro_.scan_descriptors.has_value()) {
+        if (scan_idx_ >= ro_.scan_descriptors.value().size() ||
+            target != ro_.scan_descriptors.value()[scan_idx_].range.start.value().ToString()) {
+          status_ = Status::InvalidArgument();
+        } else {
+          if (valid_ && iter_->first.compare(ro_.scan_descriptors.value()[scan_idx_].range.limit.value().ToString()) >= 0) {
+            valid_ = false;
+          }
+          scan_idx_++;
+        }
+      }
     }
 
     void SeekForPrev(const Slice& /*target*/) override {
@@ -6649,7 +6683,34 @@ class ExternalTableReaderTest : public DBTestBase {
       iter_++;
       weight_--;
       valid_ = iter_ != kv_map_.end() && weight_ > 0;
-      // status_ is still ok. valid_ indicates end of scan
+      eof_ = iter_ == kv_map_.end();
+      if (valid_ && ro_.scan_descriptors.has_value() &&
+          iter_->first.compare(ro_.scan_descriptors.value()[scan_idx_ - 1].range.limit.value().ToString()) >= 0) {
+        valid_ = false;
+      }
+      // status_ is still ok. !valid_ indicates end of scan
+    }
+
+    bool NextAndGetResult(IterateResult* result) override {
+      Next();
+      if (valid_) {
+        result->key = key();
+        result->bound_check_result = IterBoundCheck::kInbound;
+        result->value_prepared = true;
+      } else {
+        result->key = Slice();
+        result->bound_check_result = eof_ ? IterBoundCheck::kUnknown : IterBoundCheck::kOutOfBound;
+        result->value_prepared = false;
+      }
+      return valid_;
+    }
+
+    bool PrepareValue() override {
+      return valid_ ? true : false;
+    }
+
+    IterBoundCheck UpperBoundCheckResult() override {
+      return eof_ ? IterBoundCheck::kUnknown : IterBoundCheck::kOutOfBound;
     }
 
     void Prev() override {
@@ -6673,9 +6734,12 @@ class ExternalTableReaderTest : public DBTestBase {
     }
 
    private:
+    const ReadOptions& ro_;
     uint64_t weight_;
+    size_t scan_idx_;
     std::map<std::string, std::string> kv_map_;
     bool valid_ = false;
+    bool eof_ = false;
     Status status_ = Status::OK();
     std::map<std::string, std::string>::iterator iter_;
   };
@@ -6688,7 +6752,7 @@ class ExternalTableReaderTest : public DBTestBase {
       EXPECT_OK(s);
     }
 
-    Iterator* NewIterator(const ReadOptions& read_options,
+    ExternalTableIterator* NewIterator(const ReadOptions& read_options,
                           const SliceTransform* /*prefix_extractor*/) override {
       return new DummyExternalTableIterator(read_options, kv_map_);
     }
@@ -6865,6 +6929,134 @@ TEST_F(ExternalTableReaderTest, SstReaderTest) {
   ASSERT_TRUE(iter->status().ok());
 }
 
+TEST_F(ExternalTableReaderTest, DBIterTest) {
+  Options options = GetDefaultOptions();
+  std::string dbname = test::PerThreadDBPath("external_table_reader_test");
+  std::string ingest_file = dbname + "test.immutable";
+  dbname += "_db";
+  // This test doesn't work with some custom Envs, like EncryptedEnv
+  options.env = Env::Default();
+  DestroyDB(dbname, options);
+
+  std::shared_ptr<ExternalTableFactory> factory(
+      new DummyExternalTableFactory());
+  options.table_factory = NewExternalTableFactory(factory);
+
+  // Create a file
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("foo", "bar"));
+  ASSERT_OK(writer->Put("foo2", "bar2"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  DB* db = nullptr;
+  options.create_if_missing = true;
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(options, "new_cf", &cfh));
+
+  IngestExternalFileOptions ifo;
+  ifo.allow_db_generated_files = true;
+  ifo.fill_cache = false;
+  s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
+  ASSERT_OK(s);
+
+  std::unique_ptr<Iterator> iter(db->NewIterator({}, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->value(), "bar");
+  iter->Next();
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->key(), "foo2");
+  ASSERT_EQ(iter->value(), "bar2");
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ReadOptions ro;
+  ro.weight = 1;
+  iter.reset(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("foo");
+  ASSERT_EQ(iter->value(), "bar");
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  iter.reset();
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
+  db->Close();
+  delete db;
+}
+
+TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
+  Options options = GetDefaultOptions();
+  std::string dbname = test::PerThreadDBPath("external_table_reader_test");
+  std::string ingest_file = dbname + "test.immutable";
+  dbname += "_db";
+  // This test doesn't work with some custom Envs, like EncryptedEnv
+  options.env = Env::Default();
+  DestroyDB(dbname, options);
+
+  std::shared_ptr<ExternalTableFactory> factory(
+      new DummyExternalTableFactory());
+  options.table_factory = NewExternalTableFactory(factory);
+
+  // Create a file
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  for (int i = 0; i < 100; ++i) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    ASSERT_OK(writer->Put("k" + ss.str(), "val" + ss.str()));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  DB* db = nullptr;
+  options.create_if_missing = true;
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(options, "new_cf", &cfh));
+
+  IngestExternalFileOptions ifo;
+  ifo.allow_db_generated_files = true;
+  ifo.fill_cache = false;
+  s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
+  ASSERT_OK(s);
+
+  std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
+  ReadOptions ro;
+  ro.scan_descriptors.emplace({ScanDesc(key_ranges[0], key_ranges[1]),
+      ScanDesc(key_ranges[2], key_ranges[3])});
+  std::unique_ptr<MultiScanIterator> iter =
+    db->NewMultiScanIterator(ro, cfh);
+  try {
+    int idx = 0;
+    int count = 0;
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_GE(it.first.ToString().compare(key_ranges[idx]), 0);
+        ASSERT_LT(it.first.ToString().compare(key_ranges[idx+1]), 0);
+        count++;
+      }
+      idx += 2;
+    }
+    ASSERT_EQ(count, 32);
+  } catch (Status s) {
+    ASSERT_OK(s);
+  }
+  iter.reset();
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
+  db->Close();
+  delete db;
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
