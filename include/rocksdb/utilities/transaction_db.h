@@ -24,9 +24,16 @@ class SecondaryIndex;
 class TransactionDBMutexFactory;
 
 enum TxnDBWritePolicy {
-  WRITE_COMMITTED = 0,  // write only the committed data
-  WRITE_PREPARED,       // write data after the prepare phase of 2pc
-  WRITE_UNPREPARED      // write data before the prepare phase of 2pc
+  // Write data at transaction commit time
+  WRITE_COMMITTED = 0,
+
+  // EXPERIMENTAL: The remaining write policies are not as mature, well
+  // validated, nor as compatible with other features as WRITE_COMMITTED.
+
+  // Write data after the prepare phase of 2pc
+  WRITE_PREPARED,
+  // Write data before the prepare phase of 2pc
+  WRITE_UNPREPARED
 };
 
 constexpr uint32_t kInitialMaxDeadlocks = 5;

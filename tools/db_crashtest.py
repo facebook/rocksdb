@@ -522,6 +522,7 @@ txn_params = {
     "use_txn": 1,
     "use_optimistic_txn": 0,
     # Avoid lambda to set it once for the entire test
+    # NOTE: often passed in from command line overriding this
     "txn_write_policy": random.randint(0, 2),
     "unordered_write": random.randint(0, 1),
     # TODO: there is such a thing as transactions with WAL disabled. We should
@@ -623,18 +624,22 @@ tiered_params = {
     "default_write_temperature": lambda: random.choice(["kUnknown", "kHot", "kWarm"]),
 }
 
-multiops_txn_default_params = {
+multiops_txn_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
     "test_multi_ops_txns": 1,
     "use_txn": 1,
+    # Avoid lambda to set it once for the entire test
+    # NOTE: often passed in from command line overriding this
+    "txn_write_policy": random.randint(0, 2),
     "two_write_queues": lambda: random.choice([0, 1]),
     # TODO: enable write-prepared
     "disable_wal": 0,
     "use_only_the_last_commit_time_batch_for_recovery": lambda: random.choice([0, 1]),
     "clear_column_family_one_in": 0,
     "column_families": 1,
-    "enable_pipelined_write": lambda: random.choice([0, 1]),
+    # TODO re-enable pipelined write (lambda: random.choice([0, 1]))
+    "enable_pipelined_write": 0,
     # This test already acquires snapshots in reads
     "acquire_snapshot_one_in": 0,
     "backup_one_in": 0,
@@ -681,32 +686,7 @@ multiops_txn_default_params = {
     "use_timed_put_one_in": 0,
     # AttributeGroup not yet supported
     "use_attribute_group": 0,
-}
-
-multiops_wc_txn_params = {
-    "txn_write_policy": 0,
-    # TODO re-enable pipelined write. Not well tested atm
-    "enable_pipelined_write": 0,
     "commit_bypass_memtable_one_in": random.choice([0] * 4 + [100]),
-}
-
-multiops_wp_txn_params = {
-    "txn_write_policy": 1,
-    "wp_snapshot_cache_bits": 1,
-    # try small wp_commit_cache_bits, e.g. 0 once we explore storing full
-    # commit sequence numbers in commit cache
-    "wp_commit_cache_bits": 10,
-    # pipeline write is not currnetly compatible with WritePrepared txns
-    "enable_pipelined_write": 0,
-    # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
-    "checkpoint_one_in": 0,
-    # Required to be 1 in order to use commit-time-batch
-    "use_only_the_last_commit_time_batch_for_recovery": 1,
-    "clear_wp_commit_cache_one_in": 10,
-    "create_timestamped_snapshot_one_in": 0,
-    # sequence number can be advanced in SwitchMemtable::WriteRecoverableState() for WP.
-    # disable it for now until we find another way to test LockWAL().
-    "lock_wal_one_in": 0,
 }
 
 
@@ -802,8 +782,9 @@ def finalize_and_sanitize(src_params):
     # Remove the following once write-prepared/write-unprepared with/without
     # unordered write supports timestamped snapshots
     if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
-        dest_params["txn_write_policy"] = 0
         dest_params["unordered_write"] = 0
+        if dest_params.get("txn_write_policy", 0) != 0:
+            dest_params["create_timestamped_snapshot_one_in"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     # unordered_write is only enabled with --txn, and txn_params disables inplace_update_support, so
     # setting allow_concurrent_memtable_write=1 won't conflcit with inplace_update_support.
@@ -888,6 +869,23 @@ def finalize_and_sanitize(src_params):
         dest_params["metadata_write_fault_one_in"] = 0
         dest_params["read_fault_one_in"] = 0
         dest_params["metadata_read_fault_one_in"] = 0
+        if dest_params.get("txn_write_policy", 0) != 0:
+            # TODO: should any of this change for WUP (txn_write_policy==2)?
+            dest_params["wp_snapshot_cache_bits"] = 1
+            # try small wp_commit_cache_bits, e.g. 0 once we explore storing full
+            # commit sequence numbers in commit cache
+            dest_params["wp_commit_cache_bits"] = 10
+            # pipeline write is not currnetly compatible with WritePrepared txns
+            dest_params["enable_pipelined_write"] = 0
+            # OpenReadOnly after checkpoint is not currently compatible with WritePrepared txns
+            dest_params["checkpoint_one_in"] = 0
+            # Required to be 1 in order to use commit-time-batch
+            dest_params["use_only_the_last_commit_time_batch_for_recovery"] = 1
+            dest_params["clear_wp_commit_cache_one_in"] = 10
+            # sequence number can be advanced in SwitchMemtable::WriteRecoverableState() for WP.
+            # disable it for now until we find another way to test LockWAL().
+            dest_params["lock_wal_one_in"] = 0
+
     # Wide column stress tests require FullMergeV3
     if dest_params["use_put_entity_one_in"] != 0:
         dest_params["use_full_merge_v1"] = 0
@@ -1058,11 +1056,7 @@ def gen_cmd_params(args):
     if args.enable_ts:
         params.update(ts_params)
     if args.test_multiops_txn:
-        params.update(multiops_txn_default_params)
-        if args.write_policy == "write_committed":
-            params.update(multiops_wc_txn_params)
-        elif args.write_policy == "write_prepared":
-            params.update(multiops_wp_txn_params)
+        params.update(multiops_txn_params)
     if args.test_tiered_storage:
         params.update(tiered_params)
 
@@ -1111,7 +1105,6 @@ def gen_cmd(params, unknown_params):
                 "test_best_efforts_recovery",
                 "enable_ts",
                 "test_multiops_txn",
-                "write_policy",
                 "stress_cmd",
                 "test_tiered_storage",
                 "cleanup_cmd",
@@ -1422,7 +1415,6 @@ def main():
     parser.add_argument("--test_best_efforts_recovery", action="store_true")
     parser.add_argument("--enable_ts", action="store_true")
     parser.add_argument("--test_multiops_txn", action="store_true")
-    parser.add_argument("--write_policy", choices=["write_committed", "write_prepared"])
     parser.add_argument("--stress_cmd")
     parser.add_argument("--test_tiered_storage", action="store_true")
     parser.add_argument("--cleanup_cmd")
@@ -1438,9 +1430,7 @@ def main():
         + list(whitebox_simple_default_params.items())
         + list(blob_params.items())
         + list(ts_params.items())
-        + list(multiops_txn_default_params.items())
-        + list(multiops_wc_txn_params.items())
-        + list(multiops_wp_txn_params.items())
+        + list(multiops_txn_params.items())
         + list(best_efforts_recovery_params.items())
         + list(cf_consistency_params.items())
         + list(tiered_params.items())
