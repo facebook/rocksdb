@@ -379,6 +379,11 @@ class DBImpl : public DB {
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       std::vector<Iterator*>* iterators) override;
 
+  using DB::NewMultiScanIterator;
+  std::unique_ptr<MultiScanIterator> NewMultiScanIterator(
+      const ReadOptions& _read_options,
+      ColumnFamilyHandle* column_family) override;
+
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
 

@@ -10,6 +10,7 @@
 
 #include "db/dbformat.h"
 #include "file/readahead_file_info.h"
+#include "rocksdb/advanced_iterator.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
@@ -18,19 +19,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 class PinnedIteratorsManager;
-
-enum class IterBoundCheck : char {
-  kUnknown = 0,
-  kOutOfBound,
-  kInbound,
-};
-
-struct IterateResult {
-  Slice key;
-  IterBoundCheck bound_check_result = IterBoundCheck::kUnknown;
-  // If false, PrepareValue() needs to be called before value().
-  bool value_prepared = true;
-};
 
 template <class TValue>
 class InternalIteratorBase : public Cleanable {

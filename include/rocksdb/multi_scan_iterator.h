@@ -5,20 +5,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Descriptor for a RocksDB scan request. Only forward scans for now.
-// We may add other options such as prefix scan in the future.
-struct ScanDesc {
-  RangeOpt range;
-  std::optional<std::unordered_map<std::string, std::string>> property_bag;
-
-  // An unbounded scan with a start key
-  ScanDesc(const Slice& _start) : range(_start, OptSlice()) {}
-
-  // A bounded scan with a start key and upper bound
-  ScanDesc(const Slice& _start, const Slice& _upper_bound)
-      : range(_start, _upper_bound) {}
-};
-
 #if 0
 // An iterator that returns results from multiple scan ranges. The ranges are
 // expected to be in increasing sorted order. The application on top of RocksDB
@@ -121,6 +107,9 @@ class MultiScanIterator {
                     std::unique_ptr<Iterator>&& db_iter)
       : scans_(scans), db_iter_(std::move(db_iter)) {}
 
+  explicit MultiScanIterator(std::unique_ptr<Iterator>&& db_iter)
+    : db_iter_(std::move(db_iter)) {}
+
   class ScanIterator {
    public:
     class Scan;
@@ -133,8 +122,8 @@ class MultiScanIterator {
     using iterator_category = std::input_iterator_tag;
 
     ScanIterator(const std::vector<ScanDesc>& scans, Iterator* db_iter)
-        : scans_(scans), idx_(0), db_iter_(db_iter) {
-      db_iter_->Seek(*scans_[idx_++].range.start);
+        : scans_(scans), idx_(0), db_iter_(db_iter), scan_(db_iter_) {
+      db_iter_->Seek(*scans_[idx_].range.start);
       status_ = db_iter_->status();
       if (!status_.ok()) {
         throw status_;
@@ -142,16 +131,19 @@ class MultiScanIterator {
     }
 
     ScanIterator(const std::vector<ScanDesc>& scans)
-        : scans_(scans), idx_(scans_.size()), db_iter_(nullptr) {}
+        : scans_(scans), idx_(scans_.size()), db_iter_(nullptr), scan_(nullptr) {}
 
     ScanIterator& operator++() {
       if (idx_ >= scans_.size()) {
         throw Status::InvalidArgument("Index out of range");
       }
-      db_iter_->Seek(*scans_[idx_++].range.start);
-      status_ = db_iter_->status();
-      if (!status_.ok()) {
-        throw status_;
+      idx_++;
+      if (idx_ < scans_.size()) {
+        db_iter_->Seek(*scans_[idx_].range.start);
+        status_ = db_iter_->status();
+        if (!status_.ok()) {
+          throw status_;
+        }
       }
       return *this;
     }
@@ -160,7 +152,8 @@ class MultiScanIterator {
 
     bool operator!=(ScanIterator other) const { return idx_ != other.idx_; }
 
-    value_type operator*() { return Scan(db_iter_); }
+    reference operator*() { return scan_; }
+    reference operator->() { return scan_; }
 
     class Scan {
      public:
@@ -175,14 +168,17 @@ class MultiScanIterator {
       class SingleIterator {
        public:
         using self_type = SingleIterator;
-        using value_type = std::pair<const Slice&, const Slice&>;
-        using reference = std::pair<const Slice&, const Slice&>&;
-        using pointer = std::pair<const Slice&, const Slice&>*;
+        using value_type = std::pair<Slice, Slice>;
+        using reference = std::pair<Slice, Slice>&;
+        using pointer = std::pair<Slice, Slice>*;
         using difference_type = int;
         using iterator_category = std::input_iterator_tag;
 
         explicit SingleIterator(Iterator* db_iter) : db_iter_(db_iter) {
           valid_ = db_iter_->Valid();
+          if (valid_) {
+            result_ = value_type(db_iter_->key(), db_iter_->value());
+          }
         }
 
         SingleIterator() : db_iter_(nullptr), valid_(false) {}
@@ -197,6 +193,9 @@ class MultiScanIterator {
               throw status_;
             } else {
               valid_ = db_iter_->Valid();
+              if (valid_) {
+                result_ = value_type(db_iter_->key(), db_iter_->value());
+              }
             }
           }
           return *this;
@@ -210,18 +209,24 @@ class MultiScanIterator {
           return valid_ != other.valid_;
         }
 
-        value_type operator*() {
+        reference operator*() {
           if (!valid_) {
             throw Status::InvalidArgument("Trying to deref invalid iterator");
           }
-          return std::pair<const Slice&, const Slice&>(db_iter_->key(),
-                                                       db_iter_->value());
+          return result_;
+        }
+        reference operator->() {
+          if (!valid_) {
+            throw Status::InvalidArgument("Trying to deref invalid iterator");
+          }
+          return result_;
         }
 
        private:
         Iterator* db_iter_;
         bool valid_;
         Status status_;
+        value_type result_;
       };
 
      private:
@@ -233,6 +238,7 @@ class MultiScanIterator {
     size_t idx_;
     Iterator* db_iter_;
     Status status_;
+    Scan scan_;
   };
 
   ScanIterator begin() { return ScanIterator(scans_, db_iter_.get()); }
@@ -240,7 +246,7 @@ class MultiScanIterator {
   ScanIterator end() { return ScanIterator(scans_); }
 
  private:
-  const std::vector<ScanDesc>& scans_;
+  const std::vector<ScanDesc> scans_;
   std::unique_ptr<Iterator> db_iter_;
 };
 

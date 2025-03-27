@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "rocksdb/advanced_iterator.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/iterator.h"
@@ -58,6 +59,26 @@ class ExternalTableFactory;
 // the external table implementation.
 // TODO: Specify which options are relevant
 
+class ExternalTableIterator : public Iterator {
+ public:
+  virtual ~ExternalTableIterator() {}
+
+  // Similar to Next(), except it also fills the result and returns whether
+  // the iterator is on a valid key or not
+  virtual bool NextAndGetResult(IterateResult* result) = 0;
+
+  // Prepares the value if its lazily materialized. The implementation can
+  // request that this be called by setting value_prepared to false in
+  // IterateResult. Next() should always implicitly materialize the
+  // value.
+  virtual bool PrepareValue() = 0;
+
+  // Return the current position bounds check result - kInbound if the
+  // position is a valid key, kOutOfBound if the key is out of bound (i.e
+  // scan has terminated), or kUnknown if end of file.
+  virtual IterBoundCheck UpperBoundCheckResult() = 0;
+};
+
 class ExternalTableReader {
  public:
   virtual ~ExternalTableReader() {}
@@ -65,7 +86,7 @@ class ExternalTableReader {
   // Return an Iterator that can be used to scan the table file.
   // The read_options can optionally contain the upper bound
   // key (exclusive) of the scan in iterate_upper_bound.
-  virtual Iterator* NewIterator(const ReadOptions& read_options,
+  virtual ExternalTableIterator* NewIterator(const ReadOptions& read_options,
                                 const SliceTransform* prefix_extractor) = 0;
 
   // Point lookup the given key and return its value
