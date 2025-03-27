@@ -5,7 +5,13 @@
 
 #include "rocksdb/iostats_context.h"
 
-#include "test_util/testharness.h"
+#include "port/stack_trace.h"
+
+#ifdef OS_AIX
+#include "gtest/gtest.h"
+#else
+#include <gtest/gtest.h>
+#endif
 
 namespace ROCKSDB_NAMESPACE {
 
