@@ -1339,11 +1339,7 @@ TEST_P(PlainTableDBTest, AdaptiveTable) {
 INSTANTIATE_TEST_CASE_P(PlainTableDBTest, PlainTableDBTest, ::testing::Bool());
 
 TEST_P(PlainTableDBTest, DeleteRangeNotSupported) {
-  // XXX: After attempting DeleteRange with PlainTable, Writes will permanently
-  // fail. Even if re-opening the DB, if WAL is used, the WAL is not recoverable
-  // (without manual intervention). Furthermore, a partial write batch can
-  // be exposed to readers, breaking WriteBatch atomicity.
-  for (bool use_write_batch : {/*false, */ true}) {
+  for (bool use_write_batch : {false, true}) {
     DestroyAndReopen();
 
     ASSERT_OK(Put("a0001111", "1"));
@@ -1362,12 +1358,7 @@ TEST_P(PlainTableDBTest, DeleteRangeNotSupported) {
     ASSERT_EQ(Get("a0001111"), "1");
     ASSERT_EQ(Get("b0001111"), "2");
     ASSERT_EQ(Get("c0001111"), "3");
-    if (use_write_batch) {
-      // XXX: broken WriteBatch atomicity
-      ASSERT_EQ(Get("d0001111"), "4");
-    } else {
-      ASSERT_EQ(Get("d0001111"), "NOT_FOUND");
-    }
+    ASSERT_EQ(Get("d0001111"), "NOT_FOUND");  // expect WriteBatch atomicity
     ASSERT_EQ(Get("e0001111"), "NOT_FOUND");
 
     ASSERT_EQ(Put("e0001111", "5").code(), Status::Code::kNotSupported);
@@ -1377,8 +1368,14 @@ TEST_P(PlainTableDBTest, DeleteRangeNotSupported) {
     ASSERT_EQ(dbfull()->TEST_FlushMemTable().code(),
               Status::Code::kNotSupported);
 
-    // XXX: WAL is not recoverable
-    ASSERT_EQ(TryReopen().code(), Status::Code::kNotSupported);
+    // WAL is recoverable (at least in standard configurations)
+    ASSERT_OK(TryReopen());
+
+    ASSERT_EQ(Get("a0001111"), "1");
+    ASSERT_EQ(Get("b0001111"), "2");
+    ASSERT_EQ(Get("c0001111"), "3");
+    ASSERT_EQ(Get("d0001111"), "NOT_FOUND");
+    ASSERT_EQ(Get("e0001111"), "NOT_FOUND");
   }
 }
 

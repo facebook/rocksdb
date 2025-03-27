@@ -275,9 +275,6 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
     return;
   }
 
-  ROCKS_LOG_INFO(db_options_.info_log,
-                 "ErrorHandler: Set regular background error\n");
-
   bool paranoid = db_options_.paranoid_checks;
   Status::Severity sev = Status::Severity::kFatalError;
   Status new_bg_err;
@@ -335,11 +332,20 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
     if (!s.ok() && (s.severity() > bg_error_.severity())) {
       bg_error_ = s;
     } else {
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "ErrorHandler: Hit less severe background error\n");
+
       // This error is less severe than previously encountered error. Don't
       // take any further action
       return;
     }
   }
+
+  bool stop = bg_error_.severity() >= Status::Severity::kHardError;
+  ROCKS_LOG_INFO(
+      db_options_.info_log,
+      "ErrorHandler: Set regular background error, auto_recovery=%d, stop=%d\n",
+      int{auto_recovery}, int{stop});
 
   recover_context_ = context;
   if (auto_recovery) {
@@ -351,7 +357,7 @@ void ErrorHandler::HandleKnownErrors(const Status& bg_err,
       RecoverFromNoSpace();
     }
   }
-  if (bg_error_.severity() >= Status::Severity::kHardError) {
+  if (stop) {
     is_db_stopped_.store(true, std::memory_order_release);
   }
 }
