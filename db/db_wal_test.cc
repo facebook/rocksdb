@@ -3024,13 +3024,13 @@ TEST_F(DBWALTest, GetCompressedWalsAfterSync) {
   options.wal_compression = kZSTD;
   DestroyAndReopen(options);
 
-  // Write something to memtable and WAL so that log_empty_ will be false after
+  // Write something to memtable and WAL so that wal_empty_ will be false after
   // next DB::Open().
   ASSERT_OK(Put("a", "v"));
 
   Reopen(options);
 
-  // New WAL is created, thanks to !log_empty_.
+  // New WAL is created, thanks to !wal_empty_.
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
 
   ASSERT_OK(Put("b", "v"));
