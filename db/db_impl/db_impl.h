@@ -2324,15 +2324,16 @@ class DBImpl : public DB {
                       WalFileNumberSize& wal_file_number_size,
                       SequenceNumber sequence);
 
-  IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
-                      log::Writer* log_writer, uint64_t* wal_used,
-                      bool need_wal_sync, bool need_wal_dir_sync,
-                      SequenceNumber sequence,
-                      WalFileNumberSize& wal_file_number_size);
+  IOStatus WriteGroupToWAL(const WriteThread::WriteGroup& write_group,
+                           log::Writer* log_writer, uint64_t* wal_used,
+                           bool need_wal_sync, bool need_wal_dir_sync,
+                           SequenceNumber sequence,
+                           WalFileNumberSize& wal_file_number_size);
 
-  IOStatus ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
-                                uint64_t* wal_used,
-                                SequenceNumber* last_sequence, size_t seq_inc);
+  IOStatus ConcurrentWriteGroupToWAL(const WriteThread::WriteGroup& write_group,
+                                     uint64_t* wal_used,
+                                     SequenceNumber* last_sequence,
+                                     size_t seq_inc);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
   // Caller must hold mutex_.
@@ -2743,6 +2744,10 @@ class DBImpl : public DB {
   // * whenever a column family is dropped.
   InstrumentedCondVar bg_cv_;
 
+  ColumnFamilyHandleImpl* persist_stats_cf_handle_ = nullptr;
+
+  bool persistent_stats_cfd_exists_ = true;
+
   // Writes are protected by locking both mutex_ and wal_write_mutex_, and reads
   // must be under either mutex_ or wal_write_mutex_. Since after ::Open,
   // cur_wal_number_ is currently updated only in write_thread_, it can be read
@@ -2768,10 +2773,6 @@ class DBImpl : public DB {
   // read and writes are protected by wal_write_mutex_ instead. This is to avoid
   // expensive mutex_ lock during WAL write, which update wal_empty_.
   bool wal_empty_ = true;
-
-  ColumnFamilyHandleImpl* persist_stats_cf_handle_ = nullptr;
-
-  bool persistent_stats_cfd_exists_ = true;
 
   // The current WAL file and those that have not been found obsolete from
   // memtable flushes. A WAL not on this list might still be pending writer

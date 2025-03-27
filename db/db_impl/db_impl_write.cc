@@ -549,7 +549,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   // when it finds suitable, and finish them in the same write batch.
   // This is how a write job could be done by the other writer.
   WriteContext write_context;
-  WalContext log_context(write_options.sync);
+  // FIXME: also check disableWAL like others?
+  WalContext wal_context(write_options.sync);
   WriteThread::WriteGroup write_group;
   bool in_parallel_group = false;
   uint64_t last_sequence = kMaxSequenceNumber;
@@ -563,7 +564,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // PreprocessWrite does its own perf timing.
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
-    status = PreprocessWrite(write_options, &log_context, &write_context);
+    status = PreprocessWrite(write_options, &wal_context, &write_context);
     if (!two_write_queues_) {
       // Assign it after ::PreprocessWrite since the sequence might advance
       // inside it by WriteRecoverableState
@@ -689,22 +690,20 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     if (!two_write_queues_) {
       if (status.ok() && !write_options.disableWAL) {
-        assert(log_context.wal_file_number_size);
-        WalFileNumberSize& wal_file_number_size =
-            *(log_context.wal_file_number_size);
+        assert(wal_context.wal_file_number_size);
         PERF_TIMER_GUARD(write_wal_time);
-        io_s =
-            WriteToWAL(write_group, log_context.writer, wal_used,
-                       log_context.need_wal_sync, log_context.need_wal_dir_sync,
-                       last_sequence + 1, wal_file_number_size);
+        io_s = WriteGroupToWAL(write_group, wal_context.writer, wal_used,
+                               wal_context.need_wal_sync,
+                               wal_context.need_wal_dir_sync, last_sequence + 1,
+                               *wal_context.wal_file_number_size);
       }
     } else {
       if (status.ok() && !write_options.disableWAL) {
         PERF_TIMER_GUARD(write_wal_time);
         // LastAllocatedSequence is increased inside WriteToWAL under
         // wal_write_mutex_ to ensure ordered events in WAL
-        io_s = ConcurrentWriteToWAL(write_group, wal_used, &last_sequence,
-                                    seq_inc);
+        io_s = ConcurrentWriteGroupToWAL(write_group, wal_used, &last_sequence,
+                                         seq_inc);
       } else {
         // Otherwise we inc seq number for memtable writes
         last_sequence = versions_->FetchAddLastAllocatedSequence(seq_inc);
@@ -716,11 +715,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     last_sequence += seq_inc;
     // Seqno assigned to this write are [current_sequence, last_sequence]
 
-    if (log_context.need_wal_sync) {
+    if (wal_context.need_wal_sync) {
       VersionEdit synced_wals;
       wal_write_mutex_.Lock();
       if (status.ok()) {
-        MarkLogsSynced(cur_wal_number_, log_context.need_wal_dir_sync,
+        MarkLogsSynced(cur_wal_number_, wal_context.need_wal_dir_sync,
                        &synced_wals);
       } else {
         MarkLogsNotSynced(cur_wal_number_);
@@ -905,10 +904,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     if (w.callback && !w.callback->AllowWriteBatching()) {
       write_thread_.WaitForMemTableWriters();
     }
-    WalContext log_context(!write_options.disableWAL && write_options.sync);
+    WalContext wal_context(!write_options.disableWAL && write_options.sync);
     // PreprocessWrite does its own perf timing.
     PERF_TIMER_STOP(write_pre_and_post_process_time);
-    w.status = PreprocessWrite(write_options, &log_context, &write_context);
+    w.status = PreprocessWrite(write_options, &wal_context, &write_context);
     PERF_TIMER_START(write_pre_and_post_process_time);
 
     // This can set non-OK status if callback fail.
@@ -977,13 +976,13 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                           wal_write_group.size - 1);
         RecordTick(stats_, WRITE_DONE_BY_OTHER, wal_write_group.size - 1);
       }
-      assert(log_context.wal_file_number_size);
+      assert(wal_context.wal_file_number_size);
       WalFileNumberSize& wal_file_number_size =
-          *(log_context.wal_file_number_size);
-      io_s =
-          WriteToWAL(wal_write_group, log_context.writer, wal_used,
-                     log_context.need_wal_sync, log_context.need_wal_dir_sync,
-                     current_sequence, wal_file_number_size);
+          *(wal_context.wal_file_number_size);
+      io_s = WriteGroupToWAL(wal_write_group, wal_context.writer, wal_used,
+                             wal_context.need_wal_sync,
+                             wal_context.need_wal_dir_sync, current_sequence,
+                             wal_file_number_size);
       w.status = io_s;
     }
 
@@ -995,10 +994,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     }
 
     VersionEdit synced_wals;
-    if (log_context.need_wal_sync) {
+    if (wal_context.need_wal_sync) {
       InstrumentedMutexLock l(&wal_write_mutex_);
       if (w.status.ok()) {
-        MarkLogsSynced(cur_wal_number_, log_context.need_wal_dir_sync,
+        MarkLogsSynced(cur_wal_number_, wal_context.need_wal_dir_sync,
                        &synced_wals);
       } else {
         MarkLogsNotSynced(cur_wal_number_);
@@ -1164,10 +1163,10 @@ Status DBImpl::WriteImplWALOnly(
 
     // TODO(myabandeh): Make preliminary checks thread-safe so we could do them
     // without paying the cost of obtaining the mutex.
-    WalContext log_context;
+    WalContext wal_context;
     WriteContext write_context;
     Status status =
-        PreprocessWrite(write_options, &log_context, &write_context);
+        PreprocessWrite(write_options, &wal_context, &write_context);
     WriteStatusCheckOnLocked(status);
 
     if (!status.ok()) {
@@ -1264,8 +1263,8 @@ Status DBImpl::WriteImplWALOnly(
   }
   Status status;
   if (!write_options.disableWAL) {
-    IOStatus io_s =
-        ConcurrentWriteToWAL(write_group, wal_used, &last_sequence, seq_inc);
+    IOStatus io_s = ConcurrentWriteGroupToWAL(write_group, wal_used,
+                                              &last_sequence, seq_inc);
     status = io_s;
     // last_sequence may not be set if there is an error
     // This error checking and return is moved up to avoid using uninitialized
@@ -1401,9 +1400,9 @@ void DBImpl::MemTableInsertStatusCheck(const Status& status) {
 }
 
 Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
-                               WalContext* log_context,
+                               WalContext* wal_context,
                                WriteContext* write_context) {
-  assert(write_context != nullptr && log_context != nullptr);
+  assert(write_context != nullptr && wal_context != nullptr);
   Status status;
 
   if (error_handler_.IsDBStopped()) {
@@ -1484,7 +1483,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     }
   }
   InstrumentedMutexLock l(&wal_write_mutex_);
-  if (status.ok() && log_context->need_wal_sync) {
+  if (status.ok() && wal_context->need_wal_sync) {
     // Wait until the parallel syncs are finished. Any sync process has to sync
     // the front log too so it is enough to check the status of front()
     // We do a while loop since wal_sync_cv_ is signalled when any sync is
@@ -1504,12 +1503,12 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
       log.PrepareForSync();
     }
   } else {
-    log_context->need_wal_sync = false;
+    wal_context->need_wal_sync = false;
   }
-  log_context->writer = logs_.back().writer;
-  log_context->need_wal_dir_sync =
-      log_context->need_wal_dir_sync && !wal_dir_synced_;
-  log_context->wal_file_number_size = std::addressof(alive_wal_files_.back());
+  wal_context->writer = logs_.back().writer;
+  wal_context->need_wal_dir_sync =
+      wal_context->need_wal_dir_sync && !wal_dir_synced_;
+  wal_context->wal_file_number_size = std::addressof(alive_wal_files_.back());
 
   return status;
 }
@@ -1607,11 +1606,11 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   return io_s;
 }
 
-IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
-                            log::Writer* log_writer, uint64_t* wal_used,
-                            bool need_wal_sync, bool need_wal_dir_sync,
-                            SequenceNumber sequence,
-                            WalFileNumberSize& wal_file_number_size) {
+IOStatus DBImpl::WriteGroupToWAL(const WriteThread::WriteGroup& write_group,
+                                 log::Writer* log_writer, uint64_t* wal_used,
+                                 bool need_wal_sync, bool need_wal_dir_sync,
+                                 SequenceNumber sequence,
+                                 WalFileNumberSize& wal_file_number_size) {
   IOStatus io_s;
   assert(!two_write_queues_);
   assert(!write_group.leader->disable_wal);
@@ -1724,7 +1723,7 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   return io_s;
 }
 
-IOStatus DBImpl::ConcurrentWriteToWAL(
+IOStatus DBImpl::ConcurrentWriteGroupToWAL(
     const WriteThread::WriteGroup& write_group, uint64_t* wal_used,
     SequenceNumber* last_sequence, size_t seq_inc) {
   IOStatus io_s;
