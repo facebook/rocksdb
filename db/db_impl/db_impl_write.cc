@@ -692,6 +692,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     if (!two_write_queues_) {
       if (status.ok() && !write_options.disableWAL) {
         assert(log_context.log_file_number_size);
+        log_context.prev_size = log_context.writer->file()->GetFileSize();
         LogFileNumberSize& log_file_number_size =
             *(log_context.log_file_number_size);
         PERF_TIMER_GUARD(write_wal_time);
@@ -879,7 +880,15 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         versions_->SetLastSequence(last_sequence);
       }
     }
-    MemTableInsertStatusCheck(w.status);
+    if (!w.status.ok()) {
+      if (log_context.prev_size < SIZE_MAX) {
+        InstrumentedMutexLock l(&log_write_mutex_);
+        if (logs_.back().number == log_context.log_file_number_size->number) {
+          logs_.back().SetAttemptTruncateSize(log_context.prev_size);
+        }
+      }
+      MemTableInsertStatusCheck(w.status);
+    }
     write_thread_.ExitAsBatchGroupLeader(write_group, status);
   }
 
@@ -1608,6 +1617,7 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   }
   if (log_used != nullptr) {
     *log_used = logfile_number_;
+    assert(*log_used == log_file_number_size.number);
   }
   total_log_size_ += log_entry.size();
   log_file_number_size.AddSize(*log_size);
