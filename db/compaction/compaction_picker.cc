@@ -881,6 +881,7 @@ Compaction* CompactionPicker::CompactRange(
 
   TEST_SYNC_POINT_CALLBACK("CompactionPicker::CompactRange:Return", compaction);
   RegisterCompaction(compaction);
+  TEST_SYNC_POINT("CompactionPicker::CompactRange:AfterRegister");
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
