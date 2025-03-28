@@ -1726,17 +1726,25 @@ struct RangeOpt {
   // RangeOpt(const Slice& s, const Slice& l) : start(s), limit(l) {}
 };
 
-// Descriptor for a RocksDB scan request. Only forward scans for now.
+// EXPERIMENTAL
+//
+// Options for a RocksDB scan request. Only forward scans for now.
 // We may add other options such as prefix scan in the future.
-struct ScanDesc {
+struct ScanOptions {
+  // The scan range. Mandatory for start to be set, limit is optional
   RangeOpt range;
+
+  // A map of name,value pairs that can be passed by the user to an
+  // external table reader. This is completely opaque to RocksDB and is
+  // ignored by the natively supported table readers like block based and plain
+  // table. This is only useful for Iterator.
   std::optional<std::unordered_map<std::string, std::string>> property_bag;
 
   // An unbounded scan with a start key
-  ScanDesc(const Slice& _start) : range(_start, OptSlice()) {}
+  ScanOptions(const Slice& _start) : range(_start, OptSlice()) {}
 
   // A bounded scan with a start key and upper bound
-  ScanDesc(const Slice& _start, const Slice& _upper_bound)
+  ScanOptions(const Slice& _start, const Slice& _upper_bound)
       : range(_start, _upper_bound) {}
 };
 
@@ -2048,11 +2056,10 @@ struct ReadOptions {
   uint64_t weight = 0;
 
   // EXPERIMENTAL
-  // A map of name,value pairs that can be passed by the user to an
-  // external table reader. This is completely opaque to RocksDB and is
-  // ignored by the natively supported table readers like block based and plain
-  // table. This is only useful for Iterator.
-  std::optional<std::vector<ScanDesc>> scan_descriptors;
+  // A vector of ScanOptions for a multi-scan. Each element specifies a
+  // forward scan with a start key and an optional limit. This MUST be
+  // set when calling NewMultiScanIterator(), and ignored otherwise.
+  std::optional<std::vector<ScanOptions>> scan_options;
 
   // *** END options for RocksDB internal use only ***
 

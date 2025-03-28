@@ -10,7 +10,7 @@ namespace ROCKSDB_NAMESPACE {
 // expected to be in increasing sorted order. The application on top of RocksDB
 // would use this as follows -
 //
-//  std::vector<ScanDesc> scans{{.start = Slice("foo")},
+//  std::vector<ScanOptions> scans{{.start = Slice("foo")},
 //                              {.start = Slice("bar")}};
 //  std::unique_ptr<MultiScanIterator> iter.reset(
 //                                      db->NewMultiScanIterator());
@@ -38,7 +38,7 @@ namespace ROCKSDB_NAMESPACE {
 //
 class MultiScanIterator {
  public:
-  MultiScanIterator(const std::vector<ScanDesc>& scans,
+  MultiScanIterator(const std::vector<ScanOptions>& scans,
                     std::unique_ptr<Iterator>&& iter)
       : scans_(scans), idx_(0), iter_(std::move(iter)) {
     // Position the iterator for the first scan
@@ -69,7 +69,7 @@ class MultiScanIterator {
   Status status() { return status_; }
 
  private:
-  const std::vector<ScanDesc>& scans_;
+  const std::vector<ScanOptions>& scans_;
   size_t idx_;
   std::unique_ptr<Iterator> iter_;
   bool empty_;
@@ -83,11 +83,13 @@ class MultiScanIterator {
 };
 #endif
 
+// EXPERIMENTAL
+//
 // An iterator that returns results from multiple scan ranges. The ranges are
 // expected to be in increasing sorted order. The application on top of RocksDB
 // would use this as follows -
 //
-//  std::vector<ScanDesc> scans{{.start = Slice("bar")},
+//  std::vector<ScanOptions> scans{{.start = Slice("bar")},
 //                              {.start = Slice("foo")}};
 //  std::unique_ptr<MultiScanIterator> iter.reset(
 //                                      db->NewMultiScanIterator());
@@ -102,7 +104,7 @@ class MultiScanIterator {
 //  }
 class MultiScanIterator {
  public:
-  MultiScanIterator(const std::vector<ScanDesc>& scans,
+  MultiScanIterator(const std::vector<ScanOptions>& scans,
                     std::unique_ptr<Iterator>&& db_iter)
       : scans_(scans), db_iter_(std::move(db_iter)) {}
 
@@ -120,8 +122,11 @@ class MultiScanIterator {
     using difference_type = int;
     using iterator_category = std::input_iterator_tag;
 
-    ScanIterator(const std::vector<ScanDesc>& scans, Iterator* db_iter)
+    ScanIterator(const std::vector<ScanOptions>& scans, Iterator* db_iter)
         : scans_(scans), idx_(0), db_iter_(db_iter), scan_(db_iter_) {
+      if (scans_.empty()) {
+        throw Status::InvalidArgument("Zero scans in multi-scan");
+      }
       db_iter_->Seek(*scans_[idx_].range.start);
       status_ = db_iter_->status();
       if (!status_.ok()) {
@@ -129,7 +134,7 @@ class MultiScanIterator {
       }
     }
 
-    ScanIterator(const std::vector<ScanDesc>& scans)
+    ScanIterator(const std::vector<ScanOptions>& scans)
         : scans_(scans),
           idx_(scans_.size()),
           db_iter_(nullptr),
@@ -236,7 +241,7 @@ class MultiScanIterator {
     };
 
    private:
-    const std::vector<ScanDesc>& scans_;
+    const std::vector<ScanOptions>& scans_;
     size_t idx_;
     Iterator* db_iter_;
     Status status_;
@@ -248,7 +253,7 @@ class MultiScanIterator {
   ScanIterator end() { return ScanIterator(scans_); }
 
  private:
-  const std::vector<ScanDesc> scans_;
+  const std::vector<ScanOptions> scans_;
   std::unique_ptr<Iterator> db_iter_;
 };
 

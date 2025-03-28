@@ -6632,7 +6632,7 @@ class ExternalTableReaderTest : public DBTestBase {
     bool Valid() const override { return valid_; }
 
     void SeekToFirst() override {
-      if (ro_.scan_descriptors.has_value()) {
+      if (ro_.scan_options.has_value()) {
         status_ = Status::InvalidArgument();
       } else {
         iter_ = kv_map_.begin();
@@ -6642,7 +6642,7 @@ class ExternalTableReaderTest : public DBTestBase {
     }
 
     void SeekToLast() override {
-      if (ro_.scan_descriptors.has_value()) {
+      if (ro_.scan_options.has_value()) {
         status_ = Status::InvalidArgument();
       } else {
         if (!kv_map_.empty()) {
@@ -6664,17 +6664,16 @@ class ExternalTableReaderTest : public DBTestBase {
         valid_ = iter_ != kv_map_.end();
         eof_ = iter_ == kv_map_.end();
       }
-      if (ro_.scan_descriptors.has_value()) {
-        if (scan_idx_ >= ro_.scan_descriptors.value().size() ||
-            target != ro_.scan_descriptors.value()[scan_idx_]
+      if (ro_.scan_options.has_value()) {
+        if (scan_idx_ >= ro_.scan_options.value().size() ||
+            target != ro_.scan_options.value()[scan_idx_]
                           .range.start.value()
                           .ToString()) {
           status_ = Status::InvalidArgument();
         } else {
-          if (valid_ &&
-              iter_->first.compare(ro_.scan_descriptors.value()[scan_idx_]
-                                       .range.limit.value()
-                                       .ToString()) >= 0) {
+          if (valid_ && iter_->first.compare(ro_.scan_options.value()[scan_idx_]
+                                                 .range.limit.value()
+                                                 .ToString()) >= 0) {
             valid_ = false;
           }
           scan_idx_++;
@@ -6692,8 +6691,8 @@ class ExternalTableReaderTest : public DBTestBase {
       weight_--;
       valid_ = iter_ != kv_map_.end() && weight_ > 0;
       eof_ = iter_ == kv_map_.end();
-      if (valid_ && ro_.scan_descriptors.has_value() &&
-          iter_->first.compare(ro_.scan_descriptors.value()[scan_idx_ - 1]
+      if (valid_ && ro_.scan_options.has_value() &&
+          iter_->first.compare(ro_.scan_options.value()[scan_idx_ - 1]
                                    .range.limit.value()
                                    .ToString()) >= 0) {
         valid_ = false;
@@ -7042,8 +7041,8 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
 
   std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
   ReadOptions ro;
-  ro.scan_descriptors.emplace({ScanDesc(key_ranges[0], key_ranges[1]),
-                               ScanDesc(key_ranges[2], key_ranges[3])});
+  ro.scan_options.emplace({ScanOptions(key_ranges[0], key_ranges[1]),
+                           ScanOptions(key_ranges[2], key_ranges[3])});
   std::unique_ptr<MultiScanIterator> iter = db->NewMultiScanIterator(ro, cfh);
   try {
     int idx = 0;
