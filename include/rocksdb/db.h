@@ -1080,9 +1080,8 @@ class DB {
   virtual std::unique_ptr<MultiScanIterator> NewMultiScanIterator(
       const ReadOptions& options, ColumnFamilyHandle* /*column_family*/) {
     std::unique_ptr<Iterator> iter(NewErrorIterator(Status::NotSupported()));
-    std::unique_ptr<MultiScanIterator> ms_iter(
-        new MultiScanIterator(options.scan_descriptors.value(),
-          std::move(iter)));
+    std::unique_ptr<MultiScanIterator> ms_iter(new MultiScanIterator(
+        options.scan_descriptors.value(), std::move(iter)));
     return ms_iter;
   }
 

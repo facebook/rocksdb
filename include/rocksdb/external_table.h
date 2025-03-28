@@ -86,8 +86,9 @@ class ExternalTableReader {
   // Return an Iterator that can be used to scan the table file.
   // The read_options can optionally contain the upper bound
   // key (exclusive) of the scan in iterate_upper_bound.
-  virtual ExternalTableIterator* NewIterator(const ReadOptions& read_options,
-                                const SliceTransform* prefix_extractor) = 0;
+  virtual ExternalTableIterator* NewIterator(
+      const ReadOptions& read_options,
+      const SliceTransform* prefix_extractor) = 0;
 
   // Point lookup the given key and return its value
   virtual Status Get(const ReadOptions& read_options, const Slice& key,
