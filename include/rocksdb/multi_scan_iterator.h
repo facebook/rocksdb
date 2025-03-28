@@ -92,14 +92,13 @@ class MultiScanIterator {
 //  std::unique_ptr<MultiScanIterator> iter.reset(
 //                                      db->NewMultiScanIterator());
 //  try {
-//    for (auto scan = iter.begin(); scan != iter.end(); ++scan) {
-//      for (auto kv = scan.begin(); kv != scan.end(); ++kv) {
-//        auto kvpair = *kv;
-//        // Do something with key - kv.first
-//        // Do something with value - kv.second
+//    for (auto scan : *iter) {
+//      for (auto it : scan) {
+//        // Do something with key - it.first
+//        // Do something with value - it.second
 //      }
 //    }
-//  } catch {
+//  } catch (Status s) {
 //  }
 class MultiScanIterator {
  public:
