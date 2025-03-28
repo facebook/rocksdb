@@ -3798,7 +3798,7 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
 
 std::unique_ptr<MultiScanIterator> DBImpl::NewMultiScanIterator(
     const ReadOptions& _read_options, ColumnFamilyHandle* column_family) {
-  if (!_read_options.scan_descriptors.has_value()) {
+  if (!_read_options.scan_options.has_value()) {
     std::unique_ptr<Iterator> iter(NewErrorIterator(Status::InvalidArgument(
         "The scan_descriptors option in ReadOptions needs to be set")));
     std::unique_ptr<MultiScanIterator> ms_iter(
@@ -3808,7 +3808,7 @@ std::unique_ptr<MultiScanIterator> DBImpl::NewMultiScanIterator(
 
   std::unique_ptr<Iterator> iter(NewIterator(_read_options, column_family));
   std::unique_ptr<MultiScanIterator> ms_iter(new MultiScanIterator(
-      _read_options.scan_descriptors.value(), std::move(iter)));
+      _read_options.scan_options.value(), std::move(iter)));
   return ms_iter;
 }
 
