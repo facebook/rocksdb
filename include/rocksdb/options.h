@@ -1784,6 +1784,10 @@ struct ReadOptions {
   // block cache.
   bool fill_cache = true;
 
+  // DEPRECATED: This option might be removed in a future release.
+  // There should be no noticeable performance difference whether this option
+  // is turned on or off when a DB does not use DeleteRange().
+  //
   // If true, range tombstones handling will be skipped in key lookup paths.
   // For DB instances that don't use DeleteRange() calls, this setting can
   // be used to optimize the read performance.

@@ -21,6 +21,11 @@ Status SuggestCompactRange(DB* db, ColumnFamilyHandle* column_family,
                            const Slice* begin, const Slice* end);
 Status SuggestCompactRange(DB* db, const Slice* begin, const Slice* end);
 
+// DEPRECATED: this API may be removed in a future release.
+// This operation can be done through CompactRange() by setting
+// CompactRangeOptions::bottommost_level_compaction set to
+// BottommostLevelCompaction::kSkip and setting target level.
+//
 // Move all L0 files to target_level skipping compaction.
 // This operation succeeds only if the files in L0 have disjoint ranges; this
 // is guaranteed to happen, for instance, if keys are inserted in sorted
