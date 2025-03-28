@@ -4126,6 +4126,7 @@ public class RocksDB extends RocksObject {
    *
    * @return the maximum level
    */
+  @Deprecated
   public int maxMemCompactionLevel() {
     return maxMemCompactionLevel(null);
   }
