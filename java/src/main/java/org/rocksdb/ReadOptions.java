@@ -398,7 +398,10 @@ public class ReadOptions extends RocksObject {
    * Default: false
    *
    * @return true if keys deleted using the DeleteRange() API will be visible
+   *
+   * @deprecated This option may be remove in a future release.
    */
+  @Deprecated
   public boolean ignoreRangeDeletions() {
     assert(isOwningHandle());
     return ignoreRangeDeletions(nativeHandle_);
@@ -414,7 +417,10 @@ public class ReadOptions extends RocksObject {
    * @param ignoreRangeDeletions true if keys deleted using the DeleteRange()
    *     API should be visible
    * @return the reference to the current ReadOptions.
+   *
+   * @deprecated This option may be remove in a future release.
    */
+  @Deprecated
   public ReadOptions setIgnoreRangeDeletions(final boolean ignoreRangeDeletions) {
     assert(isOwningHandle());
     setIgnoreRangeDeletions(nativeHandle_, ignoreRangeDeletions);
