@@ -7048,8 +7048,8 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
       idx += 2;
     }
     ASSERT_EQ(count, 32);
-  } catch (Status s) {
-    ASSERT_OK(s);
+  } catch (Status status) {
+    ASSERT_OK(status);
   }
   iter.reset();
 
