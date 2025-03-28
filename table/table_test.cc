@@ -6619,12 +6619,15 @@ class ExternalTableReaderTest : public DBTestBase {
    public:
     explicit DummyExternalTableIterator(
         const ReadOptions& ro, const std::map<std::string, std::string>& kv_map)
-        : ro_(ro), weight_(ro.weight), scan_idx_(0), kv_map_(kv_map),
+        : ro_(ro),
+          weight_(ro.weight),
+          scan_idx_(0),
+          kv_map_(kv_map),
           valid_(false) {
-            if (!weight_) {
-              weight_ = ULONG_MAX;
-            }
-          }
+      if (!weight_) {
+        weight_ = ULONG_MAX;
+      }
+    }
 
     bool Valid() const override { return valid_; }
 
@@ -6663,10 +6666,15 @@ class ExternalTableReaderTest : public DBTestBase {
       }
       if (ro_.scan_descriptors.has_value()) {
         if (scan_idx_ >= ro_.scan_descriptors.value().size() ||
-            target != ro_.scan_descriptors.value()[scan_idx_].range.start.value().ToString()) {
+            target != ro_.scan_descriptors.value()[scan_idx_]
+                          .range.start.value()
+                          .ToString()) {
           status_ = Status::InvalidArgument();
         } else {
-          if (valid_ && iter_->first.compare(ro_.scan_descriptors.value()[scan_idx_].range.limit.value().ToString()) >= 0) {
+          if (valid_ &&
+              iter_->first.compare(ro_.scan_descriptors.value()[scan_idx_]
+                                       .range.limit.value()
+                                       .ToString()) >= 0) {
             valid_ = false;
           }
           scan_idx_++;
@@ -6685,7 +6693,9 @@ class ExternalTableReaderTest : public DBTestBase {
       valid_ = iter_ != kv_map_.end() && weight_ > 0;
       eof_ = iter_ == kv_map_.end();
       if (valid_ && ro_.scan_descriptors.has_value() &&
-          iter_->first.compare(ro_.scan_descriptors.value()[scan_idx_ - 1].range.limit.value().ToString()) >= 0) {
+          iter_->first.compare(ro_.scan_descriptors.value()[scan_idx_ - 1]
+                                   .range.limit.value()
+                                   .ToString()) >= 0) {
         valid_ = false;
       }
       // status_ is still ok. !valid_ indicates end of scan
@@ -6699,15 +6709,14 @@ class ExternalTableReaderTest : public DBTestBase {
         result->value_prepared = true;
       } else {
         result->key = Slice();
-        result->bound_check_result = eof_ ? IterBoundCheck::kUnknown : IterBoundCheck::kOutOfBound;
+        result->bound_check_result =
+            eof_ ? IterBoundCheck::kUnknown : IterBoundCheck::kOutOfBound;
         result->value_prepared = false;
       }
       return valid_;
     }
 
-    bool PrepareValue() override {
-      return valid_ ? true : false;
-    }
+    bool PrepareValue() override { return valid_ ? true : false; }
 
     IterBoundCheck UpperBoundCheckResult() override {
       return eof_ ? IterBoundCheck::kUnknown : IterBoundCheck::kOutOfBound;
@@ -6752,8 +6761,9 @@ class ExternalTableReaderTest : public DBTestBase {
       EXPECT_OK(s);
     }
 
-    ExternalTableIterator* NewIterator(const ReadOptions& read_options,
-                          const SliceTransform* /*prefix_extractor*/) override {
+    ExternalTableIterator* NewIterator(
+        const ReadOptions& read_options,
+        const SliceTransform* /*prefix_extractor*/) override {
       return new DummyExternalTableIterator(read_options, kv_map_);
     }
 
@@ -7033,16 +7043,15 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
   std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
   ReadOptions ro;
   ro.scan_descriptors.emplace({ScanDesc(key_ranges[0], key_ranges[1]),
-      ScanDesc(key_ranges[2], key_ranges[3])});
-  std::unique_ptr<MultiScanIterator> iter =
-    db->NewMultiScanIterator(ro, cfh);
+                               ScanDesc(key_ranges[2], key_ranges[3])});
+  std::unique_ptr<MultiScanIterator> iter = db->NewMultiScanIterator(ro, cfh);
   try {
     int idx = 0;
     int count = 0;
     for (auto range : *iter) {
       for (auto it : range) {
         ASSERT_GE(it.first.ToString().compare(key_ranges[idx]), 0);
-        ASSERT_LT(it.first.ToString().compare(key_ranges[idx+1]), 0);
+        ASSERT_LT(it.first.ToString().compare(key_ranges[idx + 1]), 0);
         count++;
       }
       idx += 2;

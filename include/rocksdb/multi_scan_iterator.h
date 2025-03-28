@@ -107,7 +107,7 @@ class MultiScanIterator {
       : scans_(scans), db_iter_(std::move(db_iter)) {}
 
   explicit MultiScanIterator(std::unique_ptr<Iterator>&& db_iter)
-    : db_iter_(std::move(db_iter)) {}
+      : db_iter_(std::move(db_iter)) {}
 
   class ScanIterator {
    public:
@@ -130,7 +130,10 @@ class MultiScanIterator {
     }
 
     ScanIterator(const std::vector<ScanDesc>& scans)
-        : scans_(scans), idx_(scans_.size()), db_iter_(nullptr), scan_(nullptr) {}
+        : scans_(scans),
+          idx_(scans_.size()),
+          db_iter_(nullptr),
+          scan_(nullptr) {}
 
     ScanIterator& operator++() {
       if (idx_ >= scans_.size()) {

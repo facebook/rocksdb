@@ -21,7 +21,8 @@ class ExternalTableIteratorAdapter : public InternalIterator {
 
   // No copying allowed
   ExternalTableIteratorAdapter(const ExternalTableIteratorAdapter&) = delete;
-  ExternalTableIteratorAdapter& operator=(const ExternalTableIteratorAdapter&) = delete;
+  ExternalTableIteratorAdapter& operator=(const ExternalTableIteratorAdapter&) =
+      delete;
 
   ~ExternalTableIteratorAdapter() override {}
 
@@ -139,7 +140,8 @@ class ExternalTableIteratorAdapter : public InternalIterator {
       valid_ = iterator_->Valid();
       status_ = iterator_->status();
       if (valid_ && status_.ok()) {
-        key_.Set(res.has_value() ? res.value() : iterator_->key(), 0, ValueType::kTypeValue);
+        key_.Set(res.has_value() ? res.value() : iterator_->key(), 0,
+                 ValueType::kTypeValue);
       }
     }
   }
