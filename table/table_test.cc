@@ -6618,21 +6618,17 @@ class ExternalTableReaderTest : public DBTestBase {
   class DummyExternalTableIterator : public ExternalTableIterator {
    public:
     explicit DummyExternalTableIterator(
-        const ReadOptions& ro, const std::map<std::string, std::string>& kv_map)
-        : ro_(ro),
-          weight_(ro.weight),
+        const ReadOptions& /*ro*/,
+        const std::map<std::string, std::string>& kv_map)
+        : scan_options_(nullptr),
           scan_idx_(0),
           kv_map_(kv_map),
-          valid_(false) {
-      if (!weight_) {
-        weight_ = ULONG_MAX;
-      }
-    }
+          valid_(false) {}
 
     bool Valid() const override { return valid_; }
 
     void SeekToFirst() override {
-      if (ro_.scan_options.has_value()) {
+      if (scan_options_) {
         status_ = Status::InvalidArgument();
       } else {
         iter_ = kv_map_.begin();
@@ -6642,7 +6638,7 @@ class ExternalTableReaderTest : public DBTestBase {
     }
 
     void SeekToLast() override {
-      if (ro_.scan_options.has_value()) {
+      if (scan_options_) {
         status_ = Status::InvalidArgument();
       } else {
         if (!kv_map_.empty()) {
@@ -6664,16 +6660,16 @@ class ExternalTableReaderTest : public DBTestBase {
         valid_ = iter_ != kv_map_.end();
         eof_ = iter_ == kv_map_.end();
       }
-      if (ro_.scan_options.has_value()) {
-        if (scan_idx_ >= ro_.scan_options.value().size() ||
-            target != ro_.scan_options.value()[scan_idx_]
-                          .range.start.value()
-                          .ToString()) {
+      if (scan_options_) {
+        if (scan_idx_ >= scan_options_->size() ||
+            target !=
+                (*scan_options_)[scan_idx_].range.start.value().ToString()) {
           status_ = Status::InvalidArgument();
         } else {
-          if (valid_ && iter_->first.compare(ro_.scan_options.value()[scan_idx_]
-                                                 .range.limit.value()
-                                                 .ToString()) >= 0) {
+          if (valid_ &&
+              iter_->first.compare(
+                  (*scan_options_)[scan_idx_].range.limit.value().ToString()) >=
+                  0) {
             valid_ = false;
           }
           scan_idx_++;
@@ -6688,13 +6684,12 @@ class ExternalTableReaderTest : public DBTestBase {
 
     void Next() override {
       iter_++;
-      weight_--;
-      valid_ = iter_ != kv_map_.end() && weight_ > 0;
+      valid_ = iter_ != kv_map_.end();
       eof_ = iter_ == kv_map_.end();
-      if (valid_ && ro_.scan_options.has_value() &&
-          iter_->first.compare(ro_.scan_options.value()[scan_idx_ - 1]
-                                   .range.limit.value()
-                                   .ToString()) >= 0) {
+      if (valid_ && scan_options_ &&
+          iter_->first.compare(
+              (*scan_options_)[scan_idx_ - 1].range.limit.value().ToString()) >=
+              0) {
         valid_ = false;
       }
       // status_ is still ok. !valid_ indicates end of scan
@@ -6741,9 +6736,12 @@ class ExternalTableReaderTest : public DBTestBase {
       return Slice(iter_->second);
     }
 
+    void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+      scan_options_ = scan_opts;
+    }
+
    private:
-    const ReadOptions& ro_;
-    uint64_t weight_;
+    const std::vector<ScanOptions>* scan_options_;
     size_t scan_idx_;
     std::map<std::string, std::string> kv_map_;
     bool valid_ = false;
@@ -6881,8 +6879,7 @@ TEST_F(ExternalTableReaderTest, BasicTest) {
       {}, file_path, ExternalTableOptions(prefix_extractor, nullptr), &reader));
 
   ReadOptions ro;
-  ro.weight = 1;
-  std::unique_ptr<Iterator> iter(reader->NewIterator(ro, nullptr));
+  std::unique_ptr<ExternalTableIterator> iter(reader->NewIterator(ro, nullptr));
   ASSERT_NE(iter, nullptr);
   iter->Seek("foo");
   ASSERT_TRUE(iter->Valid() && iter->status().ok());
@@ -6927,7 +6924,6 @@ TEST_F(ExternalTableReaderTest, SstReaderTest) {
   ASSERT_OK(reader->Open(ingest_file));
 
   ReadOptions ro;
-  ro.weight = 1;
   std::unique_ptr<Iterator> iter(reader->NewIterator(ro));
   ASSERT_NE(iter, nullptr);
   iter->Seek("foo");
@@ -6945,7 +6941,7 @@ TEST_F(ExternalTableReaderTest, DBIterTest) {
   dbname += "_db";
   // This test doesn't work with some custom Envs, like EncryptedEnv
   options.env = Env::Default();
-  DestroyDB(dbname, options);
+  ASSERT_OK(DestroyDB(dbname, options));
 
   std::shared_ptr<ExternalTableFactory> factory(
       new DummyExternalTableFactory());
@@ -6960,7 +6956,7 @@ TEST_F(ExternalTableReaderTest, DBIterTest) {
   ASSERT_OK(writer->Finish());
   writer.reset();
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   options.create_if_missing = true;
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
@@ -6985,19 +6981,11 @@ TEST_F(ExternalTableReaderTest, DBIterTest) {
   ASSERT_EQ(iter->value(), "bar2");
   iter->Next();
   ASSERT_FALSE(iter->Valid());
-  ReadOptions ro;
-  ro.weight = 1;
-  iter.reset(db->NewIterator(ro, cfh));
-  ASSERT_NE(iter, nullptr);
-  iter->Seek("foo");
-  ASSERT_EQ(iter->value(), "bar");
-  iter->Next();
-  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
   iter.reset();
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
-  db->Close();
-  delete db;
+  ASSERT_OK(db->Close());
 }
 
 TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
@@ -7007,7 +6995,7 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
   dbname += "_db";
   // This test doesn't work with some custom Envs, like EncryptedEnv
   options.env = Env::Default();
-  DestroyDB(dbname, options);
+  ASSERT_OK(DestroyDB(dbname, options));
 
   std::shared_ptr<ExternalTableFactory> factory(
       new DummyExternalTableFactory());
@@ -7025,7 +7013,7 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
   ASSERT_OK(writer->Finish());
   writer.reset();
 
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   options.create_if_missing = true;
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
@@ -7041,9 +7029,11 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
 
   std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
   ReadOptions ro;
-  ro.scan_options.emplace({ScanOptions(key_ranges[0], key_ranges[1]),
-                           ScanOptions(key_ranges[2], key_ranges[3])});
-  std::unique_ptr<MultiScanIterator> iter = db->NewMultiScanIterator(ro, cfh);
+  std::vector<ScanOptions> scan_options(
+      {ScanOptions(key_ranges[0], key_ranges[1]),
+       ScanOptions(key_ranges[2], key_ranges[3])});
+  std::unique_ptr<MultiScanIterator> iter =
+      db->NewMultiScanIterator(ro, cfh, scan_options);
   try {
     int idx = 0;
     int count = 0;
@@ -7057,13 +7047,13 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
     }
     ASSERT_EQ(count, 32);
   } catch (Status status) {
-    ASSERT_OK(status);
+    std::cerr << "Iterator returned status " << status.ToString();
+    abort();
   }
   iter.reset();
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
-  db->Close();
-  delete db;
+  ASSERT_OK(db->Close());
 }
 }  // namespace ROCKSDB_NAMESPACE
 

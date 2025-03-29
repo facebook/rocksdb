@@ -1078,10 +1078,11 @@ class DB {
   // be in increasing order of start key. See multi_scan_iterator.h for more
   // details.
   virtual std::unique_ptr<MultiScanIterator> NewMultiScanIterator(
-      const ReadOptions& options, ColumnFamilyHandle* /*column_family*/) {
+      const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
+      const std::vector<ScanOptions>& /*scan_opts*/) {
     std::unique_ptr<Iterator> iter(NewErrorIterator(Status::NotSupported()));
     std::unique_ptr<MultiScanIterator> ms_iter(
-        new MultiScanIterator(options.scan_options.value(), std::move(iter)));
+        new MultiScanIterator(std::move(iter)));
     return ms_iter;
   }
 

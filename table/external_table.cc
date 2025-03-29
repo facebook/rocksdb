@@ -128,6 +128,12 @@ class ExternalTableIteratorAdapter : public InternalIterator {
 
   Status status() const override { return status_; }
 
+  void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+    if (iterator_) {
+      iterator_->Prepare(scan_opts);
+    }
+  }
+
  private:
   std::unique_ptr<ExternalTableIterator> iterator_;
   InternalKey key_;

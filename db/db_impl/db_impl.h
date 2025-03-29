@@ -381,8 +381,8 @@ class DBImpl : public DB {
 
   using DB::NewMultiScanIterator;
   std::unique_ptr<MultiScanIterator> NewMultiScanIterator(
-      const ReadOptions& _read_options,
-      ColumnFamilyHandle* column_family) override;
+      const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+      const std::vector<ScanOptions>& scan_opts) override;
 
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;

@@ -291,8 +291,9 @@ class StackableDB : public DB {
 
   using DB::NewMultiScanIterator;
   std::unique_ptr<MultiScanIterator> NewMultiScanIterator(
-      const ReadOptions& opts, ColumnFamilyHandle* column_family) override {
-    return db_->NewMultiScanIterator(opts, column_family);
+      const ReadOptions& opts, ColumnFamilyHandle* column_family,
+      const std::vector<ScanOptions>& scan_opts) override {
+    return db_->NewMultiScanIterator(opts, column_family, scan_opts);
   }
 
   const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
