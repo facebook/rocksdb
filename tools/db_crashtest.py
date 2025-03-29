@@ -600,7 +600,21 @@ ts_params = {
     "use_put_entity_one_in": 0,
     # TimedPut is not compatible with user-defined timestamps yet.
     "use_timed_put_one_in": 0,
+    # TODO(yuzhangyu): DO NOT SUBMIT, update this
+    "toggle_ts": random.choice([1]),
 }
+
+# Running each DB session while switching between these two modes randomly:
+# 1) Enable UDT and not persist timestamp.
+# 2) Disable UDT.
+toggle_ts_params = {
+    "user_timestamp_size": lambda: random.choice([0, 8]),
+    "persist_user_defined_timestamps": 0,
+    # Do not test reopen DB when toggle timestamp size, this needs more logic to track
+    # timestamp size info in order to properly replay the trace file from last DB session.
+    "reopen": 0,
+}
+user_timestamp_size_prev = 0
 
 tiered_params = {
     # For Leveled/Universal compaction (ignored for FIFO)
@@ -712,6 +726,8 @@ multiops_wp_txn_params = {
 
 def finalize_and_sanitize(src_params):
     dest_params = {k: v() if callable(v) else v for (k, v) in src_params.items()}
+    global user_timestamp_size_prev
+    dest_params["user_timestamp_size_prev"] = user_timestamp_size_prev
     if is_release_mode():
         dest_params["read_fault_one_in"] = 0
     if dest_params.get("compression_max_dict_bytes") == 0:
@@ -1030,6 +1046,8 @@ def finalize_and_sanitize(src_params):
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest
     if dest_params.get("test_secondary") == 1:
         dest_params["continuous_verification_interval"] = 0
+
+    user_timestamp_size_prev = dest_params.get("user_timestamp_size", 0);
     return dest_params
 
 
@@ -1057,6 +1075,9 @@ def gen_cmd_params(args):
         params.update(best_efforts_recovery_params)
     if args.enable_ts:
         params.update(ts_params)
+        if params.get("toggle_ts", 0) == 1:
+            params.update(toggle_ts_params)
+            print("Running db_stress while toggling user defined timestamp on and off")
     if args.test_multiops_txn:
         params.update(multiops_txn_default_params)
         if args.write_policy == "write_committed":
@@ -1092,12 +1113,12 @@ def gen_cmd_params(args):
 
 
 def gen_cmd(params, unknown_params):
-    finalzied_params = finalize_and_sanitize(params)
+    finalized_params = finalize_and_sanitize(params)
     cmd = (
         [stress_cmd]
         + [
             f"--{k}={v}"
-            for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
+            for k, v in [(k, finalized_params[k]) for k in sorted(finalized_params)]
             if k
             not in {
                 "test_type",

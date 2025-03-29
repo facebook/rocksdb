@@ -327,6 +327,7 @@ DECLARE_uint32(memtable_protection_bytes_per_key);
 DECLARE_uint32(block_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
+DECLARE_uint64(user_timestamp_size_prev);
 DECLARE_bool(persist_user_defined_timestamps);
 DECLARE_string(secondary_cache_uri);
 DECLARE_int32(secondary_cache_fault_one_in);
@@ -424,6 +425,7 @@ DECLARE_uint32(commit_bypass_memtable_one_in);
 DECLARE_bool(track_and_verify_wals);
 DECLARE_bool(enable_remote_compaction);
 DECLARE_bool(auto_refresh_iterator_with_snapshot);
+DECLARE_bool(toggle_ts);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

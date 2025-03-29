@@ -1137,6 +1137,10 @@ DEFINE_uint64(user_timestamp_size, 0,
               "Number of bytes for a user-defined timestamp. Currently, only "
               "8-byte is supported");
 
+DEFINE_uint64(user_timestamp_size_prev, 0,
+              "Number of bytes for a user-defined timestamp used in the "
+              "previous stress test session");
+
 DEFINE_bool(persist_user_defined_timestamps, true,
             "Flag to indicate whether user-defined timestamps will be persisted"
             " during Flush");
@@ -1486,5 +1490,10 @@ DEFINE_bool(
     auto_refresh_iterator_with_snapshot,
     ROCKSDB_NAMESPACE::ReadOptions().auto_refresh_iterator_with_snapshot,
     "ReadOptions.auto_refresh_iterator_with_snapshot");
+
+DEFINE_bool(
+    toggle_ts,
+    false,
+    "Whether this is testing toggling user defined timestamp");
 
 #endif  // GFLAGS
