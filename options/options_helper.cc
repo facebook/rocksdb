@@ -153,8 +153,6 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.allow_2pc = immutable_db_options.allow_2pc;
   options.row_cache = immutable_db_options.row_cache;
   options.wal_filter = immutable_db_options.wal_filter;
-  options.fail_if_options_file_error =
-      immutable_db_options.fail_if_options_file_error;
   options.dump_malloc_stats = immutable_db_options.dump_malloc_stats;
   options.avoid_flush_during_recovery =
       immutable_db_options.avoid_flush_during_recovery;

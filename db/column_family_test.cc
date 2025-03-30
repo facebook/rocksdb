@@ -72,7 +72,6 @@ class ColumnFamilyTestBase : public testing::Test {
     env_->skip_fsync_ = true;
     dbname_ = test::PerThreadDBPath("column_family_test");
     db_options_.create_if_missing = true;
-    db_options_.fail_if_options_file_error = true;
     db_options_.env = env_;
   }
 

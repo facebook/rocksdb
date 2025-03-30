@@ -592,7 +592,6 @@ Options DBTestBase::GetOptions(
       options_override.level_compaction_dynamic_level_bytes;
   options.env = env_;
   options.create_if_missing = true;
-  options.fail_if_options_file_error = true;
   return options;
 }
 

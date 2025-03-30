@@ -852,7 +852,6 @@ TEST_F(CheckpointTest, CheckpointOptionsFileFailedToPersist) {
   // OPTIONS file failed and the DB was opened with
   // `fail_if_options_file_error == false`.
   Options options = CurrentOptions();
-  options.fail_if_options_file_error = false;
   auto fault_fs = std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
 
   // Setup `FaultInjectionTestFS` and `SyncPoint` callbacks to fail one

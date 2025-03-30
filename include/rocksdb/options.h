@@ -1297,14 +1297,6 @@ struct DBOptions {
   // currently.
   WalFilter* wal_filter = nullptr;
 
-  // DEPRECATED: This option might be removed in a future release.
-  //
-  // If true, then DB::Open, CreateColumnFamily, DropColumnFamily, and
-  // SetOptions will fail if options file is not properly persisted.
-  //
-  // DEFAULT: true
-  bool fail_if_options_file_error = true;
-
   // If true, then print malloc stats together with rocksdb.stats
   // when printing to LOG.
   // DEFAULT: false
