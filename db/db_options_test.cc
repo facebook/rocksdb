@@ -329,8 +329,7 @@ TEST_F(DBOptionsTest, SetWithCustomMemTableFactory) {
   Reopen(options);
 
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
-  ASSERT_OK(
-      dbfull()->SetOptions(cfh, {{"disable_auto_compactions", "true"}}));
+  ASSERT_OK(dbfull()->SetOptions(cfh, {{"disable_auto_compactions", "true"}}));
   ColumnFamilyDescriptor cfd;
   ASSERT_OK(cfh->GetDescriptor(&cfd));
   ASSERT_STREQ(cfd.options.memtable_factory->Name(),
