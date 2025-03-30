@@ -3376,8 +3376,6 @@ void StressTest::PrintEnv() const {
           FLAGS_sync_fault_injection);
   fprintf(stdout, "Best efforts recovery     : %d\n",
           static_cast<int>(FLAGS_best_efforts_recovery));
-  fprintf(stdout, "Fail if OPTIONS file error: %d\n",
-          static_cast<int>(FLAGS_fail_if_options_file_error));
   fprintf(stdout, "User timestamp size bytes : %d\n",
           static_cast<int>(FLAGS_user_timestamp_size));
   fprintf(stdout, "Persist user defined timestamps : %d\n",
@@ -4255,7 +4253,6 @@ void InitializeOptionsFromFlags(
 
   options.best_efforts_recovery = FLAGS_best_efforts_recovery;
   options.paranoid_file_checks = FLAGS_paranoid_file_checks;
-  options.fail_if_options_file_error = FLAGS_fail_if_options_file_error;
 
   if (FLAGS_user_timestamp_size > 0) {
     CheckAndSetOptionsForUserTimestamp(options);
