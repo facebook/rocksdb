@@ -1763,19 +1763,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxWriteBufferNumberToMaintain(
-      final int maxWriteBufferNumberToMaintain) {
-    setMaxWriteBufferNumberToMaintain(
-        nativeHandle_, maxWriteBufferNumberToMaintain);
-    return this;
-  }
-
-  @Override
-  public int maxWriteBufferNumberToMaintain() {
-    return maxWriteBufferNumberToMaintain(nativeHandle_);
-  }
-
-  @Override
   public Options setCompactionPriority(
       final CompactionPriority compactionPriority) {
     setCompactionPriority(nativeHandle_, compactionPriority.getValue());
@@ -2443,9 +2430,6 @@ public class Options extends RocksObject
   private static native int[] maxBytesForLevelMultiplierAdditional(long handle);
   private static native void setParanoidFileChecks(long handle, boolean paranoidFileChecks);
   private static native boolean paranoidFileChecks(long handle);
-  private static native void setMaxWriteBufferNumberToMaintain(
-      final long handle, final int maxWriteBufferNumberToMaintain);
-  private static native int maxWriteBufferNumberToMaintain(final long handle);
   private static native void setCompactionPriority(
       final long handle, final byte compactionPriority);
   private static native byte compactionPriority(final long handle);

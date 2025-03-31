@@ -45,7 +45,6 @@ class MemTableListVersion {
   explicit MemTableListVersion(size_t* parent_memtable_list_memory_usage,
                                const MemTableListVersion& old);
   explicit MemTableListVersion(size_t* parent_memtable_list_memory_usage,
-                               int max_write_buffer_number_to_maintain,
                                int64_t max_write_buffer_size_to_maintain);
 
   void Ref();
@@ -209,8 +208,6 @@ class MemTableListVersion {
   // (used during Transaction validation)
   std::list<ReadOnlyMemTable*> memlist_history_;
 
-  // Maximum number of MemTables to keep in memory (including both flushed
-  const int max_write_buffer_number_to_maintain_;
   // Maximum size of MemTables to keep in memory (including both flushed
   // and not-yet-flushed tables).
   const int64_t max_write_buffer_size_to_maintain_;
@@ -238,13 +235,11 @@ class MemTableList {
  public:
   // A list of memtables.
   explicit MemTableList(int min_write_buffer_number_to_merge,
-                        int max_write_buffer_number_to_maintain,
                         int64_t max_write_buffer_size_to_maintain)
       : imm_flush_needed(false),
         imm_trim_needed(false),
         min_write_buffer_number_to_merge_(min_write_buffer_number_to_merge),
         current_(new MemTableListVersion(&current_memory_usage_,
-                                         max_write_buffer_number_to_maintain,
                                          max_write_buffer_size_to_maintain)),
         num_flush_not_started_(0),
         commit_in_progress_(false),

@@ -219,7 +219,9 @@ class MultiGetContext {
         while (++index_ < range_->end_ &&
                (Mask{1} << index_) &
                    (range_->ctx_->value_mask_ | range_->skip_mask_ |
-                    range_->invalid_mask_));
+                    range_->invalid_mask_)) {
+          // empty loop body
+        }
         return *this;
       }
 
