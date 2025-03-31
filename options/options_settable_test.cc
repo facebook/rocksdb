@@ -433,7 +433,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "use_direct_io_for_flush_and_compaction=false;"
                              "max_log_file_size=4607;"
                              "advise_random_on_open=true;"
-                             "fail_if_options_file_error=false;"
                              "enable_pipelined_write=false;"
                              "unordered_write=false;"
                              "allow_concurrent_memtable_write=true;"
