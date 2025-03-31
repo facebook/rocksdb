@@ -221,17 +221,11 @@ class DBIter final : public Iterator {
   bool PrepareValue() override;
 
   void Prepare(const std::vector<ScanOptions>& scan_opts) override {
-    std::optional<std::vector<ScanOptions>> new_scan_opts(std::in_place,
-                                                          scan_opts);
-    // Silence an uninitialized variable warning by checking if the just
-    // initialized new_scan_opts has a value
-    if (new_scan_opts.has_value()) {
-      scan_opts_.swap(new_scan_opts);
-      if (!scan_opts.empty()) {
-        iter_.Prepare(&scan_opts_.value());
-      } else {
-        iter_.Prepare(nullptr);
-      }
+    std::optional<std::vector<ScanOptions>> new_scan_opts;
+    new_scan_opts.emplace(scan_opts);
+    scan_opts_.swap(new_scan_opts);
+    if (!scan_opts.empty()) {
+      iter_.Prepare(&scan_opts_.value());
     } else {
       iter_.Prepare(nullptr);
     }
