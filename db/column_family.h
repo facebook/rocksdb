@@ -544,6 +544,9 @@ class ColumnFamilyData {
   }
 
   const std::string& GetFullHistoryTsLow() const {
+    if (user_comparator()->timestamp_size() == 0) {
+      return "";
+    }
     return full_history_ts_low_;
   }
 
