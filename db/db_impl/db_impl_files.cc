@@ -28,7 +28,7 @@ uint64_t DBImpl::MinLogNumberToKeep() {
   return versions_->min_log_number_to_keep();
 }
 
-uint64_t DBImpl::MinLogNumberToRecycle() { return min_log_number_to_recycle_; }
+uint64_t DBImpl::MinLogNumberToRecycle() { return min_wal_number_to_recycle_; }
 
 uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
   mutex_.AssertHeld();
@@ -272,77 +272,77 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   // logs_ is empty when called during recovery, in which case there can't yet
   // be any tracked obsolete logs
-  log_write_mutex_.Lock();
+  wal_write_mutex_.Lock();
 
-  if (alive_log_files_.empty() || logs_.empty()) {
+  if (alive_wal_files_.empty() || logs_.empty()) {
     mutex_.AssertHeld();
     // We may reach here if the db is DBImplSecondary
-    log_write_mutex_.Unlock();
+    wal_write_mutex_.Unlock();
     return;
   }
 
   bool mutex_unlocked = false;
-  if (!alive_log_files_.empty() && !logs_.empty()) {
+  if (!alive_wal_files_.empty() && !logs_.empty()) {
     uint64_t min_log_number = job_context->log_number;
-    size_t num_alive_log_files = alive_log_files_.size();
+    size_t num_alive_wal_files = alive_wal_files_.size();
     // find newly obsoleted log files
-    while (alive_log_files_.begin()->number < min_log_number) {
-      auto& earliest = *alive_log_files_.begin();
+    while (alive_wal_files_.begin()->number < min_log_number) {
+      auto& earliest = *alive_wal_files_.begin();
       if (immutable_db_options_.recycle_log_file_num >
-              log_recycle_files_.size() &&
+              wal_recycle_files_.size() &&
           earliest.number >= MinLogNumberToRecycle()) {
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "adding log %" PRIu64 " to recycle list\n",
                        earliest.number);
-        log_recycle_files_.push_back(earliest.number);
+        wal_recycle_files_.push_back(earliest.number);
       } else {
         job_context->log_delete_files.push_back(earliest.number);
       }
       if (job_context->size_log_to_delete == 0) {
-        job_context->prev_total_log_size = total_log_size_;
-        job_context->num_alive_log_files = num_alive_log_files;
+        job_context->prev_wals_total_size = wals_total_size_.LoadRelaxed();
+        job_context->num_alive_wal_files = num_alive_wal_files;
       }
       job_context->size_log_to_delete += earliest.size;
-      total_log_size_ -= earliest.size;
-      alive_log_files_.pop_front();
+      wals_total_size_.FetchSubRelaxed(earliest.size);
+      alive_wal_files_.pop_front();
 
       // Current log should always stay alive since it can't have
       // number < MinLogNumber().
-      assert(alive_log_files_.size());
+      assert(alive_wal_files_.size());
     }
-    log_write_mutex_.Unlock();
+    wal_write_mutex_.Unlock();
     mutex_.Unlock();
     mutex_unlocked = true;
     TEST_SYNC_POINT_CALLBACK("FindObsoleteFiles::PostMutexUnlock", nullptr);
-    log_write_mutex_.Lock();
+    wal_write_mutex_.Lock();
     while (!logs_.empty() && logs_.front().number < min_log_number) {
       auto& log = logs_.front();
       if (log.IsSyncing()) {
-        log_sync_cv_.Wait();
+        wal_sync_cv_.Wait();
         // logs_ could have changed while we were waiting.
         continue;
       }
       // This WAL file is not live, so it's OK if we never sync the rest of it.
       // If it's already closed, then it's been fully synced. If
       // !background_close_inactive_wals then we need to Close it before
-      // removing from logs_ but not blocking while holding log_write_mutex_.
+      // removing from logs_ but not blocking while holding wal_write_mutex_.
       if (!immutable_db_options_.background_close_inactive_wals &&
           log.writer->file()) {
         // We are taking ownership of and pinning the front entry, so we can
         // expect it to be the same after releasing and re-acquiring the lock
         log.PrepareForSync();
-        log_write_mutex_.Unlock();
+        wal_write_mutex_.Unlock();
         // TODO: maybe check the return value of Close.
         // TODO: plumb Env::IOActivity, Env::IOPriority
         auto s = log.writer->file()->Close({});
         s.PermitUncheckedError();
-        log_write_mutex_.Lock();
+        wal_write_mutex_.Lock();
         log.writer->PublishIfClosed();
         assert(&log == &logs_.front());
         log.FinishSync();
-        log_sync_cv_.SignalAll();
+        wal_sync_cv_.SignalAll();
       }
-      logs_to_free_.push_back(log.ReleaseWriter());
+      wals_to_free_.push_back(log.ReleaseWriter());
       logs_.pop_front();
     }
     // Current log cannot be obsolete.
@@ -350,16 +350,16 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   }
 
   // We're just cleaning up for DB::Write().
-  assert(job_context->logs_to_free.empty());
-  job_context->logs_to_free = logs_to_free_;
+  assert(job_context->wals_to_free.empty());
+  job_context->wals_to_free = wals_to_free_;
 
-  logs_to_free_.clear();
-  log_write_mutex_.Unlock();
+  wals_to_free_.clear();
+  wal_write_mutex_.Unlock();
   if (mutex_unlocked) {
     mutex_.Lock();
   }
-  job_context->log_recycle_files.assign(log_recycle_files_.begin(),
-                                        log_recycle_files_.end());
+  job_context->log_recycle_files.assign(wal_recycle_files_.begin(),
+                                        wal_recycle_files_.end());
 }
 
 // Delete obsolete files and log status and information of file deletion
@@ -431,7 +431,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
                                             state.sst_live.end());
   std::unordered_set<uint64_t> blob_live_set(state.blob_live.begin(),
                                              state.blob_live.end());
-  std::unordered_set<uint64_t> log_recycle_files_set(
+  std::unordered_set<uint64_t> wal_recycle_files_set(
       state.log_recycle_files.begin(), state.log_recycle_files.end());
   std::unordered_set<uint64_t> quarantine_files_set(
       state.files_to_quarantine.begin(), state.files_to_quarantine.end());
@@ -491,13 +491,13 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       std::unique(candidate_files.begin(), candidate_files.end()),
       candidate_files.end());
 
-  if (state.prev_total_log_size > 0) {
+  if (state.prev_wals_total_size > 0) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "[JOB %d] Try to delete WAL files size %" PRIu64
                    ", prev total WAL file size %" PRIu64
                    ", number of live WAL files %" ROCKSDB_PRIszt ".\n",
                    state.job_id, state.size_log_to_delete,
-                   state.prev_total_log_size, state.num_alive_log_files);
+                   state.prev_wals_total_size, state.num_alive_wal_files);
   }
 
   std::vector<std::string> old_info_log_files;
@@ -532,7 +532,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   optsfile_num2 = std::min(optsfile_num2, state.min_options_file_number);
 
   // Close WALs before trying to delete them.
-  for (const auto w : state.logs_to_free) {
+  for (const auto w : state.wals_to_free) {
     // TODO: maybe check the return value of Close.
     // TODO: plumb Env::IOActivity, Env::IOPriority
     auto s = w->Close({});
@@ -559,8 +559,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       case kWalFile:
         keep = ((number >= state.log_number) ||
                 (number == state.prev_log_number) ||
-                (log_recycle_files_set.find(number) !=
-                 log_recycle_files_set.end()));
+                (wal_recycle_files_set.find(number) !=
+                 wal_recycle_files_set.end()));
         break;
       case kDescriptorFile:
         // Keep my manifest file, and any newer incarnations'

@@ -168,7 +168,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // had not been committed yet. Make sure we sync them to keep the persisted
   // WAL state at least as new as the persisted SST state.
   const bool needs_to_sync_closed_wals =
-      logfile_number_ > 0 &&
+      cur_wal_number_ > 0 &&
       (versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1 ||
        allow_2pc());
 
@@ -224,7 +224,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   bool need_cancel = false;
   IOStatus log_io_s = IOStatus::OK();
   if (needs_to_sync_closed_wals) {
-    // SyncClosedWals() may unlock and re-lock the log_write_mutex multiple
+    // SyncClosedWals() may unlock and re-lock the wal_write_mutex multiple
     // times.
     VersionEdit synced_wals;
     bool error_recovery_in_prog = error_handler_.IsRecoveryInProgress();
@@ -512,7 +512,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
                        job_context->job_id, flush_reason);
   }
 
-  if (logfile_number_ > 0) {
+  if (cur_wal_number_ > 0) {
     // TODO (yanqin) investigate whether we should sync the closed logs for
     // single column family case.
     VersionEdit synced_wals;
@@ -528,7 +528,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
         !log_io_s.IsColumnFamilyDropped()) {
-      if (total_log_size_ > 0) {
+      if (wals_total_size_.LoadRelaxed() > 0) {
         error_handler_.SetBGError(log_io_s, BackgroundErrorReason::kFlush);
       } else {
         // If the WAL is empty, we use different error reason
