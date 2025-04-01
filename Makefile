@@ -145,7 +145,8 @@ endif
 
 GIT_COMMAND ?= git
 ifeq ($(USE_COROUTINES), 1)
-	USE_FOLLY = 1
+	# export as used in build_detect_platform
+	export USE_FOLLY = 1
 	# glog/logging.h requires HAVE_CXX11_ATOMIC
 	OPT += -DUSE_COROUTINES -DHAVE_CXX11_ATOMIC
 	ROCKSDB_CXX_STANDARD = c++2a
@@ -475,6 +476,7 @@ ifneq ($(strip $(FOLLY_PATH)),)
 	XZ_PATH = $(shell (ls -d $(FOLLY_PATH)/../xz*))
 	LIBSODIUM_PATH = $(shell (ls -d $(FOLLY_PATH)/../libsodium*))
 	FMT_PATH = $(shell (ls -d $(FOLLY_PATH)/../fmt*))
+	LIBIBERTY_PATH = $(shell (ls -d $(FOLLY_PATH)/../libiberty*))
 
 	# For some reason, glog and fmt libraries are under either lib or lib64
 	GLOG_LIB_PATH = $(shell (ls -d $(GLOG_PATH)/lib*))
@@ -491,8 +493,8 @@ ifneq ($(strip $(FOLLY_PATH)),)
 
 	# Add -ldl at the end as gcc resolves a symbol in a library by searching only in libraries specified later
 	# in the command line
-	PLATFORM_LDFLAGS += $(FOLLY_PATH)/lib/libfolly.a $(BOOST_PATH)/lib/libboost_context.a $(BOOST_PATH)/lib/libboost_filesystem.a $(BOOST_PATH)/lib/libboost_atomic.a $(BOOST_PATH)/lib/libboost_program_options.a $(BOOST_PATH)/lib/libboost_regex.a $(BOOST_PATH)/lib/libboost_system.a $(BOOST_PATH)/lib/libboost_thread.a $(DBL_CONV_PATH)/lib/libdouble-conversion.a $(FMT_LIB_PATH)/libfmt.a $(GLOG_LIB_PATH)/libglog.so $(GFLAGS_PATH)/lib/libgflags.so.2.2 $(LIBEVENT_PATH)/lib/libevent-2.1.so -ldl
-	PLATFORM_LDFLAGS += -Wl,-rpath=$(GFLAGS_PATH)/lib -Wl,-rpath=$(GLOG_LIB_PATH) -Wl,-rpath=$(LIBEVENT_PATH)/lib -Wl,-rpath=$(LIBSODIUM_PATH)/lib -Wl,-rpath=$(LIBEVENT_PATH)/lib
+	# Link all folly dependencies statically
+	PLATFORM_LDFLAGS += $(FOLLY_PATH)/lib/libfolly.a $(BOOST_PATH)/lib/libboost_context.a $(BOOST_PATH)/lib/libboost_filesystem.a $(BOOST_PATH)/lib/libboost_atomic.a $(BOOST_PATH)/lib/libboost_program_options.a $(BOOST_PATH)/lib/libboost_regex.a $(BOOST_PATH)/lib/libboost_system.a $(BOOST_PATH)/lib/libboost_thread.a $(DBL_CONV_PATH)/lib/libdouble-conversion.a $(FMT_LIB_PATH)/libfmt.a $(LIBIBERTY_PATH)/lib/libiberty.a $(GLOG_LIB_PATH)/libglog.a $(GFLAGS_PATH)/lib/libgflags.a $(LIBEVENT_PATH)/lib/libevent.a -ldl
 endif
 	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
 	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
@@ -603,6 +605,8 @@ CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverl
 CXXFLAGS += -Wno-invalid-offsetof
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
+JAVA_LDFLAGS += $(PLATFORM_LDFLAGS)
+JAVA_STATIC_LDFLAGS += $(PLATFORM_LDFLAGS)
 
 LIB_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(LIB_SOURCES))
 LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ROCKSDB_PLUGIN_SOURCES))
@@ -2508,7 +2512,7 @@ build_folly:
 		false; \
 	fi
 	cd third-party/folly && \
-		CXXFLAGS=" $(CXX_M_FLAGS) -DHAVE_CXX11_ATOMIC " $(PYTHON) build/fbcode_builder/getdeps.py build --no-tests
+		CFLAGS="-fPIC" CXXFLAGS=" $(CXX_M_FLAGS) -DHAVE_CXX11_ATOMIC -fPIC " $(PYTHON) build/fbcode_builder/getdeps.py build --extra-cmake-defines '{"BUILD_SHARED_LIBS": "OFF", "CMAKE_CXX_FLAGS": "-fPIC -DHAVE_CXX11_ATOMIC"}' --no-tests
 
 # ---------------------------------------------------------------------------
 #   Build size testing
