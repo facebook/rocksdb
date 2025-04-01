@@ -1,0 +1,1 @@
+* Deprecated API `DB::MaxMemCompactionLevel()`.
