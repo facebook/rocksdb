@@ -526,8 +526,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
       if (w.status.ok()) {  // Don't publish a partial batch write
         versions_->SetLastSequence(last_sequence);
+      } else {
+        HandleMemTableInsertFailure(w.status);
       }
-      MemTableInsertStatusCheck(w.status);
       write_thread_.ExitAsBatchGroupFollower(&w);
     }
     assert(w.state == WriteThread::STATE_COMPLETED);
@@ -887,7 +888,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           logs_.back().SetAttemptTruncateSize(log_context.prev_size);
         }
       }
-      MemTableInsertStatusCheck(w.status);
+      HandleMemTableInsertFailure(w.status);
     }
     write_thread_.ExitAsBatchGroupLeader(write_group, status);
   }
@@ -1045,10 +1046,11 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
           &flush_scheduler_, &trim_history_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
           false /*concurrent_memtable_writes*/, seq_per_batch_, batch_per_txn_);
-      MemTableInsertStatusCheck(memtable_write_group.status);
       if (memtable_write_group.status
               .ok()) {  // Don't publish a partial batch write
         versions_->SetLastSequence(memtable_write_group.last_sequence);
+      } else {
+        HandleMemTableInsertFailure(memtable_write_group.status);
       }
       write_thread_.ExitAsMemTableWriter(&w, memtable_write_group);
     }
@@ -1078,9 +1080,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     PERF_TIMER_START(write_pre_and_post_process_time);
 
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
-      MemTableInsertStatusCheck(w.status);
       if (w.status.ok()) {  // Don't publish a partial batch write
         versions_->SetLastSequence(w.write_group->last_sequence);
+      } else {
+        HandleMemTableInsertFailure(w.status);
       }
       write_thread_.ExitAsMemTableWriter(&w, *w.write_group);
     }
@@ -1405,18 +1408,16 @@ void DBImpl::WALIOStatusCheck(const IOStatus& io_status) {
   }
 }
 
-void DBImpl::MemTableInsertStatusCheck(const Status& status) {
-  // A non-OK status here indicates that the state implied by the
-  // WAL has diverged from the in-memory state.  This could be
-  // because of a corrupt write_batch (very bad), or because the
-  // client specified an invalid column family and didn't specify
-  // ignore_missing_column_families.
-  if (!status.ok()) {
-    mutex_.Lock();
-    assert(!error_handler_.IsBGWorkStopped());
-    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable);
-    mutex_.Unlock();
-  }
+void DBImpl::HandleMemTableInsertFailure(const Status& status) {
+  assert(!status.ok());
+  // A non-OK status on memtable insert indicates that the state implied by the
+  // WAL has diverged from the in-memory state.  This could be because of a
+  // corrupt write_batch (very bad), or because the client specified an invalid
+  // column family and didn't specify ignore_missing_column_families.
+  mutex_.Lock();
+  assert(!error_handler_.IsBGWorkStopped());
+  error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable);
+  mutex_.Unlock();
 }
 
 Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
@@ -1835,13 +1836,14 @@ Status DBImpl::WriteRecoverableState() {
         0 /*recovery_log_number*/, this, false /* concurrent_memtable_writes */,
         &next_seq, &dont_care_bool, seq_per_batch_);
     auto last_seq = next_seq - 1;
-    MemTableInsertStatusCheck(status);
     if (status.ok()) {  // Don't publish a partial batch write
       if (two_write_queues_) {
         versions_->FetchAddLastAllocatedSequence(last_seq - seq);
         versions_->SetLastPublishedSequence(last_seq);
       }
       versions_->SetLastSequence(last_seq);
+    } else {
+      HandleMemTableInsertFailure(status);
     }
     if (two_write_queues_) {
       log_write_mutex_.Unlock();
