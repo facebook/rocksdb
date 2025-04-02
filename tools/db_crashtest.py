@@ -343,9 +343,6 @@ default_params = {
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
-    # TODO(hx235): enable `track_and_verify_wals` again after resolving the issues
-    # it has with write fault injection and TXN
-    "track_and_verify_wals": 0,
     "enable_remote_compaction": lambda: random.choice([0, 1]),
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
 }
@@ -963,22 +960,36 @@ def finalize_and_sanitize(src_params):
         dest_params["check_multiget_consistency"] = 0
         dest_params["check_multiget_entity_consistency"] = 0
     if dest_params.get("disable_wal") == 0:
-        if dest_params.get("reopen") > 0 or (
-            dest_params.get("manual_wal_flush_one_in")
-            and dest_params.get("column_families") != 1
+        if (
+            dest_params.get("reopen") > 0
+            or (
+                dest_params.get("manual_wal_flush_one_in")
+                and dest_params.get("column_families") != 1
+            )
+            or (
+                dest_params.get("use_txn") != 0
+                and dest_params.get("use_optimistic_txn") == 0
+            )
         ):
-            # Reopen with WAL currently requires persisting WAL data before closing for reopen.
+            # 1. Reopen with WAL currently requires persisting WAL data before closing for reopen.
             # Previous injected WAL write errors may not be cleared by the time of closing and ready
             # for persisting WAL.
             # To simplify, we disable any WAL write error injection.
             # TODO(hx235): support WAL write error injection with reopen
-            # TODO(hx235): support excluding WAL from metadata write fault injection so we don't
-            # have to disable metadata write fault injection to other file
             #
-            # WAL write failure can drop buffered WAL data. This can cause
+            # 2. WAL write failure can drop buffered WAL data. This can cause
             # inconsistency when one CF has a successful flush during auto
             # recovery. Disable the fault injection in this path for now until
             # we have a fix that allows auto recovery.
+            #
+            # 3. Pessimistic transactions use 2PC, which can't auto-recover from WAL write errors.
+            # This is because RocksDB cannot easily discard the corrupted WAL without risking the
+            # loss of uncommitted prepared data within the same WAL.
+            # Therefore disabling WAL write error injection in stress tests to prevent crashing
+            # since stress test does not support injecting errors that can' be auto-recovered.
+            #
+            # TODO(hx235): support excluding WAL from metadata write fault injection so we don't
+            # have to disable metadata write fault injection to other file
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
     # Enabling block_align with compression is not supported
