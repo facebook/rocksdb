@@ -870,7 +870,8 @@ Status FlushJob::WriteLevel0Table() {
   std::vector<BlobFileAddition> blob_file_additions;
 
   {
-    auto write_hint = base_->storage_info()->CalculateSSTWriteHint(/*level=*/0);
+    auto write_hint = base_->storage_info()->CalculateSSTWriteHint(
+        /*level=*/0, db_options_.calculate_sst_write_lifetime_hint_set);
     Env::IOPriority io_priority = GetRateLimiterPriority();
     db_mutex_->Unlock();
     if (log_buffer_) {

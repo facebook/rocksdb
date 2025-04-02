@@ -3182,6 +3182,15 @@ class ModelDB : public DB {
     return Status();
   }
 
+  using DB::GetPropertiesOfTablesByLevel;
+  Status GetPropertiesOfTablesByLevel(
+      ColumnFamilyHandle* /* column_family */,
+      std::vector<
+          std::unique_ptr<TablePropertiesCollection>>* /* props_by_level */)
+      override {
+    return Status();
+  }
+
   using DB::KeyMayExist;
   bool KeyMayExist(const ReadOptions& /*options*/,
                    ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
@@ -3341,11 +3350,6 @@ class ModelDB : public DB {
 
   using DB::NumberLevels;
   int NumberLevels(ColumnFamilyHandle* /*column_family*/) override { return 1; }
-
-  using DB::MaxMemCompactionLevel;
-  int MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) override {
-    return 1;
-  }
 
   using DB::Level0StopWriteTrigger;
   int Level0StopWriteTrigger(ColumnFamilyHandle* /*column_family*/) override {
@@ -5402,8 +5406,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
 
   for (const auto& file : cf_meta.levels[4].files) {
     listener->SetExpectedFileName(dbname_ + file.name);
-    Slice start(file.smallestkey), limit(file.largestkey);
-    const RangePtr ranges(&start, &limit);
+    const RangeOpt ranges(file.smallestkey, file.largestkey);
     // Given verification from above, we're guaranteed that by deleting all the
     // files in [<smallestkey>, <largestkey>] range, we're effectively deleting
     // that very single file and nothing more.

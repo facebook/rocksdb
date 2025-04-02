@@ -229,6 +229,56 @@ TEST_F(DBTablePropertiesTest, CreateOnDeletionCollectorFactory) {
   ASSERT_EQ(0.5, del_factory->GetDeletionRatio());
 }
 
+TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesByLevelTest) {
+  Random rnd(202);
+  Options options;
+  options.level_compaction_dynamic_level_bytes = false;
+  options.create_if_missing = true;
+  options.write_buffer_size = 4096;
+  options.max_write_buffer_number = 2;
+  options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 2;
+  options.level0_stop_writes_trigger = 2;
+  options.target_file_size_base = 2048;
+  options.max_bytes_for_level_base = 40960;
+  options.max_bytes_for_level_multiplier = 4;
+  options.hard_pending_compaction_bytes_limit = 16 * 1024;
+  options.num_levels = 8;
+  options.env = env_;
+
+  DestroyAndReopen(options);
+
+  // build a decent LSM
+  for (int i = 0; i < 10000; i++) {
+    EXPECT_OK(Put(test::RandomKey(&rnd, 5), rnd.RandomString(102)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  if (NumTableFilesAtLevel(0) == 0) {
+    EXPECT_OK(Put(test::RandomKey(&rnd, 5), rnd.RandomString(102)));
+    ASSERT_OK(Flush());
+  }
+
+  ASSERT_OK(db_->PauseBackgroundWork());
+
+  // Ensure that we have at least L0, L1 and L2
+  ASSERT_GT(NumTableFilesAtLevel(0), 0);
+  ASSERT_GT(NumTableFilesAtLevel(1), 0);
+  ASSERT_GT(NumTableFilesAtLevel(2), 0);
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  std::vector<std::unique_ptr<TablePropertiesCollection>> levels_props;
+  ASSERT_OK(db_->GetPropertiesOfTablesByLevel(db_->DefaultColumnFamily(),
+                                              &levels_props));
+  for (int i = 0; i < 8; i++) {
+    const std::unique_ptr<TablePropertiesCollection>& level_props =
+        levels_props[i];
+    ASSERT_EQ(level_props->size(), cf_meta.levels[i].files.size());
+  }
+
+  Close();
+}
+
 // Test params:
 // 1) whether to enable user-defined timestamps
 class DBTablePropertiesInRangeTest : public DBTestBase,
@@ -292,7 +342,7 @@ class DBTablePropertiesInRangeTest : public DBTestBase,
     keys.reserve(range_size * 2);
     for (auto& r : ranges) {
       auto [start, limit] = MaybeAddTimestampsToRange(
-          &r.start, &r.limit, ts_sz, &keys.emplace_back(), &keys.emplace_back(),
+          r.start, r.limit, ts_sz, &keys.emplace_back(), &keys.emplace_back(),
           /*exclusive_end=*/false);
       EXPECT_TRUE(start.has_value());
       EXPECT_TRUE(limit.has_value());

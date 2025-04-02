@@ -394,29 +394,16 @@ Status CompactionServiceCompactionJob::Run() {
   // For remote compaction, there's only one subcompaction.
   compact_->AggregateCompactionStats(internal_stats_, *job_stats_);
 
-  // 2. Update the following stats in internal_stats_.output_level_stats
-  // - num_input_files_in_non_output_levels
-  // - num_input_files_in_output_level
-  // - bytes_read_non_output_levels
-  // - bytes_read_output_level
-  // - num_input_records
-  // - bytes_read_blob
-  // - num_dropped_records
-  uint64_t num_input_range_del = 0;
-  const bool ok = UpdateOutputLevelCompactionStats(&num_input_range_del);
-  if (status.ok() && ok && job_stats_->has_num_input_records) {
-    // TODO(jaykorean) - verify record count
-    assert(job_stats_->num_input_records > 0);
-  }
-
-  // 3. Update job-level stats with the aggregated internal_stats_
-  UpdateCompactionJobStats(internal_stats_);
+  // 2. Update job-level output stats with the aggregated internal_stats_
+  // Please note that input stats will be updated by primary host when all
+  // subcompactions are finished
+  UpdateCompactionJobOutputStats(internal_stats_);
   // and set fields that are not propagated as part of the update
   compaction_result_->stats.is_manual_compaction = c->is_manual_compaction();
   compaction_result_->stats.is_full_compaction = c->is_full_compaction();
   compaction_result_->stats.is_remote_compaction = true;
 
-  // 4. Update IO Stats that are not part of the the update above
+  // 3. Update IO Stats that are not part of the the update above
   // (bytes_read, bytes_written)
   RecordCompactionIOStats();
 

@@ -27,50 +27,77 @@ class SystemClock;
 
 struct KeyRangeInfo {
   // Smallest internal key in an external file or for a batch of external files.
+  // unset() could be either invalid or "before all keys"
   InternalKey smallest_internal_key;
   // Largest internal key in an external file or for a batch of external files.
+  // unset() could be either invalid or "after all keys"
   InternalKey largest_internal_key;
 
-  bool empty() const {
-    return smallest_internal_key.size() == 0 &&
-           largest_internal_key.size() == 0;
+  bool unset() const {
+    // Legal internal keys are at least 8 bytes.
+    return smallest_internal_key.unset() || largest_internal_key.unset();
   }
 };
 
 // Helper class to apply SST file key range checks to the external files.
+// XXX: using sstableKeyCompare with user comparator on internal keys is
+// very broken
 class ExternalFileRangeChecker {
  public:
   explicit ExternalFileRangeChecker(const Comparator* ucmp) : ucmp_(ucmp) {}
 
   // Operator used for sorting ranges.
-  bool operator()(const KeyRangeInfo* prev_range,
-                  const KeyRangeInfo* range) const {
-    assert(prev_range);
-    assert(range);
-    return sstableKeyCompare(ucmp_, prev_range->smallest_internal_key,
-                             range->smallest_internal_key) < 0;
+  bool operator()(const KeyRangeInfo* range1,
+                  const KeyRangeInfo* range2) const {
+    assert(range1);
+    assert(range2);
+    assert(!range1->unset());
+    assert(!range2->unset());
+    return sstableKeyCompare(ucmp_, range1->smallest_internal_key,
+                             range2->smallest_internal_key) < 0;
   }
 
-  // Check whether `range` overlaps with `prev_range`. `ranges_sorted` can be
-  // set to true when the inputs are already sorted based on the sorting logic
-  // provided by this checker's operator(), which can help simplify the check.
-  bool OverlapsWithPrev(const KeyRangeInfo* prev_range,
-                        const KeyRangeInfo* range,
-                        bool ranges_sorted = false) const {
-    assert(prev_range);
-    assert(range);
-    if (prev_range->empty() || range->empty()) {
+  bool Overlaps(const KeyRangeInfo& range1, const KeyRangeInfo& range2,
+                bool known_sorted = false) const {
+    return Overlaps(range1, range2.smallest_internal_key,
+                    range2.largest_internal_key, known_sorted);
+  }
+  bool Overlaps(const KeyRangeInfo& range1, const InternalKey& range2_smallest,
+                const InternalKey& range2_largest,
+                bool known_sorted = false) const {
+    bool any_unset =
+        range1.unset() || range2_smallest.unset() || range2_largest.unset();
+    if (any_unset) {
+      assert(!any_unset);
       return false;
     }
-    if (ranges_sorted) {
-      return sstableKeyCompare(ucmp_, prev_range->largest_internal_key,
-                               range->smallest_internal_key) >= 0;
+    if (known_sorted) {
+      return sstableKeyCompare(ucmp_, range1.largest_internal_key,
+                               range2_smallest) >= 0;
     }
 
-    return sstableKeyCompare(ucmp_, prev_range->largest_internal_key,
-                             range->smallest_internal_key) >= 0 &&
-           sstableKeyCompare(ucmp_, prev_range->smallest_internal_key,
-                             range->largest_internal_key) <= 0;
+    return sstableKeyCompare(ucmp_, range1.largest_internal_key,
+                             range2_smallest) >= 0 &&
+           sstableKeyCompare(ucmp_, range1.smallest_internal_key,
+                             range2_largest) <= 0;
+  }
+
+  bool Contains(const KeyRangeInfo& range1, const KeyRangeInfo& range2) {
+    return Contains(range1, range2.smallest_internal_key,
+                    range2.largest_internal_key);
+  }
+  bool Contains(const KeyRangeInfo& range1, const InternalKey& range2_smallest,
+                const InternalKey& range2_largest) {
+    bool any_unset =
+        range1.unset() || range2_smallest.unset() || range2_largest.unset();
+    if (any_unset) {
+      assert(!any_unset);
+      return false;
+    }
+    return sstableKeyCompare(ucmp_, range1.smallest_internal_key,
+                             range2_smallest) <= 0 &&
+           sstableKeyCompare(ucmp_, range1.largest_internal_key,
+                             range2_largest) >= 0;
   }
 
   void MaybeUpdateRange(const InternalKey& start_key,
@@ -218,6 +245,7 @@ class ExternalSstFileIngestionJob {
   Status Prepare(const std::vector<std::string>& external_files_paths,
                  const std::vector<std::string>& files_checksums,
                  const std::vector<std::string>& files_checksum_func_names,
+                 const std::optional<RangeOpt>& atomic_replace_range,
                  const Temperature& file_temperature, uint64_t next_file_number,
                  SuperVersion* sv);
 
@@ -362,6 +390,7 @@ class ExternalSstFileIngestionJob {
   autovector<IngestedFileInfo> files_to_ingest_;
   std::vector<FileBatchInfo> file_batches_to_ingest_;
   const IngestExternalFileOptions& ingestion_options_;
+  std::optional<KeyRangeInfo> atomic_replace_range_;
   Directories* directories_;
   EventLogger* event_logger_;
   VersionEdit edit_;

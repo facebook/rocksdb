@@ -96,43 +96,6 @@ class ColumnFamilyHandle {
 static const int kMajorVersion = __ROCKSDB_MAJOR__;
 static const int kMinorVersion = __ROCKSDB_MINOR__;
 
-// A range of keys
-struct Range {
-  // In case of user_defined timestamp, if enabled, `start` and `limit` should
-  // point to key without timestamp part.
-  Slice start;
-  Slice limit;
-
-  Range() {}
-  Range(const Slice& s, const Slice& l) : start(s), limit(l) {}
-};
-
-struct RangePtr {
-  // In case of user_defined timestamp, if enabled, `start` and `limit` should
-  // point to key without timestamp part.
-  const Slice* start;
-  const Slice* limit;
-
-  RangePtr() : start(nullptr), limit(nullptr) {}
-  RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) {}
-};
-
-// It is valid that files_checksums and files_checksum_func_names are both
-// empty (no checksum information is provided for ingestion). Otherwise,
-// their sizes should be the same as external_files. The file order should
-// be the same in three vectors and guaranteed by the caller.
-// Note that, we assume the temperatures of this batch of files to be
-// ingested are the same.
-struct IngestExternalFileArg {
-  ColumnFamilyHandle* column_family = nullptr;
-  std::vector<std::string> external_files;
-  IngestExternalFileOptions options;
-  std::vector<std::string> files_checksums;
-  std::vector<std::string> files_checksum_func_names;
-  // A hint as to the temperature for *reading* the files to be ingested.
-  Temperature file_temperature = Temperature::kUnknown;
-};
-
 struct GetMergeOperandsOptions {
   using ContinueCallback = std::function<bool(Slice)>;
 
@@ -653,7 +616,7 @@ class DB {
                        const Slice& /*key*/, const Slice& /*ts*/,
                        const Slice& /*value*/);
 
-  // Apply the specified updates to the database.
+  // Apply the specified updates atomically to the database.
   // If `updates` contains no update, WAL will still be synced if
   // options.sync=true.
   // Returns OK on success, non-OK on failure.
@@ -1695,9 +1658,12 @@ class DB {
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
   virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }
 
+  // DEPRECATED:
   // Maximum level to which a new compacted memtable is pushed if it
   // does not create overlap.
-  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) = 0;
+  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) {
+    return 0;
+  }
   virtual int MaxMemCompactionLevel() {
     return MaxMemCompactionLevel(DefaultColumnFamily());
   }
@@ -2081,14 +2047,11 @@ class DB {
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) = 0;
 
-  // Get the table properties of files per level.
-  virtual Status GetPropertiesOfTablesForLevels(
-      ColumnFamilyHandle* /* column_family */,
-      std::vector<
-          std::unique_ptr<TablePropertiesCollection>>* /* levels_props */) {
-    return Status::NotSupported(
-        "GetPropertiesOfTablesForLevels() is not implemented.");
-  }
+  // Get the table properties of files by level.
+  virtual Status GetPropertiesOfTablesByLevel(
+      ColumnFamilyHandle* column_family,
+      std::vector<std::unique_ptr<TablePropertiesCollection>>*
+          props_by_level) = 0;
 
   virtual Status SuggestCompactRange(ColumnFamilyHandle* /*column_family*/,
                                      const Slice* /*begin*/,

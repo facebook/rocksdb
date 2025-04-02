@@ -33,12 +33,12 @@ struct KeyVersion {
 // copied to memory, if the range covers too many keys, the memory usage
 // may be huge. `max_num_ikeys` can be used to cap the memory usage.
 // The result is inserted into the provided vector, `key_versions`.
-Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
+Status GetAllKeyVersions(DB* db, OptSlice begin_key, OptSlice end_key,
                          size_t max_num_ikeys,
                          std::vector<KeyVersion>* key_versions);
 
-Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
-                         Slice end_key, size_t max_num_ikeys,
+Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, OptSlice begin_key,
+                         OptSlice end_key, size_t max_num_ikeys,
                          std::vector<KeyVersion>* key_versions);
 
 }  // namespace ROCKSDB_NAMESPACE

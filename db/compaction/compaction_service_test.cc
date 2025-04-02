@@ -717,6 +717,46 @@ TEST_F(CompactionServiceTest, VerifyStatsLocalFallback) {
   VerifyTestData();
 }
 
+TEST_F(CompactionServiceTest, VerifyInputRecordCount) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  uint64_t comp_num = my_cs->GetCompactionNum();
+
+  // Only iterator through 10 keys and force compaction to finish.
+  int num_iter = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompaction()::stop", [&](void* stop_ptr) {
+        num_iter++;
+        if (num_iter == 10) {
+          *(bool*)stop_ptr = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // CompactRange() should fail
+  Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsCorruption());
+  const char* expected_message =
+      "Compaction number of input keys does not match number of keys "
+      "processed.";
+  ASSERT_TRUE(std::strstr(s.getState(), expected_message));
+
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(CompactionServiceTest, CorruptedOutput) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;

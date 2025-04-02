@@ -3637,7 +3637,7 @@ void Java_org_rocksdb_RocksDB_destroyDB(JNIEnv* env, jclass, jstring jdb_path,
 }
 
 bool get_slice_helper(JNIEnv* env, jobjectArray ranges, jsize index,
-                      std::unique_ptr<ROCKSDB_NAMESPACE::Slice>& slice,
+                      ROCKSDB_NAMESPACE::OptSlice& opt_slice,
                       std::vector<std::unique_ptr<jbyte[]>>& ranges_to_free) {
   jobject jArray = env->GetObjectArrayElement(ranges, index);
   if (env->ExceptionCheck()) {
@@ -3659,8 +3659,8 @@ bool get_slice_helper(JNIEnv* env, jobjectArray ranges, jsize index,
     return false;
   }
   env->DeleteLocalRef(jArray);
-  slice.reset(new ROCKSDB_NAMESPACE::Slice(
-      reinterpret_cast<char*>(ranges_to_free.back().get()), len_ba));
+  opt_slice = ROCKSDB_NAMESPACE::Slice(
+      reinterpret_cast<char*>(ranges_to_free.back().get()), len_ba);
   return true;
 }
 /*
@@ -3675,24 +3675,24 @@ void Java_org_rocksdb_RocksDB_deleteFilesInRanges(JNIEnv* env, jclass /*jdb*/,
                                                   jboolean include_end) {
   jsize length = env->GetArrayLength(ranges);
 
-  std::vector<ROCKSDB_NAMESPACE::RangePtr> rangesVector;
-  std::vector<std::unique_ptr<ROCKSDB_NAMESPACE::Slice>> slices;
+  std::vector<ROCKSDB_NAMESPACE::RangeOpt> rangesVector;
+  std::vector<ROCKSDB_NAMESPACE::OptSlice> slices;
   std::vector<std::unique_ptr<jbyte[]>> ranges_to_free;
   for (jsize i = 0; (i + 1) < length; i += 2) {
-    slices.push_back(std::unique_ptr<ROCKSDB_NAMESPACE::Slice>());
+    slices.emplace_back();
     if (!get_slice_helper(env, ranges, i, slices.back(), ranges_to_free)) {
       // exception thrown
       return;
     }
 
-    slices.push_back(std::unique_ptr<ROCKSDB_NAMESPACE::Slice>());
+    slices.emplace_back();
     if (!get_slice_helper(env, ranges, i + 1, slices.back(), ranges_to_free)) {
       // exception thrown
       return;
     }
 
-    rangesVector.push_back(ROCKSDB_NAMESPACE::RangePtr(
-        slices[slices.size() - 2].get(), slices[slices.size() - 1].get()));
+    rangesVector.push_back(ROCKSDB_NAMESPACE::RangeOpt(
+        slices[slices.size() - 2], slices[slices.size() - 1]));
   }
 
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
