@@ -22,7 +22,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
-#include "rocksdb/multi_scan_iterator.h"
+#include "rocksdb/multi_scan.h"
 #include "rocksdb/options.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
@@ -1081,7 +1081,8 @@ class DB {
       const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
       const std::vector<ScanOptions>& /*scan_opts*/) {
     std::unique_ptr<Iterator> iter(NewErrorIterator(Status::NotSupported()));
-    std::unique_ptr<MultiScan> ms_iter(new MultiScan(std::move(iter)));
+    std::unique_ptr<MultiScan> ms_iter =
+        std::make_unique<MultiScan>(std::move(iter));
     return ms_iter;
   }
 

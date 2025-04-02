@@ -17,6 +17,8 @@ enum class IterBoundCheck : char {
 
 // This structure encapsulates the result of NextAndGetResult()
 struct IterateResult {
+  // The lifetime of key is guaranteed until Next()/NextAndGetResult() is
+  // called.
   Slice key;
   // If the iterator becomes invalid after a NextAndGetResult(), the table
   // iterator should set this to indicate whether it became invalid due

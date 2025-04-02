@@ -3801,7 +3801,8 @@ std::unique_ptr<MultiScan> DBImpl::NewMultiScan(
     const std::vector<ScanOptions>& scan_opts) {
   std::unique_ptr<Iterator> iter(NewIterator(_read_options, column_family));
   iter->Prepare(scan_opts);
-  std::unique_ptr<MultiScan> ms_iter(new MultiScan(scan_opts, std::move(iter)));
+  std::unique_ptr<MultiScan> ms_iter =
+      std::make_unique<MultiScan>(scan_opts, std::move(iter));
   return ms_iter;
 }
 
