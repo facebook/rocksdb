@@ -62,6 +62,8 @@ struct Options;
 struct DbPath;
 
 using FileTypeSet = SmallEnumSet<FileType, FileType::kBlobFile>;
+using CompactionStyleSet =
+    SmallEnumSet<CompactionStyle, CompactionStyle::kCompactionStyleNone>;
 
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // The function recovers options to a previous version. Only 4.6 or later
@@ -1620,6 +1622,24 @@ struct DBOptions {
   // `kUnknown`, this overrides any temperature set by OptimizeForLogWrite
   // functions.
   Temperature wal_write_temperature = Temperature::kUnknown;
+
+  // Enum set indicative of which compaction styles SST write lifetime hint
+  // calculation is allowed on. Today, RocksDB provides native support for
+  // kCompactionStyleLevel and kCompactionStyleUniversal (experimental version).
+  // Other compaction styles, even when enabled in the set, won't have any
+  // effect in the default PosixWritableFile file implementation. There are
+  // numerous benefits coming from employing the hints including reduction in
+  // write amplification caused by OS file movement during garbage collection,
+  // and reduction in wear-leveling (SSDs). However, as currently implemented,
+  // SST write lifetime hints are calculated in a static way and solely based on
+  // the level, which might not be suitable for non-uniform workloads with
+  // dynamic / high-variance lifespan of data within the same level. In those
+  // cases (or when the performance is not satisfactory), it's recommended to
+  // disable the hints by assigning the setting to the empty set (= {});
+  //
+  // Default: Enabled in kCompactionStyleLevel mode.
+  CompactionStyleSet calculate_sst_write_lifetime_hint_set = {
+      CompactionStyle::kCompactionStyleLevel};
   // End EXPERIMENTAL
 };
 
@@ -1764,6 +1784,10 @@ struct ReadOptions {
   // block cache.
   bool fill_cache = true;
 
+  // DEPRECATED: This option might be removed in a future release.
+  // There should be no noticeable performance difference whether this option
+  // is turned on or off when a DB does not use DeleteRange().
+  //
   // If true, range tombstones handling will be skipped in key lookup paths.
   // For DB instances that don't use DeleteRange() calls, this setting can
   // be used to optimize the read performance.
@@ -2225,6 +2249,29 @@ struct CompactRangeOptions {
   double blob_garbage_collection_age_cutoff = -1;
 };
 
+// A range of keys. In case of user_defined timestamp, if enabled, `start` and
+// `limit` should point to key without timestamp part.
+struct Range {
+  Slice start;
+  Slice limit;
+
+  Range() {}
+  Range(const Slice& s, const Slice& l) : start(s), limit(l) {}
+};
+
+// A key range with optional endpoints. In case of user_defined timestamp, if
+// enabled, `start` and `limit` should point to key without timestamp part.
+struct RangeOpt {
+  // When start.has_value() == false, refers to starting before every key
+  OptSlice start;
+  // When limit.has_value() == false, refers to ending after every key
+  OptSlice limit;
+
+  RangeOpt() {}
+  RangeOpt(const OptSlice& s, const OptSlice& l) : start(s), limit(l) {}
+  // RangeOpt(const Slice& s, const Slice& l) : start(s), limit(l) {}
+};
+
 // IngestExternalFileOptions is used by IngestExternalFile()
 struct IngestExternalFileOptions {
   // Can be set to true to move the files instead of copying them.
@@ -2247,8 +2294,11 @@ struct IngestExternalFileOptions {
   // during file ingestion in the DB (the conditions under which a global_seqno
   // must be assigned to the ingested file).
   bool allow_global_seqno = true;
-  // If set to false and the file key range overlaps with the memtable key range
-  // (memtable flush required), IngestExternalFile will fail.
+  // Normally (true), IngestExternalFile() will trigger and block for flushing
+  // memtable(s) if there is overlap between ingested files and memtable(s). If
+  // allow_blocking_flush is set to false, IngestExternalFile() will fail if the
+  // file key range overlaps with the memtable key range (memtable flush
+  // required).
   bool allow_blocking_flush = true;
   // Set to true if you would like duplicate keys in the file being ingested
   // to be skipped rather than overwriting existing data under that key.
@@ -2329,6 +2379,44 @@ struct IngestExternalFileOptions {
   // When ingesting to multiple families, this option should be the same across
   // ingestion options.
   bool fill_cache = true;
+};
+
+// It is valid that files_checksums and files_checksum_func_names are both
+// empty (no checksum information is provided for ingestion). Otherwise,
+// their sizes should be the same as external_files. The file order should
+// be the same in three vectors and guaranteed by the caller.
+// Note that, we assume the temperatures of this batch of files to be
+// ingested are the same.
+struct IngestExternalFileArg {
+  ColumnFamilyHandle* column_family = nullptr;
+  std::vector<std::string> external_files;
+  IngestExternalFileOptions options;
+  std::vector<std::string> files_checksums;
+  std::vector<std::string> files_checksum_func_names;
+  // A hint as to the temperature for *reading* the files to be ingested.
+  Temperature file_temperature = Temperature::kUnknown;
+  // EXPERIMENTAL: When specified, existing keys in the given range will be
+  // cleared atomically as part of the ingestion, where the ingested files are
+  // logically applied on top of the cleared key range.
+  // * If both `start` and `limit` are nullptr, the entire column family is
+  // cleared; however, setting just one bound to nullptr is not yet supported.
+  // * When a range is specified, all the external files in this batch must
+  //   be contained in that key range.
+  // * Checks for memtable overlap and possible blocking flush will apply
+  //   to this range (not just the file ranges).
+  // * Not compatible with ingest_behind=true.
+  // * When options.snapshot_consistency = false, the range is cleared
+  // similarly to DeleteFilesInRange, but fails if any files overlap the range
+  // only partially.
+  //   * It is recommended to use fail_if_not_bottommost_level=true to ensure
+  //     data in the key range is ingested to a single compacted level (the
+  //     last level). (fail_if_not_bottommost_level=false allows overlap between
+  //     the ingested files.)
+  // * options.snapshot_consistency = true is not yet supported.
+  // BUG: the upper bound of the range may be interpreted as inclusive or
+  // exclusive, so it is best not to depend on one or the other until it is
+  // sorted out.
+  std::optional<RangeOpt> atomic_replace_range;
 };
 
 enum TraceFilterType : uint64_t {

@@ -474,12 +474,11 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num_limit,
   const Comparator* ucmp = internal_comparator_.user_comparator();
   size_t ts_sz = ucmp->timestamp_size();
 
-  Slice from_slice = from_key;
-  Slice to_slice = to_key;
+  OptSlice from_opt = has_from ? from_key : OptSlice{};
+  OptSlice to_opt = has_to ? to_key : OptSlice{};
   std::string from_key_buf, to_key_buf;
-  auto [from, to] = MaybeAddTimestampsToRange(
-      has_from ? &from_slice : nullptr, has_to ? &to_slice : nullptr, ts_sz,
-      &from_key_buf, &to_key_buf);
+  auto [from, to] = MaybeAddTimestampsToRange(from_opt, to_opt, ts_sz,
+                                              &from_key_buf, &to_key_buf);
   uint64_t i = 0;
   if (from.has_value()) {
     InternalKey ikey;

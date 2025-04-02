@@ -33,6 +33,8 @@ struct CompactionJobStats {
   uint64_t num_blobs_read = 0;
   // the number of compaction input files (table files)
   size_t num_input_files = 0;
+  // The number of input files that get trivially moved.
+  size_t num_input_files_trivially_moved = 0;
   // the number of compaction input files at the output level (table files)
   size_t num_input_files_at_output_level = 0;
   // the number of compaction input files that are filtered out by compaction

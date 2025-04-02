@@ -4126,6 +4126,7 @@ public class RocksDB extends RocksObject {
    *
    * @return the maximum level
    */
+  @Deprecated
   public int maxMemCompactionLevel() {
     return maxMemCompactionLevel(null);
   }
@@ -4633,10 +4634,13 @@ public class RocksDB extends RocksObject {
    * @param targetLevel the target level for L0
    *
    * @throws RocksDBException if an error occurs whilst promoting L0
+   *
+   * @deprecated this API may be removed in a future release.
    */
+  @Deprecated
   public void promoteL0(
-      /* @Nullable */final ColumnFamilyHandle columnFamilyHandle,
-      final int targetLevel) throws RocksDBException {
+      /* @Nullable */ final ColumnFamilyHandle columnFamilyHandle, final int targetLevel)
+      throws RocksDBException {
     promoteL0(nativeHandle_,
         columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
         targetLevel);
@@ -4648,9 +4652,11 @@ public class RocksDB extends RocksObject {
    * @param targetLevel the target level for L0
    *
    * @throws RocksDBException if an error occurs whilst promoting L0
+   *
+   * @deprecated this API may be removed in a future release.
    */
-  public void promoteL0(final int targetLevel)
-      throws RocksDBException {
+  @Deprecated
+  public void promoteL0(final int targetLevel) throws RocksDBException {
     promoteL0(null, targetLevel);
   }
 

@@ -196,24 +196,9 @@ class CompactionJob {
   IOStatus io_status() const { return io_status_; }
 
  protected:
-  // Update the following stats in internal_stats_.output_level_stats
-  // - num_input_files_in_non_output_levels
-  // - num_input_files_in_output_level
-  // - bytes_read_non_output_levels
-  // - bytes_read_output_level
-  // - num_input_records
-  // - bytes_read_blob
-  // - num_dropped_records
-  //
-  // @param num_input_range_del if non-null, will be set to the number of range
-  // deletion entries in this compaction input.
-  //
-  // Returns true iff internal_stats_.output_level_stats.num_input_records and
-  // num_input_range_del are calculated successfully.
-  bool UpdateOutputLevelCompactionStats(
-      uint64_t* num_input_range_del = nullptr);
-  void UpdateCompactionJobStats(
+  void UpdateCompactionJobOutputStats(
       const InternalStats::CompactionStatsFull& internal_stats) const;
+
   void LogCompaction();
   virtual void RecordCompactionIOStats();
   void CleanupCompaction();
@@ -239,6 +224,32 @@ class CompactionJob {
 
  private:
   friend class CompactionJobTestBase;
+
+  // Collect the following stats from Input Table Properties
+  // - num_input_files_in_non_output_levels
+  // - num_input_files_in_output_level
+  // - bytes_read_non_output_levels
+  // - bytes_read_output_level
+  // - num_input_records
+  // - bytes_read_blob
+  // - num_dropped_records
+  // and set them in internal_stats_.output_level_stats
+  //
+  // @param num_input_range_del if non-null, will be set to the number of range
+  // deletion entries in this compaction input.
+  //
+  // Returns true iff internal_stats_.output_level_stats.num_input_records and
+  // num_input_range_del are calculated successfully.
+  //
+  // This should be called only once for compactions (not per subcompaction)
+  bool BuildStatsFromInputTableProperties(
+      uint64_t* num_input_range_del = nullptr);
+
+  void UpdateCompactionJobInputStats(
+      const InternalStats::CompactionStatsFull& internal_stats,
+      uint64_t num_input_range_del) const;
+
+  Status VerifyInputRecordCount(uint64_t num_input_range_del) const;
 
   // Generates a histogram representing potential divisions of key ranges from
   // the input. It adds the starting and/or ending keys of certain input files

@@ -630,7 +630,8 @@ class VersionStorageInfo {
                                      const Slice& largest_user_key,
                                      int last_level, int last_l0_idx);
 
-  Env::WriteLifeTimeHint CalculateSSTWriteHint(int level) const;
+  Env::WriteLifeTimeHint CalculateSSTWriteHint(
+      int level, CompactionStyleSet compaction_style_set) const;
 
   const Comparator* user_comparator() const { return user_comparator_; }
 
@@ -993,17 +994,21 @@ class Version {
                             const FileMetaData* file_meta,
                             const std::string* fname = nullptr) const;
 
-  // REQUIRES: lock is held
   // On success, *props will be populated with all SSTables' table properties.
   // The keys of `props` are the sst file name, the values of `props` are the
   // tables' properties, represented as std::shared_ptr.
   Status GetPropertiesOfAllTables(const ReadOptions& read_options,
-                                  TablePropertiesCollection* props);
+                                  TablePropertiesCollection* props) const;
   Status GetPropertiesOfAllTables(const ReadOptions& read_options,
-                                  TablePropertiesCollection* props, int level);
+                                  TablePropertiesCollection* props,
+                                  int level) const;
   Status GetPropertiesOfTablesInRange(const ReadOptions& read_options,
                                       const autovector<UserKeyRange>& ranges,
                                       TablePropertiesCollection* props) const;
+  Status GetPropertiesOfTablesByLevel(
+      const ReadOptions& read_options,
+      std::vector<std::unique_ptr<TablePropertiesCollection>>* props_by_level)
+      const;
 
   // Print summary of range delete tombstones in SST files into out_str,
   // with maximum max_entries_to_print entries printed out.

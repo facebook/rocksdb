@@ -3288,8 +3288,7 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
     ASSERT_OK(Delete(std::to_string(i)));
   }
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
-                              std::numeric_limits<size_t>::max(),
+  ASSERT_OK(GetAllKeyVersions(db_, {}, {}, std::numeric_limits<size_t>::max(),
                               &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
   for (size_t i = 0; i < kNumInserts + kNumDeletes + kNumUpdates; i++) {
@@ -3299,7 +3298,7 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
       ASSERT_EQ(key_versions[i].GetTypeName(), "TypeValue");
     }
   }
-  ASSERT_OK(GetAllKeyVersions(db_, handles_[0], Slice(), Slice(),
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[0], {}, {},
                               std::numeric_limits<size_t>::max(),
                               &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
@@ -3314,10 +3313,17 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
   for (size_t i = 0; i + 1 != kNumDeletes; ++i) {
     ASSERT_OK(Delete(1, std::to_string(i)));
   }
-  ASSERT_OK(GetAllKeyVersions(db_, handles_[1], Slice(), Slice(),
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[1], {}, {},
                               std::numeric_limits<size_t>::max(),
                               &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates - 3, key_versions.size());
+
+  // Change from historical behavior: empty key is now interpreted literally as
+  // a legal key (rather than as a "not present" key)
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[1], Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
+  ASSERT_EQ(key_versions.size(), 0);
 }
 
 TEST_F(DBBasicTest, ValueTypeString) {

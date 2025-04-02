@@ -448,7 +448,7 @@ class InternalStats {
   };
 
   // Compaction internal stats, for per_key_placement compaction, it includes 2
-  // levels stats: the last level and the proximal level.
+  // output level stats: the last level and the proximal level.
   struct CompactionStatsFull {
     // the stats for the target primary output level
     CompactionStats output_level_stats;

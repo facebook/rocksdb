@@ -127,6 +127,19 @@ class DBCompactionTestWithParam
     exclusive_manual_compaction_ = std::get<1>(GetParam());
   }
 
+  class TrivialMoveEventListener : public EventListener {
+   public:
+    explicit TrivialMoveEventListener(size_t expected_trivially_moved_files)
+        : expected_trivially_moved_files_(expected_trivially_moved_files) {}
+    void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
+      ASSERT_EQ(ci.stats.num_input_files_trivially_moved,
+                expected_trivially_moved_files_);
+    }
+
+   private:
+    size_t expected_trivially_moved_files_ = 0;
+  };
+
   // Required if inheriting from testing::WithParamInterface<>
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
@@ -1301,6 +1314,9 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveOneFile) {
 
   Options options = CurrentOptions();
   options.write_buffer_size = 100000000;
+  TrivialMoveEventListener* trivial_move_listener =
+      new TrivialMoveEventListener(1 /*expected_trivially_moved_files*/);
+  options.listeners.emplace_back(trivial_move_listener);
   options.max_subcompactions = max_subcompactions_;
   DestroyAndReopen(options);
 
@@ -1361,6 +1377,10 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  // 8 is number of `ranges` that each is a non overlapping file.
+  TrivialMoveEventListener* trivial_move_listener =
+      new TrivialMoveEventListener(8 /*expected_trivially_moved_files*/);
+  options.listeners.emplace_back(trivial_move_listener);
   options.write_buffer_size = 10 * 1024 * 1024;
   options.max_subcompactions = max_subcompactions_;
 
@@ -1408,6 +1428,11 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
   trivial_move = 0;
   non_trivial_move = 0;
   values.clear();
+  options.listeners.clear();
+  // Same ranges of files, but now overlapping, trivial move not applicable.
+  TrivialMoveEventListener* trivial_move_listener2 =
+      new TrivialMoveEventListener(0 /*expected_trivially_moved_files*/);
+  options.listeners.emplace_back(trivial_move_listener2);
   DestroyAndReopen(options);
   // Same ranges as above but overlapping
   ranges = {
@@ -1455,6 +1480,11 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveTargetLevel) {
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  // Two non overlapping files in L0 trivialy moved:
+  // file 1 [0 => 300], file 2 [600 => 700]
+  TrivialMoveEventListener* trivial_move_listener1 =
+      new TrivialMoveEventListener(2 /*expected_trivially_moved_files*/);
+  options.listeners.emplace_back(trivial_move_listener1);
   options.write_buffer_size = 10 * 1024 * 1024;
   options.num_levels = 7;
   options.max_subcompactions = max_subcompactions_;
@@ -2087,13 +2117,10 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
     auto begin_str1 = Key(0), end_str1 = Key(100);
     auto begin_str2 = Key(100), end_str2 = Key(200);
     auto begin_str3 = Key(200), end_str3 = Key(299);
-    Slice begin1(begin_str1), end1(end_str1);
-    Slice begin2(begin_str2), end2(end_str2);
-    Slice begin3(begin_str3), end3(end_str3);
-    std::vector<RangePtr> ranges;
-    ranges.emplace_back(&begin1, &end1);
-    ranges.emplace_back(&begin2, &end2);
-    ranges.emplace_back(&begin3, &end3);
+    std::vector<RangeOpt> ranges;
+    ranges.emplace_back(begin_str1, end_str1);
+    ranges.emplace_back(begin_str2, end_str2);
+    ranges.emplace_back(begin_str3, end_str3);
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
                                   ranges.data(), ranges.size()));
     ASSERT_EQ("0,3,7", FilesPerLevel(0));
@@ -2141,7 +2168,7 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
 
   // Delete all files.
   {
-    RangePtr range;
+    RangeOpt range;
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(), &range, 1));
     ASSERT_EQ("", FilesPerLevel(0));
 

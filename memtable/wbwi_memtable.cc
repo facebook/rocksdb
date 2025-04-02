@@ -61,6 +61,7 @@ bool WBWIMemTable::Get(const LookupKey& key, std::string* value,
   assert(!wbwi_->GetWriteBatch()->HasDeleteRange());
   assert(merge_context);
 
+  *out_seq = kMaxSequenceNumber;
   [[maybe_unused]] SequenceNumber read_seq =
       GetInternalKeySeqno(key.internal_key());
   // This is memtable is a single write batch, no snapshot can be taken within
