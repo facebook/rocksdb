@@ -6666,7 +6666,7 @@ class ExternalTableReaderTest : public DBTestBase {
             target != scan_options_[scan_idx_].range.start.value().ToString()) {
           status_ = Status::InvalidArgument();
         } else {
-          if (valid_ &&
+          if (valid_ && scan_options_[scan_idx_].range.limit.has_value() &&
               iter_->first.compare(
                   scan_options_[scan_idx_].range.limit.value().ToString()) >=
                   0) {
@@ -6687,6 +6687,7 @@ class ExternalTableReaderTest : public DBTestBase {
       valid_ = iter_ != kv_map_.end();
       eof_ = iter_ == kv_map_.end();
       if (valid_ && scan_options_ &&
+          scan_options_[scan_idx_ - 1].range.limit.has_value() &&
           iter_->first.compare(
               scan_options_[scan_idx_ - 1].range.limit.value().ToString()) >=
               0) {
@@ -7053,6 +7054,7 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
   }
   iter.reset();
 
+  // Test the overlapping scan case
   key_ranges[1] = "k30";
   scan_options[0] = ScanOptions(key_ranges[0], key_ranges[1]);
   iter = db->NewMultiScan(ro, cfh, scan_options);
@@ -7063,6 +7065,30 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
       for (auto it : range) {
         ASSERT_GE(it.first.ToString().compare(key_ranges[idx]), 0);
         ASSERT_LT(it.first.ToString().compare(key_ranges[idx + 1]), 0);
+        count++;
+      }
+      idx += 2;
+    }
+    ASSERT_EQ(count, 52);
+  } catch (Status status) {
+    std::cerr << "Iterator returned status " << status.ToString();
+    abort();
+  }
+  iter.reset();
+
+  // Test the no limit scan case
+  scan_options[0] = ScanOptions(key_ranges[0]);
+  scan_options[1] = ScanOptions(key_ranges[2]);
+  iter = db->NewMultiScan(ro, cfh, scan_options);
+  try {
+    int idx = 0;
+    int count = 0;
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_GE(it.first.ToString().compare(key_ranges[idx]), 0);
+        if (it.first.ToString().compare(key_ranges[idx + 1]) == 0) {
+          break;
+        }
         count++;
       }
       idx += 2;
