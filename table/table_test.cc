@@ -6621,6 +6621,7 @@ class ExternalTableReaderTest : public DBTestBase {
         const ReadOptions& /*ro*/,
         const std::map<std::string, std::string>& kv_map)
         : scan_options_(nullptr),
+          num_opts_(0),
           scan_idx_(0),
           kv_map_(kv_map),
           valid_(false) {}
@@ -6661,14 +6662,13 @@ class ExternalTableReaderTest : public DBTestBase {
         eof_ = iter_ == kv_map_.end();
       }
       if (scan_options_) {
-        if (scan_idx_ >= scan_options_->size() ||
-            target !=
-                (*scan_options_)[scan_idx_].range.start.value().ToString()) {
+        if (scan_idx_ >= num_opts_ ||
+            target != scan_options_[scan_idx_].range.start.value().ToString()) {
           status_ = Status::InvalidArgument();
         } else {
           if (valid_ &&
               iter_->first.compare(
-                  (*scan_options_)[scan_idx_].range.limit.value().ToString()) >=
+                  scan_options_[scan_idx_].range.limit.value().ToString()) >=
                   0) {
             valid_ = false;
           }
@@ -6688,7 +6688,7 @@ class ExternalTableReaderTest : public DBTestBase {
       eof_ = iter_ == kv_map_.end();
       if (valid_ && scan_options_ &&
           iter_->first.compare(
-              (*scan_options_)[scan_idx_ - 1].range.limit.value().ToString()) >=
+              scan_options_[scan_idx_ - 1].range.limit.value().ToString()) >=
               0) {
         valid_ = false;
       }
@@ -6736,12 +6736,14 @@ class ExternalTableReaderTest : public DBTestBase {
       return Slice(iter_->second);
     }
 
-    void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+    void Prepare(const ScanOptions scan_opts[], size_t num_opts) override {
       scan_options_ = scan_opts;
+      num_opts_ = num_opts;
     }
 
    private:
-    const std::vector<ScanOptions>* scan_options_;
+    const ScanOptions* scan_options_;
+    size_t num_opts_;
     size_t scan_idx_;
     std::map<std::string, std::string> kv_map_;
     bool valid_ = false;

@@ -73,11 +73,13 @@ class ExternalTableIterator : public IteratorBase {
   // is null, then the previous Prepare() can be discarded.
   //
   // The caller guarantees the lifetime of scan_opts until its either cleared
-  // or replaced by another Prepare()
+  // or replaced by another Prepare().
+  // TODO: Update the contract to trim the scan_opts range to only include
+  // scans that potentially intersect the file key range.
   //
   // If the sequence of Seeks is interrupted by seeking to some other target
   // key, then the iterator is free to discard anything done during Prepare.
-  virtual void Prepare(const std::vector<ScanOptions>* scan_opts) = 0;
+  virtual void Prepare(const ScanOptions scan_opts[], size_t num_opts) = 0;
 
   // Similar to Next(), except it also fills the result and returns whether
   // the iterator is on a valid key or not

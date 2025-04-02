@@ -130,7 +130,7 @@ class ExternalTableIteratorAdapter : public InternalIterator {
 
   void Prepare(const std::vector<ScanOptions>* scan_opts) override {
     if (iterator_) {
-      iterator_->Prepare(scan_opts);
+      iterator_->Prepare(scan_opts->data(), scan_opts->size());
     }
   }
 
