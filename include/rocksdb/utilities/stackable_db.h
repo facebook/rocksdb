@@ -289,11 +289,11 @@ class StackableDB : public DB {
     return db_->NewAttributeGroupIterator(options, column_families);
   }
 
-  using DB::NewMultiScanIterator;
-  std::unique_ptr<MultiScanIterator> NewMultiScanIterator(
+  using DB::NewMultiScan;
+  std::unique_ptr<MultiScan> NewMultiScan(
       const ReadOptions& opts, ColumnFamilyHandle* column_family,
       const std::vector<ScanOptions>& scan_opts) override {
-    return db_->NewMultiScanIterator(opts, column_family, scan_opts);
+    return db_->NewMultiScan(opts, column_family, scan_opts);
   }
 
   const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }

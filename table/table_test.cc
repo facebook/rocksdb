@@ -7032,8 +7032,7 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
   std::vector<ScanOptions> scan_options(
       {ScanOptions(key_ranges[0], key_ranges[1]),
        ScanOptions(key_ranges[2], key_ranges[3])});
-  std::unique_ptr<MultiScanIterator> iter =
-      db->NewMultiScanIterator(ro, cfh, scan_options);
+  std::unique_ptr<MultiScan> iter = db->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
     int count = 0;
@@ -7046,6 +7045,27 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
       idx += 2;
     }
     ASSERT_EQ(count, 32);
+  } catch (Status status) {
+    std::cerr << "Iterator returned status " << status.ToString();
+    abort();
+  }
+  iter.reset();
+
+  key_ranges[1] = "k30";
+  scan_options[0] = ScanOptions(key_ranges[0], key_ranges[1]);
+  iter = db->NewMultiScan(ro, cfh, scan_options);
+  try {
+    int idx = 0;
+    int count = 0;
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_GE(it.first.ToString().compare(key_ranges[idx]), 0);
+        ASSERT_LT(it.first.ToString().compare(key_ranges[idx + 1]), 0);
+        count++;
+      }
+      idx += 2;
+    }
+    ASSERT_EQ(count, 52);
   } catch (Status status) {
     std::cerr << "Iterator returned status " << status.ToString();
     abort();

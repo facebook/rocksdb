@@ -1077,12 +1077,11 @@ class DB {
   // Get an iterator that scans multiple key ranges. The scan ranges should
   // be in increasing order of start key. See multi_scan_iterator.h for more
   // details.
-  virtual std::unique_ptr<MultiScanIterator> NewMultiScanIterator(
+  virtual std::unique_ptr<MultiScan> NewMultiScan(
       const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
       const std::vector<ScanOptions>& /*scan_opts*/) {
     std::unique_ptr<Iterator> iter(NewErrorIterator(Status::NotSupported()));
-    std::unique_ptr<MultiScanIterator> ms_iter(
-        new MultiScanIterator(std::move(iter)));
+    std::unique_ptr<MultiScan> ms_iter(new MultiScan(std::move(iter)));
     return ms_iter;
   }
 
