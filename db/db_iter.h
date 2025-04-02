@@ -220,6 +220,17 @@ class DBIter final : public Iterator {
 
   bool PrepareValue() override;
 
+  void Prepare(const std::vector<ScanOptions>& scan_opts) override {
+    std::optional<std::vector<ScanOptions>> new_scan_opts;
+    new_scan_opts.emplace(scan_opts);
+    scan_opts_.swap(new_scan_opts);
+    if (!scan_opts.empty()) {
+      iter_.Prepare(&scan_opts_.value());
+    } else {
+      iter_.Prepare(nullptr);
+    }
+  }
+
  private:
   class BlobReader {
    public:
@@ -455,6 +466,7 @@ class DBIter final : public Iterator {
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
   std::string saved_timestamp_;
+  std::optional<std::vector<ScanOptions>> scan_opts_;
 };
 
 // Return a new iterator that converts internal keys (yielded by
