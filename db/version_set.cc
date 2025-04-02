@@ -1002,7 +1002,8 @@ class LevelIterator final : public InternalIterator {
         skip_filters_(skip_filters),
         allow_unprepared_value_(allow_unprepared_value),
         is_next_read_sequential_(false),
-        to_return_sentinel_(false) {
+        to_return_sentinel_(false),
+        scan_opts_(nullptr) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
     if (range_tombstone_iter_ptr_) {
@@ -1096,6 +1097,13 @@ class LevelIterator final : public InternalIterator {
 
   void SetRangeDelReadSeqno(SequenceNumber read_seq) override {
     read_seq_ = read_seq;
+  }
+
+  void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+    scan_opts_ = scan_opts;
+    if (file_iter_.iter()) {
+      file_iter_.Prepare(scan_opts_);
+    }
   }
 
  private:
@@ -1223,6 +1231,7 @@ class LevelIterator final : public InternalIterator {
   bool prefix_exhausted_ = false;
   // Whether next/prev key is a sentinel key.
   bool to_return_sentinel_ = false;
+  const std::vector<ScanOptions>* scan_opts_;
 
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
@@ -1533,6 +1542,11 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   }
 
   InternalIterator* old_iter = file_iter_.Set(iter);
+  // Since this is a new table iterator, no need to call Prepare() if
+  // scan_opts_ is null
+  if (iter && scan_opts_) {
+    file_iter_.Prepare(scan_opts_);
+  }
 
   // Update the read pattern for PrefetchBuffer.
   if (is_next_read_sequential_) {

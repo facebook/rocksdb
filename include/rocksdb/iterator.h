@@ -21,6 +21,7 @@
 #include <string>
 
 #include "rocksdb/iterator_base.h"
+#include "rocksdb/options.h"
 #include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -93,6 +94,18 @@ class Iterator : public IteratorBase {
     assert(false);
     return Slice();
   }
+
+  // RocksDB Internal - DO NOT USE
+  // Prepare the iterator to scan the ranges specified in scan_opts. The
+  // upper bound and other table specific limits may be specified. This will
+  // typically be followed by Seeks to the start keys in the order they're
+  // specified in scan_opts. If the user does a Seek to some other target key,
+  // the iterator should disregard the scan_opts from that point onwards and
+  // behave like a normal iterator. Its the user's responsibility to again
+  // call Prepare().
+  // If Prepare() is called, it overrides the iterate_upper_bound in
+  // ReadOptions
+  virtual void Prepare(const std::vector<ScanOptions>& /*scan_opts*/) {}
 };
 
 // Return an empty iterator (yields nothing).

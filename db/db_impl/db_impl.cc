@@ -3796,6 +3796,16 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   return s.ok() || s.IsIncomplete();
 }
 
+std::unique_ptr<MultiScan> DBImpl::NewMultiScan(
+    const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+    const std::vector<ScanOptions>& scan_opts) {
+  std::unique_ptr<Iterator> iter(NewIterator(_read_options, column_family));
+  iter->Prepare(scan_opts);
+  std::unique_ptr<MultiScan> ms_iter =
+      std::make_unique<MultiScan>(scan_opts, std::move(iter));
+  return ms_iter;
+}
+
 Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
                               ColumnFamilyHandle* column_family) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&

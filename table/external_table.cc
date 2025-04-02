@@ -14,16 +14,17 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-class ExternalTableIterator : public InternalIterator {
+class ExternalTableIteratorAdapter : public InternalIterator {
  public:
-  explicit ExternalTableIterator(Iterator* iterator)
+  explicit ExternalTableIteratorAdapter(ExternalTableIterator* iterator)
       : iterator_(iterator), valid_(false) {}
 
   // No copying allowed
-  ExternalTableIterator(const ExternalTableIterator&) = delete;
-  ExternalTableIterator& operator=(const ExternalTableIterator&) = delete;
+  ExternalTableIteratorAdapter(const ExternalTableIteratorAdapter&) = delete;
+  ExternalTableIteratorAdapter& operator=(const ExternalTableIteratorAdapter&) =
+      delete;
 
-  ~ExternalTableIterator() override {}
+  ~ExternalTableIteratorAdapter() override {}
 
   bool Valid() const override { return valid_; }
 
@@ -31,7 +32,7 @@ class ExternalTableIterator : public InternalIterator {
     status_ = Status::OK();
     if (iterator_) {
       iterator_->SeekToFirst();
-      UpdateKey();
+      UpdateKey(OptSlice());
     }
   }
 
@@ -39,7 +40,7 @@ class ExternalTableIterator : public InternalIterator {
     status_ = Status::OK();
     if (iterator_) {
       iterator_->SeekToLast();
-      UpdateKey();
+      UpdateKey(OptSlice());
     }
   }
 
@@ -50,7 +51,7 @@ class ExternalTableIterator : public InternalIterator {
       status_ = ParseInternalKey(target, &pkey, /*log_err_key=*/false);
       if (status_.ok()) {
         iterator_->Seek(pkey.user_key);
-        UpdateKey();
+        UpdateKey(OptSlice());
       }
     }
   }
@@ -62,7 +63,7 @@ class ExternalTableIterator : public InternalIterator {
       status_ = ParseInternalKey(target, &pkey, /*log_err_key=*/false);
       if (status_.ok()) {
         iterator_->SeekForPrev(pkey.user_key);
-        UpdateKey();
+        UpdateKey(OptSlice());
       }
     }
   }
@@ -70,14 +71,44 @@ class ExternalTableIterator : public InternalIterator {
   void Next() override {
     if (iterator_) {
       iterator_->Next();
-      UpdateKey();
+      UpdateKey(OptSlice());
     }
+  }
+
+  bool NextAndGetResult(IterateResult* result) override {
+    if (iterator_) {
+      valid_ = iterator_->NextAndGetResult(&result_);
+      result->value_prepared = result_.value_prepared;
+      result->bound_check_result = result_.bound_check_result;
+      if (valid_) {
+        UpdateKey(result_.key);
+        result->key = key();
+      }
+    } else {
+      valid_ = false;
+    }
+    return valid_;
+  }
+
+  bool PrepareValue() override {
+    if (iterator_ && !result_.value_prepared) {
+      valid_ = iterator_->PrepareValue();
+      result_.value_prepared = true;
+    }
+    return valid_;
+  }
+
+  IterBoundCheck UpperBoundCheckResult() override {
+    if (iterator_) {
+      result_.bound_check_result = iterator_->UpperBoundCheckResult();
+    }
+    return result_.bound_check_result;
   }
 
   void Prev() override {
     if (iterator_) {
       iterator_->Prev();
-      UpdateKey();
+      UpdateKey(OptSlice());
     }
   }
 
@@ -97,18 +128,26 @@ class ExternalTableIterator : public InternalIterator {
 
   Status status() const override { return status_; }
 
+  void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+    if (iterator_) {
+      iterator_->Prepare(scan_opts->data(), scan_opts->size());
+    }
+  }
+
  private:
-  std::unique_ptr<Iterator> iterator_;
+  std::unique_ptr<ExternalTableIterator> iterator_;
   InternalKey key_;
   bool valid_;
   Status status_;
+  IterateResult result_;
 
-  void UpdateKey() {
+  void UpdateKey(OptSlice res) {
     if (iterator_) {
       valid_ = iterator_->Valid();
       status_ = iterator_->status();
       if (valid_ && status_.ok()) {
-        key_.Set(iterator_->key(), 0, ValueType::kTypeValue);
+        key_.Set(res.has_value() ? res.value() : iterator_->key(), 0,
+                 ValueType::kTypeValue);
       }
     }
   }
@@ -134,10 +173,10 @@ class ExternalTableReaderAdapter : public TableReader {
       bool /* allow_unprepared_value */ = false) override {
     auto iterator = reader_->NewIterator(read_options, prefix_extractor);
     if (arena == nullptr) {
-      return new ExternalTableIterator(iterator);
+      return new ExternalTableIteratorAdapter(iterator);
     } else {
-      auto* mem = arena->AllocateAligned(sizeof(ExternalTableIterator));
-      return new (mem) ExternalTableIterator(iterator);
+      auto* mem = arena->AllocateAligned(sizeof(ExternalTableIteratorAdapter));
+      return new (mem) ExternalTableIteratorAdapter(iterator);
     }
   }
 
