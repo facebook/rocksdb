@@ -1703,6 +1703,50 @@ enum ReadTier {
   kMemtableTier = 0x3     // data in memtable. used for memtable-only iterators.
 };
 
+// A range of keys. In case of user_defined timestamp, if enabled, `start` and
+// `limit` should point to key without timestamp part.
+struct Range {
+  Slice start;
+  Slice limit;
+
+  Range() {}
+  Range(const Slice& s, const Slice& l) : start(s), limit(l) {}
+};
+
+// A key range with optional endpoints. In case of user_defined timestamp, if
+// enabled, `start` and `limit` should point to key without timestamp part.
+struct RangeOpt {
+  // When start.has_value() == false, refers to starting before every key
+  OptSlice start;
+  // When limit.has_value() == false, refers to ending after every key
+  OptSlice limit;
+
+  RangeOpt() {}
+  RangeOpt(const OptSlice& s, const OptSlice& l) : start(s), limit(l) {}
+};
+
+// EXPERIMENTAL
+//
+// Options for a RocksDB scan request. Only forward scans for now.
+// We may add other options such as prefix scan in the future.
+struct ScanOptions {
+  // The scan range. Mandatory for start to be set, limit is optional
+  RangeOpt range;
+
+  // A map of name,value pairs that can be passed by the user to an
+  // external table reader. This is completely opaque to RocksDB and is
+  // ignored by the natively supported table readers like block based and plain
+  // table. This is only useful for Iterator.
+  std::optional<std::unordered_map<std::string, std::string>> property_bag;
+
+  // An unbounded scan with a start key
+  ScanOptions(const Slice& _start) : range(_start, OptSlice()) {}
+
+  // A bounded scan with a start key and upper bound
+  ScanOptions(const Slice& _start, const Slice& _upper_bound)
+      : range(_start, _upper_bound) {}
+};
+
 // Options that control read operations
 struct ReadOptions {
   // *** BEGIN options relevant to point lookups as well as scans ***
@@ -2000,22 +2044,6 @@ struct ReadOptions {
   // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
 
-  // EXPERIMENTAL
-  // An optional weight of values to be returned by a scan. Once the
-  // weight is reached or exceeded the scan is terminated (i.e Next()
-  // invalidates the iterator). In the case of a DB with one of the built-in
-  // table formats, such as BlockBasedTable, the weight is simply the number
-  // of key-value pairs. In the case of an ExternalTableReader, the weight is
-  // passed through to the table reader and the interpretation is upto the
-  // reader implementation.
-  uint64_t weight = 0;
-
-  // A map of name,value pairs that can be passed by the user to an
-  // external table reader. This is completely opaque to RocksDB and is
-  // ignored by the natively supported table readers like block based and plain
-  // table. This is only useful for Iterator.
-  std::optional<std::unordered_map<std::string, std::string>> property_bag;
-
   // *** END options for RocksDB internal use only ***
 
   ReadOptions() {}
@@ -2247,29 +2275,6 @@ struct CompactRangeOptions {
   // user-provided setting. This enables customers to selectively override the
   // age cutoff.
   double blob_garbage_collection_age_cutoff = -1;
-};
-
-// A range of keys. In case of user_defined timestamp, if enabled, `start` and
-// `limit` should point to key without timestamp part.
-struct Range {
-  Slice start;
-  Slice limit;
-
-  Range() {}
-  Range(const Slice& s, const Slice& l) : start(s), limit(l) {}
-};
-
-// A key range with optional endpoints. In case of user_defined timestamp, if
-// enabled, `start` and `limit` should point to key without timestamp part.
-struct RangeOpt {
-  // When start.has_value() == false, refers to starting before every key
-  OptSlice start;
-  // When limit.has_value() == false, refers to ending after every key
-  OptSlice limit;
-
-  RangeOpt() {}
-  RangeOpt(const OptSlice& s, const OptSlice& l) : start(s), limit(l) {}
-  // RangeOpt(const Slice& s, const Slice& l) : start(s), limit(l) {}
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()
