@@ -721,7 +721,11 @@ class DataBlockIter final : public BlockIter<Slice> {
 #ifndef NDEBUG
     if (TEST_Corrupt_Callback("DataBlockIter::SeekForGet")) return true;
 #endif
-    if (!data_block_hash_index_) {
+    // When use-defined timestamp is enabled, do not use the data block hash
+    // index created in previous sessions, those could be created by a session
+    // that disabled user-defined timestamps. The block bash index is now not
+    // applicable.
+    if (pad_min_timestamp_ || !data_block_hash_index_) {
       SeekImpl(target);
       UpdateKey();
       return true;

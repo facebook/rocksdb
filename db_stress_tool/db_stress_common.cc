@@ -403,10 +403,19 @@ bool VerifyIteratorAttributeGroups(
   return true;
 }
 
+// TODO(yuzhangyu): This is used for write too. May be still a good test
+// but separate it out.
 std::string GetNowNanos() {
-  uint64_t t = db_stress_env->NowNanos();
+//  static constexpr char kTsMax[] = "\xff\xff\xff\xff\xff\xff\xff\xff";
   std::string ret;
-  PutFixed64(&ret, t);
+//  if (FLAGS_toggle_ts) {
+//    // Always testing with the maximum timestamp as read timestamp in this mode
+//    // to avoid
+//    ret = kTsMax;
+//  } else {
+    uint64_t t = db_stress_env->NowNanos();
+    PutFixed64(&ret, t);
+//  }
   return ret;
 }
 

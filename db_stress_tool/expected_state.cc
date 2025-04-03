@@ -470,7 +470,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   Status PutCF(uint32_t column_family_id, const Slice& key_with_ts,
                const Slice& value) override {
     Slice key =
-        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size_prev);
     uint64_t key_id;
     if (!GetIntVal(key.ToString(), &key_id)) {
       return Status::Corruption("unable to parse key", key.ToString());
@@ -491,7 +491,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   Status TimedPutCF(uint32_t column_family_id, const Slice& key_with_ts,
                     const Slice& value, uint64_t write_unix_time) override {
     Slice key =
-        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size_prev);
     uint64_t key_id;
     if (!GetIntVal(key.ToString(), &key_id)) {
       return Status::Corruption("unable to parse key", key.ToString());
@@ -513,7 +513,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   Status PutEntityCF(uint32_t column_family_id, const Slice& key_with_ts,
                      const Slice& entity) override {
     Slice key =
-        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size_prev);
 
     uint64_t key_id = 0;
     if (!GetIntVal(key.ToString(), &key_id)) {
@@ -550,7 +550,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   Status DeleteCF(uint32_t column_family_id,
                   const Slice& key_with_ts) override {
     Slice key =
-        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size_prev);
     uint64_t key_id;
     if (!GetIntVal(key.ToString(), &key_id)) {
       return Status::Corruption("unable to parse key", key.ToString());
@@ -572,9 +572,9 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     bool should_buffer_write = !(buffered_writes_ == nullptr);
     if (should_buffer_write) {
       Slice key =
-          StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+          StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size_prev);
       Slice ts =
-          ExtractTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+          ExtractTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size_prev);
       std::array<Slice, 2> key_with_ts_arr{{key, ts}};
       return WriteBatchInternal::SingleDelete(
           buffered_writes_.get(), column_family_id,
@@ -588,9 +588,9 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
                        const Slice& begin_key_with_ts,
                        const Slice& end_key_with_ts) override {
     Slice begin_key =
-        StripTimestampFromUserKey(begin_key_with_ts, FLAGS_user_timestamp_size);
+        StripTimestampFromUserKey(begin_key_with_ts, FLAGS_user_timestamp_size_prev);
     Slice end_key =
-        StripTimestampFromUserKey(end_key_with_ts, FLAGS_user_timestamp_size);
+        StripTimestampFromUserKey(end_key_with_ts, FLAGS_user_timestamp_size_prev);
     uint64_t begin_key_id, end_key_id;
     if (!GetIntVal(begin_key.ToString(), &begin_key_id)) {
       return Status::Corruption("unable to parse begin key",
@@ -616,7 +616,7 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
   Status MergeCF(uint32_t column_family_id, const Slice& key_with_ts,
                  const Slice& value) override {
     Slice key =
-        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size);
+        StripTimestampFromUserKey(key_with_ts, FLAGS_user_timestamp_size_prev);
 
     bool should_buffer_write = !(buffered_writes_ == nullptr);
     if (should_buffer_write) {
