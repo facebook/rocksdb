@@ -185,16 +185,10 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& _read_options,
           ? static_cast<const SnapshotImpl*>(read_options.snapshot)->number_
           : latest_snapshot;
   ReadCallback* read_callback = nullptr;  // No read callback provided.
-  auto db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, cfd->ioptions(), super_version->mutable_cf_options,
-      super_version->current, read_seq,
-      super_version->mutable_cf_options.max_sequential_skip_in_iterations,
-      super_version->version_number, read_callback);
-  auto internal_iter = NewInternalIterator(
-      db_iter->GetReadOptions(), cfd, super_version, db_iter->GetArena(),
-      read_seq, /* allow_unprepared_value */ true, db_iter);
-  db_iter->SetIterUnderDBIter(internal_iter);
-  return db_iter;
+  return NewArenaWrappedDbIterator(
+      env_, read_options, cfh, super_version, read_seq, read_callback, this,
+      /*expose_blob_index=*/false, /*allow_refresh=*/false,
+      /*allow_mark_memtable_for_flush=*/false);
 }
 
 Status DBImplReadOnly::NewIterators(
@@ -231,36 +225,32 @@ Status DBImplReadOnly::NewIterators(
           ? static_cast<const SnapshotImpl*>(read_options.snapshot)->number_
           : latest_snapshot;
 
-  autovector<std::tuple<ColumnFamilyData*, SuperVersion*>> cfd_to_sv;
+  autovector<std::tuple<ColumnFamilyHandleImpl*, SuperVersion*>> cfh_to_sv;
 
   const bool check_read_ts =
       read_options.timestamp && read_options.timestamp->size() > 0;
   for (auto cfh : column_families) {
     auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
     auto* sv = cfd->GetSuperVersion()->Ref();
-    cfd_to_sv.emplace_back(cfd, sv);
+    cfh_to_sv.emplace_back(static_cast_with_check<ColumnFamilyHandleImpl>(cfh),
+                           sv);
     if (check_read_ts) {
       const Status s =
           FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
       if (!s.ok()) {
-        for (auto prev_entry : cfd_to_sv) {
+        for (auto prev_entry : cfh_to_sv) {
           std::get<1>(prev_entry)->Unref();
         }
         return s;
       }
     }
   }
-  assert(cfd_to_sv.size() == column_families.size());
-  for (auto [cfd, sv] : cfd_to_sv) {
+  assert(cfh_to_sv.size() == column_families.size());
+  for (auto [cfh, sv] : cfh_to_sv) {
     auto* db_iter = NewArenaWrappedDbIterator(
-        env_, read_options, cfd->ioptions(), sv->mutable_cf_options,
-        sv->current, read_seq,
-        sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        sv->version_number, read_callback);
-    auto* internal_iter = NewInternalIterator(
-        db_iter->GetReadOptions(), cfd, sv, db_iter->GetArena(), read_seq,
-        /* allow_unprepared_value */ true, db_iter);
-    db_iter->SetIterUnderDBIter(internal_iter);
+        env_, read_options, cfh, sv, read_seq, read_callback, this,
+        /*expose_blob_index=*/false, /*allow_refresh=*/false,
+        /*allow_mark_memtable_for_flush=*/false);
     iterators->push_back(db_iter);
   }
 
