@@ -610,16 +610,8 @@ Status ExternalSstFileIngestionJob::AssignLevelsForOneBatch(
       current_time = oldest_ancester_time =
           static_cast<uint64_t>(temp_current_time);
     }
-    uint64_t tail_size = 0;
-    bool contain_no_data_blocks = file->table_properties.num_entries > 0 &&
-                                  (file->table_properties.num_entries ==
-                                   file->table_properties.num_range_deletions);
-    if (file->table_properties.tail_start_offset > 0 ||
-        contain_no_data_blocks) {
-      uint64_t file_size = file->fd.GetFileSize();
-      assert(file->table_properties.tail_start_offset <= file_size);
-      tail_size = file_size - file->table_properties.tail_start_offset;
-    }
+    uint64_t tail_size = FileMetaData::CalculateTailSize(
+        file->fd.GetFileSize(), file->table_properties);
 
     bool marked_for_compaction =
         file->table_properties.num_range_deletions == 1 &&
