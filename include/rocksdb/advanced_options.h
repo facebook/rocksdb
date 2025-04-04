@@ -1096,6 +1096,19 @@ struct AdvancedColumnFamilyOptions {
   // additional key comparison during memtable lookup.
   bool paranoid_memory_checks = false;
 
+  // When an iterator scans this number of tombstones from the active memtable
+  // for a single iterator operation, we will try to flush the memtable.
+  // Currently forward scan is supported (SeekToFirst(), Seek() and Next()).
+  // This helps to reduce the overhead of scanning through a large number of
+  // tombstones in memtable.
+  // Users should consider enable deletion-triggered-compaction (see
+  // CompactOnDeletionCollectorFactory) together with this option to compact
+  // away tombstones after the memtable is flushed.
+  //
+  // Default: 0 (disabled)
+  // Dynamically changeable through the SetOptions() API.
+  uint32_t memtable_tombstone_scan_limit = 0;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options

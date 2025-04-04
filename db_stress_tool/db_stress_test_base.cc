@@ -4316,6 +4316,8 @@ void InitializeOptionsFromFlags(
   if (FLAGS_enable_remote_compaction) {
     options.compaction_service = std::make_shared<DbStressCompactionService>();
   }
+
+  options.memtable_tombstone_scan_limit = FLAGS_memtable_tombstone_scan_limit;
 }
 
 void InitializeOptionsGeneral(

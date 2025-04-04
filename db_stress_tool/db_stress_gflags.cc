@@ -1469,4 +1469,9 @@ DEFINE_bool(
     ROCKSDB_NAMESPACE::ReadOptions().auto_refresh_iterator_with_snapshot,
     "ReadOptions.auto_refresh_iterator_with_snapshot");
 
+DEFINE_uint32(
+    memtable_tombstone_scan_limit,
+    ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_tombstone_scan_limit,
+    "Sets CF option memtable_tombstone_scan_limit.");
+
 #endif  // GFLAGS

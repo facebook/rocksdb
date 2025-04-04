@@ -1279,6 +1279,11 @@ DEFINE_bool(explicit_snapshot, false,
             "When set to true iterators will be initialized with explicit "
             "snapshot");
 
+DEFINE_uint32(
+    memtable_tombstone_scan_limit,
+    rocksdb::AdvancedColumnFamilyOptions().memtable_tombstone_scan_limit,
+    "Setting for CF option memtable_tombstone_scan_limit.");
+
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
@@ -4747,6 +4752,7 @@ class Benchmark {
     options.block_protection_bytes_per_key =
         FLAGS_block_protection_bytes_per_key;
     options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
+    options.memtable_tombstone_scan_limit = FLAGS_memtable_tombstone_scan_limit;
   }
 
   void InitializeOptionsGeneral(Options* opts, ToolHooks& hooks) {

@@ -566,17 +566,10 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
   assert(snapshot == kMaxSequenceNumber);
   snapshot = versions_->LastSequence();
   assert(snapshot != kMaxSequenceNumber);
-  auto db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, cfh->cfd()->ioptions(),
-      super_version->mutable_cf_options, super_version->current, snapshot,
-      super_version->mutable_cf_options.max_sequential_skip_in_iterations,
-      super_version->version_number, read_callback, cfh, expose_blob_index,
-      allow_refresh);
-  auto internal_iter = NewInternalIterator(
-      db_iter->GetReadOptions(), cfh->cfd(), super_version, db_iter->GetArena(),
-      snapshot, /* allow_unprepared_value */ true, db_iter);
-  db_iter->SetIterUnderDBIter(internal_iter);
-  return db_iter;
+  return NewArenaWrappedDbIterator(env_, read_options, cfh, super_version,
+                                   snapshot, read_callback, this,
+                                   expose_blob_index, allow_refresh,
+                                   /*allow_mark_memtable_for_flush=*/false);
 }
 
 Status DBImplSecondary::NewIterators(

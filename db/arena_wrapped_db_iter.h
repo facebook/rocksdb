@@ -19,7 +19,6 @@
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
-#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -103,13 +102,15 @@ class ArenaWrappedDBIter : public Iterator {
     db_iter_->Prepare(scan_opts);
   }
 
+  // FIXME: we could just pass SV in for mutable cf option, version and version
+  // number, but this is used by SstFileReader which does not have a SV.
   void Init(Env* env, const ReadOptions& read_options,
             const ImmutableOptions& ioptions,
             const MutableCFOptions& mutable_cf_options, const Version* version,
-            const SequenceNumber& sequence,
-            uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
+            const SequenceNumber& sequence, uint64_t version_number,
             ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
-            bool expose_blob_index, bool allow_refresh);
+            bool expose_blob_index, bool allow_refresh,
+            ReadOnlyMemTable* active_mem);
 
   // Store some parameters so we can refresh the iterator at a later point
   // with these same params
@@ -132,20 +133,16 @@ class ArenaWrappedDBIter : public Iterator {
   ReadCallback* read_callback_;
   bool expose_blob_index_ = false;
   bool allow_refresh_ = true;
+  bool allow_mark_memtable_for_flush_ = true;
   // If this is nullptr, it means the mutable memtable does not contain range
   // tombstone when added under this DBIter.
   std::unique_ptr<TruncatedRangeDelIterator>* memtable_range_tombstone_iter_ =
       nullptr;
 };
 
-// Generate the arena wrapped iterator class.
-// `cfh` is used for reneweal. If left null, renewal will not
-// be supported.
 ArenaWrappedDBIter* NewArenaWrappedDbIterator(
-    Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
-    const MutableCFOptions& mutable_cf_options, const Version* version,
-    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
-    uint64_t version_number, ReadCallback* read_callback,
-    ColumnFamilyHandleImpl* cfh = nullptr, bool expose_blob_index = false,
-    bool allow_refresh = true);
+    Env* env, const ReadOptions& read_options, ColumnFamilyHandleImpl* cfh,
+    SuperVersion* sv, const SequenceNumber& sequence,
+    ReadCallback* read_callback, DBImpl* db_impl, bool expose_blob_index,
+    bool allow_refresh, bool allow_mark_memtable_for_flush);
 }  // namespace ROCKSDB_NAMESPACE

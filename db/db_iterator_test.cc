@@ -3824,6 +3824,119 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewExplicitSnapshot) {
   }
 }
 
+TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithSeek) {
+  // Tests that option memtable_tombstone_scan_limit works when the limit
+  // is reached during a Seek() operation.
+  const int kNumDelete = 10;
+  for (int limit : {kNumDelete, kNumDelete + 1}) {
+    Options options;
+    options.create_if_missing = true;
+    options.memtable_tombstone_scan_limit = limit;
+    DestroyAndReopen(options);
+    for (int i = 0; i < kNumDelete; ++i) {
+      ASSERT_OK(Delete(Key(i)));
+    }
+
+    SetPerfLevel(PerfLevel::kEnableCount);
+    get_perf_context()->Reset();
+    ReadOptions ro;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    // Seek to the first key, this will scan through all tombstones
+    iter->Seek(Key(0));
+    ASSERT_FALSE(
+        iter->Valid());  // All keys are deleted, so iterator is not valid
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(get_perf_context()->next_on_memtable_count, kNumDelete);
+
+    // Skipping kNumDelete tombstones in a single iterator operation should mark
+    // the memtable for flush.
+    //
+    // At the end of a write we check and update memtable to request a flush
+    ASSERT_OK(Put(Key(11), "val"));
+    // Before a write we schedule memtables for flush if requested.
+    ASSERT_OK(Put(Key(12), "val"));
+    ASSERT_OK(db_->WaitForCompact({}));
+
+    if (limit <= kNumDelete) {
+      // Check if memtable was flushed due to tombstone count
+      ASSERT_EQ(1, NumTableFilesAtLevel(0));
+      uint64_t val = 0;
+      ASSERT_TRUE(
+          db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
+      ASSERT_EQ(0, val);
+    } else {
+      uint64_t val = 0;
+      ASSERT_TRUE(
+          db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
+      ASSERT_EQ(kNumDelete, val);
+    }
+  }
+}
+
+TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithNext) {
+  // Tests that option memtable_tombstone_scan_limit works when the limit
+  // is reached during a Next() operation, and not trigger a flush when
+  // the limit is reached across multiple Next() operations.
+  const int kNumDelete = 10;
+  for (int limit : {kNumDelete}) {
+    // , kNumDelete + 1}) {
+    Options options;
+    options.create_if_missing = true;
+    options.memtable_tombstone_scan_limit = limit;
+    DestroyAndReopen(options);
+    TryReopen(options);
+
+    ASSERT_OK(Put(Key(0), "val"));
+    for (int i = 1; i <= kNumDelete; ++i) {
+      ASSERT_OK(Delete(Key(i)));
+    }
+    // Total number of tombstones scanned acrosss multiple Next() operations
+    // below will be kNumDelete + 1, and it should not trigger a flush when the
+    // limit is kNumDelete + 1.
+    ASSERT_OK(Put(Key(kNumDelete + 1), "v1"));
+    ASSERT_OK(Delete(Key(kNumDelete + 2)));
+    ASSERT_OK(Put(Key(kNumDelete + 3), "v3"));
+
+    SetPerfLevel(PerfLevel::kEnableCount);
+    get_perf_context()->Reset();
+    ReadOptions ro;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+    iter->Seek(Key(0));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->value(), "val");
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(get_perf_context()->next_on_memtable_count, 0);
+    iter->Next();
+    // kNumDelete tombstones and 1 for Put
+    ASSERT_EQ(get_perf_context()->next_on_memtable_count, kNumDelete + 1);
+    iter->Next();
+    ASSERT_EQ(get_perf_context()->next_on_memtable_count, kNumDelete + 3);
+
+    // Skipping kNumDelete tombstones in a single iterator operation should mark
+    // the memtable for flush.
+    //
+    // At the end of a write we check and update memtable to request a flush
+    ASSERT_OK(Put(Key(11), "val"));
+    // Before a write we schedule memtables for flush if requested.
+    ASSERT_OK(Put(Key(12), "val"));
+    ASSERT_OK(db_->WaitForCompact({}));
+
+    if (limit <= kNumDelete) {
+      // Check if memtable was flushed due to tombstone count
+      ASSERT_EQ(1, NumTableFilesAtLevel(0));
+      uint64_t val = 0;
+      ASSERT_TRUE(
+          db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
+      ASSERT_EQ(0, val);
+    } else {
+      uint64_t val = 0;
+      ASSERT_TRUE(
+          db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
+      ASSERT_EQ(kNumDelete + 1, val);
+    }
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
