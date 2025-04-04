@@ -914,6 +914,7 @@ Status BlockBasedTable::PrefetchTail(
                      "TailPrefetchStats.",
                      file->file_name().c_str(), tail_prefetch_size);
     }
+    TEST_SYNC_POINT("BlockBasedTable::PrefetchTail::TaiSizeNotRecorded");
   }
   size_t prefetch_off;
   size_t prefetch_len;
