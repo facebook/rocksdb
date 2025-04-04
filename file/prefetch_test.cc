@@ -299,8 +299,17 @@ TEST_P(PrefetchTest, Basic) {
   const uint64_t prev_table_open_prefetch_tail_hit =
       options.statistics->getTickerCount(TABLE_OPEN_PREFETCH_TAIL_HIT);
 
+  HistogramData pre_compaction_prefetch_bytes_size;
+  options.statistics->histogramData(COMPACTION_PREFETCH_BYTES_SIZE,
+                                    &pre_compaction_prefetch_bytes_size);
+  ASSERT_EQ(pre_compaction_prefetch_bytes_size.count, 0);
+
   // commenting out the line below causes the example to work correctly
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  HistogramData post_compaction_prefetch_bytes_size;
+  options.statistics->histogramData(COMPACTION_PREFETCH_BYTES_SIZE,
+                                    &post_compaction_prefetch_bytes_size);
 
   HistogramData cur_table_open_prefetch_tail_read;
   options.statistics->histogramData(TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
@@ -318,6 +327,7 @@ TEST_P(PrefetchTest, Basic) {
     ASSERT_GT(fs->GetPrefetchCount(), 1);
     ASSERT_EQ(0, buff_prefetch_count);
     fs->ClearPrefetchCount();
+    ASSERT_EQ(post_compaction_prefetch_bytes_size.count, 0);
   } else {
     ASSERT_FALSE(fs->IsPrefetchCalled());
     // To rule out false positive by the SST file tail prefetch during
@@ -331,6 +341,20 @@ TEST_P(PrefetchTest, Basic) {
               prev_table_open_prefetch_tail_hit);
     ASSERT_GE(cur_table_open_prefetch_tail_miss,
               prev_table_open_prefetch_tail_miss);
+
+    ASSERT_GT(post_compaction_prefetch_bytes_size.count, 0);
+
+    // Not an exact match due to potential roundup/down for alignment
+    auto expected_compaction_readahead_size =
+        Options().compaction_readahead_size;
+    ASSERT_LE(post_compaction_prefetch_bytes_size.max,
+              expected_compaction_readahead_size * 1.1);
+    ASSERT_GE(post_compaction_prefetch_bytes_size.max,
+              expected_compaction_readahead_size * 0.9);
+    ASSERT_LE(post_compaction_prefetch_bytes_size.average,
+              expected_compaction_readahead_size * 1.1);
+    ASSERT_GE(post_compaction_prefetch_bytes_size.average,
+              expected_compaction_readahead_size * 0.9);
   }
 
   for (bool disable_io : {false, true}) {

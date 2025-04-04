@@ -657,6 +657,10 @@ enum Histograms : uint32_t {
   ASYNC_READ_BYTES,
   POLL_WAIT_MICROS,
 
+  // Bytes explicitly prefetched by RocksDB successfully for compaction read
+  // Collected at every succesful explicit prefetch call
+  COMPACTION_PREFETCH_BYTES_SIZE,
+
   // Number of prefetched bytes discarded by RocksDB.
   PREFETCHED_BYTES_DISCARDED,
 
