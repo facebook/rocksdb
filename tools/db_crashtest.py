@@ -91,7 +91,6 @@ default_params = {
     # (see below `finalize_and_sanitize`).
     "inplace_update_support": random.choice([0] * 9 + [1]),
     "expected_values_dir": lambda: setup_expected_values_dir(),
-    "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": lambda: random.choice([1000, 1000000]),
     "manual_wal_flush_one_in": lambda: random.choice([0, 1000]),
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),

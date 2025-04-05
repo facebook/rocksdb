@@ -1470,14 +1470,9 @@ Status DBImpl::SetDBOptions(
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "SetDBOptions() succeeded");
     new_options.Dump(immutable_db_options_.info_log.get());
     if (!persist_options_status.ok()) {
-      if (immutable_db_options_.fail_if_options_file_error) {
-        s = Status::IOError(
-            "SetDBOptions() succeeded, but unable to persist options",
-            persist_options_status.ToString());
-      }
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Unable to persist options in SetDBOptions() -- %s",
-                     persist_options_status.ToString().c_str());
+      s = Status::IOError(
+          "SetDBOptions() succeeded, but unable to persist options",
+          persist_options_status.ToString());
     }
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "SetDBOptions failed");
@@ -5445,12 +5440,7 @@ Status DBImpl::WriteOptionsFile(const WriteOptions& write_options,
   if (!s.ok()) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Unnable to persist options -- %s", s.ToString().c_str());
-    if (immutable_db_options_.fail_if_options_file_error) {
-      s = Status::IOError("Unable to persist options.", s.ToString().c_str());
-    } else {
-      // Ignore error
-      s = Status::OK();
-    }
+    s = Status::IOError("Unable to persist options.", s.ToString().c_str());
   }
 
   // Restore lock if appropriate

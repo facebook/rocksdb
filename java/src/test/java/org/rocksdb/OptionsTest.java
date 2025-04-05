@@ -903,15 +903,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void failIfOptionsFileError() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setFailIfOptionsFileError(boolValue);
-      assertThat(opt.failIfOptionsFileError()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void dumpMallocStats() {
     try (final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();

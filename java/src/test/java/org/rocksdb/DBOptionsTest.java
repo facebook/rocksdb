@@ -657,15 +657,6 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void failIfOptionsFileError() {
-    try (final DBOptions opt = new DBOptions()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setFailIfOptionsFileError(boolValue);
-      assertThat(opt.failIfOptionsFileError()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void dumpMallocStats() {
     try (final DBOptions opt = new DBOptions()) {
       final boolean boolValue = rand.nextBoolean();

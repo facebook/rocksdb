@@ -322,31 +322,26 @@ TEST_F(DBOptionsTest, SetWithCustomMemTableFactory) {
   }
   Options options;
   options.create_if_missing = true;
-  // Try with fail_if_options_file_error=false/true to update the options
-  for (bool on_error : {false, true}) {
-    options.fail_if_options_file_error = on_error;
-    options.env = env_;
-    options.disable_auto_compactions = false;
+  options.env = env_;
+  options.disable_auto_compactions = false;
 
-    options.memtable_factory.reset(new DummySkipListFactory());
-    Reopen(options);
+  options.memtable_factory.reset(new DummySkipListFactory());
+  Reopen(options);
 
-    ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
-    ASSERT_OK(
-        dbfull()->SetOptions(cfh, {{"disable_auto_compactions", "true"}}));
-    ColumnFamilyDescriptor cfd;
-    ASSERT_OK(cfh->GetDescriptor(&cfd));
-    ASSERT_STREQ(cfd.options.memtable_factory->Name(),
-                 DummySkipListFactory::kClassName());
-    ColumnFamilyHandle* test = nullptr;
-    ASSERT_OK(dbfull()->CreateColumnFamily(options, "test", &test));
-    ASSERT_OK(test->GetDescriptor(&cfd));
-    ASSERT_STREQ(cfd.options.memtable_factory->Name(),
-                 DummySkipListFactory::kClassName());
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  ASSERT_OK(dbfull()->SetOptions(cfh, {{"disable_auto_compactions", "true"}}));
+  ColumnFamilyDescriptor cfd;
+  ASSERT_OK(cfh->GetDescriptor(&cfd));
+  ASSERT_STREQ(cfd.options.memtable_factory->Name(),
+               DummySkipListFactory::kClassName());
+  ColumnFamilyHandle* test = nullptr;
+  ASSERT_OK(dbfull()->CreateColumnFamily(options, "test", &test));
+  ASSERT_OK(test->GetDescriptor(&cfd));
+  ASSERT_STREQ(cfd.options.memtable_factory->Name(),
+               DummySkipListFactory::kClassName());
 
-    ASSERT_OK(dbfull()->DropColumnFamily(test));
-    delete test;
-  }
+  ASSERT_OK(dbfull()->DropColumnFamily(test));
+  delete test;
 }
 
 TEST_F(DBOptionsTest, SetBytesPerSync) {
