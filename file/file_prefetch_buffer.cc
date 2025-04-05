@@ -126,6 +126,8 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
 
   if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {
     RecordTick(stats_, PREFETCH_BYTES, read_len);
+  } else if (usage_ == FilePrefetchBufferUsage::kCompactionPrefetch) {
+    RecordInHistogram(stats_, COMPACTION_PREFETCH_BYTES_SIZE, read_len);
   }
   if (!use_fs_buffer) {
     // Update the buffer size.

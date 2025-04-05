@@ -134,6 +134,7 @@ struct BufferInfo {
 enum class FilePrefetchBufferUsage {
   kTableOpenPrefetchTail,
   kUserScanPrefetch,
+  kCompactionPrefetch,
   kUnknown,
 };
 
