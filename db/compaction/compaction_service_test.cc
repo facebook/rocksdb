@@ -277,8 +277,17 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   Statistics* primary_statistics = GetPrimaryStatistics();
   Statistics* compactor_statistics = GetCompactorStatistics();
 
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::PrefetchTail::TaiSizeNotRecorded",
+      [&](void* /* arg */) {
+        // Trigger assertion to verify precise tail prefetch size calculation
+        assert(false);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
   GenerateTestData();
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  SyncPoint::GetInstance()->DisableProcessing();
   VerifyTestData();
 
   auto my_cs = GetCompactionService();
@@ -380,6 +389,7 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   ASSERT_FALSE(result.stats.is_full_compaction);
 
   Close();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(CompactionServiceTest, ManualCompaction) {
@@ -890,6 +900,12 @@ TEST_F(CompactionServiceTest, TruncatedOutput) {
   Slice end(end_str);
   uint64_t comp_num = my_cs->GetCompactionNum();
 
+  // Skip calculating tail size to avoid crashing due to truncated file size
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FileMetaData::CalculateTailSize", [&](void* arg) {
+        bool* skip = static_cast<bool*>(arg);
+        *skip = true;
+      });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
         CompactionServiceResult* compaction_result =
@@ -906,7 +922,7 @@ TEST_F(CompactionServiceTest, TruncatedOutput) {
           ASSERT_OK(s);
           ASSERT_GT(file_size, 0);
 
-          ASSERT_OK(test::TruncateFile(env_, file_name, file_size / 2));
+          ASSERT_OK(test::TruncateFile(env_, file_name, file_size / 4));
         }
       });
   SyncPoint::GetInstance()->EnableProcessing();
