@@ -240,7 +240,8 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.marked_for_compaction = file.marked_for_compaction;
     meta.unique_id = file.unique_id;
     meta.temperature = file.file_temperature;
-
+    meta.tail_size =
+        FileMetaData::CalculateTailSize(file_size, file.table_properties);
     auto cfd = compaction->column_family_data();
     CompactionOutputs* compaction_outputs =
         sub_compact->Outputs(file.is_proximal_level_output);
