@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.1.3 (04/09/2025)
+### Bug Fixes
+* Fix a bug where resurrected full_history_ts_low from a previous session that enables UDT is used by this session that disables UDT.
+
 ## 10.1.2 (04/07/2025)
 ### Bug Fixes
 * Fix a bug where tail size of remote compaction output is not persisted in primary db's manifest
