@@ -537,6 +537,12 @@ class ColumnFamilyData {
     assert(!ts_low.empty());
     const Comparator* ucmp = user_comparator();
     assert(ucmp);
+    // Guard against resurrected full_history_ts_low persisted in MANIFEST
+    // from previous DB sessions. This could happen if UDT was enabled and then
+    // disabled.
+    if (ucmp->timestamp_size() == 0) {
+      return;
+    }
     if (full_history_ts_low_.empty() ||
         ucmp->CompareTimestamp(ts_low, full_history_ts_low_) > 0) {
       full_history_ts_low_ = std::move(ts_low);
@@ -544,6 +550,11 @@ class ColumnFamilyData {
   }
 
   const std::string& GetFullHistoryTsLow() const {
+    const Comparator* ucmp = user_comparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() == 0) {
+      assert(full_history_ts_low_.empty());
+    }
     return full_history_ts_low_;
   }
 
