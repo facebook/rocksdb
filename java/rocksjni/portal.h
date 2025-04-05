@@ -51,6 +51,11 @@
 #undef DELETE
 #endif
 
+// Undefine macro from snappy
+#ifdef LOG
+#undef LOG
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 
 class JavaClass {
