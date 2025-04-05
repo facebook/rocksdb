@@ -496,6 +496,14 @@ class ReadOnlyMemTable {
     return false;
   }
 
+  void MarkForFlush() {
+    marked_for_flush_.store(true, std::memory_order_relaxed);
+  }
+
+  bool IsMarkedForFlush() const {
+    return marked_for_flush_.load(std::memory_order_relaxed);
+  }
+
  protected:
   friend class MemTableList;
 
@@ -524,6 +532,8 @@ class ReadOnlyMemTable {
 
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
+
+  std::atomic<bool> marked_for_flush_ = false;
 };
 
 class MemTable final : public ReadOnlyMemTable {

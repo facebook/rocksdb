@@ -901,9 +901,9 @@ Status FlushJob::WriteLevel0Table() {
     for (ReadOnlyMemTable* m : mems_) {
       ROCKS_LOG_INFO(db_options_.info_log,
                      "[%s] [JOB %d] Flushing memtable id %" PRIu64
-                     " with next log file: %" PRIu64 "\n",
+                     " with next log file: %" PRIu64 ", marked_for_flush: %d\n",
                      cfd_->GetName().c_str(), job_context_->job_id, m->GetID(),
-                     m->GetNextLogNumber());
+                     m->GetNextLogNumber(), m->IsMarkedForFlush());
       if (logical_strip_timestamp) {
         memtables.push_back(m->NewTimestampStrippingIterator(
             ro, /*seqno_to_time_mapping=*/nullptr, &arena,
