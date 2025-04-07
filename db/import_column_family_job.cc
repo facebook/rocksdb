@@ -201,15 +201,8 @@ Status ImportColumnFamilyJob::Run() {
       const auto& f = files_to_import_[i][j];
       const auto& file_metadata = *metadatas_[i][j];
 
-      uint64_t tail_size = 0;
-      bool contain_no_data_blocks = f.table_properties.num_entries > 0 &&
-                                    (f.table_properties.num_entries ==
-                                     f.table_properties.num_range_deletions);
-      if (f.table_properties.tail_start_offset > 0 || contain_no_data_blocks) {
-        uint64_t file_size = f.fd.GetFileSize();
-        assert(f.table_properties.tail_start_offset <= file_size);
-        tail_size = file_size - f.table_properties.tail_start_offset;
-      }
+      uint64_t tail_size = FileMetaData::CalculateTailSize(f.fd.GetFileSize(),
+                                                           f.table_properties);
 
       VersionEdit dummy_version_edit;
       dummy_version_edit.AddFile(
