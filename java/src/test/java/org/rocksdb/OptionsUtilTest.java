@@ -188,6 +188,7 @@ public class OptionsUtilTest {
                                 .setParanoidChecks(false)
                                 .setMaxOpenFiles(478)
                                 .setDelayedWriteRate(1234567L);
+
     final ColumnFamilyOptions baseDefaultCFOpts = new ColumnFamilyOptions();
     final byte[] secondCFName = "new_cf".getBytes();
     final ColumnFamilyOptions baseSecondCFOpts =
@@ -261,8 +262,9 @@ public class OptionsUtilTest {
                                 .setParanoidChecks(false)
                                 .setMaxOpenFiles(478)
                                 .setDelayedWriteRate(1234567L);
-    final ColumnFamilyOptions defaultCFOptions = new ColumnFamilyOptions();
-    defaultCFOptions.setTableFormatConfig(new BlockBasedTableConfig());
+    try (final ColumnFamilyOptions defaultCFOptions = new ColumnFamilyOptions()) {
+      defaultCFOptions.setTableFormatConfig(new BlockBasedTableConfig());
+    }
     final byte[] altCFName = "alt_cf".getBytes();
     final ColumnFamilyOptions altCFOptions =
         new ColumnFamilyOptions()
@@ -291,7 +293,7 @@ public class OptionsUtilTest {
     altCFTableConfig.setPartitionFilters(true);
     altCFTableConfig.setOptimizeFiltersForMemory(false);
     altCFTableConfig.setUseDeltaEncoding(false);
-    altCFTableConfig.setFilterPolicy(new BloomFilter(7.5));
+    altCFTableConfig.setFilterPolicy(new BloomFilter(22.5));
     altCFTableConfig.setWholeKeyFiltering(false);
     altCFTableConfig.setVerifyCompression(true);
     altCFTableConfig.setReadAmpBytesPerBit(2);
@@ -371,6 +373,6 @@ public class OptionsUtilTest {
     assertThat(actual.superBlockAlignmentSpaceOverheadRatio())
         .isEqualTo(expected.superBlockAlignmentSpaceOverheadRatio());
     assertThat(actual.indexShortening()).isEqualTo(expected.indexShortening());
-    assertThat(expected.filterPolicy()).isEqualTo(actual.filterPolicy());
+    assertThat(actual.filterPolicy()).isEqualTo(expected.filterPolicy());
   }
 }
