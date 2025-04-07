@@ -230,7 +230,7 @@ struct MutableCFOptions {
         memtable_max_range_deletions(0),
         bottommost_file_compaction_delay(0),
         uncache_aggressiveness(0),
-        memtable_tombstone_scan_limit(UINT32_MAX) {}
+        memtable_tombstone_scan_limit(0) {}
 
   explicit MutableCFOptions(const Options& options);
 
