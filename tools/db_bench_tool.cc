@@ -1279,10 +1279,10 @@ DEFINE_bool(explicit_snapshot, false,
             "When set to true iterators will be initialized with explicit "
             "snapshot");
 
-DEFINE_uint32(
-    memtable_tombstone_scan_limit,
-    rocksdb::AdvancedColumnFamilyOptions().memtable_tombstone_scan_limit,
-    "Setting for CF option memtable_tombstone_scan_limit.");
+DEFINE_uint32(memtable_tombstone_scan_limit,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .memtable_tombstone_scan_limit,
+              "Setting for CF option memtable_tombstone_scan_limit.");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
