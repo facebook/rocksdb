@@ -12,7 +12,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "rocksdb/advanced_options.h"
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/customizable.h"

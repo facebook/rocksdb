@@ -26,11 +26,9 @@
 #include "rocksdb/options.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
-#include "rocksdb/thread_status.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/user_write_callback.h"
-#include "rocksdb/utilities/table_properties_collectors.h"
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
