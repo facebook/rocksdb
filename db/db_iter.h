@@ -82,7 +82,7 @@ class DBIter final : public Iterator {
                user_key_comparator, internal_iter, version, sequence, arena,
                read_callback, cfh, expose_blob_index, active_mem);
     return db_iter;
-  };
+  }
 
   // The following is grossly complicated. TODO: clean it up
   // Which direction is the iterator currently moving?

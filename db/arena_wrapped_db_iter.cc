@@ -52,10 +52,10 @@ void ArenaWrappedDBIter::Init(
   }
   read_options_.total_order_seek |= ioptions.prefix_seek_opt_in_only;
 
-  db_iter_ = DBIter::NewIter(env, read_options_, ioptions, mutable_cf_options,
-                             ioptions.user_comparator, /*iter=*/nullptr,
-                             version, sequence, read_callback, cfh,
-                             expose_blob_index, active_mem, &arena_);
+  db_iter_ = DBIter::NewIter(
+      env, read_options_, ioptions, mutable_cf_options,
+      ioptions.user_comparator, /*internal_iter=*/nullptr, version, sequence,
+      read_callback, cfh, expose_blob_index, active_mem, &arena_);
 
   sv_number_ = version_number;
   allow_refresh_ = allow_refresh;
