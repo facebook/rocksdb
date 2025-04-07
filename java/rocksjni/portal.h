@@ -3711,7 +3711,7 @@ class FilterPolicyJni
 
     double filter_bits = 0.0;
     if (const ROCKSDB_NAMESPACE::BloomLikeFilterPolicy* bloomlike_filter =
-            dynamic_cast<const BloomLikeFilterPolicy*>(sptr_filter->get())) {
+            static_cast<const BloomLikeFilterPolicy*>(sptr_filter->get())) {
       filter_bits = bloomlike_filter->GetMillibitsPerKey() / 1000.0;
     }
 
