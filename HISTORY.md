@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.1.2 (04/07/2025)
+### Bug Fixes
+* Fix a bug where tail size of remote compaction output is not persisted in primary db's manifest
+
 ## 10.1.0 (03/24/2025)
 ### New Features
 * Added a new `DBOptions.calculate_sst_write_lifetime_hint_set` setting that allows to customize which compaction styles SST write lifetime hint calculation is allowed on. Today RocksDB supports only two modes `kCompactionStyleLevel` and `kCompactionStyleUniversal`.
