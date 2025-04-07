@@ -3879,13 +3879,11 @@ TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithNext) {
   // is reached during a Next() operation, and not trigger a flush when
   // the limit is reached across multiple Next() operations.
   const int kNumDelete = 10;
-  for (int limit : {kNumDelete}) {
-    // , kNumDelete + 1}) {
+  for (int limit : {kNumDelete, kNumDelete + 1}) {
     Options options;
     options.create_if_missing = true;
     options.memtable_tombstone_scan_limit = limit;
     DestroyAndReopen(options);
-    TryReopen(options);
 
     ASSERT_OK(Put(Key(0), "val"));
     for (int i = 1; i <= kNumDelete; ++i) {
