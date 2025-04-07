@@ -175,7 +175,7 @@ size_t MemTable::ApproximateMemoryUsage() {
 }
 
 bool MemTable::ShouldFlushNow() {
-  if (marked_for_flush_.load(std::memory_order_relaxed)) {
+  if (IsMarkedForFlush()) {
     // TODO: dedicated flush reason when marked for flush
     return true;
   }

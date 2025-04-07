@@ -30,6 +30,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "table/multiget_context.h"
+#include "util/atomic.h"
 #include "util/cast_util.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
@@ -496,13 +497,9 @@ class ReadOnlyMemTable {
     return false;
   }
 
-  void MarkForFlush() {
-    marked_for_flush_.store(true, std::memory_order_relaxed);
-  }
+  void MarkForFlush() { marked_for_flush_.StoreRelaxed(true); }
 
-  bool IsMarkedForFlush() const {
-    return marked_for_flush_.load(std::memory_order_relaxed);
-  }
+  bool IsMarkedForFlush() const { return marked_for_flush_.LoadRelaxed(); }
 
  protected:
   friend class MemTableList;
@@ -533,7 +530,7 @@ class ReadOnlyMemTable {
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
 
-  std::atomic<bool> marked_for_flush_ = false;
+  RelaxedAtomic<bool> marked_for_flush_{false};
 };
 
 class MemTable final : public ReadOnlyMemTable {
