@@ -749,9 +749,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {0, OptionType::kInt, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"max_write_buffer_number_to_maintain",
-         {offsetof(struct ImmutableCFOptions,
-                   max_write_buffer_number_to_maintain),
-          OptionType::kInt, OptionVerificationType::kNormal,
+         {0, OptionType::kInt, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone, nullptr}},
         {"max_write_buffer_size_to_maintain",
          {offsetof(struct ImmutableCFOptions,
@@ -987,8 +985,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       compaction_filter_factory(cf_options.compaction_filter_factory),
       min_write_buffer_number_to_merge(
           cf_options.min_write_buffer_number_to_merge),
-      max_write_buffer_number_to_maintain(
-          cf_options.max_write_buffer_number_to_maintain),
       max_write_buffer_size_to_maintain(
           cf_options.max_write_buffer_size_to_maintain),
       inplace_update_support(cf_options.inplace_update_support),

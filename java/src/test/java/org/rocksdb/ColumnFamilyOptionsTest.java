@@ -562,19 +562,6 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void maxWriteBufferNumberToMaintain() {
-    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      int intValue = rand.nextInt();
-      // Size has to be positive
-      intValue = (intValue < 0) ? -intValue : intValue;
-      intValue = (intValue == 0) ? intValue + 1 : intValue;
-      opt.setMaxWriteBufferNumberToMaintain(intValue);
-      assertThat(opt.maxWriteBufferNumberToMaintain()).
-          isEqualTo(intValue);
-    }
-  }
-
-  @Test
   public void compactionPriorities() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       for (final CompactionPriority compactionPriority :

@@ -1202,19 +1202,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void maxWriteBufferNumberToMaintain() {
-    try (final Options options = new Options()) {
-      int intValue = rand.nextInt();
-      // Size has to be positive
-      intValue = (intValue < 0) ? -intValue : intValue;
-      intValue = (intValue == 0) ? intValue + 1 : intValue;
-      options.setMaxWriteBufferNumberToMaintain(intValue);
-      assertThat(options.maxWriteBufferNumberToMaintain()).
-          isEqualTo(intValue);
-    }
-  }
-
-  @Test
   public void compactionPriorities() {
     try (final Options options = new Options()) {
       for (final CompactionPriority compactionPriority :
