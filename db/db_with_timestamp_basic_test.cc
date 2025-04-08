@@ -1487,13 +1487,24 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToUserKeyBeforeSavedKey) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp,
-       FIXME_ReverseIterationWithBlobAndUnpreparedValue) {
+class ReverseIterationWithUnpreparedBlobTest
+    : public DBBasicTestWithTimestampBase,
+      public testing::WithParamInterface<std::tuple<bool, uint64_t>> {
+ public:
+  ReverseIterationWithUnpreparedBlobTest()
+      : DBBasicTestWithTimestampBase(
+            "db_basic_test_with_timestamp_reverse_with_unprepare") {}
+};
+INSTANTIATE_TEST_CASE_P(ReverseIterationWithUnpreparedBlobTest,
+                        ReverseIterationWithUnpreparedBlobTest,
+                        ::testing::Combine(::testing::Values(true, false),
+                                           ::testing::Values(0, 2)));
+TEST_P(ReverseIterationWithUnpreparedBlobTest, Basic) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.env = env_;
   options.enable_blob_files = true;
-  options.max_sequential_skip_in_iterations = 0;
+  options.max_sequential_skip_in_iterations = std::get<1>(GetParam());
 
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
@@ -1508,7 +1519,7 @@ TEST_F(DBBasicTestWithTimestamp,
   for (uint64_t key = 0; key <= kMaxKey; ++key) {
     for (size_t i = 0; i < write_timestamps.size(); ++i) {
       ASSERT_OK(db_->Put(WriteOptions(), Key1(key), write_timestamps[i],
-                         "value" + std::to_string(i)));
+                         Key1(key) + "value" + std::to_string(i)));
     }
   }
 
@@ -1520,17 +1531,28 @@ TEST_F(DBBasicTestWithTimestamp,
 
     ReadOptions read_opts;
     read_opts.timestamp = &read_timestamp;
-    read_opts.allow_unprepared_value = true;
+    read_opts.allow_unprepared_value = std::get<0>(GetParam());
 
     std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
 
     it->SeekForPrev(Key1(kMaxKey));
-    ASSERT_TRUE(it->Valid());
-    ASSERT_OK(it->status());
+    uint64_t key = kMaxKey;
+    int count = 0;
+    while (it->Valid()) {
+      ASSERT_OK(it->status());
 
-    // FIXME: PrepareValue() should succeed and status() should remain OK
-    ASSERT_FALSE(it->PrepareValue());
-    ASSERT_TRUE(it->status().IsCorruption());
+      ASSERT_TRUE(it->PrepareValue());
+      ASSERT_TRUE(it->Valid());
+      ASSERT_OK(it->status());
+      ASSERT_EQ(it->key(), Key1(key));
+      ASSERT_EQ(it->timestamp(), Timestamp(3, 0));
+      ASSERT_EQ(it->value(), Key1(key) + "value" + std::to_string(1));
+      key--;
+      count++;
+      it->Prev();
+    }
+    ASSERT_OK(it->status());
+    ASSERT_EQ(kMaxKey + 1, count);
   }
 
   Close();
