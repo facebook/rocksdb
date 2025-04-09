@@ -3828,11 +3828,22 @@ TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithSeek) {
   // Tests that option memtable_tombstone_scan_limit works when the limit
   // is reached during a Seek() operation.
   const int kNumDelete = 10;
+  Random* r = Random::GetTLSInstance();
+
   for (int limit : {kNumDelete, kNumDelete + 1}) {
     Options options;
     options.create_if_missing = true;
     options.memtable_tombstone_scan_limit = limit;
+    options.level_compaction_dynamic_level_bytes = true;
     DestroyAndReopen(options);
+    // Base data that will be covered by the consecutive sequence of tombstones.
+    for (int i = 0; i < kNumDelete; ++i) {
+      ASSERT_OK(Put(Key(i), r->RandomString(100)));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+    ASSERT_EQ(1, NumTableFilesAtLevel(6));
+
     for (int i = 0; i < kNumDelete; ++i) {
       ASSERT_OK(Delete(Key(i)));
     }
@@ -3852,9 +3863,9 @@ TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithSeek) {
     // Skipping kNumDelete tombstones in a single iterator operation should mark
     // the memtable for flush.
     //
-    // At the end of a write we check and update memtable to request a flush
+    // At the end of a write, we check and update memtable to request a flush
     ASSERT_OK(Put(Key(11), "val"));
-    // Before a write we schedule memtables for flush if requested.
+    // Before a write, we schedule memtables for flush if requested.
     ASSERT_OK(Put(Key(12), "val"));
     ASSERT_OK(db_->WaitForCompact({}));
 
@@ -3879,11 +3890,20 @@ TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithNext) {
   // is reached during a Next() operation, and not trigger a flush when
   // the limit is reached across multiple Next() operations.
   const int kNumDelete = 10;
+  Random* r = Random::GetTLSInstance();
   for (int limit : {kNumDelete, kNumDelete + 1}) {
     Options options;
     options.create_if_missing = true;
     options.memtable_tombstone_scan_limit = limit;
+    options.level_compaction_dynamic_level_bytes = true;
     DestroyAndReopen(options);
+    // Base data that will be covered by the consecutive sequence of tombstones.
+    for (int i = 0; i < kNumDelete; ++i) {
+      ASSERT_OK(Put(Key(i), r->RandomString(100)));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+    ASSERT_EQ(1, NumTableFilesAtLevel(6));
 
     ASSERT_OK(Put(Key(0), "val"));
     for (int i = 1; i <= kNumDelete; ++i) {
@@ -3914,9 +3934,9 @@ TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithNext) {
     // Skipping kNumDelete tombstones in a single iterator operation should mark
     // the memtable for flush.
     //
-    // At the end of a write we check and update memtable to request a flush
+    // At the end of a write, we check and update memtable to request a flush
     ASSERT_OK(Put(Key(11), "val"));
-    // Before a write we schedule memtables for flush if requested.
+    // Before a write, we schedule memtables for flush if requested.
     ASSERT_OK(Put(Key(12), "val"));
     ASSERT_OK(db_->WaitForCompact({}));
 
