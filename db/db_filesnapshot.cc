@@ -76,7 +76,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   ret.emplace_back(CurrentFileName(""));
   ret.emplace_back(DescriptorFileName("", versions_->manifest_file_number()));
   // In read-only mode the OPTIONS file number is zero when no OPTIONS file
-  // exist at all. In those cases we do not record any OPTIONS file in the live
+  // exist at all. In this cases we do not record any OPTIONS file in the live
   // file list.
   if (versions_->options_file_number() != 0) {
     ret.emplace_back(OptionsFileName("", versions_->options_file_number()));
@@ -368,7 +368,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   }
 
   // In read-only mode the OPTIONS file number is zero when no OPTIONS file
-  // exist at all. In those cases we do not record any OPTIONS file in the live
+  // exist at all. In this cases we do not record any OPTIONS file in the live
   // file list.
   if (options_number != 0) {
     results.emplace_back();
