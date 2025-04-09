@@ -2057,29 +2057,6 @@ void Java_org_rocksdb_Options_setWalFilter(JNIEnv*, jclass, jlong jhandle,
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setFailIfOptionsFileError
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setFailIfOptionsFileError(
-    JNIEnv*, jclass, jlong jhandle, jboolean jfail_if_options_file_error) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opt->fail_if_options_file_error =
-      static_cast<bool>(jfail_if_options_file_error);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    failIfOptionsFileError
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_failIfOptionsFileError(JNIEnv*, jclass,
-                                                         jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  return static_cast<jboolean>(opt->fail_if_options_file_error);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    setDumpMallocStats
  * Signature: (JZ)V
  */
@@ -7477,29 +7454,6 @@ void Java_org_rocksdb_DBOptions_setWalFilter(JNIEnv*, jclass, jlong jhandle,
   auto* wal_filter = reinterpret_cast<ROCKSDB_NAMESPACE::WalFilterJniCallback*>(
       jwal_filter_handle);
   opt->wal_filter = wal_filter;
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    setFailIfOptionsFileError
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_DBOptions_setFailIfOptionsFileError(
-    JNIEnv*, jclass, jlong jhandle, jboolean jfail_if_options_file_error) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  opt->fail_if_options_file_error =
-      static_cast<bool>(jfail_if_options_file_error);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    failIfOptionsFileError
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_DBOptions_failIfOptionsFileError(JNIEnv*, jclass,
-                                                           jlong jhandle) {
-  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
-  return static_cast<jboolean>(opt->fail_if_options_file_error);
 }
 
 /*

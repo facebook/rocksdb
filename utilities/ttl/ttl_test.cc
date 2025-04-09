@@ -617,7 +617,6 @@ TEST_F(TtlTest, UnregisteredMergeOperator) {
    public:
     const char* Name() const override { return "UnregisteredMergeOperator"; }
   };
-  options_.fail_if_options_file_error = true;
   options_.merge_operator = std::make_shared<UnregisteredMergeOperator>();
   OpenTtl();
   CloseTtl();
