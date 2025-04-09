@@ -7120,8 +7120,8 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "DummyExternalTableIterator::Constructor", [](void* arg) {
-        Status* s = static_cast<Status*>(arg);
-        *s = Status::IOError();
+        Status* status = static_cast<Status*>(arg);
+        *status = Status::IOError();
       });
   SyncPoint::GetInstance()->EnableProcessing();
   iter = db->NewMultiScan(ro, cfh, scan_options);
