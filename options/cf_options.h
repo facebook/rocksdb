@@ -174,7 +174,7 @@ struct MutableCFOptions {
         bottommost_file_compaction_delay(
             options.bottommost_file_compaction_delay),
         uncache_aggressiveness(options.uncache_aggressiveness),
-        tombstone_scan_flush_trigger(options.tombstone_scan_flush_trigger) {
+        memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -230,7 +230,7 @@ struct MutableCFOptions {
         memtable_max_range_deletions(0),
         bottommost_file_compaction_delay(0),
         uncache_aggressiveness(0),
-        tombstone_scan_flush_trigger(0) {}
+        memtable_op_scan_flush_trigger(0) {}
 
   explicit MutableCFOptions(const Options& options);
 
@@ -338,7 +338,7 @@ struct MutableCFOptions {
   uint32_t memtable_max_range_deletions;
   uint32_t bottommost_file_compaction_delay;
   uint32_t uncache_aggressiveness;
-  uint32_t tombstone_scan_flush_trigger;
+  uint32_t memtable_op_scan_flush_trigger;
 
   // Derived options
   // Per-level target file size.

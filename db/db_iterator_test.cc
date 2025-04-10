@@ -3824,134 +3824,163 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewExplicitSnapshot) {
   }
 }
 
-TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithSeek) {
-  // Tests that option tombstone_scan_flush_trigger works when the limit
+TEST_P(DBIteratorTest, MemtableOpsScanFlushTriggerWithSeek) {
+  // Tests that option memtable_op_scan_flush_trigger works when the limit
   // is reached during a Seek() operation.
-  const int kNumDelete = 10;
+  const int kTrigger = 10;
   Random* r = Random::GetTLSInstance();
 
-  for (int limit : {kNumDelete, kNumDelete + 1}) {
-    Options options;
-    options.create_if_missing = true;
-    options.tombstone_scan_flush_trigger = limit;
-    options.level_compaction_dynamic_level_bytes = true;
-    DestroyAndReopen(options);
-    // Base data that will be covered by the consecutive sequence of tombstones.
-    for (int i = 0; i < kNumDelete; ++i) {
-      ASSERT_OK(Put(Key(i), r->RandomString(100)));
-    }
-    ASSERT_OK(Flush());
-    ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
-    ASSERT_EQ(1, NumTableFilesAtLevel(6));
+  for (int trigger : {kTrigger, kTrigger + 1}) {
+    for (bool delete_only : {false, true}) {
+      Options options;
+      options.create_if_missing = true;
+      options.memtable_op_scan_flush_trigger = trigger;
+      options.level_compaction_dynamic_level_bytes = true;
+      DestroyAndReopen(options);
 
-    for (int i = 0; i < kNumDelete; ++i) {
-      ASSERT_OK(Delete(Key(i)));
-    }
+      // Base data that will be covered by a consecutive sequence of tombstones.
+      int kNumKeys = delete_only ? kTrigger : kTrigger / 2;
+      for (int i = 0; i < kNumKeys; ++i) {
+        ASSERT_OK(Put(Key(i), r->RandomString(100)));
+      }
+      ASSERT_OK(Flush());
+      ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+      ASSERT_EQ(1, NumTableFilesAtLevel(6));
 
-    SetPerfLevel(PerfLevel::kEnableCount);
-    get_perf_context()->Reset();
-    ReadOptions ro;
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+      if (delete_only) {
+        for (int i = 0; i < kNumKeys; ++i) {
+          ASSERT_OK(SingleDelete(Key(i)));
+        }
+      } else {
+        for (int i = 0; i < kNumKeys; ++i) {
+          ASSERT_OK(Put(Key(i), r->RandomString(100)));
+        }
+        for (int i = 0; i < kNumKeys; ++i) {
+          ASSERT_OK(Delete(Key(i)));
+        }
+      }
 
-    // Seek to the first key, this will scan through all tombstones
-    iter->Seek(Key(0));
-    ASSERT_FALSE(
-        iter->Valid());  // All keys are deleted, so iterator is not valid
-    ASSERT_OK(iter->status());
-    ASSERT_EQ(get_perf_context()->next_on_memtable_count, kNumDelete);
+      SetPerfLevel(PerfLevel::kEnableCount);
+      get_perf_context()->Reset();
+      ReadOptions ro;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
 
-    // Skipping kNumDelete tombstones in a single iterator operation should mark
-    // the memtable for flush.
-    //
-    // At the end of a write, we check and update memtable to request a flush
-    ASSERT_OK(Put(Key(11), "val"));
-    // Before a write, we schedule memtables for flush if requested.
-    ASSERT_OK(Put(Key(12), "val"));
-    ASSERT_OK(db_->WaitForCompact({}));
+      // Seek to the first key, this will scan through all the tombstones and
+      // hidden puts
+      iter->Seek(Key(0));
+      ASSERT_FALSE(
+          iter->Valid());  // All keys are deleted, so iterator is not valid
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(get_perf_context()->next_on_memtable_count, kTrigger);
 
-    if (limit <= kNumDelete) {
-      // Check if memtable was flushed due to tombstone count
-      ASSERT_EQ(1, NumTableFilesAtLevel(0));
-      uint64_t val = 0;
-      ASSERT_TRUE(
-          db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
-      ASSERT_EQ(0, val);
-    } else {
-      uint64_t val = 0;
-      ASSERT_TRUE(
-          db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
-      ASSERT_EQ(kNumDelete, val);
+      // Skipping kNumTrigger memtable entries in a single iterator operation
+      // should mark the memtable for flush.
+      //
+      // At the end of a write, we check and update memtable to request a flush
+      ASSERT_OK(Put(Key(11), "val"));
+      // Before a write, we schedule memtables for flush if requested.
+      ASSERT_OK(Put(Key(12), "val"));
+      ASSERT_OK(db_->WaitForCompact({}));
+
+      if (trigger <= kTrigger) {
+        // Check if memtable was flushed due to scan trigger
+        ASSERT_EQ(1, NumTableFilesAtLevel(0));
+        uint64_t val = 0;
+        ASSERT_TRUE(
+            db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
+        ASSERT_EQ(0, val);
+      } else {
+        uint64_t val = 0;
+        ASSERT_TRUE(
+            db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
+        ASSERT_EQ(kNumKeys, val);
+      }
     }
   }
 }
 
-TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithNext) {
-  // Tests that option tombstone_scan_flush_trigger works when the limit
+TEST_P(DBIteratorTest, MemtableOpsScanFlushTriggerWithNext) {
+  // Tests that option memtable_op_scan_flush_trigger works when the limit
   // is reached during a Next() operation, and not trigger a flush when
   // the limit is reached across multiple Next() operations.
-  const int kNumDelete = 10;
+  const int kTrigger = 10;
   Random* r = Random::GetTLSInstance();
-  for (int limit : {kNumDelete, kNumDelete + 1}) {
-    Options options;
-    options.create_if_missing = true;
-    options.tombstone_scan_flush_trigger = limit;
-    options.level_compaction_dynamic_level_bytes = true;
-    DestroyAndReopen(options);
-    // Base data that will be covered by the consecutive sequence of tombstones.
-    for (int i = 0; i < kNumDelete; ++i) {
-      ASSERT_OK(Put(Key(i), r->RandomString(100)));
-    }
-    ASSERT_OK(Flush());
-    ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
-    ASSERT_EQ(1, NumTableFilesAtLevel(6));
 
-    ASSERT_OK(Put(Key(0), "val"));
-    for (int i = 1; i <= kNumDelete; ++i) {
-      ASSERT_OK(Delete(Key(i)));
-    }
-    // Total number of tombstones scanned acrosss multiple Next() operations
-    // below will be kNumDelete + 1, and it should not trigger a flush when the
-    // limit is kNumDelete + 1.
-    ASSERT_OK(Put(Key(kNumDelete + 1), "v1"));
-    ASSERT_OK(Delete(Key(kNumDelete + 2)));
-    ASSERT_OK(Put(Key(kNumDelete + 3), "v3"));
+  for (int trigger : {kTrigger, kTrigger + 1}) {
+    for (bool delete_only : {false, true}) {
+      Options options;
+      options.create_if_missing = true;
+      options.memtable_op_scan_flush_trigger = trigger;
+      options.level_compaction_dynamic_level_bytes = true;
+      DestroyAndReopen(options);
 
-    SetPerfLevel(PerfLevel::kEnableCount);
-    get_perf_context()->Reset();
-    ReadOptions ro;
-    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
-    iter->Seek(Key(0));
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->value(), "val");
-    ASSERT_OK(iter->status());
-    ASSERT_EQ(get_perf_context()->next_on_memtable_count, 0);
-    iter->Next();
-    // kNumDelete tombstones and 1 for Put
-    ASSERT_EQ(get_perf_context()->next_on_memtable_count, kNumDelete + 1);
-    iter->Next();
-    ASSERT_EQ(get_perf_context()->next_on_memtable_count, kNumDelete + 3);
+      // Base data that will be covered by a consecutive sequence of tombstones.
+      int kNumKeys = delete_only ? kTrigger : kTrigger / 2;
+      for (int i = 0; i <= kNumKeys; ++i) {
+        ASSERT_OK(Put(Key(i), r->RandomString(100)));
+      }
+      ASSERT_OK(Flush());
+      ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+      ASSERT_EQ(1, NumTableFilesAtLevel(6));
 
-    // Skipping kNumDelete tombstones in a single iterator operation should mark
-    // the memtable for flush.
-    //
-    // At the end of a write, we check and update memtable to request a flush
-    ASSERT_OK(Put(Key(11), "val"));
-    // Before a write, we schedule memtables for flush if requested.
-    ASSERT_OK(Put(Key(12), "val"));
-    ASSERT_OK(db_->WaitForCompact({}));
+      ASSERT_OK(Put(Key(0), "val"));
+      if (delete_only) {
+        for (int i = 1; i <= kNumKeys; ++i) {
+          ASSERT_OK(SingleDelete(Key(i)));
+        }
+      } else {
+        for (int i = 1; i <= kNumKeys; ++i) {
+          ASSERT_OK(Put(Key(i), r->RandomString(100)));
+        }
+        for (int i = 1; i <= kNumKeys; ++i) {
+          ASSERT_OK(Delete(Key(i)));
+        }
+      }
 
-    if (limit <= kNumDelete) {
-      // Check if memtable was flushed due to tombstone count
-      ASSERT_EQ(1, NumTableFilesAtLevel(0));
-      uint64_t val = 0;
-      ASSERT_TRUE(
-          db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
-      ASSERT_EQ(0, val);
-    } else {
-      uint64_t val = 0;
-      ASSERT_TRUE(
-          db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
-      ASSERT_EQ(kNumDelete + 1, val);
+      // Total number of tombstones and hidden puts scanned across multiple
+      // Next() operations below will be kTrigger, and it should not trigger a
+      // flush when the limit is kTrigger + 1.
+      ASSERT_OK(Put(Key(kNumKeys + 1), "v1"));
+      ASSERT_OK(Delete(Key(kNumKeys + 2)));
+      ASSERT_OK(Put(Key(kNumKeys + 3), "v3"));
+
+      SetPerfLevel(PerfLevel::kEnableCount);
+      get_perf_context()->Reset();
+      ReadOptions ro;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+      iter->Seek(Key(0));
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->value(), "val");
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(get_perf_context()->next_on_memtable_count, 0);
+      iter->Next();
+      // kTrigger tombstones and invisible puts and 1 for the visible put
+      ASSERT_EQ(get_perf_context()->next_on_memtable_count, kTrigger + 1);
+      iter->Next();
+      ASSERT_EQ(get_perf_context()->next_on_memtable_count, kTrigger + 3);
+
+      // Skipping kNumTrigger memtable entries in a single iterator operation
+      // should mark the memtable for flush.
+      //
+      // At the end of a write, we check and update memtable to request a flush
+      ASSERT_OK(Put(Key(11), "val"));
+      // Before a write, we schedule memtables for flush if requested.
+      ASSERT_OK(Put(Key(12), "val"));
+      ASSERT_OK(db_->WaitForCompact({}));
+
+      if (trigger <= kTrigger) {
+        // Check if memtable was flushed due to scan trigger
+        ASSERT_EQ(1, NumTableFilesAtLevel(0));
+        uint64_t val = 0;
+        ASSERT_TRUE(
+            db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
+        ASSERT_EQ(0, val);
+      } else {
+        uint64_t val = 0;
+        ASSERT_TRUE(
+            db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
+        ASSERT_EQ(kNumKeys + 1, val);
+      }
     }
   }
 }

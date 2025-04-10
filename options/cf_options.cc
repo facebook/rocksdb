@@ -694,8 +694,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, memtable_max_range_deletions),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-        {"tombstone_scan_flush_trigger",
-         {offsetof(struct MutableCFOptions, tombstone_scan_flush_trigger),
+        {"memtable_op_scan_flush_trigger",
+         {offsetof(struct MutableCFOptions, memtable_op_scan_flush_trigger),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
 };
@@ -1179,8 +1179,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  bottommost_file_compaction_delay);
   ROCKS_LOG_INFO(log, "                   uncache_aggressiveness: %" PRIu32,
                  uncache_aggressiveness);
-  ROCKS_LOG_INFO(log, "             tombstone_scan_flush_trigger: %" PRIu32,
-                 tombstone_scan_flush_trigger);
+  ROCKS_LOG_INFO(log, "             memtable_op_scan_flush_trigger: %" PRIu32,
+                 memtable_op_scan_flush_trigger);
 
   // Universal Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_universal.size_ratio : %d",

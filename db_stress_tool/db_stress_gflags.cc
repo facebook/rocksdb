@@ -1470,8 +1470,8 @@ DEFINE_bool(
     "ReadOptions.auto_refresh_iterator_with_snapshot");
 
 DEFINE_uint32(
-    tombstone_scan_flush_trigger,
-    ROCKSDB_NAMESPACE::ColumnFamilyOptions().tombstone_scan_flush_trigger,
-    "Sets CF option tombstone_scan_flush_trigger.");
+    memtable_op_scan_flush_trigger,
+    ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_op_scan_flush_trigger,
+    "Sets CF option memtable_op_scan_flush_trigger.");
 
 #endif  // GFLAGS

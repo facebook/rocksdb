@@ -4317,7 +4317,7 @@ void InitializeOptionsFromFlags(
     options.compaction_service = std::make_shared<DbStressCompactionService>();
   }
 
-  options.tombstone_scan_flush_trigger = FLAGS_tombstone_scan_flush_trigger;
+  options.memtable_op_scan_flush_trigger = FLAGS_memtable_op_scan_flush_trigger;
 }
 
 void InitializeOptionsGeneral(

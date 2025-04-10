@@ -69,8 +69,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       memtable_seqno_lb_((active_mem_ && !active_mem_->IsEmpty())
                              ? active_mem_->GetFirstSequenceNumber()
                              : kMaxSequenceNumber),
-      tombstone_scan_flush_trigger_(
-          mutable_cf_options.tombstone_scan_flush_trigger),
+      memtable_op_scan_flush_trigger_(
+          mutable_cf_options.memtable_op_scan_flush_trigger),
       direction_(kForward),
       valid_(false),
       current_entry_is_merged_(false),
@@ -373,8 +373,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   // to one.
   bool reseek_done = false;
 
-  uint64_t num_mem_tombstone_scanned = 0;
-  bool mem_marked_for_flush = false;
+  uint64_t mem_ops_scanned = 0;
+  bool marked_for_flush = false;
   do {
     // Will update is_key_seqnum_zero_ as soon as we parsed the current key
     // but we need to save the previous value to be used in the loop.
@@ -431,6 +431,12 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) <= 0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
+        if (memtable_op_scan_flush_trigger_ && active_mem_ &&
+            ikey_.sequence >= memtable_seqno_lb_ && !marked_for_flush &&
+            ++mem_ops_scanned >= memtable_op_scan_flush_trigger_) {
+          active_mem_->MarkForFlush();
+          marked_for_flush = true;
+        }
       } else {
         assert(!skipping_saved_key ||
                CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) > 0);
@@ -452,13 +458,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                                       !iter_.iter()->IsKeyPinned() /* copy */);
               skipping_saved_key = true;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-              if (tombstone_scan_flush_trigger_ && active_mem_ &&
-                  ikey_.sequence >= memtable_seqno_lb_ &&
-                  !mem_marked_for_flush &&
-                  ++num_mem_tombstone_scanned >=
-                      tombstone_scan_flush_trigger_) {
+              if (memtable_op_scan_flush_trigger_ && active_mem_ &&
+                  ikey_.sequence >= memtable_seqno_lb_ && !marked_for_flush &&
+                  ++mem_ops_scanned >= memtable_op_scan_flush_trigger_) {
                 active_mem_->MarkForFlush();
-                mem_marked_for_flush = true;
+                marked_for_flush = true;
               }
             }
             break;
