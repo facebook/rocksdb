@@ -3825,7 +3825,7 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewExplicitSnapshot) {
 }
 
 TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithSeek) {
-  // Tests that option memtable_tombstone_scan_limit works when the limit
+  // Tests that option tombstone_scan_flush_trigger works when the limit
   // is reached during a Seek() operation.
   const int kNumDelete = 10;
   Random* r = Random::GetTLSInstance();
@@ -3833,7 +3833,7 @@ TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithSeek) {
   for (int limit : {kNumDelete, kNumDelete + 1}) {
     Options options;
     options.create_if_missing = true;
-    options.memtable_tombstone_scan_limit = limit;
+    options.tombstone_scan_flush_trigger = limit;
     options.level_compaction_dynamic_level_bytes = true;
     DestroyAndReopen(options);
     // Base data that will be covered by the consecutive sequence of tombstones.
@@ -3886,7 +3886,7 @@ TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithSeek) {
 }
 
 TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithNext) {
-  // Tests that option memtable_tombstone_scan_limit works when the limit
+  // Tests that option tombstone_scan_flush_trigger works when the limit
   // is reached during a Next() operation, and not trigger a flush when
   // the limit is reached across multiple Next() operations.
   const int kNumDelete = 10;
@@ -3894,7 +3894,7 @@ TEST_P(DBIteratorTest, MemtableTombstoneScanLimitWithNext) {
   for (int limit : {kNumDelete, kNumDelete + 1}) {
     Options options;
     options.create_if_missing = true;
-    options.memtable_tombstone_scan_limit = limit;
+    options.tombstone_scan_flush_trigger = limit;
     options.level_compaction_dynamic_level_bytes = true;
     DestroyAndReopen(options);
     // Base data that will be covered by the consecutive sequence of tombstones.

@@ -1107,7 +1107,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (disabled)
   // Dynamically changeable through the SetOptions() API.
-  uint32_t memtable_tombstone_scan_limit = 0;
+  uint32_t tombstone_scan_flush_trigger = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

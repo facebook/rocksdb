@@ -69,8 +69,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       memtable_seqno_lb_((active_mem_ && !active_mem_->IsEmpty())
                              ? active_mem_->GetFirstSequenceNumber()
                              : kMaxSequenceNumber),
-      memtable_tombstone_scan_limit_(
-          mutable_cf_options.memtable_tombstone_scan_limit),
+      tombstone_scan_flush_trigger_(
+          mutable_cf_options.tombstone_scan_flush_trigger),
       direction_(kForward),
       valid_(false),
       current_entry_is_merged_(false),
@@ -452,11 +452,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                                       !iter_.iter()->IsKeyPinned() /* copy */);
               skipping_saved_key = true;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-              if (memtable_tombstone_scan_limit_ && active_mem_ &&
+              if (tombstone_scan_flush_trigger_ && active_mem_ &&
                   ikey_.sequence >= memtable_seqno_lb_ &&
                   !mem_marked_for_flush &&
                   ++num_mem_tombstone_scanned >=
-                      memtable_tombstone_scan_limit_) {
+                      tombstone_scan_flush_trigger_) {
                 active_mem_->MarkForFlush();
                 mem_marked_for_flush = true;
               }

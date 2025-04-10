@@ -62,7 +62,7 @@ class DBIter final : public Iterator {
   //
   // @param active_mem Pointer to the active memtable that `internal_iter`
   // is reading from. If not null, the memtable can be marked for flush
-  // according to option mutable_cf_options.memtable_tombstone_scan_limit.
+  // according to option mutable_cf_options.tombstone_scan_flush_trigger.
   // @param arena_mode If true, the DBIter will be allocated from the arena.
   static DBIter* NewIter(Env* env, const ReadOptions& read_options,
                          const ImmutableOptions& ioptions,
@@ -477,7 +477,7 @@ class DBIter final : public Iterator {
   std::optional<std::vector<ScanOptions>> scan_opts_;
   ReadOnlyMemTable* active_mem_;
   SequenceNumber memtable_seqno_lb_;
-  uint32_t memtable_tombstone_scan_limit_;
+  uint32_t tombstone_scan_flush_trigger_;
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;
