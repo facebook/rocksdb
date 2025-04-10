@@ -57,6 +57,13 @@ class ExternalFileRangeChecker {
                              range2->smallest_internal_key) < 0;
   }
 
+  bool Equals(const KeyRangeInfo& range1, const KeyRangeInfo& range2) const {
+    return sstableKeyCompare(ucmp_, range1.smallest_internal_key,
+                             range2.smallest_internal_key) == 0 &&
+           sstableKeyCompare(ucmp_, range1.largest_internal_key,
+                             range2.largest_internal_key) == 0;
+  }
+
   bool Overlaps(const KeyRangeInfo& range1, const KeyRangeInfo& range2,
                 bool known_sorted = false) const {
     return Overlaps(range1, range2.smallest_internal_key,
@@ -82,12 +89,12 @@ class ExternalFileRangeChecker {
                              range2_largest) <= 0;
   }
 
-  bool Contains(const KeyRangeInfo& range1, const KeyRangeInfo& range2) {
+  bool Contains(const KeyRangeInfo& range1, const KeyRangeInfo& range2) const {
     return Contains(range1, range2.smallest_internal_key,
                     range2.largest_internal_key);
   }
   bool Contains(const KeyRangeInfo& range1, const InternalKey& range2_smallest,
-                const InternalKey& range2_largest) {
+                const InternalKey& range2_largest) const {
     bool any_unset =
         range1.unset() || range2_smallest.unset() || range2_largest.unset();
     if (any_unset) {
@@ -314,6 +321,30 @@ class ExternalSstFileIngestionJob {
                              uint64_t new_file_number,
                              IngestedFileInfo* file_to_ingest,
                              SuperVersion* sv);
+
+  // Attempt to remove redundant files before ingestion. There is no user
+  // visible difference whether a redundant file ends up getting ingested or
+  // left out. For now, files that are already completely range deleted by a
+  // follow-up file and files that contain the same standalone range deletion
+  // file as its previous file are considered redundant.
+  // For example, this list of input files:
+  // [DR1, DR2, Data1, DR3, DR4, DR5, Data2, DR6, Data3], where DR are range
+  // deletions with the same start key and end key and Data's key range is
+  // covered by DR, will be reduced to [DR1, Data3] after redundant files are
+  // removed.
+  void RemoveRedundantFilesBeforeIngestion();
+
+  // Returns true if `file` contains exactly the same range deletion as
+  // `prev_file` file.
+  bool FileIsTheSameRangeDeletionAsPrevFile(const IngestedFileInfo& prev_file,
+                                            const IngestedFileInfo& file) const;
+
+  // Returns true if file at index `file_idx` in `files` is completely deleted
+  // by a follow-up file in `files`. This only check the case when there is a
+  // standalone range deletion file with higher file index that covers the whole
+  // key range of the file.
+  bool FileIsRangeDeletedByFollowupFiles(
+      const autovector<IngestedFileInfo>& files, size_t file_idx) const;
 
   // If the input files' key range overlaps themselves, this function divides
   // them in the user specified order into multiple batches. Where the files
