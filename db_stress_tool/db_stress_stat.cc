@@ -11,6 +11,7 @@ namespace ROCKSDB_NAMESPACE {
 
 std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats;
 std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats_secondaries;
+std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats_followers;
 
 }  // namespace ROCKSDB_NAMESPACE
 
