@@ -37,8 +37,8 @@ namespace ROCKSDB_NAMESPACE {
 //
 //  std::vector<ScanOptions> scans{{.start = Slice("bar")},
 //                              {.start = Slice("foo")}};
-//  std::unique_ptr<MultiScanIterator> iter.reset(
-//                                      db->NewMultiScanIterator());
+//  std::unique_ptr<MultiScan> iter.reset(
+//                                      db->NewMultiScan());
 //  try {
 //    for (auto scan : *iter) {
 //      for (auto it : scan) {
@@ -46,7 +46,10 @@ namespace ROCKSDB_NAMESPACE {
 //        // Do something with value - it.second
 //      }
 //    }
-//  } catch (Status s) {
+//  } catch (MultiScanException& ex) {
+//    // Check ex.status()
+//  } catch (std::logic_error& ex) {
+//    // Check ex.what()
 //  }
 
 class MultiScanException : public std::runtime_error {
