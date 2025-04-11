@@ -1138,7 +1138,8 @@ IOStatus PosixMmapFile::Msync() {
 }
 
 PosixMmapFile::PosixMmapFile(const std::string& fname, int fd, size_t page_size,
-                             const EnvOptions& options)
+                             const EnvOptions& options,
+                             uint64_t initial_file_size)
     : filename_(fname),
       fd_(fd),
       page_size_(page_size),
@@ -1147,7 +1148,7 @@ PosixMmapFile::PosixMmapFile(const std::string& fname, int fd, size_t page_size,
       limit_(nullptr),
       dst_(nullptr),
       last_sync_(nullptr),
-      file_offset_(0) {
+      file_offset_(initial_file_size) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   allow_fallocate_ = options.allow_fallocate;
   fallocate_with_keep_size_ = options.fallocate_with_keep_size;
@@ -1317,12 +1318,13 @@ IOStatus PosixMmapFile::Allocate(uint64_t offset, uint64_t len,
  */
 PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
                                      size_t logical_block_size,
-                                     const EnvOptions& options)
+                                     const EnvOptions& options,
+                                     uint64_t initial_file_size)
     : FSWritableFile(options),
       filename_(fname),
       use_direct_io_(options.use_direct_writes),
       fd_(fd),
-      filesize_(0),
+      filesize_(initial_file_size),
       logical_sector_size_(logical_block_size) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   allow_fallocate_ = options.allow_fallocate;
