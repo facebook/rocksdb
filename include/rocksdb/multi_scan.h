@@ -37,8 +37,8 @@ namespace ROCKSDB_NAMESPACE {
 //
 //  std::vector<ScanOptions> scans{{.start = Slice("bar")},
 //                              {.start = Slice("foo")}};
-//  std::unique_ptr<MultiScanIterator> iter.reset(
-//                                      db->NewMultiScanIterator());
+//  std::unique_ptr<MultiScan> iter.reset(
+//                                      db->NewMultiScan());
 //  try {
 //    for (auto scan : *iter) {
 //      for (auto it : scan) {
@@ -46,8 +46,22 @@ namespace ROCKSDB_NAMESPACE {
 //        // Do something with value - it.second
 //      }
 //    }
-//  } catch (Status s) {
+//  } catch (MultiScanException& ex) {
+//    // Check ex.status()
+//  } catch (std::logic_error& ex) {
+//    // Check ex.what()
 //  }
+
+class MultiScanException : public std::runtime_error {
+ public:
+  explicit MultiScanException(Status& s)
+      : std::runtime_error(s.ToString()), s_(s) {}
+
+  Status& status() { return s_; }
+
+ private:
+  Status s_;
+};
 
 // A container object encapsulating a single scan range. It supports an
 // std::input_iterator for a single pass iteration of the KVs in the range.
@@ -56,7 +70,7 @@ class Scan {
  public:
   class ScanIterator;
 
-  Scan(Iterator* db_iter) : db_iter_(db_iter) {}
+  explicit Scan(Iterator* db_iter) : db_iter_(db_iter) {}
 
   ScanIterator begin() { return ScanIterator(db_iter_); }
 
@@ -84,12 +98,12 @@ class Scan {
 
     ScanIterator& operator++() {
       if (!valid_) {
-        throw Status::InvalidArgument("Trying to advance invalid iterator");
+        throw std::logic_error("Trying to advance invalid iterator");
       } else {
         db_iter_->Next();
         status_ = db_iter_->status();
         if (!status_.ok()) {
-          throw status_;
+          throw MultiScanException(status_);
         } else {
           valid_ = db_iter_->Valid();
           if (valid_) {
@@ -106,13 +120,13 @@ class Scan {
 
     reference operator*() {
       if (!valid_) {
-        throw Status::InvalidArgument("Trying to deref invalid iterator");
+        throw std::logic_error("Trying to deref invalid iterator");
       }
       return result_;
     }
     reference operator->() {
       if (!valid_) {
-        throw Status::InvalidArgument("Trying to deref invalid iterator");
+        throw std::logic_error("Trying to deref invalid iterator");
       }
       return result_;
     }
@@ -144,7 +158,7 @@ class MultiScan {
 
   class MultiScanIterator {
    public:
-    MultiScanIterator(MultiScanIterator&) = delete;
+    MultiScanIterator(const MultiScanIterator&) = delete;
     MultiScanIterator operator=(MultiScanIterator&) = delete;
 
     using self_type = MultiScanIterator;
@@ -158,16 +172,16 @@ class MultiScan {
                       Iterator* db_iter)
         : scan_opts_(scan_opts), idx_(0), db_iter_(db_iter), scan_(db_iter_) {
       if (scan_opts_.empty()) {
-        throw Status::InvalidArgument("Zero scans in multi-scan");
+        throw std::logic_error("Zero scans in multi-scan");
       }
       db_iter_->Seek(*scan_opts_[idx_].range.start);
       status_ = db_iter_->status();
       if (!status_.ok()) {
-        throw status_;
+        throw MultiScanException(status_);
       }
     }
 
-    MultiScanIterator(const std::vector<ScanOptions>& scan_opts)
+    explicit MultiScanIterator(const std::vector<ScanOptions>& scan_opts)
         : scan_opts_(scan_opts),
           idx_(scan_opts_.size()),
           db_iter_(nullptr),
@@ -177,14 +191,14 @@ class MultiScan {
 
     MultiScanIterator& operator++() {
       if (idx_ >= scan_opts_.size()) {
-        throw Status::InvalidArgument("Index out of range");
+        throw std::logic_error("Index out of range");
       }
       idx_++;
       if (idx_ < scan_opts_.size()) {
         db_iter_->Seek(*scan_opts_[idx_].range.start);
         status_ = db_iter_->status();
         if (!status_.ok()) {
-          throw status_;
+          throw MultiScanException(status_);
         }
       }
       return *this;

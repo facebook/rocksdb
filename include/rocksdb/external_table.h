@@ -89,7 +89,7 @@ class ExternalTableIterator : public IteratorBase {
   // request that this be called by setting value_prepared to false in
   // IterateResult. Next() should always implicitly materialize the
   // value.
-  virtual bool PrepareValue() = 0;
+  bool PrepareValue() override = 0;
 
   // Return the current key's value
   virtual Slice value() const = 0;
