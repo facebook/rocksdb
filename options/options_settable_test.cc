@@ -342,6 +342,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, compaction_service),
        sizeof(std::shared_ptr<CompactionService>)},
       {offsetof(struct DBOptions, daily_offpeak_time_utc), sizeof(std::string)},
+      {offsetof(struct DBOptions, calculate_sst_write_lifetime_hint_set),
+       sizeof(CompactionStyleSet)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];
@@ -431,7 +433,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "use_direct_io_for_flush_and_compaction=false;"
                              "max_log_file_size=4607;"
                              "advise_random_on_open=true;"
-                             "fail_if_options_file_error=false;"
                              "enable_pipelined_write=false;"
                              "unordered_write=false;"
                              "allow_concurrent_memtable_write=true;"
@@ -624,7 +625,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "level0_file_num_compaction_trigger=14;"
       "compaction_filter=urxcqstuwnCompactionFilter;"
       "soft_pending_compaction_bytes_limit=0;"
-      "max_write_buffer_number_to_maintain=84;"
       "max_write_buffer_size_to_maintain=2147483648;"
       "merge_operator=aabcxehazrMergeOperator;"
       "memtable_prefix_bloom_size_ratio=0.4642;"
@@ -644,6 +644,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "hard_pending_compaction_bytes_limit=0;"
       "disable_auto_compactions=false;"
       "report_bg_io_stats=true;"
+      "disallow_memtable_writes=true;"
       "ttl=60;"
       "periodic_compaction_seconds=3600;"
       "sample_for_compression=0;"
@@ -673,7 +674,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_max_range_deletions=999999;"
       "bottommost_file_compaction_delay=7200;"
       "uncache_aggressiveness=1234;"
-      "paranoid_memory_checks=1;",
+      "paranoid_memory_checks=1;"
+      "memtable_op_scan_flush_trigger=123;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);

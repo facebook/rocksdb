@@ -126,7 +126,15 @@ struct CacheUsageOptions {
 };
 
 // Configures how SST files using the block-based table format (standard)
-// are written and read.
+// are written and read. With few exceptions, each option only affects either
+// (a) how new SST files are written, or (b) how SST files are read. If an
+// option seems to affect how the SST file is constructed, e.g. format_version,
+// that option *ONLY* has an effect at construction time. Contrast this with
+// options like the various `cache` and `pin` options, that only affect
+// in-memory and IO behavior at read time. In general, any version of RocksDB
+// able to read the full key-value and indexing data in the SST file will read
+// it as written regardless of current options for writing new files. See
+// filter_policy regarding filters.
 //
 // Except as specifically noted, all options here are "mutable" using
 // SetOptions(), with the caveat that only new table builders and new table
@@ -480,6 +488,10 @@ struct BlockBasedTableOptions {
   // If non-nullptr, use the specified filter policy to reduce disk reads.
   // Many applications will benefit from passing the result of
   // NewBloomFilterPolicy() here.
+  //
+  // Because filters only impact performance and are not data-critical, an
+  // SST file can be opened and used without filters if (a) the filter
+  // policy name or schema is unrecognized, or (b) filter_policy is nullptr.
   std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
 
   // If true, place whole keys in the filter (not just prefixes).
@@ -524,13 +536,9 @@ struct BlockBasedTableOptions {
   // Default: 0 (disabled)
   uint32_t read_amp_bytes_per_bit = 0;
 
-  // We currently have these versions:
-  // 0 -- This version can be read by really old RocksDB's. Doesn't support
-  // changing checksum type (default is CRC32).
-  // 1 -- Can be read by RocksDB's versions since 3.0. Supports non-default
-  // checksum, like xxHash. It is written by RocksDB when
-  // BlockBasedTableOptions::checksum is something other than kCRC32c. (version
-  // 0 is silently upconverted)
+  // We currently have these format versions:
+  // 0 - 1 -- Unsupported for writing new files and quietly sanitized to 2.
+  // Read support is deprecated and could be removed in the future.
   // 2 -- Can be read by RocksDB's versions since 3.10. Changes the way we
   // encode compressed blocks with LZ4, BZip2 and Zlib compression. If you
   // don't plan to run RocksDB before version 3.10, you should probably use

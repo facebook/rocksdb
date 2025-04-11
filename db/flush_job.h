@@ -234,7 +234,7 @@ class FlushJob {
 
   // The current minimum seqno that compaction jobs will preclude the data from
   // the last level. Data with seqnos larger than this or larger than
-  // `earliest_snapshot_` will be output to the penultimate level had it gone
+  // `earliest_snapshot_` will be output to the proximal level had it gone
   // through a compaction to the last level.
   SequenceNumber preclude_last_level_min_seqno_ = kMaxSequenceNumber;
 };

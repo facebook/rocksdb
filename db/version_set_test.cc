@@ -26,6 +26,7 @@
 #include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/defer.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1905,7 +1906,7 @@ TEST_F(VersionSetTest, WalAddition) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr, /*read_only=*/false));
+        /*error_handler=*/nullptr, /*unchanging=*/false));
     ASSERT_OK(new_versions->Recover(column_families_, /*read_only=*/false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1973,7 +1974,7 @@ TEST_F(VersionSetTest, WalCloseWithoutSync) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr, /*read_only=*/false));
+        /*error_handler=*/nullptr, /*unchanging=*/false));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 2);
@@ -2027,7 +2028,7 @@ TEST_F(VersionSetTest, WalDeletion) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr, /*read_only=*/false));
+        /*error_handler=*/nullptr, /*unchanging=*/false));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -2066,7 +2067,7 @@ TEST_F(VersionSetTest, WalDeletion) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr, /*read_only=*/false));
+        /*error_handler=*/nullptr, /*unchanging=*/false));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -2187,7 +2188,7 @@ TEST_F(VersionSetTest, DeleteWalsBeforeNonExistingWalNumber) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr, /*read_only=*/false));
+        /*error_handler=*/nullptr, /*unchanging=*/false));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -2224,7 +2225,7 @@ TEST_F(VersionSetTest, DeleteAllWals) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr, /*read_only=*/false));
+        /*error_handler=*/nullptr, /*unchanging=*/false));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 0);
@@ -2267,7 +2268,7 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr, /*read_only=*/false));
+        /*error_handler=*/nullptr, /*unchanging=*/false));
     std::string db_id;
     ASSERT_OK(
         new_versions->Recover(column_families_, /*read_only=*/false, &db_id));
@@ -2447,7 +2448,7 @@ class VersionSetWithTimestampTest : public VersionSetTest {
         &write_buffer_manager_, &write_controller_,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
         /*db_id=*/"", /*db_session_id=*/"", /*daily_offpeak_time_utc=*/"",
-        /*error_handler=*/nullptr, /*read_only=*/false));
+        /*error_handler=*/nullptr, /*unchanging=*/false));
     ASSERT_OK(vset->Recover(column_families_, /*read_only=*/false,
                             /*db_id=*/nullptr));
     for (auto* cfd : *(vset->GetColumnFamilySet())) {
@@ -3749,6 +3750,8 @@ TEST_P(VersionSetTestEmptyDb, OpenCompleteManifest) {
   }
   std::string db_id;
   bool has_missing_table_file = false;
+  SaveAndRestore<bool> override_unchanging(&versions_->TEST_unchanging(),
+                                           read_only);
   s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
                                            read_only, &db_id,
                                            &has_missing_table_file);

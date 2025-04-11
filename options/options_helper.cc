@@ -153,8 +153,6 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.allow_2pc = immutable_db_options.allow_2pc;
   options.row_cache = immutable_db_options.row_cache;
   options.wal_filter = immutable_db_options.wal_filter;
-  options.fail_if_options_file_error =
-      immutable_db_options.fail_if_options_file_error;
   options.dump_malloc_stats = immutable_db_options.dump_malloc_stats;
   options.avoid_flush_during_recovery =
       immutable_db_options.avoid_flush_during_recovery;
@@ -199,6 +197,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.metadata_write_temperature;
   options.wal_write_temperature = immutable_db_options.wal_write_temperature;
   options.compaction_service = immutable_db_options.compaction_service;
+  options.calculate_sst_write_lifetime_hint_set =
+      immutable_db_options.calculate_sst_write_lifetime_hint_set;
 }
 
 ColumnFamilyOptions BuildColumnFamilyOptions(
@@ -299,6 +299,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->default_write_temperature = moptions.default_write_temperature;
   cf_opts->memtable_max_range_deletions = moptions.memtable_max_range_deletions;
   cf_opts->uncache_aggressiveness = moptions.uncache_aggressiveness;
+  cf_opts->memtable_op_scan_flush_trigger =
+      moptions.memtable_op_scan_flush_trigger;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
@@ -311,8 +313,6 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->compaction_filter_factory = ioptions.compaction_filter_factory;
   cf_opts->min_write_buffer_number_to_merge =
       ioptions.min_write_buffer_number_to_merge;
-  cf_opts->max_write_buffer_number_to_maintain =
-      ioptions.max_write_buffer_number_to_maintain;
   cf_opts->max_write_buffer_size_to_maintain =
       ioptions.max_write_buffer_size_to_maintain;
   cf_opts->inplace_update_support = ioptions.inplace_update_support;
@@ -326,6 +326,7 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->num_levels = ioptions.num_levels;
   cf_opts->optimize_filters_for_hits = ioptions.optimize_filters_for_hits;
   cf_opts->force_consistency_checks = ioptions.force_consistency_checks;
+  cf_opts->disallow_memtable_writes = ioptions.disallow_memtable_writes;
   cf_opts->memtable_insert_with_hint_prefix_extractor =
       ioptions.memtable_insert_with_hint_prefix_extractor;
   cf_opts->cf_paths = ioptions.cf_paths;

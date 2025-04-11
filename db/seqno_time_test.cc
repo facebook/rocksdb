@@ -96,7 +96,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  // All data is hot, only output to penultimate level
+  // All data is hot, only output to proximal level
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
@@ -185,7 +185,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   options.num_levels = kNumLevels;
   options.level_compaction_dynamic_level_bytes = true;
   // TODO(zjay): for level compaction, auto-compaction may stuck in deadloop, if
-  //  the penultimate level score > 1, but the hot is not cold enough to compact
+  //  the proximal level score > 1, but the hot is not cold enough to compact
   //  to last level, which will keep triggering compaction.
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
@@ -205,7 +205,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
-  // All data is hot, only output to penultimate level
+  // All data is hot, only output to proximal level
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
@@ -753,7 +753,7 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-  // make sure the data is all compacted to penultimate level if the feature is
+  // make sure the data is all compacted to proximal level if the feature is
   // on, otherwise, compacted to the last level.
   if (options.preclude_last_level_data_seconds > 0) {
     ASSERT_GT(NumTableFilesAtLevel(5), 0);
@@ -792,8 +792,7 @@ TEST_P(SeqnoTimeTablePropTest, SeqnoToTimeMappingUniversal) {
   }
   ASSERT_GT(num_seqno_zeroing, 0);
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
-                              std::numeric_limits<size_t>::max(),
+  ASSERT_OK(GetAllKeyVersions(db_, {}, {}, std::numeric_limits<size_t>::max(),
                               &key_versions));
   // make sure there're more than 300 keys and first 100 keys are having seqno
   // zeroed out, the last 100 key seqno not zeroed out
@@ -919,10 +918,11 @@ TEST_P(SeqnoTimeTablePropTest, PrePopulateInDB) {
       ASSERT_EQ(db_->GetLatestSequenceNumber(), 0);
 
       // And even if we re-open read-write, we do not get pre-population,
-      // because that's only for new DBs.
+      // because that's only for new DBs. We just get a single bootstrap
+      // entry as a lower bound on write times of future writes.
       Reopen(track_options);
       sttm = dbfull()->TEST_GetSeqnoToTimeMapping();
-      ASSERT_EQ(sttm.Size(), 0);
+      ASSERT_EQ(sttm.Size(), 1);
       ASSERT_EQ(db_->GetLatestSequenceNumber(), 0);
     }
   }

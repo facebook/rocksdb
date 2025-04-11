@@ -630,7 +630,8 @@ class VersionStorageInfo {
                                      const Slice& largest_user_key,
                                      int last_level, int last_l0_idx);
 
-  Env::WriteLifeTimeHint CalculateSSTWriteHint(int level) const;
+  Env::WriteLifeTimeHint CalculateSSTWriteHint(
+      int level, CompactionStyleSet compaction_style_set) const;
 
   const Comparator* user_comparator() const { return user_comparator_; }
 
@@ -993,17 +994,21 @@ class Version {
                             const FileMetaData* file_meta,
                             const std::string* fname = nullptr) const;
 
-  // REQUIRES: lock is held
   // On success, *props will be populated with all SSTables' table properties.
   // The keys of `props` are the sst file name, the values of `props` are the
   // tables' properties, represented as std::shared_ptr.
   Status GetPropertiesOfAllTables(const ReadOptions& read_options,
-                                  TablePropertiesCollection* props);
+                                  TablePropertiesCollection* props) const;
   Status GetPropertiesOfAllTables(const ReadOptions& read_options,
-                                  TablePropertiesCollection* props, int level);
+                                  TablePropertiesCollection* props,
+                                  int level) const;
   Status GetPropertiesOfTablesInRange(const ReadOptions& read_options,
                                       const autovector<UserKeyRange>& ranges,
                                       TablePropertiesCollection* props) const;
+  Status GetPropertiesOfTablesByLevel(
+      const ReadOptions& read_options,
+      std::vector<std::unique_ptr<TablePropertiesCollection>>* props_by_level)
+      const;
 
   // Print summary of range delete tombstones in SST files into out_str,
   // with maximum max_entries_to_print entries printed out.
@@ -1174,6 +1179,9 @@ class AtomicGroupReadBuffer {
 // VersionSet is the collection of versions of all the column families of the
 // database. Each database owns one VersionSet. A VersionSet has access to all
 // column families via ColumnFamilySet, i.e. set of the column families.
+// `unchanging` means the LSM tree structure of the column families will not
+// change during the lifetime of this VersionSet (true for read-only instance,
+// but false for secondary instance or writable DB).
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const ImmutableDBOptions* db_options,
@@ -1184,7 +1192,7 @@ class VersionSet {
              const std::shared_ptr<IOTracer>& io_tracer,
              const std::string& db_id, const std::string& db_session_id,
              const std::string& daily_offpeak_time_utc,
-             ErrorHandler* const error_handler, const bool read_only);
+             ErrorHandler* error_handler, bool unchanging);
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;
@@ -1263,8 +1271,11 @@ class VersionSet {
   void WakeUpWaitingManifestWriters();
 
   // Recover the last saved descriptor (MANIFEST) from persistent storage.
-  // If read_only == true, Recover() will not complain if some column families
-  // are not opened
+  // Unlike `unchanging` on the VersionSet, `read_only` here and in other
+  // functions below refers to the CF receiving no writes or modifications
+  // through this VersionSet, but could through external manifest updates
+  // etc. Thus, `read_only=true` for secondary instances as well as read-only
+  // instances.
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only = false, std::string* db_id = nullptr,
                  bool no_error_if_files_missing = false, bool is_retry = false,
@@ -1341,6 +1352,8 @@ class VersionSet {
   uint64_t min_log_number_to_keep() const {
     return min_log_number_to_keep_.load();
   }
+
+  bool unchanging() const { return unchanging_; }
 
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_.fetch_add(1); }
@@ -1573,6 +1586,8 @@ class VersionSet {
     AppendVersion(cfd, version);
   }
 
+  bool& TEST_unchanging() { return const_cast<bool&>(unchanging_); }
+
  protected:
   struct ManifestWriter;
 
@@ -1625,7 +1640,7 @@ class VersionSet {
 
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        const ReadOptions& read_options,
-                                       const VersionEdit* edit);
+                                       const VersionEdit* edit, bool read_only);
 
   Status VerifyFileMetadata(const ReadOptions& read_options,
                             ColumnFamilyData* cfd, const std::string& fpath,
@@ -1722,7 +1737,7 @@ class VersionSet {
                            VersionEdit* edit, SequenceNumber* max_last_sequence,
                            InstrumentedMutex* mu);
 
-  const bool read_only_;
+  const bool unchanging_;
   bool closed_;
 };
 

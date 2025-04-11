@@ -320,6 +320,7 @@ void BlockFetcher::ReadBlock(bool retry) {
   }
 
   PERF_COUNTER_ADD(block_read_byte, block_size_with_trailer_);
+  IGNORE_STATUS_IF_ERROR(io_status_);
   if (io_status_.ok()) {
     if (use_fs_scratch_ && !read_req.status.ok()) {
       io_status_ = read_req.status;

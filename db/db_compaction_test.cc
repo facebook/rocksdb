@@ -127,6 +127,19 @@ class DBCompactionTestWithParam
     exclusive_manual_compaction_ = std::get<1>(GetParam());
   }
 
+  class TrivialMoveEventListener : public EventListener {
+   public:
+    explicit TrivialMoveEventListener(size_t expected_trivially_moved_files)
+        : expected_trivially_moved_files_(expected_trivially_moved_files) {}
+    void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
+      ASSERT_EQ(ci.stats.num_input_files_trivially_moved,
+                expected_trivially_moved_files_);
+    }
+
+   private:
+    size_t expected_trivially_moved_files_ = 0;
+  };
+
   // Required if inheriting from testing::WithParamInterface<>
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
@@ -1301,6 +1314,9 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveOneFile) {
 
   Options options = CurrentOptions();
   options.write_buffer_size = 100000000;
+  TrivialMoveEventListener* trivial_move_listener =
+      new TrivialMoveEventListener(1 /*expected_trivially_moved_files*/);
+  options.listeners.emplace_back(trivial_move_listener);
   options.max_subcompactions = max_subcompactions_;
   DestroyAndReopen(options);
 
@@ -1361,6 +1377,10 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  // 8 is number of `ranges` that each is a non overlapping file.
+  TrivialMoveEventListener* trivial_move_listener =
+      new TrivialMoveEventListener(8 /*expected_trivially_moved_files*/);
+  options.listeners.emplace_back(trivial_move_listener);
   options.write_buffer_size = 10 * 1024 * 1024;
   options.max_subcompactions = max_subcompactions_;
 
@@ -1408,6 +1428,11 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
   trivial_move = 0;
   non_trivial_move = 0;
   values.clear();
+  options.listeners.clear();
+  // Same ranges of files, but now overlapping, trivial move not applicable.
+  TrivialMoveEventListener* trivial_move_listener2 =
+      new TrivialMoveEventListener(0 /*expected_trivially_moved_files*/);
+  options.listeners.emplace_back(trivial_move_listener2);
   DestroyAndReopen(options);
   // Same ranges as above but overlapping
   ranges = {
@@ -1455,6 +1480,11 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveTargetLevel) {
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  // Two non overlapping files in L0 trivialy moved:
+  // file 1 [0 => 300], file 2 [600 => 700]
+  TrivialMoveEventListener* trivial_move_listener1 =
+      new TrivialMoveEventListener(2 /*expected_trivially_moved_files*/);
+  options.listeners.emplace_back(trivial_move_listener1);
   options.write_buffer_size = 10 * 1024 * 1024;
   options.num_levels = 7;
   options.max_subcompactions = max_subcompactions_;
@@ -2087,13 +2117,10 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
     auto begin_str1 = Key(0), end_str1 = Key(100);
     auto begin_str2 = Key(100), end_str2 = Key(200);
     auto begin_str3 = Key(200), end_str3 = Key(299);
-    Slice begin1(begin_str1), end1(end_str1);
-    Slice begin2(begin_str2), end2(end_str2);
-    Slice begin3(begin_str3), end3(end_str3);
-    std::vector<RangePtr> ranges;
-    ranges.emplace_back(&begin1, &end1);
-    ranges.emplace_back(&begin2, &end2);
-    ranges.emplace_back(&begin3, &end3);
+    std::vector<RangeOpt> ranges;
+    ranges.emplace_back(begin_str1, end_str1);
+    ranges.emplace_back(begin_str2, end_str2);
+    ranges.emplace_back(begin_str3, end_str3);
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
                                   ranges.data(), ranges.size()));
     ASSERT_EQ("0,3,7", FilesPerLevel(0));
@@ -2141,7 +2168,7 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
 
   // Delete all files.
   {
-    RangePtr range;
+    RangeOpt range;
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(), &range, 1));
     ASSERT_EQ("", FilesPerLevel(0));
 
@@ -5912,6 +5939,9 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       ASSERT_EQ(running_compactions_.find(ci.job_id),
                 running_compactions_.end());
       running_compactions_.emplace(ci.job_id, std::unordered_set<int>());
+      if (expected_num_l0_files_pre_compaction_ != -1) {
+        ASSERT_EQ(expected_num_l0_files_pre_compaction_, ci.num_l0_files);
+      }
     }
 
     void OnCompactionCompleted(DB* /*db*/,
@@ -5921,6 +5951,9 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       ASSERT_NE(it, running_compactions_.end());
       ASSERT_EQ(it->second.size(), 0);
       running_compactions_.erase(it);
+      if (expected_num_l0_files_post_compaction_ != -1) {
+        ASSERT_EQ(expected_num_l0_files_post_compaction_, ci.num_l0_files);
+      }
     }
 
     void OnSubcompactionBegin(const SubcompactionJobInfo& si) override {
@@ -5950,10 +5983,25 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       return total_subcompaction_cnt_;
     }
 
+    void SetExpectedNumL0FilesPreCompaction(int num) {
+      expected_num_l0_files_pre_compaction_ = num;
+    }
+
+    void SetExpectedNumL0FilesPostCompaction(int num) {
+      expected_num_l0_files_post_compaction_ = num;
+    }
+
+    void ResetExpectedNumL0Files() {
+      SetExpectedNumL0FilesPreCompaction(-1);
+      SetExpectedNumL0FilesPostCompaction(-1);
+    }
+
    private:
     InstrumentedMutex mutex_;
     std::unordered_map<int, std::unordered_set<int>> running_compactions_;
     size_t total_subcompaction_cnt_ = 0;
+    int expected_num_l0_files_pre_compaction_ = -1;
+    int expected_num_l0_files_post_compaction_ = -1;
   };
 
   Options options = CurrentOptions();
@@ -5973,6 +6021,7 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
     ASSERT_OK(Flush());
   }
   MoveFilesToLevel(2);
+  ASSERT_EQ(FilesPerLevel(), "0,0,4");
 
   // generate 2 files @ L1 which overlaps with L2 files
   for (int i = 0; i < 2; i++) {
@@ -5982,11 +6031,18 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
     }
     ASSERT_OK(Flush());
   }
+  listener->SetExpectedNumL0FilesPreCompaction(2 /* num */);
+  listener->SetExpectedNumL0FilesPostCompaction(0 /* num */);
+
   MoveFilesToLevel(1);
   ASSERT_EQ(FilesPerLevel(), "0,2,4");
 
+  listener->ResetExpectedNumL0Files();
+
   CompactRangeOptions comp_opts;
   comp_opts.max_subcompactions = 4;
+
+  listener->SetExpectedNumL0FilesPreCompaction(0 /* num */);
   Status s = dbfull()->CompactRange(comp_opts, nullptr, nullptr);
   ASSERT_OK(s);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -5994,6 +6050,8 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
   ASSERT_EQ(listener->GetRunningCompactionCount(), 0);
   // and sub compaction is triggered
   ASSERT_GT(listener->GetTotalSubcompactionCount(), 0);
+
+  listener->ResetExpectedNumL0Files();
 }
 
 TEST_F(DBCompactionTest, CompactFilesOutputRangeConflict) {
@@ -10472,7 +10530,7 @@ TEST_F(DBCompactionTest, NumberOfSubcompactions) {
   }
 }
 
-TEST_F(DBCompactionTest, VerifyRecordCount) {
+TEST_F(DBCompactionTest, VerifyInputRecordCount) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.level0_file_num_compaction_trigger = 3;
@@ -10507,6 +10565,103 @@ TEST_F(DBCompactionTest, VerifyRecordCount) {
   const char* expect =
       "Compaction number of input keys does not match number of keys "
       "processed.";
+  ASSERT_TRUE(std::strstr(s.getState(), expect));
+}
+
+TEST_F(DBCompactionTest, VerifyOutputRecordCountBlockBasedTable) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  options.compaction_verify_record_count = true;
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // Create 2 overlapping L0 files
+  for (int i = 1; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), Key(10), Key(15)));
+
+  for (int i = 0; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  // Skip adding every 7th key in the output table
+  int num_iter = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::Add::skip", [&](void* skip) {
+        num_iter++;
+        if (num_iter % 7 == 0) {
+          *(bool*)skip = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption());
+  const char* expect =
+      "Number of keys in compaction output SST files does not match number of "
+      "keys added.";
+  ASSERT_TRUE(std::strstr(s.getState(), expect));
+}
+
+TEST_F(DBCompactionTest, VerifyOutputRecordCountPlainTable) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  options.compaction_verify_record_count = true;
+
+  PlainTableOptions plain_table_options;
+  plain_table_options.user_key_len = 0;
+  plain_table_options.bloom_bits_per_key = 2;
+  plain_table_options.hash_table_ratio = 0.8;
+  plain_table_options.index_sparseness = 3;
+  plain_table_options.huge_page_tlb_size = 0;
+  plain_table_options.encoding_type = kPrefix;
+  plain_table_options.full_scan_mode = false;
+  plain_table_options.store_index_in_file = false;
+
+  options.table_factory.reset(NewPlainTableFactory(plain_table_options));
+  options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true));
+
+  options.prefix_extractor.reset(NewFixedPrefixTransform(8));
+  options.allow_mmap_reads = false;
+  options.allow_concurrent_memtable_write = false;
+  options.unordered_write = false;
+
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // Create 2 overlapping L0 files
+  for (int i = 1; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  // Skip adding every 7th key in the output table
+  int num_iter = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "PlainTableBuilder::Add::skip", [&](void* skip) {
+        num_iter++;
+        if (num_iter % 7 == 0) {
+          *(bool*)skip = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption());
+  const char* expect =
+      "Number of keys in compaction output SST files does not match number of "
+      "keys added.";
   ASSERT_TRUE(std::strstr(s.getState(), expect));
 }
 

@@ -2146,10 +2146,6 @@ int main(int argc, char** argv) {
     CheckCondition(23 ==
                    rocksdb_options_get_min_write_buffer_number_to_merge(o));
 
-    rocksdb_options_set_max_write_buffer_number_to_maintain(o, 64);
-    CheckCondition(64 ==
-                   rocksdb_options_get_max_write_buffer_number_to_maintain(o));
-
     rocksdb_options_set_max_write_buffer_size_to_maintain(o, 50000);
     CheckCondition(50000 ==
                    rocksdb_options_get_max_write_buffer_size_to_maintain(o));
@@ -2407,8 +2403,6 @@ int main(int argc, char** argv) {
     CheckCondition(97 == rocksdb_options_get_max_write_buffer_number(copy));
     CheckCondition(23 ==
                    rocksdb_options_get_min_write_buffer_number_to_merge(copy));
-    CheckCondition(
-        64 == rocksdb_options_get_max_write_buffer_number_to_maintain(copy));
     CheckCondition(50000 ==
                    rocksdb_options_get_max_write_buffer_size_to_maintain(copy));
     CheckCondition(1 == rocksdb_options_get_enable_pipelined_write(copy));
@@ -2595,12 +2589,6 @@ int main(int argc, char** argv) {
                    rocksdb_options_get_min_write_buffer_number_to_merge(copy));
     CheckCondition(23 ==
                    rocksdb_options_get_min_write_buffer_number_to_merge(o));
-
-    rocksdb_options_set_max_write_buffer_number_to_maintain(copy, 128);
-    CheckCondition(
-        128 == rocksdb_options_get_max_write_buffer_number_to_maintain(copy));
-    CheckCondition(64 ==
-                   rocksdb_options_get_max_write_buffer_number_to_maintain(o));
 
     rocksdb_options_set_max_write_buffer_size_to_maintain(copy, 9000);
     CheckCondition(9000 ==

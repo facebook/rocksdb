@@ -22,6 +22,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
+#include "rocksdb/multi_scan.h"
 #include "rocksdb/options.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
@@ -95,43 +96,6 @@ class ColumnFamilyHandle {
 
 static const int kMajorVersion = __ROCKSDB_MAJOR__;
 static const int kMinorVersion = __ROCKSDB_MINOR__;
-
-// A range of keys
-struct Range {
-  // In case of user_defined timestamp, if enabled, `start` and `limit` should
-  // point to key without timestamp part.
-  Slice start;
-  Slice limit;
-
-  Range() {}
-  Range(const Slice& s, const Slice& l) : start(s), limit(l) {}
-};
-
-struct RangePtr {
-  // In case of user_defined timestamp, if enabled, `start` and `limit` should
-  // point to key without timestamp part.
-  const Slice* start;
-  const Slice* limit;
-
-  RangePtr() : start(nullptr), limit(nullptr) {}
-  RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) {}
-};
-
-// It is valid that files_checksums and files_checksum_func_names are both
-// empty (no checksum information is provided for ingestion). Otherwise,
-// their sizes should be the same as external_files. The file order should
-// be the same in three vectors and guaranteed by the caller.
-// Note that, we assume the temperatures of this batch of files to be
-// ingested are the same.
-struct IngestExternalFileArg {
-  ColumnFamilyHandle* column_family = nullptr;
-  std::vector<std::string> external_files;
-  IngestExternalFileOptions options;
-  std::vector<std::string> files_checksums;
-  std::vector<std::string> files_checksum_func_names;
-  // A hint as to the temperature for *reading* the files to be ingested.
-  Temperature file_temperature = Temperature::kUnknown;
-};
 
 struct GetMergeOperandsOptions {
   using ContinueCallback = std::function<bool(Slice)>;
@@ -653,7 +617,7 @@ class DB {
                        const Slice& /*key*/, const Slice& /*ts*/,
                        const Slice& /*value*/);
 
-  // Apply the specified updates to the database.
+  // Apply the specified updates atomically to the database.
   // If `updates` contains no update, WAL will still be synced if
   // options.sync=true.
   // Returns OK on success, non-OK on failure.
@@ -1109,6 +1073,18 @@ class DB {
   virtual std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) = 0;
+
+  // Get an iterator that scans multiple key ranges. The scan ranges should
+  // be in increasing order of start key. See multi_scan_iterator.h for more
+  // details.
+  virtual std::unique_ptr<MultiScan> NewMultiScan(
+      const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
+      const std::vector<ScanOptions>& /*scan_opts*/) {
+    std::unique_ptr<Iterator> iter(NewErrorIterator(Status::NotSupported()));
+    std::unique_ptr<MultiScan> ms_iter =
+        std::make_unique<MultiScan>(std::move(iter));
+    return ms_iter;
+  }
 
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB
@@ -1695,9 +1671,12 @@ class DB {
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
   virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }
 
+  // DEPRECATED:
   // Maximum level to which a new compacted memtable is pushed if it
   // does not create overlap.
-  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) = 0;
+  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) {
+    return 0;
+  }
   virtual int MaxMemCompactionLevel() {
     return MaxMemCompactionLevel(DefaultColumnFamily());
   }
@@ -2081,14 +2060,11 @@ class DB {
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) = 0;
 
-  // Get the table properties of files per level.
-  virtual Status GetPropertiesOfTablesForLevels(
-      ColumnFamilyHandle* /* column_family */,
-      std::vector<
-          std::unique_ptr<TablePropertiesCollection>>* /* levels_props */) {
-    return Status::NotSupported(
-        "GetPropertiesOfTablesForLevels() is not implemented.");
-  }
+  // Get the table properties of files by level.
+  virtual Status GetPropertiesOfTablesByLevel(
+      ColumnFamilyHandle* column_family,
+      std::vector<std::unique_ptr<TablePropertiesCollection>>*
+          props_by_level) = 0;
 
   virtual Status SuggestCompactRange(ColumnFamilyHandle* /*column_family*/,
                                      const Slice* /*begin*/,

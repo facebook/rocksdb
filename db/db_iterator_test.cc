@@ -3824,6 +3824,166 @@ TEST_F(DBIteratorTest, IteratorsConsistentViewExplicitSnapshot) {
   }
 }
 
+TEST_P(DBIteratorTest, MemtableOpsScanFlushTriggerWithSeek) {
+  // Tests that option memtable_op_scan_flush_trigger works when the limit
+  // is reached during a Seek() operation.
+  const int kTrigger = 10;
+  Random* r = Random::GetTLSInstance();
+
+  for (int trigger : {kTrigger, kTrigger + 1}) {
+    for (bool delete_only : {false, true}) {
+      Options options;
+      options.create_if_missing = true;
+      options.memtable_op_scan_flush_trigger = trigger;
+      options.level_compaction_dynamic_level_bytes = true;
+      DestroyAndReopen(options);
+
+      // Base data that will be covered by a consecutive sequence of tombstones.
+      int kNumKeys = delete_only ? kTrigger : kTrigger / 2;
+      for (int i = 0; i < kNumKeys; ++i) {
+        ASSERT_OK(Put(Key(i), r->RandomString(100)));
+      }
+      ASSERT_OK(Flush());
+      ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+      ASSERT_EQ(1, NumTableFilesAtLevel(6));
+
+      if (delete_only) {
+        for (int i = 0; i < kNumKeys; ++i) {
+          ASSERT_OK(SingleDelete(Key(i)));
+        }
+      } else {
+        for (int i = 0; i < kNumKeys; ++i) {
+          ASSERT_OK(Put(Key(i), r->RandomString(100)));
+        }
+        for (int i = 0; i < kNumKeys; ++i) {
+          ASSERT_OK(Delete(Key(i)));
+        }
+      }
+
+      SetPerfLevel(PerfLevel::kEnableCount);
+      get_perf_context()->Reset();
+      ReadOptions ro;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+      // Seek to the first key, this will scan through all the tombstones and
+      // hidden puts
+      iter->Seek(Key(0));
+      ASSERT_FALSE(
+          iter->Valid());  // All keys are deleted, so iterator is not valid
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(get_perf_context()->next_on_memtable_count, kTrigger);
+
+      // Skipping kNumTrigger memtable entries in a single iterator operation
+      // should mark the memtable for flush.
+      //
+      // At the end of a write, we check and update memtable to request a flush
+      ASSERT_OK(Put(Key(11), "val"));
+      // Before a write, we schedule memtables for flush if requested.
+      ASSERT_OK(Put(Key(12), "val"));
+      ASSERT_OK(db_->WaitForCompact({}));
+
+      if (trigger <= kTrigger) {
+        // Check if memtable was flushed due to scan trigger
+        ASSERT_EQ(1, NumTableFilesAtLevel(0));
+        uint64_t val = 0;
+        ASSERT_TRUE(
+            db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
+        ASSERT_EQ(0, val);
+      } else {
+        uint64_t val = 0;
+        ASSERT_TRUE(
+            db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
+        ASSERT_EQ(kNumKeys, val);
+      }
+    }
+  }
+}
+
+TEST_P(DBIteratorTest, MemtableOpsScanFlushTriggerWithNext) {
+  // Tests that option memtable_op_scan_flush_trigger works when the limit
+  // is reached during a Next() operation, and not trigger a flush when
+  // the limit is reached across multiple Next() operations.
+  const int kTrigger = 10;
+  Random* r = Random::GetTLSInstance();
+
+  for (int trigger : {kTrigger, kTrigger + 1}) {
+    for (bool delete_only : {false, true}) {
+      Options options;
+      options.create_if_missing = true;
+      options.memtable_op_scan_flush_trigger = trigger;
+      options.level_compaction_dynamic_level_bytes = true;
+      DestroyAndReopen(options);
+
+      // Base data that will be covered by a consecutive sequence of tombstones.
+      int kNumKeys = delete_only ? kTrigger : kTrigger / 2;
+      for (int i = 0; i <= kNumKeys; ++i) {
+        ASSERT_OK(Put(Key(i), r->RandomString(100)));
+      }
+      ASSERT_OK(Flush());
+      ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+      ASSERT_EQ(1, NumTableFilesAtLevel(6));
+
+      ASSERT_OK(Put(Key(0), "val"));
+      if (delete_only) {
+        for (int i = 1; i <= kNumKeys; ++i) {
+          ASSERT_OK(SingleDelete(Key(i)));
+        }
+      } else {
+        for (int i = 1; i <= kNumKeys; ++i) {
+          ASSERT_OK(Put(Key(i), r->RandomString(100)));
+        }
+        for (int i = 1; i <= kNumKeys; ++i) {
+          ASSERT_OK(Delete(Key(i)));
+        }
+      }
+
+      // Total number of tombstones and hidden puts scanned across multiple
+      // Next() operations below will be kTrigger, and it should not trigger a
+      // flush when the limit is kTrigger + 1.
+      ASSERT_OK(Put(Key(kNumKeys + 1), "v1"));
+      ASSERT_OK(Delete(Key(kNumKeys + 2)));
+      ASSERT_OK(Put(Key(kNumKeys + 3), "v3"));
+
+      SetPerfLevel(PerfLevel::kEnableCount);
+      get_perf_context()->Reset();
+      ReadOptions ro;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+      iter->Seek(Key(0));
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(iter->value(), "val");
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(get_perf_context()->next_on_memtable_count, 0);
+      iter->Next();
+      // kTrigger tombstones and invisible puts and 1 for the visible put
+      ASSERT_EQ(get_perf_context()->next_on_memtable_count, kTrigger + 1);
+      iter->Next();
+      ASSERT_EQ(get_perf_context()->next_on_memtable_count, kTrigger + 3);
+
+      // Skipping kNumTrigger memtable entries in a single iterator operation
+      // should mark the memtable for flush.
+      //
+      // At the end of a write, we check and update memtable to request a flush
+      ASSERT_OK(Put(Key(11), "val"));
+      // Before a write, we schedule memtables for flush if requested.
+      ASSERT_OK(Put(Key(12), "val"));
+      ASSERT_OK(db_->WaitForCompact({}));
+
+      if (trigger <= kTrigger) {
+        // Check if memtable was flushed due to scan trigger
+        ASSERT_EQ(1, NumTableFilesAtLevel(0));
+        uint64_t val = 0;
+        ASSERT_TRUE(
+            db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
+        ASSERT_EQ(0, val);
+      } else {
+        uint64_t val = 0;
+        ASSERT_TRUE(
+            db_->GetIntProperty("rocksdb.num-deletes-active-mem-table", &val));
+        ASSERT_EQ(kNumKeys + 1, val);
+      }
+    }
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

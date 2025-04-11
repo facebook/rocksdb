@@ -59,11 +59,13 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/compression.h"
+#include "util/defer.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/rate_limiter_impl.h"
@@ -3180,6 +3182,15 @@ class ModelDB : public DB {
     return Status();
   }
 
+  using DB::GetPropertiesOfTablesByLevel;
+  Status GetPropertiesOfTablesByLevel(
+      ColumnFamilyHandle* /* column_family */,
+      std::vector<
+          std::unique_ptr<TablePropertiesCollection>>* /* props_by_level */)
+      override {
+    return Status();
+  }
+
   using DB::KeyMayExist;
   bool KeyMayExist(const ReadOptions& /*options*/,
                    ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
@@ -3339,11 +3350,6 @@ class ModelDB : public DB {
 
   using DB::NumberLevels;
   int NumberLevels(ColumnFamilyHandle* /*column_family*/) override { return 1; }
-
-  using DB::MaxMemCompactionLevel;
-  int MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) override {
-    return 1;
-  }
 
   using DB::Level0StopWriteTrigger;
   int Level0StopWriteTrigger(ColumnFamilyHandle* /*column_family*/) override {
@@ -5400,8 +5406,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
 
   for (const auto& file : cf_meta.levels[4].files) {
     listener->SetExpectedFileName(dbname_ + file.name);
-    Slice start(file.smallestkey), limit(file.largestkey);
-    const RangePtr ranges(&start, &limit);
+    const RangeOpt ranges(file.smallestkey, file.largestkey);
     // Given verification from above, we're guaranteed that by deleting all the
     // files in [<smallestkey>, <largestkey>] range, we're effectively deleting
     // that very single file and nothing more.
@@ -5453,6 +5458,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   options.max_bytes_for_level_multiplier = 8;
   options.max_background_compactions = 1;
   options.num_levels = 5;
+  options.compaction_verify_record_count = false;
   std::shared_ptr<mock::MockTableFactory> mtf(new mock::MockTableFactory);
   options.table_factory = mtf;
 
@@ -6084,6 +6090,11 @@ TEST_F(DBTest, L0L1L2AndUpHitCounter) {
 }
 
 TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
+  bool& allow_unsupported_fv =
+      BlockBasedTableFactory::AllowUnsupportedFormatVersion();
+  SaveAndRestore guard(&allow_unsupported_fv);
+  ASSERT_FALSE(allow_unsupported_fv);
+
   // iter 0 -- zlib
   // iter 1 -- bzip2
   // iter 2 -- lz4
@@ -6106,7 +6117,16 @@ TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
       table_options.format_version = first_table_version;
       table_options.filter_policy.reset(NewBloomFilterPolicy(10));
       Options options = CurrentOptions();
+
+      // Hack to generate old files (checked in factory construction)
+      allow_unsupported_fv = true;
       options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      ASSERT_EQ(options.table_factory->GetOptions<BlockBasedTableOptions>()
+                    ->format_version,
+                first_table_version);
+      // Able to read old files without the hack
+      allow_unsupported_fv = false;
+
       options.create_if_missing = true;
       options.compression = comp;
       DestroyAndReopen(options);
@@ -6118,9 +6138,14 @@ TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
         // compressible string
         ASSERT_OK(Put(Key(i), rnd.RandomString(128) + std::string(128, 'a')));
       }
+      ASSERT_OK(Flush());
 
       table_options.format_version = first_table_version == 1 ? 2 : 1;
       options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      // format_version (for writing) is sanitized to minimum supported
+      ASSERT_EQ(options.table_factory->GetOptions<BlockBasedTableOptions>()
+                    ->format_version,
+                BlockBasedTableFactory::kMinSupportedFormatVersion);
       Reopen(options);
       for (int i = 0; i < kNumKeysWritten; ++i) {
         auto r = Get(Key(i));

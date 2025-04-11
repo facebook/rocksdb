@@ -45,53 +45,6 @@ public interface AdvancedColumnFamilyOptionsInterface<
   int minWriteBufferNumberToMerge();
 
   /**
-   * The total maximum number of write buffers to maintain in memory including
-   * copies of buffers that have already been flushed.  Unlike
-   * {@link AdvancedMutableColumnFamilyOptionsInterface#maxWriteBufferNumber()},
-   * this parameter does not affect flushing.
-   * This controls the minimum amount of write history that will be available
-   * in memory for conflict checking when Transactions are used.
-   * <p>
-   * When using an OptimisticTransactionDB:
-   * If this value is too low, some transactions may fail at commit time due
-   * to not being able to determine whether there were any write conflicts.
-   * <p>
-   * When using a TransactionDB:
-   * If Transaction::SetSnapshot is used, TransactionDB will read either
-   * in-memory write buffers or SST files to do write-conflict checking.
-   * Increasing this value can reduce the number of reads to SST files
-   * done for conflict detection.
-   * <p>
-   * Setting this value to 0 will cause write buffers to be freed immediately
-   * after they are flushed.
-   * If this value is set to -1,
-   * {@link AdvancedMutableColumnFamilyOptionsInterface#maxWriteBufferNumber()}
-   * will be used.
-   * <p>
-   * Default:
-   * If using a TransactionDB/OptimisticTransactionDB, the default value will
-   * be set to the value of
-   * {@link AdvancedMutableColumnFamilyOptionsInterface#maxWriteBufferNumber()}
-   * if it is not explicitly set by the user. Otherwise, the default is 0.
-   *
-   * @param maxWriteBufferNumberToMaintain The maximum number of write
-   *     buffers to maintain
-   *
-   * @return the reference to the current options.
-   */
-  T setMaxWriteBufferNumberToMaintain(
-      int maxWriteBufferNumberToMaintain);
-
-  /**
-   * The total maximum number of write buffers to maintain in memory including
-   * copies of buffers that have already been flushed.
-   *
-   * @return maxWriteBufferNumberToMaintain The maximum number of write buffers
-   *     to maintain
-   */
-  int maxWriteBufferNumberToMaintain();
-
-  /**
    * Allows thread-safe inplace updates.
    * If inplace_callback function is not set,
    *   Put(key, new_value) will update inplace the existing_value iff

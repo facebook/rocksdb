@@ -379,6 +379,11 @@ class DBImpl : public DB {
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       std::vector<Iterator*>* iterators) override;
 
+  using DB::NewMultiScan;
+  std::unique_ptr<MultiScan> NewMultiScan(
+      const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+      const std::vector<ScanOptions>& scan_opts) override;
+
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
 
@@ -542,7 +547,7 @@ class DBImpl : public DB {
       const TransactionLogIterator::ReadOptions& read_options =
           TransactionLogIterator::ReadOptions()) override;
   Status DeleteFilesInRanges(ColumnFamilyHandle* column_family,
-                             const RangePtr* ranges, size_t n,
+                             const RangeOpt* ranges, size_t n,
                              bool include_end = true);
 
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) override;
@@ -650,6 +655,11 @@ class DBImpl : public DB {
   Status GetPropertiesOfTablesInRange(
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) override;
+
+  Status GetPropertiesOfTablesByLevel(
+      ColumnFamilyHandle* column_family,
+      std::vector<std::unique_ptr<TablePropertiesCollection>>* props_by_level)
+      override;
 
   // ---- End of implementations of the DB interface ----
   SystemClock* GetSystemClock() const;
@@ -1267,27 +1277,18 @@ class DBImpl : public DB {
   // flush LOG out of application buffer
   void FlushInfoLog();
 
-  // record current sequence number to time mapping. If
-  // populate_historical_seconds > 0 then pre-populate all the
-  // sequence numbers from [1, last] to map to [now minus
-  // populate_historical_seconds, now].
-  void RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds);
+  // For the background timer job
+  void RecordSeqnoToTimeMapping();
 
-  // Everytime DB's seqno to time mapping changed (which already hold the db
-  // mutex), we install a new SuperVersion in each column family with a shared
-  // copy of the new mapping while holding the db mutex.
-  // This is done for all column families even though the column family does not
-  // explicitly enabled the
-  // `preclude_last_level_data_seconds` or `preserve_internal_time_seconds`
-  // features.
-  // This mapping supports iterators to fulfill the
-  // "rocksdb.iterator.write-time" iterator property for entries in memtables.
-  //
-  // Since this new SuperVersion doesn't involve an LSM tree shape change, we
-  // don't schedule work after installing this SuperVersion. It returns the used
-  // `SuperVersionContext` for clean up after release mutex.
-  void InstallSeqnoToTimeMappingInSV(
-      std::vector<SuperVersionContext>* sv_contexts);
+  // REQUIRES: DB mutex held
+  std::pair<SequenceNumber, uint64_t> GetSeqnoToTimeSample() const;
+
+  // REQUIRES: DB mutex held or during open
+  void EnsureSeqnoToTimeMapping(const MinAndMaxPreserveSeconds& preserve_secs);
+
+  // Only called during open
+  void PrepopulateSeqnoToTimeMapping(
+      const MinAndMaxPreserveSeconds& preserve_secs);
 
   // Interface to block and signal the DB in case of stalling writes by
   // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
@@ -1785,6 +1786,13 @@ class DBImpl : public DB {
       if (writer->file()) {
         // TODO: plumb Env::IOActivity, Env::IOPriority
         s = writer->WriteBuffer(WriteOptions());
+        if (attempt_truncate_size < SIZE_MAX &&
+            attempt_truncate_size < writer->file()->GetFileSize()) {
+          Status s2 = writer->file()->writable_file()->Truncate(
+              attempt_truncate_size, IOOptions{}, nullptr);
+          // This is just a best effort attempt
+          s2.PermitUncheckedError();
+        }
       }
       delete writer;
       writer = nullptr;
@@ -1817,6 +1825,11 @@ class DBImpl : public DB {
       getting_synced = false;
     }
 
+    void SetAttemptTruncateSize(uint64_t size) {
+      assert(attempt_truncate_size == SIZE_MAX);
+      attempt_truncate_size = size;
+    }
+
     uint64_t number;
     // Visual Studio doesn't support deque's member to be noncopyable because
     // of a std::unique_ptr as a member.
@@ -1829,6 +1842,10 @@ class DBImpl : public DB {
     // to be persisted even if appends happen during sync so it can be used for
     // tracking the synced size in MANIFEST.
     uint64_t pre_sync_size = 0;
+    // When < SIZE_MAX, attempt to truncate the WAL to this size on close,
+    // because a bad entry was written to it beyond that point and it likely
+    // won't be recoverable with the bad entry.
+    uint64_t attempt_truncate_size = SIZE_MAX;
   };
 
   struct LogContext {
@@ -1838,6 +1855,7 @@ class DBImpl : public DB {
     bool need_log_dir_sync = false;
     log::Writer* writer = nullptr;
     LogFileNumberSize* log_file_number_size = nullptr;
+    uint64_t prev_size = SIZE_MAX;
   };
 
   // PurgeFileInfo is a structure to hold information of files to be deleted in
@@ -1979,7 +1997,7 @@ class DBImpl : public DB {
 
   // Follow-up work to user creating a column family or (families)
   Status WrapUpCreateColumnFamilies(
-      const ReadOptions& read_options, const WriteOptions& write_options,
+      const WriteOptions& write_options,
       const std::vector<const ColumnFamilyOptions*>& cf_options);
 
   Status DropColumnFamilyImpl(ColumnFamilyHandle* column_family);
@@ -2137,6 +2155,11 @@ class DBImpl : public DB {
       const std::vector<uint64_t>& wal_numbers, bool read_only, int job_id,
       bool flushed, std::unordered_map<int, VersionEdit>* version_edits,
       RecoveryContext* recovery_ctx);
+
+  // Check that DB sequence number is not set back during recovery between
+  // replaying of WAL files and between replaying of WriteBatches.
+  Status CheckSeqnoNotSetBackDuringRecovery(SequenceNumber prev_next_seqno,
+                                            SequenceNumber current_next_seqno);
 
   void FinishLogFilesRecovery(int job_id, const Status& status);
   // The following two methods are used to flush a memtable to
@@ -2343,7 +2366,7 @@ class DBImpl : public DB {
   void WALIOStatusCheck(const IOStatus& status);
 
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
-  void MemTableInsertStatusCheck(const Status& memtable_insert_status);
+  void HandleMemTableInsertFailure(const Status& nonok_memtable_insert_status);
 
   Status CompactFilesImpl(const CompactionOptions& compact_options,
                           ColumnFamilyData* cfd, Version* version,
@@ -2450,9 +2473,7 @@ class DBImpl : public DB {
   // Cancel scheduled periodic tasks
   Status CancelPeriodicTaskScheduler();
 
-  Status RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
-                                       const WriteOptions& write_options,
-                                       bool is_new_db);
+  Status RegisterRecordSeqnoTimeWorker();
 
   void PrintStatistics();
 
@@ -2518,12 +2539,21 @@ class DBImpl : public DB {
 
   // Background threads call this function, which is just a wrapper around
   // the InstallSuperVersion() function. Background threads carry
-  // sv_context which can have new_superversion already
-  // allocated.
+  // sv_context to allow allocation of SuperVersion object outside of holding
+  // the DB mutex.
   // All ColumnFamily state changes go through this function. Here we analyze
   // the new state and we schedule background work if we detect that the new
   // state needs flush or compaction.
-  void InstallSuperVersionAndScheduleWork(ColumnFamilyData* cfd,
+  // See also InstallSuperVersionForConfigChange().
+  void InstallSuperVersionAndScheduleWork(
+      ColumnFamilyData* cfd, SuperVersionContext* sv_context,
+      std::optional<std::shared_ptr<SeqnoToTimeMapping>>
+          new_seqno_to_time_mapping = {});
+
+  // A variant of InstallSuperVersionAndScheduleWork() that must be used for
+  // new CFs or for changes to mutable_cf_options. This is so that it can
+  // update seqno_to_time_mapping cached for the new SuperVersion as relevant.
+  void InstallSuperVersionForConfigChange(ColumnFamilyData* cfd,
                                           SuperVersionContext* sv_context);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,

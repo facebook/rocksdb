@@ -83,6 +83,14 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   switch (response.status) {
     case CompactionServiceJobStatus::kSuccess:
       break;
+    case CompactionServiceJobStatus::kAborted:
+      sub_compact->status =
+          Status::Aborted("Scheduling a remote compaction job was aborted");
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "[%s] [JOB %d] Remote compaction was aborted at Schedule()",
+          compaction->column_family_data()->GetName().c_str(), job_id_);
+      return response.status;
     case CompactionServiceJobStatus::kFailure:
       sub_compact->status = Status::Incomplete(
           "CompactionService failed to schedule a remote compaction job.");
@@ -102,6 +110,9 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       break;
   }
 
+  std::string debug_str_before_wait =
+      compaction->input_version()->DebugString();
+
   ROCKS_LOG_INFO(db_options_.info_log,
                  "[%s] [JOB %d] Waiting for remote compaction...",
                  compaction->column_family_data()->GetName().c_str(), job_id_);
@@ -110,11 +121,31 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       db_options_.compaction_service->Wait(response.scheduled_job_id,
                                            &compaction_result_binary);
 
+  if (compaction_status != CompactionServiceJobStatus::kSuccess) {
+    ROCKS_LOG_ERROR(db_options_.info_log,
+                    "[%s] [JOB %d] Wait() status is not kSuccess. "
+                    "\nDebugString Before Wait():\n%s"
+                    "\nDebugString After Wait():\n%s",
+                    compaction->column_family_data()->GetName().c_str(),
+                    job_id_, debug_str_before_wait.c_str(),
+                    compaction->input_version()->DebugString().c_str());
+  }
+
   if (compaction_status == CompactionServiceJobStatus::kUseLocal) {
     ROCKS_LOG_INFO(
         db_options_.info_log,
         "[%s] [JOB %d] Remote compaction fallback to local by API (Wait)",
         compaction->column_family_data()->GetName().c_str(), job_id_);
+    return compaction_status;
+  }
+
+  if (compaction_status == CompactionServiceJobStatus::kAborted) {
+    sub_compact->status =
+        Status::Aborted("Waiting a remote compaction job was aborted");
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "[%s] [JOB %d] Remote compaction was aborted during Wait()",
+                   compaction->column_family_data()->GetName().c_str(),
+                   job_id_);
     return compaction_status;
   }
 
@@ -208,19 +239,35 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.file_checksum_func_name = file.file_checksum_func_name;
     meta.marked_for_compaction = file.marked_for_compaction;
     meta.unique_id = file.unique_id;
-
+    meta.temperature = file.file_temperature;
+    meta.tail_size =
+        FileMetaData::CalculateTailSize(file_size, file.table_properties);
     auto cfd = compaction->column_family_data();
-    sub_compact->Current().AddOutput(std::move(meta),
-                                     cfd->internal_comparator(), false, true,
-                                     file.paranoid_hash);
-    sub_compact->Current().UpdateTableProperties(file.table_properties);
+    CompactionOutputs* compaction_outputs =
+        sub_compact->Outputs(file.is_proximal_level_output);
+    assert(compaction_outputs);
+    compaction_outputs->AddOutput(std::move(meta), cfd->internal_comparator(),
+                                  false, true, file.paranoid_hash);
+    compaction_outputs->UpdateTableProperties(file.table_properties);
   }
+
+  // Set per-level stats
+  auto compaction_output_stats =
+      sub_compact->OutputStats(false /* is_proximal_level */);
+  assert(compaction_output_stats);
+  compaction_output_stats->Add(
+      compaction_result.internal_stats.output_level_stats);
+  if (compaction->SupportsPerKeyPlacement()) {
+    compaction_output_stats =
+        sub_compact->OutputStats(true /* is_proximal_level */);
+    assert(compaction_output_stats);
+    compaction_output_stats->Add(
+        compaction_result.internal_stats.proximal_level_stats);
+  }
+
+  // Set job stats
   sub_compact->compaction_job_stats = compaction_result.stats;
-  sub_compact->Current().SetNumOutputRecords(
-      compaction_result.stats.num_output_records);
-  sub_compact->Current().SetNumOutputFiles(
-      compaction_result.stats.num_output_files);
-  sub_compact->Current().AddBytesWritten(compaction_result.bytes_written);
+
   RecordTick(stats_, REMOTE_COMPACT_READ_BYTES, compaction_result.bytes_read);
   RecordTick(stats_, REMOTE_COMPACT_WRITE_BYTES,
              compaction_result.bytes_written);
@@ -238,18 +285,6 @@ void CompactionServiceCompactionJob::RecordCompactionIOStats() {
   compaction_result_->bytes_read += IOSTATS(bytes_read);
   compaction_result_->bytes_written += IOSTATS(bytes_written);
   CompactionJob::RecordCompactionIOStats();
-}
-
-void CompactionServiceCompactionJob::UpdateCompactionJobStats(
-    const InternalStats::CompactionStats& stats) const {
-  compaction_job_stats_->elapsed_micros = stats.micros;
-
-  // output information only in remote compaction
-  compaction_job_stats_->total_output_bytes = stats.bytes_written;
-  compaction_job_stats_->total_output_bytes_blob = stats.bytes_written_blob;
-  compaction_job_stats_->num_output_records = stats.num_output_records;
-  compaction_job_stats_->num_output_files = stats.num_output_files;
-  compaction_job_stats_->num_output_files_blob = stats.num_output_files_blob;
 }
 
 CompactionServiceCompactionJob::CompactionServiceCompactionJob(
@@ -313,15 +348,14 @@ Status CompactionServiceCompactionJob::Run() {
 
   ProcessKeyValueCompaction(sub_compact);
 
-  compaction_stats_.stats.micros =
-      db_options_.clock->NowMicros() - start_micros;
-  compaction_stats_.stats.cpu_micros =
-      sub_compact->compaction_job_stats.cpu_micros;
+  uint64_t elapsed_micros = db_options_.clock->NowMicros() - start_micros;
+  internal_stats_.SetMicros(elapsed_micros);
+  internal_stats_.AddCpuMicros(elapsed_micros);
 
   RecordTimeToHistogram(stats_, COMPACTION_TIME,
-                        compaction_stats_.stats.micros);
+                        internal_stats_.output_level_stats.micros);
   RecordTimeToHistogram(stats_, COMPACTION_CPU_TIME,
-                        compaction_stats_.stats.cpu_micros);
+                        internal_stats_.output_level_stats.cpu_micros);
 
   Status status = sub_compact->status;
   IOStatus io_s = sub_compact->io_status;
@@ -351,25 +385,31 @@ Status CompactionServiceCompactionJob::Run() {
 
   // Build Compaction Job Stats
 
-  // 1. Aggregate CompactionOutputStats into Internal Compaction Stats
-  // (compaction_stats_) and aggregate Compaction Job Stats
-  // (compaction_job_stats_) from the sub compactions
-  compact_->AggregateCompactionStats(compaction_stats_, *compaction_job_stats_);
+  // 1. Aggregate internal stats and job stats for all subcompactions
+  // internal stats: sub_compact.proximal_level_outputs_.stats and
+  //                 sub_compact.compaction_outputs_.stats into
+  //                 internal_stats_.output_level_stats and
+  //                 internal_stats_.proximal_level_stats
+  // job-level stats: sub_compact.compaction_job_stats into compact.job_stats_
+  //
+  // For remote compaction, there's only one subcompaction.
+  compact_->AggregateCompactionStats(internal_stats_, *job_stats_);
 
-  // 2. Update the Output information in the Compaction Job Stats with
-  // aggregated Internal Compaction Stats.
-  UpdateCompactionJobStats(compaction_stats_.stats);
-
-  // 3. Set fields that are not propagated as part of aggregations above
+  // 2. Update job-level output stats with the aggregated internal_stats_
+  // Please note that input stats will be updated by primary host when all
+  // subcompactions are finished
+  UpdateCompactionJobOutputStats(internal_stats_);
+  // and set fields that are not propagated as part of the update
   compaction_result_->stats.is_manual_compaction = c->is_manual_compaction();
   compaction_result_->stats.is_full_compaction = c->is_full_compaction();
   compaction_result_->stats.is_remote_compaction = true;
 
-  // 4. Update IO Stats that are not part of the aggregations above (bytes_read,
-  // bytes_written)
+  // 3. Update IO Stats that are not part of the the update above
+  // (bytes_read, bytes_written)
   RecordCompactionIOStats();
 
   // Build Output
+  compaction_result_->internal_stats = internal_stats_;
   compaction_result_->output_level = compact_->compaction->output_level();
   compaction_result_->output_path = output_path_;
   if (status.ok()) {
@@ -382,7 +422,8 @@ Status CompactionServiceCompactionJob::Run() {
           meta.file_creation_time, meta.epoch_number, meta.file_checksum,
           meta.file_checksum_func_name, output_file.validator.GetHash(),
           meta.marked_for_compaction, meta.unique_id,
-          *output_file.table_properties);
+          *output_file.table_properties, output_file.is_proximal_level,
+          meta.temperature);
     }
   }
 
@@ -554,7 +595,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
             const auto this_one = static_cast<const TableProperties*>(addr1);
             const auto that_one = static_cast<const TableProperties*>(addr2);
             return this_one->AreEqual(opts, that_one, mismatch);
-          }}}};
+          }}},
+        {"is_proximal_level_output",
+         {offsetof(struct CompactionServiceOutputFile,
+                   is_proximal_level_output),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"file_temperature",
+         {offsetof(struct CompactionServiceOutputFile, file_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     compaction_job_stats_type_info = {
@@ -679,6 +729,125 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
 };
 
+static std::unordered_map<std::string, OptionTypeInfo>
+    compaction_stats_type_info = {
+        {"micros",
+         {offsetof(struct InternalStats::CompactionStats, micros),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"cpu_micros",
+         {offsetof(struct InternalStats::CompactionStats, cpu_micros),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"bytes_read_non_output_levels",
+         {offsetof(struct InternalStats::CompactionStats,
+                   bytes_read_non_output_levels),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"bytes_read_output_level",
+         {offsetof(struct InternalStats::CompactionStats,
+                   bytes_read_output_level),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"bytes_skipped_non_output_levels",
+         {offsetof(struct InternalStats::CompactionStats,
+                   bytes_skipped_non_output_levels),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"bytes_skipped_output_level",
+         {offsetof(struct InternalStats::CompactionStats,
+                   bytes_skipped_output_level),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"bytes_read_blob",
+         {offsetof(struct InternalStats::CompactionStats, bytes_read_blob),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"bytes_written",
+         {offsetof(struct InternalStats::CompactionStats, bytes_written),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"bytes_written_blob",
+         {offsetof(struct InternalStats::CompactionStats, bytes_written_blob),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"bytes_moved",
+         {offsetof(struct InternalStats::CompactionStats, bytes_moved),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_input_files_in_non_output_levels",
+         {offsetof(struct InternalStats::CompactionStats,
+                   num_input_files_in_non_output_levels),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_input_files_in_output_level",
+         {offsetof(struct InternalStats::CompactionStats,
+                   num_input_files_in_output_level),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_filtered_input_files_in_non_output_levels",
+         {offsetof(struct InternalStats::CompactionStats,
+                   num_filtered_input_files_in_non_output_levels),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_filtered_input_files_in_output_level",
+         {offsetof(struct InternalStats::CompactionStats,
+                   num_filtered_input_files_in_output_level),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_output_files",
+         {offsetof(struct InternalStats::CompactionStats, num_output_files),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_output_files_blob",
+         {offsetof(struct InternalStats::CompactionStats,
+                   num_output_files_blob),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_input_records",
+         {offsetof(struct InternalStats::CompactionStats, num_input_records),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_dropped_records",
+         {offsetof(struct InternalStats::CompactionStats, num_dropped_records),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"num_output_records",
+         {offsetof(struct InternalStats::CompactionStats, num_output_records),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"count",
+         {offsetof(struct InternalStats::CompactionStats, count),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"counts", OptionTypeInfo::Array<
+                       int, static_cast<int>(CompactionReason::kNumOfReasons)>(
+                       offsetof(struct InternalStats::CompactionStats, counts),
+                       OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+                       {0, OptionType::kInt})},
+};
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    compaction_internal_stats_type_info = {
+        {"output_level_stats",
+         OptionTypeInfo::Struct(
+             "output_level_stats", &compaction_stats_type_info,
+             offsetof(struct InternalStats::CompactionStatsFull,
+                      output_level_stats),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
+        {"has_proximal_level_output",
+         {offsetof(struct InternalStats::CompactionStatsFull,
+                   has_proximal_level_output),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"proximal_level_stats",
+         OptionTypeInfo::Struct(
+             "proximal_level_stats", &compaction_stats_type_info,
+             offsetof(struct InternalStats::CompactionStatsFull,
+                      proximal_level_stats),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
+};
+
 namespace {
 // this is a helper struct to serialize and deserialize class Status, because
 // Status's members are not public.
@@ -785,6 +954,11 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_result_type_info = {
                   "stats", &compaction_job_stats_type_info,
                   offsetof(struct CompactionServiceResult, stats),
                   OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
+    {"internal_stats",
+     OptionTypeInfo::Struct(
+         "internal_stats", &compaction_internal_stats_type_info,
+         offsetof(struct CompactionServiceResult, internal_stats),
+         OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
 };
 
 Status CompactionServiceInput::Read(const std::string& data_str,

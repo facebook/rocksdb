@@ -368,6 +368,7 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
                                     FileType type, uint64_t number) {
   TEST_SYNC_POINT_CALLBACK("DBImpl::DeleteObsoleteFileImpl::BeforeDeletion",
                            const_cast<std::string*>(&fname));
+  IGNORE_STATUS_IF_ERROR(Status::IOError());
 
   Status file_deletion_status;
   if (type == kTableFile || type == kBlobFile || type == kWalFile) {
@@ -422,6 +423,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
 
   // FindObsoleteFiles() should've populated this so nonzero
   assert(state.manifest_file_number != 0);
+
+  IGNORE_STATUS_IF_ERROR(Status::IOError());
 
   // Now, convert lists to unordered sets, WITHOUT mutex held; set is slow.
   std::unordered_set<uint64_t> sst_live_set(state.sst_live.begin(),

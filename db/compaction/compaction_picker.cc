@@ -272,8 +272,8 @@ bool CompactionPicker::RangeOverlapWithCompaction(
       return true;
     }
     if (c->SupportsPerKeyPlacement()) {
-      if (c->OverlapPenultimateLevelOutputRange(smallest_user_key,
-                                                largest_user_key)) {
+      if (c->OverlapProximalLevelOutputRange(smallest_user_key,
+                                             largest_user_key)) {
         return true;
       }
     }
@@ -284,7 +284,7 @@ bool CompactionPicker::RangeOverlapWithCompaction(
 
 bool CompactionPicker::FilesRangeOverlapWithCompaction(
     const std::vector<CompactionInputFiles>& inputs, int level,
-    int penultimate_level) const {
+    int proximal_level) const {
   bool is_empty = true;
   for (auto& in : inputs) {
     if (!in.empty()) {
@@ -301,18 +301,18 @@ bool CompactionPicker::FilesRangeOverlapWithCompaction(
   //  files cannot be overlapped in the order of L0 files.
   InternalKey smallest, largest;
   GetRange(inputs, &smallest, &largest, Compaction::kInvalidLevel);
-  if (penultimate_level != Compaction::kInvalidLevel) {
+  if (proximal_level != Compaction::kInvalidLevel) {
     if (ioptions_.compaction_style == kCompactionStyleUniversal) {
       if (RangeOverlapWithCompaction(smallest.user_key(), largest.user_key(),
-                                     penultimate_level)) {
+                                     proximal_level)) {
         return true;
       }
     } else {
-      InternalKey penultimate_smallest, penultimate_largest;
-      GetRange(inputs, &penultimate_smallest, &penultimate_largest, level);
-      if (RangeOverlapWithCompaction(penultimate_smallest.user_key(),
-                                     penultimate_largest.user_key(),
-                                     penultimate_level)) {
+      InternalKey proximal_smallest, proximal_largest;
+      GetRange(inputs, &proximal_smallest, &proximal_largest, level);
+      if (RangeOverlapWithCompaction(proximal_smallest.user_key(),
+                                     proximal_largest.user_key(),
+                                     proximal_level)) {
         return true;
       }
     }
@@ -353,7 +353,7 @@ Compaction* CompactionPicker::CompactFiles(
   }
   assert(output_level == 0 || !FilesRangeOverlapWithCompaction(
                                   input_files, output_level,
-                                  Compaction::EvaluatePenultimateLevel(
+                                  Compaction::EvaluateProximalLevel(
                                       vstorage, mutable_cf_options, ioptions_,
                                       start_level, output_level)));
 #endif /* !NDEBUG */
@@ -659,9 +659,9 @@ Compaction* CompactionPicker::CompactRange(
     // overlaping outputs in the same level.
     if (FilesRangeOverlapWithCompaction(
             inputs, output_level,
-            Compaction::EvaluatePenultimateLevel(vstorage, mutable_cf_options,
-                                                 ioptions_, start_level,
-                                                 output_level))) {
+            Compaction::EvaluateProximalLevel(vstorage, mutable_cf_options,
+                                              ioptions_, start_level,
+                                              output_level))) {
       // This compaction output could potentially conflict with the output
       // of a currently running compaction, we cannot run it.
       *manual_conflict = true;
@@ -848,9 +848,9 @@ Compaction* CompactionPicker::CompactRange(
   // overlaping outputs in the same level.
   if (FilesRangeOverlapWithCompaction(
           compaction_inputs, output_level,
-          Compaction::EvaluatePenultimateLevel(vstorage, mutable_cf_options,
-                                               ioptions_, input_level,
-                                               output_level))) {
+          Compaction::EvaluateProximalLevel(vstorage, mutable_cf_options,
+                                            ioptions_, input_level,
+                                            output_level))) {
     // This compaction output could potentially conflict with the output
     // of a currently running compaction, we cannot run it.
     *manual_conflict = true;
@@ -1137,7 +1137,7 @@ Status CompactionPicker::SanitizeAndConvertCompactionInputFiles(
   if (output_level != 0 &&
       FilesRangeOverlapWithCompaction(
           *converted_input_files, output_level,
-          Compaction::EvaluatePenultimateLevel(
+          Compaction::EvaluateProximalLevel(
               version->storage_info(), version->GetMutableCFOptions(),
               ioptions_, (*converted_input_files)[0].level, output_level))) {
     return Status::Aborted(
@@ -1154,7 +1154,7 @@ void CompactionPicker::RegisterCompaction(Compaction* c) {
   assert(ioptions_.compaction_style != kCompactionStyleLevel ||
          c->output_level() == 0 ||
          !FilesRangeOverlapWithCompaction(*c->inputs(), c->output_level(),
-                                          c->GetPenultimateLevel()));
+                                          c->GetProximalLevel()));
   // CompactionReason::kExternalSstIngestion's start level is just a placeholder
   // number without actual meaning as file ingestion technically does not have
   // an input level like other compactions

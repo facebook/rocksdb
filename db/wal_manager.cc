@@ -283,6 +283,7 @@ void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
   // The sync point below is used in (DBTest,TransactionLogIteratorRace)
   TEST_SYNC_POINT("WalManager::PurgeObsoleteFiles:1");
   Status s = env_->RenameFile(fname, archived_log_name);
+  IGNORE_STATUS_IF_ERROR(s);
   // The sync point below is used in (DBTest,TransactionLogIteratorRace)
   TEST_SYNC_POINT("WalManager::PurgeObsoleteFiles:2");
   // The sync point below is used in

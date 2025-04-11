@@ -281,8 +281,9 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options);
 Status CheckCFPathsSupported(const DBOptions& db_options,
                              const ColumnFamilyOptions& cf_options);
 
-ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
-                                    const ColumnFamilyOptions& src);
+ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
+                                      bool read_only,
+                                      const ColumnFamilyOptions& src);
 // Wrap user defined table properties collector factories `from cf_options`
 // into internal ones in internal_tbl_prop_coll_factories. Add a system internal
 // one too.
@@ -384,14 +385,17 @@ class ColumnFamilyData {
   Version* dummy_versions() { return dummy_versions_; }
   Version* current() { return current_; }  // REQUIRE: DB mutex held
   void SetCurrent(Version* _current);      // REQUIRE: DB mutex held
-  uint64_t GetNumLiveVersions() const;    // REQUIRE: DB mutex held
-  uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
-  uint64_t GetLiveSstFilesSize() const;   // REQUIRE: DB mutex held
-  uint64_t GetTotalBlobFileSize() const;  // REQUIRE: DB mutex held
+  uint64_t GetNumLiveVersions() const;     // REQUIRE: DB mutex held
+  uint64_t GetTotalSstFilesSize() const;   // REQUIRE: DB mutex held
+  uint64_t GetLiveSstFilesSize() const;    // REQUIRE: DB mutex held
+  uint64_t GetTotalBlobFileSize() const;   // REQUIRE: DB mutex held
   // REQUIRE: DB mutex held
   void SetMemtable(MemTable* new_mem) {
     AssignMemtableID(new_mem);
     mem_ = new_mem;
+    if (ioptions_.disallow_memtable_writes) {
+      mem_->MarkImmutable();
+    }
   }
 
   void AssignMemtableID(ReadOnlyMemTable* new_imm) {
@@ -487,15 +491,11 @@ class ColumnFamilyData {
   uint64_t GetSuperVersionNumberRelaxed() const {
     return super_version_number_.load(std::memory_order_relaxed);
   }
-  // will return a pointer to SuperVersion* if previous SuperVersion
-  // if its reference count is zero and needs deletion or nullptr if not
-  // As argument takes a pointer to allocated SuperVersion to enable
-  // the clients to allocate SuperVersion outside of mutex.
-  // IMPORTANT: Only call this from DBImpl::InstallSuperVersion()
+  // Only intended for use by DBImpl::InstallSuperVersion() and variants
   void InstallSuperVersion(SuperVersionContext* sv_context,
-                           const MutableCFOptions& mutable_cf_options);
-  void InstallSuperVersion(SuperVersionContext* sv_context,
-                           InstrumentedMutex* db_mutex);
+                           InstrumentedMutex* db_mutex,
+                           std::optional<std::shared_ptr<SeqnoToTimeMapping>>
+                               new_seqno_to_time_mapping = {});
 
   void ResetThreadLocalSuperVersions();
 
@@ -537,6 +537,12 @@ class ColumnFamilyData {
     assert(!ts_low.empty());
     const Comparator* ucmp = user_comparator();
     assert(ucmp);
+    // Guard against resurrected full_history_ts_low persisted in MANIFEST
+    // from previous DB sessions. This could happen if UDT was enabled and then
+    // disabled.
+    if (ucmp->timestamp_size() == 0) {
+      return;
+    }
     if (full_history_ts_low_.empty() ||
         ucmp->CompareTimestamp(ts_low, full_history_ts_low_) > 0) {
       full_history_ts_low_ = std::move(ts_low);
@@ -544,6 +550,11 @@ class ColumnFamilyData {
   }
 
   const std::string& GetFullHistoryTsLow() const {
+    const Comparator* ucmp = user_comparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() == 0) {
+      assert(full_history_ts_low_.empty());
+    }
     return full_history_ts_low_;
   }
 
@@ -590,16 +601,14 @@ class ColumnFamilyData {
 
  private:
   friend class ColumnFamilySet;
-  ColumnFamilyData(uint32_t id, const std::string& name,
-                   Version* dummy_versions, Cache* table_cache,
-                   WriteBufferManager* write_buffer_manager,
-                   const ColumnFamilyOptions& options,
-                   const ImmutableDBOptions& db_options,
-                   const FileOptions* file_options,
-                   ColumnFamilySet* column_family_set,
-                   BlockCacheTracer* const block_cache_tracer,
-                   const std::shared_ptr<IOTracer>& io_tracer,
-                   const std::string& db_id, const std::string& db_session_id);
+  ColumnFamilyData(
+      uint32_t id, const std::string& name, Version* dummy_versions,
+      Cache* table_cache, WriteBufferManager* write_buffer_manager,
+      const ColumnFamilyOptions& options, const ImmutableDBOptions& db_options,
+      const FileOptions* file_options, ColumnFamilySet* column_family_set,
+      BlockCacheTracer* const block_cache_tracer,
+      const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
+      const std::string& db_session_id, bool read_only);
 
   std::vector<std::string> GetDbPaths() const;
 
@@ -761,7 +770,8 @@ class ColumnFamilySet {
 
   ColumnFamilyData* CreateColumnFamily(const std::string& name, uint32_t id,
                                        Version* dummy_version,
-                                       const ColumnFamilyOptions& options);
+                                       const ColumnFamilyOptions& options,
+                                       bool read_only);
 
   const UnorderedMap<uint32_t, size_t>& GetRunningColumnFamiliesTimestampSize()
       const {

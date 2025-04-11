@@ -482,6 +482,12 @@ class MergingIterator : public InternalIterator {
            current_->IsValuePinned();
   }
 
+  void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+    for (auto& child : children_) {
+      child.iter.Prepare(scan_opts);
+    }
+  }
+
  private:
   // Represents an element in the min/max heap. Each HeapItem corresponds to a
   // point iterator or a range tombstone iterator, differentiated by

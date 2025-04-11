@@ -1062,6 +1062,7 @@ class DBTestBase : public testing::Test {
   MockEnv* mem_env_;
   Env* encrypted_env_;
   SpecialEnv* env_;
+  std::shared_ptr<Env> env_read_only_;
   std::shared_ptr<Env> env_guard_;
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
@@ -1177,6 +1178,9 @@ class DBTestBase : public testing::Test {
   void Destroy(const Options& options, bool delete_cf_paths = false);
 
   Status ReadOnlyReopen(const Options& options);
+
+  // With a filesystem wrapper that fails on attempted write
+  Status EnforcedReadOnlyReopen(const Options& options);
 
   Status TryReopen(const Options& options);
 

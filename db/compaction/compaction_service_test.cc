@@ -277,8 +277,17 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   Statistics* primary_statistics = GetPrimaryStatistics();
   Statistics* compactor_statistics = GetCompactorStatistics();
 
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::PrefetchTail::TaiSizeNotRecorded",
+      [&](void* /* arg */) {
+        // Trigger assertion to verify precise tail prefetch size calculation
+        assert(false);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
   GenerateTestData();
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  SyncPoint::GetInstance()->DisableProcessing();
   VerifyTestData();
 
   auto my_cs = GetCompactionService();
@@ -357,11 +366,12 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   } else {
     ASSERT_OK(result.status);
   }
-  ASSERT_GE(result.stats.elapsed_micros, 1);
-  ASSERT_GE(result.stats.cpu_micros, 1);
+  ASSERT_GE(result.internal_stats.output_level_stats.micros, 1);
+  ASSERT_GE(result.internal_stats.output_level_stats.cpu_micros, 1);
 
-  ASSERT_EQ(20, result.stats.num_output_records);
-  ASSERT_EQ(result.output_files.size(), result.stats.num_output_files);
+  ASSERT_EQ(20, result.internal_stats.output_level_stats.num_output_records);
+  ASSERT_EQ(result.output_files.size(),
+            result.internal_stats.output_level_stats.num_output_files);
 
   uint64_t total_size = 0;
   for (auto output_file : result.output_files) {
@@ -372,13 +382,14 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
     ASSERT_GT(file_size, 0);
     total_size += file_size;
   }
-  ASSERT_EQ(total_size, result.stats.total_output_bytes);
+  ASSERT_EQ(total_size, result.internal_stats.TotalBytesWritten());
 
   ASSERT_TRUE(result.stats.is_remote_compaction);
   ASSERT_TRUE(result.stats.is_manual_compaction);
   ASSERT_FALSE(result.stats.is_full_compaction);
 
   Close();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(CompactionServiceTest, ManualCompaction) {
@@ -716,6 +727,46 @@ TEST_F(CompactionServiceTest, VerifyStatsLocalFallback) {
   VerifyTestData();
 }
 
+TEST_F(CompactionServiceTest, VerifyInputRecordCount) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  uint64_t comp_num = my_cs->GetCompactionNum();
+
+  // Only iterator through 10 keys and force compaction to finish.
+  int num_iter = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ProcessKeyValueCompaction()::stop", [&](void* stop_ptr) {
+        num_iter++;
+        if (num_iter == 10) {
+          *(bool*)stop_ptr = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // CompactRange() should fail
+  Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsCorruption());
+  const char* expected_message =
+      "Compaction number of input keys does not match number of keys "
+      "processed.";
+  ASSERT_TRUE(std::strstr(s.getState(), expected_message));
+
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(CompactionServiceTest, CorruptedOutput) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -849,6 +900,12 @@ TEST_F(CompactionServiceTest, TruncatedOutput) {
   Slice end(end_str);
   uint64_t comp_num = my_cs->GetCompactionNum();
 
+  // Skip calculating tail size to avoid crashing due to truncated file size
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FileMetaData::CalculateTailSize", [&](void* arg) {
+        bool* skip = static_cast<bool*>(arg);
+        *skip = true;
+      });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionServiceCompactionJob::Run:0", [&](void* arg) {
         CompactionServiceResult* compaction_result =
@@ -865,7 +922,7 @@ TEST_F(CompactionServiceTest, TruncatedOutput) {
           ASSERT_OK(s);
           ASSERT_GT(file_size, 0);
 
-          ASSERT_OK(test::TruncateFile(env_, file_name, file_size / 2));
+          ASSERT_OK(test::TruncateFile(env_, file_name, file_size / 4));
         }
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -1188,34 +1245,38 @@ TEST_F(CompactionServiceTest, PrecludeLastLevel) {
 
   for (int i = 0; i < kNumTrigger; i++) {
     for (int j = 0; j < kNumKeys; j++) {
-      // FIXME: need to assign outputs to levels to allow overlapping ranges:
-      // ASSERT_OK(Put(Key(j * kNumTrigger + i), "v" + std::to_string(i)));
-      // instead of this (too easy):
-      ASSERT_OK(Put(Key(i * kNumKeys + j), "v" + std::to_string(i)));
+      ASSERT_OK(Put(Key(j * kNumTrigger + i), "v" + std::to_string(i)));
     }
     ASSERT_OK(Flush());
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  // Data split between penultimate (kUnknown) and last (kCold) levels
-  // FIXME: need to assign outputs to levels to get this:
-  // ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
-  // ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
-  // ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
-  // instead of this (WRONG but currently expected):
-  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
-  // Check manifest temperatures
+  // Data split between proximal (kUnknown) and last (kCold) levels
+  ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
   // TODO: Check FileSystem temperatures with FileTemperatureTestFS
 
   for (int i = 0; i < kNumTrigger; i++) {
     for (int j = 0; j < kNumKeys; j++) {
-      // FIXME
-      // ASSERT_EQ(Get(Key(j * kNumTrigger + i)), "v" + std::to_string(i));
-      ASSERT_EQ(Get(Key(i * kNumKeys + j)), "v" + std::to_string(i));
+      ASSERT_EQ(Get(Key(j * kNumTrigger + i)), "v" + std::to_string(i));
     }
   }
+
+  // Verify Output Stats
+  auto my_cs = GetCompactionService();
+  CompactionServiceResult result;
+  my_cs->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_GT(result.internal_stats.output_level_stats.cpu_micros, 0);
+  ASSERT_GT(result.internal_stats.output_level_stats.micros, 0);
+  ASSERT_EQ(result.internal_stats.output_level_stats.num_output_records +
+                result.internal_stats.proximal_level_stats.num_output_records,
+            kNumTrigger * kNumKeys);
+  ASSERT_EQ(result.internal_stats.output_level_stats.num_output_files +
+                result.internal_stats.proximal_level_stats.num_output_files,
+            2);
 }
 
 TEST_F(CompactionServiceTest, ConcurrentCompaction) {
@@ -1469,6 +1530,40 @@ TEST_F(CompactionServiceTest, FallbackLocalManual) {
 
   // verify result after 2 manual compactions
   VerifyTestData();
+}
+
+TEST_F(CompactionServiceTest, AbortedWhileWait) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+
+  GenerateTestData();
+  VerifyTestData();
+
+  auto my_cs = GetCompactionService();
+  Statistics* compactor_statistics = GetCompactorStatistics();
+  Statistics* primary_statistics = GetPrimaryStatistics();
+
+  my_cs->ResetOverride();
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+
+  // Override Wait() result with kAborted
+  my_cs->OverrideWaitStatus(CompactionServiceJobStatus::kAborted);
+  start_str = Key(120);
+  start = start_str;
+
+  Status s = db_->CompactRange(CompactRangeOptions(), &start, nullptr);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsAborted());
+  // no remote compaction is run
+  ASSERT_EQ(my_cs->GetCompactionNum(), 0);
+  // make sure the compaction statistics is not recorded any side
+  ASSERT_EQ(primary_statistics->getTickerCount(COMPACT_WRITE_BYTES), 0);
+  ASSERT_EQ(primary_statistics->getTickerCount(REMOTE_COMPACT_WRITE_BYTES), 0);
+  ASSERT_EQ(compactor_statistics->getTickerCount(COMPACT_WRITE_BYTES), 0);
 }
 
 TEST_F(CompactionServiceTest, RemoteEventListener) {

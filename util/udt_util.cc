@@ -429,11 +429,10 @@ void GetFullHistoryTsLowFromU64CutoffTs(Slice* cutoff_ts,
   PutFixed64(full_history_ts_low, cutoff_udt_ts + 1);
 }
 
-std::tuple<std::optional<Slice>, std::optional<Slice>>
-MaybeAddTimestampsToRange(const Slice* start, const Slice* end, size_t ts_sz,
-                          std::string* start_with_ts, std::string* end_with_ts,
-                          bool exclusive_end) {
-  std::optional<Slice> ret_start, ret_end;
+std::tuple<OptSlice, OptSlice> MaybeAddTimestampsToRange(
+    const OptSlice& start, const OptSlice& end, size_t ts_sz,
+    std::string* start_with_ts, std::string* end_with_ts, bool exclusive_end) {
+  OptSlice ret_start, ret_end;
   if (start) {
     if (ts_sz == 0) {
       ret_start = *start;
