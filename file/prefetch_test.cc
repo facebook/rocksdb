@@ -3125,7 +3125,7 @@ TEST_F(FilePrefetchBufferTest, SeekWithoutAlignment) {
 
     FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
                            /*track_min_offset=*/false, fs(), nullptr, nullptr,
-                           nullptr, FilePrefetchBufferUsage::kUnknown);
+                           nullptr, nullptr, FilePrefetchBufferUsage::kUnknown);
 
     Slice result;
     // Simulate a seek of half of alignment bytes at offset n. Due to the
@@ -3160,7 +3160,7 @@ TEST_F(FilePrefetchBufferTest, SeekWithoutAlignment) {
     readahead_params.num_buffers = 2;
     FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
                            /*track_min_offset=*/false, fs(), nullptr, nullptr,
-                           nullptr, FilePrefetchBufferUsage::kUnknown);
+                           nullptr, nullptr, FilePrefetchBufferUsage::kUnknown);
 
     Slice result;
     // Simulate a seek of half of alignment bytes at offset n.
@@ -3199,7 +3199,7 @@ TEST_F(FilePrefetchBufferTest, NoSyncWithAsyncIO) {
   readahead_params.num_buffers = 2;
   FilePrefetchBuffer fpb(readahead_params, /*enable=*/true,
                          /*track_min_offset=*/false, fs(), nullptr, nullptr,
-                         nullptr, FilePrefetchBufferUsage::kUnknown);
+                         nullptr, nullptr, FilePrefetchBufferUsage::kUnknown);
 
   int read_async_called = 0;
   SyncPoint::GetInstance()->SetCallBack(
@@ -3251,7 +3251,7 @@ TEST_F(FilePrefetchBufferTest, SyncReadaheadStats) {
   ReadaheadParams readahead_params;
   readahead_params.initial_readahead_size = 8192;
   readahead_params.max_readahead_size = 8192;
-  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), nullptr,
+  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), nullptr, nullptr,
                          stats.get());
   Slice result;
   // Simulate a seek of 4096 bytes at offset 0. Due to the readahead settings,
@@ -3309,7 +3309,7 @@ TEST_F(FilePrefetchBufferTest, ForCompaction) {
   readahead_params.num_buffers = 1;
 
   FilePrefetchBuffer fpb(readahead_params, true /* enable */,
-                         false /* track_min_offset */, fs(), nullptr,
+                         false /* track_min_offset */, fs(), nullptr, nullptr,
                          stats.get());
 
   Slice result;
@@ -3498,7 +3498,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   readahead_params.num_buffers = num_buffers;
 
   FilePrefetchBuffer fpb(readahead_params, true /* enable */,
-                         false /* track_min_offset */, fs(), clock(),
+                         false /* track_min_offset */, fs(), clock(), nullptr,
                          stats.get());
 
   int overlap_buffer_write_ct = 0;
@@ -3694,7 +3694,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchUnalignedReads) {
   size_t num_buffers = use_async_prefetch ? 2 : 1;
   readahead_params.num_buffers = num_buffers;
   FilePrefetchBuffer fpb(readahead_params, true /* enable */,
-                         false /* track_min_offset */, fs(), clock(),
+                         false /* track_min_offset */, fs(), clock(), nullptr,
                          stats.get());
 
   int overlap_buffer_write_ct = 0;
@@ -3850,7 +3850,7 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchRandomized) {
   readahead_params.num_buffers = num_buffers;
 
   FilePrefetchBuffer fpb(readahead_params, true /* enable */,
-                         false /* track_min_offset */, fs(), clock(),
+                         false /* track_min_offset */, fs(), clock(), nullptr,
                          stats.get());
 
   Slice result;

@@ -473,13 +473,15 @@ Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
 // Verify the checksum of file
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
-                             const std::string& file_path);
+                             const std::string& file_path,
+                             InternalStats* internal_stats);
 
 // Verify the checksum of file
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const ReadOptions& _read_options,
                              const std::string& file_path,
-                             const SequenceNumber& largest_seqno = 0);
+                             const SequenceNumber& largest_seqno,
+                             InternalStats* internal_stats);
 
 }  // namespace ROCKSDB_NAMESPACE

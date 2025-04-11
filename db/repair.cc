@@ -491,8 +491,8 @@ class Repairer {
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
           {}, kMaxSequenceNumber, kMaxSequenceNumber, kMaxSequenceNumber,
           snapshot_checker, false /* paranoid_file_checks*/,
-          nullptr /* internal_stats */, &io_s, nullptr /*IOTracer*/,
-          BlobFileCreationReason::kRecovery,
+          cfd == nullptr ? nullptr : cfd->internal_stats(), &io_s,
+          nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
           nullptr /* seqno_to_time_mapping */, nullptr /* event_logger */,
           0 /* job_id */, nullptr /* table_properties */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
@@ -602,8 +602,10 @@ class Repairer {
       InternalIterator* iter = table_cache_->NewIterator(
           ropts, file_options_, cfd->internal_comparator(), t->meta,
           nullptr /* range_del_agg */, cfd->GetLatestMutableCFOptions(),
-          /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
-          TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
+          /*table_reader_ptr=*/nullptr,
+          cfd == nullptr ? nullptr : cfd->internal_stats(),
+          /*file_read_hist=*/nullptr, TableReaderCaller::kRepair,
+          /*arena=*/nullptr, /*skip_filters=*/false,
           /*level=*/-1, /*max_file_size_for_l0_meta_pin=*/0,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,

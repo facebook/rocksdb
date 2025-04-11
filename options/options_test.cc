@@ -54,7 +54,8 @@ class UnregisteredTableFactory : public TableFactory {
   using TableFactory::NewTableReader;
   Status NewTableReader(const ReadOptions&, const TableReaderOptions&,
                         std::unique_ptr<RandomAccessFileReader>&&, uint64_t,
-                        std::unique_ptr<TableReader>*, bool) const override {
+                        std::unique_ptr<TableReader>*, InternalStats*,
+                        bool) const override {
     return Status::NotSupported();
   }
   TableBuilder* NewTableBuilder(const TableBuilderOptions&,
