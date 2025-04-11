@@ -424,9 +424,10 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     allow_link_open_file_ = allow_link_open_file;
   }
 
-  bool ShouldIOActivtiesExcludedFromFaultInjection(Env::IOActivity io_activty) {
+  bool ShouldIOActivtiesExcludedFromFaultInjection(
+      Env::IOActivity io_activity) {
     MutexLock l(&mutex_);
-    return io_activties_excluded_from_fault_injection.find(io_activty) !=
+    return io_activties_excluded_from_fault_injection.find(io_activity) !=
            io_activties_excluded_from_fault_injection.end();
   }
 

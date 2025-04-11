@@ -520,10 +520,11 @@ enum Tickers : uint32_t {
   // Number of bytes prefetched during user initiated scan
   PREFETCH_BYTES,
 
-  // Number of prefetched bytes that were actually useful
+  // Number of prefetched bytes that were actually useful during user initiated
+  // scan
   PREFETCH_BYTES_USEFUL,
 
-  // Number of FS reads avoided due to scan prefetching
+  // Number of FS reads avoided due to prefetching during user initiated scan
   PREFETCH_HITS,
 
   // Footer corruption detected when opening an SST file for reading
@@ -657,13 +658,17 @@ enum Histograms : uint32_t {
   ASYNC_READ_BYTES,
   POLL_WAIT_MICROS,
 
+  // Number of bytes for RocksDB's prefetching (as opposed to file
+  // system's prefetch) on SST file during compaction read
+  COMPACTION_PREFETCH_BYTES,
+
   // Number of prefetched bytes discarded by RocksDB.
   PREFETCHED_BYTES_DISCARDED,
 
   // Wait time for aborting async read in FilePrefetchBuffer destructor
   ASYNC_PREFETCH_ABORT_MICROS,
 
-  // Number of bytes read for RocksDB's prefetching contents (as opposed to file
+  // Number of bytes for RocksDB's prefetching contents (as opposed to file
   // system's prefetch) from the end of SST table during block based table open
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
 
