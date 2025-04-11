@@ -126,6 +126,8 @@ Status FilePrefetchBuffer::Read(BufferInfo* buf, const IOOptions& opts,
 
   if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {
     RecordTick(stats_, PREFETCH_BYTES, read_len);
+  } else if (usage_ == FilePrefetchBufferUsage::kCompactionPrefetch) {
+    RecordInHistogram(stats_, COMPACTION_PREFETCH_BYTES, read_len);
   }
   if (!use_fs_buffer) {
     // Update the buffer size.
@@ -154,7 +156,9 @@ Status FilePrefetchBuffer::ReadAsync(BufferInfo* buf, const IOOptions& opts,
                                &(buf->del_fn_), /*aligned_buf =*/nullptr);
   req.status.PermitUncheckedError();
   if (s.ok()) {
-    RecordTick(stats_, PREFETCH_BYTES, read_len);
+    if (usage_ == FilePrefetchBufferUsage::kUserScanPrefetch) {
+      RecordTick(stats_, PREFETCH_BYTES, read_len);
+    }
     buf->async_read_in_progress_ = true;
   }
   return s;
