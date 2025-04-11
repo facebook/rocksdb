@@ -4316,6 +4316,8 @@ void InitializeOptionsFromFlags(
   if (FLAGS_enable_remote_compaction) {
     options.compaction_service = std::make_shared<DbStressCompactionService>();
   }
+
+  options.memtable_op_scan_flush_trigger = FLAGS_memtable_op_scan_flush_trigger;
 }
 
 void InitializeOptionsGeneral(

@@ -344,6 +344,7 @@ default_params = {
     "allow_unprepared_value": lambda: random.choice([0, 1]),
     "enable_remote_compaction": lambda: random.choice([0, 1]),
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
+    "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR

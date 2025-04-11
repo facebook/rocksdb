@@ -57,6 +57,33 @@ class Version;
 // numbers, deletion markers, overwrites, etc.
 class DBIter final : public Iterator {
  public:
+  // Return a new DBIter that reads from `internal_iter` at the specified
+  // `sequence` number.
+  //
+  // @param active_mem Pointer to the active memtable that `internal_iter`
+  // is reading from. If not null, the memtable can be marked for flush
+  // according to option mutable_cf_options.memtable_op_scan_flush_trigger.
+  // @param arena_mode If true, the DBIter will be allocated from the arena.
+  static DBIter* NewIter(Env* env, const ReadOptions& read_options,
+                         const ImmutableOptions& ioptions,
+                         const MutableCFOptions& mutable_cf_options,
+                         const Comparator* user_key_comparator,
+                         InternalIterator* internal_iter,
+                         const Version* version, const SequenceNumber& sequence,
+                         ReadCallback* read_callback,
+                         ColumnFamilyHandleImpl* cfh = nullptr,
+                         bool expose_blob_index = false,
+                         ReadOnlyMemTable* active_mem = nullptr,
+                         Arena* arena = nullptr) {
+    void* mem = arena ? arena->AllocateAligned(sizeof(DBIter))
+                      : operator new(sizeof(DBIter));
+    DBIter* db_iter = new (mem)
+        DBIter(env, read_options, ioptions, mutable_cf_options,
+               user_key_comparator, internal_iter, version, sequence, arena,
+               read_callback, cfh, expose_blob_index, active_mem);
+    return db_iter;
+  }
+
   // The following is grossly complicated. TODO: clean it up
   // Which direction is the iterator currently moving?
   // (1) When moving forward:
@@ -112,14 +139,6 @@ class DBIter final : public Iterator {
     // Map to Tickers::NUMBER_ITER_SKIP
     uint64_t skip_count_;
   };
-
-  DBIter(Env* _env, const ReadOptions& read_options,
-         const ImmutableOptions& ioptions,
-         const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
-         InternalIterator* iter, const Version* version, SequenceNumber s,
-         bool arena_mode, uint64_t max_sequential_skip_in_iterations,
-         ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
-         bool expose_blob_index);
 
   // No copying allowed
   DBIter(const DBIter&) = delete;
@@ -232,6 +251,14 @@ class DBIter final : public Iterator {
   }
 
  private:
+  DBIter(Env* _env, const ReadOptions& read_options,
+         const ImmutableOptions& ioptions,
+         const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
+         InternalIterator* iter, const Version* version, SequenceNumber s,
+         bool arena_mode, ReadCallback* read_callback,
+         ColumnFamilyHandleImpl* cfh, bool expose_blob_index,
+         ReadOnlyMemTable* active_mem);
+
   class BlobReader {
    public:
     BlobReader(const Version* version, ReadTier read_tier,
@@ -436,6 +463,21 @@ class DBIter final : public Iterator {
   IterKey prefix_;
 
   Status status_;
+  Slice lazy_blob_index_;
+
+  // List of operands for merge operator.
+  MergeContext merge_context_;
+  LocalStatistics local_stats_;
+  PinnedIteratorsManager pinned_iters_mgr_;
+  ColumnFamilyHandleImpl* cfh_;
+  const Slice* const timestamp_ub_;
+  const Slice* const timestamp_lb_;
+  const size_t timestamp_size_;
+  std::string saved_timestamp_;
+  std::optional<std::vector<ScanOptions>> scan_opts_;
+  ReadOnlyMemTable* active_mem_;
+  SequenceNumber memtable_seqno_lb_;
+  uint32_t memtable_op_scan_flush_trigger_;
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;
@@ -454,30 +496,7 @@ class DBIter final : public Iterator {
   // the stacked BlobDB implementation is used, false otherwise.
   bool expose_blob_index_;
   bool allow_unprepared_value_;
-  Slice lazy_blob_index_;
   bool is_blob_;
   bool arena_mode_;
-  // List of operands for merge operator.
-  MergeContext merge_context_;
-  LocalStatistics local_stats_;
-  PinnedIteratorsManager pinned_iters_mgr_;
-  ColumnFamilyHandleImpl* cfh_;
-  const Slice* const timestamp_ub_;
-  const Slice* const timestamp_lb_;
-  const size_t timestamp_size_;
-  std::string saved_timestamp_;
-  std::optional<std::vector<ScanOptions>> scan_opts_;
 };
-
-// Return a new iterator that converts internal keys (yielded by
-// "*internal_iter") that were live at the specified `sequence` number
-// into appropriate user keys.
-Iterator* NewDBIterator(
-    Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
-    const MutableCFOptions& mutable_cf_options,
-    const Comparator* user_key_comparator, InternalIterator* internal_iter,
-    const Version* version, const SequenceNumber& sequence,
-    uint64_t max_sequential_skip_in_iterations, ReadCallback* read_callback,
-    ColumnFamilyHandleImpl* cfh = nullptr, bool expose_blob_index = false);
-
 }  // namespace ROCKSDB_NAMESPACE

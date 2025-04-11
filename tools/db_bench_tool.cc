@@ -1279,6 +1279,11 @@ DEFINE_bool(explicit_snapshot, false,
             "When set to true iterators will be initialized with explicit "
             "snapshot");
 
+DEFINE_uint32(memtable_op_scan_flush_trigger,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .memtable_op_scan_flush_trigger,
+              "Setting for CF option memtable_op_scan_flush_trigger.");
+
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
@@ -4747,6 +4752,8 @@ class Benchmark {
     options.block_protection_bytes_per_key =
         FLAGS_block_protection_bytes_per_key;
     options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
+    options.memtable_op_scan_flush_trigger =
+        FLAGS_memtable_op_scan_flush_trigger;
   }
 
   void InitializeOptionsGeneral(Options* opts, ToolHooks& hooks) {

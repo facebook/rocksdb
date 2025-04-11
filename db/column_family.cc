@@ -448,6 +448,13 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
     result.preclude_last_level_data_seconds = 0;
   }
 
+  if (read_only && result.memtable_op_scan_flush_trigger != 0) {
+    ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "option memtable_op_scan_flush_trigger is sanitized to "
+                   "0(disabled) for read only DB.");
+    result.memtable_op_scan_flush_trigger = 0;
+  }
+
   return result;
 }
 
