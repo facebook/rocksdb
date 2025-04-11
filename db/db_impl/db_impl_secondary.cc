@@ -566,17 +566,10 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
   assert(snapshot == kMaxSequenceNumber);
   snapshot = versions_->LastSequence();
   assert(snapshot != kMaxSequenceNumber);
-  auto db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, cfh->cfd()->ioptions(),
-      super_version->mutable_cf_options, super_version->current, snapshot,
-      super_version->mutable_cf_options.max_sequential_skip_in_iterations,
-      super_version->version_number, read_callback, cfh, expose_blob_index,
-      allow_refresh);
-  auto internal_iter = NewInternalIterator(
-      db_iter->GetReadOptions(), cfh->cfd(), super_version, db_iter->GetArena(),
-      snapshot, /* allow_unprepared_value */ true, db_iter);
-  db_iter->SetIterUnderDBIter(internal_iter);
-  return db_iter;
+  return NewArenaWrappedDbIterator(env_, read_options, cfh, super_version,
+                                   snapshot, read_callback, this,
+                                   expose_blob_index, allow_refresh,
+                                   /*allow_mark_memtable_for_flush=*/false);
 }
 
 Status DBImplSecondary::NewIterators(
@@ -705,13 +698,13 @@ Status DBImplSecondary::CheckConsistency() {
 
 Status DBImplSecondary::TryCatchUpWithPrimary() {
   assert(versions_.get() != nullptr);
-  assert(manifest_reader_.get() != nullptr);
   Status s;
   // read the manifest and apply new changes to the secondary instance
   std::unordered_set<ColumnFamilyData*> cfds_changed;
   JobContext job_context(0, true /*create_superversion*/);
   {
     InstrumentedMutexLock lock_guard(&mutex_);
+    assert(manifest_reader_.get() != nullptr);
     s = static_cast_with_check<ReactiveVersionSet>(versions_.get())
             ->ReadAndApply(&mutex_, &manifest_reader_,
                            manifest_reader_status_.get(), &cfds_changed,

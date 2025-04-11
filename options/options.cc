@@ -43,8 +43,6 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
     : max_write_buffer_number(options.max_write_buffer_number),
       min_write_buffer_number_to_merge(
           options.min_write_buffer_number_to_merge),
-      max_write_buffer_number_to_maintain(
-          options.max_write_buffer_number_to_maintain),
       max_write_buffer_size_to_maintain(
           options.max_write_buffer_size_to_maintain),
       inplace_update_support(options.inplace_update_support),
@@ -113,7 +111,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       blob_file_starting_level(options.blob_file_starting_level),
       blob_cache(options.blob_cache),
       prepopulate_blob_cache(options.prepopulate_blob_cache),
-      persist_user_defined_timestamps(options.persist_user_defined_timestamps) {
+      persist_user_defined_timestamps(options.persist_user_defined_timestamps),
+      memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -192,8 +191,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.num_levels: %d", num_levels);
   ROCKS_LOG_HEADER(log, "       Options.min_write_buffer_number_to_merge: %d",
                    min_write_buffer_number_to_merge);
-  ROCKS_LOG_HEADER(log, "    Options.max_write_buffer_number_to_maintain: %d",
-                   max_write_buffer_number_to_maintain);
   ROCKS_LOG_HEADER(log,
                    "    Options.max_write_buffer_size_to_maintain: %" PRIu64,
                    max_write_buffer_size_to_maintain);
@@ -287,6 +284,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "      Options.max_sequential_skip_in_iterations: %" PRIu64,
                    max_sequential_skip_in_iterations);
+  ROCKS_LOG_HEADER(
+      log, "           Options.memtable_op_scan_flush_trigger: %" PRIu32,
+      memtable_op_scan_flush_trigger);
   ROCKS_LOG_HEADER(log,
                    "                   Options.max_compaction_bytes: %" PRIu64,
                    max_compaction_bytes);

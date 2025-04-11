@@ -386,7 +386,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->level0_stop_writes_trigger = rnd->Uniform(100);
   cf_opt->max_bytes_for_level_multiplier = rnd->Uniform(100);
   cf_opt->max_write_buffer_number = rnd->Uniform(100);
-  cf_opt->max_write_buffer_number_to_maintain = rnd->Uniform(100);
   cf_opt->max_write_buffer_size_to_maintain = rnd->Uniform(10000);
   cf_opt->min_write_buffer_number_to_merge = rnd->Uniform(100);
   cf_opt->num_levels = rnd->Uniform(100);
