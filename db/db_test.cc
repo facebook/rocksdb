@@ -3351,11 +3351,6 @@ class ModelDB : public DB {
   using DB::NumberLevels;
   int NumberLevels(ColumnFamilyHandle* /*column_family*/) override { return 1; }
 
-  using DB::MaxMemCompactionLevel;
-  int MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) override {
-    return 1;
-  }
-
   using DB::Level0StopWriteTrigger;
   int Level0StopWriteTrigger(ColumnFamilyHandle* /*column_family*/) override {
     return -1;

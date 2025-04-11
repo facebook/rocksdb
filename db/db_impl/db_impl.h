@@ -379,6 +379,11 @@ class DBImpl : public DB {
                       const std::vector<ColumnFamilyHandle*>& column_families,
                       std::vector<Iterator*>* iterators) override;
 
+  using DB::NewMultiScan;
+  std::unique_ptr<MultiScan> NewMultiScan(
+      const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+      const std::vector<ScanOptions>& scan_opts) override;
+
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
 
@@ -1783,6 +1788,13 @@ class DBImpl : public DB {
       if (writer->file()) {
         // TODO: plumb Env::IOActivity, Env::IOPriority
         s = writer->WriteBuffer(WriteOptions());
+        if (attempt_truncate_size < SIZE_MAX &&
+            attempt_truncate_size < writer->file()->GetFileSize()) {
+          Status s2 = writer->file()->writable_file()->Truncate(
+              attempt_truncate_size, IOOptions{}, nullptr);
+          // This is just a best effort attempt
+          s2.PermitUncheckedError();
+        }
       }
       delete writer;
       writer = nullptr;
@@ -1815,6 +1827,11 @@ class DBImpl : public DB {
       getting_synced = false;
     }
 
+    void SetAttemptTruncateSize(uint64_t size) {
+      assert(attempt_truncate_size == SIZE_MAX);
+      attempt_truncate_size = size;
+    }
+
     uint64_t number;
     // Visual Studio doesn't support deque's member to be noncopyable because
     // of a std::unique_ptr as a member.
@@ -1827,6 +1844,10 @@ class DBImpl : public DB {
     // to be persisted even if appends happen during sync so it can be used for
     // tracking the synced size in MANIFEST.
     uint64_t pre_sync_size = 0;
+    // When < SIZE_MAX, attempt to truncate the WAL to this size on close,
+    // because a bad entry was written to it beyond that point and it likely
+    // won't be recoverable with the bad entry.
+    uint64_t attempt_truncate_size = SIZE_MAX;
   };
 
   struct WalContext {
@@ -1836,6 +1857,7 @@ class DBImpl : public DB {
     bool need_wal_dir_sync = false;
     log::Writer* writer = nullptr;
     WalFileNumberSize* wal_file_number_size = nullptr;
+    uint64_t prev_size = SIZE_MAX;
   };
 
   // PurgeFileInfo is a structure to hold information of files to be deleted in
@@ -2347,7 +2369,7 @@ class DBImpl : public DB {
   void WALIOStatusCheck(const IOStatus& status);
 
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
-  void MemTableInsertStatusCheck(const Status& memtable_insert_status);
+  void HandleMemTableInsertFailure(const Status& nonok_memtable_insert_status);
 
   Status CompactFilesImpl(const CompactionOptions& compact_options,
                           ColumnFamilyData* cfd, Version* version,

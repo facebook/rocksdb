@@ -433,7 +433,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "use_direct_io_for_flush_and_compaction=false;"
                              "max_log_file_size=4607;"
                              "advise_random_on_open=true;"
-                             "fail_if_options_file_error=false;"
                              "enable_pipelined_write=false;"
                              "unordered_write=false;"
                              "allow_concurrent_memtable_write=true;"
@@ -626,7 +625,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "level0_file_num_compaction_trigger=14;"
       "compaction_filter=urxcqstuwnCompactionFilter;"
       "soft_pending_compaction_bytes_limit=0;"
-      "max_write_buffer_number_to_maintain=84;"
       "max_write_buffer_size_to_maintain=2147483648;"
       "merge_operator=aabcxehazrMergeOperator;"
       "memtable_prefix_bloom_size_ratio=0.4642;"
@@ -676,7 +674,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_max_range_deletions=999999;"
       "bottommost_file_compaction_delay=7200;"
       "uncache_aggressiveness=1234;"
-      "paranoid_memory_checks=1;",
+      "paranoid_memory_checks=1;"
+      "memtable_op_scan_flush_trigger=123;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);

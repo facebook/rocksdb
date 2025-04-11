@@ -171,15 +171,6 @@ struct AdvancedColumnFamilyOptions {
   // Default: 1
   int min_write_buffer_number_to_merge = 1;
 
-  // DEPRECATED
-  // The total maximum number of write buffers to maintain in memory including
-  // copies of buffers that have already been flushed.  Unlike
-  // max_write_buffer_number, this parameter does not affect flushing.
-  // This parameter is being replaced by max_write_buffer_size_to_maintain.
-  // If both parameters are set to non-zero values, this parameter will be
-  // ignored.
-  int max_write_buffer_number_to_maintain = 0;
-
   // The target number of write history bytes to hold in memory. Write history
   // comprises the latest write buffers (memtables). To reach the target, write
   // buffers that were most recently flushed to SST files may be retained in
@@ -1104,6 +1095,20 @@ struct AdvancedColumnFamilyOptions {
   // reads. Enabling this feature incurs a performance overhead due to an
   // additional key comparison during memtable lookup.
   bool paranoid_memory_checks = false;
+
+  // When an iterator scans this number of invisible entries (tombstones or
+  // hidden puts) from the active memtable during a single iterator operation,
+  // we will attempt to flush the memtable. Currently only forward scans are
+  // supported (SeekToFirst(), Seek() and Next()).
+  // This option helps to reduce the overhead of scanning through a
+  // large number of entries in memtable.
+  // Users should consider enable deletion-triggered-compaction (see
+  // CompactOnDeletionCollectorFactory) together with this option to compact
+  // away tombstones after the memtable is flushed.
+  //
+  // Default: 0 (disabled)
+  // Dynamically changeable through the SetOptions() API.
+  uint32_t memtable_op_scan_flush_trigger = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

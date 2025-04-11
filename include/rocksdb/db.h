@@ -22,6 +22,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
+#include "rocksdb/multi_scan.h"
 #include "rocksdb/options.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
@@ -616,7 +617,7 @@ class DB {
                        const Slice& /*key*/, const Slice& /*ts*/,
                        const Slice& /*value*/);
 
-  // Apply the specified updates to the database.
+  // Apply the specified updates atomically to the database.
   // If `updates` contains no update, WAL will still be synced if
   // options.sync=true.
   // Returns OK on success, non-OK on failure.
@@ -1072,6 +1073,18 @@ class DB {
   virtual std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) = 0;
+
+  // Get an iterator that scans multiple key ranges. The scan ranges should
+  // be in increasing order of start key. See multi_scan_iterator.h for more
+  // details.
+  virtual std::unique_ptr<MultiScan> NewMultiScan(
+      const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
+      const std::vector<ScanOptions>& /*scan_opts*/) {
+    std::unique_ptr<Iterator> iter(NewErrorIterator(Status::NotSupported()));
+    std::unique_ptr<MultiScan> ms_iter =
+        std::make_unique<MultiScan>(std::move(iter));
+    return ms_iter;
+  }
 
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB
@@ -1658,9 +1671,12 @@ class DB {
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
   virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }
 
+  // DEPRECATED:
   // Maximum level to which a new compacted memtable is pushed if it
   // does not create overlap.
-  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) = 0;
+  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) {
+    return 0;
+  }
   virtual int MaxMemCompactionLevel() {
     return MaxMemCompactionLevel(DefaultColumnFamily());
   }

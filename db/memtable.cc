@@ -175,6 +175,11 @@ size_t MemTable::ApproximateMemoryUsage() {
 }
 
 bool MemTable::ShouldFlushNow() {
+  if (IsMarkedForFlush()) {
+    // TODO: dedicated flush reason when marked for flush
+    return true;
+  }
+
   // This is set if memtable_max_range_deletions is > 0,
   // and that many range deletions are done
   if (memtable_max_range_deletions_ > 0 &&

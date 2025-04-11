@@ -578,14 +578,7 @@ class Repairer {
           static_cast<bool>(props->user_defined_timestamps_persisted);
     }
     if (status.ok()) {
-      uint64_t tail_size = 0;
-      bool contain_no_data_blocks =
-          props->num_entries > 0 &&
-          (props->num_entries == props->num_range_deletions);
-      if (props->tail_start_offset > 0 || contain_no_data_blocks) {
-        assert(props->tail_start_offset <= file_size);
-        tail_size = file_size - props->tail_start_offset;
-      }
+      uint64_t tail_size = FileMetaData::CalculateTailSize(file_size, *props);
       t->meta.tail_size = tail_size;
     }
     ColumnFamilyData* cfd = nullptr;

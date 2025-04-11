@@ -3804,16 +3804,6 @@ int rocksdb_options_get_min_write_buffer_number_to_merge(
   return opt->rep.min_write_buffer_number_to_merge;
 }
 
-void rocksdb_options_set_max_write_buffer_number_to_maintain(
-    rocksdb_options_t* opt, int n) {
-  opt->rep.max_write_buffer_number_to_maintain = n;
-}
-
-int rocksdb_options_get_max_write_buffer_number_to_maintain(
-    rocksdb_options_t* opt) {
-  return opt->rep.max_write_buffer_number_to_maintain;
-}
-
 void rocksdb_options_set_max_write_buffer_size_to_maintain(
     rocksdb_options_t* opt, int64_t n) {
   opt->rep.max_write_buffer_size_to_maintain = n;

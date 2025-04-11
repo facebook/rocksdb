@@ -524,8 +524,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           assert(tmp_s.ok());
         }
       }
-      versions_->SetLastSequence(last_sequence);
-      MemTableInsertStatusCheck(w.status);
+      if (w.status.ok()) {  // Don't publish a partial batch write
+        versions_->SetLastSequence(last_sequence);
+      } else {
+        HandleMemTableInsertFailure(w.status);
+      }
       write_thread_.ExitAsBatchGroupFollower(&w);
     }
     assert(w.state == WriteThread::STATE_COMPLETED);
@@ -691,6 +694,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     if (!two_write_queues_) {
       if (status.ok() && !write_options.disableWAL) {
         assert(wal_context.wal_file_number_size);
+        wal_context.prev_size = wal_context.writer->file()->GetFileSize();
         PERF_TIMER_GUARD(write_wal_time);
         io_s = WriteGroupToWAL(write_group, wal_context.writer, wal_used,
                                wal_context.need_wal_sync,
@@ -872,9 +876,19 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
       // Note: if we are to resume after non-OK statuses we need to revisit how
       // we react to non-OK statuses here.
-      versions_->SetLastSequence(last_sequence);
+      if (w.status.ok()) {  // Don't publish a partial batch write
+        versions_->SetLastSequence(last_sequence);
+      }
     }
-    MemTableInsertStatusCheck(w.status);
+    if (!w.status.ok()) {
+      if (wal_context.prev_size < SIZE_MAX) {
+        InstrumentedMutexLock l(&wal_write_mutex_);
+        if (logs_.back().number == wal_context.wal_file_number_size->number) {
+          logs_.back().SetAttemptTruncateSize(wal_context.prev_size);
+        }
+      }
+      HandleMemTableInsertFailure(w.status);
+    }
     write_thread_.ExitAsBatchGroupLeader(write_group, status);
   }
 
@@ -1031,7 +1045,12 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
           &flush_scheduler_, &trim_history_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
           false /*concurrent_memtable_writes*/, seq_per_batch_, batch_per_txn_);
-      versions_->SetLastSequence(memtable_write_group.last_sequence);
+      if (memtable_write_group.status
+              .ok()) {  // Don't publish a partial batch write
+        versions_->SetLastSequence(memtable_write_group.last_sequence);
+      } else {
+        HandleMemTableInsertFailure(memtable_write_group.status);
+      }
       write_thread_.ExitAsMemTableWriter(&w, memtable_write_group);
     }
   } else {
@@ -1060,8 +1079,11 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     PERF_TIMER_START(write_pre_and_post_process_time);
 
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
-      MemTableInsertStatusCheck(w.status);
-      versions_->SetLastSequence(w.write_group->last_sequence);
+      if (w.status.ok()) {  // Don't publish a partial batch write
+        versions_->SetLastSequence(w.write_group->last_sequence);
+      } else {
+        HandleMemTableInsertFailure(w.status);
+      }
       write_thread_.ExitAsMemTableWriter(&w, *w.write_group);
     }
   }
@@ -1385,18 +1407,16 @@ void DBImpl::WALIOStatusCheck(const IOStatus& io_status) {
   }
 }
 
-void DBImpl::MemTableInsertStatusCheck(const Status& status) {
-  // A non-OK status here indicates that the state implied by the
-  // WAL has diverged from the in-memory state.  This could be
-  // because of a corrupt write_batch (very bad), or because the
-  // client specified an invalid column family and didn't specify
-  // ignore_missing_column_families.
-  if (!status.ok()) {
-    mutex_.Lock();
-    assert(!error_handler_.IsBGWorkStopped());
-    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable);
-    mutex_.Unlock();
-  }
+void DBImpl::HandleMemTableInsertFailure(const Status& status) {
+  assert(!status.ok());
+  // A non-OK status on memtable insert indicates that the state implied by the
+  // WAL has diverged from the in-memory state.  This could be because of a
+  // corrupt write_batch (very bad), or because the client specified an invalid
+  // column family and didn't specify ignore_missing_column_families.
+  mutex_.Lock();
+  assert(!error_handler_.IsBGWorkStopped());
+  error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable);
+  mutex_.Unlock();
 }
 
 Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
@@ -1598,6 +1618,7 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   }
   if (wal_used != nullptr) {
     *wal_used = cur_wal_number_;
+    assert(*wal_used == wal_file_number_size.number);
   }
   wals_total_size_.FetchAddRelaxed(log_entry.size());
   wal_file_number_size.AddSize(*log_size);
@@ -1815,11 +1836,15 @@ Status DBImpl::WriteRecoverableState() {
         0 /*recovery_log_number*/, this, false /* concurrent_memtable_writes */,
         &next_seq, &dont_care_bool, seq_per_batch_);
     auto last_seq = next_seq - 1;
-    if (two_write_queues_) {
-      versions_->FetchAddLastAllocatedSequence(last_seq - seq);
-      versions_->SetLastPublishedSequence(last_seq);
+    if (status.ok()) {  // Don't publish a partial batch write
+      if (two_write_queues_) {
+        versions_->FetchAddLastAllocatedSequence(last_seq - seq);
+        versions_->SetLastPublishedSequence(last_seq);
+      }
+      versions_->SetLastSequence(last_seq);
+    } else {
+      HandleMemTableInsertFailure(status);
     }
-    versions_->SetLastSequence(last_seq);
     if (two_write_queues_) {
       wal_write_mutex_.Unlock();
     }

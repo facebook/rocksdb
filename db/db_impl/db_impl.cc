@@ -1435,14 +1435,9 @@ Status DBImpl::SetDBOptions(
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "SetDBOptions() succeeded");
     new_options.Dump(immutable_db_options_.info_log.get());
     if (!persist_options_status.ok()) {
-      if (immutable_db_options_.fail_if_options_file_error) {
-        s = Status::IOError(
-            "SetDBOptions() succeeded, but unable to persist options",
-            persist_options_status.ToString());
-      }
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Unable to persist options in SetDBOptions() -- %s",
-                     persist_options_status.ToString().c_str());
+      s = Status::IOError(
+          "SetDBOptions() succeeded, but unable to persist options",
+          persist_options_status.ToString());
     }
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "SetDBOptions failed");
@@ -3761,6 +3756,16 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   return s.ok() || s.IsIncomplete();
 }
 
+std::unique_ptr<MultiScan> DBImpl::NewMultiScan(
+    const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+    const std::vector<ScanOptions>& scan_opts) {
+  std::unique_ptr<Iterator> iter(NewIterator(_read_options, column_family));
+  iter->Prepare(scan_opts);
+  std::unique_ptr<MultiScan> ms_iter =
+      std::make_unique<MultiScan>(scan_opts, std::move(iter));
+  return ms_iter;
+}
+
 Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
                               ColumnFamilyHandle* column_family) {
   if (_read_options.io_activity != Env::IOActivity::kUnknown &&
@@ -3817,11 +3822,12 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
 
     auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                     /* allow_unprepared_value */ true);
-    result = NewDBIterator(
-        env_, read_options, cfd->ioptions(), sv->mutable_cf_options,
-        cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
-        sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        nullptr /* read_callback */, cfh);
+    result = DBIter::NewIter(env_, read_options, cfd->ioptions(),
+                             sv->mutable_cf_options, cfd->user_comparator(),
+                             iter, sv->current, kMaxSequenceNumber,
+                             /*read_callback=*/nullptr, cfh,
+                             /*expose_blob_index=*/false,
+                             /*active_mem=*/sv->mem);
   } else {
     // Note: no need to consider the special case of
     // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
@@ -3899,18 +3905,9 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   // Laying out the iterators in the order of being accessed makes it more
   // likely that any iterator pointer is close to the iterator it points to so
   // that they are likely to be in the same cache line and/or page.
-  ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, cfh->cfd()->ioptions(), sv->mutable_cf_options,
-      sv->current, snapshot,
-      sv->mutable_cf_options.max_sequential_skip_in_iterations,
-      sv->version_number, read_callback, cfh, expose_blob_index, allow_refresh);
-
-  InternalIterator* internal_iter = NewInternalIterator(
-      db_iter->GetReadOptions(), cfh->cfd(), sv, db_iter->GetArena(), snapshot,
-      /* allow_unprepared_value */ true, db_iter);
-  db_iter->SetIterUnderDBIter(internal_iter);
-
-  return db_iter;
+  return NewArenaWrappedDbIterator(
+      env_, read_options, cfh, sv, snapshot, read_callback, this,
+      expose_blob_index, allow_refresh, /*allow_mark_memtable_for_flush=*/true);
 }
 
 std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(
@@ -4035,13 +4032,11 @@ Status DBImpl::NewIterators(
                                       cf_sv_pair.super_version,
                                       /* allow_unprepared_value */ true);
       iterators->push_back(
-          NewDBIterator(env_, read_options, cf_sv_pair.cfd->ioptions(),
-                        cf_sv_pair.super_version->mutable_cf_options,
-                        cf_sv_pair.cfd->user_comparator(), iter,
-                        cf_sv_pair.super_version->current, kMaxSequenceNumber,
-                        cf_sv_pair.super_version->mutable_cf_options
-                            .max_sequential_skip_in_iterations,
-                        nullptr /*read_callback*/, cf_sv_pair.cfh));
+          DBIter::NewIter(env_, read_options, cf_sv_pair.cfd->ioptions(),
+                          cf_sv_pair.super_version->mutable_cf_options,
+                          cf_sv_pair.cfd->user_comparator(), iter,
+                          cf_sv_pair.super_version->current, kMaxSequenceNumber,
+                          nullptr /*read_callback*/, cf_sv_pair.cfh));
     }
   } else {
     for (const auto& cf_sv_pair : cf_sv_pairs) {
@@ -5400,12 +5395,7 @@ Status DBImpl::WriteOptionsFile(const WriteOptions& write_options,
   if (!s.ok()) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Unnable to persist options -- %s", s.ToString().c_str());
-    if (immutable_db_options_.fail_if_options_file_error) {
-      s = Status::IOError("Unable to persist options.", s.ToString().c_str());
-    } else {
-      // Ignore error
-      s = Status::OK();
-    }
+    s = Status::IOError("Unable to persist options.", s.ToString().c_str());
   }
 
   // Restore lock if appropriate
