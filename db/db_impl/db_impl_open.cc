@@ -1119,7 +1119,7 @@ void DBOpenLogRecordReadReporter::Corruption(size_t bytes, const Status& s,
                  static_cast<int>(bytes), s.ToString().c_str());
   if (status != nullptr && status->ok()) {
     *status = s;
-    corrupted_log_number_ = log_number;
+    corrupted_wal_number_ = log_number;
   }
 }
 
@@ -1902,8 +1902,8 @@ void DBImpl::FinishLogFilesRecovery(int job_id, const Status& status) {
 }
 
 Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
-                                          LogFileNumberSize* log_ptr) {
-  LogFileNumberSize log(wal_number);
+                                          WalFileNumberSize* log_ptr) {
+  WalFileNumberSize log(wal_number);
   std::string fname =
       LogFileName(immutable_db_options_.GetWalDir(), wal_number);
   Status s;
@@ -1946,27 +1946,27 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
   assert(immutable_db_options_.avoid_flush_during_recovery);
   // Mark these as alive so they'll be considered for deletion later by
   // FindObsoleteFiles()
-  total_log_size_ = 0;
-  log_empty_ = false;
+  wals_total_size_.StoreRelaxed(0);
+  wal_empty_ = false;
   uint64_t min_wal_with_unflushed_data =
       versions_->MinLogNumberWithUnflushedData();
   for (auto wal_number : wal_numbers) {
     if (!allow_2pc() && wal_number < min_wal_with_unflushed_data) {
       // In non-2pc mode, the WAL files not backing unflushed data are not
-      // alive, thus should not be added to the alive_log_files_.
+      // alive, thus should not be added to the alive_wal_files_.
       continue;
     }
     // We preallocate space for wals, but then after a crash and restart, those
     // preallocated space are not needed anymore. It is likely only the last
     // log has such preallocated space, so we only truncate for the last log.
-    LogFileNumberSize log;
+    WalFileNumberSize log;
     s = GetLogSizeAndMaybeTruncate(
         wal_number, /*truncate=*/(wal_number == wal_numbers.back()), &log);
     if (!s.ok()) {
       break;
     }
-    total_log_size_ += log.size;
-    alive_log_files_.push_back(log);
+    wals_total_size_.FetchAddRelaxed(log.size);
+    alive_wal_files_.push_back(log);
   }
   return s;
 }
@@ -2449,18 +2449,18 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     if (s.ok()) {
       // Prevent log files created by previous instance from being recycled.
       // They might be in alive_log_file_, and might get recycled otherwise.
-      impl->min_log_number_to_recycle_ = new_log_number;
+      impl->min_wal_number_to_recycle_ = new_log_number;
     }
     if (s.ok()) {
-      InstrumentedMutexLock wl(&impl->log_write_mutex_);
-      impl->logfile_number_ = new_log_number;
+      InstrumentedMutexLock wl(&impl->wal_write_mutex_);
+      impl->cur_wal_number_ = new_log_number;
       assert(new_log != nullptr);
       assert(impl->logs_.empty());
       impl->logs_.emplace_back(new_log_number, new_log);
     }
 
     if (s.ok()) {
-      impl->alive_log_files_.emplace_back(impl->logfile_number_);
+      impl->alive_wal_files_.emplace_back(impl->cur_wal_number_);
       // In WritePrepared there could be gap in sequence numbers. This breaks
       // the trick we use in kPointInTimeRecovery which assumes the first seq in
       // the log right after the corrupted log is one larger than the last seq
@@ -2473,14 +2473,14 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       if (recovered_seq != kMaxSequenceNumber) {
         WriteBatch empty_batch;
         WriteBatchInternal::SetSequence(&empty_batch, recovered_seq);
-        uint64_t log_used, log_size;
+        uint64_t wal_used, log_size;
         log::Writer* log_writer = impl->logs_.back().writer;
-        LogFileNumberSize& log_file_number_size = impl->alive_log_files_.back();
+        WalFileNumberSize& wal_file_number_size = impl->alive_wal_files_.back();
 
-        assert(log_writer->get_log_number() == log_file_number_size.number);
+        assert(log_writer->get_log_number() == wal_file_number_size.number);
         impl->mutex_.AssertHeld();
-        s = impl->WriteToWAL(empty_batch, write_options, log_writer, &log_used,
-                             &log_size, log_file_number_size, recovered_seq);
+        s = impl->WriteToWAL(empty_batch, write_options, log_writer, &wal_used,
+                             &log_size, wal_file_number_size, recovered_seq);
         if (s.ok()) {
           // Need to fsync, otherwise it might get lost after a power reset.
           s = impl->FlushWAL(write_options, false);

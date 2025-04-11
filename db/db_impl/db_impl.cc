@@ -169,7 +169,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                bool read_only)
     : dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
-      init_logger_creation_s_(),
       initial_db_options_(SanitizeOptions(dbname, options, read_only,
                                           &init_logger_creation_s_)),
       env_(initial_db_options_.env),
@@ -185,7 +184,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       mutex_(stats_, immutable_db_options_.clock, DB_MUTEX_WAIT_MICROS,
              immutable_db_options_.use_adaptive_mutex),
 #endif  // COERCE_CONTEXT_SWITCH
-      default_cf_handle_(nullptr),
       error_handler_(this, immutable_db_options_, &mutex_),
       event_logger_(immutable_db_options_.info_log.get()),
       max_total_in_memory_state_(0),
@@ -194,45 +192,15 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
           file_options_, immutable_db_options_)),
       seq_per_batch_(seq_per_batch),
       batch_per_txn_(batch_per_txn),
-      next_job_id_(1),
-      shutting_down_(false),
-      reject_new_background_jobs_(false),
-      db_lock_(nullptr),
-      manual_compaction_paused_(false),
       bg_cv_(&mutex_),
-      logfile_number_(0),
-      log_dir_synced_(false),
-      log_empty_(true),
-      persist_stats_cf_handle_(nullptr),
-      log_sync_cv_(&log_write_mutex_),
-      total_log_size_(0),
-      is_snapshot_supported_(true),
+      wal_sync_cv_(&wal_write_mutex_),
       write_buffer_manager_(immutable_db_options_.write_buffer_manager.get()),
       write_thread_(immutable_db_options_),
       nonmem_write_thread_(immutable_db_options_),
       write_controller_(mutable_db_options_.delayed_write_rate),
-      last_batch_group_size_(0),
-      unscheduled_flushes_(0),
-      unscheduled_compactions_(0),
-      bg_bottom_compaction_scheduled_(0),
-      bg_compaction_scheduled_(0),
-      num_running_compactions_(0),
-      bg_flush_scheduled_(0),
-      num_running_flushes_(0),
-      bg_purge_scheduled_(0),
-      disable_delete_obsolete_files_(0),
-      pending_purge_obsolete_files_(0),
       delete_obsolete_files_last_run_(immutable_db_options_.clock->NowMicros()),
-      has_unpersisted_data_(false),
-      unable_to_release_oldest_log_(false),
-      num_running_ingest_file_(0),
       wal_manager_(immutable_db_options_, file_options_, io_tracer_,
                    seq_per_batch),
-      bg_work_paused_(0),
-      bg_compaction_paused_(0),
-      refitting_level_(false),
-      opened_successfully_(false),
-      periodic_task_scheduler_(),
       two_write_queues_(options.two_write_queues),
       manual_wal_flush_(options.manual_wal_flush),
       // last_sequencee_ is always maintained by the main queue that also writes
@@ -250,14 +218,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // requires a custom gc for compaction, we use that to set use_custom_gc_
       // as well.
       use_custom_gc_(seq_per_batch),
-      shutdown_initiated_(false),
       own_sfm_(options.sst_file_manager == nullptr),
-      closed_(false),
       atomic_flush_install_cv_(&mutex_),
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
                      &error_handler_, &event_logger_,
-                     immutable_db_options_.listeners, dbname_),
-      lock_wal_count_(0) {
+                     immutable_db_options_.listeners, dbname_) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -636,8 +601,8 @@ Status DBImpl::CloseHelper() {
     mutex_.Lock();
   }
   {
-    InstrumentedMutexLock lock(&log_write_mutex_);
-    for (auto l : logs_to_free_) {
+    InstrumentedMutexLock lock(&wal_write_mutex_);
+    for (auto l : wals_to_free_) {
       delete l;
     }
     for (auto& log : logs_) {
@@ -1180,11 +1145,11 @@ Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
   mutex_.AssertHeld();
-  if (!job_context->logs_to_free.empty()) {
-    for (auto l : job_context->logs_to_free) {
+  if (!job_context->wals_to_free.empty()) {
+    for (auto l : job_context->wals_to_free) {
       AddToLogsToFreeQueue(l);
     }
-    job_context->logs_to_free.clear();
+    job_context->wals_to_free.clear();
   }
 }
 
@@ -1443,7 +1408,7 @@ Status DBImpl::SetDBOptions(
         WriteThread::Writer w;
         write_thread_.EnterUnbatched(&w, &mutex_);
         if (wal_other_option_changed ||
-            total_log_size_ > GetMaxTotalWalSize()) {
+            wals_total_size_.LoadRelaxed() > GetMaxTotalWalSize()) {
           Status purge_wal_status = SwitchWAL(&write_context);
           if (!purge_wal_status.ok()) {
             ROCKS_LOG_WARN(immutable_db_options_.info_log,
@@ -1507,8 +1472,8 @@ Status DBImpl::FlushWAL(const WriteOptions& write_options, bool sync) {
   if (manual_wal_flush_) {
     IOStatus io_s;
     {
-      // We need to lock log_write_mutex_ since logs_ might change concurrently
-      InstrumentedMutexLock wl(&log_write_mutex_);
+      // We need to lock wal_write_mutex_ since logs_ might change concurrently
+      InstrumentedMutexLock wl(&wal_write_mutex_);
       log::Writer* cur_log_writer = logs_.back().writer;
       io_s = cur_log_writer->WriteBuffer(write_options);
     }
@@ -1535,7 +1500,7 @@ Status DBImpl::FlushWAL(const WriteOptions& write_options, bool sync) {
 }
 
 bool DBImpl::WALBufferIsEmpty() {
-  InstrumentedMutexLock l(&log_write_mutex_);
+  InstrumentedMutexLock l(&wal_write_mutex_);
   log::Writer* cur_log_writer = logs_.back().writer;
   auto res = cur_log_writer->BufferIsEmpty();
   return res;
@@ -1543,7 +1508,7 @@ bool DBImpl::WALBufferIsEmpty() {
 
 Status DBImpl::GetOpenWalSizes(std::map<uint64_t, uint64_t>& number_to_size) {
   assert(number_to_size.empty());
-  InstrumentedMutexLock l(&log_write_mutex_);
+  InstrumentedMutexLock l(&wal_write_mutex_);
   for (auto& log : logs_) {
     auto* open_file = log.writer->file();
     if (open_file) {
@@ -1585,15 +1550,15 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
   uint64_t up_to_number;
 
   {
-    InstrumentedMutexLock l(&log_write_mutex_);
+    InstrumentedMutexLock l(&wal_write_mutex_);
     assert(!logs_.empty());
 
-    maybe_active_number = logfile_number_;
+    maybe_active_number = cur_wal_number_;
     up_to_number =
         include_current_wal ? maybe_active_number : maybe_active_number - 1;
 
     while (logs_.front().number <= up_to_number && logs_.front().IsSyncing()) {
-      log_sync_cv_.Wait();
+      wal_sync_cv_.Wait();
     }
     // First check that logs are safe to sync in background.
     if (include_current_wal &&
@@ -1617,7 +1582,7 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
       }
     }
 
-    need_wal_dir_sync = !log_dir_synced_;
+    need_wal_dir_sync = !wal_dir_synced_;
   }
 
   if (include_current_wal) {
@@ -1690,7 +1655,7 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
                              /*arg=*/nullptr);
   }
   {
-    InstrumentedMutexLock l(&log_write_mutex_);
+    InstrumentedMutexLock l(&wal_write_mutex_);
     for (auto* wal : wals_internally_closed) {
       // We can only modify the state of log::Writer under the mutex
       bool was_closed = wal->PublishIfClosed();
@@ -1807,9 +1772,9 @@ Status DBImpl::UnlockWAL() {
 
 void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
                             VersionEdit* synced_wals) {
-  log_write_mutex_.AssertHeld();
-  if (synced_dir && logfile_number_ == up_to) {
-    log_dir_synced_ = true;
+  wal_write_mutex_.AssertHeld();
+  if (synced_dir && cur_wal_number_ == up_to) {
+    wal_dir_synced_ = true;
   }
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
@@ -1831,7 +1796,7 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
           (immutable_db_options_.background_close_inactive_wals &&
            wal.GetPreSyncSize() == wal.writer->file()->GetFlushedSize())) {
         // Fully synced
-        logs_to_free_.push_back(wal.ReleaseWriter());
+        wals_to_free_.push_back(wal.ReleaseWriter());
         it = logs_.erase(it);
       } else {
         wal.FinishSync();
@@ -1844,17 +1809,17 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
       ++it;
     }
   }
-  log_sync_cv_.SignalAll();
+  wal_sync_cv_.SignalAll();
 }
 
 void DBImpl::MarkLogsNotSynced(uint64_t up_to) {
-  log_write_mutex_.AssertHeld();
+  wal_write_mutex_.AssertHeld();
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;
        ++it) {
     auto& wal = *it;
     wal.FinishSync();
   }
-  log_sync_cv_.SignalAll();
+  wal_sync_cv_.SignalAll();
 }
 
 SequenceNumber DBImpl::GetLatestSequenceNumber() const {
@@ -1923,10 +1888,10 @@ void DBImpl::BackgroundCallPurge() {
   TEST_SYNC_POINT("DBImpl::BackgroundCallPurge:beforeMutexLock");
   mutex_.Lock();
 
-  while (!logs_to_free_queue_.empty()) {
-    assert(!logs_to_free_queue_.empty());
-    log::Writer* log_writer = *(logs_to_free_queue_.begin());
-    logs_to_free_queue_.pop_front();
+  while (!wals_to_free_queue_.empty()) {
+    assert(!wals_to_free_queue_.empty());
+    log::Writer* log_writer = *(wals_to_free_queue_.begin());
+    wals_to_free_queue_.pop_front();
     mutex_.Unlock();
     delete log_writer;
     mutex_.Lock();
@@ -3592,7 +3557,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
     edit.AddColumnFamily(column_family_name);
     uint32_t new_id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
     edit.SetColumnFamily(new_id);
-    edit.SetLogNumber(logfile_number_);
+    edit.SetLogNumber(cur_wal_number_);
     edit.SetComparatorName(cf_options.comparator->Name());
     edit.SetPersistUserDefinedTimestamps(
         cf_options.persist_user_defined_timestamps);

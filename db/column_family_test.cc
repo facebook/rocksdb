@@ -2175,7 +2175,7 @@ TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
   ASSERT_TRUE(has_cf2_sst);
 
   ASSERT_OK(Flush(0));
-  ASSERT_EQ(0, dbfull()->TEST_total_log_size());
+  ASSERT_EQ(0, dbfull()->TEST_wals_total_size());
   Close();
 }
 

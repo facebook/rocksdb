@@ -355,13 +355,13 @@ class ReadOnlyMemTable {
   // be flushed to storage
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  uint64_t GetNextLogNumber() const { return mem_next_logfile_number_; }
+  uint64_t GetNextLogNumber() const { return mem_next_walfile_number_; }
 
   // Sets the next active logfile number when this memtable is about to
   // be flushed to storage
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
+  void SetNextLogNumber(uint64_t num) { mem_next_walfile_number_ = num; }
 
   // REQUIRES: db_mutex held.
   void SetID(uint64_t id) { id_ = id; }
@@ -516,7 +516,7 @@ class ReadOnlyMemTable {
   VersionEdit edit_;
 
   // The log files earlier than this number can be deleted.
-  uint64_t mem_next_logfile_number_{0};
+  uint64_t mem_next_walfile_number_{0};
 
   // Memtable id to track flush.
   uint64_t id_ = 0;
