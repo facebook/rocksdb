@@ -1737,7 +1737,7 @@ struct ScanOptions {
   std::optional<std::unordered_map<std::string, std::string>> property_bag;
 
   // An unbounded scan with a start key
-  ScanOptions(const Slice& _start) : range(_start, OptSlice()) {}
+  explicit ScanOptions(const Slice& _start) : range(_start, OptSlice()) {}
 
   // A bounded scan with a start key and upper bound
   ScanOptions(const Slice& _start, const Slice& _upper_bound)
