@@ -9,6 +9,7 @@
 #pragma once
 #include <deque>
 
+#include "db/internal_stats.h"
 #include "db/seqno_to_time_mapping.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_based_table_reader_impl.h"
@@ -28,7 +29,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       std::unique_ptr<InternalIteratorBase<IndexValue>>&& index_iter,
       bool check_filter, bool need_upper_bound_check,
       const SliceTransform* prefix_extractor, TableReaderCaller caller,
-      size_t compaction_readahead_size = 0, bool allow_unprepared_value = false)
+      InternalStats* internal_stats, size_t compaction_readahead_size = 0,
+      bool allow_unprepared_value = false)
       : index_iter_(std::move(index_iter)),
         table_(table),
         read_options_(read_options),
@@ -37,6 +39,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         pinned_iters_mgr_(nullptr),
         prefix_extractor_(prefix_extractor),
         lookup_context_(caller),
+        internal_stats_(internal_stats),
         block_prefetcher_(
             compaction_readahead_size,
             table_->get_rep()->table_options.initial_auto_readahead_size),
@@ -305,7 +308,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   const SliceTransform* prefix_extractor_;
   uint64_t prev_block_offset_ = std::numeric_limits<uint64_t>::max();
   BlockCacheLookupContext lookup_context_;
-
+  InternalStats* internal_stats_;
   BlockPrefetcher block_prefetcher_;
 
   const bool allow_unprepared_value_;

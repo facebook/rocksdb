@@ -146,6 +146,7 @@ class InternalStats {
     // So we should improve, rename or clarify it
     kIntStatsWriteStallMicros,
     kIntStatsWriteBufferManagerLimitStopsCounts,
+    kIntStatsPrefetchBufferSizeBytes,
     kIntStatsNumMax,
   };
 
@@ -600,6 +601,17 @@ class InternalStats {
       v.fetch_add(value, std::memory_order_relaxed);
     } else {
       v.store(v.load(std::memory_order_relaxed) + value,
+              std::memory_order_relaxed);
+    }
+  }
+
+  void SubDBStats(InternalDBStatsType type, uint64_t value,
+                  bool concurrent = false) {
+    auto& v = db_stats_[type];
+    if (concurrent) {
+      v.fetch_sub(value, std::memory_order_relaxed);
+    } else {
+      v.store(v.load(std::memory_order_relaxed) - value,
               std::memory_order_relaxed);
     }
   }

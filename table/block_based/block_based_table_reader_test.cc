@@ -182,7 +182,8 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
     std::unique_ptr<TableReader> general_table;
     Status s = options_.table_factory->NewTableReader(
         read_opts, table_reader_options, std::move(file), file_size,
-        &general_table, prefetch_index_and_filter_in_cache);
+        &general_table, /*internal_stats=*/nullptr,
+        prefetch_index_and_filter_in_cache);
 
     if (s.ok()) {
       table->reset(static_cast<BlockBasedTable*>(general_table.release()));
@@ -493,9 +494,10 @@ TEST_P(BlockBasedTableReaderTest, NewIterator) {
       table->VerifyChecksum(read_opts, TableReaderCaller::kUserVerifyChecksum));
 
   std::unique_ptr<InternalIterator> iter;
-  iter.reset(table->NewIterator(
-      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+  iter.reset(table->NewIterator(read_opts, options_.prefix_extractor.get(),
+                                /*arena=*/nullptr, /*internal_stats=*/nullptr,
+                                /*skip_filters=*/false,
+                                TableReaderCaller::kUncategorized));
 
   // Test forward scan.
   ASSERT_TRUE(!iter->Valid());

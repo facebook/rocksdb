@@ -31,6 +31,7 @@ struct ReadOptions;
 struct TableProperties;
 class GetContext;
 class MultiGetContext;
+class InternalStats;
 
 // A Table (also referred to as SST) is a sorted map from strings to strings.
 // Tables are immutable and persistent.  A Table may be safely accessed from
@@ -56,8 +57,8 @@ class TableReader {
   // kCompaction
   virtual InternalIterator* NewIterator(
       const ReadOptions& read_options, const SliceTransform* prefix_extractor,
-      Arena* arena, bool skip_filters, TableReaderCaller caller,
-      size_t compaction_readahead_size = 0,
+      Arena* arena, InternalStats* internal_stats, bool skip_filters,
+      TableReaderCaller caller, size_t compaction_readahead_size = 0,
       bool allow_unprepared_value = false) = 0;
 
   // read_options.snapshot needs to outlive this call.

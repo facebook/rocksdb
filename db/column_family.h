@@ -373,7 +373,7 @@ class ColumnFamilyData {
       const DBOptions& db_options,
       const std::unordered_map<std::string, std::string>& options_map);
 
-  InternalStats* internal_stats() { return internal_stats_.get(); }
+  InternalStats* internal_stats() const { return internal_stats_.get(); }
 
   MemTableList* imm() { return &imm_; }
   MemTable* mem() { return mem_; }
