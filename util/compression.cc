@@ -342,12 +342,12 @@ Status Zlib_DecompressBlock(const Decompressor::Args& args,
 Status BZip2_DecompressBlock(const Decompressor::Args& args,
                              char* uncompressed_output) {
 #ifdef BZIP2
-  unsigned int uncompressed_size = args.uncompressed_size;
-  if (BZ_OK !=
-      BZ2_bzBuffToBuffDecompress(uncompressed_output, &uncompressed_size,
-                                 const_cast<char*>(args.compressed_data.data()),
-                                 args.compressed_data.size(), 0 /*small mem*/,
-                                 0 /*verbosity*/)) {
+  auto uncompressed_size = static_cast<unsigned int>(args.uncompressed_size);
+  if (BZ_OK != BZ2_bzBuffToBuffDecompress(
+                   uncompressed_output, &uncompressed_size,
+                   const_cast<char*>(args.compressed_data.data()),
+                   static_cast<unsigned int>(args.compressed_data.size()),
+                   0 /*small mem*/, 0 /*verbosity*/)) {
     return Status::Corruption("Error decompressing bzip2 data");
   }
   if (uncompressed_size != args.uncompressed_size) {
@@ -559,6 +559,8 @@ class BuiltinDecompressorV2OptimizeZSTD : public BuiltinDecompressorV2 {
       return ZSTD_sizeof_DDict(
           reinterpret_cast<const ZSTD_DDict*>(pdict.get()));
     }
+#else
+    (void)pdict;
 #endif  // ROCKSDB_ZSTD_DDICT
     return 0;
   }
