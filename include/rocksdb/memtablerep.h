@@ -39,7 +39,6 @@
 #include <stdlib.h>
 
 #include <memory>
-#include <stdexcept>
 #include <unordered_set>
 
 #include "rocksdb/customizable.h"

@@ -5,10 +5,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include <string>
-
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -13,8 +13,6 @@
 
 #pragma once
 
-#include <string>
-
 #include "rocksdb/slice.h"
 #ifdef OS_WIN
 #include <string.h>

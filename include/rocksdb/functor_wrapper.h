@@ -6,7 +6,6 @@
 #pragma once
 
 #include <functional>
-#include <memory>
 #include <utility>
 
 #include "rocksdb/rocksdb_namespace.h"

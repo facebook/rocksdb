@@ -19,9 +19,7 @@
 #include <stdint.h>
 
 #include <chrono>
-#include <cstdarg>
 #include <functional>
-#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -33,8 +31,6 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "rocksdb/thread_status.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 class FileLock;

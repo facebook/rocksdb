@@ -5,9 +5,6 @@
 #pragma once
 
 #include "rocksdb/rocksdb_namespace.h"
-#include "rocksdb/status.h"
-#include "rocksdb/types.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 int cache_bench_tool(int argc, char** argv);

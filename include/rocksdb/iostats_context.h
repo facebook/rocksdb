@@ -8,7 +8,7 @@
 
 #include <string>
 
-#include "rocksdb/perf_level.h"
+#include "rocksdb/rocksdb_namespace.h"
 
 /*
  * NOTE:
