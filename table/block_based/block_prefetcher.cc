@@ -58,9 +58,10 @@ void BlockPrefetcher::PrefetchIfNeeded(
     // implicit_auto_readahead is set.
     readahead_params.initial_readahead_size = compaction_readahead_size_;
     readahead_params.max_readahead_size = compaction_readahead_size_;
-    rep->CreateFilePrefetchBufferIfNotExists(readahead_params,
-                                             &prefetch_buffer_,
-                                             /*readaheadsize_cb=*/nullptr);
+    rep->CreateFilePrefetchBufferIfNotExists(
+        readahead_params, &prefetch_buffer_,
+        /*readaheadsize_cb=*/nullptr,
+        /*usage=*/FilePrefetchBufferUsage::kCompactionPrefetch);
     return;
   }
 

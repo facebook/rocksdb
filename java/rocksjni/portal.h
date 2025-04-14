@@ -5889,8 +5889,11 @@ class HistogramTypeJni {
         return 0x3C;
       case ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_PREFETCH_TAIL_READ_BYTES:
         return 0x3D;
+      case ROCKSDB_NAMESPACE::Histograms::COMPACTION_PREFETCH_BYTES:
+        return 0x3F;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
-        // 0x3D for backwards compatibility on current minor version.
+        // 0x3E is reserved for backwards compatibility on current minor
+        // version.
         return 0x3E;
       default:
         // undefined/default
@@ -6033,8 +6036,11 @@ class HistogramTypeJni {
       case 0x3D:
         return ROCKSDB_NAMESPACE::Histograms::
             TABLE_OPEN_PREFETCH_TAIL_READ_BYTES;
+      case 0x3F:
+        return ROCKSDB_NAMESPACE::Histograms::COMPACTION_PREFETCH_BYTES;
       case 0x3E:
-        // 0x1F for backwards compatibility on current minor version.
+        // 0x3E is reserved for backwards compatibility on current minor
+        // version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
 
       default:
