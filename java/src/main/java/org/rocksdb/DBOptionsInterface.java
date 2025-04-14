@@ -1477,7 +1477,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * If enabled WAL records will be compressed before they are written. Only
    * ZSTD (= kZSTD) is supported (until streaming support is adapted for other
    * compression types). Compressed WAL records will be read in supported
-   * versions (>= RocksDB 7.4.0 for ZSTD) regardless of this setting when
+   * versions ({@code >=} RocksDB 7.4.0 for ZSTD) regardless of this setting when
    *  the WAL is read.
    *
    * @param compressionType type of compression to use on WAL
