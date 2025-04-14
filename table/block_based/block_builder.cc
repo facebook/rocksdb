@@ -53,6 +53,7 @@ BlockBuilder::BlockBuilder(
       use_delta_encoding_(use_delta_encoding),
       use_value_delta_encoding_(use_value_delta_encoding),
       strip_ts_sz_(persist_user_defined_timestamps ? 0 : ts_sz),
+      ts_sz_(ts_sz),
       is_user_key_(is_user_key),
       restarts_(1, 0),  // First restart point is at offset 0
       counter_(0),
@@ -236,13 +237,12 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
     buffer_.append(value.data(), value.size());
   }
 
-  // TODO(yuzhangyu): make user defined timestamp work with block hash index.
   if (data_block_hash_index_builder_.Valid()) {
     // Only data blocks should be using `kDataBlockBinaryAndHash` index type.
     // And data blocks should always be built with internal keys instead of
     // user keys.
     assert(!is_user_key_);
-    data_block_hash_index_builder_.Add(ExtractUserKey(key),
+    data_block_hash_index_builder_.Add(ExtractUserKeyAndStripTimestamp(key, ts_sz_),
                                        restarts_.size() - 1);
   }
 
