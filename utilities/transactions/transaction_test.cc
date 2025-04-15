@@ -9473,7 +9473,7 @@ TEST_P(CommitBypassMemtableTest, AtomicFlushTest) {
     ASSERT_OK(txn->Put(handles_[0], "key" + std::to_string(i),
                        "cf0" + std::to_string(i)));
   }
-  txn->SetName("cf0");
+  ASSERT_OK(txn->SetName("cf0"));
   ASSERT_OK(txn->Prepare());
   ASSERT_OK(txn->Commit());
   delete txn;
