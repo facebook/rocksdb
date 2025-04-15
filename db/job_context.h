@@ -123,7 +123,7 @@ struct JobContext {
         break;
       }
     }
-    return memtables_to_free.size() > 0 || logs_to_free.size() > 0 ||
+    return memtables_to_free.size() > 0 || wals_to_free.size() > 0 ||
            job_snapshot != nullptr || sv_have_sth;
   }
 
@@ -193,7 +193,7 @@ struct JobContext {
   // contexts for installing superversions for multiple column families
   std::vector<SuperVersionContext> superversion_contexts;
 
-  autovector<log::Writer*> logs_to_free;
+  autovector<log::Writer*> wals_to_free;
 
   // the current manifest_file_number, log_number and prev_log_number
   // that corresponds to the set of files in 'live'.
@@ -207,8 +207,8 @@ struct JobContext {
   uint64_t prev_log_number;
 
   uint64_t min_pending_output = 0;
-  uint64_t prev_total_log_size = 0;
-  size_t num_alive_log_files = 0;
+  uint64_t prev_wals_total_size = 0;
+  size_t num_alive_wal_files = 0;
   uint64_t size_log_to_delete = 0;
 
   // Snapshot taken before flush/compaction job.
@@ -237,18 +237,18 @@ struct JobContext {
     for (auto m : memtables_to_free) {
       delete m;
     }
-    for (auto l : logs_to_free) {
+    for (auto l : wals_to_free) {
       delete l;
     }
 
     memtables_to_free.clear();
-    logs_to_free.clear();
+    wals_to_free.clear();
     job_snapshot.reset();
   }
 
   ~JobContext() {
     assert(memtables_to_free.size() == 0);
-    assert(logs_to_free.size() == 0);
+    assert(wals_to_free.size() == 0);
   }
 };
 

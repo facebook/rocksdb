@@ -265,7 +265,7 @@ class DbStressListener : public EventListener {
       fault_fs_guard->DisableAllThreadLocalErrorInjection();
       // TODO(hx235): only exempt the flush thread during error recovery instead
       // of all the flush threads from error injection
-      fault_fs_guard->SetIOActivtiesExcludedFromFaultInjection(
+      fault_fs_guard->SetIOActivitiesExcludedFromFaultInjection(
           {Env::IOActivity::kFlush});
     }
   }
@@ -275,7 +275,7 @@ class DbStressListener : public EventListener {
     RandomSleep();
     if (FLAGS_error_recovery_with_no_fault_injection && fault_fs_guard) {
       fault_fs_guard->EnableAllThreadLocalErrorInjection();
-      fault_fs_guard->SetIOActivtiesExcludedFromFaultInjection({});
+      fault_fs_guard->SetIOActivitiesExcludedFromFaultInjection({});
     }
   }
 

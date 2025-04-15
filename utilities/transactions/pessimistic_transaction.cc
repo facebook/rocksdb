@@ -811,7 +811,7 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
   }
   auto s = db_impl_->WriteImpl(
       write_options_, wb,
-      /*callback*/ nullptr, /*user_write_cb=*/nullptr, /*log_used*/ nullptr,
+      /*callback*/ nullptr, /*user_write_cb=*/nullptr, /*wal_used*/ nullptr,
       /*log_ref*/ 0, /*disable_memtable*/ false, &seq_used, /*batch_cnt=*/0,
       /*pre_release_callback=*/nullptr, post_mem_cb);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
@@ -825,7 +825,7 @@ Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch, size_t) {
   uint64_t seq_used = kMaxSequenceNumber;
   auto s = db_impl_->WriteImpl(write_options_, batch, /*callback*/ nullptr,
                                /*user_write_cb=*/nullptr,
-                               /*log_used*/ nullptr, /*log_ref*/ 0,
+                               /*wal_used*/ nullptr, /*log_ref*/ 0,
                                /*disable_memtable*/ false, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
@@ -917,7 +917,7 @@ Status WriteCommittedTxn::CommitInternal() {
     s = db_impl_->WriteImpl(
         write_options_, working_batch, /*callback*/ nullptr,
         /*user_write_cb=*/nullptr,
-        /*log_used*/ nullptr, /*log_ref*/ log_number_,
+        /*wal_used*/ nullptr, /*log_ref*/ log_number_,
         /*disable_memtable*/ false, &seq_used,
         /*batch_cnt=*/0, /*pre_release_callback=*/nullptr, post_mem_cb,
         /*wbwi=*/std::make_shared<WriteBatchWithIndex>(std::move(write_batch_)),
@@ -929,7 +929,7 @@ Status WriteCommittedTxn::CommitInternal() {
   } else {
     s = db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
                             /*user_write_cb=*/nullptr,
-                            /*log_used*/ nullptr, /*log_ref*/ log_number_,
+                            /*wal_used*/ nullptr, /*log_ref*/ log_number_,
                             /*disable_memtable*/ false, &seq_used,
                             /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
                             post_mem_cb);

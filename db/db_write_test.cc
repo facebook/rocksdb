@@ -987,7 +987,7 @@ TEST_P(DBWriteTest, RecycleLogToggleTest) {
 
   options.recycle_log_file_num = 1;
   Reopen(options);
-  // 1.log is added to alive_log_files_
+  // 1.log is added to alive_wal_files_
   ASSERT_OK(Put(Key(2), "val1"));
   ASSERT_OK(Flush());
   // 1.log should be deleted and not recycled, since it

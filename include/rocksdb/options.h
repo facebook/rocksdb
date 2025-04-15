@@ -815,6 +815,7 @@ struct DBOptions {
   // If it is non empty, the log files will be in the specified dir,
   // and the db data dir's absolute path will be used as the log file
   // name's prefix.
+  // NOTE: not for WALs
   std::string db_log_dir = "";
 
   // This specifies the absolute dir path for write-ahead logs (WAL).
@@ -895,21 +896,24 @@ struct DBOptions {
   // be created.
   // If max_log_file_size == 0, all logs will be written to one
   // log file.
+  // NOTE: not for WALs
   size_t max_log_file_size = 0;
 
   // Time for the info log file to roll (in seconds).
   // If specified with non-zero value, log file will be rolled
   // if it has been active longer than `log_file_time_to_roll`.
   // Default: 0 (disabled)
+  // NOTE: not for WALs
   size_t log_file_time_to_roll = 0;
 
   // Maximal info log files to be kept.
   // Default: 1000
+  // NOTE: not for WALs
   size_t keep_log_file_num = 1000;
 
-  // Recycle log files.
-  // If non-zero, we will reuse previously written log files for new
-  // logs, overwriting the old data.  The value indicates how many
+  // Recycle WAL files.
+  // If non-zero, we will reuse previously written WAL files for new
+  // WALs, overwriting the old data.  The value indicates how many
   // such files we will keep around at any point in time for later
   // use.  This is more efficient because the blocks are already
   // allocated and fdatasync does not need to update the inode after
@@ -1415,9 +1419,10 @@ struct DBOptions {
   // prefix_same_as_start=true can take advantage of prefix seek optimizations.
   bool prefix_seek_opt_in_only = false;
 
-  // The number of bytes to prefetch when reading the log. This is mostly useful
-  // for reading a remotely located log, as it can save the number of
-  // round-trips. If 0, then the prefetching is disabled.
+  // The number of bytes to prefetch when reading the DB manifest and WAL files
+  // during DB::Open (and variants). This is mostly useful for reading a
+  // remotely located log, as it can save the number of round-trips. If 0, then
+  // the prefetching is disabled.
   //
   // Default: 0
   size_t log_readahead_size = 0;
@@ -1732,7 +1737,7 @@ struct ScanOptions {
   std::optional<std::unordered_map<std::string, std::string>> property_bag;
 
   // An unbounded scan with a start key
-  ScanOptions(const Slice& _start) : range(_start, OptSlice()) {}
+  explicit ScanOptions(const Slice& _start) : range(_start, OptSlice()) {}
 
   // A bounded scan with a start key and upper bound
   ScanOptions(const Slice& _start, const Slice& _upper_bound)

@@ -6624,7 +6624,10 @@ class ExternalTableReaderTest : public DBTestBase {
           num_opts_(0),
           scan_idx_(0),
           kv_map_(kv_map),
-          valid_(false) {}
+          valid_(false) {
+      TEST_SYNC_POINT_CALLBACK("DummyExternalTableIterator::Constructor",
+                               &status_);
+    }
 
     bool Valid() const override { return valid_; }
 
@@ -6946,8 +6949,8 @@ TEST_F(ExternalTableReaderTest, DBIterTest) {
   options.env = Env::Default();
   ASSERT_OK(DestroyDB(dbname, options));
 
-  std::shared_ptr<ExternalTableFactory> factory(
-      new DummyExternalTableFactory());
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>();
   options.table_factory = NewExternalTableFactory(factory);
 
   // Create a file
@@ -7000,8 +7003,8 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
   options.env = Env::Default();
   ASSERT_OK(DestroyDB(dbname, options));
 
-  std::shared_ptr<ExternalTableFactory> factory(
-      new DummyExternalTableFactory());
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>();
   options.table_factory = NewExternalTableFactory(factory);
 
   // Create a file
@@ -7048,8 +7051,13 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
       idx += 2;
     }
     ASSERT_EQ(count, 32);
-  } catch (Status status) {
-    std::cerr << "Iterator returned status " << status.ToString();
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
     abort();
   }
   iter.reset();
@@ -7070,8 +7078,13 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
       idx += 2;
     }
     ASSERT_EQ(count, 52);
-  } catch (Status status) {
-    std::cerr << "Iterator returned status " << status.ToString();
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
     abort();
   }
   iter.reset();
@@ -7094,11 +7107,43 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
       idx += 2;
     }
     ASSERT_EQ(count, 52);
-  } catch (Status status) {
-    std::cerr << "Iterator returned status " << status.ToString();
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
     abort();
   }
   iter.reset();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DummyExternalTableIterator::Constructor", [](void* arg) {
+        Status* status = static_cast<Status*>(arg);
+        *status = Status::IOError();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  iter = db->NewMultiScan(ro, cfh, scan_options);
+  try {
+    for (auto range : *iter) {
+      // Should not get here. Iterator should throw an exception
+      assert(false);
+      for (auto it : range) {
+        (void)it;
+        assert(false);
+      }
+    }
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_EQ(ex.status(), Status::IOError());
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+  iter.reset();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
   ASSERT_OK(db->Close());
