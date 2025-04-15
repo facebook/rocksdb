@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Objects;
 import org.rocksdb.util.ArgUtil;
 
 public class SharedTempFileRocksDBMain {
@@ -49,7 +50,7 @@ public class SharedTempFileRocksDBMain {
   }
 
   static void purgeDirectory(File dir) {
-    for (File file : dir.listFiles()) {
+    for (File file : Objects.requireNonNull(dir.listFiles())) {
       if (file.isDirectory())
         purgeDirectory(file);
       file.delete();
