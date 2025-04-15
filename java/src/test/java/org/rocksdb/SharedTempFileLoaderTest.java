@@ -200,7 +200,7 @@ public class SharedTempFileLoaderTest {
       StringBuilder classpath = new StringBuilder();
       if (cp != null) {
         for (String element : cp) {
-          classpath.append(element).append(":");
+          classpath.append(element).append(File.pathSeparator);
         }
       }
       int length = classpath.length();
@@ -221,16 +221,15 @@ public class SharedTempFileLoaderTest {
               .append(" ");
         }
       }
-      Process process = Runtime.getRuntime().exec(
-          "java " + definitions + classpath + " " + mainClass + arguments);
+      final String invocation = "java " + definitions + classpath + " " + mainClass + arguments;
+      Process process = Runtime.getRuntime().exec(invocation);
       processes.add(process);
       BufferedReader err = new BufferedReader(new InputStreamReader(process.getErrorStream()));
       readers.add(err);
-      lines.add(new ArrayList<>());
-    }
-
-    for (int i = 0; i < DB_COUNT; i++) {
-      lines.get(i).add("|--------|" + i + "|--------|");
+      List<String> processLine = new ArrayList<>();
+      processLine.add("|--------|" + i + "|--------|");
+      processLine.add(invocation);
+      lines.add(processLine);
     }
 
     try {
