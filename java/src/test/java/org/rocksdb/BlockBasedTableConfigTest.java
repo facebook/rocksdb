@@ -14,7 +14,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.stream.Stream;
 import org.junit.ClassRule;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -397,6 +396,31 @@ public class BlockBasedTableConfigTest {
     blockBasedTableConfig.setIndexShortening(IndexShorteningMode.kShortenSeparatorsAndSuccessor);
     assertThat(blockBasedTableConfig.indexShortening())
         .isEqualTo(IndexShorteningMode.kShortenSeparatorsAndSuccessor);
+  }
+
+  @Test
+  public void toAndFromColumnFamilyOptions() throws RocksDBException {
+    final String dbPath = dbFolder.getRoot().getAbsolutePath();
+    try (Options opts = new Options(); final BloomFilter bloomFilterNonStandardSize = new BloomFilter(15)) {
+      opts.setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+      BlockBasedTableConfig tableConfig =
+        opts.tableFormatConfig() instanceof BlockBasedTableConfig
+          ? (BlockBasedTableConfig) opts.tableFormatConfig()
+          : new BlockBasedTableConfig();
+      tableConfig.setFilterPolicy(bloomFilterNonStandardSize);
+      opts.setTableFormatConfig(tableConfig);
+      RocksDB db = OptimisticTransactionDB.open(opts, dbPath);
+      final TableFormatConfig tableFormatConfig = db.getDefaultColumnFamily().getDescriptor().getOptions().tableFormatConfig();
+      assertThat(tableFormatConfig).isNotNull();
+      assertThat(tableFormatConfig).isInstanceOf(BlockBasedTableConfig.class);
+      if (tableFormatConfig instanceof BlockBasedTableConfig) {
+        BlockBasedTableConfig blockBasedTableConfig = (BlockBasedTableConfig) tableFormatConfig;
+        Filter filter = blockBasedTableConfig.filterPolicy();
+        assertThat(filter).isInstanceOf(BloomFilter.class);
+        BloomFilter bloomFilter = (BloomFilter) filter;
+        assertThat(bloomFilter).isEqualTo(bloomFilterNonStandardSize);
+      }
+    }
   }
 
   @Deprecated
