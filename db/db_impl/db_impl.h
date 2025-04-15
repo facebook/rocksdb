@@ -1570,8 +1570,7 @@ class DBImpl : public DB {
                    size_t batch_cnt = 0,
                    PreReleaseCallback* pre_release_callback = nullptr,
                    PostMemTableCallback* post_memtable_callback = nullptr,
-                   std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr,
-                   uint64_t min_prep_log = 0);
+                   std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
