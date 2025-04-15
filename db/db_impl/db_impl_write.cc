@@ -192,7 +192,7 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 
 Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
                           const WBWIMemTable::SeqnoRange& assigned_seqno,
-                          uint64_t prep_log,
+                          uint64_t min_prep_log,
                           SequenceNumber last_seqno_after_ingest,
                           bool memtable_updated, bool ignore_missing_cf) {
   // Keys in new memtable have seqno > last_seqno_after_ingest >= keys in wbwi.
@@ -238,7 +238,7 @@ Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
     wbwi_memtable->AssignSequenceNumbers(assigned_seqno);
     // This is needed to keep the WAL that contains Prepare alive until
     // committed data in this memtable is persisted.
-    wbwi_memtable->SetMinPrepLog(prep_log);
+    wbwi_memtable->SetMinPrepLog(min_prep_log);
     memtables.push_back(wbwi_memtable);
     cfd->Ref();
     cfds.push_back(cfd);
@@ -879,7 +879,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         assert(ub <= versions_->LastAllocatedSequence());
       }
       status = IngestWBWI(wbwi, {/*lower_bound=*/lb, /*upper_bound=*/ub},
-                          /*prep_log=*/log_ref, last_sequence,
+                          /*min_prep_log=*/log_ref, last_sequence,
                           /*memtable_updated=*/memtable_update_count > 0,
                           write_options.ignore_missing_column_families);
     }
