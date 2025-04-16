@@ -1017,8 +1017,8 @@ TEST_P(DBWriteTest, IngestWriteBatchWithIndex) {
   // default cf
   auto wbwi1 = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
                                                      /*overwrite_key=*/true);
-  wbwi1->Put("key1", "value1");
-  wbwi1->Put("key2", "value2");
+  ASSERT_OK(wbwi1->Put("key1", "value1"));
+  ASSERT_OK(wbwi1->Put("key2", "value2"));
   if (GetParam() == kPipelinedWrite) {
     ASSERT_TRUE(db_->IngestWriteBatchWithIndex({}, wbwi1).IsNotSupported());
     return;
@@ -1034,19 +1034,19 @@ TEST_P(DBWriteTest, IngestWriteBatchWithIndex) {
 
   auto wbwi2 = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
                                                      /*overwrite_key=*/true);
-  wbwi2->Put(handles_[1], "cf1_key1", "cf1_value1");
-  wbwi2->Delete(handles_[1], "cf1_key2");
+  ASSERT_OK(wbwi2->Put(handles_[1], "cf1_key1", "cf1_value1"));
+  ASSERT_OK(wbwi2->Delete(handles_[1], "cf1_key2"));
 
   auto wbwi3 = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
                                                      /*overwrite_key=*/true);
-  wbwi3->Merge(handles_[2], "cf2_key1", "cf2_value1");
-  wbwi3->Merge(handles_[2], "cf2_key1", "cf2_value2");
+  ASSERT_OK(wbwi3->Merge(handles_[2], "cf2_key1", "cf2_value1"));
+  ASSERT_OK(wbwi3->Merge(handles_[2], "cf2_key1", "cf2_value2"));
 
   // Test with overwrites
   auto wbwi = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
                                                     /*overwrite_key=*/true);
-  wbwi->Put("key2", "value3");
-  wbwi->Delete("key1");  // Delete an existing key
+  ASSERT_OK(wbwi->Put("key2", "value3"));
+  ASSERT_OK(wbwi->Delete("key1"));  // Delete an existing key
   ASSERT_OK(db_->IngestWriteBatchWithIndex(wo, wbwi));
   ASSERT_EQ("NOT_FOUND", Get("key1"));
   ASSERT_EQ("value3", Get("key2"));
@@ -1063,8 +1063,7 @@ TEST_P(DBWriteTest, IngestWriteBatchWithIndex) {
   // Test with overwrite_key = false
   auto wbwi_no_overwrite = std::make_shared<WriteBatchWithIndex>(
       options.comparator, 0, /*overwrite_key=*/false);
-  wbwi_no_overwrite->Put("key1", "value1");
-  wbwi_no_overwrite->Put("key1", "value2");  // Second write to same key
+  ASSERT_OK(wbwi_no_overwrite->Put("key1", "value1"));
   Status s = db_->IngestWriteBatchWithIndex(wo, wbwi_no_overwrite);
   ASSERT_TRUE(s.IsNotSupported());
 
