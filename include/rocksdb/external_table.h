@@ -8,6 +8,7 @@
 #include "rocksdb/advanced_iterator.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/file_checksum.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/iterator_base.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -196,11 +197,17 @@ class ExternalTableBuilder {
 struct ExternalTableOptions {
   const std::shared_ptr<const SliceTransform>& prefix_extractor;
   const Comparator* comparator;
+  const std::shared_ptr<FileSystem>& fs;
+  const FileOptions& file_options;
 
   ExternalTableOptions(
       const std::shared_ptr<const SliceTransform>& _prefix_extractor,
-      const Comparator* _comparator)
-      : prefix_extractor(_prefix_extractor), comparator(_comparator) {}
+      const Comparator* _comparator, const std::shared_ptr<FileSystem>& _fs,
+      const FileOptions& _file_options)
+      : prefix_extractor(_prefix_extractor),
+        comparator(_comparator),
+        fs(_fs),
+        file_options(_file_options) {}
 };
 
 struct ExternalTableBuilderOptions {
