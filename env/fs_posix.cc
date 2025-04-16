@@ -428,7 +428,7 @@ class PosixFileSystem : public FileSystem {
     }
     if (options.use_mmap_writes && !forceMmapOff_) {
       result->reset(new PosixMmapFile(fname, fd, page_size_, options,
-                                      0 /* initial_file_size= */));
+                                      /*initial_file_size=*/0));
     } else if (options.use_direct_writes && !options.use_mmap_writes) {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
@@ -448,7 +448,7 @@ class PosixFileSystem : public FileSystem {
 #endif
       result->reset(new PosixWritableFile(
           fname, fd, GetLogicalBlockSizeForWriteIfNeeded(options, fname, fd),
-          options, 0 /* initial_file_size= */));
+          options, /*initial_file_size=*/0));
     } else {
       // disable mmap writes
       FileOptions no_mmap_writes_options = options;
@@ -457,7 +457,7 @@ class PosixFileSystem : public FileSystem {
           fname, fd,
           GetLogicalBlockSizeForWriteIfNeeded(no_mmap_writes_options, fname,
                                               fd),
-          no_mmap_writes_options, 0 /* initial_file_size= */));
+          no_mmap_writes_options, /*initial_file_size=*/0));
     }
     return s;
   }
