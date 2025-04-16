@@ -401,16 +401,17 @@ public class BlockBasedTableConfigTest {
   @Test
   public void toAndFromColumnFamilyOptions() throws RocksDBException {
     final String dbPath = dbFolder.getRoot().getAbsolutePath();
-    try (Options opts = new Options(); final BloomFilter bloomFilterNonStandardSize = new BloomFilter(15)) {
+    try (Options opts = new Options();
+         final BloomFilter bloomFilterNonStandardSize = new BloomFilter(15)) {
       opts.setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
-      BlockBasedTableConfig tableConfig =
-        opts.tableFormatConfig() instanceof BlockBasedTableConfig
+      BlockBasedTableConfig tableConfig = opts.tableFormatConfig() instanceof BlockBasedTableConfig
           ? (BlockBasedTableConfig) opts.tableFormatConfig()
           : new BlockBasedTableConfig();
       tableConfig.setFilterPolicy(bloomFilterNonStandardSize);
       opts.setTableFormatConfig(tableConfig);
       RocksDB db = OptimisticTransactionDB.open(opts, dbPath);
-      final TableFormatConfig tableFormatConfig = db.getDefaultColumnFamily().getDescriptor().getOptions().tableFormatConfig();
+      final TableFormatConfig tableFormatConfig =
+          db.getDefaultColumnFamily().getDescriptor().getOptions().tableFormatConfig();
       assertThat(tableFormatConfig).isNotNull();
       assertThat(tableFormatConfig).isInstanceOf(BlockBasedTableConfig.class);
       if (tableFormatConfig instanceof BlockBasedTableConfig) {
@@ -449,5 +450,4 @@ public class BlockBasedTableConfigTest {
     assertThat(blockBasedTableConfig.cacheNumShardBits()).
         isEqualTo(5);
   }
-
 }
