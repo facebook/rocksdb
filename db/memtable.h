@@ -825,6 +825,8 @@ class MemTable final : public ReadOnlyMemTable {
            is_range_del_table_empty_;
   }
 
+  //  Gets the newest user defined timestamps in the memtable. This should only
+  //  be called when user defined timestamp is enabled.
   const Slice& GetNewestUDT() const override;
 
   // Returns Corruption status if verification fails.
@@ -900,14 +902,10 @@ class MemTable final : public ReadOnlyMemTable {
   // Size in bytes for the user-defined timestamps.
   size_t ts_sz_;
 
-  // Whether to persist user-defined timestamps
-  bool persist_user_defined_timestamps_;
-
   // Newest user-defined timestamp contained in this MemTable. For ts1, and ts2
   // if Comparator::CompareTimestamp(ts1, ts2) > 0, ts1 is considered newer than
   // ts2. We track this field for a MemTable if its column family has UDT
-  // feature enabled and the `persist_user_defined_timestamp` flag is false.
-  // Otherwise, this field just contains an empty Slice.
+  // feature enabled.
   Slice newest_udt_;
 
   // Updates flush_state_ using ShouldFlushNow()
