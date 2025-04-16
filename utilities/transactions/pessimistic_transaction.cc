@@ -920,8 +920,8 @@ Status WriteCommittedTxn::CommitInternal() {
         /*wal_used*/ nullptr, /*log_ref*/ log_number_,
         /*disable_memtable*/ false, &seq_used,
         /*batch_cnt=*/0, /*pre_release_callback=*/nullptr, post_mem_cb,
-        /*wbwi=*/std::make_shared<WriteBatchWithIndex>(std::move(write_batch_)),
-        /*min_prep_log=*/log_number_);
+        /*wbwi=*/
+        std::make_shared<WriteBatchWithIndex>(std::move(write_batch_)));
     // Reset write_batch_ since it's accessed in transaction clean up and
     // might be used for transaction reuse.
     write_batch_ = WriteBatchWithIndex(cmp_, 0, true, 0,

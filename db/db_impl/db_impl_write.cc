@@ -192,7 +192,7 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 
 Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
                           const WBWIMemTable::SeqnoRange& assigned_seqno,
-                          uint64_t prep_log,
+                          uint64_t min_prep_log,
                           SequenceNumber last_seqno_after_ingest,
                           bool memtable_updated, bool ignore_missing_cf) {
   // Keys in new memtable have seqno > last_seqno_after_ingest >= keys in wbwi.
@@ -238,10 +238,28 @@ Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
     wbwi_memtable->AssignSequenceNumbers(assigned_seqno);
     // This is needed to keep the WAL that contains Prepare alive until
     // committed data in this memtable is persisted.
-    wbwi_memtable->SetMinPrepLog(prep_log);
+    wbwi_memtable->SetMinPrepLog(min_prep_log);
     memtables.push_back(wbwi_memtable);
     cfd->Ref();
     cfds.push_back(cfd);
+  }
+
+  autovector<ColumnFamilyData*> cfds_for_atomic_flush;
+  if (immutable_db_options_.atomic_flush) {
+    SelectColumnFamiliesForAtomicFlush(&cfds_for_atomic_flush);
+    for (auto cfd : cfds_for_atomic_flush) {
+      bool found = false;
+      for (auto existing_cfd : cfds) {
+        if (existing_cfd == cfd) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        cfd->Ref();
+        cfds.push_back(cfd);
+      }
+    }
   }
 
   // Stop writes to the DB by entering both write threads
@@ -253,15 +271,16 @@ Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
 
   // Switch memtable and add WBWIMemTables
   Status s;
-  for (size_t i = 0; i < memtables.size(); ++i) {
-    assert(!immutable_db_options_.atomic_flush);
-    // NOTE: to support atomic flush, need to call
-    // SelectColumnFamiliesForAtomicFlush()
+  for (size_t i = 0; i < cfds.size(); ++i) {
     WriteContext write_context;
     // TODO: not switch on empty memtable, may need to update metadata
     //   like NextLogNumber(), earliest_seqno and memtable id.
-    s = SwitchMemtable(cfds[i], &write_context, memtables[i],
-                       last_seqno_after_ingest);
+    if (i < memtables.size()) {
+      s = SwitchMemtable(cfds[i], &write_context, memtables[i],
+                         last_seqno_after_ingest);
+    } else {
+      s = SwitchMemtable(cfds[i], &write_context);
+    }
     if (!s.ok()) {
       // SwitchMemtable() can only fail if a new WAL is to be created, this
       // should only happen for the first call to SwitchMemtable(). log will
@@ -301,9 +320,18 @@ Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
         continue;
       }
       cfd->imm()->FlushRequested();
+      if (!immutable_db_options_.atomic_flush) {
+        FlushRequest flush_req;
+        // TODO: a new flush reason for ingesting memtable
+        GenerateFlushRequest({cfd}, FlushReason::kExternalFileIngestion,
+                             &flush_req);
+        EnqueuePendingFlush(flush_req);
+      }
+    }
+    if (immutable_db_options_.atomic_flush) {
+      AssignAtomicFlushSeq(cfds);
       FlushRequest flush_req;
-      // TODO: a new flush reason for ingesting memtable
-      GenerateFlushRequest({cfd}, FlushReason::kExternalFileIngestion,
+      GenerateFlushRequest(cfds, FlushReason::kExternalFileIngestion,
                            &flush_req);
       EnqueuePendingFlush(flush_req);
     }
@@ -319,8 +347,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          uint64_t* seq_used, size_t batch_cnt,
                          PreReleaseCallback* pre_release_callback,
                          PostMemTableCallback* post_memtable_callback,
-                         std::shared_ptr<WriteBatchWithIndex> wbwi,
-                         uint64_t prep_log) {
+                         std::shared_ptr<WriteBatchWithIndex> wbwi) {
   assert(!seq_per_batch_ || batch_cnt != 0);
   assert(my_batch == nullptr || my_batch->Count() == 0 ||
          write_options.protection_bytes_per_key == 0 ||
@@ -410,7 +437,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         "DeleteRange is not compatible with row cache.");
   }
   if (wbwi) {
-    assert(prep_log > 0);
+    assert(log_ref > 0);
     // Used only in WriteCommittedTxn::CommitInternal() with no `callback`.
     assert(!callback);
     if (immutable_db_options_.unordered_write) {
@@ -420,10 +447,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     if (immutable_db_options_.enable_pipelined_write) {
       return Status::NotSupported(
           "Ingesting WriteBatch does not support pipelined_write");
-    }
-    if (immutable_db_options_.atomic_flush) {
-      return Status::NotSupported(
-          "Ingesting WriteBatch does not support atomic_flush");
     }
   }
   // Otherwise IsLatestPersistentState optimization does not make sense
@@ -856,7 +879,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         assert(ub <= versions_->LastAllocatedSequence());
       }
       status = IngestWBWI(wbwi, {/*lower_bound=*/lb, /*upper_bound=*/ub},
-                          prep_log, last_sequence,
+                          /*min_prep_log=*/log_ref, last_sequence,
                           /*memtable_updated=*/memtable_update_count > 0,
                           write_options.ignore_missing_column_families);
     }
@@ -1918,7 +1941,10 @@ void DBImpl::AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds) {
   assert(immutable_db_options_.atomic_flush);
   auto seq = versions_->LastSequence();
   for (auto cfd : cfds) {
-    cfd->imm()->AssignAtomicFlushSeq(seq);
+    // cfd can be nullptr, see ScheduleFlushes()
+    if (cfd) {
+      cfd->imm()->AssignAtomicFlushSeq(seq);
+    }
   }
 }
 

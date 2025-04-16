@@ -1029,7 +1029,6 @@ def finalize_and_sanitize(src_params):
     ):
         dest_params["enable_blob_files"] = 0
         dest_params["allow_setting_blob_options_dynamically"] = 0
-        dest_params["atomic_flush"] = 0
         dest_params["allow_concurrent_memtable_write"] = 0
         dest_params["use_put_entity_one_in"] = 0
         dest_params["use_get_entity"] = 0
