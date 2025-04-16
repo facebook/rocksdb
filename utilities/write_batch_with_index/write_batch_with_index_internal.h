@@ -406,6 +406,11 @@ class WBWIIteratorImpl final : public WBWIIterator {
   bool out_of_bound_ = false;
 
   bool TestOutOfBound() const {
+    if (!iterate_lower_bound_ && !iterate_upper_bound_) {
+      // The Entry() call below is non-trivial, tests the common and cheaper
+      // no bound case first.
+      return false;
+    }
     const Slice& curKey = Entry().key;
     return AtOrAfterUpperBound(&curKey) || BeforeLowerBound(&curKey);
   }
