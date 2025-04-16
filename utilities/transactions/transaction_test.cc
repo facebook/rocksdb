@@ -9467,7 +9467,7 @@ TEST_P(CommitBypassMemtableTest, AtomicFlushTest) {
   ASSERT_OK(db_->Put({}, handles_[1], "key1", "val1"));
   ASSERT_OK(db_->Put({}, handles_[2], "key2", "val2"));
 
-  // Write to cf 1, should see 2 and 3 flushed too
+  // Write to cf 0, should see cf1 and cf2 flushed too
   auto txn = txn_db->BeginTransaction({}, {}, nullptr);
   for (uint32_t i = 0; i <= threshold; ++i) {
     ASSERT_OK(txn->Put(handles_[0], "key" + std::to_string(i),
