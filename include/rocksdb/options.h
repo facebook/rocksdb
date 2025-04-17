@@ -477,7 +477,10 @@ struct CompactionServiceJobInfo {
   bool is_manual_compaction;
   bool bottommost_level;
 
+  // the smallest input level of the compaction.
+  // (same as Compaction::start_level and CompactionJobInfo::base_input_level)
   int base_input_level;
+  // the output level of the compaction.
   int output_level;
 
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
