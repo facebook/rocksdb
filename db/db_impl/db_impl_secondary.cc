@@ -984,7 +984,7 @@ Status DB::OpenAndCompact(
   }
 
   // 2. Load the options
-  DBOptions base_options;
+  DBOptions base_db_options;
   ConfigOptions config_options;
   config_options.env = override_options.env;
   config_options.ignore_unknown_options = true;
@@ -997,7 +997,7 @@ Status DB::OpenAndCompact(
   std::string options_file_name =
       OptionsFileName(name, compaction_input.options_file_number);
 
-  s = LoadOptionsFromFile(config_options, options_file_name, &base_options,
+  s = LoadOptionsFromFile(config_options, options_file_name, &base_db_options,
                           &all_column_families);
   if (!s.ok()) {
     return s;
@@ -1005,21 +1005,20 @@ Status DB::OpenAndCompact(
 
   // 3. Override pointer configurations in DBOptions with
   // CompactionServiceOptionsOverride
-  base_options.env = override_options.env;
-  base_options.file_checksum_gen_factory =
+  base_db_options.env = override_options.env;
+  base_db_options.file_checksum_gen_factory =
       override_options.file_checksum_gen_factory;
-  base_options.statistics = override_options.statistics;
-  base_options.listeners = override_options.listeners;
-  base_options.compaction_service = nullptr;
+  base_db_options.statistics = override_options.statistics;
+  base_db_options.listeners = override_options.listeners;
+  base_db_options.compaction_service = nullptr;
   // We will close the DB after the compaction anyway.
   // Open as many files as needed for the compaction.
-  base_options.max_open_files = -1;
-  base_options.info_log = override_options.info_log;
-  base_options.max_open_files = -1;
+  base_db_options.max_open_files = -1;
+  base_db_options.info_log = override_options.info_log;
 
-  // Set the rest of the options to override from options_map
+  // Set the rest of the db options to override from options_map
   DBOptions db_options;
-  s = GetDBOptionsFromMap(config_options, base_options,
+  s = GetDBOptionsFromMap(config_options, base_db_options,
                           override_options.options_map, &db_options);
   if (!s.ok()) {
     return s;
@@ -1032,6 +1031,7 @@ Status DB::OpenAndCompact(
   // default CF)
   std::vector<ColumnFamilyDescriptor> column_families;
   for (auto& cf : all_column_families) {
+    ColumnFamilyOptions cf_options;
     if (cf.name == compaction_input.cf_name) {
       cf.options.comparator = override_options.comparator;
       cf.options.merge_operator = override_options.merge_operator;
@@ -1044,6 +1044,15 @@ Status DB::OpenAndCompact(
           override_options.sst_partitioner_factory;
       cf.options.table_properties_collector_factories =
           override_options.table_properties_collector_factories;
+
+      // Set the rest of the cf options to override from options_map
+      s = GetColumnFamilyOptionsFromMap(config_options, cf.options,
+                                        override_options.options_map,
+                                        &cf_options);
+      if (!s.ok()) {
+        return s;
+      }
+      cf.options = std::move(cf_options);
       column_families.emplace_back(cf);
     } else if (cf.name == kDefaultColumnFamilyName) {
       column_families.emplace_back(cf);
@@ -1059,6 +1068,10 @@ Status DB::OpenAndCompact(
     return s;
   }
   assert(db);
+
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:0", db);
+  TEST_SYNC_POINT("DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:1");
 
   // 6. Find the handle of the Column Family that this will compact
   ColumnFamilyHandle* cfh = nullptr;
