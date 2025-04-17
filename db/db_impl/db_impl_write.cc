@@ -200,17 +200,21 @@ Status DBImpl::IngestWriteBatchWithIndex(
     return Status::NotSupported(
         "IngestWriteBatchWithIndex does not support disableWAL=true");
   }
+  Status s;
   if (write_options.protection_bytes_per_key > 0) {
-    WriteBatchInternal::UpdateProtectionInfo(
+    s = WriteBatchInternal::UpdateProtectionInfo(
         wbwi->GetWriteBatch(), write_options.protection_bytes_per_key);
   }
-  WriteBatch dummy_empty_batch;
-  return WriteImpl(
-      write_options, /*updates=*/&dummy_empty_batch, /*callback=*/nullptr,
-      /*user_write_cb=*/nullptr, /*log_used=*/nullptr, /*log_ref=*/0,
-      /*disable_memtable=*/false, /*seq_used=*/nullptr,
-      /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
-      /*post_memtable_callback=*/nullptr, /*wbwi=*/wbwi);
+  if (s.ok()) {
+    WriteBatch dummy_empty_batch;
+    s = WriteImpl(
+        write_options, /*updates=*/&dummy_empty_batch, /*callback=*/nullptr,
+        /*user_write_cb=*/nullptr, /*log_used=*/nullptr, /*log_ref=*/0,
+        /*disable_memtable=*/false, /*seq_used=*/nullptr,
+        /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
+        /*post_memtable_callback=*/nullptr, /*wbwi=*/wbwi);
+  }
+  return s;
 }
 
 Status DBImpl::IngestWBWIAsMemtable(
