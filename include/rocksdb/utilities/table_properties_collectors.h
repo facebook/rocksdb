@@ -98,6 +98,8 @@ NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
 //     need-compaction when aforementioned condition is met.
 // 3) Setting the ratio to be higher than 1 can be used to just writes the user
 //    table property, and not mark any file as need compaction.
+// When `track_data_write_time` is enabled, a user property for aggregated data
+// write time will be written to the SST file.
 // For a column family that does not enable tiering feature, even if an
 // effective configuration is provided, this collector is still disabled.
 class CompactForTieringCollectorFactory
@@ -106,7 +108,8 @@ class CompactForTieringCollectorFactory
   // @param compaction_trigger_ratio: the triggering threshold for the ratio of
   // eligible entries to the total number of entries. See class documentation
   // for what entry is eligible.
-  CompactForTieringCollectorFactory(double compaction_trigger_ratio);
+  CompactForTieringCollectorFactory(double compaction_trigger_ratio,
+                                    bool track_data_write_time);
 
   ~CompactForTieringCollectorFactory() override {}
 
@@ -121,6 +124,12 @@ class CompactForTieringCollectorFactory
     return compaction_trigger_ratio_.load();
   }
 
+  void SetTrackDataWriteTime(bool track_data_write_time) {
+    track_data_write_time_.store(track_data_write_time);
+  }
+
+  bool GetTrackDataWriteTime() const { return track_data_write_time_.load(); }
+
   static const char* kClassName() { return "CompactForTieringCollector"; }
   const char* Name() const override { return kClassName(); }
 
@@ -128,10 +137,12 @@ class CompactForTieringCollectorFactory
 
  private:
   std::atomic<double> compaction_trigger_ratio_;
+  std::atomic<bool> track_data_write_time_;
 };
 
 std::shared_ptr<CompactForTieringCollectorFactory>
-NewCompactForTieringCollectorFactory(double compaction_trigger_ratio);
+NewCompactForTieringCollectorFactory(double compaction_trigger_ratio,
+                                     bool track_data_write_time);
 
 // Information for the unix write time of a collection of data. Combined with
 // the current unix time, these stats give an overview of how long the data

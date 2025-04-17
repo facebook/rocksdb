@@ -211,7 +211,7 @@ static int RegisterTablePropertiesCollectorFactories(
         // By default, create a `CompactForTieringCollectorFactory` that is
         // disabled. Users will need to call corresponding setters to enable
         // the factory.
-        guard->reset(new CompactForTieringCollectorFactory(0));
+        guard->reset(new CompactForTieringCollectorFactory(0, false));
         return guard->get();
       });
   return 1;

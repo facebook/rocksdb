@@ -45,6 +45,6 @@ class CompactForTieringCollector : public TablePropertiesCollector {
   size_t total_entries_counter_ = 0;
   bool finish_called_ = false;
   bool need_compaction_ = false;
-  bool collect_data_age_stats_ = false;
+  bool track_data_write_time_ = false;
 };
 }  // namespace ROCKSDB_NAMESPACE

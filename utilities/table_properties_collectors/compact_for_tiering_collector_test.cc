@@ -30,7 +30,7 @@ TEST(CompactForTieringCollector, NotEnabled) {
   context.last_level_inclusive_max_seqno_threshold = 50;
 
   // Set compaction trigger ratio to 0 to disable it. No collector created.
-  auto factory = NewCompactForTieringCollectorFactory(0);
+  auto factory = NewCompactForTieringCollectorFactory(0, false);
   std::unique_ptr<TablePropertiesCollector> collector(
       factory->CreateTablePropertiesCollector(context));
   ASSERT_EQ(nullptr, collector);
@@ -47,7 +47,7 @@ TEST(CompactForTieringCollector, TieringDisabled) {
   {
     for (double compaction_trigger_ratio : {0.0, 0.1, 1.0, 1.5}) {
       auto factory =
-          NewCompactForTieringCollectorFactory(compaction_trigger_ratio);
+          NewCompactForTieringCollectorFactory(compaction_trigger_ratio, false);
       std::unique_ptr<TablePropertiesCollector> collector(
           factory->CreateTablePropertiesCollector(context));
       ASSERT_EQ(nullptr, collector);
@@ -66,7 +66,7 @@ TEST(CompactForTieringCollector, LastLevelFile) {
   {
     for (double compaction_trigger_ratio : {0.0, 0.1, 1.0, 1.5}) {
       auto factory =
-          NewCompactForTieringCollectorFactory(compaction_trigger_ratio);
+          NewCompactForTieringCollectorFactory(compaction_trigger_ratio, false);
       std::unique_ptr<TablePropertiesCollector> collector(
           factory->CreateTablePropertiesCollector(context));
       ASSERT_EQ(nullptr, collector);
@@ -85,7 +85,7 @@ TEST(CompactForTieringCollector, CollectorEnabled) {
   {
     for (double compaction_trigger_ratio : {0.1, 0.33333333, 0.5, 1.0, 1.5}) {
       auto factory =
-          NewCompactForTieringCollectorFactory(compaction_trigger_ratio);
+          NewCompactForTieringCollectorFactory(compaction_trigger_ratio, false);
       std::unique_ptr<TablePropertiesCollector> collector(
           factory->CreateTablePropertiesCollector(context));
       for (size_t i = 0; i < kTotalEntries; i++) {
@@ -114,7 +114,7 @@ TEST(CompactForTieringCollector, TimedPutEntries) {
   context.last_level_inclusive_max_seqno_threshold = 50;
   const size_t kTotalEntries = 100;
 
-  auto factory = NewCompactForTieringCollectorFactory(0.1);
+  auto factory = NewCompactForTieringCollectorFactory(0.1, false);
   std::unique_ptr<TablePropertiesCollector> collector(
       factory->CreateTablePropertiesCollector(context));
   for (size_t i = 0; i < kTotalEntries; i++) {

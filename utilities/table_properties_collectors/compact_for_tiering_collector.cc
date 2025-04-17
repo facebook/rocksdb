@@ -36,14 +36,17 @@ const std::string
 
 CompactForTieringCollector::CompactForTieringCollector(
     SequenceNumber last_level_inclusive_max_seqno_threshold,
-    double compaction_trigger_ratio, bool collect_data_age_stats)
+    double compaction_trigger_ratio, bool track_data_write_time)
     : last_level_inclusive_max_seqno_threshold_(
           last_level_inclusive_max_seqno_threshold),
       compaction_trigger_ratio_(compaction_trigger_ratio),
-      collect_data_age_stats_(collect_data_age_stats) {
+      track_data_write_time_(track_data_write_time) {
   assert(last_level_inclusive_max_seqno_threshold_ != kMaxSequenceNumber);
   // TODO(yuzhangyu): implement collect the data age stats.
-  (void)collect_data_age_stats_;
+  // How do we calculate data write time? We need the seqno to time mapping
+  // thing. How would we have access to the seqno to time mapping in the user
+  // property collector?
+  (void)track_data_write_time_;
 }
 
 Status CompactForTieringCollector::AddUserKey(const Slice& /*key*/,
@@ -103,16 +106,21 @@ TablePropertiesCollector*
 CompactForTieringCollectorFactory::CreateTablePropertiesCollector(
     TablePropertiesCollectorFactory::Context context) {
   double compaction_trigger_ratio = GetCompactionTriggerRatio();
+  bool track_data_write_time = GetTrackDataWriteTime();
   if (compaction_trigger_ratio <= 0 ||
-      context.level_at_creation == context.num_levels - 1 ||
+      (context.level_at_creation == context.num_levels - 1 &&
+       !track_data_write_time) ||
       context.last_level_inclusive_max_seqno_threshold == kMaxSequenceNumber) {
     return nullptr;
   }
-  // TODO(yuzhangyu): pass actual value.
+  // For files on the last level, just track write time if it's enabled, do not
+  // attempt to trigger compaction for it.
+  if (context.level_at_creation == context.num_levels - 1) {
+    compaction_trigger_ratio = 0;
+  }
   return new CompactForTieringCollector(
       context.last_level_inclusive_max_seqno_threshold,
-      compaction_trigger_ratio,
-      /*collect_data_age_stats*/ false);
+      compaction_trigger_ratio, track_data_write_time);
 }
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -135,12 +143,31 @@ static std::unordered_map<std::string, OptionTypeInfo>
             return Status::OK();
           },
           nullptr}},
+        {"track_data_write_time",
+         {0, OptionType::kUnknown, OptionVerificationType::kNormal,
+          OptionTypeFlags::kCompareNever | OptionTypeFlags::kMutable,
+          [](const ConfigOptions&, const std::string&, const std::string& value,
+             void* addr) {
+            auto* factory =
+                static_cast<CompactForTieringCollectorFactory*>(addr);
+            factory->SetTrackDataWriteTime(ParseBoolean("", value));
+            return Status::OK();
+          },
+          [](const ConfigOptions&, const std::string&, const void* addr,
+             std::string* value) {
+            const auto* factory =
+                static_cast<const CompactForTieringCollectorFactory*>(addr);
+            *value = std::to_string(factory->GetTrackDataWriteTime());
+            return Status::OK();
+          },
+          nullptr}},
 
 };
 
 CompactForTieringCollectorFactory::CompactForTieringCollectorFactory(
-    double compaction_trigger_ratio)
-    : compaction_trigger_ratio_(compaction_trigger_ratio) {
+    double compaction_trigger_ratio, bool track_data_write_time)
+    : compaction_trigger_ratio_(compaction_trigger_ratio),
+      track_data_write_time_(track_data_write_time) {
   RegisterOptions("", this, &on_compact_for_tiering_type_info);
 }
 
@@ -153,9 +180,10 @@ std::string CompactForTieringCollectorFactory::ToString() const {
 }
 
 std::shared_ptr<CompactForTieringCollectorFactory>
-NewCompactForTieringCollectorFactory(double compaction_trigger_ratio) {
+NewCompactForTieringCollectorFactory(double compaction_trigger_ratio,
+                                     bool track_data_write_time) {
   return std::make_shared<CompactForTieringCollectorFactory>(
-      compaction_trigger_ratio);
+      compaction_trigger_ratio, track_data_write_time);
 }
 
 Status GetDataCollectionUnixWriteTimeInfoForFile(
