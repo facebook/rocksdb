@@ -221,7 +221,8 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
         decoupled_partitioned_filters_(decoupled_partitioned_filters) {}
 
   Status InternalAdd(const Slice& /*key*/, const Slice& /*value*/,
-                     uint64_t /*file_size*/) override {
+                     uint64_t /*file_size*/,
+                     uint64_t /*unix_write_time*/) override {
     // Intentionally left blank. Have no interest in collecting stats for
     // individual key/value pairs.
     return Status::OK();
@@ -322,6 +323,10 @@ struct BlockBasedTableBuilder::Rep {
   size_t data_begin_offset = 0;
 
   TableProperties props;
+
+  bool property_collectors_need_time_tracking{false};
+
+  UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_for_tracking{nullptr};
 
   // States of the builder.
   //
@@ -595,6 +600,9 @@ struct BlockBasedTableBuilder::Rep {
               tbo.ioptions.num_levels,
               tbo.last_level_inclusive_max_seqno_threshold)};
       if (collector) {
+        property_collectors_need_time_tracking =
+            property_collectors_need_time_tracking ||
+            collector->WriteTimeTrackingEnabled();
         table_properties_collectors.emplace_back(std::move(collector));
       }
     }
@@ -1011,6 +1019,7 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
   ValueType value_type;
   SequenceNumber seq;
   UnPackSequenceAndType(ExtractInternalKeyFooter(ikey), &seq, &value_type);
+  uint64_t unix_write_time = GetDataUnixWriteTime(seq, value_type, value);
   r->props.key_largest_seqno = std::max(r->props.key_largest_seqno, seq);
   if (IsValueType(value_type)) {
 #ifndef NDEBUG
@@ -1096,10 +1105,11 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
         r->index_builder->OnKeyAdded(ikey);
       }
     }
+
     // TODO offset passed in is not accurate for parallel compression case
-    NotifyCollectTableCollectorsOnAdd(ikey, value, r->get_offset(),
-                                      r->table_properties_collectors,
-                                      r->ioptions.logger);
+    NotifyCollectTableCollectorsOnAdd(
+        ikey, value, unix_write_time, r->get_offset(),
+        r->table_properties_collectors, r->ioptions.logger);
 
   } else if (value_type == kTypeRangeDeletion) {
     Slice persisted_end = value;
@@ -1113,9 +1123,9 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
     }
     r->range_del_block.Add(ikey, persisted_end);
     // TODO offset passed in is not accurate for parallel compression case
-    NotifyCollectTableCollectorsOnAdd(ikey, value, r->get_offset(),
-                                      r->table_properties_collectors,
-                                      r->ioptions.logger);
+    NotifyCollectTableCollectorsOnAdd(
+        ikey, value, unix_write_time, r->get_offset(),
+        r->table_properties_collectors, r->ioptions.logger);
   } else {
     assert(false);
     r->SetStatus(Status::InvalidArgument(
@@ -2188,6 +2198,30 @@ const char* BlockBasedTableBuilder::GetFileChecksumFuncName() const {
   } else {
     return kUnknownFileChecksumFuncName;
   }
+}
+void BlockBasedTableBuilder::SetSeqnoTimeForTrackingWriteTime(
+    UnownedPtr<const rocksdb::SeqnoToTimeMapping> seqno_to_time_mapping) {
+  assert(!rep_->seqno_to_time_for_tracking);
+  rep_->seqno_to_time_for_tracking = seqno_to_time_mapping;
+}
+
+uint64_t BlockBasedTableBuilder::GetDataUnixWriteTime(SequenceNumber seq,
+                                                      ValueType value_type,
+                                                      const Slice& value) {
+  if (!rep_->property_collectors_need_time_tracking ||
+      !rep_->seqno_to_time_for_tracking ||
+      rep_->seqno_to_time_for_tracking->Empty()) {
+    return TablePropertiesCollector::kUnknownUnixWriteTime;
+  }
+  SequenceNumber seq_to_check = seq;
+  if (value_type == kTypeValuePreferredSeqno) {
+    seq_to_check = ParsePackedValueForSeqno(value);
+  }
+  if (seq_to_check == 0) {
+    return TablePropertiesCollector::kInfinitelyOldUnixWriteTime;
+  }
+  return rep_->seqno_to_time_for_tracking->GetProximalTimeBeforeSeqno(
+      seq_to_check);
 }
 void BlockBasedTableBuilder::SetSeqnoTimeTableProperties(
     const SeqnoToTimeMapping& relevant_mapping, uint64_t oldest_ancestor_time) {

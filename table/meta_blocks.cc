@@ -193,12 +193,13 @@ void LogPropertiesCollectionError(Logger* info_log, const std::string& method,
 }
 
 bool NotifyCollectTableCollectorsOnAdd(
-    const Slice& key, const Slice& value, uint64_t file_size,
+    const Slice& key, const Slice& value, uint64_t unix_write_time,
+    uint64_t file_size,
     const std::vector<std::unique_ptr<InternalTblPropColl>>& collectors,
     Logger* info_log) {
   bool all_succeeded = true;
   for (auto& collector : collectors) {
-    Status s = collector->InternalAdd(key, value, file_size);
+    Status s = collector->InternalAdd(key, value, unix_write_time, file_size);
     all_succeeded = all_succeeded && s.ok();
     if (!s.ok()) {
       LogPropertiesCollectionError(info_log, "Add" /* method */,

@@ -18,6 +18,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "rocksdb/table_properties.h"
 #include "table/block_based/block_builder.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
@@ -211,7 +212,8 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
 
   // notify property collectors
   NotifyCollectTableCollectorsOnAdd(
-      key, value, offset_, table_properties_collectors_, ioptions_.logger);
+      key, value, TablePropertiesCollector::kUnknownUnixWriteTime, offset_,
+      table_properties_collectors_, ioptions_.logger);
   status_ = io_status_;
 }
 
@@ -347,6 +349,13 @@ const char* PlainTableBuilder::GetFileChecksumFuncName() const {
     return kUnknownFileChecksumFuncName;
   }
 }
+
+void PlainTableBuilder::SetSeqnoTimeForTrackingWriteTime(
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time) {
+  // TODO: plain table doesn't track write time per data entry yet.
+  TableBuilder::SetSeqnoTimeForTrackingWriteTime(seqno_to_time);
+}
+
 void PlainTableBuilder::SetSeqnoTimeTableProperties(
     const SeqnoToTimeMapping& relevant_mapping, uint64_t uint_64) {
   // TODO: storing seqno to time mapping is not yet support for plain table.

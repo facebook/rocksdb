@@ -2078,7 +2078,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       sub_compact->compaction->max_output_file_size(), file_number,
       proximal_after_seqno_ /*last_level_inclusive_max_seqno_threshold*/);
 
-  outputs.NewBuilder(tboptions);
+  outputs.NewBuilder(tboptions, &seqno_to_time_mapping_);
 
   LogFlush(db_options_.info_log);
   return s;

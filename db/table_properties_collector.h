@@ -27,7 +27,7 @@ class InternalTblPropColl {
   // @params key    the user key that is inserted into the table.
   // @params value  the value that is inserted into the table.
   virtual Status InternalAdd(const Slice& key, const Slice& value,
-                             uint64_t file_size) = 0;
+                             uint64_t file_size, uint64_t unix_write_time) = 0;
 
   virtual void BlockAdd(uint64_t block_uncomp_bytes,
                         uint64_t block_compressed_bytes_fast,
@@ -36,6 +36,8 @@ class InternalTblPropColl {
   virtual UserCollectedProperties GetReadableProperties() const = 0;
 
   virtual bool NeedCompact() const { return false; }
+
+  virtual bool WriteTimeTrackingEnabled() const { return false; }
 };
 
 // Factory for internal table properties collector.
@@ -69,7 +71,7 @@ class UserKeyTablePropertiesCollector : public InternalTblPropColl {
   virtual ~UserKeyTablePropertiesCollector() {}
 
   Status InternalAdd(const Slice& key, const Slice& value,
-                     uint64_t file_size) override;
+                     uint64_t unix_write_time, uint64_t file_size) override;
 
   void BlockAdd(uint64_t block_uncomp_bytes,
                 uint64_t block_compressed_bytes_fast,
@@ -82,6 +84,10 @@ class UserKeyTablePropertiesCollector : public InternalTblPropColl {
   UserCollectedProperties GetReadableProperties() const override;
 
   bool NeedCompact() const override { return collector_->NeedCompact(); }
+
+  bool WriteTimeTrackingEnabled() const override {
+    return collector_->WriteTimeTrackingEnabled();
+  }
 
  protected:
   std::unique_ptr<TablePropertiesCollector> collector_;
@@ -131,6 +137,7 @@ class TimestampTablePropertiesCollector : public InternalTblPropColl {
         timestamp_max_(kDisableUserTimestamp) {}
 
   Status InternalAdd(const Slice& key, const Slice& /* value */,
+                     uint64_t /* unix_write_time */,
                      uint64_t /* file_size */) override {
     auto user_key = ExtractUserKey(key);
     assert(cmp_ && cmp_->timestamp_size() > 0);

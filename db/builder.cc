@@ -209,6 +209,7 @@ Status BuildTable(
         true /* must_count_input_entries */,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
+    builder->SetSeqnoTimeForTrackingWriteTime(seqno_to_time_mapping);
 
     SequenceNumber smallest_preferred_seqno = kMaxSequenceNumber;
     std::string key_after_flush_buf;

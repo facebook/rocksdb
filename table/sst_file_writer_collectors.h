@@ -30,6 +30,7 @@ class SstFileWriterPropertiesCollector : public InternalTblPropColl {
       : version_(version), global_seqno_(global_seqno) {}
 
   Status InternalAdd(const Slice& /*key*/, const Slice& /*value*/,
+                     uint64_t /*unix_write_time*/,
                      uint64_t /*file_size*/) override {
     // Intentionally left blank. Have no interest in collecting stats for
     // individual key/value pairs.

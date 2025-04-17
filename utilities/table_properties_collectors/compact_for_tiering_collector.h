@@ -26,7 +26,8 @@ class CompactForTieringCollector : public TablePropertiesCollector {
       double compaction_trigger_ratio, bool collect_data_age_stats);
 
   Status AddUserKey(const Slice& key, const Slice& value, EntryType type,
-                    SequenceNumber seq, uint64_t file_size) override;
+                    SequenceNumber seq, uint64_t unix_write_time,
+                    uint64_t file_size) override;
 
   Status Finish(UserCollectedProperties* properties) override;
 
@@ -35,6 +36,8 @@ class CompactForTieringCollector : public TablePropertiesCollector {
   const char* Name() const override { return "CompactForTieringCollector"; }
 
   bool NeedCompact() const override;
+
+  bool WriteTimeTrackingEnabled() const override;
 
  private:
   void Reset();

@@ -95,6 +95,9 @@ class PlainTableBuilder : public TableBuilder {
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
 
+  void SetSeqnoTimeForTrackingWriteTime(
+      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time) override;
+
   void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& relevant_mapping,
                                    uint64_t uint_64) override;
 

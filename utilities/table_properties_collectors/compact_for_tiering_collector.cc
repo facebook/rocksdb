@@ -46,14 +46,11 @@ CompactForTieringCollector::CompactForTieringCollector(
   // How do we calculate data write time? We need the seqno to time mapping
   // thing. How would we have access to the seqno to time mapping in the user
   // property collector?
-  (void)track_data_write_time_;
 }
 
-Status CompactForTieringCollector::AddUserKey(const Slice& /*key*/,
-                                              const Slice& value,
-                                              EntryType type,
-                                              SequenceNumber seq,
-                                              uint64_t /*file_size*/) {
+Status CompactForTieringCollector::AddUserKey(
+    const Slice& /*key*/, const Slice& value, EntryType type,
+    SequenceNumber seq, uint64_t /*unix_write_time*/, uint64_t /*file_size*/) {
   SequenceNumber seq_for_check = seq;
   if (type == kEntryTimedPut) {
     seq_for_check = ParsePackedValueForSeqno(value);
@@ -93,6 +90,10 @@ UserCollectedProperties CompactForTieringCollector::GetReadableProperties()
 
 bool CompactForTieringCollector::NeedCompact() const {
   return need_compaction_;
+}
+
+bool CompactForTieringCollector::WriteTimeTrackingEnabled() const {
+  return track_data_write_time_;
 }
 
 void CompactForTieringCollector::Reset() {

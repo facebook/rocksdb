@@ -93,6 +93,10 @@ struct TablePropertiesNames {
 // including data loss, unreported corruption, deadlocks, and more.
 class TablePropertiesCollector {
  public:
+  static constexpr uint64_t kUnknownUnixWriteTime =
+      std::numeric_limits<uint64_t>::max();
+  static constexpr uint64_t kInfinitelyOldUnixWriteTime = 0;
+
   virtual ~TablePropertiesCollector() {}
 
   // DEPRECATE User defined collector should implement AddUserKey(), though
@@ -114,6 +118,18 @@ class TablePropertiesCollector {
                             uint64_t /*file_size*/) {
     // For backwards-compatibility.
     return Add(key, value);
+  }
+
+  // Overloaded AddUserKey() API for collector that needs access to the data's
+  // original unix write time.
+  // @param unix_write_time   the original time when this entry was written to
+  //                          the DB. This info is available if DB has enabled
+  //                          internal time tracking for the period when this
+  //                          entry was written.
+  virtual Status AddUserKey(const Slice& key, const Slice& value,
+                            EntryType type, SequenceNumber seq,
+                            uint64_t /*unix_write_time*/, uint64_t file_size) {
+    return AddUserKey(key, value, type, seq, file_size);
   }
 
   // Called after each new block is cut
@@ -145,6 +161,10 @@ class TablePropertiesCollector {
 
   // EXPERIMENTAL Return whether the output file should be further compacted
   virtual bool NeedCompact() const { return false; }
+
+  // Whether this collector needs unix write time info for each data entry if
+  // it's available.
+  virtual bool WriteTimeTrackingEnabled() const { return false; }
 
   // For internal use only.
   virtual InternalTblPropColl* AsInternal() { return nullptr; }

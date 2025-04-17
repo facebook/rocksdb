@@ -107,6 +107,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
 
+  void SetSeqnoTimeForTrackingWriteTime(
+      UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping) override;
+
   void SetSeqnoTimeTableProperties(const SeqnoToTimeMapping& relevant_mapping,
                                    uint64_t oldest_ancestor_time) override;
 
@@ -198,6 +201,9 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   // Stop BGWorkCompression and BGWorkWriteMaybeCompressedBlock threads
   void StopParallelCompression();
+
+  uint64_t GetDataUnixWriteTime(SequenceNumber seq, ValueType value_type,
+                                const Slice& value);
 };
 
 Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
