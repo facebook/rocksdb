@@ -984,7 +984,7 @@ Status DB::OpenAndCompact(
   }
 
   // 2. Load the options
-  DBOptions db_options;
+  DBOptions base_options;
   ConfigOptions config_options;
   config_options.env = override_options.env;
   config_options.ignore_unknown_options = true;
@@ -997,7 +997,7 @@ Status DB::OpenAndCompact(
   std::string options_file_name =
       OptionsFileName(name, compaction_input.options_file_number);
 
-  s = LoadOptionsFromFile(config_options, options_file_name, &db_options,
+  s = LoadOptionsFromFile(config_options, options_file_name, &base_options,
                           &all_column_families);
   if (!s.ok()) {
     return s;
@@ -1005,16 +1005,25 @@ Status DB::OpenAndCompact(
 
   // 3. Override pointer configurations in DBOptions with
   // CompactionServiceOptionsOverride
-  db_options.env = override_options.env;
-  db_options.file_checksum_gen_factory =
+  base_options.env = override_options.env;
+  base_options.file_checksum_gen_factory =
       override_options.file_checksum_gen_factory;
-  db_options.statistics = override_options.statistics;
-  db_options.listeners = override_options.listeners;
-  db_options.compaction_service = nullptr;
+  base_options.statistics = override_options.statistics;
+  base_options.listeners = override_options.listeners;
+  base_options.compaction_service = nullptr;
   // We will close the DB after the compaction anyway.
   // Open as many files as needed for the compaction.
-  db_options.max_open_files = -1;
-  db_options.info_log = override_options.info_log;
+  base_options.max_open_files = -1;
+  base_options.info_log = override_options.info_log;
+  base_options.max_open_files = -1;
+
+  // Set the rest of the options to override from options_map
+  DBOptions db_options;
+  s = GetDBOptionsFromMap(config_options, base_options,
+                          override_options.options_map, &db_options);
+  if (!s.ok()) {
+    return s;
+  }
 
   // 4. Filter CFs that are needed for OpenAndCompact()
   // We do not need to open all column families for the remote compaction.

@@ -94,11 +94,17 @@ class MyTestCompactionService : public CompactionService {
           table_properties_collector_factories_;
     }
 
+    // Some options to override
+    Status s = StringToMap("compaction_readahead_size=8388608;",
+                           &options_override.options_map);
+    if (!s.ok()) {
+      return CompactionServiceJobStatus::kFailure;
+    }
+
     OpenAndCompactOptions options;
     options.canceled = &canceled_;
 
-    Status s =
-        DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
+    s = DB::OpenAndCompact(options, db_path_, db_path_ + "/" + scheduled_job_id,
                            compaction_input, result, options_override);
     {
       InstrumentedMutexLock l(&mutex_);
