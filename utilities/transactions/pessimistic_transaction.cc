@@ -110,8 +110,6 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
     commit_bypass_memtable_threshold_ =
         db_options.txn_commit_bypass_memtable_threshold;
   }
-  write_batch_.SetTrackPerCFStat(commit_bypass_memtable_threshold_ <
-                                 std::numeric_limits<uint32_t>::max());
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
@@ -914,6 +912,9 @@ Status WriteCommittedTxn::CommitInternal() {
   TEST_SYNC_POINT_CALLBACK("WriteCommittedTxn::CommitInternal:bypass_memtable",
                            static_cast<void*>(&bypass_memtable));
   if (bypass_memtable) {
+    // Used for differentiating commiting WBWI vs directly ingesting WBWI
+    // see (IngestWriteBatchWithIndex())
+    assert(working_batch->HasCommit());
     s = db_impl_->WriteImpl(
         write_options_, working_batch, /*callback*/ nullptr,
         /*user_write_cb=*/nullptr,

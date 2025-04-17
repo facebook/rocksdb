@@ -190,11 +190,38 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
   return s;
 }
 
-Status DBImpl::IngestWBWI(std::shared_ptr<WriteBatchWithIndex> wbwi,
-                          const WBWIMemTable::SeqnoRange& assigned_seqno,
-                          uint64_t min_prep_log,
-                          SequenceNumber last_seqno_after_ingest,
-                          bool memtable_updated, bool ignore_missing_cf) {
+Status DBImpl::IngestWriteBatchWithIndex(
+    const WriteOptions& write_options,
+    std::shared_ptr<WriteBatchWithIndex> wbwi) {
+  if (!wbwi) {
+    return Status::InvalidArgument("Batch is nullptr!");
+  }
+  if (!write_options.disableWAL) {
+    return Status::NotSupported(
+        "IngestWriteBatchWithIndex does not support disableWAL=true");
+  }
+  Status s;
+  if (write_options.protection_bytes_per_key > 0) {
+    s = WriteBatchInternal::UpdateProtectionInfo(
+        wbwi->GetWriteBatch(), write_options.protection_bytes_per_key);
+  }
+  if (s.ok()) {
+    WriteBatch dummy_empty_batch;
+    s = WriteImpl(
+        write_options, /*updates=*/&dummy_empty_batch, /*callback=*/nullptr,
+        /*user_write_cb=*/nullptr, /*log_used=*/nullptr, /*log_ref=*/0,
+        /*disable_memtable=*/false, /*seq_used=*/nullptr,
+        /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
+        /*post_memtable_callback=*/nullptr, /*wbwi=*/wbwi);
+  }
+  return s;
+}
+
+Status DBImpl::IngestWBWIAsMemtable(
+    std::shared_ptr<WriteBatchWithIndex> wbwi,
+    const WBWIMemTable::SeqnoRange& assigned_seqno, uint64_t min_prep_log,
+    SequenceNumber last_seqno_after_ingest, bool memtable_updated,
+    bool ignore_missing_cf) {
   // Keys in new memtable have seqno > last_seqno_after_ingest >= keys in wbwi.
   assert(assigned_seqno.upper_bound <= last_seqno_after_ingest);
   // Keys in the current memtable have seqno <= LastSequence() < keys in wbwi.
@@ -436,9 +463,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::NotSupported(
         "DeleteRange is not compatible with row cache.");
   }
+  // Whether the WBWI is from transaction commit or a direct write
+  // (IngestWriteBatchWithIndex())
+  bool ingest_wbwi_for_commit = false;
   if (wbwi) {
-    assert(log_ref > 0);
-    // Used only in WriteCommittedTxn::CommitInternal() with no `callback`.
+    if (my_batch->HasCommit()) {
+      ingest_wbwi_for_commit = true;
+      assert(log_ref);
+    } else {
+      // Only supports disableWAL for directly ingesting WBWI for now.
+      assert(write_options.disableWAL);
+    }
     assert(!callback);
     if (immutable_db_options_.unordered_write) {
       return Status::NotSupported(
@@ -447,6 +482,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     if (immutable_db_options_.enable_pipelined_write) {
       return Status::NotSupported(
           "Ingesting WriteBatch does not support pipelined_write");
+    }
+    if (!wbwi->GetOverwriteKey()) {
+      return Status::NotSupported(
+          "WriteBatchWithIndex ingestion requires overwrite_key=true");
     }
   }
   // Otherwise IsLatestPersistentState optimization does not make sense
@@ -658,7 +697,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             continue;
           }
           // TODO: maybe handle the tracing status?
-          tracer_->Write(writer->batch).PermitUncheckedError();
+          if (wbwi && !ingest_wbwi_for_commit) {
+            // for transaction write, tracer only needs the commit marker which
+            // is in writer->batch
+            tracer_->Write(wbwi->GetWriteBatch()).PermitUncheckedError();
+          } else {
+            tracer_->Write(writer->batch).PermitUncheckedError();
+          }
         }
       }
     }
@@ -860,12 +905,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // handle exit, false means somebody else did
     should_exit_batch_group = write_thread_.CompleteParallelMemTableWriter(&w);
   }
-  if (wbwi) {
-    if (status.ok() && w.status.ok()) {
+  if (wbwi && status.ok() && w.status.ok()) {
+    uint32_t wbwi_count = wbwi->GetWriteBatch()->Count();
+    // skip empty batch case
+    if (wbwi_count) {
       // w.batch contains (potentially empty) commit time batch updates,
       // only ingest wbwi if w.batch is applied to memtable successfully
       uint32_t memtable_update_count = w.batch->Count();
-      uint32_t wbwi_count = wbwi->GetWriteBatch()->Count();
       // Seqno assigned to this write are [last_seq + 1 - seq_inc, last_seq].
       // seq_inc includes w.batch (memtable updates) and wbwi
       // w.batch gets first `memtable_update_count` sequence numbers.
@@ -878,10 +924,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       if (two_write_queues_) {
         assert(ub <= versions_->LastAllocatedSequence());
       }
-      status = IngestWBWI(wbwi, {/*lower_bound=*/lb, /*upper_bound=*/ub},
-                          /*min_prep_log=*/log_ref, last_sequence,
-                          /*memtable_updated=*/memtable_update_count > 0,
-                          write_options.ignore_missing_column_families);
+      status =
+          IngestWBWIAsMemtable(wbwi, {/*lower_bound=*/lb, /*upper_bound=*/ub},
+                               /*min_prep_log=*/log_ref, last_sequence,
+                               /*memtable_updated=*/memtable_update_count > 0,
+                               write_options.ignore_missing_column_families);
     }
   }
 

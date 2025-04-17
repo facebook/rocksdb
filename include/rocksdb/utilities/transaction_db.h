@@ -368,6 +368,8 @@ struct TransactionOptions {
   // Only supports write-committed policy. If set to true, the transaction will
   // skip memtable write and ingest into the DB directly during Commit(). This
   // makes Commit() much faster for transactions with many operations.
+  // Transaction neeeds to call Prepare() before Commit() for this option to
+  // take effect.
   // Transactions with Merge() or PutEntity() is not supported yet.
   //
   // Note that the transaction will be ingested as an immutable memtable for

@@ -31,6 +31,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/user_write_callback.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
@@ -631,6 +632,21 @@ class DB {
                                    UserWriteCallback* /*user_write_cb*/) {
     return Status::NotSupported(
         "WriteWithCallback not implemented for this interface.");
+  }
+
+  // EXPERIMENTAL, subject to change
+  // Ingest a WriteBatchWithIndex into DB, bypassing memtable writes for better
+  // write performance. Useful when there is a large number of updates
+  // in the write batch.
+  // The WriteBatchWithIndex must be created with overwrite_key=true.
+  // Currently this requires WriteOptions::disableWAL=true.
+  // The following options are currently not supported:
+  // - unordered_write
+  // - enable_pipelined_write
+  virtual Status IngestWriteBatchWithIndex(
+      const WriteOptions& /*options*/,
+      std::shared_ptr<WriteBatchWithIndex> /*wbwi*/) {
+    return Status::NotSupported("IngestWriteBatchWithIndex not implemented.");
   }
 
   // If the column family specified by "column_family" contains an entry for

@@ -32,8 +32,7 @@ struct WriteBatchWithIndex::Rep {
         skip_list(comparator, &arena),
         last_sub_batch_offset(0),
         sub_batch_cnt(1),
-        overwrite_key(_overwrite_key),
-        track_cf_stat(false) {}
+        overwrite_key(_overwrite_key) {}
   ReadableWriteBatch write_batch;
   WriteBatchEntryComparator comparator;
   Arena arena;
@@ -45,10 +44,10 @@ struct WriteBatchWithIndex::Rep {
   // Total number of sub-batches in the write batch. Default is 1.
   size_t sub_batch_cnt;
 
-  bool overwrite_key;
-  bool track_cf_stat;
+  const bool overwrite_key;
   // Tracks ids of CFs that have updates in this WBWI, number of updates and
-  // number of overwritten single deletions per cf.
+  // number of overwritten single deletions per cf. Useful for WBWIMemTable
+  // when this WBWI is ingested into a DB.
   std::unordered_map<uint32_t, CFStat> cf_id_to_stat;
 
   // In overwrite mode, find the existing entry for the same key and update it
@@ -126,15 +125,13 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
     last_sub_batch_offset = last_entry_offset;
     sub_batch_cnt++;
   }
-  if (track_cf_stat) {
-    if (most_recent_entry->has_single_del &&
-        !most_recent_entry->has_overwritten_single_del) {
-      cf_id_to_stat[column_family_id].overwritten_sd_count++;
-      most_recent_entry->has_overwritten_single_del = true;
-    }
-    if (type == kSingleDeleteRecord) {
-      most_recent_entry->has_single_del = true;
-    }
+  if (most_recent_entry->has_single_del &&
+      !most_recent_entry->has_overwritten_single_del) {
+    cf_id_to_stat[column_family_id].overwritten_sd_count++;
+    most_recent_entry->has_overwritten_single_del = true;
+  }
+  if (type == kSingleDeleteRecord) {
+    most_recent_entry->has_single_del = true;
   }
   // Some sanity check for using Merge and SD on the same key.
   if (iter.Entry().type == kSingleDeleteRecord) {
@@ -196,12 +193,10 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id,
       key.size(), update_count);
   skip_list.Insert(index_entry);
 
-  if (track_cf_stat) {
-    if (type == kSingleDeleteRecord) {
-      index_entry->has_single_del = true;
-    }
-    cf_id_to_stat[column_family_id].entry_count++;
+  if (type == kSingleDeleteRecord) {
+    index_entry->has_single_del = true;
   }
+  cf_id_to_stat[column_family_id].entry_count++;
 }
 
 void WriteBatchWithIndex::Rep::Clear() {
@@ -1164,15 +1159,8 @@ const Comparator* WriteBatchWithIndexInternal::GetUserComparator(
   return ucmps.GetComparator(cf_id);
 }
 
-void WriteBatchWithIndex::SetTrackPerCFStat(bool track) {
-  // Should be set when the wbwi contains no update.
-  assert(GetWriteBatch()->Count() == 0);
-  rep->track_cf_stat = track;
-}
-
 const std::unordered_map<uint32_t, WriteBatchWithIndex::CFStat>&
 WriteBatchWithIndex::GetCFStats() const {
-  assert(rep->track_cf_stat);
   return rep->cf_id_to_stat;
 }
 
