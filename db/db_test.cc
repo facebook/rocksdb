@@ -3446,6 +3446,11 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
+  Status GetNewestUserDefinedTimestamp(
+      ColumnFamilyHandle* /*cf*/, std::string* /*newest_timestamp*/) override {
+    return Status::OK();
+  }
+
   ColumnFamilyHandle* DefaultColumnFamily() const override { return nullptr; }
 
  private:

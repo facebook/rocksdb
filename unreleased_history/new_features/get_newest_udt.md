@@ -1,0 +1,1 @@
+A new API DB::GetNewestUserDefinedTimestamp is added to return the newest user defined timestamp seen in a column family
