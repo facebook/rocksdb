@@ -1849,8 +1849,10 @@ class NonBatchedOpsStressTest : public StressTest {
                 thread->rand.OneIn(FLAGS_ingest_wbwi_one_in)) {
               auto wbwi = std::make_shared<WriteBatchWithIndex>(
                   options_.comparator, 0, /*overwrite_key=*/true);
-              wbwi->Merge(cfh, k, v);
-              s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              s = wbwi->Merge(cfh, k, v);
+              if (s.ok()) {
+                s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              }
             } else {
               s = db_->Merge(write_opts, cfh, k, v);
             }
@@ -1869,8 +1871,10 @@ class NonBatchedOpsStressTest : public StressTest {
                 thread->rand.OneIn(FLAGS_ingest_wbwi_one_in)) {
               auto wbwi = std::make_shared<WriteBatchWithIndex>(
                   options_.comparator, 0, /*overwrite_key=*/true);
-              wbwi->Put(cfh, k, v);
-              s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              s = wbwi->Put(cfh, k, v);
+              if (s.ok()) {
+                s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              }
             } else {
               s = db_->Put(write_opts, cfh, k, v);
             }
@@ -1969,8 +1973,10 @@ class NonBatchedOpsStressTest : public StressTest {
                 thread->rand.OneIn(FLAGS_ingest_wbwi_one_in)) {
               auto wbwi = std::make_shared<WriteBatchWithIndex>(
                   options_.comparator, 0, /*overwrite_key=*/true);
-              wbwi->Delete(cfh, key);
-              s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              s = wbwi->Delete(cfh, key);
+              if (s.ok()) {
+                s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              }
             } else {
               s = db_->Delete(write_opts, cfh, key);
             }
@@ -2034,8 +2040,10 @@ class NonBatchedOpsStressTest : public StressTest {
                 thread->rand.OneIn(FLAGS_ingest_wbwi_one_in)) {
               auto wbwi = std::make_shared<WriteBatchWithIndex>(
                   options_.comparator, 0, /*overwrite_key=*/true);
-              wbwi->SingleDelete(cfh, key);
-              s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              s = wbwi->SingleDelete(cfh, key);
+              if (s.ok()) {
+                s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              }
             } else {
               s = db_->SingleDelete(write_opts, cfh, key);
             }

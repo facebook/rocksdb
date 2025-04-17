@@ -1040,7 +1040,7 @@ def finalize_and_sanitize(src_params):
         dest_params.get("enable_pipelined_write", 0)
         or dest_params.get("unordered_write", 0)
         or dest_params.get("disable_wal", 0) == 0
-        or dest_params.get("user_timestamp_size", 0) > 0
+        or dest_params.get("user_timestamp_size", 0)
     ):
         dest_params["ingest_wbwi_one_in"] = 0
     # Continuous verification fails with secondaries inside NonBatchedOpsStressTest

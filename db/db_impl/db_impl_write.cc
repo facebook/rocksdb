@@ -198,7 +198,7 @@ Status DBImpl::IngestWriteBatchWithIndex(
   }
   if (!write_options.disableWAL) {
     return Status::NotSupported(
-        "IngestWriteBatchWithIndex does not support disableWAL=1");
+        "IngestWriteBatchWithIndex does not support disableWAL=true");
   }
   if (write_options.protection_bytes_per_key > 0) {
     WriteBatchInternal::UpdateProtectionInfo(
@@ -694,7 +694,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           }
           // TODO: maybe handle the tracing status?
           if (wbwi && !ingest_wbwi_for_commit) {
-            // for transaction write, writer->batch contains Commit marker
+            // for transaction write, tracer only needs the commit marker which
+            // is in writer->batch
             tracer_->Write(wbwi->GetWriteBatch()).PermitUncheckedError();
           } else {
             tracer_->Write(writer->batch).PermitUncheckedError();

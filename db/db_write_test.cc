@@ -1032,16 +1032,6 @@ TEST_P(DBWriteTest, IngestWriteBatchWithIndex) {
   ASSERT_EQ("value1", Get("key1"));
   ASSERT_EQ("value2", Get("key2"));
 
-  auto wbwi2 = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
-                                                     /*overwrite_key=*/true);
-  ASSERT_OK(wbwi2->Put(handles_[1], "cf1_key1", "cf1_value1"));
-  ASSERT_OK(wbwi2->Delete(handles_[1], "cf1_key2"));
-
-  auto wbwi3 = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
-                                                     /*overwrite_key=*/true);
-  ASSERT_OK(wbwi3->Merge(handles_[2], "cf2_key1", "cf2_value1"));
-  ASSERT_OK(wbwi3->Merge(handles_[2], "cf2_key1", "cf2_value2"));
-
   // Test with overwrites
   auto wbwi = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
                                                     /*overwrite_key=*/true);
@@ -1051,11 +1041,19 @@ TEST_P(DBWriteTest, IngestWriteBatchWithIndex) {
   ASSERT_EQ("NOT_FOUND", Get("key1"));
   ASSERT_EQ("value3", Get("key2"));
 
+  auto wbwi2 = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
+                                                     /*overwrite_key=*/true);
+  ASSERT_OK(wbwi2->Put(handles_[1], "cf1_key1", "cf1_value1"));
+  ASSERT_OK(wbwi2->Delete(handles_[1], "cf1_key2"));
   // Test ingestion with column family
   ASSERT_OK(db_->IngestWriteBatchWithIndex(wo, wbwi2));
   ASSERT_EQ("cf1_value1", Get(1, "cf1_key1"));
   ASSERT_EQ("NOT_FOUND", Get(1, "cf1_key2"));
 
+  auto wbwi3 = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
+                                                     /*overwrite_key=*/true);
+  ASSERT_OK(wbwi3->Merge(handles_[2], "cf2_key1", "cf2_value1"));
+  ASSERT_OK(wbwi3->Merge(handles_[2], "cf2_key1", "cf2_value2"));
   // Test ingestion with merge operations
   ASSERT_OK(db_->IngestWriteBatchWithIndex(wo, wbwi3));
   ASSERT_EQ("cf2_value1,cf2_value2", Get(2, "cf2_key1"));
