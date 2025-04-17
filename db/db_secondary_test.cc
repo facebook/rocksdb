@@ -547,6 +547,7 @@ TEST_F(DBSecondaryTest, OptionsOverrideTest) {
   std::string compaction_result_binary;
 
   CompactionServiceOptionsOverride override_options;
+  override_options.env = env_;
   override_options.table_factory.reset(
       NewBlockBasedTableFactory(BlockBasedTableOptions()));
 
