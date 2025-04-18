@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/internal_stats.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/seqno_to_time_mapping.h"
 #include "db/table_properties_collector.h"
@@ -34,7 +35,6 @@ class SnapshotChecker;
 class TableCache;
 class TableBuilder;
 class WritableFileWriter;
-class InternalStats;
 class BlobFileCompletionCallback;
 
 // Convenience function for NewTableBuilder on the embedded table_factory.
@@ -49,6 +49,7 @@ TableBuilder* NewTableBuilder(const TableBuilderOptions& tboptions,
 //
 // @param column_family_name Name of the column family that is also identified
 //    by column_family_id, or empty string if unknown.
+// @param flush_stats treat flush as level 0 compaction in internal stats
 Status BuildTable(
     const std::string& dbname, VersionSet* versions,
     const ImmutableDBOptions& db_options, const TableBuilderOptions& tboptions,
@@ -69,8 +70,8 @@ Status BuildTable(
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
     const std::string* full_history_ts_low = nullptr,
     BlobFileCompletionCallback* blob_callback = nullptr,
-    Version* version = nullptr, uint64_t* num_input_entries = nullptr,
-    uint64_t* memtable_payload_bytes = nullptr,
-    uint64_t* memtable_garbage_bytes = nullptr);
+    Version* version = nullptr, uint64_t* memtable_payload_bytes = nullptr,
+    uint64_t* memtable_garbage_bytes = nullptr,
+    InternalStats::CompactionStats* flush_stats = nullptr);
 
 }  // namespace ROCKSDB_NAMESPACE

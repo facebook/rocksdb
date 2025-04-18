@@ -878,7 +878,14 @@ Status CompactionJob::Run() {
   UpdateCompactionJobOutputStats(internal_stats_);
 
   // Verify number of output records
-  if (status.ok() && db_options_.compaction_verify_record_count) {
+  // Only verify on table with format collects table properties
+  const auto& mutable_cf_options = compact_->compaction->mutable_cf_options();
+  if (status.ok() &&
+      (mutable_cf_options.table_factory->IsInstanceOf(
+           TableFactory::kBlockBasedTableName()) ||
+       mutable_cf_options.table_factory->IsInstanceOf(
+           TableFactory::kPlainTableName())) &&
+      db_options_.compaction_verify_record_count) {
     uint64_t total_output_num = 0;
     for (const auto& state : compact_->sub_compact_states) {
       for (const auto& output : state.GetOutputs()) {
