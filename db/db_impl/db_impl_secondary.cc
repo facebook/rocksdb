@@ -1014,6 +1014,7 @@ Status DB::OpenAndCompact(
   // We will close the DB after the compaction anyway.
   // Open as many files as needed for the compaction.
   db_options.max_open_files = -1;
+  db_options.info_log = override_options.info_log;
 
   // 4. Filter CFs that are needed for OpenAndCompact()
   // We do not need to open all column families for the remote compaction.
