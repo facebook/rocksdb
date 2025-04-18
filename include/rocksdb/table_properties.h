@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -120,15 +121,18 @@ class TablePropertiesCollector {
     return Add(key, value);
   }
 
-  // Overloaded AddUserKey() API for collector that needs access to the data's
-  // original unix write time.
+  // AddUserKeyWithWriteTime() API will be called when a key/value pair is
+  // inserted into the table if the collector has enabled write time tracking
+  // and write time is available.
+  // Check WriteTimeTrackingEnabled API to enable write time tracking.
   // @param unix_write_time   the original time when this entry was written to
   //                          the DB. This info is available if DB has enabled
   //                          internal time tracking for the period when this
   //                          entry was written.
-  virtual Status AddUserKey(const Slice& key, const Slice& value,
-                            EntryType type, SequenceNumber seq,
-                            uint64_t /*unix_write_time*/, uint64_t file_size) {
+  virtual Status AddUserKeyWithWriteTime(const Slice& key, const Slice& value,
+                                         EntryType type, SequenceNumber seq,
+                                         uint64_t /*unix_write_time*/,
+                                         uint64_t file_size) {
     return AddUserKey(key, value, type, seq, file_size);
   }
 

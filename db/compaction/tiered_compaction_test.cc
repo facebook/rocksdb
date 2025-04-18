@@ -2198,7 +2198,7 @@ TEST_P(TimedPutPrecludeLastLevelTest, AutoTriggerCompaction) {
   std::string id = CompactForTieringCollectorFactory::kClassName();
   ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
       config_options,
-      "compaction_trigger_ratio=0.4;track_data_write_time=false;id=" + id,
+      "compaction_trigger_ratio=0.4;track_data_write_time=true;id=" + id,
       &factory));
   auto collector_factory =
       factory->CheckedCast<CompactForTieringCollectorFactory>();

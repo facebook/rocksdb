@@ -89,7 +89,8 @@ TEST(CompactForTieringCollector, CollectorEnabled) {
       std::unique_ptr<TablePropertiesCollector> collector(
           factory->CreateTablePropertiesCollector(context));
       for (size_t i = 0; i < kTotalEntries; i++) {
-        ASSERT_OK(collector->AddUserKey("hello", "rocksdb", kEntryPut, i, 0));
+        ASSERT_OK(collector->AddUserKeyWithWriteTime("hello", "rocksdb",
+                                                     kEntryPut, i, 0, 0));
         ASSERT_FALSE(collector->NeedCompact());
       }
       UserCollectedProperties user_properties;
@@ -120,7 +121,8 @@ TEST(CompactForTieringCollector, TimedPutEntries) {
   for (size_t i = 0; i < kTotalEntries; i++) {
     std::string value;
     PackValueAndSeqno("rocksdb", i, &value);
-    ASSERT_OK(collector->AddUserKey("hello", value, kEntryTimedPut, 0, 0));
+    ASSERT_OK(collector->AddUserKeyWithWriteTime("hello", value, kEntryTimedPut,
+                                                 0, 0, 0));
     ASSERT_FALSE(collector->NeedCompact());
   }
   UserCollectedProperties user_properties;

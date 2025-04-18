@@ -33,6 +33,12 @@ const std::string
 const std::string
     CompactForTieringCollector::kNumInfinitelyOldEntriesPropertyName =
         "rocksdb.num.infinitely.old.entries";
+const std::string
+    CompactForTieringCollector::kNumWriteTimeAggregatedEntriesPropertyName =
+        "rocksdb.num.write.time.aggregated.entries";
+const std::string
+    CompactForTieringCollector::kNumWriteTimeUntrackedEntriesPropertyName =
+        "rocksdb.num.write.time.untracked.entries";
 
 CompactForTieringCollector::CompactForTieringCollector(
     SequenceNumber last_level_inclusive_max_seqno_threshold,
@@ -41,16 +47,31 @@ CompactForTieringCollector::CompactForTieringCollector(
           last_level_inclusive_max_seqno_threshold),
       compaction_trigger_ratio_(compaction_trigger_ratio),
       track_data_write_time_(track_data_write_time) {
+  if (compaction_trigger_ratio_ > 0 && compaction_trigger_ratio_ <= 1) {
+    track_eligible_entries_ = true;
+    mark_need_compaction_for_eligible_entries_ = true;
+  } else if (compaction_trigger_ratio_ > 1) {
+    track_eligible_entries_ = true;
+  }
   assert(last_level_inclusive_max_seqno_threshold_ != kMaxSequenceNumber);
-  // TODO(yuzhangyu): implement collect the data age stats.
-  // How do we calculate data write time? We need the seqno to time mapping
-  // thing. How would we have access to the seqno to time mapping in the user
-  // property collector?
 }
 
-Status CompactForTieringCollector::AddUserKey(
+Status CompactForTieringCollector::AddUserKeyWithWriteTime(
     const Slice& /*key*/, const Slice& value, EntryType type,
-    SequenceNumber seq, uint64_t /*unix_write_time*/, uint64_t /*file_size*/) {
+    SequenceNumber seq, uint64_t unix_write_time, uint64_t /*file_size*/) {
+  TrackEligibleEntries(value, type, seq);
+  TrackWriteTimeMetric(unix_write_time);
+  return Status::OK();
+}
+
+void CompactForTieringCollector::TrackEligibleEntries(
+    const Slice& value, EntryType type, SequenceNumber seq) {
+  if (!track_eligible_entries_) {
+    return;
+  }
+  if (mark_need_compaction_for_eligible_entries_) {
+    total_entries_counter_ += 1;
+  }
   SequenceNumber seq_for_check = seq;
   if (type == kEntryTimedPut) {
     seq_for_check = ParsePackedValueForSeqno(value);
@@ -58,34 +79,80 @@ Status CompactForTieringCollector::AddUserKey(
   if (seq_for_check < last_level_inclusive_max_seqno_threshold_) {
     last_level_eligible_entries_counter_++;
   }
-  total_entries_counter_ += 1;
-  return Status::OK();
+}
+
+void CompactForTieringCollector::TrackWriteTimeMetric(
+    uint64_t unix_write_time) {
+  if (!WriteTimeTrackingEnabled()) {
+    return;
+  }
+  if (unix_write_time == TablePropertiesCollector::kUnknownUnixWriteTime) {
+    write_time_untracked_entries_++;
+  } else if (unix_write_time ==
+             TablePropertiesCollector::kInfinitelyOldUnixWriteTime) {
+    write_time_infinitely_old_entries_++;
+  } else {
+    write_time_aggregated_entries_++;
+    min_data_write_time_ = std::min(min_data_write_time_, unix_write_time);
+    max_data_write_time_ = std::max(max_data_write_time_, unix_write_time);
+    average_data_write_time_ =
+        !average_data_write_time_.has_value()
+            ? unix_write_time
+            : (unix_write_time + average_data_write_time_.value()) / 2;
+  }
 }
 
 Status CompactForTieringCollector::Finish(UserCollectedProperties* properties) {
   assert(!finish_called_);
-  assert(compaction_trigger_ratio_ > 0);
-  if (last_level_eligible_entries_counter_ >=
+  assert(compaction_trigger_ratio_ > 0 || track_data_write_time_);
+  if (mark_need_compaction_for_eligible_entries_ &&
+      last_level_eligible_entries_counter_ >=
       compaction_trigger_ratio_ * total_entries_counter_) {
-    assert(compaction_trigger_ratio_ <= 1);
+    assert(track_eligible_entries_);
     need_compaction_ = true;
   }
-  if (last_level_eligible_entries_counter_ > 0) {
-    *properties = UserCollectedProperties{
-        {kNumEligibleLastLevelEntriesPropertyName,
-         std::to_string(last_level_eligible_entries_counter_)},
-    };
-  }
+  InitializeWithWriteTimeProperties(properties);
+  AddEligibleEntriesProperty(properties);
   finish_called_ = true;
   return Status::OK();
 }
 
 UserCollectedProperties CompactForTieringCollector::GetReadableProperties()
     const {
-  return UserCollectedProperties{
-      {kNumEligibleLastLevelEntriesPropertyName,
-       std::to_string(last_level_eligible_entries_counter_)},
+  UserCollectedProperties properties;
+  InitializeWithWriteTimeProperties(&properties);
+  AddEligibleEntriesProperty(&properties);
+  return properties;
+}
+
+void CompactForTieringCollector::InitializeWithWriteTimeProperties(
+    UserCollectedProperties* properties) const {
+  if (!WriteTimeTrackingEnabled()) {
+    return;
+  }
+  *properties = UserCollectedProperties{
+      {kAverageDataUnixWriteTimePropertyName,
+       std::to_string(average_data_write_time_.has_value()
+                          ? average_data_write_time_.value()
+                          : 0)},
+      {kMaxDataUnixWriteTimePropertyName, std::to_string(max_data_write_time_)},
+      {kMinDataUnixWriteTimePropertyName, std::to_string(min_data_write_time_)},
+      {kNumInfinitelyOldEntriesPropertyName,
+       std::to_string(write_time_infinitely_old_entries_)},
+      {kNumWriteTimeAggregatedEntriesPropertyName,
+       std::to_string(write_time_aggregated_entries_)},
+      {kNumWriteTimeUntrackedEntriesPropertyName,
+       std::to_string(write_time_untracked_entries_)},
   };
+}
+
+
+void CompactForTieringCollector::AddEligibleEntriesProperty(UserCollectedProperties* properties) const {
+  if (!track_eligible_entries_) {
+    return;
+  }
+  properties->insert({kNumEligibleLastLevelEntriesPropertyName,
+            std::to_string(last_level_eligible_entries_counter_)});
 }
 
 bool CompactForTieringCollector::NeedCompact() const {
@@ -108,10 +175,10 @@ CompactForTieringCollectorFactory::CreateTablePropertiesCollector(
     TablePropertiesCollectorFactory::Context context) {
   double compaction_trigger_ratio = GetCompactionTriggerRatio();
   bool track_data_write_time = GetTrackDataWriteTime();
-  if (compaction_trigger_ratio <= 0 ||
-      (context.level_at_creation == context.num_levels - 1 &&
-       !track_data_write_time) ||
-      context.last_level_inclusive_max_seqno_threshold == kMaxSequenceNumber) {
+  if (!track_data_write_time &&
+      (compaction_trigger_ratio <= 0 ||
+       context.level_at_creation == context.num_levels - 1 ||
+       context.last_level_inclusive_max_seqno_threshold == kMaxSequenceNumber)) {
     return nullptr;
   }
   // For files on the last level, just track write time if it's enabled, do not

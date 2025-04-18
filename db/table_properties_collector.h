@@ -27,7 +27,7 @@ class InternalTblPropColl {
   // @params key    the user key that is inserted into the table.
   // @params value  the value that is inserted into the table.
   virtual Status InternalAdd(const Slice& key, const Slice& value,
-                             uint64_t file_size, uint64_t unix_write_time) = 0;
+                             uint64_t unix_write_time, uint64_t file_size) = 0;
 
   virtual void BlockAdd(uint64_t block_uncomp_bytes,
                         uint64_t block_compressed_bytes_fast,

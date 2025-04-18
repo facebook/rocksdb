@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <deque>
 #include <vector>
+#include <iostream>
 
 #include "db/blob/blob_file_builder.h"
 #include "db/compaction/compaction_iterator.h"
@@ -85,6 +86,7 @@ Status BuildTable(
   const size_t kReportFlushIOStatsEvery = 1048576;
   OutputValidator output_validator(tboptions.internal_comparator,
                                    /*enable_hash=*/paranoid_file_checks);
+  std::cout << "yuzhangyu_debug, start to create file: " << meta->fd.GetNumber() << std::endl;
   Status s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();

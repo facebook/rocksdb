@@ -39,8 +39,9 @@ Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
     return s;
   }
 
-  return collector_->AddUserKey(ikey.user_key, value, GetEntryType(ikey.type),
-                                ikey.sequence, unix_write_time, file_size);
+  return collector_->AddUserKeyWithWriteTime(
+      ikey.user_key, value, GetEntryType(ikey.type), ikey.sequence,
+      unix_write_time, file_size);
 }
 
 void UserKeyTablePropertiesCollector::BlockAdd(

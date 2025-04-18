@@ -30,11 +30,6 @@ CompactOnDeletionCollector::CompactOnDeletionCollector(
   memset(num_deletions_in_buckets_, 0, sizeof(size_t) * kNumBuckets);
 }
 
-// AddUserKey() will be called when a new key/value pair is inserted into the
-// table.
-// @params key    the user key that is inserted into the table.
-// @params value  the value that is inserted into the table.
-// @params file_size  file size up to now
 Status CompactOnDeletionCollector::AddUserKey(const Slice& /*key*/,
                                               const Slice& /*value*/,
                                               EntryType type,

@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "rocksdb/utilities/table_properties_collectors.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -20,14 +22,17 @@ class CompactForTieringCollector : public TablePropertiesCollector {
   static const std::string kMaxDataUnixWriteTimePropertyName;
   static const std::string kMinDataUnixWriteTimePropertyName;
   static const std::string kNumInfinitelyOldEntriesPropertyName;
+  static const std::string kNumWriteTimeAggregatedEntriesPropertyName;
+  static const std::string kNumWriteTimeUntrackedEntriesPropertyName;
 
   CompactForTieringCollector(
       SequenceNumber last_level_inclusive_max_seqno_threshold,
       double compaction_trigger_ratio, bool collect_data_age_stats);
 
-  Status AddUserKey(const Slice& key, const Slice& value, EntryType type,
-                    SequenceNumber seq, uint64_t unix_write_time,
-                    uint64_t file_size) override;
+  Status AddUserKeyWithWriteTime(const Slice& key, const Slice& value,
+                                 EntryType type, SequenceNumber seq,
+                                 uint64_t unix_write_time,
+                                 uint64_t file_size) override;
 
   Status Finish(UserCollectedProperties* properties) override;
 
@@ -42,12 +47,31 @@ class CompactForTieringCollector : public TablePropertiesCollector {
  private:
   void Reset();
 
+  void TrackEligibleEntries(const Slice& value, EntryType type, SequenceNumber seq);
+
+  void TrackWriteTimeMetric(uint64_t unix_write_time);
+
+  void InitializeWithWriteTimeProperties(
+      UserCollectedProperties* properties) const;
+
+  void AddEligibleEntriesProperty(UserCollectedProperties* properties) const;
+
   SequenceNumber last_level_inclusive_max_seqno_threshold_;
   double compaction_trigger_ratio_;
+  bool track_eligible_entries_{false};
+  bool mark_need_compaction_for_eligible_entries_{false};
   size_t last_level_eligible_entries_counter_ = 0;
   size_t total_entries_counter_ = 0;
   bool finish_called_ = false;
   bool need_compaction_ = false;
   bool track_data_write_time_ = false;
+  uint64_t write_time_aggregated_entries_ = 0;
+  uint64_t write_time_untracked_entries_ = 0;
+  uint64_t write_time_infinitely_old_entries_ = 0;
+  uint64_t min_data_write_time_ =
+      TablePropertiesCollector::kUnknownUnixWriteTime;
+  uint64_t max_data_write_time_ =
+      TablePropertiesCollector::kInfinitelyOldUnixWriteTime;
+  std::optional<uint64_t> average_data_write_time_ = std::nullopt;
 };
 }  // namespace ROCKSDB_NAMESPACE

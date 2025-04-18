@@ -221,8 +221,8 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
         decoupled_partitioned_filters_(decoupled_partitioned_filters) {}
 
   Status InternalAdd(const Slice& /*key*/, const Slice& /*value*/,
-                     uint64_t /*file_size*/,
-                     uint64_t /*unix_write_time*/) override {
+                     uint64_t /*unix_write_time*/,
+                     uint64_t /*file_size*/) override {
     // Intentionally left blank. Have no interest in collecting stats for
     // individual key/value pairs.
     return Status::OK();
