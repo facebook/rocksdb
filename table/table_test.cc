@@ -6533,8 +6533,9 @@ class ExternalTableReaderTest : public DBTestBase {
  protected:
   class DummyExternalTableFile {
    public:
-    explicit DummyExternalTableFile(const std::string& file_path)
-        : file_path_(file_path), file_size_(0) {
+    explicit DummyExternalTableFile(const std::string& file_path,
+                                    FSWritableFile* file)
+        : file_path_(file_path), file_(file), file_size_(0) {
       props_.comparator_name = BytewiseComparator()->Name();
     }
 
@@ -6547,7 +6548,11 @@ class ExternalTableReaderTest : public DBTestBase {
       }
       props_.num_entries = kv_vec.size();
       file_size_ = buf_.length();
-      return WriteStringToFile(Env::Default(), buf_, file_path_);
+      if (file_) {
+        return file_->Append(buf_, IOOptions(), /*dbg=*/nullptr);
+      } else {
+        return WriteStringToFile(Env::Default(), buf_, file_path_);
+      }
     }
 
     Status Deserialize(std::map<std::string, std::string>& kv_map) {
@@ -6610,6 +6615,7 @@ class ExternalTableReaderTest : public DBTestBase {
     }
 
     std::string file_path_;
+    FSWritableFile* file_;
     std::string buf_;
     TableProperties props_;
     uint64_t file_size_;
@@ -6759,7 +6765,7 @@ class ExternalTableReaderTest : public DBTestBase {
   class DummyExternalTableReader : public ExternalTableReader {
    public:
     explicit DummyExternalTableReader(const std::string& file_path)
-        : file_(file_path) {
+        : file_(file_path, /*file=*/nullptr) {
       Status s = file_.Deserialize(kv_map_);
       EXPECT_OK(s);
     }
@@ -6811,8 +6817,9 @@ class ExternalTableReaderTest : public DBTestBase {
 
   class DummyExternalTableBuilder : public ExternalTableBuilder {
    public:
-    explicit DummyExternalTableBuilder(const std::string& file_path)
-        : file_(file_path) {}
+    explicit DummyExternalTableBuilder(const std::string& file_path,
+                                       FSWritableFile* file)
+        : file_(file_path, file) {}
 
     void Add(const Slice& key, const Slice& value) override {
       if (!kv_vec_.empty()) {
@@ -6856,8 +6863,8 @@ class ExternalTableReaderTest : public DBTestBase {
 
     ExternalTableBuilder* NewTableBuilder(
         const ExternalTableBuilderOptions& /*opts*/,
-        const std::string& file_path) const override {
-      return new DummyExternalTableBuilder(file_path);
+        const std::string& file_path, FSWritableFile* file) const override {
+      return new DummyExternalTableBuilder(file_path, file);
     }
   };
 };
@@ -6874,7 +6881,7 @@ TEST_F(ExternalTableReaderTest, BasicTest) {
                                     std::shared_ptr<const SliceTransform>(),
                                     BytewiseComparator(), "default",
                                     TableFileCreationReason::kMisc),
-        file_path));
+        file_path, /*file=*/nullptr));
     builder->Add("foo", "bar");
     ASSERT_OK(builder->Finish());
   }
