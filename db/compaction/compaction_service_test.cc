@@ -84,6 +84,7 @@ class MyTestCompactionService : public CompactionService {
     options_override.table_factory = options_.table_factory;
     options_override.sst_partitioner_factory = options_.sst_partitioner_factory;
     options_override.statistics = statistics_;
+    options_override.info_log = options_.info_log;
     if (!listeners_.empty()) {
       options_override.listeners = listeners_;
     }
