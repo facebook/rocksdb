@@ -1071,7 +1071,6 @@ Status DB::OpenAndCompact(
 
   TEST_SYNC_POINT_CALLBACK(
       "DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:0", db);
-  TEST_SYNC_POINT("DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:1");
 
   // 6. Find the handle of the Column Family that this will compact
   ColumnFamilyHandle* cfh = nullptr;
