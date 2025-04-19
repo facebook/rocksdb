@@ -642,6 +642,12 @@ rocksdb_t* rocksdb_open_as_secondary(const rocksdb_options_t* options,
   return result;
 }
 
+const char* rocksdb_get_name(rocksdb_t* db) {
+  std::string name = db->rep->GetName();
+  char* result = strdup(name.c_str());
+  return result;
+}
+
 rocksdb_backup_engine_t* rocksdb_backup_engine_open(
     const rocksdb_options_t* options, const char* path, char** errptr) {
   BackupEngine* be;
@@ -1958,6 +1964,30 @@ void rocksdb_flush_cfs(rocksdb_t* db, const rocksdb_flushoptions_t* options,
 
 void rocksdb_flush_wal(rocksdb_t* db, unsigned char sync, char** errptr) {
   SaveError(errptr, db->rep->FlushWAL(sync));
+}
+
+void rocksdb_sync_wal(rocksdb_t* db, char** errptr) {
+  SaveError(errptr, db->rep->SyncWAL());
+}
+
+void rocksdb_promote_l0(rocksdb_t* db,
+                        rocksdb_column_family_handle_t* column_family,
+                        int target_level, char** errptr) {
+  SaveError(errptr, db->rep->PromoteL0(column_family->rep, target_level));
+}
+
+void rocksdb_verify_checksum(rocksdb_t* db, char** errptr) {
+  SaveError(errptr, db->rep->VerifyChecksum());
+}
+
+int32_t rocksdb_number_levels(rocksdb_t* db) { return db->rep->NumberLevels(); }
+
+int32_t rocksdb_max_mem_compaction_level(rocksdb_t* db) {
+  return db->rep->MaxMemCompactionLevel();
+}
+
+int32_t rocksdb_level0_stop_write_trigger(rocksdb_t* db) {
+  return db->rep->Level0StopWriteTrigger();
 }
 
 void rocksdb_disable_file_deletions(rocksdb_t* db, char** errptr) {
@@ -7042,6 +7072,14 @@ void rocksdb_approximate_memory_usage_destroy(rocksdb_memory_usage_t* usage) {
   delete usage;
 }
 
+void rocksdb_pause_background_work(rocksdb_t* db) {
+  db->rep->PauseBackgroundWork();
+}
+
+void rocksdb_continue_background_work(rocksdb_t* db) {
+  db->rep->ContinueBackgroundWork();
+}
+
 void rocksdb_cancel_all_background_work(rocksdb_t* db, unsigned char wait) {
   CancelAllBackgroundWork(db->rep, wait);
 }
@@ -7052,6 +7090,16 @@ void rocksdb_disable_manual_compaction(rocksdb_t* db) {
 
 void rocksdb_enable_manual_compaction(rocksdb_t* db) {
   db->rep->EnableManualCompaction();
+}
+
+void rocksdb_enable_auto_compaction(
+    rocksdb_t* db, const rocksdb_column_family_handle_t** column_family_handles,
+    size_t num_handles, char** errptr) {
+  std::vector<ColumnFamilyHandle*> handles;
+  for (size_t i = 0; i < num_handles; i++) {
+    handles.push_back(column_family_handles[i]->rep);
+  }
+  SaveError(errptr, db->rep->EnableAutoCompaction(handles));
 }
 
 rocksdb_statistics_histogram_data_t*

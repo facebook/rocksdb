@@ -832,7 +832,16 @@ int main(int argc, char** argv) {
   rocksdb_options_set_create_if_missing(options, 1);
   db = rocksdb_open(options, dbname, &err);
   CheckNoError(err);
+  const char* name_to_check = rocksdb_get_name(db);
+  CheckCondition(strcmp(name_to_check, dbname) == 0);
+  rocksdb_free((void*)name_to_check);
   CheckGet(db, roptions, "foo", NULL);
+
+  rocksdb_verify_checksum(db, &err);
+  CheckNoError(err);
+  CheckCondition(rocksdb_number_levels(db) == 7);
+  CheckCondition(rocksdb_max_mem_compaction_level(db) == 0);
+  CheckCondition(rocksdb_level0_stop_write_trigger(db) == 36);
 
   StartPhase("put");
   rocksdb_put(db, woptions, "foo", 3, "hello", 5, &err);
@@ -4049,6 +4058,10 @@ int main(int argc, char** argv) {
     rocksdb_write_buffer_manager_destroy(write_buffer_manager);
     rocksdb_cache_destroy(lru);
   }
+
+  StartPhase("pause_and_continue_all_background_work");
+  rocksdb_pause_background_work(db);
+  rocksdb_continue_background_work(db);
 
   StartPhase("cancel_all_background_work");
   rocksdb_cancel_all_background_work(db, 1);

@@ -158,6 +158,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_as_secondary(
     const rocksdb_options_t* options, const char* name,
     const char* secondary_path, char** errptr);
 
+extern ROCKSDB_LIBRARY_API const char* rocksdb_get_name(rocksdb_t* db);
+
 extern ROCKSDB_LIBRARY_API rocksdb_backup_engine_t* rocksdb_backup_engine_open(
     const rocksdb_options_t* options, const char* path, char** errptr);
 
@@ -710,6 +712,23 @@ extern ROCKSDB_LIBRARY_API void rocksdb_flush_cfs(
 extern ROCKSDB_LIBRARY_API void rocksdb_flush_wal(rocksdb_t* db,
                                                   unsigned char sync,
                                                   char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_sync_wal(rocksdb_t* db, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_promote_l0(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    int target_level, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_verify_checksum(rocksdb_t* db,
+                                                        char** errptr);
+
+extern ROCKSDB_LIBRARY_API int32_t rocksdb_number_levels(rocksdb_t* db);
+
+extern ROCKSDB_LIBRARY_API int32_t
+rocksdb_max_mem_compaction_level(rocksdb_t* db);
+
+extern ROCKSDB_LIBRARY_API int32_t
+rocksdb_level0_stop_write_trigger(rocksdb_t* db);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_disable_file_deletions(rocksdb_t* db,
                                                                char** errptr);
@@ -3061,6 +3080,10 @@ extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_memtable_whole_key_filtering(rocksdb_options_t*,
                                                  unsigned char);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_pause_background_work(rocksdb_t* db);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_continue_background_work(rocksdb_t* db);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_cancel_all_background_work(
     rocksdb_t* db, unsigned char wait);
 
@@ -3068,6 +3091,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_disable_manual_compaction(
     rocksdb_t* db);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_enable_manual_compaction(rocksdb_t* db);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_enable_auto_compaction(
+    rocksdb_t* db, const rocksdb_column_family_handle_t** column_family_handles,
+    size_t num_handles, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_statistics_histogram_data_t*
 rocksdb_statistics_histogram_data_create(void);
