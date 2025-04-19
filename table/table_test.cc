@@ -6882,7 +6882,10 @@ TEST_F(ExternalTableReaderTest, BasicTest) {
   std::unique_ptr<ExternalTableReader> reader;
   std::shared_ptr<SliceTransform> prefix_extractor;
   ASSERT_OK(factory->NewTableReader(
-      {}, file_path, ExternalTableOptions(prefix_extractor, nullptr), &reader));
+      {}, file_path,
+      ExternalTableOptions(prefix_extractor, /*comparator=*/nullptr,
+                           /*fs=*/nullptr, FileOptions()),
+      &reader));
 
   ReadOptions ro;
   std::unique_ptr<ExternalTableIterator> iter(reader->NewIterator(ro, nullptr));

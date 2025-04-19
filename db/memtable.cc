@@ -147,7 +147,6 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   const Comparator* ucmp = cmp.user_comparator();
   assert(ucmp);
   ts_sz_ = ucmp->timestamp_size();
-  persist_user_defined_timestamps_ = ioptions.persist_user_defined_timestamps;
 }
 
 MemTable::~MemTable() {
@@ -1806,7 +1805,7 @@ uint64_t MemTable::GetMinLogContainingPrepSection() {
 }
 
 void MemTable::MaybeUpdateNewestUDT(const Slice& user_key) {
-  if (ts_sz_ == 0 || persist_user_defined_timestamps_) {
+  if (ts_sz_ == 0) {
     return;
   }
   const Comparator* ucmp = GetInternalKeyComparator().user_comparator();
@@ -1817,9 +1816,7 @@ void MemTable::MaybeUpdateNewestUDT(const Slice& user_key) {
 }
 
 const Slice& MemTable::GetNewestUDT() const {
-  // This path should not be invoked for MemTables that does not enable the UDT
-  // in Memtable only feature.
-  assert(ts_sz_ > 0 && !persist_user_defined_timestamps_);
+  assert(ts_sz_ > 0);
   return newest_udt_;
 }
 

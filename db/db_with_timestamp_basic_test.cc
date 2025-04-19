@@ -4914,6 +4914,117 @@ TEST_F(DBBasicTestWithTimestamp, TimestampFilterTableReadOnGet) {
   Close();
 }
 
+class GetNewestUserDefinedTimestampTest : public DBBasicTestWithTimestampBase {
+ public:
+  explicit GetNewestUserDefinedTimestampTest()
+      : DBBasicTestWithTimestampBase("get_newest_udt_test") {}
+};
+
+TEST_F(GetNewestUserDefinedTimestampTest, Basic) {
+  std::string newest_timestamp;
+  // UDT disabled, get InvalidArgument.
+  ASSERT_TRUE(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp)
+                  .IsInvalidArgument());
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.max_write_buffer_number = 5;
+  options.min_write_buffer_number_to_merge = 4;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+
+  DestroyAndReopen(options);
+  // UDT persisted, get NotSupported.
+  ASSERT_TRUE(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp)
+                  .IsNotSupported());
+
+  options.persist_user_defined_timestamps = false;
+  options.allow_concurrent_memtable_write = false;
+
+  DestroyAndReopen(options);
+  ASSERT_TRUE(
+      db_->GetNewestUserDefinedTimestamp(nullptr, nullptr).IsInvalidArgument());
+
+  ColumnFamilyHandleImpl* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      db_->DefaultColumnFamily());
+  ColumnFamilyData* cfd = cfh->cfd();
+  // The column family hasn't seen any user defined timestamp
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_TRUE(newest_timestamp.empty());
+
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), EncodeAsUint64(1), "val1"));
+  // Testing get newest timestamp from mutable memtable.
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_EQ(EncodeAsUint64(1), newest_timestamp);
+
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), EncodeAsUint64(2), "val2"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfd));
+  // Testing get the newest timestamp from immutable memtable because the
+  // mutable one is empty.
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_EQ(EncodeAsUint64(2), newest_timestamp);
+
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), EncodeAsUint64(3), "val3"));
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), EncodeAsUint64(4), "val4"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfd));
+  // Testing get the newest timestamp from the more recent immutable memtable
+  // when there are multiple immutable memtables.
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_EQ(EncodeAsUint64(4), newest_timestamp);
+
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), EncodeAsUint64(5), "val5"));
+  // Testing get newest timestamp from mutable memtable when it has data, in the
+  // presence of immutable memtables.
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_EQ(EncodeAsUint64(5), newest_timestamp);
+
+  ASSERT_OK(Flush());
+  // After flushing and all the user defined timestamp are flushed. User defined
+  // timestamp info for SST files is available from MANIFEST.
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_EQ(EncodeAsUint64(5), newest_timestamp);
+
+  Reopen(options);
+  // Similar after flush, when there is no memtables, but some SST files,
+  // if MANIFEST records the upperbound of flushed timestamps because timestamps
+  // are not persisted in SST files, this info can be found.
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_EQ(EncodeAsUint64(5), newest_timestamp);
+
+  Close();
+}
+
+TEST_F(GetNewestUserDefinedTimestampTest, ConcurrentWrites) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  options.persist_user_defined_timestamps = false;
+  options.allow_concurrent_memtable_write = false;
+
+  DestroyAndReopen(options);
+
+  std::vector<std::thread> threads;
+  threads.reserve(10);
+  std::atomic<uint64_t> current_ts{0};
+  for (int i = 0; i < 10; i++) {
+    threads.emplace_back([this, i, &current_ts]() {
+      if (i % 2 == 0) {
+        std::string newest_timestamp;
+        ASSERT_OK(
+            db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+      } else {
+        uint64_t write_ts = current_ts.fetch_add(1);
+        ASSERT_OK(db_->Put(WriteOptions(), Key(1), EncodeAsUint64(write_ts),
+                           "val" + std::to_string(i)));
+      }
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -22,9 +22,9 @@ class MyTestCompactionService : public CompactionService {
         options_(options),
         statistics_(statistics),
         start_info_("na", "na", "na", 0, Env::TOTAL, CompactionReason::kUnknown,
-                    false, false, false),
+                    false, false, false, -1, -1),
         wait_info_("na", "na", "na", 0, Env::TOTAL, CompactionReason::kUnknown,
-                   false, false, false),
+                   false, false, false, -1, -1),
         listeners_(listeners),
         table_properties_collector_factories_(
             std::move(table_properties_collector_factories)) {}
@@ -84,6 +84,7 @@ class MyTestCompactionService : public CompactionService {
     options_override.table_factory = options_.table_factory;
     options_override.sst_partitioner_factory = options_.sst_partitioner_factory;
     options_override.statistics = statistics_;
+    options_override.info_log = options_.info_log;
     if (!listeners_.empty()) {
       options_override.listeners = listeners_;
     }
@@ -1266,17 +1267,31 @@ TEST_F(CompactionServiceTest, PrecludeLastLevel) {
 
   // Verify Output Stats
   auto my_cs = GetCompactionService();
-  CompactionServiceResult result;
-  my_cs->GetResult(&result);
-  ASSERT_OK(result.status);
-  ASSERT_GT(result.internal_stats.output_level_stats.cpu_micros, 0);
-  ASSERT_GT(result.internal_stats.output_level_stats.micros, 0);
-  ASSERT_EQ(result.internal_stats.output_level_stats.num_output_records +
-                result.internal_stats.proximal_level_stats.num_output_records,
-            kNumTrigger * kNumKeys);
-  ASSERT_EQ(result.internal_stats.output_level_stats.num_output_files +
-                result.internal_stats.proximal_level_stats.num_output_files,
-            2);
+  {
+    CompactionServiceResult result;
+    my_cs->GetResult(&result);
+    ASSERT_OK(result.status);
+    ASSERT_GT(result.internal_stats.output_level_stats.cpu_micros, 0);
+    ASSERT_GT(result.internal_stats.output_level_stats.micros, 0);
+    ASSERT_EQ(result.internal_stats.output_level_stats.num_output_records +
+                  result.internal_stats.proximal_level_stats.num_output_records,
+              kNumTrigger * kNumKeys);
+    ASSERT_EQ(result.internal_stats.output_level_stats.num_output_files +
+                  result.internal_stats.proximal_level_stats.num_output_files,
+              2);
+
+    CompactionServiceJobInfo info = my_cs->GetCompactionInfoForStart();
+    ASSERT_EQ(0, info.base_input_level);
+    ASSERT_EQ(kNumLevels - 1, info.output_level);
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+  // Disable Preclude feature and run full compaction to the bottommost level
+  {
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    CompactionServiceJobInfo info = my_cs->GetCompactionInfoForStart();
+    ASSERT_EQ(kNumLevels - 2, info.base_input_level);
+    ASSERT_EQ(kNumLevels - 1, info.output_level);
+  }
 }
 
 TEST_F(CompactionServiceTest, ConcurrentCompaction) {
@@ -1346,12 +1361,16 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
   ASSERT_EQ(true, info.is_manual_compaction);
   ASSERT_EQ(false, info.is_full_compaction);
   ASSERT_EQ(true, info.bottommost_level);
+  ASSERT_EQ(1, info.base_input_level);
+  ASSERT_EQ(2, info.output_level);
   info = my_cs->GetCompactionInfoForWait();
   ASSERT_EQ(Env::USER, info.priority);
   ASSERT_EQ(CompactionReason::kManualCompaction, info.compaction_reason);
   ASSERT_EQ(true, info.is_manual_compaction);
   ASSERT_EQ(false, info.is_full_compaction);
   ASSERT_EQ(true, info.bottommost_level);
+  ASSERT_EQ(1, info.base_input_level);
+  ASSERT_EQ(2, info.output_level);
 
   // Test priority BOTTOM
   env_->SetBackgroundThreads(1, Env::BOTTOM);
@@ -1383,18 +1402,24 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
   ASSERT_EQ(false, info.is_full_compaction);
   ASSERT_EQ(true, info.bottommost_level);
   ASSERT_EQ(Env::BOTTOM, info.priority);
+  ASSERT_EQ(0, info.base_input_level);
+  ASSERT_EQ(db_->NumberLevels() - 1, info.output_level);
   info = my_cs->GetCompactionInfoForWait();
   ASSERT_EQ(Env::BOTTOM, info.priority);
   ASSERT_EQ(CompactionReason::kLevelL0FilesNum, info.compaction_reason);
   ASSERT_EQ(false, info.is_manual_compaction);
   ASSERT_EQ(false, info.is_full_compaction);
   ASSERT_EQ(true, info.bottommost_level);
+  ASSERT_EQ(0, info.base_input_level);
+  ASSERT_EQ(db_->NumberLevels() - 1, info.output_level);
 
   // Test Non-Bottommost Level
   options.num_levels = 4;
   ReopenWithCompactionService(&options);
   my_cs =
       static_cast_with_check<MyTestCompactionService>(GetCompactionService());
+  int compaction_num = my_cs->GetCompactionNum();
+  ASSERT_EQ(0, compaction_num);
 
   for (int i = 0; i < options.level0_file_num_compaction_trigger; i++) {
     for (int j = 0; j < 10; j++) {
@@ -1403,16 +1428,22 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
     }
     ASSERT_OK(Flush());
   }
-
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // This is trivial move. Done locally.
+  ASSERT_EQ(0, my_cs->GetCompactionNum());
   info = my_cs->GetCompactionInfoForStart();
   ASSERT_EQ(false, info.is_manual_compaction);
   ASSERT_EQ(false, info.is_full_compaction);
   ASSERT_EQ(false, info.bottommost_level);
+  ASSERT_EQ(-1, info.base_input_level);
+  ASSERT_EQ(-1, info.output_level);
   info = my_cs->GetCompactionInfoForWait();
   ASSERT_EQ(false, info.is_manual_compaction);
   ASSERT_EQ(false, info.is_full_compaction);
   ASSERT_EQ(false, info.bottommost_level);
+  ASSERT_EQ(-1, info.base_input_level);
+  ASSERT_EQ(-1, info.output_level);
 
   // Test Full Compaction + Bottommost Level
   options.num_levels = 6;
@@ -1427,7 +1458,10 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
     }
     ASSERT_OK(Flush());
   }
+  MoveFilesToLevel(options.num_levels - 1);
 
+  // Force final level compaction
+  // base_input_level == output_level == last_level
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
@@ -1439,10 +1473,15 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
   ASSERT_EQ(true, info.bottommost_level);
   ASSERT_EQ(CompactionReason::kManualCompaction, info.compaction_reason);
   info = my_cs->GetCompactionInfoForWait();
+  ASSERT_EQ(options.num_levels - 1, info.base_input_level);
+  ASSERT_EQ(options.num_levels - 1, info.output_level);
   ASSERT_EQ(true, info.is_manual_compaction);
   ASSERT_EQ(true, info.is_full_compaction);
   ASSERT_EQ(true, info.bottommost_level);
   ASSERT_EQ(CompactionReason::kManualCompaction, info.compaction_reason);
+  ASSERT_EQ(options.num_levels - 1, info.base_input_level);
+  ASSERT_EQ(options.num_levels - 1, info.output_level);
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
 }
 
 TEST_F(CompactionServiceTest, FallbackLocalAuto) {
