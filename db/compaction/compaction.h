@@ -283,6 +283,27 @@ class Compaction {
   // are non-overlapping and can be trivially moved.
   bool is_trivial_move() const { return is_trivial_move_; }
 
+  void set_is_fifo_change_temperature_trivial_copy(bool trivial_copy) {
+    assert(immutable_options_.compaction_style == kCompactionStyleFIFO);
+    assert(compaction_reason_ == CompactionReason::kChangeTemperature);
+    is_fifo_change_temperature_trivial_copy_ = trivial_copy;
+  }
+
+  bool is_fifo_change_temperature_trivial_copy() const {
+    return is_fifo_change_temperature_trivial_copy_;
+  }
+
+  void set_fifo_change_temperature_trivial_copy_buffer_size(
+      uint64_t buffer_size) {
+    assert(immutable_options_.compaction_style == kCompactionStyleFIFO);
+    assert(compaction_reason_ == CompactionReason::kChangeTemperature);
+    fifo_change_temperature_trivial_copy_buffer_size_ = buffer_size;
+  }
+
+  uint64_t fifo_change_temperature_trivial_copy_buffer_size() {
+    return fifo_change_temperature_trivial_copy_buffer_size_;
+  }
+
   // How many total levels are there?
   int number_levels() const { return number_levels_; }
 
@@ -625,6 +646,15 @@ class Compaction {
   InternalKey proximal_level_largest_;
   ProximalOutputRangeType proximal_output_range_type_ =
       ProximalOutputRangeType::kNotSupported;
+
+  // Can only be set to true for FIFO + kChangeTemperature compaction
+  // If true, will proceed with trivial copy instead of block by block
+  // compactions
+  bool is_fifo_change_temperature_trivial_copy_ = false;
+
+  // Can only be set for FIFO + kChangeTemperature compaction
+  // Is only used when is_fifo_change_temperature_trivial_copy_ = true
+  uint64_t fifo_change_temperature_trivial_copy_buffer_size_ = 4096;
 };
 
 #ifndef NDEBUG

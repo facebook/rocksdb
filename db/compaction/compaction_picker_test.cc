@@ -1134,10 +1134,15 @@ TEST_F(CompactionPickerTest, FIFOToCold1) {
     fifo_options_.max_table_files_size = kMaxSize;
     fifo_options_.file_temperature_age_thresholds = {
         {Temperature::kCold, kColdThreshold}};
+    fifo_options_.allow_trivial_copy_when_change_temperature = true;
+    fifo_options_.trivial_copy_buffer_size = 16 * 1024 * 1024;
     mutable_cf_options_.compaction_options_fifo = fifo_options_;
     mutable_cf_options_.level0_file_num_compaction_trigger = 100;
     mutable_cf_options_.max_compaction_bytes = kFileSize * 100;
-    FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
+
+    auto copiedIOptions = ioptions_;
+    copiedIOptions.compaction_style = kCompactionStyleFIFO;
+    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_);
 
     int64_t current_time = 0;
     ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
@@ -1169,6 +1174,10 @@ TEST_F(CompactionPickerTest, FIFOToCold1) {
     ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
     ASSERT_EQ(1U, compaction->num_input_files(0));
     ASSERT_EQ(3U, compaction->input(0, 0)->fd.GetNumber());
+    ASSERT_EQ(compaction->is_fifo_change_temperature_trivial_copy(),
+              fifo_options_.allow_trivial_copy_when_change_temperature);
+    ASSERT_EQ(compaction->fifo_change_temperature_trivial_copy_buffer_size(),
+              fifo_options_.trivial_copy_buffer_size);
   }
 }
 
@@ -1186,7 +1195,10 @@ TEST_F(CompactionPickerTest, FIFOToColdMaxCompactionSize) {
     mutable_cf_options_.compaction_options_fifo = fifo_options_;
     mutable_cf_options_.level0_file_num_compaction_trigger = 100;
     mutable_cf_options_.max_compaction_bytes = kFileSize * 9;
-    FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
+
+    auto copiedIOptions = ioptions_;
+    copiedIOptions.compaction_style = kCompactionStyleFIFO;
+    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_);
 
     int64_t current_time = 0;
     ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
@@ -1236,6 +1248,10 @@ TEST_F(CompactionPickerTest, FIFOToColdMaxCompactionSize) {
     ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
     ASSERT_EQ(1U, compaction->num_input_files(0));
     ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
+    ASSERT_EQ(compaction->is_fifo_change_temperature_trivial_copy(),
+              fifo_options_.allow_trivial_copy_when_change_temperature);
+    ASSERT_EQ(compaction->fifo_change_temperature_trivial_copy_buffer_size(),
+              fifo_options_.trivial_copy_buffer_size);
   }
 }
 
@@ -1253,7 +1269,10 @@ TEST_F(CompactionPickerTest, FIFOToColdWithExistingCold) {
     mutable_cf_options_.compaction_options_fifo = fifo_options_;
     mutable_cf_options_.level0_file_num_compaction_trigger = 100;
     mutable_cf_options_.max_compaction_bytes = kFileSize * 100;
-    FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
+
+    auto copiedIOptions = ioptions_;
+    copiedIOptions.compaction_style = kCompactionStyleFIFO;
+    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_);
 
     int64_t current_time = 0;
     ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
@@ -1301,6 +1320,10 @@ TEST_F(CompactionPickerTest, FIFOToColdWithExistingCold) {
     ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
     ASSERT_EQ(1U, compaction->num_input_files(0));
     ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
+    ASSERT_EQ(compaction->is_fifo_change_temperature_trivial_copy(),
+              fifo_options_.allow_trivial_copy_when_change_temperature);
+    ASSERT_EQ(compaction->fifo_change_temperature_trivial_copy_buffer_size(),
+              fifo_options_.trivial_copy_buffer_size);
   }
 }
 
@@ -1318,7 +1341,10 @@ TEST_F(CompactionPickerTest, FIFOToColdWithHotBetweenCold) {
     mutable_cf_options_.compaction_options_fifo = fifo_options_;
     mutable_cf_options_.level0_file_num_compaction_trigger = 100;
     mutable_cf_options_.max_compaction_bytes = kFileSize * 100;
-    FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
+
+    auto copiedIOptions = ioptions_;
+    copiedIOptions.compaction_style = kCompactionStyleFIFO;
+    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_);
 
     int64_t current_time = 0;
     ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
@@ -1365,6 +1391,10 @@ TEST_F(CompactionPickerTest, FIFOToColdWithHotBetweenCold) {
     ASSERT_EQ(compaction->output_temperature(), Temperature::kCold);
     ASSERT_EQ(1U, compaction->num_input_files(0));
     ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
+    ASSERT_EQ(compaction->is_fifo_change_temperature_trivial_copy(),
+              fifo_options_.allow_trivial_copy_when_change_temperature);
+    ASSERT_EQ(compaction->fifo_change_temperature_trivial_copy_buffer_size(),
+              fifo_options_.trivial_copy_buffer_size);
   }
 }
 
@@ -1385,7 +1415,10 @@ TEST_F(CompactionPickerTest, FIFOToHotAndWarm) {
     mutable_cf_options_.compaction_options_fifo = fifo_options_;
     mutable_cf_options_.level0_file_num_compaction_trigger = 100;
     mutable_cf_options_.max_compaction_bytes = kFileSize * 100;
-    FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
+
+    auto copiedIOptions = ioptions_;
+    copiedIOptions.compaction_style = kCompactionStyleFIFO;
+    FIFOCompactionPicker fifo_compaction_picker(copiedIOptions, &icmp_);
 
     int64_t current_time = 0;
     ASSERT_OK(Env::Default()->GetCurrentTime(&current_time));
@@ -1443,6 +1476,10 @@ TEST_F(CompactionPickerTest, FIFOToHotAndWarm) {
     ASSERT_EQ(compaction->output_temperature(), Temperature::kWarm);
     ASSERT_EQ(1U, compaction->num_input_files(0));
     ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
+    ASSERT_EQ(compaction->is_fifo_change_temperature_trivial_copy(),
+              fifo_options_.allow_trivial_copy_when_change_temperature);
+    ASSERT_EQ(compaction->fifo_change_temperature_trivial_copy_buffer_size(),
+              fifo_options_.trivial_copy_buffer_size);
   }
 }
 
