@@ -1031,8 +1031,8 @@ Status DB::OpenAndCompact(
   // default CF)
   std::vector<ColumnFamilyDescriptor> column_families;
   for (auto& cf : all_column_families) {
-    ColumnFamilyOptions cf_options;
     if (cf.name == compaction_input.cf_name) {
+      ColumnFamilyOptions cf_options;
       cf.options.comparator = override_options.comparator;
       cf.options.merge_operator = override_options.merge_operator;
       cf.options.compaction_filter = override_options.compaction_filter;
