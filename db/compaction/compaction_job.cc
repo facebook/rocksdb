@@ -1916,12 +1916,50 @@ void CompactionJob::RecordCompactionIOStats() {
   if (compaction_reason == CompactionReason::kFilesMarkedForCompaction) {
     RecordTick(stats_, COMPACT_READ_BYTES_MARKED, IOSTATS(bytes_read));
     RecordTick(stats_, COMPACT_WRITE_BYTES_MARKED, IOSTATS(bytes_written));
+    RecordTick(stats_, COMPACT_FILES_MARKED_COUNT);
   } else if (compaction_reason == CompactionReason::kPeriodicCompaction) {
     RecordTick(stats_, COMPACT_READ_BYTES_PERIODIC, IOSTATS(bytes_read));
     RecordTick(stats_, COMPACT_WRITE_BYTES_PERIODIC, IOSTATS(bytes_written));
+    RecordTick(stats_, COMPACT_PERIODIC_COUNT);
   } else if (compaction_reason == CompactionReason::kTtl) {
     RecordTick(stats_, COMPACT_READ_BYTES_TTL, IOSTATS(bytes_read));
     RecordTick(stats_, COMPACT_WRITE_BYTES_TTL, IOSTATS(bytes_written));
+    RecordTick(stats_, COMPACT_TTL_COUNT);
+  } else if (compaction_reason == CompactionReason::kUnknown) {
+    RecordTick(stats_, COMPACT_UNKNOWN_COUNT);
+  } else if (compaction_reason == CompactionReason::kLevelL0FilesNum) {
+    RecordTick(stats_, COMPACT_LEVEL_L0_FILES_NUM_COUNT);
+  } else if (compaction_reason == CompactionReason::kLevelMaxLevelSize) {
+    RecordTick(stats_, COMPACT_LEVEL_MAX_LEVEL_SIZE_COUNT);
+  } else if (compaction_reason ==
+             CompactionReason::kUniversalSizeAmplification) {
+    RecordTick(stats_, COMPACT_UNIVERSAL_SIZE_AMPLIFICATION_COUNT);
+  } else if (compaction_reason == CompactionReason::kUniversalSizeRatio) {
+    RecordTick(stats_, COMPACT_UNIVERSAL_SIZE_RATIO_COUNT);
+  } else if (compaction_reason == CompactionReason::kUniversalSortedRunNum) {
+    RecordTick(stats_, COMPACT_UNIVERSAL_SORTED_RUN_NUM_COUNT);
+  } else if (compaction_reason == CompactionReason::kFIFOMaxSize) {
+    RecordTick(stats_, COMPACT_FIFO_MAX_SIZE_COUNT);
+  } else if (compaction_reason == CompactionReason::kFIFOReduceNumFiles) {
+    RecordTick(stats_, COMPACT_FIFO_REDUCE_NUM_FILES_COUNT);
+  } else if (compaction_reason == CompactionReason::kFIFOTtl) {
+    RecordTick(stats_, COMPACT_FIFO_TTL_COUNT);
+  } else if (compaction_reason == CompactionReason::kManualCompaction) {
+    RecordTick(stats_, COMPACT_MANUAL_COUNT);
+  } else if (compaction_reason == CompactionReason::kBottommostFiles) {
+    RecordTick(stats_, COMPACT_BOTTOMMOST_FILES_COUNT);
+  } else if (compaction_reason == CompactionReason::kFlush) {
+    RecordTick(stats_, COMPACT_FLUSH_COUNT);
+  } else if (compaction_reason == CompactionReason::kExternalSstIngestion) {
+    RecordTick(stats_, COMPACT_EXTERNAL_SST_INGESTION_COUNT);
+  } else if (compaction_reason == CompactionReason::kChangeTemperature) {
+    RecordTick(stats_, COMPACT_CHANGE_TEMPERATURE_COUNT);
+  } else if (compaction_reason == CompactionReason::kForcedBlobGC) {
+    RecordTick(stats_, COMPACT_FORCED_BLOB_GC_COUNT);
+  } else if (compaction_reason == CompactionReason::kRoundRobinTtl) {
+    RecordTick(stats_, COMPACT_ROUND_ROBIN_TTL_COUNT);
+  } else if (compaction_reason == CompactionReason::kRefitLevel) {
+    RecordTick(stats_, COMPACT_REFIT_LEVEL_COUNT);
   }
   ThreadStatusUtil::IncreaseThreadOperationProperty(
       ThreadStatus::COMPACTION_BYTES_READ, IOSTATS(bytes_read));
