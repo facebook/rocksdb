@@ -308,7 +308,8 @@ class ExternalTableFactoryAdapter : public TableFactory {
         topts.read_options, topts.write_options,
         topts.moptions.prefix_extractor, topts.ioptions.user_comparator,
         topts.column_family_name, topts.reason);
-    builder.reset(inner_->NewTableBuilder(ext_topts, file->file_name()));
+    builder.reset(inner_->NewTableBuilder(ext_topts, file->file_name(),
+                                          file->writable_file()));
     if (builder) {
       return new ExternalTableBuilderAdapter(std::move(builder));
     }

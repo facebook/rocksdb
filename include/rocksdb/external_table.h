@@ -244,9 +244,11 @@ class ExternalTableFactory : public Customizable {
       const ExternalTableOptions& table_options,
       std::unique_ptr<ExternalTableReader>* table_reader) const = 0;
 
+  // The table builder should use the file pointer to append to the file.
+  // Do not sync or close the file after finishing. RocksDB will do that.
   virtual ExternalTableBuilder* NewTableBuilder(
       const ExternalTableBuilderOptions& builder_options,
-      const std::string& file_path) const = 0;
+      const std::string& file_path, FSWritableFile* file) const = 0;
 };
 
 // Allocate a TableFactory that wraps around an ExternalTableFactory. Use this
