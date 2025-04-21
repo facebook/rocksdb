@@ -508,6 +508,81 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
   verify_db_func("new_foo_value", "new_bar_value");
 }
 
+TEST_F(DBSecondaryTest, OptionsOverrideTest) {
+  Options options;
+  options.env = env_;
+  options.preserve_internal_time_seconds = 300;
+  options.compaction_readahead_size = 200;
+  options.blob_compaction_readahead_size = 100;
+  Reopen(options);
+
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
+    ASSERT_OK(Put("bar", "bar_value" + std::to_string(i)));
+    ASSERT_OK(Flush());
+  }
+
+  CompactionServiceInput input;
+
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);
+  for (auto& file : meta.levels[0].files) {
+    ASSERT_EQ(0, meta.levels[0].level);
+    input.input_files.push_back(file.name);
+  }
+  ASSERT_EQ(input.input_files.size(), 3);
+
+  input.output_level = 1;
+  input.options_file_number = dbfull()->GetVersionSet()->options_file_number();
+  input.cf_name = kDefaultColumnFamilyName;
+  ASSERT_OK(db_->GetDbIdentity(input.db_id));
+
+  ASSERT_EQ(db_->GetOptions().compaction_readahead_size, 200);
+  ASSERT_EQ(db_->GetOptions().blob_compaction_readahead_size, 100);
+
+  Close();
+
+  std::string compaction_input_binary;
+  ASSERT_OK(input.Write(&compaction_input_binary));
+  std::string compaction_result_binary;
+
+  CompactionServiceOptionsOverride override_options;
+  override_options.env = env_;
+  override_options.table_factory.reset(
+      NewBlockBasedTableFactory(BlockBasedTableOptions()));
+
+  ASSERT_OK(
+      StringToMap("compaction_readahead_size=8388608;"
+                  "blob_compaction_readahead_size=4194304;"
+                  "some_invalid_option=ignore_me;"
+                  "env=this_should_not_fail;"
+                  "max_open_files=100;",  // this should be always overriden as
+                                          // -1 in remote compaction
+                  &override_options.options_map));
+
+  bool verified = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:0",
+      [&](void* arg) {
+        auto secondary_db = static_cast<DB*>(arg);
+        auto secondary_db_options = secondary_db->GetOptions();
+        // DBOption
+        ASSERT_EQ(secondary_db_options.compaction_readahead_size, 8388608);
+        ASSERT_EQ(secondary_db_options.max_open_files, -1);
+        // CFOption
+        ASSERT_EQ(secondary_db_options.blob_compaction_readahead_size, 4194304);
+        verified = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(DB::OpenAndCompact(OpenAndCompactOptions(), dbname_,
+                               secondary_path_, compaction_input_binary,
+                               &compaction_result_binary, override_options));
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_TRUE(verified);
+}
+
 namespace {
 class TraceFileEnv : public EnvWrapper {
  public:

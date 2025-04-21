@@ -2522,6 +2522,9 @@ struct CompactionServiceOptionsOverride {
   // collector.
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
       table_properties_collector_factories;
+
+  // All other options to override. Unknown options will be ignored.
+  std::unordered_map<std::string, std::string> options_map;
 };
 
 struct OpenAndCompactOptions {

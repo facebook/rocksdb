@@ -984,7 +984,7 @@ Status DB::OpenAndCompact(
   }
 
   // 2. Load the options
-  DBOptions db_options;
+  DBOptions base_db_options;
   ConfigOptions config_options;
   config_options.env = override_options.env;
   config_options.ignore_unknown_options = true;
@@ -997,13 +997,22 @@ Status DB::OpenAndCompact(
   std::string options_file_name =
       OptionsFileName(name, compaction_input.options_file_number);
 
-  s = LoadOptionsFromFile(config_options, options_file_name, &db_options,
+  s = LoadOptionsFromFile(config_options, options_file_name, &base_db_options,
                           &all_column_families);
   if (!s.ok()) {
     return s;
   }
 
-  // 3. Override pointer configurations in DBOptions with
+  // 3. Options to Override
+  // Override serializable configurations from override_options.options_map
+  DBOptions db_options;
+  s = GetDBOptionsFromMap(config_options, base_db_options,
+                          override_options.options_map, &db_options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Override options that are directly set as shared ptrs in
   // CompactionServiceOptionsOverride
   db_options.env = override_options.env;
   db_options.file_checksum_gen_factory =
@@ -1024,6 +1033,18 @@ Status DB::OpenAndCompact(
   std::vector<ColumnFamilyDescriptor> column_families;
   for (auto& cf : all_column_families) {
     if (cf.name == compaction_input.cf_name) {
+      ColumnFamilyOptions cf_options;
+      // Override serializable configurations from override_options.options_map
+      s = GetColumnFamilyOptionsFromMap(config_options, cf.options,
+                                        override_options.options_map,
+                                        &cf_options);
+      if (!s.ok()) {
+        return s;
+      }
+      cf.options = std::move(cf_options);
+
+      // Override options that are directly set as shared ptrs in
+      // CompactionServiceOptionsOverride
       cf.options.comparator = override_options.comparator;
       cf.options.merge_operator = override_options.merge_operator;
       cf.options.compaction_filter = override_options.compaction_filter;
@@ -1035,6 +1056,7 @@ Status DB::OpenAndCompact(
           override_options.sst_partitioner_factory;
       cf.options.table_properties_collector_factories =
           override_options.table_properties_collector_factories;
+
       column_families.emplace_back(cf);
     } else if (cf.name == kDefaultColumnFamilyName) {
       column_families.emplace_back(cf);
@@ -1050,6 +1072,9 @@ Status DB::OpenAndCompact(
     return s;
   }
   assert(db);
+
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:0", db);
 
   // 6. Find the handle of the Column Family that this will compact
   ColumnFamilyHandle* cfh = nullptr;
