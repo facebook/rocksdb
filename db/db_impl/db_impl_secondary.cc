@@ -1003,26 +1003,27 @@ Status DB::OpenAndCompact(
     return s;
   }
 
-  // 3. Override pointer configurations in DBOptions with
-  // CompactionServiceOptionsOverride
-  base_db_options.env = override_options.env;
-  base_db_options.file_checksum_gen_factory =
-      override_options.file_checksum_gen_factory;
-  base_db_options.statistics = override_options.statistics;
-  base_db_options.listeners = override_options.listeners;
-  base_db_options.compaction_service = nullptr;
-  // We will close the DB after the compaction anyway.
-  // Open as many files as needed for the compaction.
-  base_db_options.max_open_files = -1;
-  base_db_options.info_log = override_options.info_log;
-
-  // Set the rest of the db options to override from options_map
+  // 3. Options to Override
+  // Override serializable configurations from override_options.options_map
   DBOptions db_options;
   s = GetDBOptionsFromMap(config_options, base_db_options,
                           override_options.options_map, &db_options);
   if (!s.ok()) {
     return s;
   }
+
+  // Override options that are directly set as shared ptrs in
+  // CompactionServiceOptionsOverride
+  db_options.env = override_options.env;
+  db_options.file_checksum_gen_factory =
+      override_options.file_checksum_gen_factory;
+  db_options.statistics = override_options.statistics;
+  db_options.listeners = override_options.listeners;
+  db_options.compaction_service = nullptr;
+  // We will close the DB after the compaction anyway.
+  // Open as many files as needed for the compaction.
+  db_options.max_open_files = -1;
+  db_options.info_log = override_options.info_log;
 
   // 4. Filter CFs that are needed for OpenAndCompact()
   // We do not need to open all column families for the remote compaction.
@@ -1033,6 +1034,17 @@ Status DB::OpenAndCompact(
   for (auto& cf : all_column_families) {
     if (cf.name == compaction_input.cf_name) {
       ColumnFamilyOptions cf_options;
+      // Override serializable configurations from override_options.options_map
+      s = GetColumnFamilyOptionsFromMap(config_options, cf.options,
+                                        override_options.options_map,
+                                        &cf_options);
+      if (!s.ok()) {
+        return s;
+      }
+      cf.options = std::move(cf_options);
+
+      // Override options that are directly set as shared ptrs in
+      // CompactionServiceOptionsOverride
       cf.options.comparator = override_options.comparator;
       cf.options.merge_operator = override_options.merge_operator;
       cf.options.compaction_filter = override_options.compaction_filter;
@@ -1045,14 +1057,6 @@ Status DB::OpenAndCompact(
       cf.options.table_properties_collector_factories =
           override_options.table_properties_collector_factories;
 
-      // Set the rest of the cf options to override from options_map
-      s = GetColumnFamilyOptionsFromMap(config_options, cf.options,
-                                        override_options.options_map,
-                                        &cf_options);
-      if (!s.ok()) {
-        return s;
-      }
-      cf.options = std::move(cf_options);
       column_families.emplace_back(cf);
     } else if (cf.name == kDefaultColumnFamilyName) {
       column_families.emplace_back(cf);

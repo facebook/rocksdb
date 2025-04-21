@@ -554,9 +554,13 @@ TEST_F(DBSecondaryTest, OptionsOverrideTest) {
   ASSERT_OK(
       StringToMap("compaction_readahead_size=8388608;"
                   "blob_compaction_readahead_size=4194304;"
-                  "some_invalid_option=ignore_me;",
+                  "some_invalid_option=ignore_me;"
+                  "env=this_should_not_fail;"
+                  "max_open_files=100;",  // this should be always overriden as
+                                          // -1 in remote compaction
                   &override_options.options_map));
 
+  bool verified = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImplSecondary::OpenAndCompact::AfterOpenAsSecondary:0",
       [&](void* arg) {
@@ -564,8 +568,10 @@ TEST_F(DBSecondaryTest, OptionsOverrideTest) {
         auto secondary_db_options = secondary_db->GetOptions();
         // DBOption
         ASSERT_EQ(secondary_db_options.compaction_readahead_size, 8388608);
+        ASSERT_EQ(secondary_db_options.max_open_files, -1);
         // CFOption
         ASSERT_EQ(secondary_db_options.blob_compaction_readahead_size, 4194304);
+        verified = true;
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -574,6 +580,7 @@ TEST_F(DBSecondaryTest, OptionsOverrideTest) {
                                &compaction_result_binary, override_options));
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_TRUE(verified);
 }
 
 namespace {
