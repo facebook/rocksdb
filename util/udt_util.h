@@ -275,6 +275,10 @@ Status ValidateUserDefinedTimestampsOptions(
 void GetFullHistoryTsLowFromU64CutoffTs(Slice* cutoff_ts,
                                         std::string* full_history_ts_low);
 
+// The reverse of `GetFullHistoryTsLowFromU64CutoffTs`.
+void GetU64CutoffTsFromFullHistoryTsLow(Slice* full_history_ts_low,
+                                        std::string* cutoff_ts);
+
 // `start` is the inclusive lower user key bound without user-defined timestamp.
 // `end` is the upper user key bound without user-defined timestamp.
 // By default, `end` is treated as being exclusive. If `exclusive_end` is set to
