@@ -1048,20 +1048,19 @@ TEST_F(CompactionPickerTest,
   const uint64_t kNumLevels = 5;
 
   for (const uint64_t test_no_exclusion : {false, true}) {
-    const uint64_t kExpectedNumExcludedL0 =
-        test_no_exclusion ? 0 : kL0FileCount * 1 / 10;
-
     mutable_cf_options_.level0_stop_writes_trigger = 36;
     mutable_cf_options_.compaction_options_universal
         .max_size_amplification_percent = 1;
+    mutable_cf_options_.compaction_options_universal.min_merge_width = 2;
     mutable_cf_options_.compaction_options_universal.max_merge_width =
         test_no_exclusion
             // In universal compaction, sorted runs from non L0 levels are
-            // counted toward `level0_stop_writes_trigger`. Therefore we need to
-            // subtract the total number of sorted runs picked originally for
-            // this compaction (i.e, kL0FileCount + kLastLevelFileCount) from
-            // `level0_stop_writes_trigger` to calculate `max_merge_width` that
-            // results in no L0 exclusion for testing purpose.
+            // counted toward `level0_stop_writes_trigger`. Therefore we
+            // need to subtract the total number of sorted runs picked
+            // originally for this compaction (i.e, kL0FileCount +
+            // kLastLevelFileCount) from `level0_stop_writes_trigger` to
+            // calculate `max_merge_width` that results in no L0 exclusion
+            // for testing purpose.
             ? mutable_cf_options_.level0_stop_writes_trigger -
                   (kL0FileCount + kLastLevelFileCount)
             : UINT_MAX;
@@ -1087,8 +1086,18 @@ TEST_F(CompactionPickerTest,
     ASSERT_TRUE(compaction.get() != nullptr);
     ASSERT_EQ(compaction->compaction_reason(),
               CompactionReason::kUniversalSizeAmplification);
-    ASSERT_EQ(compaction->num_input_files(0),
-              kL0FileCount - kExpectedNumExcludedL0);
+    if (test_no_exclusion) {
+      ASSERT_EQ(compaction->num_input_files(0), kL0FileCount);
+    } else {
+      auto ratio = 1.0 * compaction->num_input_files(0) * kFileSize /
+                   (compaction->num_input_files(kNumLevels - 1) * kFileSize);
+      // Under this test setup, we expect the algorithm to exclude as much L0
+      // files as possible till the ratio between the rest L0 input file size
+      // and bottommost input file size is at the minimum
+      // (`max_size_amplification_percent`)
+      ASSERT_EQ(ratio, mutable_cf_options_.compaction_options_universal
+                           .max_size_amplification_percent);
+    }
     ASSERT_EQ(compaction->num_input_files(kNumLevels - 1), kLastLevelFileCount);
     for (uint64_t level = 1; level <= kNumLevels - 2; level++) {
       ASSERT_EQ(compaction->num_input_files(level), 0);
