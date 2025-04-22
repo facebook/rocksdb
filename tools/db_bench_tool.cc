@@ -2914,8 +2914,7 @@ class Benchmark {
       CompressionOptions opts;
       CompressionContext context(FLAGS_compression_type_e, opts);
       CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                           FLAGS_compression_type_e,
-                           FLAGS_sample_for_compression);
+                           FLAGS_compression_type_e);
       bool result = CompressSlice(info, Slice(input_str), &compressed);
 
       if (!result) {
@@ -4135,8 +4134,7 @@ class Benchmark {
     opts.level = FLAGS_compression_level;
     CompressionContext context(FLAGS_compression_type_e, opts);
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                         FLAGS_compression_type_e,
-                         FLAGS_sample_for_compression);
+                         FLAGS_compression_type_e);
     // Compress 1G
     while (ok && bytes < int64_t(1) << 30) {
       compressed.clear();
@@ -4166,9 +4164,9 @@ class Benchmark {
     compression_opts.level = FLAGS_compression_level;
     CompressionContext compression_ctx(FLAGS_compression_type_e,
                                        compression_opts);
-    CompressionInfo compression_info(
-        compression_opts, compression_ctx, CompressionDict::GetEmptyDict(),
-        FLAGS_compression_type_e, FLAGS_sample_for_compression);
+    CompressionInfo compression_info(compression_opts, compression_ctx,
+                                     CompressionDict::GetEmptyDict(),
+                                     FLAGS_compression_type_e);
     UncompressionContext uncompression_ctx(FLAGS_compression_type_e);
     UncompressionInfo uncompression_info(uncompression_ctx,
                                          UncompressionDict::GetEmptyDict(),
