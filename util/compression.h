@@ -222,6 +222,7 @@ class Compressor {
       CacheEntryRole block_type, DictSampleArgs&& dict_samples) {
     // Default implementation: no specialization
     (void)block_type;
+    (void)dict_samples;
     // Caller should have checked GetMaxSampleSizeIfWantDict before attempting
     // to provide dictionary samples
     assert(dict_samples.empty());
@@ -344,6 +345,7 @@ class Decompressor {
 
   virtual void ReleaseWorkingArea(WorkingArea* wa) {
     // Default implementation: no working area
+    (void)wa;
     assert(wa == nullptr);
   }
 
@@ -354,6 +356,7 @@ class Decompressor {
 
   virtual void ReleaseProcessedDict(ProcessedDict* processed) {
     // Default: no processed form of dictionary supported
+    (void)processed;
     assert(processed == nullptr);
   }
 
@@ -375,6 +378,7 @@ class Decompressor {
   virtual size_t ApproximateMemoryUsage(
       const ManagedProcessedDict& processed) const {
     // Default: no processed form of dictionary supported
+    (void)processed;
     assert(!processed);
     return 0;
   }
