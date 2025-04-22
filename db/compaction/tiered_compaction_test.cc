@@ -2207,6 +2207,40 @@ TEST_P(TimedPutPrecludeLastLevelTest, AutoTriggerCompaction) {
   WriteOptions wo;
   wo.protection_bytes_per_key = ProtectionBytesPerKey();
 
+  auto check_write_time_for_regular_put_file =
+      [](const std::shared_ptr<const TableProperties>& table_properties) {
+        std::unique_ptr<DataCollectionUnixWriteTimeInfo> file_write_time_info;
+        ASSERT_OK(GetDataCollectionUnixWriteTimeInfoForFile(
+            table_properties, &file_write_time_info));
+        ASSERT_NE(file_write_time_info, nullptr);
+        ASSERT_EQ(file_write_time_info->min_write_time, kMockStartTime);
+        ASSERT_NE(file_write_time_info->max_write_time,
+                  TablePropertiesCollector::kUnknownUnixWriteTime);
+        ASSERT_NE(file_write_time_info->average_write_time,
+                  TablePropertiesCollector::kUnknownUnixWriteTime);
+        ASSERT_EQ(file_write_time_info->num_entries_infinitely_old, 0);
+        ASSERT_EQ(file_write_time_info->num_entries_write_time_aggregated,
+                  kNumKeys / 4);
+        ASSERT_EQ(file_write_time_info->num_entries_write_time_untracked, 0);
+      };
+  auto check_write_time_for_timed_put_file =
+      [](const std::shared_ptr<const TableProperties>& table_properties) {
+        std::unique_ptr<DataCollectionUnixWriteTimeInfo> file_write_time_info;
+        ASSERT_OK(GetDataCollectionUnixWriteTimeInfoForFile(
+            table_properties, &file_write_time_info));
+        ASSERT_NE(file_write_time_info, nullptr);
+        ASSERT_EQ(file_write_time_info->min_write_time,
+                  TablePropertiesCollector::kUnknownUnixWriteTime);
+        ASSERT_EQ(file_write_time_info->max_write_time,
+                  TablePropertiesCollector::kUnknownUnixWriteTime);
+        ASSERT_EQ(file_write_time_info->average_write_time,
+                  TablePropertiesCollector::kUnknownUnixWriteTime);
+        ASSERT_EQ(file_write_time_info->num_entries_infinitely_old,
+                  kNumKeys / 4);
+        ASSERT_EQ(file_write_time_info->num_entries_write_time_aggregated, 0);
+        ASSERT_EQ(file_write_time_info->num_entries_write_time_untracked, 0);
+      };
+
   Random rnd(301);
 
   dbfull()->TEST_WaitForPeriodicTaskRun([&] {
@@ -2221,6 +2255,12 @@ TEST_P(TimedPutPrecludeLastLevelTest, AutoTriggerCompaction) {
   }
   // Create one file with regular Put.
   ASSERT_OK(Flush());
+  TablePropertiesCollection tables_props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&tables_props));
+  ASSERT_EQ(tables_props.size(), 1);
+  uint64_t regular_put_file_number =
+      tables_props.begin()->second->orig_file_number;
+  check_write_time_for_regular_put_file(tables_props.begin()->second);
 
   // Create one file with TimedPut.
   // These data are eligible to be put on the last level once written to db
@@ -2235,6 +2275,16 @@ TEST_P(TimedPutPrecludeLastLevelTest, AutoTriggerCompaction) {
   ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
+  std::vector<std::unique_ptr<TablePropertiesCollection>>
+      table_properties_by_levels;
+  ASSERT_OK(db_->GetPropertiesOfTablesByLevel(db_->DefaultColumnFamily(),
+                                              &table_properties_by_levels));
+  ASSERT_EQ(table_properties_by_levels.size(), kNumLevels);
+  std::unique_ptr<TablePropertiesCollection>& last_level_table_props =
+      table_properties_by_levels[kNumLevels - 1];
+  ASSERT_EQ(last_level_table_props->size(), 1);
+  check_write_time_for_timed_put_file(last_level_table_props->begin()->second);
 
   collector_factory->SetCompactionTriggerRatio(1.1);
   for (int i = kNumKeys / 2; i < kNumKeys * 3 / 4; i++) {
@@ -2253,6 +2303,20 @@ TEST_P(TimedPutPrecludeLastLevelTest, AutoTriggerCompaction) {
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("3,0,0,0,0,0,1", FilesPerLevel());
+  table_properties_by_levels.clear();
+  ASSERT_OK(db_->GetPropertiesOfTablesByLevel(db_->DefaultColumnFamily(),
+                                              &table_properties_by_levels));
+  ASSERT_EQ(table_properties_by_levels.size(), kNumLevels);
+  std::unique_ptr<TablePropertiesCollection>& level0_table_props =
+      table_properties_by_levels[0];
+  ASSERT_EQ(level0_table_props->size(), 3);
+  for (auto [l0_file_name, l0_file_table_property] : *level0_table_props) {
+    if (regular_put_file_number == l0_file_table_property->orig_file_number) {
+      check_write_time_for_regular_put_file(l0_file_table_property);
+    } else {
+      check_write_time_for_timed_put_file(l0_file_table_property);
+    }
+  }
 
   Close();
 }

@@ -53,7 +53,7 @@ CompactForTieringCollector::CompactForTieringCollector(
   } else if (compaction_trigger_ratio_ > 1) {
     track_eligible_entries_ = true;
   }
-  assert(last_level_inclusive_max_seqno_threshold_ != kMaxSequenceNumber);
+  assert(track_eligible_entries_ || track_data_write_time_);
 }
 
 Status CompactForTieringCollector::AddUserKeyWithWriteTime(
@@ -64,8 +64,9 @@ Status CompactForTieringCollector::AddUserKeyWithWriteTime(
   return Status::OK();
 }
 
-void CompactForTieringCollector::TrackEligibleEntries(
-    const Slice& value, EntryType type, SequenceNumber seq) {
+void CompactForTieringCollector::TrackEligibleEntries(const Slice& value,
+                                                      EntryType type,
+                                                      SequenceNumber seq) {
   if (!track_eligible_entries_) {
     return;
   }
@@ -98,7 +99,9 @@ void CompactForTieringCollector::TrackWriteTimeMetric(
     average_data_write_time_ =
         !average_data_write_time_.has_value()
             ? unix_write_time
-            : (unix_write_time + average_data_write_time_.value()) / 2;
+            : (unix_write_time + average_data_write_time_.value() *
+                                     (write_time_aggregated_entries_ - 1)) /
+                  write_time_aggregated_entries_;
   }
 }
 
@@ -107,7 +110,7 @@ Status CompactForTieringCollector::Finish(UserCollectedProperties* properties) {
   assert(compaction_trigger_ratio_ > 0 || track_data_write_time_);
   if (mark_need_compaction_for_eligible_entries_ &&
       last_level_eligible_entries_counter_ >=
-      compaction_trigger_ratio_ * total_entries_counter_) {
+          compaction_trigger_ratio_ * total_entries_counter_) {
     assert(track_eligible_entries_);
     need_compaction_ = true;
   }
@@ -132,11 +135,18 @@ void CompactForTieringCollector::InitializeWithWriteTimeProperties(
   }
   *properties = UserCollectedProperties{
       {kAverageDataUnixWriteTimePropertyName,
-       std::to_string(average_data_write_time_.has_value()
-                          ? average_data_write_time_.value()
-                          : 0)},
-      {kMaxDataUnixWriteTimePropertyName, std::to_string(max_data_write_time_)},
-      {kMinDataUnixWriteTimePropertyName, std::to_string(min_data_write_time_)},
+       std::to_string(
+           write_time_aggregated_entries_ != 0
+               ? static_cast<uint64_t>(average_data_write_time_.value())
+               : TablePropertiesCollector::kUnknownUnixWriteTime)},
+      {kMaxDataUnixWriteTimePropertyName,
+       std::to_string(write_time_aggregated_entries_ != 0
+                          ? max_data_write_time_
+                          : TablePropertiesCollector::kUnknownUnixWriteTime)},
+      {kMinDataUnixWriteTimePropertyName,
+       std::to_string(write_time_aggregated_entries_ != 0
+                          ? min_data_write_time_
+                          : TablePropertiesCollector::kUnknownUnixWriteTime)},
       {kNumInfinitelyOldEntriesPropertyName,
        std::to_string(write_time_infinitely_old_entries_)},
       {kNumWriteTimeAggregatedEntriesPropertyName,
@@ -146,13 +156,13 @@ void CompactForTieringCollector::InitializeWithWriteTimeProperties(
   };
 }
 
-
-void CompactForTieringCollector::AddEligibleEntriesProperty(UserCollectedProperties* properties) const {
+void CompactForTieringCollector::AddEligibleEntriesProperty(
+    UserCollectedProperties* properties) const {
   if (!track_eligible_entries_) {
     return;
   }
   properties->insert({kNumEligibleLastLevelEntriesPropertyName,
-            std::to_string(last_level_eligible_entries_counter_)});
+                      std::to_string(last_level_eligible_entries_counter_)});
 }
 
 bool CompactForTieringCollector::NeedCompact() const {
@@ -178,7 +188,8 @@ CompactForTieringCollectorFactory::CreateTablePropertiesCollector(
   if (!track_data_write_time &&
       (compaction_trigger_ratio <= 0 ||
        context.level_at_creation == context.num_levels - 1 ||
-       context.last_level_inclusive_max_seqno_threshold == kMaxSequenceNumber)) {
+       context.last_level_inclusive_max_seqno_threshold ==
+           kMaxSequenceNumber)) {
     return nullptr;
   }
   // For files on the last level, just track write time if it's enabled, do not
@@ -255,9 +266,60 @@ NewCompactForTieringCollectorFactory(double compaction_trigger_ratio,
 }
 
 Status GetDataCollectionUnixWriteTimeInfoForFile(
-    const std::shared_ptr<const TableProperties>& /* table_properties */,
-    std::unique_ptr<DataCollectionUnixWriteTimeInfo>* /* file_info */) {
-  return Status::NotSupported();
+    const std::shared_ptr<const TableProperties>& table_properties,
+    std::unique_ptr<DataCollectionUnixWriteTimeInfo>* file_info) {
+  UserCollectedProperties user_props =
+      table_properties->user_collected_properties;
+  std::optional<uint64_t> min_write_time;
+  std::optional<uint64_t> max_write_time;
+  std::optional<uint64_t> average_write_time;
+  std::optional<uint64_t> num_entries_infinitely_old;
+  std::optional<uint64_t> num_entries_write_time_aggregated;
+  std::optional<uint64_t> num_entries_write_time_untracked;
+  auto iter = user_props.find(
+      CompactForTieringCollector::kAverageDataUnixWriteTimePropertyName);
+  if (iter != user_props.end()) {
+    average_write_time = std::stoull(iter->second);
+  }
+  iter = user_props.find(
+      CompactForTieringCollector::kMinDataUnixWriteTimePropertyName);
+  if (iter != user_props.end()) {
+    min_write_time = std::stoull(iter->second);
+  }
+  iter = user_props.find(
+      CompactForTieringCollector::kMaxDataUnixWriteTimePropertyName);
+  if (iter != user_props.end()) {
+    max_write_time = std::stoull(iter->second);
+  }
+  iter = user_props.find(
+      CompactForTieringCollector::kNumInfinitelyOldEntriesPropertyName);
+  if (iter != user_props.end()) {
+    num_entries_infinitely_old = std::stoull(iter->second);
+  }
+  iter = user_props.find(
+      CompactForTieringCollector::kNumWriteTimeAggregatedEntriesPropertyName);
+  if (iter != user_props.end()) {
+    num_entries_write_time_aggregated = std::stoull(iter->second);
+  }
+  iter = user_props.find(
+      CompactForTieringCollector::kNumWriteTimeUntrackedEntriesPropertyName);
+  if (iter != user_props.end()) {
+    num_entries_write_time_untracked = std::stoull(iter->second);
+  }
+  if (min_write_time.has_value() && max_write_time.has_value() &&
+      average_write_time.has_value() &&
+      num_entries_infinitely_old.has_value() &&
+      num_entries_write_time_aggregated.has_value() &&
+      num_entries_write_time_untracked.has_value()) {
+    *file_info = std::make_unique<DataCollectionUnixWriteTimeInfo>(
+        min_write_time.value(), max_write_time.value(),
+        average_write_time.value(), num_entries_infinitely_old.value(),
+        num_entries_write_time_aggregated.value(),
+        num_entries_write_time_untracked.value());
+    return Status::OK();
+  }
+  file_info->reset();
+  return Status::InvalidArgument("Missing data write time user property");
 }
 
 Status GetDataCollectionUnixWriteTimeInfoForLevels(

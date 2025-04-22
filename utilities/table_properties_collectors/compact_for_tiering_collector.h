@@ -47,7 +47,8 @@ class CompactForTieringCollector : public TablePropertiesCollector {
  private:
   void Reset();
 
-  void TrackEligibleEntries(const Slice& value, EntryType type, SequenceNumber seq);
+  void TrackEligibleEntries(const Slice& value, EntryType type,
+                            SequenceNumber seq);
 
   void TrackWriteTimeMetric(uint64_t unix_write_time);
 
@@ -60,18 +61,16 @@ class CompactForTieringCollector : public TablePropertiesCollector {
   double compaction_trigger_ratio_;
   bool track_eligible_entries_{false};
   bool mark_need_compaction_for_eligible_entries_{false};
+  bool track_data_write_time_{false};
   size_t last_level_eligible_entries_counter_ = 0;
   size_t total_entries_counter_ = 0;
   bool finish_called_ = false;
   bool need_compaction_ = false;
-  bool track_data_write_time_ = false;
   uint64_t write_time_aggregated_entries_ = 0;
   uint64_t write_time_untracked_entries_ = 0;
   uint64_t write_time_infinitely_old_entries_ = 0;
-  uint64_t min_data_write_time_ =
-      TablePropertiesCollector::kUnknownUnixWriteTime;
-  uint64_t max_data_write_time_ =
-      TablePropertiesCollector::kInfinitelyOldUnixWriteTime;
-  std::optional<uint64_t> average_data_write_time_ = std::nullopt;
+  uint64_t min_data_write_time_ = std::numeric_limits<uint64_t>::max();
+  uint64_t max_data_write_time_ = 0;
+  std::optional<double> average_data_write_time_ = std::nullopt;
 };
 }  // namespace ROCKSDB_NAMESPACE
