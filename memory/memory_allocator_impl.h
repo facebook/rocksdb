@@ -31,7 +31,7 @@ using CacheAllocationPtr = std::unique_ptr<char[], CustomDeleter>;
 inline CacheAllocationPtr AllocateBlock(size_t size,
                                         MemoryAllocator* allocator) {
   if (allocator) {
-    auto block = reinterpret_cast<char*>(allocator->Allocate(size));
+    auto block = static_cast<char*>(allocator->Allocate(size));
     return CacheAllocationPtr(block, allocator);
   }
   return CacheAllocationPtr(new char[size]);

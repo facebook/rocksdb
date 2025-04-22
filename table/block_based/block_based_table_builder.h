@@ -202,7 +202,8 @@ class BlockBasedTableBuilder : public TableBuilder {
 
 Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
                     CompressionType* type, uint32_t format_version,
-                    bool do_sample, std::string* compressed_output,
+                    uint64_t sample_for_compression,
+                    std::string* compressed_output,
                     std::string* sampled_output_fast,
                     std::string* sampled_output_slow);
 

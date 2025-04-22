@@ -200,11 +200,9 @@ Status CompressedSecondaryCache::InsertInternal(
     PERF_COUNTER_ADD(compressed_sec_cache_uncompressed_bytes, data_size);
     CompressionContext compression_context(cache_options_.compression_type,
                                            cache_options_.compression_opts);
-    uint64_t sample_for_compression{0};
     CompressionInfo compression_info(
         cache_options_.compression_opts, compression_context,
-        CompressionDict::GetEmptyDict(), cache_options_.compression_type,
-        sample_for_compression);
+        CompressionDict::GetEmptyDict(), cache_options_.compression_type);
 
     bool success =
         CompressData(val, compression_info,
