@@ -22,43 +22,39 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Test param:
+// 1) whether to enable write time tracking.
 class CompactForTieringCollectorTest
     : public ::testing::Test,
       public ::testing::WithParamInterface<bool> {
  public:
   void CheckFileWriteTimePropertyWithOnlyInfinitelyOldEntries(
-      bool track_write_time, UserCollectedProperties& user_properties,
+      bool track_write_time, const UserCollectedProperties& user_properties,
       size_t infinitely_old_entries) {
-    ASSERT_EQ(
-        user_properties
-            [CompactForTieringCollector::kNumInfinitelyOldEntriesPropertyName],
-        track_write_time ? std::to_string(infinitely_old_entries) : "");
-    ASSERT_EQ(user_properties[CompactForTieringCollector::
-                                  kNumWriteTimeUntrackedEntriesPropertyName],
-              track_write_time ? std::to_string(0) : "");
-    ASSERT_EQ(user_properties[CompactForTieringCollector::
-                                  kNumWriteTimeAggregatedEntriesPropertyName],
-              track_write_time ? std::to_string(0) : "");
-    ASSERT_EQ(
-        user_properties
-            [CompactForTieringCollector::kMinDataUnixWriteTimePropertyName],
-        track_write_time
-            ? std::to_string(TablePropertiesCollector::kUnknownUnixWriteTime)
-            : "");
-    ASSERT_EQ(
-        user_properties
-            [CompactForTieringCollector::kMaxDataUnixWriteTimePropertyName],
-        track_write_time
-            ? std::to_string(TablePropertiesCollector::kUnknownUnixWriteTime)
-            : "");
-    ASSERT_EQ(
-        user_properties
-            [CompactForTieringCollector::kAverageDataUnixWriteTimePropertyName],
-        track_write_time
-            ? std::to_string(TablePropertiesCollector::kUnknownUnixWriteTime)
-            : "");
+    std::unique_ptr<DataCollectionUnixWriteTimeInfo> write_time_info;
+    Status status = CompactForTieringCollector::
+        GetDataCollectionUnixWriteTimeInfoFromUserProperties(user_properties,
+                                                             &write_time_info);
+    if (!track_write_time) {
+      ASSERT_TRUE(status.IsInvalidArgument());
+      return;
+    }
+    ASSERT_OK(status);
+
+    DataCollectionUnixWriteTimeInfo expected_write_time(
+        /* _min_write_time= */ TablePropertiesCollector::kUnknownUnixWriteTime,
+        /* _max_write_time= */ TablePropertiesCollector::kUnknownUnixWriteTime,
+        /* _average_write_time= */
+        TablePropertiesCollector::kUnknownUnixWriteTime,
+        static_cast<uint64_t>(infinitely_old_entries),
+        /* _num_entries_write_time_aggregated= */ 0,
+        /* _num_entries_write_time_untracked= */ 0);
+    ASSERT_EQ(expected_write_time, *write_time_info);
   }
 };
+
+INSTANTIATE_TEST_CASE_P(CompactForTieringCollectorTest,
+                        CompactForTieringCollectorTest, ::testing::Bool());
 
 TEST_P(CompactForTieringCollectorTest, CompactionTriggeringNotEnabled) {
   TablePropertiesCollectorFactory::Context context;
@@ -194,9 +190,6 @@ TEST_P(CompactForTieringCollectorTest, TimedPutEntries) {
       track_write_time, user_properties, kTotalEntries);
 }
 
-INSTANTIATE_TEST_CASE_P(CompactForTieringCollectorTest,
-                        CompactForTieringCollectorTest, ::testing::Bool());
-
 TEST(CompactForTieringCollector, AggregateTimeTest) {
   TablePropertiesCollectorFactory::Context context;
   context.column_family_id = 1;
@@ -215,27 +208,22 @@ TEST(CompactForTieringCollector, AggregateTimeTest) {
   }
   UserCollectedProperties user_properties;
   ASSERT_OK(collector->Finish(&user_properties));
-  ASSERT_EQ(
-      user_properties
-          [CompactForTieringCollector::kNumInfinitelyOldEntriesPropertyName],
-      std::to_string(1));
-  ASSERT_EQ(user_properties[CompactForTieringCollector::
-                                kNumWriteTimeUntrackedEntriesPropertyName],
-            std::to_string(0));
-  ASSERT_EQ(user_properties[CompactForTieringCollector::
-                                kNumWriteTimeAggregatedEntriesPropertyName],
-            std::to_string(99));
-  ASSERT_EQ(user_properties
-                [CompactForTieringCollector::kMinDataUnixWriteTimePropertyName],
-            std::to_string(1));
-  ASSERT_EQ(user_properties
-                [CompactForTieringCollector::kMaxDataUnixWriteTimePropertyName],
-            std::to_string(99));
-  ASSERT_EQ(
-      user_properties
-          [CompactForTieringCollector::kAverageDataUnixWriteTimePropertyName],
-      std::to_string(50));
+
+  std::unique_ptr<DataCollectionUnixWriteTimeInfo> write_time_info;
+  ASSERT_OK(CompactForTieringCollector::
+                GetDataCollectionUnixWriteTimeInfoFromUserProperties(
+                    user_properties, &write_time_info));
+
+  DataCollectionUnixWriteTimeInfo expected_write_time(
+      /* _min_write_time= */ 1,
+      /* _max_write_time= */ 99,
+      /* _average_write_time= */ 50,
+      /* _num_entries_infinitely_old= */ 1,
+      /* _num_entries_write_time_aggregated= */ 99,
+      /* _num_entries_write_time_untracked= */ 0);
+  ASSERT_EQ(expected_write_time, *write_time_info);
 }
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

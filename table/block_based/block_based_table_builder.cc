@@ -2200,7 +2200,7 @@ const char* BlockBasedTableBuilder::GetFileChecksumFuncName() const {
   }
 }
 void BlockBasedTableBuilder::SetSeqnoTimeForTrackingWriteTime(
-    UnownedPtr<const rocksdb::SeqnoToTimeMapping> seqno_to_time_mapping) {
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping) {
   assert(!rep_->seqno_to_time_for_tracking);
   rep_->seqno_to_time_for_tracking = seqno_to_time_mapping;
 }

@@ -107,7 +107,6 @@ void CompactForTieringCollector::TrackWriteTimeMetric(
 
 Status CompactForTieringCollector::Finish(UserCollectedProperties* properties) {
   assert(!finish_called_);
-  assert(compaction_trigger_ratio_ > 0 || track_data_write_time_);
   if (mark_need_compaction_for_eligible_entries_ &&
       last_level_eligible_entries_counter_ >=
           compaction_trigger_ratio_ * total_entries_counter_) {
@@ -178,6 +177,62 @@ void CompactForTieringCollector::Reset() {
   total_entries_counter_ = 0;
   finish_called_ = false;
   need_compaction_ = false;
+}
+
+Status CompactForTieringCollector::
+    GetDataCollectionUnixWriteTimeInfoFromUserProperties(
+        const UserCollectedProperties& user_props,
+        std::unique_ptr<DataCollectionUnixWriteTimeInfo>* file_info) {
+  std::optional<uint64_t> min_write_time;
+  std::optional<uint64_t> max_write_time;
+  std::optional<uint64_t> average_write_time;
+  std::optional<uint64_t> num_entries_infinitely_old;
+  std::optional<uint64_t> num_entries_write_time_aggregated;
+  std::optional<uint64_t> num_entries_write_time_untracked;
+  auto iter = user_props.find(
+      CompactForTieringCollector::kAverageDataUnixWriteTimePropertyName);
+  if (iter != user_props.end()) {
+    average_write_time = std::stoull(iter->second);
+  }
+  iter = user_props.find(
+      CompactForTieringCollector::kMinDataUnixWriteTimePropertyName);
+  if (iter != user_props.end()) {
+    min_write_time = std::stoull(iter->second);
+  }
+  iter = user_props.find(
+      CompactForTieringCollector::kMaxDataUnixWriteTimePropertyName);
+  if (iter != user_props.end()) {
+    max_write_time = std::stoull(iter->second);
+  }
+  iter = user_props.find(
+      CompactForTieringCollector::kNumInfinitelyOldEntriesPropertyName);
+  if (iter != user_props.end()) {
+    num_entries_infinitely_old = std::stoull(iter->second);
+  }
+  iter = user_props.find(
+      CompactForTieringCollector::kNumWriteTimeAggregatedEntriesPropertyName);
+  if (iter != user_props.end()) {
+    num_entries_write_time_aggregated = std::stoull(iter->second);
+  }
+  iter = user_props.find(
+      CompactForTieringCollector::kNumWriteTimeUntrackedEntriesPropertyName);
+  if (iter != user_props.end()) {
+    num_entries_write_time_untracked = std::stoull(iter->second);
+  }
+  if (min_write_time.has_value() && max_write_time.has_value() &&
+      average_write_time.has_value() &&
+      num_entries_infinitely_old.has_value() &&
+      num_entries_write_time_aggregated.has_value() &&
+      num_entries_write_time_untracked.has_value()) {
+    *file_info = std::make_unique<DataCollectionUnixWriteTimeInfo>(
+        min_write_time.value(), max_write_time.value(),
+        average_write_time.value(), num_entries_infinitely_old.value(),
+        num_entries_write_time_aggregated.value(),
+        num_entries_write_time_untracked.value());
+    return Status::OK();
+  }
+  file_info->reset();
+  return Status::InvalidArgument("Missing data write time user property");
 }
 
 TablePropertiesCollector*
@@ -268,58 +323,9 @@ NewCompactForTieringCollectorFactory(double compaction_trigger_ratio,
 Status GetDataCollectionUnixWriteTimeInfoForFile(
     const std::shared_ptr<const TableProperties>& table_properties,
     std::unique_ptr<DataCollectionUnixWriteTimeInfo>* file_info) {
-  UserCollectedProperties user_props =
-      table_properties->user_collected_properties;
-  std::optional<uint64_t> min_write_time;
-  std::optional<uint64_t> max_write_time;
-  std::optional<uint64_t> average_write_time;
-  std::optional<uint64_t> num_entries_infinitely_old;
-  std::optional<uint64_t> num_entries_write_time_aggregated;
-  std::optional<uint64_t> num_entries_write_time_untracked;
-  auto iter = user_props.find(
-      CompactForTieringCollector::kAverageDataUnixWriteTimePropertyName);
-  if (iter != user_props.end()) {
-    average_write_time = std::stoull(iter->second);
-  }
-  iter = user_props.find(
-      CompactForTieringCollector::kMinDataUnixWriteTimePropertyName);
-  if (iter != user_props.end()) {
-    min_write_time = std::stoull(iter->second);
-  }
-  iter = user_props.find(
-      CompactForTieringCollector::kMaxDataUnixWriteTimePropertyName);
-  if (iter != user_props.end()) {
-    max_write_time = std::stoull(iter->second);
-  }
-  iter = user_props.find(
-      CompactForTieringCollector::kNumInfinitelyOldEntriesPropertyName);
-  if (iter != user_props.end()) {
-    num_entries_infinitely_old = std::stoull(iter->second);
-  }
-  iter = user_props.find(
-      CompactForTieringCollector::kNumWriteTimeAggregatedEntriesPropertyName);
-  if (iter != user_props.end()) {
-    num_entries_write_time_aggregated = std::stoull(iter->second);
-  }
-  iter = user_props.find(
-      CompactForTieringCollector::kNumWriteTimeUntrackedEntriesPropertyName);
-  if (iter != user_props.end()) {
-    num_entries_write_time_untracked = std::stoull(iter->second);
-  }
-  if (min_write_time.has_value() && max_write_time.has_value() &&
-      average_write_time.has_value() &&
-      num_entries_infinitely_old.has_value() &&
-      num_entries_write_time_aggregated.has_value() &&
-      num_entries_write_time_untracked.has_value()) {
-    *file_info = std::make_unique<DataCollectionUnixWriteTimeInfo>(
-        min_write_time.value(), max_write_time.value(),
-        average_write_time.value(), num_entries_infinitely_old.value(),
-        num_entries_write_time_aggregated.value(),
-        num_entries_write_time_untracked.value());
-    return Status::OK();
-  }
-  file_info->reset();
-  return Status::InvalidArgument("Missing data write time user property");
+  return CompactForTieringCollector::
+      GetDataCollectionUnixWriteTimeInfoFromUserProperties(
+          table_properties->user_collected_properties, file_info);
 }
 
 Status GetDataCollectionUnixWriteTimeInfoForLevels(

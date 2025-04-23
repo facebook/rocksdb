@@ -25,6 +25,10 @@ class CompactForTieringCollector : public TablePropertiesCollector {
   static const std::string kNumWriteTimeAggregatedEntriesPropertyName;
   static const std::string kNumWriteTimeUntrackedEntriesPropertyName;
 
+  static Status GetDataCollectionUnixWriteTimeInfoFromUserProperties(
+      const UserCollectedProperties& user_props,
+      std::unique_ptr<DataCollectionUnixWriteTimeInfo>* file_info);
+
   CompactForTieringCollector(
       SequenceNumber last_level_inclusive_max_seqno_threshold,
       double compaction_trigger_ratio, bool collect_data_age_stats);

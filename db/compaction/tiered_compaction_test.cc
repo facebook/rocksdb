@@ -2208,7 +2208,7 @@ TEST_P(TimedPutPrecludeLastLevelTest, AutoTriggerCompaction) {
   wo.protection_bytes_per_key = ProtectionBytesPerKey();
 
   auto check_write_time_for_regular_put_file =
-      [](const std::shared_ptr<const TableProperties>& table_properties) {
+      [&](const std::shared_ptr<const TableProperties>& table_properties) {
         std::unique_ptr<DataCollectionUnixWriteTimeInfo> file_write_time_info;
         ASSERT_OK(GetDataCollectionUnixWriteTimeInfoForFile(
             table_properties, &file_write_time_info));
@@ -2224,7 +2224,7 @@ TEST_P(TimedPutPrecludeLastLevelTest, AutoTriggerCompaction) {
         ASSERT_EQ(file_write_time_info->num_entries_write_time_untracked, 0);
       };
   auto check_write_time_for_timed_put_file =
-      [](const std::shared_ptr<const TableProperties>& table_properties) {
+      [&](const std::shared_ptr<const TableProperties>& table_properties) {
         std::unique_ptr<DataCollectionUnixWriteTimeInfo> file_write_time_info;
         ASSERT_OK(GetDataCollectionUnixWriteTimeInfoForFile(
             table_properties, &file_write_time_info));

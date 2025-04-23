@@ -184,6 +184,17 @@ struct DataCollectionUnixWriteTimeInfo {
         num_entries_write_time_aggregated(_num_entries_write_time_aggregated),
         num_entries_write_time_untracked(_num_entries_write_time_untracked) {}
 
+  bool operator==(const DataCollectionUnixWriteTimeInfo& other) const {
+    return min_write_time == other.min_write_time &&
+           max_write_time == other.max_write_time &&
+           average_write_time == other.average_write_time &&
+           num_entries_infinitely_old == other.num_entries_infinitely_old &&
+           num_entries_write_time_aggregated ==
+               other.num_entries_write_time_aggregated &&
+           num_entries_write_time_untracked ==
+               other.num_entries_write_time_untracked;
+  }
+
   // Returns true if the data collection for which this
   // `DataCollectionUnixWriteTimeInfo` is for is empty.
   bool DataCollectionIsEmpty() const {
