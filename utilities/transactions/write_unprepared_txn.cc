@@ -374,7 +374,7 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
   uint64_t seq_used = kMaxSequenceNumber;
   // log_number_ should refer to the oldest log containing uncommitted data
   // from the current transaction. This means that if log_number_ is set,
-  // WriteImpl should not overwrite that value, so set log_used to nullptr if
+  // WriteImpl should not overwrite that value, so set wal_used to nullptr if
   // log_number_ is already set.
   s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
                           /*callback*/ nullptr, /*user_write_cb=*/nullptr,

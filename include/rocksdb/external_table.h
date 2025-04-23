@@ -8,6 +8,7 @@
 #include "rocksdb/advanced_iterator.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/file_checksum.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/iterator_base.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -89,7 +90,7 @@ class ExternalTableIterator : public IteratorBase {
   // request that this be called by setting value_prepared to false in
   // IterateResult. Next() should always implicitly materialize the
   // value.
-  virtual bool PrepareValue() = 0;
+  bool PrepareValue() override = 0;
 
   // Return the current key's value
   virtual Slice value() const = 0;
@@ -196,11 +197,17 @@ class ExternalTableBuilder {
 struct ExternalTableOptions {
   const std::shared_ptr<const SliceTransform>& prefix_extractor;
   const Comparator* comparator;
+  const std::shared_ptr<FileSystem>& fs;
+  const FileOptions& file_options;
 
   ExternalTableOptions(
       const std::shared_ptr<const SliceTransform>& _prefix_extractor,
-      const Comparator* _comparator)
-      : prefix_extractor(_prefix_extractor), comparator(_comparator) {}
+      const Comparator* _comparator, const std::shared_ptr<FileSystem>& _fs,
+      const FileOptions& _file_options)
+      : prefix_extractor(_prefix_extractor),
+        comparator(_comparator),
+        fs(_fs),
+        file_options(_file_options) {}
 };
 
 struct ExternalTableBuilderOptions {
@@ -237,9 +244,11 @@ class ExternalTableFactory : public Customizable {
       const ExternalTableOptions& table_options,
       std::unique_ptr<ExternalTableReader>* table_reader) const = 0;
 
+  // The table builder should use the file pointer to append to the file.
+  // Do not sync or close the file after finishing. RocksDB will do that.
   virtual ExternalTableBuilder* NewTableBuilder(
       const ExternalTableBuilderOptions& builder_options,
-      const std::string& file_path) const = 0;
+      const std::string& file_path, FSWritableFile* file) const = 0;
 };
 
 // Allocate a TableFactory that wraps around an ExternalTableFactory. Use this

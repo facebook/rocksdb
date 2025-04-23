@@ -6533,8 +6533,9 @@ class ExternalTableReaderTest : public DBTestBase {
  protected:
   class DummyExternalTableFile {
    public:
-    explicit DummyExternalTableFile(const std::string& file_path)
-        : file_path_(file_path), file_size_(0) {
+    explicit DummyExternalTableFile(const std::string& file_path,
+                                    FSWritableFile* file)
+        : file_path_(file_path), file_(file), file_size_(0) {
       props_.comparator_name = BytewiseComparator()->Name();
     }
 
@@ -6547,7 +6548,11 @@ class ExternalTableReaderTest : public DBTestBase {
       }
       props_.num_entries = kv_vec.size();
       file_size_ = buf_.length();
-      return WriteStringToFile(Env::Default(), buf_, file_path_);
+      if (file_) {
+        return file_->Append(buf_, IOOptions(), /*dbg=*/nullptr);
+      } else {
+        return WriteStringToFile(Env::Default(), buf_, file_path_);
+      }
     }
 
     Status Deserialize(std::map<std::string, std::string>& kv_map) {
@@ -6610,6 +6615,7 @@ class ExternalTableReaderTest : public DBTestBase {
     }
 
     std::string file_path_;
+    FSWritableFile* file_;
     std::string buf_;
     TableProperties props_;
     uint64_t file_size_;
@@ -6624,7 +6630,10 @@ class ExternalTableReaderTest : public DBTestBase {
           num_opts_(0),
           scan_idx_(0),
           kv_map_(kv_map),
-          valid_(false) {}
+          valid_(false) {
+      TEST_SYNC_POINT_CALLBACK("DummyExternalTableIterator::Constructor",
+                               &status_);
+    }
 
     bool Valid() const override { return valid_; }
 
@@ -6756,7 +6765,7 @@ class ExternalTableReaderTest : public DBTestBase {
   class DummyExternalTableReader : public ExternalTableReader {
    public:
     explicit DummyExternalTableReader(const std::string& file_path)
-        : file_(file_path) {
+        : file_(file_path, /*file=*/nullptr) {
       Status s = file_.Deserialize(kv_map_);
       EXPECT_OK(s);
     }
@@ -6808,8 +6817,9 @@ class ExternalTableReaderTest : public DBTestBase {
 
   class DummyExternalTableBuilder : public ExternalTableBuilder {
    public:
-    explicit DummyExternalTableBuilder(const std::string& file_path)
-        : file_(file_path) {}
+    explicit DummyExternalTableBuilder(const std::string& file_path,
+                                       FSWritableFile* file)
+        : file_(file_path, file) {}
 
     void Add(const Slice& key, const Slice& value) override {
       if (!kv_vec_.empty()) {
@@ -6853,8 +6863,8 @@ class ExternalTableReaderTest : public DBTestBase {
 
     ExternalTableBuilder* NewTableBuilder(
         const ExternalTableBuilderOptions& /*opts*/,
-        const std::string& file_path) const override {
-      return new DummyExternalTableBuilder(file_path);
+        const std::string& file_path, FSWritableFile* file) const override {
+      return new DummyExternalTableBuilder(file_path, file);
     }
   };
 };
@@ -6871,7 +6881,7 @@ TEST_F(ExternalTableReaderTest, BasicTest) {
                                     std::shared_ptr<const SliceTransform>(),
                                     BytewiseComparator(), "default",
                                     TableFileCreationReason::kMisc),
-        file_path));
+        file_path, /*file=*/nullptr));
     builder->Add("foo", "bar");
     ASSERT_OK(builder->Finish());
   }
@@ -6879,7 +6889,10 @@ TEST_F(ExternalTableReaderTest, BasicTest) {
   std::unique_ptr<ExternalTableReader> reader;
   std::shared_ptr<SliceTransform> prefix_extractor;
   ASSERT_OK(factory->NewTableReader(
-      {}, file_path, ExternalTableOptions(prefix_extractor, nullptr), &reader));
+      {}, file_path,
+      ExternalTableOptions(prefix_extractor, /*comparator=*/nullptr,
+                           /*fs=*/nullptr, FileOptions()),
+      &reader));
 
   ReadOptions ro;
   std::unique_ptr<ExternalTableIterator> iter(reader->NewIterator(ro, nullptr));
@@ -6946,8 +6959,8 @@ TEST_F(ExternalTableReaderTest, DBIterTest) {
   options.env = Env::Default();
   ASSERT_OK(DestroyDB(dbname, options));
 
-  std::shared_ptr<ExternalTableFactory> factory(
-      new DummyExternalTableFactory());
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>();
   options.table_factory = NewExternalTableFactory(factory);
 
   // Create a file
@@ -7000,8 +7013,8 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
   options.env = Env::Default();
   ASSERT_OK(DestroyDB(dbname, options));
 
-  std::shared_ptr<ExternalTableFactory> factory(
-      new DummyExternalTableFactory());
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>();
   options.table_factory = NewExternalTableFactory(factory);
 
   // Create a file
@@ -7048,8 +7061,13 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
       idx += 2;
     }
     ASSERT_EQ(count, 32);
-  } catch (Status status) {
-    std::cerr << "Iterator returned status " << status.ToString();
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
     abort();
   }
   iter.reset();
@@ -7070,8 +7088,13 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
       idx += 2;
     }
     ASSERT_EQ(count, 52);
-  } catch (Status status) {
-    std::cerr << "Iterator returned status " << status.ToString();
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
     abort();
   }
   iter.reset();
@@ -7094,11 +7117,43 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
       idx += 2;
     }
     ASSERT_EQ(count, 52);
-  } catch (Status status) {
-    std::cerr << "Iterator returned status " << status.ToString();
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
     abort();
   }
   iter.reset();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DummyExternalTableIterator::Constructor", [](void* arg) {
+        Status* status = static_cast<Status*>(arg);
+        *status = Status::IOError();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  iter = db->NewMultiScan(ro, cfh, scan_options);
+  try {
+    for (auto range : *iter) {
+      // Should not get here. Iterator should throw an exception
+      assert(false);
+      for (auto it : range) {
+        (void)it;
+        assert(false);
+      }
+    }
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_EQ(ex.status(), Status::IOError());
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+  iter.reset();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
   ASSERT_OK(db->Close());

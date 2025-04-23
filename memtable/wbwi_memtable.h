@@ -235,7 +235,7 @@ class WBWIMemTable final : public ReadOnlyMemTable {
   uint64_t num_entries_;
   // WBWI can contains updates to multiple CFs. `cf_id_` determines which CF
   // this memtable is for.
-  uint32_t cf_id_;
+  const uint32_t cf_id_;
 };
 
 class WBWIMemTableIterator final : public InternalIterator {

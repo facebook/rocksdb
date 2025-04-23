@@ -132,7 +132,7 @@ class WriteThread {
     size_t protection_bytes_per_key;
     PreReleaseCallback* pre_release_callback;
     PostMemTableCallback* post_memtable_callback;
-    uint64_t log_used;  // log number that this batch was inserted into
+    uint64_t wal_used;  // log number that this batch was inserted into
     uint64_t log_ref;   // log number that memtable insert should reference
     WriteCallback* callback;
     UserWriteCallback* user_write_cb;
@@ -161,7 +161,7 @@ class WriteThread {
           protection_bytes_per_key(0),
           pre_release_callback(nullptr),
           post_memtable_callback(nullptr),
-          log_used(0),
+          wal_used(0),
           log_ref(0),
           callback(nullptr),
           user_write_cb(nullptr),
@@ -190,7 +190,7 @@ class WriteThread {
           protection_bytes_per_key(_batch->GetProtectionBytesPerKey()),
           pre_release_callback(_pre_release_callback),
           post_memtable_callback(_post_memtable_callback),
-          log_used(0),
+          wal_used(0),
           log_ref(_log_ref),
           callback(_callback),
           user_write_cb(_user_write_cb),

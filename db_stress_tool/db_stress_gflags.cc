@@ -842,6 +842,11 @@ DEFINE_bool(track_and_verify_wals,
 DEFINE_bool(enable_remote_compaction, false,
             "Enable (simulated) Remote Compaction");
 
+DEFINE_uint32(ingest_wbwi_one_in, 0,
+              "If set, will call"
+              "IngestWriteBatchWithIndex() instead of regular write operations "
+              "once every N writes.");
+
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value < 0 || value > 100) {
     fprintf(stderr, "Invalid value for --%s: %d, 0<= pct <=100 \n", flagname,

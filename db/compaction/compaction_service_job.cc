@@ -77,7 +77,9 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       dbname_, db_id_, db_session_id_, GetCompactionId(sub_compact),
       thread_pri_, compaction->compaction_reason(),
       compaction->is_full_compaction(), compaction->is_manual_compaction(),
-      compaction->bottommost_level());
+      compaction->bottommost_level(), compaction->start_level(),
+      compaction->output_level());
+
   CompactionServiceScheduleResponse response =
       db_options_.compaction_service->Schedule(info, compaction_input_binary);
   switch (response.status) {

@@ -120,7 +120,8 @@ bool GoodCompressionRatio(size_t compressed_size, size_t uncomp_size,
 // format_version is the block format as defined in include/rocksdb/table.h
 Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
                     CompressionType* type, uint32_t format_version,
-                    bool allow_sample, std::string* compressed_output,
+                    uint64_t sample_for_compression,
+                    std::string* compressed_output,
                     std::string* sampled_output_fast,
                     std::string* sampled_output_slow) {
   assert(type);
@@ -132,9 +133,9 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
   // The users can use these stats to decide if it is worthwhile
   // enabling compression and they also get a hint about which
   // compression algorithm wil be beneficial.
-  if (allow_sample && info.SampleForCompression() &&
+  if (sample_for_compression > 0 &&
       Random::GetTLSInstance()->OneIn(
-          static_cast<int>(info.SampleForCompression()))) {
+          static_cast<int>(sample_for_compression))) {
     // Sampling with a fast compression algorithm
     if (sampled_output_fast && (LZ4_Supported() || Snappy_Supported())) {
       CompressionType c =
@@ -142,8 +143,7 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
       CompressionOptions options;
       CompressionContext context(c, options);
       CompressionInfo info_tmp(options, context,
-                               CompressionDict::GetEmptyDict(), c,
-                               info.SampleForCompression());
+                               CompressionDict::GetEmptyDict(), c);
 
       CompressData(uncompressed_data, info_tmp,
                    GetCompressFormatForVersion(format_version),
@@ -156,8 +156,7 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
       CompressionOptions options;
       CompressionContext context(c, options);
       CompressionInfo info_tmp(options, context,
-                               CompressionDict::GetEmptyDict(), c,
-                               info.SampleForCompression());
+                               CompressionDict::GetEmptyDict(), c);
 
       CompressData(uncompressed_data, info_tmp,
                    GetCompressFormatForVersion(format_version),
@@ -1268,15 +1267,15 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     }
     assert(compression_dict != nullptr);
     CompressionInfo compression_info(r->compression_opts, compression_ctx,
-                                     *compression_dict, *type,
-                                     r->sample_for_compression);
+                                     *compression_dict, *type);
 
     std::string sampled_output_fast;
     std::string sampled_output_slow;
     *block_contents = CompressBlock(
         uncompressed_block_data, compression_info, type,
-        r->table_options.format_version, is_data_block /* allow_sample */,
-        compressed_output, &sampled_output_fast, &sampled_output_slow);
+        r->table_options.format_version,
+        is_data_block ? r->sample_for_compression : 0U, compressed_output,
+        &sampled_output_fast, &sampled_output_slow);
 
     if (sampled_output_slow.size() > 0 || sampled_output_fast.size() > 0) {
       // Currently compression sampling is only enabled for data block.
@@ -1487,6 +1486,8 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
   // Starts empty; see FilterBlockBuilder::AddWithPrevKey
   std::string prev_block_last_key_no_ts;
   while (r->pc_rep->write_queue.pop(slot)) {
+    // FIXME: this is weird popping off write queue just to wait again on
+    // compress queue
     assert(slot != nullptr);
     slot->Take(block_rep);
     assert(block_rep != nullptr);
@@ -1963,12 +1964,16 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
           r->compression_opts.max_dict_bytes, r->compression_opts.level);
     }
   } else {
+    // ZSTD "raw content dictionary" - "Any buffer is a valid raw content
+    // dictionary."
     dict = std::move(compression_dict_samples);
   }
-  r->compression_dict.reset(new CompressionDict(dict, r->compression_type,
-                                                r->compression_opts.level));
-  r->verify_dict.reset(
-      new UncompressionDict(dict, r->compression_type == kZSTD));
+  if (r->table_options.verify_compression) {
+    r->verify_dict.reset(
+        new UncompressionDict(std::string(dict), r->compression_type == kZSTD));
+  }
+  r->compression_dict.reset(new CompressionDict(
+      std::move(dict), r->compression_type, r->compression_opts.level));
 
   auto get_iterator_for_block = [&r](size_t i) {
     auto& data_block = r->data_block_buffers[i];

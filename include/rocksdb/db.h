@@ -31,6 +31,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/user_write_callback.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
@@ -631,6 +632,21 @@ class DB {
                                    UserWriteCallback* /*user_write_cb*/) {
     return Status::NotSupported(
         "WriteWithCallback not implemented for this interface.");
+  }
+
+  // EXPERIMENTAL, subject to change
+  // Ingest a WriteBatchWithIndex into DB, bypassing memtable writes for better
+  // write performance. Useful when there is a large number of updates
+  // in the write batch.
+  // The WriteBatchWithIndex must be created with overwrite_key=true.
+  // Currently this requires WriteOptions::disableWAL=true.
+  // The following options are currently not supported:
+  // - unordered_write
+  // - enable_pipelined_write
+  virtual Status IngestWriteBatchWithIndex(
+      const WriteOptions& /*options*/,
+      std::shared_ptr<WriteBatchWithIndex> /*wbwi*/) {
+    return Status::NotSupported("IngestWriteBatchWithIndex not implemented.");
   }
 
   // If the column family specified by "column_family" contains an entry for
@@ -1782,6 +1798,25 @@ class DB {
   virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                      std::string* ts_low) = 0;
 
+  // EXPERIMENTAL
+  // Get the newest timestamp of the column family. This is only for when the
+  // column family enables user defined timestamp and when timestamps are not
+  // persisted in SST files, a.k.a `persist_user_defined_timestamps=false`.
+  // This checks the mutable memtable, the immutable memtable and the SST files,
+  // and returns the first newest user defined timestamp found.
+  // When user defined timestamp is not persisted in SST files, metadata in
+  // MANIFEST tracks the most recently seen timestamp for SST files, so the
+  // newest timestamp in SST files can be found.
+  // OK status is returned if finding the newest timestamp succeeds, if
+  // `newest_timestamp` is empty, it means the column family hasn't seen any
+  // timestamp. The returned timestamp is encoded, util method `DecodeU64Ts` can
+  // be used to decode it into uint64_t.
+  // User-defined timestamp is required to be increasing per key, the return
+  // value of this API would be most useful if the user-defined timestamp is
+  // monotonically increasing across keys.
+  virtual Status GetNewestUserDefinedTimestamp(
+      ColumnFamilyHandle* column_family, std::string* newest_timestamp) = 0;
+
   // Suspend deleting obsolete files. Compactions will continue to occur,
   // but no obsolete files will be deleted. To resume file deletions, each
   // call to DisableFileDeletions() must be matched by a subsequent call to
@@ -1893,12 +1928,12 @@ class DB {
   // Retrieve information about the current wal file
   //
   // Note that the log might have rolled after this call in which case
-  // the current_log_file would not point to the current log file.
+  // the current_wal_file would not point to the current log file.
   //
-  // Additionally, for the sake of optimization current_log_file->StartSequence
+  // Additionally, for the sake of optimization current_wal_file->StartSequence
   // would always be set to 0
   virtual Status GetCurrentWalFile(
-      std::unique_ptr<WalFile>* current_log_file) = 0;
+      std::unique_ptr<WalFile>* current_wal_file) = 0;
 
   // IngestExternalFile() will load a list of external SST files (1) into the DB
   // Two primary modes are supported:

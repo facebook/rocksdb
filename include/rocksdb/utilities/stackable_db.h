@@ -512,13 +512,18 @@ class StackableDB : public DB {
     return db_->GetFullHistoryTsLow(column_family, ts_low);
   }
 
+  Status GetNewestUserDefinedTimestamp(ColumnFamilyHandle* column_family,
+                                       std::string* newest_timestamp) override {
+    return db_->GetNewestUserDefinedTimestamp(column_family, newest_timestamp);
+  }
+
   Status GetSortedWalFiles(VectorWalPtr& files) override {
     return db_->GetSortedWalFiles(files);
   }
 
   Status GetCurrentWalFile(
-      std::unique_ptr<WalFile>* current_log_file) override {
-    return db_->GetCurrentWalFile(current_log_file);
+      std::unique_ptr<WalFile>* current_wal_file) override {
+    return db_->GetCurrentWalFile(current_wal_file);
   }
 
   Status GetCreationTimeOfOldestFile(uint64_t* creation_time) override {

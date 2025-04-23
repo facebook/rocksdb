@@ -183,14 +183,14 @@ Status DBImpl::GetSortedWalFilesImpl(VectorWalPtr& files, bool need_seqnos) {
   return s;
 }
 
-Status DBImpl::GetCurrentWalFile(std::unique_ptr<WalFile>* current_log_file) {
+Status DBImpl::GetCurrentWalFile(std::unique_ptr<WalFile>* current_wal_file) {
   uint64_t current_logfile_number;
   {
     InstrumentedMutexLock l(&mutex_);
-    current_logfile_number = logfile_number_;
+    current_logfile_number = cur_wal_number_;
   }
 
-  return wal_manager_.GetLiveWalFile(current_logfile_number, current_log_file);
+  return wal_manager_.GetLiveWalFile(current_logfile_number, current_wal_file);
 }
 
 Status DBImpl::GetLiveFilesStorageInfo(
@@ -330,7 +330,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   const uint64_t options_size = versions_->options_file_size_;
   const uint64_t min_log_num = MinLogNumberToKeep();
   // Ensure consistency with manifest for track_and_verify_wals_in_manifest
-  const uint64_t max_log_num = logfile_number_;
+  const uint64_t max_log_num = cur_wal_number_;
 
   mutex_.Unlock();
 

@@ -8924,13 +8924,15 @@ class CommitBypassMemtableTest : public DBTestBase,
   TransactionDBOptions txn_db_opts;
 
   void SetUpTransactionDB(
-      uint32_t threshold = std::numeric_limits<uint32_t>::max()) {
+      uint32_t threshold = std::numeric_limits<uint32_t>::max(),
+      bool atomic_flush = false) {
     options = CurrentOptions();
     options.create_if_missing = true;
     options.allow_2pc = true;
     options.two_write_queues = GetParam();
     // Avoid write stall
     options.max_write_buffer_number = 8;
+    options.atomic_flush = atomic_flush;
     // Destroy the DB to recreate as a TransactionDB.
     Close();
     Destroy(options, true);
@@ -9450,6 +9452,37 @@ TEST_P(CommitBypassMemtableTest, ThresholdTxnDBOption) {
     ASSERT_OK(txn_cf->Commit());
     ASSERT_EQ(commit_bypass_memtable, num_ops > threshold);
     delete txn_cf;
+  }
+}
+
+TEST_P(CommitBypassMemtableTest, AtomicFlushTest) {
+  const uint32_t threshold = 10;
+  SetUpTransactionDB(/*threshold=*/threshold, /*atomic_flush=*/true);
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> cfs = {"cf0", "cf1", "cf2"};
+  CreateColumnFamilies(cfs, options);
+
+  // Seed data in CF1 and 2 as atomic flush picks CFs with non-empty memtable
+  ASSERT_OK(db_->Put({}, handles_[1], "key1", "val1"));
+  ASSERT_OK(db_->Put({}, handles_[2], "key2", "val2"));
+
+  // Write to cf 0, should see cf1 and cf2 flushed too
+  auto txn = txn_db->BeginTransaction({}, {}, nullptr);
+  for (uint32_t i = 0; i <= threshold; ++i) {
+    ASSERT_OK(txn->Put(handles_[0], "key" + std::to_string(i),
+                       "cf0" + std::to_string(i)));
+  }
+  ASSERT_OK(txn->SetName("cf0"));
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  delete txn;
+
+  ASSERT_OK(db_->WaitForCompact({}));
+  for (size_t i = 0; i < 3; ++i) {
+    auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+    ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+    ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
   }
 }
 
