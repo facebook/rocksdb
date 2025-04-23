@@ -868,7 +868,9 @@ Status FlushJob::WriteLevel0Table() {
       ts_sz > 0 && !cfd_->ioptions().persist_user_defined_timestamps;
 
   std::vector<BlobFileAddition> blob_file_additions;
-
+  // Note that here we treat flush as level 0 compaction in internal stats
+  InternalStats::CompactionStats flush_stats(CompactionReason::kFlush,
+                                             1 /* count**/);
   {
     auto write_hint = base_->storage_info()->CalculateSSTWriteHint(
         /*level=*/0, db_options_.calculate_sst_write_lifetime_hint_set);
@@ -887,7 +889,7 @@ Status FlushJob::WriteLevel0Table() {
     ro.total_order_seek = true;
     ro.io_activity = Env::IOActivity::kFlush;
     Arena arena;
-    uint64_t total_num_entries = 0, total_num_deletes = 0;
+    uint64_t total_num_input_entries = 0, total_num_deletes = 0;
     uint64_t total_data_size = 0;
     size_t total_memory_usage = 0;
     uint64_t total_num_range_deletes = 0;
@@ -922,7 +924,7 @@ Status FlushJob::WriteLevel0Table() {
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
-      total_num_entries += m->NumEntries();
+      total_num_input_entries += m->NumEntries();
       total_num_deletes += m->NumDeletion();
       total_data_size += m->GetDataSize();
       total_memory_usage += m->ApproximateMemoryUsage();
@@ -934,11 +936,12 @@ Status FlushJob::WriteLevel0Table() {
     //  "Write Buffer Full", should make update flush_reason_ accordingly.
     event_logger_->Log() << "job" << job_context_->job_id << "event"
                          << "flush_started" << "num_memtables" << mems_.size()
-                         << "num_entries" << total_num_entries << "num_deletes"
-                         << total_num_deletes << "total_data_size"
-                         << total_data_size << "memory_usage"
-                         << total_memory_usage << "num_range_deletes"
-                         << total_num_range_deletes << "flush_reason"
+                         << "total_num_input_entries" << total_num_input_entries
+                         << "num_deletes" << total_num_deletes
+                         << "total_data_size" << total_data_size
+                         << "memory_usage" << total_memory_usage
+                         << "num_range_deletes" << total_num_range_deletes
+                         << "flush_reason"
                          << GetFlushReasonString(flush_reason_);
 
     {
@@ -976,7 +979,6 @@ Status FlushJob::WriteLevel0Table() {
       meta_.oldest_ancester_time = oldest_ancester_time;
       meta_.file_creation_time = current_time;
 
-      uint64_t num_input_entries = 0;
       uint64_t memtable_payload_bytes = 0;
       uint64_t memtable_garbage_bytes = 0;
       IOStatus io_s;
@@ -1010,16 +1012,38 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->internal_stats(), &io_s, io_tracer_,
           BlobFileCreationReason::kFlush, seqno_to_time_mapping_.get(),
           event_logger_, job_context_->job_id, &table_properties_, write_hint,
-          full_history_ts_low, blob_callback_, base_, &num_input_entries,
-          &memtable_payload_bytes, &memtable_garbage_bytes);
+          full_history_ts_low, blob_callback_, base_, &memtable_payload_bytes,
+          &memtable_garbage_bytes, &flush_stats);
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:s", &s);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
       io_s.PermitUncheckedError();
-      if (num_input_entries != total_num_entries && s.ok()) {
-        std::string msg = "Expected " + std::to_string(total_num_entries) +
+      if (s.ok() && total_num_input_entries != flush_stats.num_input_records) {
+        std::string msg = "Expected " +
+                          std::to_string(total_num_input_entries) +
                           " entries in memtables, but read " +
-                          std::to_string(num_input_entries);
+                          std::to_string(flush_stats.num_input_records);
+        ROCKS_LOG_WARN(db_options_.info_log, "[%s] [JOB %d] Level-0 flush %s",
+                       cfd_->GetName().c_str(), job_context_->job_id,
+                       msg.c_str());
+        if (db_options_.flush_verify_memtable_count) {
+          s = Status::Corruption(msg);
+        }
+      }
+
+      // Only verify on table with format collects table properties
+      if (s.ok() &&
+          (mutable_cf_options_.table_factory->IsInstanceOf(
+               TableFactory::kBlockBasedTableName()) ||
+           mutable_cf_options_.table_factory->IsInstanceOf(
+               TableFactory::kPlainTableName())) &&
+          flush_stats.num_output_records != table_properties_.num_entries) {
+        std::string msg =
+            "Number of keys in flush output SST files does not match "
+            "number of keys added to the table. Expected " +
+            std::to_string(flush_stats.num_output_records) + " but there are " +
+            std::to_string(table_properties_.num_entries) +
+            " in output SST files";
         ROCKS_LOG_WARN(db_options_.info_log, "[%s] [JOB %d] Level-0 flush %s",
                        cfd_->GetName().c_str(), job_context_->job_id,
                        msg.c_str());
@@ -1085,12 +1109,10 @@ Status FlushJob::WriteLevel0Table() {
   // Piggyback FlushJobInfo on the first first flushed memtable.
   mems_[0]->SetFlushJobInfo(GetFlushJobInfo());
 
-  // Note that here we treat flush as level 0 compaction in internal stats
-  InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   const uint64_t micros = clock_->NowMicros() - start_micros;
   const uint64_t cpu_micros = clock_->CPUMicros() - start_cpu_micros;
-  stats.micros = micros;
-  stats.cpu_micros = cpu_micros;
+  flush_stats.micros = micros;
+  flush_stats.cpu_micros = cpu_micros;
 
   ROCKS_LOG_INFO(db_options_.info_log,
                  "[%s] [JOB %d] Flush lasted %" PRIu64
@@ -1099,22 +1121,23 @@ Status FlushJob::WriteLevel0Table() {
                  cpu_micros);
 
   if (has_output) {
-    stats.bytes_written = meta_.fd.GetFileSize();
-    stats.num_output_files = 1;
+    flush_stats.bytes_written = meta_.fd.GetFileSize();
+    flush_stats.num_output_files = 1;
   }
 
   const auto& blobs = edit_->GetBlobFileAdditions();
   for (const auto& blob : blobs) {
-    stats.bytes_written_blob += blob.GetTotalBlobBytes();
+    flush_stats.bytes_written_blob += blob.GetTotalBlobBytes();
   }
 
-  stats.num_output_files_blob = static_cast<int>(blobs.size());
+  flush_stats.num_output_files_blob = static_cast<int>(blobs.size());
 
-  RecordTimeToHistogram(stats_, FLUSH_TIME, stats.micros);
-  cfd_->internal_stats()->AddCompactionStats(0 /* level */, thread_pri_, stats);
+  RecordTimeToHistogram(stats_, FLUSH_TIME, flush_stats.micros);
+  cfd_->internal_stats()->AddCompactionStats(0 /* level */, thread_pri_,
+                                             flush_stats);
   cfd_->internal_stats()->AddCFStats(
       InternalStats::BYTES_FLUSHED,
-      stats.bytes_written + stats.bytes_written_blob);
+      flush_stats.bytes_written + flush_stats.bytes_written_blob);
   RecordFlushIOStats();
 
   return s;

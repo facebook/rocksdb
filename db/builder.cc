@@ -74,8 +74,8 @@ Status BuildTable(
     EventLogger* event_logger, int job_id, TableProperties* table_properties,
     Env::WriteLifeTimeHint write_hint, const std::string* full_history_ts_low,
     BlobFileCompletionCallback* blob_callback, Version* version,
-    uint64_t* num_input_entries, uint64_t* memtable_payload_bytes,
-    uint64_t* memtable_garbage_bytes) {
+    uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes,
+    InternalStats::CompactionStats* flush_stats) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -253,6 +253,10 @@ Status BuildTable(
       }
       builder->Add(key_after_flush, value_after_flush);
 
+      if (flush_stats) {
+        flush_stats->num_output_records++;
+      }
+
       s = meta->UpdateBoundaries(key_after_flush, value_after_flush,
                                  ikey.sequence, ikey.type);
       if (!s.ok()) {
@@ -284,6 +288,9 @@ Status BuildTable(
         auto tombstone = range_del_it->Tombstone();
         std::pair<InternalKey, Slice> kv = tombstone.Serialize();
         builder->Add(kv.first.Encode(), kv.second);
+        if (flush_stats) {
+          flush_stats->num_output_records++;
+        }
         InternalKey tombstone_end = tombstone.SerializeEndKey();
         meta->UpdateBoundariesForRange(kv.first, tombstone_end, tombstone.seq_,
                                        tboptions.internal_comparator);
@@ -305,9 +312,9 @@ Status BuildTable(
 
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
     const bool empty = builder->IsEmpty();
-    if (num_input_entries != nullptr) {
+    if (flush_stats) {
       assert(c_iter.HasNumInputEntryScanned());
-      *num_input_entries =
+      flush_stats->num_input_records =
           c_iter.NumInputEntryScanned() + num_unfragmented_tombstones;
     }
     if (!s.ok() || empty) {
