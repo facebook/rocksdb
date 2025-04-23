@@ -4050,6 +4050,23 @@ int main(int argc, char** argv) {
     rocksdb_cache_destroy(lru);
   }
 
+  StartPhase("sst_file_manager");
+  {
+    rocksdb_sst_file_manager_t* sst_file_manager;
+    sst_file_manager = rocksdb_sst_file_manager_create(env);
+    rocksdb_sst_file_manager_set_delete_rate_bytes_per_second(sst_file_manager,
+                                                              1);
+    rocksdb_sst_file_manager_set_max_trash_db_ratio(sst_file_manager, 0.75);
+
+    CheckCondition(1 ==
+                   rocksdb_sst_file_manager_get_delete_rate_bytes_per_second(
+                       sst_file_manager));
+    CheckCondition(0.75 == rocksdb_sst_file_manager_get_max_trash_db_ratio(
+                               sst_file_manager));
+
+    rocksdb_sst_file_manager_destroy(sst_file_manager);
+  }
+
   StartPhase("cancel_all_background_work");
   rocksdb_cancel_all_background_work(db, 1);
 
