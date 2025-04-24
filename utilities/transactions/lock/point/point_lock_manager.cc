@@ -341,6 +341,7 @@ Status PointLockManager::AcquireWithTimeout(
       }
 
       if (result.ok() || result.IsTimedOut()) {
+        wait_ids.clear();
         result = AcquireLocked(lock_map, stripe, key, env, lock_info,
                                &expire_time_hint, &wait_ids);
       }
@@ -472,13 +473,21 @@ bool PointLockManager::IncrementWaiters(
 // Try to lock this key after we have acquired the mutex.
 // Sets *expire_time to the expiration time in microseconds
 //  or 0 if no expiration.
-// REQUIRED:  Stripe mutex must be held.
+//
+// Returns Status::TimeOut if the lock cannot be acquired due to it being
+// held by other transactions, `txn_ids` will be populated with the id of
+// transactions that hold the lock, excluding lock_info.txn_ids[0].
+// Returns Status::Busy if the lock cannot be acquired due to reaching
+// per CF limit on the number of locks.
+//
+// REQUIRED:  Stripe mutex must be held. txn_ids must be empty.
 Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
                                        const std::string& key, Env* env,
                                        const LockInfo& txn_lock_info,
                                        uint64_t* expire_time,
                                        autovector<TransactionID>* txn_ids) {
   assert(txn_lock_info.txn_ids.size() == 1);
+  assert(txn_ids && txn_ids->empty());
 
   Status result;
   // Check if this key is already locked
@@ -507,7 +516,12 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
           // lock_cnt does not change
         } else {
           result = Status::TimedOut(Status::SubCode::kLockTimeout);
-          *txn_ids = lock_info.txn_ids;
+          for (auto id : lock_info.txn_ids) {
+            // A transaction is not blocked by itself
+            if (id != txn_lock_info.txn_ids[0]) {
+              txn_ids->push_back(id);
+            }
+          }
         }
       }
     } else {
