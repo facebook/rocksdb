@@ -6855,8 +6855,11 @@ class ExternalTableReaderTest : public DBTestBase {
 
     Status NewTableReader(
         const ReadOptions& /*read_options*/, const std::string& file_path,
-        const ExternalTableOptions& /*topts*/,
+        const ExternalTableOptions& topts,
         std::unique_ptr<ExternalTableReader>* table_reader) const override {
+      // Sanity check some options
+      EXPECT_EQ(topts.file_options.handoff_checksum_type,
+                ChecksumType::kCRC32c);
       table_reader->reset(new DummyExternalTableReader(file_path));
       return Status::OK();
     }
