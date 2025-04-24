@@ -5,6 +5,8 @@
 
 #include "util/compression.h"
 
+#include "options/options_helper.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 StreamingCompress* StreamingCompress::Create(CompressionType compression_type,
@@ -145,12 +147,11 @@ class BuiltinCompressorV1 : public Compressor {
       ctx = &*tmp_ctx;
     }
     CompressionInfo info(opts_, *ctx, CompressionDict::GetEmptyDict(), type_);
-    if (!CompressData(uncompressed_data, info, 1 /*compress_format_version*/,
-                      compressed_output)) {
+    if (!OLD_CompressData(uncompressed_data, info,
+                          1 /*compress_format_version*/, compressed_output)) {
       *out_compression_type = kNoCompression;
       return Status::OK();
     }
-    // TODO: verify compression, ratio, etc.
     *out_compression_type = type_;
     return Status::OK();
   }
@@ -174,9 +175,10 @@ class BuiltinCompressorV2 : public Compressor {
     if (opts_.max_dict_bytes == 0) {
       // Dictionary compression disabled
       return 0;
+    } else {
+      return opts_.zstd_max_train_bytes > 0 ? opts_.zstd_max_train_bytes
+                                            : opts_.max_dict_bytes;
     }
-    return opts_.zstd_max_train_bytes > 0 ? opts_.zstd_max_train_bytes
-                                          : opts_.max_dict_bytes;
   }
 
   // NOTE: empty dict is equivalent to no dict
@@ -190,6 +192,7 @@ class BuiltinCompressorV2 : public Compressor {
       return nullptr;
     }
     std::string dict_data;
+    // Migrated from BlockBasedTableBuilder::EnterUnbuffered()
     if (type_ == kZSTD && opts_.zstd_max_train_bytes > 0) {
       assert(dict_samples.sample_data.size() <= opts_.zstd_max_train_bytes);
       if (opts_.use_zstd_dict_trainer) {
@@ -227,18 +230,28 @@ class BuiltinCompressorV2 : public Compressor {
     if (wa != nullptr && wa->owner() == this) {
       ctx = static_cast<CompressionContext*>(wa->get());
     }
+    CompressionType type = type_;
+#ifndef NDEBUG
+    if (type != kNoCompression && g_hack_mixed_compression.LoadRelaxed() > 0U) {
+      // If zstd is in the mix, the compression_name table property needs to be
+      // set to it, for proper handling of context and dictionaries.
+      assert(!ZSTD_Supported() || type == kZSTD);
+      const auto& compressions = GetSupportedCompressions();
+      auto counter = g_hack_mixed_compression.FetchAddRelaxed(1);
+      type = compressions[counter % compressions.size()];
+    }
+#endif  // !NDEBUG
     if (ctx == nullptr) {
-      tmp_ctx.emplace(type_, opts_);
+      tmp_ctx.emplace(type, opts_);
       ctx = &*tmp_ctx;
     }
-    CompressionInfo info(opts_, *ctx, dict_, type_);
-    if (!CompressData(uncompressed_data, info, 2 /*compress_format_version*/,
-                      compressed_output)) {
+    CompressionInfo info(opts_, *ctx, dict_, type);
+    if (!OLD_CompressData(uncompressed_data, info,
+                          2 /*compress_format_version*/, compressed_output)) {
       *out_compression_type = kNoCompression;
       return Status::OK();
     }
-    // TODO: verify compression, ratio, etc.
-    *out_compression_type = type_;
+    *out_compression_type = type;
     return Status::OK();
   }
 
@@ -276,16 +289,17 @@ class BuiltinDecompressorV1 : public Decompressor {
                       uint64_t* out_uncompressed_size) {
     assert(args.dict == nullptr);
     assert(args.working_area == nullptr);
-    assert(args.uncompressed_size == 0);
+    assert(*out_uncompressed_size == 0);
 
     // NOTE: simple but inefficient
-    UncompressionContext dummy_ctx{kNoCompression};
+    UncompressionContext dummy_ctx{args.compression_type};
     UncompressionInfo info{dummy_ctx, UncompressionDict::GetEmptyDict(),
                            args.compression_type};
     const char* error_message = nullptr;
-    *out_data = UncompressData(
+    size_t size_t_uncompressed_size = 0;
+    *out_data = OLD_UncompressData(
         info, args.compressed_data.data(), args.compressed_data.size(),
-        out_uncompressed_size, 1 /*compress_format_version*/,
+        &size_t_uncompressed_size, 1 /*compress_format_version*/,
         nullptr /*allocator*/, &error_message);
     if (*out_data == nullptr) {
       if (error_message != nullptr) {
@@ -294,9 +308,40 @@ class BuiltinDecompressorV1 : public Decompressor {
         return Status::Corruption("Corrupted compressed block contents");
       }
     }
+    *out_uncompressed_size = size_t_uncompressed_size;
     assert(*out_uncompressed_size > 0);
     return Status::OK();
   }
+};
+
+class BuiltinCompressionManagerV1 : public CompressionManager {
+ public:
+  BuiltinCompressionManagerV1() = default;
+  ~BuiltinCompressionManagerV1() override = default;
+
+  const char* Name() const override { return "BuiltinCompressionManagerV1"; }
+
+  const char* CompatibilityName() const override { return "BuiltinV1"; }
+
+  std::unique_ptr<Compressor> GetCompressor(const CompressionOptions& opts,
+                                            CompressionType type) override {
+    if (type > kZSTD) {
+      // Unrecognized; fall back on default compression
+      type = ColumnFamilyOptions{}.compression;
+    }
+    if (type == kNoCompression) {
+      return nullptr;
+    } else {
+      return std::make_unique<BuiltinCompressorV1>(opts, type);
+    }
+  }
+
+  std::shared_ptr<Decompressor> GetDecompressor() override {
+    return std::shared_ptr<Decompressor>(shared_from_this(), &decompressor_);
+  }
+
+ protected:
+  BuiltinDecompressorV1 decompressor_;
 };
 
 // Subroutines for BuiltinDecompressorV2
@@ -320,17 +365,54 @@ Status Snappy_DecompressBlock(const Decompressor::Args& args,
 Status Zlib_DecompressBlock(const Decompressor::Args& args,
                             char* uncompressed_output) {
 #ifdef ZLIB
-  uLongf uncompressed_size = args.uncompressed_size;
-  if (Z_OK !=
-      uncompress(reinterpret_cast<Bytef*>(uncompressed_output),
-                 &uncompressed_size,
-                 reinterpret_cast<const Bytef*>(args.compressed_data.data()),
-                 args.compressed_data.size())) {
-    return Status::Corruption("Error decompressing zlib data");
+  // NOTE: uses "raw" format
+  constexpr int kWindowBits = -14;
+
+  z_stream _stream;
+  memset(&_stream, 0, sizeof(z_stream));
+
+  // For raw inflate, the windowBits should be -8..-15.
+  // If windowBits is bigger than zero, it will use either zlib
+  // header or gzip header. Adding 32 to it will do automatic detection.
+  int st = inflateInit2(&_stream, kWindowBits);
+  if (UNLIKELY(st != Z_OK)) {
+    return Status::Corruption("Failed to initialize zlib inflate: " +
+                              std::to_string(st));
   }
-  if (uncompressed_size != args.uncompressed_size) {
+
+  if (args.dict && !args.dict->serialized_dict.empty()) {
+    const Slice& dict = args.dict->serialized_dict;
+    // Initialize the compression library's dictionary
+    st = inflateSetDictionary(&_stream,
+                              reinterpret_cast<const Bytef*>(dict.data()),
+                              static_cast<unsigned int>(dict.size()));
+    if (UNLIKELY(st != Z_OK)) {
+      return Status::Corruption("Failed to initialize zlib dictionary: " +
+                                std::to_string(st));
+    }
+  }
+
+  _stream.next_in = const_cast<Bytef*>(
+      reinterpret_cast<const Bytef*>(args.compressed_data.data()));
+  _stream.avail_in = static_cast<unsigned int>(args.compressed_data.size());
+
+  _stream.next_out = reinterpret_cast<Bytef*>(uncompressed_output);
+  _stream.avail_out = static_cast<unsigned int>(args.uncompressed_size);
+
+  st = inflate(&_stream, Z_SYNC_FLUSH);
+  if (UNLIKELY(st != Z_STREAM_END)) {
+    inflateEnd(&_stream);
+    // NOTE: Z_OK is still corruption because it means we got the size wrong
+    return Status::Corruption("Failed zlib inflate: " + std::to_string(st));
+  }
+
+  // We should have no bytes left
+  if (_stream.avail_out != 0) {
+    inflateEnd(&_stream);
     return Status::Corruption("Size mismatch decompressing zlib data");
   }
+
+  inflateEnd(&_stream);
   return Status::OK();
 #else
   (void)args;
@@ -367,7 +449,7 @@ Status LZ4_DecompressBlock(const Decompressor::Args& args,
   int expected_uncompressed_size = static_cast<int>(args.uncompressed_size);
 #if LZ4_VERSION_NUMBER >= 10400  // r124+
   LZ4_streamDecode_t* stream = LZ4_createStreamDecode();
-  if (args.dict != nullptr) {
+  if (args.dict != nullptr && !args.dict->serialized_dict.empty()) {
     LZ4_setStreamDecode(stream, args.dict->serialized_dict.data(),
                         static_cast<int>(args.dict->serialized_dict.size()));
   }
@@ -377,6 +459,10 @@ Status LZ4_DecompressBlock(const Decompressor::Args& args,
       expected_uncompressed_size);
   LZ4_freeStreamDecode(stream);
 #else   // up to r123
+  if (args.dict != nullptr && !args.dict->serialized_dict.empty()) {
+    return Status::NotSupported(
+        "This build doesn't support dictionary compression with LZ4");
+  }
   int uncompressed_size =
       LZ4_decompress_safe(args.compressed_data.data(), uncompressed_output,
                           static_cast<int>(args.compressed_data.size()),
@@ -401,7 +487,18 @@ Status LZ4_DecompressBlock(const Decompressor::Args& args,
 Status XPRESS_DecompressBlock(const Decompressor::Args& args,
                               char* uncompressed_output) {
 #ifdef XPRESS
-  FIXME();
+  int64_t actual_uncompressed_size = port::xpress::DecompressToBuffer(
+      args.compressed_data.data(), args.compressed_data.size(),
+      uncompressed_output, args.uncompressed_size);
+  if (actual_uncompressed_size !=
+      static_cast<int64_t>(args.uncompressed_size)) {
+    if (actual_uncompressed_size < 0) {
+      return Status::Corruption("Error decompressing XPRESS data");
+    } else {
+      return Status::Corruption("Size mismatch decompressing XPRESS data");
+    }
+  }
+  return Status::OK();
 #else
   (void)args;
   (void)uncompressed_output;
@@ -434,7 +531,8 @@ Status ZSTD_DecompressBlockWithContext(
         args.dict->serialized_dict.data(), args.dict->serialized_dict.size());
   }
   if (ZSTD_isError(uncompressed_size)) {
-    return Status::Corruption(ZSTD_getErrorName(uncompressed_size));
+    return Status::Corruption(std::string("ZSTD ") +
+                              ZSTD_getErrorName(uncompressed_size));
   } else if (uncompressed_size != args.uncompressed_size) {
     return Status::Corruption("ZSTD decompression size mismatch");
   } else {
@@ -442,6 +540,7 @@ Status ZSTD_DecompressBlockWithContext(
   }
 #else
   (void)args;
+  (void)zstd_context;
   (void)uncompressed_output;
   return Status::NotSupported("ZSTD not supported in this build");
 #endif
@@ -509,11 +608,12 @@ class BuiltinDecompressorV2 : public Decompressor {
   }
 };
 
-class BuiltinDecompressorV2OptimizeZSTD : public BuiltinDecompressorV2 {
+class BuiltinDecompressorV2OptimizeZstd : public BuiltinDecompressorV2 {
  protected:
   WorkingArea* GetWorkingAreaImpl(CompressionType preferred) override {
     if (preferred == kZSTD) {
-      // TODO: evaluate whether it makes sense to use core local cache here
+      // TODO: evaluate whether it makes sense to use core local cache here.
+      // (Perhaps not, because explicit WorkingArea could be long-running.)
       return static_cast<WorkingArea*>(new UncompressionContext(kZSTD));
     } else {
       return nullptr;
@@ -579,27 +679,115 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
   BuiltinCompressionManagerV2() = default;
   ~BuiltinCompressionManagerV2() override = default;
 
+  const char* Name() const override { return "BuiltinCompressionManagerV2"; }
+
+  const char* CompatibilityName() const override { return "BuiltinV2"; }
+
   std::unique_ptr<Compressor> GetCompressor(const CompressionOptions& opts,
                                             CompressionType type) override {
-    return std::make_unique<BuiltinCompressorV2>(opts, type);
+    if (opts.max_compressed_bytes_per_kb <= 0) {
+      // No acceptable compression ratio => no compression
+      return nullptr;
+    }
+    if (type > kZSTD) {
+      // Unrecognized; fall back on default compression
+      type = ColumnFamilyOptions{}.compression;
+    }
+    if (type == kNoCompression) {
+      return nullptr;
+    } else {
+      return std::make_unique<BuiltinCompressorV2>(opts, type);
+    }
   }
 
   std::shared_ptr<Decompressor> GetDecompressor() override {
-    return std::shared_ptr<Decompressor>(shared_from_this(), &decompressor_);
+    return GetGeneralDecompressor();
   }
 
-  Status FindCompressionManager(Slice compatibility_name) override {
-    return FindBuiltinCompressionManager(compatibility_name);
+  std::shared_ptr<Decompressor> GetDecompressorOptimizeFor(
+      CompressionType optimize_for_type) override {
+    if (optimize_for_type == kZSTD) {
+      return GetZstdDecompressor();
+    } else {
+      return GetGeneralDecompressor();
+    }
+  }
+
+  std::shared_ptr<Decompressor> GetDecompressorForTypes(Slice types) override {
+    auto begin = types.data();
+    auto end = begin + types.size();
+    if (std::find(begin, end, static_cast<char>(kZSTD))) {
+      return GetZstdDecompressor();
+    } else {
+      return GetGeneralDecompressor();
+    }
   }
 
  protected:
   BuiltinDecompressorV2 decompressor_;
+  BuiltinDecompressorV2OptimizeZstd zstd_decompressor_;
+
+  inline std::shared_ptr<Decompressor> GetGeneralDecompressor() {
+    return std::shared_ptr<Decompressor>(shared_from_this(), &decompressor_);
+  }
+
+  inline std::shared_ptr<Decompressor> GetZstdDecompressor() {
+    return std::shared_ptr<Decompressor>(shared_from_this(),
+                                         &zstd_decompressor_);
+  }
 };
 
+const std::shared_ptr<BuiltinCompressionManagerV1>
+    kBuiltinCompressionManagerV1 =
+        std::make_shared<BuiltinCompressionManagerV1>();
+const std::shared_ptr<BuiltinCompressionManagerV2>
+    kBuiltinCompressionManagerV2 =
+        std::make_shared<BuiltinCompressionManagerV2>();
+
 }  // namespace
+
+Status CompressionManager::FindCompatibleCompressionManager(
+    Slice compatibility_name, std::shared_ptr<CompressionManager>* out) {
+  if (compatibility_name.compare(CompatibilityName()) == 0) {
+    *out = shared_from_this();
+    return Status::OK();
+  } else if (compatibility_name.compare(
+                 kBuiltinCompressionManagerV1->CompatibilityName()) == 0) {
+    *out = kBuiltinCompressionManagerV1;
+    return Status::OK();
+  } else if (compatibility_name.compare(
+                 kBuiltinCompressionManagerV2->CompatibilityName()) == 0) {
+    *out = kBuiltinCompressionManagerV2;
+    return Status::OK();
+  } else {
+    return Status::NotFound("Compatible compression manager for \"" +
+                            compatibility_name.ToString() + "\"");
+  }
+}
+
+const std::shared_ptr<CompressionManager>& GetBuiltinCompressionManager(
+    int compression_format_version) {
+  static const std::shared_ptr<CompressionManager> v1_as_base =
+      kBuiltinCompressionManagerV1;
+  static const std::shared_ptr<CompressionManager> v2_as_base =
+      kBuiltinCompressionManagerV2;
+  static const std::shared_ptr<CompressionManager> none;
+  if (compression_format_version == 1) {
+    return v1_as_base;
+  } else if (compression_format_version == 2) {
+    return v2_as_base;
+  } else {
+    // Unrecognized. In some cases this is unexpected and the caller can
+    // rightfully crash.
+    return none;
+  }
+}
 
 // ***********************************************************************
 // END built-in implementation of customization interface
 // ***********************************************************************
 
+#ifndef NDEBUG
+RelaxedAtomic<uint64_t> g_hack_mixed_compression{0};
+#endif  // !NDEBUG
 }  // namespace ROCKSDB_NAMESPACE

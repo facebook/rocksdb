@@ -85,7 +85,9 @@ class UnownedPtr {
   T* ptr_ = nullptr;
 };
 
-// TODO: doc
+// A smart pointer that tracks an object and an owner, using a statically
+// determined function on those to reclaim the object, if both object and owner
+// are non-null
 template <typename T, class Owner, auto Fn>
 class ManagedPtr {
  public:

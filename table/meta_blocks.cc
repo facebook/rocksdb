@@ -282,7 +282,7 @@ Status ReadTablePropertiesHelper(
       BlockFetcher block_fetcher(
           file, prefetch_buffer, footer, modified_ro, handle, &block_contents,
           ioptions, false /* decompress */, false /*maybe_compressed*/,
-          BlockType::kProperties, UncompressionDict::GetEmptyDict(),
+          BlockType::kProperties, nullptr /*decompressor*/, nullptr /*dict*/,
           PersistentCacheOptions::kEmpty, memory_allocator);
       s = block_fetcher.ReadBlockContents();
       if (!s.ok()) {
@@ -585,8 +585,9 @@ Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
   return BlockFetcher(file, prefetch_buffer, footer, read_options,
                       metaindex_handle, metaindex_contents, ioptions,
                       false /* do decompression */, false /*maybe_compressed*/,
-                      BlockType::kMetaIndex, UncompressionDict::GetEmptyDict(),
-                      PersistentCacheOptions::kEmpty, memory_allocator)
+                      BlockType::kMetaIndex, nullptr /*decompressor*/,
+                      nullptr /*dict*/, PersistentCacheOptions::kEmpty,
+                      memory_allocator)
       .ReadBlockContents();
 }
 
@@ -638,7 +639,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
   return BlockFetcher(file, prefetch_buffer, footer, read_options, block_handle,
                       contents, ioptions, false /* decompress */,
                       false /*maybe_compressed*/, block_type,
-                      UncompressionDict::GetEmptyDict(),
+                      nullptr /*decompressor*/, nullptr /*dict*/,
                       PersistentCacheOptions::kEmpty, memory_allocator)
       .ReadBlockContents();
 }

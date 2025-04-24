@@ -420,20 +420,22 @@ struct BlockContents {
 // contents are returned in `out_contents`.
 // format_version is as defined in include/rocksdb/table.h, which is
 // used to determine compression format version.
-Status UncompressSerializedBlock(const UncompressionInfo& info,
-                                 const char* data, size_t size,
+Status UncompressSerializedBlock(const char* data, size_t size,
+                                 CompressionType type,
+                                 Decompressor& decompressor,
+                                 UnownedPtr<const Decompressor::DictArg> dict,
                                  BlockContents* out_contents,
-                                 uint32_t format_version,
                                  const ImmutableOptions& ioptions,
                                  MemoryAllocator* allocator = nullptr);
 
 // This is a variant of UncompressSerializedBlock that does not expect a
 // block trailer beyond `size`. (CompressionType is taken from `info`.)
-Status UncompressBlockData(const UncompressionInfo& info, const char* data,
-                           size_t size, BlockContents* out_contents,
-                           uint32_t format_version,
-                           const ImmutableOptions& ioptions,
-                           MemoryAllocator* allocator = nullptr);
+Status UncompressBlockData(
+    const char* data, size_t size, CompressionType type,
+    Decompressor& decompressor, UnownedPtr<const Decompressor::DictArg> dict,
+    BlockContents* out_contents, const ImmutableOptions& ioptions,
+    MemoryAllocator* allocator = nullptr,
+    Decompressor::ManagedWorkingArea* working_area = nullptr);
 
 // Replace db_host_id contents with the real hostname if necessary
 Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);

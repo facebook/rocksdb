@@ -151,7 +151,7 @@ char* Decompress(const char* input_data, size_t input_length,
     return nullptr;
   }
 
-  std::unique_ptr<void, decltype(CloseDecompressorFun)> compressorGuard(
+  std::unique_ptr<void, decltype(CloseDecompressorFun)> decompressorGuard(
       decompressor, CloseDecompressorFun);
 
   SIZE_T decompressedBufferSize = 0;
@@ -201,6 +201,46 @@ char* Decompress(const char* input_data, size_t input_length,
   // Return the raw buffer to the caller supporting the tradition
   return outputBuffer.release();
 }
+
+int64_t DecompressToBuffer(const char* input, size_t input_length, char* output,
+                           size_t output_length) {
+  assert(input != nullptr);
+  assert(output != nullptr);
+
+  DECOMPRESSOR_HANDLE decompressor = NULL;
+
+  BOOL success =
+      CreateDecompressor(COMPRESS_ALGORITHM_XPRESS,  //  Compression Algorithm
+                         allocRoutinesPtr,  //  Optional allocation routine
+                         &decompressor);    //  Handle
+
+  if (!success) {
+#ifdef _DEBUG
+    std::cerr << "XPRESS: Failed to create Decompressor LastError "
+              << GetLastError() << std::endl;
+#endif
+    return -1;
+  }
+
+  std::unique_ptr<void, decltype(CloseDecompressorFun)> decompressorGuard(
+      decompressor, CloseDecompressorFun);
+
+  SIZE_T decompressedDataSize = 0;
+
+  success = ::Decompress(decompressor, const_cast<char*>(input), input_length,
+                         output, output_length, &decompressedDataSize);
+
+  if (!success) {
+#ifdef _DEBUG
+    std::cerr << "XPRESS: Failed to decompress LastError " << GetLastError()
+              << std::endl;
+#endif
+    return -1;
+  }
+
+  return static_cast<int64_t>(decompressedDataSize);
+}
+
 }  // namespace xpress
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
