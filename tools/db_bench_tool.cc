@@ -1284,6 +1284,10 @@ DEFINE_uint32(memtable_op_scan_flush_trigger,
                   .memtable_op_scan_flush_trigger,
               "Setting for CF option memtable_op_scan_flush_trigger.");
 
+DEFINE_bool(track_write_time_user_property, false,
+            "When set to true, track aggregated data write time in SST files' "
+            "user collected table properties");
+
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
@@ -4752,6 +4756,18 @@ class Benchmark {
     options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
     options.memtable_op_scan_flush_trigger =
         FLAGS_memtable_op_scan_flush_trigger;
+    std::shared_ptr<TablePropertiesCollectorFactory> factory;
+    std::string factory_name = CompactForTieringCollectorFactory::kClassName();
+    Status status = TablePropertiesCollectorFactory::CreateFromString(
+        config_options, "compaction_trigger_ratio=0.0; id=" + factory_name,
+        &factory);
+    assert(s.ok());
+    auto collector_factory =
+        factory->CheckedCast<CompactForTieringCollectorFactory>();
+    collector_factory->SetTrackDataWriteTime(
+        FLAGS_track_write_time_user_property);
+    options.table_properties_collector_factories.clear();
+    options.table_properties_collector_factories.push_back(factory);
   }
 
   void InitializeOptionsGeneral(Options* opts, ToolHooks& hooks) {
