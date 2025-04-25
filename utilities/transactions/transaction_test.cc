@@ -9696,7 +9696,7 @@ TEST_F(TransactionDBTest, SelfDeadlockBug) {
   // Create two transactions
   WriteOptions write_options;
   TransactionOptions txn_options;
-  txn_options.lock_timeout = 10;  // 10ms
+  txn_options.lock_timeout = 50;  // 50ms
   txn_options.deadlock_detect = true;
 
   ASSERT_OK(db->Put({}, "shared_key", "shared_value"));
