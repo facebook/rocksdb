@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.2.1 (04/24/2025)
+### Bug Fixes
+* Fix improper initialization of ExternalTableOptions
+
 ## 10.2.0 (04/21/2025)
 ### New Features
 * Provide histogram stats `COMPACTION_PREFETCH_BYTES` to measure number of bytes for RocksDB's prefetching (as opposed to file
