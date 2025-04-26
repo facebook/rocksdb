@@ -9689,6 +9689,50 @@ TEST_P(CommitBypassMemtableTest, MergeMiniStress) {
     VerifyDBFromMap(expected_cf, nullptr, false, nullptr, handles_[0]);
   }
 }
+
+TEST_F(TransactionDBTest, SelfDeadlockBug) {
+  ASSERT_OK(ReOpen());
+
+  // Create two transactions
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  txn_options.lock_timeout = 50;  // 50ms
+  txn_options.deadlock_detect = true;
+
+  ASSERT_OK(db->Put({}, "shared_key", "shared_value"));
+
+  // First transaction
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+  ASSERT_OK(txn1->SetName("txn1"));
+
+  // Second transaction
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn2);
+  ASSERT_OK(txn2->SetName("txn2"));
+
+  // Both transactions acquire shared lock on the same key.
+  std::string value;
+  ASSERT_OK(txn1->GetForUpdate(ReadOptions(), "shared_key", &value,
+                               /*exclusive=*/false));
+  ASSERT_OK(txn2->GetForUpdate(ReadOptions(), "shared_key", &value,
+                               /*exclusive=*/false));
+
+  // Second transaction tries to upgrade to exclusive lock, which should
+  // timeout.
+  Status s = txn1->Put({}, "shared_key", "val");
+  // Print out the deadlock info buffer
+  ASSERT_TRUE(db->GetDeadlockInfoBuffer().empty());
+  ASSERT_TRUE(s.IsTimedOut());
+  ASSERT_EQ(s.ToString(), "Operation timed out: Timeout waiting to lock key");
+
+  // After release lock from txn2, txn1 should be able to proceed.
+  ASSERT_OK(txn2->Rollback());
+  ASSERT_OK(txn1->Put({}, "shared_key", "val"));
+  ASSERT_OK(txn1->Rollback());
+  delete txn1;
+  delete txn2;
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
