@@ -13,6 +13,7 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
+#include "rocksjni/portal/common.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -23,7 +24,6 @@ enum FilterPolicyTypeJni {
   kBloomFilterPolicy = 0x01,
   kRibbonFilterPolicy = 0x02,
 };
-
 class FilterPolicyJni
     : public RocksDBNativeClass<
           std::shared_ptr<ROCKSDB_NAMESPACE::FilterPolicy>*, FilterPolicyJni> {

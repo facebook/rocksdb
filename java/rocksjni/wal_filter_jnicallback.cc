@@ -8,7 +8,6 @@
 
 #include "rocksjni/wal_filter_jnicallback.h"
 
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/abstract_wal_filter_jni.h"
 #include "rocksjni/portal/wal_processing_option_jni.h"
 namespace ROCKSDB_NAMESPACE {

@@ -13,6 +13,11 @@
 
 #include "rocksjni/cplusplus_to_java_convert.h"
 
+// Remove macro on windows
+#ifdef DELETE
+#undef DELETE
+#endif
+
 #include "rocksjni/portal/java_class.h"
 #include "rocksjni/portal/java_exception.h"
 #include "rocksjni/portal/rocks_d_b_native_class.h"

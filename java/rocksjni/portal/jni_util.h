@@ -13,6 +13,7 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
+#include "rocksjni/portal/common.h"
 
 namespace ROCKSDB_NAMESPACE {
 // various utility functions for working with RocksDB and JNI
