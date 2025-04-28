@@ -909,7 +909,7 @@ Status DBImplSecondary::CompactWithoutInstallation(
     ROCKS_LOG_ERROR(
         immutable_db_options_.info_log,
         "GetCompactionInputsFromFileNumbers() failed - %s.\n DebugString: %s",
-        s.ToString().c_str(), version->DebugString().c_str());
+        s.ToString().c_str(), version->DebugString(/*hex=*/true).c_str());
     return s;
   }
 
