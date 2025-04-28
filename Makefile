@@ -2489,7 +2489,7 @@ checkout_folly:
 	fi
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically
-	cd third-party/folly && git reset --hard 78286282478e1ae05b2e8cbcf0e2139eab283bea
+	cd third-party/folly && git reset --hard 8e8186f67de7a23d3a07366946b1617343927d84
 	@# NOTE: this hack is required for clang in some cases
 	perl -pi -e 's/int rv = syscall/int rv = (int)syscall/' third-party/folly/folly/detail/Futex.cpp
 	@# NOTE: this hack is required for gcc in some cases
