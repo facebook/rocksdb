@@ -8,7 +8,19 @@
 
 #include "rocksjni/event_listener_jnicallback.h"
 
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/abstract_event_listener_jni.h"
+#include "rocksjni/portal/column_family_handle_jni.h"
+#include "rocksjni/portal/compaction_job_info_jni.h"
+#include "rocksjni/portal/file_operation_info_jni.h"
+#include "rocksjni/portal/table_properties_jni.h"
+#include "rocksjni/portal/table_file_creation_brief_info_jni.h"
+#include "rocksjni/portal/table_file_creation_info_jni.h"
+#include "rocksjni/portal/table_file_deletion_info_jni.h"
+#include "rocksjni/portal/flush_job_info_jni.h"
+#include "rocksjni/portal/mem_table_info_jni.h"
+#include "rocksjni/portal/external_file_ingestion_info_jni.h"
+#include "rocksjni/portal/write_stall_info_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 EventListenerJniCallback::EventListenerJniCallback(

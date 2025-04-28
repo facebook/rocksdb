@@ -9,7 +9,7 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_AbstractTraceWriter.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
+#include "rocksjni/portal/common.h"
 #include "rocksjni/trace_writer_jnicallback.h"
 
 /*

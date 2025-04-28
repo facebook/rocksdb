@@ -14,7 +14,7 @@
 
 #include "include/org_rocksdb_PersistentCache.h"
 #include "loggerjnicallback.h"
-#include "portal.h"
+#include "portal/common.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 
 /*

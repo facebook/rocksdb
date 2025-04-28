@@ -12,8 +12,12 @@
 
 #include "include/org_rocksdb_BackupEngine.h"
 #include "rocksdb/utilities/backup_engine.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/loggerjnicallback.h"
+#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/list_jni.h"
+#include "rocksjni/portal/backup_info_jni.h"
+#include "rocksjni/portal/backup_info_list_jni.h"
+#include "rocksjni/portal/logger_jni.h"
 
 /*
  * Class:     org_rocksdb_BackupEngine

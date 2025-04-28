@@ -11,7 +11,11 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_ThreadStatus.h"
-#include "portal.h"
+#include "portal/common.h"
+#include "portal/operation_stage_jni.h"
+#include "portal/operation_type_jni.h"
+#include "portal/state_type_jni.h"
+#include "portal/thread_type_jni.h"
 
 /*
  * Class:     org_rocksdb_ThreadStatus

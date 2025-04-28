@@ -17,8 +17,11 @@
 #include "include/org_rocksdb_TransactionDB.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/deadlock_info_jni.h"
+#include "rocksjni/portal/deadlock_path_jni.h"
+#include "rocksjni/portal/key_lock_info_jni.h"
+#include "rocksjni/portal/transaction_d_b_jni.h"
 
 /*
  * Class:     org_rocksdb_TransactionDB

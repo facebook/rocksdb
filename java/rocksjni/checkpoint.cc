@@ -16,8 +16,7 @@
 
 #include "include/org_rocksdb_Checkpoint.h"
 #include "rocksdb/db.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/common.h"
 /*
  * Class:     org_rocksdb_Checkpoint
  * Method:    newCheckpoint

@@ -6,7 +6,7 @@
 
 #include "include/org_rocksdb_ExportImportFilesMetaData.h"
 #include "include/org_rocksdb_LiveFileMetaData.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/common.h"
 
 /*
  * Class:     org_rocksdb_ExportImportFilesMetaData
