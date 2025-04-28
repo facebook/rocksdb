@@ -13,6 +13,8 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
+#include "rocksjni/portal/common.h"
+#include "rocksjni/writebatchhandlerjnicallback.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for org.rocksdb.WriteBatch.Handler
