@@ -16,7 +16,13 @@
 #include "include/org_rocksdb_RocksEnv.h"
 #include "include/org_rocksdb_RocksMemEnv.h"
 #include "include/org_rocksdb_TimedEnv.h"
-#include "portal.h"
+#include "portal/common.h"
+#include "portal/operation_stage_jni.h"
+#include "portal/operation_type_jni.h"
+#include "portal/priority_jni.h"
+#include "portal/state_type_jni.h"
+#include "portal/thread_type_jni.h"
+#include "portal/thread_status_jni.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 
 /*

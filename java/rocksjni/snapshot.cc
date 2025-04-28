@@ -11,7 +11,6 @@
 
 #include "include/org_rocksdb_Snapshot.h"
 #include "rocksdb/db.h"
-#include "rocksjni/portal.h"
 
 /*
  * Class:     org_rocksdb_Snapshot

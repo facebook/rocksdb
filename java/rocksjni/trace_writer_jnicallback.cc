@@ -8,7 +8,8 @@
 
 #include "rocksjni/trace_writer_jnicallback.h"
 
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/abstract_trace_writer_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 TraceWriterJniCallback::TraceWriterJniCallback(JNIEnv* env,

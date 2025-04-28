@@ -14,8 +14,11 @@
 #include <set>
 
 #include "include/org_rocksdb_Statistics.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/histogram_data_jni.h"
+#include "rocksjni/portal/histogram_type_jni.h"
+#include "rocksjni/portal/stats_level_jni.h"
+#include "rocksjni/portal/ticker_type_jni.h"
 #include "rocksjni/statisticsjni.h"
 
 /*

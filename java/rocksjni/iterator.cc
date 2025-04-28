@@ -15,7 +15,7 @@
 #include <algorithm>
 
 #include "include/org_rocksdb_RocksIterator.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/common.h"
 
 /*
  * Class:     org_rocksdb_RocksIterator

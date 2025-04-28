@@ -6,7 +6,7 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_PerfContext.h"
-#include "portal.h"
+#include "portal/common.h"
 #include "rocksdb/db.h"
 #include "rocksdb/perf_context.h"
 

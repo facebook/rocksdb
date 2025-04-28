@@ -8,8 +8,8 @@
 
 #include "rocksjni/jni_multiget_helpers.h"
 
-#include "jni_multiget_helpers.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/out_of_memory_error_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 

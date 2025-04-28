@@ -21,7 +21,6 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "rocksjni/portal.h"
 #include "test_util/testharness.h"
 #include "util/string_util.h"
 

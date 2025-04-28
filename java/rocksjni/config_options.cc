@@ -11,8 +11,8 @@
 
 #include "include/org_rocksdb_ConfigOptions.h"
 #include "rocksdb/convenience.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/sanity_level_jni.h"
 
 /*
  * Class:     org_rocksdb_ConfigOptions

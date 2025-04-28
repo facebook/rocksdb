@@ -12,7 +12,7 @@
 
 #include "include/org_rocksdb_SstFileReaderIterator.h"
 #include "rocksdb/iterator.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/common.h"
 
 /*
  * Class:     org_rocksdb_SstFileReaderIterator
