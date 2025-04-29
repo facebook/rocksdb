@@ -105,7 +105,12 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   commit_timestamp_ = kMaxTxnTimestamp;
 
   if (txn_options.commit_bypass_memtable) {
-    commit_bypass_memtable_threshold_ = 0;
+    // No need to optimize for empty transction
+    commit_bypass_memtable_threshold_ = 1;
+  } else if (txn_options.large_txn_commit_optimize_threshold !=
+             std::numeric_limits<uint32_t>::max()) {
+    commit_bypass_memtable_threshold_ =
+        txn_options.large_txn_commit_optimize_threshold;
   } else {
     commit_bypass_memtable_threshold_ =
         db_options.txn_commit_bypass_memtable_threshold;
@@ -887,7 +892,7 @@ Status WriteCommittedTxn::CommitInternal() {
   // any operations appended to this working_batch will be ignored from WAL
   working_batch->MarkWalTerminationPoint();
 
-  bool bypass_memtable = wb->Count() > commit_bypass_memtable_threshold_;
+  bool bypass_memtable = wb->Count() >= commit_bypass_memtable_threshold_;
   if (!bypass_memtable) {
     // insert prepared batch into Memtable only skipping WAL.
     // Memtable will ignore BeginPrepare/EndPrepare markers

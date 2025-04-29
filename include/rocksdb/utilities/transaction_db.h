@@ -254,10 +254,12 @@ struct TransactionDBOptions {
   // for more details.
   std::vector<std::shared_ptr<SecondaryIndex>> secondary_indices;
 
-  // EXPERIMENTAL, SUBJECT TO CHANGE
+  // Deprecated, this option may be removed in the future.
+  // Use TransactionOptions::large_txn_commit_optimize_threshold instead.
+  //
   // This option is only valid for write committed. If the number of updates in
-  // a transaction exceeds this threshold, then the transaction commit will skip
-  // insertions into memtable as an optimization to reduce commit latency.
+  // a transaction is at least this threshold, then the transaction commit will
+  // skip insertions into memtable as an optimization to reduce commit latency.
   // See comment for TransactionOptions::commit_bypass_memtable for more detail.
   // Setting TransactionOptions::commit_bypass_memtable to true takes precedence
   // over this option.
@@ -387,6 +389,13 @@ struct TransactionOptions {
   // can cause flush/compaction to report `num_single_del_mismatch` due to
   // consecutive SingleDeletes.
   bool commit_bypass_memtable = false;
+
+  // EXPERIMENTAL, SUBJECT TO CHANGE
+  // When the number of updates in a transaction is at least this threshold,
+  // we will enable optimizations for commiting a large transaction. See
+  // comment for `commit_bypass_memtable` for more optimization detail.
+  uint32_t large_txn_commit_optimize_threshold =
+      std::numeric_limits<uint32_t>::max();
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB
