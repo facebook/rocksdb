@@ -26,10 +26,19 @@ class DbStressTablePropertiesCollector : public TablePropertiesCollector {
   Status AddUserKey(const Slice& /* key */, const Slice& /* value */,
                     EntryType /*type*/, SequenceNumber /*seq*/,
                     uint64_t /*file_size*/) override {
+    ++keys_added;
     return Status::OK();
   }
 
-  Status Finish(UserCollectedProperties* /* properties */) override {
+  void BlockAdd(uint64_t /* block_uncomp_bytes */,
+                uint64_t /* block_compressed_bytes_fast */,
+                uint64_t /* block_compressed_bytes_slow */) override {
+    ++blocks_added;
+  }
+
+  Status Finish(UserCollectedProperties* properties) override {
+    (*properties)["db_stress_collector_property"] =
+        std::to_string(keys_added) + ";" + std::to_string(blocks_added);
     return Status::OK();
   }
 
@@ -45,6 +54,11 @@ class DbStressTablePropertiesCollector : public TablePropertiesCollector {
 
  private:
   const bool need_compact_;
+  // These are tracked to detect race conditions that would arise from RocksDB
+  // invoking TablePropertiesCollector functions in an unsynchronized way, as
+  // TablePropertiesCollectors are allowed (encouraged) not to be thread safe.
+  size_t keys_added = 0;
+  size_t blocks_added = 0;
 };
 
 // A `DbStressTablePropertiesCollectorFactory` creates

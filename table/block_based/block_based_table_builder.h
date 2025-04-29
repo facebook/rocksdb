@@ -161,6 +161,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   Rep* rep_;
 
   struct ParallelCompressionRep;
+  struct BlockRepBase;
 
   // Advanced operation: flush any buffered key/value pairs to file.
   // Can be used to ensure that two adjacent entries never live in
@@ -184,10 +185,7 @@ class BlockBasedTableBuilder : public TableBuilder {
                               bool is_data_block,
                               const CompressionContext& compression_ctx,
                               UncompressionContext* verify_ctx,
-                              std::string* compressed_output,
-                              Slice* result_block_contents,
-                              CompressionType* result_compression_type,
-                              Status* out_status);
+                              BlockRepBase* compressed_out, Status* out_status);
 
   // Get compressed blocks from BGWorkCompression and write them into SST
   void BGWorkWriteMaybeCompressedBlock();
@@ -202,10 +200,7 @@ class BlockBasedTableBuilder : public TableBuilder {
 
 Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
                     CompressionType* type, uint32_t format_version,
-                    uint64_t sample_for_compression,
-                    std::string* compressed_output,
-                    std::string* sampled_output_fast,
-                    std::string* sampled_output_slow);
+                    std::string* compressed_output);
 
 #ifndef NDEBUG
 // 0 == disable the hack
