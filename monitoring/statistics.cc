@@ -263,7 +263,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {FIFO_MAX_SIZE_COMPACTIONS, "rocksdb.fifo.max.size.compactions"},
     {FIFO_TTL_COMPACTIONS, "rocksdb.fifo.ttl.compactions"},
     {FIFO_CHANGE_TEMPERATURE_COMPACTIONS,
-     "rocksdb.fifo.change_temperature.trivial.copy.count"},
+     "rocksdb.fifo.change_temperature.compactions"},
     {PREFETCH_BYTES, "rocksdb.prefetch.bytes"},
     {PREFETCH_BYTES_USEFUL, "rocksdb.prefetch.bytes.useful"},
     {PREFETCH_HITS, "rocksdb.prefetch.hits"},

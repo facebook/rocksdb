@@ -3788,12 +3788,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
     if (status.ok() && io_s.ok()) {
-      UpdateDeletionCompactionStats(c);
+      UpdateFIFOCompactionStatus(c);
     }
     *made_progress = true;
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
                              c->column_family_data());
-  } else if (c->is_fifo_change_temperature_trivial_copy()) {
+  } else if (c->is_trivial_copy_compaction()) {
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction::BeforeCompaction",
                              c->column_family_data());
     assert(c->num_input_files(1) == 0);
@@ -3841,6 +3841,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         IOStatus writable_file_io_status =
             immutable_db_options_.fs.get()->NewWritableFile(
                 out_fname, copied_file_options, &dest_file, nullptr /* dbg */);
+        TEST_SYNC_POINT_CALLBACK(
+            "NewWritableFile::FileOptions.temperature",
+            const_cast<Temperature*>(&copied_file_options.temperature));
         if (!writable_file_io_status.ok()) {
           io_s = writable_file_io_status;
           ROCKS_LOG_BUFFER(
@@ -3872,34 +3875,51 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           temperature_to_string[in_file->temperature].c_str(),
           out_fname.c_str(),
           temperature_to_string[c->output_temperature()].c_str(),
-          c->fifo_change_temperature_trivial_copy_buffer_size());
+          c->mutable_cf_options()
+              .compaction_options_fifo.trivial_copy_buffer_size);
       // Add IO_LOW HINT for compaction
       IOOptions copy_files_compaction_io_options;
       copy_files_compaction_io_options.rate_limiter_priority =
           Env::IOPriority::IO_LOW;
       copy_files_compaction_io_options.type = IOType::kData;
+      copy_files_compaction_io_options.io_activity =
+          Env::IOActivity::kCompaction;
 
       IOStatus copy_file_io_status = CopyFile(
           immutable_db_options_.fs.get() /* fileSystem */,
           in_fname /* source */, in_file->temperature /* src_temp_hint */,
           dest_writer /* dest_writer */, 0 /* size */, true /* use_fsync */,
           io_tracer_ /* io_tracer*/,
-          c->fifo_change_temperature_trivial_copy_buffer_size() /* max_read_buffer_size
-                                                                 */
+          c->mutable_cf_options()
+              .compaction_options_fifo
+              .trivial_copy_buffer_size /* max_read_buffer_size
+                                         */
           ,
           copy_files_compaction_io_options /* readIOOptions */,
           copy_files_compaction_io_options /* writeIOOptions */);
       io_s = copy_file_io_status;
+
       if (!io_s.ok()) {
         ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Error: failed to copy from: %s\n"
-                         " temperature=%s, io_status=%s",
+                         "[%s] Failed to copy from: %s\n"
+                         " temperature=%s, to=%s, temperature=%s, io_status=%s",
                          c->column_family_data()->GetName().c_str(),
+                         in_fname.c_str(),
+                         temperature_to_string[in_file->temperature].c_str(),
                          out_fname.c_str(),
                          temperature_to_string[c->output_temperature()].c_str(),
                          io_s.ToString().c_str());
         break;
       }
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] Successfully copying from: %s\n"
+                       " temperature=%s, to=%s, temperature=%s, io_status=%s",
+                       c->column_family_data()->GetName().c_str(),
+                       in_fname.c_str(),
+                       temperature_to_string[in_file->temperature].c_str(),
+                       out_fname.c_str(),
+                       temperature_to_string[c->output_temperature()].c_str(),
+                       io_s.ToString().c_str());
 
       FileMetaData out_file_metadata{
           out_file_number,
@@ -3921,6 +3941,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           in_file->compensated_range_deletion_size,
           in_file->tail_size,
           in_file->user_defined_timestamps_persisted};
+
       out_files.push_back(std::move(out_file_metadata));
     }
 
@@ -3928,6 +3949,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     if (status.ok() && io_s.ok()) {
       // NOTE: ChangeTemperature should only copy one file at one file
       // hence in_files.size() == out_files.size() == 1 if copy succeeded
+      assert(in_files.size() == 1);
+      assert(out_files.size() == 1);
       auto out_file_metadata_it = out_files.begin();
       for (const auto& in_file : *c->inputs(0)) {
         if (out_file_metadata_it == out_files.end()) {
@@ -3936,7 +3959,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
         c->edit()->DeleteFile(c->level(), in_file->fd.GetNumber());
         c->edit()->AddFile(c->level(), *out_file_metadata_it);
-
         ++out_file_metadata_it;
       }
 
@@ -3950,11 +3972,42 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           });
     }
 
-    io_s = versions_->io_status();
+    // Log and notify table file creation finished
+    for (const auto& out_file_it : out_files) {
+      const std::string out_fname =
+          TableFileName(c->immutable_options().cf_paths,
+                        out_file_it.fd.GetNumber(), c->output_path_id());
+      EventHelpers::LogAndNotifyTableFileCreationFinished(
+          &event_logger_, c->column_family_data()->ioptions().listeners,
+          dbname_, c->column_family_data()->GetName(), out_fname,
+          job_context->job_id, out_file_it.fd,
+          out_file_it.oldest_blob_file_number, TableProperties(),
+          TableFileCreationReason::kCompaction, status,
+          out_file_it.file_checksum, out_file_it.file_checksum_func_name);
+    }
+
+    if (io_s.ok()) {
+      io_s = versions_->io_status();
+    }
+
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), job_context->superversion_contexts.data());
     if (status.ok() && io_s.ok()) {
-      UpdateDeletionCompactionStats(c);
+      UpdateFIFOCompactionStatus(c);
+    } else {
+      for (const auto& in_file : *c->inputs(0)) {
+        const std::string in_fname =
+            TableFileName(c->immutable_options().cf_paths,
+                          in_file->fd.GetNumber(), in_file->fd.GetPathId());
+        ROCKS_LOG_BUFFER(
+            log_buffer,
+            "[%s] Failed to do trvial copy compaction: %s"
+            " temperature=%s, to temperature=%s, status=%s, io_status=%s",
+            c->column_family_data()->GetName().c_str(), in_fname.c_str(),
+            temperature_to_string[in_file->temperature].c_str(),
+            temperature_to_string[c->output_temperature()].c_str(),
+            status.ToString().c_str(), io_s.ToString().c_str());
+      }
     }
     *made_progress = true;
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
@@ -4344,8 +4397,7 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
   return false;
 }
 
-void DBImpl::UpdateDeletionCompactionStats(
-    const std::unique_ptr<Compaction>& c) {
+void DBImpl::UpdateFIFOCompactionStatus(const std::unique_ptr<Compaction>& c) {
   if (c == nullptr) {
     return;
   }

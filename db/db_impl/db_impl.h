@@ -2577,7 +2577,7 @@ class DBImpl : public DB {
   bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
-  void UpdateDeletionCompactionStats(const std::unique_ptr<Compaction>& c);
+  void UpdateFIFOCompactionStatus(const std::unique_ptr<Compaction>& c);
 
   // May open and read table files for table property.
   // Should not be called while holding mutex_.

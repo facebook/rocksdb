@@ -420,11 +420,6 @@ Compaction* FIFOCompactionPicker::PickTemperatureChangeCompaction(
       /* is manual */ false, /* trim_ts */ "", vstorage->CompactionScore(0),
       /* is deletion compaction */ false, /* l0_files_might_overlap */ true,
       CompactionReason::kChangeTemperature);
-  c->set_is_fifo_change_temperature_trivial_copy(
-      mutable_cf_options.compaction_options_fifo
-          .allow_trivial_copy_when_change_temperature);
-  c->set_fifo_change_temperature_trivial_copy_buffer_size(
-      mutable_cf_options.compaction_options_fifo.trivial_copy_buffer_size);
   return c;
 }
 
