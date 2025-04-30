@@ -198,10 +198,6 @@ class BlockBasedTableBuilder : public TableBuilder {
   void StopParallelCompression();
 };
 
-Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
-                    CompressionType* type, uint32_t format_version,
-                    std::string* compressed_output);
-
 #ifndef NDEBUG
 // 0 == disable the hack
 // > 0 => counter for rotating through compression types

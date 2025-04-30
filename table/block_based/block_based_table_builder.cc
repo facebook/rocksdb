@@ -115,20 +115,17 @@ bool GoodCompressionRatio(size_t compressed_size, size_t uncomp_size,
          10;
 }
 
-}  // namespace
-
 // format_version is the block format as defined in include/rocksdb/table.h
-Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
-                    CompressionType* type, uint32_t format_version,
-                    std::string* compressed_output) {
-  assert(type);
+CompressionType CompressBlock(const Slice& uncompressed_data,
+                              const CompressionInfo& info,
+                              uint32_t format_version,
+                              std::string* compressed_output) {
   assert(compressed_output);
   assert(compressed_output->empty());
 
   int max_compressed_bytes_per_kb = info.options().max_compressed_bytes_per_kb;
   if (info.type() == kNoCompression || max_compressed_bytes_per_kb <= 0) {
-    *type = kNoCompression;
-    return uncompressed_data;
+    return kNoCompression;
   }
 
   // Actually compress the data; if the compression method is not supported,
@@ -136,21 +133,20 @@ Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
   if (!CompressData(uncompressed_data, info,
                     GetCompressFormatForVersion(format_version),
                     compressed_output)) {
-    *type = kNoCompression;
-    return uncompressed_data;
+    return kNoCompression;
   }
 
   // Check the compression ratio; if it's not good enough, just fall back to
   // uncompressed
   if (!GoodCompressionRatio(compressed_output->size(), uncompressed_data.size(),
                             max_compressed_bytes_per_kb)) {
-    *type = kNoCompression;
-    return uncompressed_data;
+    return kNoCompression;
   }
 
-  *type = info.type();
-  return *compressed_output;
+  return info.type();
 }
+
+}  // namespace
 
 // kBlockBasedTableMagicNumber was picked by running
 //    echo rocksdb.table.block_based | sha1sum
@@ -1191,14 +1187,14 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     assert(is_status_ok);
   }
 
+  CompressionType type = r->compression_type;
   if (is_status_ok && uncompressed_block_data.size() < kCompressionSizeLimit) {
     StopWatchNano timer(
         r->ioptions.clock,
         ShouldReportDetailedTime(r->ioptions.env, r->ioptions.stats));
 
-    compressed_out->compression_type = r->compression_type;
 #ifndef NDEBUG
-    if (r->compression_type != kNoCompression &&
+    if (type != kNoCompression &&
         g_hack_mixed_compression_in_block_based_table.LoadRelaxed() > 0U) {
       // If zstd is in the mix, the compression_name table property needs to be
       // set to it, for proper handling of context and dictionaries.
@@ -1206,15 +1202,10 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
       const auto& compressions = GetSupportedCompressions();
       auto counter =
           g_hack_mixed_compression_in_block_based_table.FetchAddRelaxed(1);
-      compressed_out->compression_type =
-          compressions[counter % compressions.size()];
+      type = compressions[counter % compressions.size()];
     }
 #endif  // !NDEBUG
 
-    if (is_data_block) {
-      r->compressible_input_data_bytes.fetch_add(uncompressed_block_data.size(),
-                                                 std::memory_order_relaxed);
-    }
     const CompressionDict* compression_dict;
     if (!is_data_block || r->compression_dict == nullptr) {
       compression_dict = &CompressionDict::GetEmptyDict();
@@ -1223,8 +1214,7 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     }
     assert(compression_dict != nullptr);
     CompressionInfo compression_info(r->compression_opts, compression_ctx,
-                                     *compression_dict,
-                                     compressed_out->compression_type);
+                                     *compression_dict, type);
 
     // If requested, we sample one in every N block with a
     // fast and slow compression algorithm and report the stats.
@@ -1284,15 +1274,14 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
       compressed_out->sampled_output_fast_size = 0;
     }
 
-    CompressBlock(uncompressed_block_data, compression_info,
-                  &compressed_out->compression_type,
-                  r->table_options.format_version, &compressed_out->compressed);
+    type = CompressBlock(uncompressed_block_data, compression_info,
+                         r->table_options.format_version,
+                         &compressed_out->compressed);
 
     // Some of the compression algorithms are known to be unreliable. If
     // the verify_compression flag is set then try to de-compress the
     // compressed data and compare to the input.
-    if (compressed_out->compression_type != kNoCompression &&
-        r->table_options.verify_compression) {
+    if (r->table_options.verify_compression && type != kNoCompression) {
       // Retrieve the uncompressed contents into a new buffer
       const UncompressionDict* verify_dict;
       if (!is_data_block || r->verify_dict == nullptr) {
@@ -1317,35 +1306,38 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
               "Decompressed block did not match pre-compression block";
           ROCKS_LOG_ERROR(r->ioptions.logger, "%s", msg);
           *out_status = Status::Corruption(msg);
-          compressed_out->compression_type = kNoCompression;
+          type = kNoCompression;
         }
       } else {
         // Decompression reported an error. abort.
         *out_status = Status::Corruption(std::string("Could not decompress: ") +
                                          uncompress_status.getState());
-        compressed_out->compression_type = kNoCompression;
+        type = kNoCompression;
       }
     }
     if (timer.IsStarted()) {
       RecordTimeToHistogram(r->ioptions.stats, COMPRESSION_TIMES_NANOS,
                             timer.ElapsedNanos());
     }
+    if (is_data_block) {
+      r->compressible_input_data_bytes.fetch_add(uncompressed_block_data.size(),
+                                                 std::memory_order_relaxed);
+      r->uncompressible_input_data_bytes.fetch_add(kBlockTrailerSize,
+                                                   std::memory_order_relaxed);
+    }
   } else {
     // Status is not OK, or block is too big to be compressed.
     if (is_data_block) {
       r->uncompressible_input_data_bytes.fetch_add(
-          uncompressed_block_data.size(), std::memory_order_relaxed);
+          uncompressed_block_data.size() + kBlockTrailerSize,
+          std::memory_order_relaxed);
     }
-    compressed_out->compression_type = kNoCompression;
-  }
-  if (is_data_block) {
-    r->uncompressible_input_data_bytes.fetch_add(kBlockTrailerSize,
-                                                 std::memory_order_relaxed);
+    type = kNoCompression;
   }
 
   // Abort compression if the block is too big, or did not pass
   // verification.
-  if (compressed_out->compression_type == kNoCompression) {
+  if (type == kNoCompression) {
     bool compression_attempted = !compressed_out->compressed.empty();
     RecordTick(r->ioptions.stats, compression_attempted
                                       ? NUMBER_BLOCK_COMPRESSION_REJECTED
@@ -1361,6 +1353,7 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     RecordTick(r->ioptions.stats, BYTES_COMPRESSED_TO,
                compressed_out->compressed.size());
   }
+  compressed_out->compression_type = type;
 }
 
 void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
