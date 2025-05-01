@@ -118,12 +118,6 @@ class BlockBasedTableBuilder : public TableBuilder {
   // REQUIRES: `rep_->state == kBuffered`
   void EnterUnbuffered();
 
-  // Call block's Finish() method and then
-  // - in buffered mode, buffer the uncompressed block contents.
-  // - in unbuffered mode, write the compressed block contents to file.
-  void WriteBlock(BlockBuilder* block, BlockHandle* handle,
-                  BlockType blocktype);
-
   // Compress and write block content to the file.
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
                   BlockType block_type);
@@ -161,7 +155,6 @@ class BlockBasedTableBuilder : public TableBuilder {
   Rep* rep_;
 
   struct ParallelCompressionRep;
-  struct BlockRepBase;
 
   // Advanced operation: flush any buffered key/value pairs to file.
   // Can be used to ensure that two adjacent entries never live in
@@ -185,7 +178,9 @@ class BlockBasedTableBuilder : public TableBuilder {
                               bool is_data_block,
                               const CompressionContext& compression_ctx,
                               UncompressionContext* verify_ctx,
-                              BlockRepBase* compressed_out, Status* out_status);
+                              std::string* compressed_output,
+                              CompressionType* result_compression_type,
+                              Status* out_status);
 
   // Get compressed blocks from BGWorkCompression and write them into SST
   void BGWorkWriteMaybeCompressedBlock();

@@ -27,6 +27,7 @@ class DbStressTablePropertiesCollector : public TablePropertiesCollector {
                     EntryType /*type*/, SequenceNumber /*seq*/,
                     uint64_t /*file_size*/) override {
     ++keys_added;
+    ++all_calls;
     return Status::OK();
   }
 
@@ -34,11 +35,14 @@ class DbStressTablePropertiesCollector : public TablePropertiesCollector {
                 uint64_t /* block_compressed_bytes_fast */,
                 uint64_t /* block_compressed_bytes_slow */) override {
     ++blocks_added;
+    ++all_calls;
   }
 
   Status Finish(UserCollectedProperties* properties) override {
+    ++all_calls;
     (*properties)["db_stress_collector_property"] =
-        std::to_string(keys_added) + ";" + std::to_string(blocks_added);
+        std::to_string(keys_added) + ";" + std::to_string(blocks_added) + ";" +
+        std::to_string(all_calls);
     return Status::OK();
   }
 
@@ -59,6 +63,8 @@ class DbStressTablePropertiesCollector : public TablePropertiesCollector {
   // TablePropertiesCollectors are allowed (encouraged) not to be thread safe.
   size_t keys_added = 0;
   size_t blocks_added = 0;
+  // Including race between BlockAdd and AddUserKey (etc.)
+  size_t all_calls = 0;
 };
 
 // A `DbStressTablePropertiesCollectorFactory` creates
