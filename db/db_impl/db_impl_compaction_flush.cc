@@ -2797,6 +2797,10 @@ Status DBImpl::EnableAutoCompaction(
       s = status;
     }
   }
+  {
+    InstrumentedMutexLock l(&mutex_);
+    MaybeScheduleFlushOrCompaction();
+  }
 
   return s;
 }
