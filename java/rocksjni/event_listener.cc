@@ -12,7 +12,6 @@
 
 #include "include/org_rocksdb_AbstractEventListener.h"
 #include "rocksjni/event_listener_jnicallback.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/enabled_event_callback_jni.h"
 
 /*

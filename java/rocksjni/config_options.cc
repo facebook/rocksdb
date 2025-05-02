@@ -11,7 +11,6 @@
 
 #include "include/org_rocksdb_ConfigOptions.h"
 #include "rocksdb/convenience.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/sanity_level_jni.h"
 
 /*

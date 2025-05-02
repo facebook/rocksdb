@@ -8,7 +8,6 @@
 
 #include "rocksjni/table_filter_jnicallback.h"
 
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/abstract_table_filter_jni.h"
 #include "rocksjni/portal/table_properties_jni.h"
 

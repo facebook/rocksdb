@@ -16,7 +16,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/sst_file_reader.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/table_properties_jni.h"
 
 /*

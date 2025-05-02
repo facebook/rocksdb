@@ -12,7 +12,6 @@
 #include <cstdio>
 
 #include "include/org_rocksdb_Logger.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/info_log_level_jni.h"
 #include "rocksjni/portal/logger_jni.h"
 namespace ROCKSDB_NAMESPACE {

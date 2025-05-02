@@ -10,7 +10,6 @@
 
 #include "include/org_rocksdb_CompactionOptions.h"
 #include "rocksdb/options.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/compression_type_jni.h"
 
 /*

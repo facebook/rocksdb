@@ -11,7 +11,6 @@
 #include "include/org_rocksdb_CompactRangeOptions.h"
 #include "rocksdb/options.h"
 #include "rocksjni/portal/bottommost_level_compaction_jni.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/compact_range_options_timestamp_jni.h"
 #include "util/coding.h"
 

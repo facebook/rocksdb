@@ -8,7 +8,6 @@
 
 #include "rocksjni/event_listener_jnicallback.h"
 
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/abstract_event_listener_jni.h"
 #include "rocksjni/portal/column_family_handle_jni.h"
 #include "rocksjni/portal/compaction_job_info_jni.h"

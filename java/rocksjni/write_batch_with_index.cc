@@ -12,7 +12,6 @@
 #include "include/org_rocksdb_WriteBatchWithIndex.h"
 #include "rocksdb/comparator.h"
 #include "rocksjni/comparatorjnicallback.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/write_batch_jni.h"
 #include "rocksjni/portal/write_type_jni.h"
 

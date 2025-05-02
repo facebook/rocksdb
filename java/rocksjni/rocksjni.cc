@@ -26,7 +26,6 @@
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
 #include "rocksjni/jni_multiget_helpers.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/sst_file_meta_data_jni.h"
 #include "rocksjni/portal/level_meta_data_jni.h"
 #include "rocksjni/portal/column_family_meta_data_jni.h"

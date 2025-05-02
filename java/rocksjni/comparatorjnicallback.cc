@@ -8,7 +8,6 @@
 
 #include "rocksjni/comparatorjnicallback.h"
 
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/abstract_comparator_jni.h"
 #include "rocksjni/portal/abstract_comparator_jni_bridge.h"
 #include "rocksjni/portal/byte_buffer_jni.h"
