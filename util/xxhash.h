@@ -2066,7 +2066,6 @@ static int XXH_isLittleEndian(void)
 #  define XXH_HAS_BUILTIN(x) 0
 #endif
 
-
 #if defined(__STDC_VERSION__) && (__STDC_VERSION__ > 201710L)
 /* C23 and future versions have standard "unreachable()" */
 #  include <stddef.h>
