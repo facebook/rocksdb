@@ -47,14 +47,19 @@ class DbStressTablePropertiesCollector : public TablePropertiesCollector {
   }
 
   UserCollectedProperties GetReadableProperties() const override {
-    return UserCollectedProperties{};
+    UserCollectedProperties props;
+    const_cast<DbStressTablePropertiesCollector*>(this)->Finish(&props);
+    return props;
   }
 
   const char* Name() const override {
     return "DbStressTablePropertiesCollector";
   }
 
-  bool NeedCompact() const override { return need_compact_; }
+  bool NeedCompact() const override {
+    ++all_calls;
+    return need_compact_;
+  }
 
  private:
   const bool need_compact_;
@@ -64,7 +69,7 @@ class DbStressTablePropertiesCollector : public TablePropertiesCollector {
   size_t keys_added = 0;
   size_t blocks_added = 0;
   // Including race between BlockAdd and AddUserKey (etc.)
-  size_t all_calls = 0;
+  mutable size_t all_calls = 0;
 };
 
 // A `DbStressTablePropertiesCollectorFactory` creates
