@@ -3794,8 +3794,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
                              c->column_family_data());
   } else if (c->is_trivial_copy_compaction()) {
-    TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction::BeforeCompaction",
-                             c->column_family_data());
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImpl::BackgroundCompaction:TriviaCopyBeforeCompaction",
+        c->column_family_data());
     assert(c->num_input_files(1) == 0);
     assert(c->column_family_data()->ioptions().compaction_style ==
            kCompactionStyleFIFO);
@@ -3948,9 +3949,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Update version set
     if (status.ok() && io_s.ok()) {
       // NOTE: ChangeTemperature should only copy one file at one file
-      // hence in_files.size() == out_files.size() == 1 if copy succeeded
-      assert(in_files.size() == 1);
+      // hence *c->inputs(0) == out_files.size() == 1 if copy succeeded
+      assert(c->inputs(0)->size() == 1);
       assert(out_files.size() == 1);
+
       auto out_file_metadata_it = out_files.begin();
       for (const auto& in_file : *c->inputs(0)) {
         if (out_file_metadata_it == out_files.end()) {
@@ -4010,8 +4012,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       }
     }
     *made_progress = true;
-    TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
-                             c->column_family_data());
+    TEST_SYNC_POINT_CALLBACK(
+        "DBImpl::BackgroundCompaction:TriviaCopyAfterCompaction",
+        c->column_family_data());
   } else if (!trivial_move_disallowed && c->IsTrivialMove()) {
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:TrivialMove");
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:BeforeCompaction",

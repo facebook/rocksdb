@@ -9436,6 +9436,25 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
 TEST_F(DBCompactionTest, FIFOChangeTemperature) {
   for (bool should_allow_trivial_copy : {false, true}) {
     for (bool write_time_default : {false, true}) {
+      int32_t before_compaction_calls = 0;
+      int32_t after_compaction_calls = 0;
+      if (should_allow_trivial_copy) {
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:TriviaCopyBeforeCompaction",
+            [&](void*) { ++before_compaction_calls; });
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:TriviaCopyAfterCompaction",
+            [&](void*) { ++after_compaction_calls; });
+      } else {
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:BeforeCompaction",
+            [&](void*) { ++before_compaction_calls; });
+
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:AfterCompaction",
+            [&](void*) { ++after_compaction_calls; });
+      }
+
       SCOPED_TRACE("write time default? " + std::to_string(write_time_default));
 
       Options options = CurrentOptions();
@@ -9537,6 +9556,9 @@ TEST_F(DBCompactionTest, FIFOChangeTemperature) {
       ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[2].temperature);
       ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[3].temperature);
       ASSERT_EQ(2, total_cold);
+
+      ASSERT_EQ(2, before_compaction_calls);
+      ASSERT_EQ(2, after_compaction_calls);
 
       Destroy(options);
     }
