@@ -7,7 +7,6 @@
 
 #include "include/org_rocksdb_RateLimiter.h"
 #include "rocksdb/rate_limiter.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/rate_limiter_mode_jni.h"
 
 /*

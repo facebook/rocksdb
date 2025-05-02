@@ -12,7 +12,6 @@
 #include <string>
 
 #include "include/org_rocksdb_ConcurrentTaskLimiterImpl.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal/common.h"
 
 /*

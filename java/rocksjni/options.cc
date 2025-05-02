@@ -37,7 +37,6 @@
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/event_listener_jnicallback.h"
 #include "rocksjni/loggerjnicallback.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/abstract_event_listener_jni.h"
 #include "rocksjni/portal/data_block_index_type_jni.h"
 #include "rocksjni/portal/index_shortening_mode_jni.h"

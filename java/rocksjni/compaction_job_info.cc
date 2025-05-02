@@ -10,7 +10,6 @@
 
 #include "include/org_rocksdb_CompactionJobInfo.h"
 #include "rocksdb/listener.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/compaction_reason_jni.h"
 #include "rocksjni/portal/compression_type_jni.h"
 #include "rocksjni/portal/table_properties_jni.h"

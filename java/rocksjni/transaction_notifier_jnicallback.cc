@@ -8,7 +8,6 @@
 
 #include "rocksjni/transaction_notifier_jnicallback.h"
 
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/abstract_transaction_notifier_jni.h"
 
 namespace ROCKSDB_NAMESPACE {

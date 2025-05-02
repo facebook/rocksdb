@@ -8,7 +8,6 @@
 
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/abstract_compaction_filter_factory_jni.h"
 
 namespace ROCKSDB_NAMESPACE {

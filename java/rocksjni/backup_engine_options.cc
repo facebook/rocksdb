@@ -17,7 +17,6 @@
 #include "include/org_rocksdb_BackupEngineOptions.h"
 #include "rocksdb/utilities/backup_engine.h"
 #include "rocksjni/loggerjnicallback.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/list_jni.h"
 #include "rocksjni/portal/backup_info_jni.h"
 #include "rocksjni/portal/backup_info_list_jni.h"

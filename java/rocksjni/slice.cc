@@ -17,7 +17,6 @@
 #include "include/org_rocksdb_AbstractSlice.h"
 #include "include/org_rocksdb_DirectSlice.h"
 #include "include/org_rocksdb_Slice.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/illegal_argument_exception_jni.h"
 
 // <editor-fold desc="org.rocksdb.AbstractSlice>
