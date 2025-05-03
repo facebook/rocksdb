@@ -424,10 +424,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     allow_link_open_file_ = allow_link_open_file;
   }
 
-  bool ShouldIOActivtiesExcludedFromFaultInjection(Env::IOActivity io_activty) {
+  bool ShouldIOActivitiesExcludedFromFaultInjection(
+      Env::IOActivity io_activity) {
     MutexLock l(&mutex_);
-    return io_activties_excluded_from_fault_injection.find(io_activty) !=
-           io_activties_excluded_from_fault_injection.end();
+    return io_activities_excluded_from_fault_injection.find(io_activity) !=
+           io_activities_excluded_from_fault_injection.end();
   }
 
   void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
@@ -520,10 +521,10 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     return count;
   }
 
-  void SetIOActivtiesExcludedFromFaultInjection(
-      const std::set<Env::IOActivity>& io_activties) {
+  void SetIOActivitiesExcludedFromFaultInjection(
+      const std::set<Env::IOActivity>& io_activities) {
     MutexLock l(&mutex_);
-    io_activties_excluded_from_fault_injection = io_activties;
+    io_activities_excluded_from_fault_injection = io_activities;
   }
 
   void SetFileTypesExcludedFromWriteFaultInjection(
@@ -627,7 +628,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   };
 
   std::set<FileType> file_types_excluded_from_write_fault_injection_;
-  std::set<Env::IOActivity> io_activties_excluded_from_fault_injection;
+  std::set<Env::IOActivity> io_activities_excluded_from_fault_injection;
   ThreadLocalPtr injected_thread_local_read_error_;
   ThreadLocalPtr injected_thread_local_write_error_;
   ThreadLocalPtr injected_thread_local_metadata_read_error_;

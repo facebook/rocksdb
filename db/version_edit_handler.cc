@@ -408,7 +408,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       if (cfd->IsDropped()) {
         continue;
       }
-      if (read_only_) {
+      if (version_set_->unchanging()) {
         cfd->table_cache()->SetTablesAreImmortal();
       }
       *s = LoadTables(cfd, /*prefetch_index_and_filter_in_cache=*/false,
@@ -471,8 +471,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
 ColumnFamilyData* VersionEditHandler::CreateCfAndInit(
     const ColumnFamilyOptions& cf_options, const VersionEdit& edit) {
   uint32_t cf_id = edit.GetColumnFamily();
-  ColumnFamilyData* cfd =
-      version_set_->CreateColumnFamily(cf_options, read_options_, &edit);
+  ColumnFamilyData* cfd = version_set_->CreateColumnFamily(
+      cf_options, read_options_, &edit, read_only_);
   assert(cfd != nullptr);
   cfd->set_initialized();
   assert(builders_.find(cf_id) == builders_.end());

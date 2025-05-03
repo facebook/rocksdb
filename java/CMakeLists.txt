@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.4)
+cmake_minimum_required(VERSION 3.11)
 
 set(JAVA_JUNIT_VERSION "4.13.1")
 set(JAVA_HAMCR_VERSION "2.2")

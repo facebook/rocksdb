@@ -192,6 +192,12 @@ struct FileOptions : EnvOptions {
   // handoff during file writes.
   ChecksumType handoff_checksum_type;
 
+  // Expose write lifetime hint on the FileOptions level to provide more
+  // flexibility in setting the hint in downstream, custom implementations
+  // that might be able to process the hint only at the time of the actual
+  // FSWritableFile object creation.
+  Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET;
+
   FileOptions() : EnvOptions(), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const DBOptions& opts)
@@ -206,7 +212,8 @@ struct FileOptions : EnvOptions {
       : EnvOptions(opts),
         io_options(opts.io_options),
         temperature(opts.temperature),
-        handoff_checksum_type(opts.handoff_checksum_type) {}
+        handoff_checksum_type(opts.handoff_checksum_type),
+        write_hint(opts.write_hint) {}
 
   FileOptions& operator=(const FileOptions&) = default;
 };

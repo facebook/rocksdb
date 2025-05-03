@@ -22,6 +22,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
+#include "rocksdb/multi_scan.h"
 #include "rocksdb/options.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
@@ -30,6 +31,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/user_write_callback.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
 
@@ -95,43 +97,6 @@ class ColumnFamilyHandle {
 
 static const int kMajorVersion = __ROCKSDB_MAJOR__;
 static const int kMinorVersion = __ROCKSDB_MINOR__;
-
-// A range of keys
-struct Range {
-  // In case of user_defined timestamp, if enabled, `start` and `limit` should
-  // point to key without timestamp part.
-  Slice start;
-  Slice limit;
-
-  Range() {}
-  Range(const Slice& s, const Slice& l) : start(s), limit(l) {}
-};
-
-struct RangePtr {
-  // In case of user_defined timestamp, if enabled, `start` and `limit` should
-  // point to key without timestamp part.
-  const Slice* start;
-  const Slice* limit;
-
-  RangePtr() : start(nullptr), limit(nullptr) {}
-  RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) {}
-};
-
-// It is valid that files_checksums and files_checksum_func_names are both
-// empty (no checksum information is provided for ingestion). Otherwise,
-// their sizes should be the same as external_files. The file order should
-// be the same in three vectors and guaranteed by the caller.
-// Note that, we assume the temperatures of this batch of files to be
-// ingested are the same.
-struct IngestExternalFileArg {
-  ColumnFamilyHandle* column_family = nullptr;
-  std::vector<std::string> external_files;
-  IngestExternalFileOptions options;
-  std::vector<std::string> files_checksums;
-  std::vector<std::string> files_checksum_func_names;
-  // A hint as to the temperature for *reading* the files to be ingested.
-  Temperature file_temperature = Temperature::kUnknown;
-};
 
 struct GetMergeOperandsOptions {
   using ContinueCallback = std::function<bool(Slice)>;
@@ -653,7 +618,7 @@ class DB {
                        const Slice& /*key*/, const Slice& /*ts*/,
                        const Slice& /*value*/);
 
-  // Apply the specified updates to the database.
+  // Apply the specified updates atomically to the database.
   // If `updates` contains no update, WAL will still be synced if
   // options.sync=true.
   // Returns OK on success, non-OK on failure.
@@ -667,6 +632,21 @@ class DB {
                                    UserWriteCallback* /*user_write_cb*/) {
     return Status::NotSupported(
         "WriteWithCallback not implemented for this interface.");
+  }
+
+  // EXPERIMENTAL, subject to change
+  // Ingest a WriteBatchWithIndex into DB, bypassing memtable writes for better
+  // write performance. Useful when there is a large number of updates
+  // in the write batch.
+  // The WriteBatchWithIndex must be created with overwrite_key=true.
+  // Currently this requires WriteOptions::disableWAL=true.
+  // The following options are currently not supported:
+  // - unordered_write
+  // - enable_pipelined_write
+  virtual Status IngestWriteBatchWithIndex(
+      const WriteOptions& /*options*/,
+      std::shared_ptr<WriteBatchWithIndex> /*wbwi*/) {
+    return Status::NotSupported("IngestWriteBatchWithIndex not implemented.");
   }
 
   // If the column family specified by "column_family" contains an entry for
@@ -1109,6 +1089,18 @@ class DB {
   virtual std::unique_ptr<AttributeGroupIterator> NewAttributeGroupIterator(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families) = 0;
+
+  // Get an iterator that scans multiple key ranges. The scan ranges should
+  // be in increasing order of start key. See multi_scan_iterator.h for more
+  // details.
+  virtual std::unique_ptr<MultiScan> NewMultiScan(
+      const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
+      const std::vector<ScanOptions>& /*scan_opts*/) {
+    std::unique_ptr<Iterator> iter(NewErrorIterator(Status::NotSupported()));
+    std::unique_ptr<MultiScan> ms_iter =
+        std::make_unique<MultiScan>(std::move(iter));
+    return ms_iter;
+  }
 
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB
@@ -1695,9 +1687,12 @@ class DB {
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
   virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }
 
+  // DEPRECATED:
   // Maximum level to which a new compacted memtable is pushed if it
   // does not create overlap.
-  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) = 0;
+  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) {
+    return 0;
+  }
   virtual int MaxMemCompactionLevel() {
     return MaxMemCompactionLevel(DefaultColumnFamily());
   }
@@ -1802,6 +1797,25 @@ class DB {
   // Get current full_history_ts value.
   virtual Status GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                      std::string* ts_low) = 0;
+
+  // EXPERIMENTAL
+  // Get the newest timestamp of the column family. This is only for when the
+  // column family enables user defined timestamp and when timestamps are not
+  // persisted in SST files, a.k.a `persist_user_defined_timestamps=false`.
+  // This checks the mutable memtable, the immutable memtable and the SST files,
+  // and returns the first newest user defined timestamp found.
+  // When user defined timestamp is not persisted in SST files, metadata in
+  // MANIFEST tracks the most recently seen timestamp for SST files, so the
+  // newest timestamp in SST files can be found.
+  // OK status is returned if finding the newest timestamp succeeds, if
+  // `newest_timestamp` is empty, it means the column family hasn't seen any
+  // timestamp. The returned timestamp is encoded, util method `DecodeU64Ts` can
+  // be used to decode it into uint64_t.
+  // User-defined timestamp is required to be increasing per key, the return
+  // value of this API would be most useful if the user-defined timestamp is
+  // monotonically increasing across keys.
+  virtual Status GetNewestUserDefinedTimestamp(
+      ColumnFamilyHandle* column_family, std::string* newest_timestamp) = 0;
 
   // Suspend deleting obsolete files. Compactions will continue to occur,
   // but no obsolete files will be deleted. To resume file deletions, each
@@ -1914,12 +1928,12 @@ class DB {
   // Retrieve information about the current wal file
   //
   // Note that the log might have rolled after this call in which case
-  // the current_log_file would not point to the current log file.
+  // the current_wal_file would not point to the current log file.
   //
-  // Additionally, for the sake of optimization current_log_file->StartSequence
+  // Additionally, for the sake of optimization current_wal_file->StartSequence
   // would always be set to 0
   virtual Status GetCurrentWalFile(
-      std::unique_ptr<WalFile>* current_log_file) = 0;
+      std::unique_ptr<WalFile>* current_wal_file) = 0;
 
   // IngestExternalFile() will load a list of external SST files (1) into the DB
   // Two primary modes are supported:
@@ -2081,14 +2095,11 @@ class DB {
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) = 0;
 
-  // Get the table properties of files per level.
-  virtual Status GetPropertiesOfTablesForLevels(
-      ColumnFamilyHandle* /* column_family */,
-      std::vector<
-          std::unique_ptr<TablePropertiesCollection>>* /* levels_props */) {
-    return Status::NotSupported(
-        "GetPropertiesOfTablesForLevels() is not implemented.");
-  }
+  // Get the table properties of files by level.
+  virtual Status GetPropertiesOfTablesByLevel(
+      ColumnFamilyHandle* column_family,
+      std::vector<std::unique_ptr<TablePropertiesCollection>>*
+          props_by_level) = 0;
 
   virtual Status SuggestCompactRange(ColumnFamilyHandle* /*column_family*/,
                                      const Slice* /*begin*/,

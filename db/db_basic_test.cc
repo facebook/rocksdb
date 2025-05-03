@@ -161,6 +161,7 @@ TEST_F(DBBasicTest, UniqueSession) {
 
   ASSERT_EQ(sid2, sid3);
 
+  DestroyAndReopen(options);
   CreateAndReopenWithCF({"goku"}, options);
   ASSERT_OK(db_->GetDbSessionId(sid1));
   ASSERT_OK(Put("bar", "e1"));
@@ -179,6 +180,7 @@ TEST_F(DBBasicTest, UniqueSession) {
 TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
+  ASSERT_OK(Flush());
   ASSERT_OK(Put("foo", "v3"));
   Close();
 
@@ -208,10 +210,11 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
 
   auto options = CurrentOptions();
   assert(options.env == env_);
-  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_OK(EnforcedReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
   verify_all_iters();
+  ASSERT_EQ(Flush().code(), Status::Code::kNotSupported);
   Close();
 
   // Reopen and flush memtable.
@@ -219,26 +222,38 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Flush());
   Close();
   // Now check keys in read only mode.
-  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_OK(EnforcedReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
   verify_all_iters();
-  ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
+  ASSERT_EQ(db_->SyncWAL().code(), Status::Code::kNotSupported);
+
+  // More ops that should fail
+  std::vector<ColumnFamilyHandle*> cfhs{{}};
+  ASSERT_EQ(db_->CreateColumnFamily(options, "blah", &cfhs[0]).code(),
+            Status::Code::kNotSupported);
+
+  ASSERT_EQ(db_->CreateColumnFamilies(options, {"blah"}, &cfhs).code(),
+            Status::Code::kNotSupported);
+
+  std::vector<ColumnFamilyDescriptor> cfds;
+  cfds.push_back({"blah", options});
+  ASSERT_EQ(db_->CreateColumnFamilies(cfds, &cfhs).code(),
+            Status::Code::kNotSupported);
 }
 
-// TODO akanksha: Update the test to check that combination
-// does not actually write to FS (use open read-only with
-// CompositeEnvWrapper+ReadOnlyFileSystem).
-TEST_F(DBBasicTest, DISABLED_ReadOnlyDBWithWriteDBIdToManifestSet) {
+TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
+  auto options = CurrentOptions();
+  options.write_dbid_to_manifest = false;
+  DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
   ASSERT_OK(Put("foo", "v3"));
   Close();
 
-  auto options = CurrentOptions();
   options.write_dbid_to_manifest = true;
   assert(options.env == env_);
-  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_OK(EnforcedReadOnlyReopen(options));
   std::string db_id1;
   ASSERT_OK(db_->GetDbIdentity(db_id1));
   ASSERT_EQ("v3", Get("foo"));
@@ -258,7 +273,7 @@ TEST_F(DBBasicTest, DISABLED_ReadOnlyDBWithWriteDBIdToManifestSet) {
   ASSERT_OK(Flush());
   Close();
   // Now check keys in read only mode.
-  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_OK(EnforcedReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
@@ -3273,8 +3288,7 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
     ASSERT_OK(Delete(std::to_string(i)));
   }
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
-                              std::numeric_limits<size_t>::max(),
+  ASSERT_OK(GetAllKeyVersions(db_, {}, {}, std::numeric_limits<size_t>::max(),
                               &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
   for (size_t i = 0; i < kNumInserts + kNumDeletes + kNumUpdates; i++) {
@@ -3284,7 +3298,7 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
       ASSERT_EQ(key_versions[i].GetTypeName(), "TypeValue");
     }
   }
-  ASSERT_OK(GetAllKeyVersions(db_, handles_[0], Slice(), Slice(),
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[0], {}, {},
                               std::numeric_limits<size_t>::max(),
                               &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
@@ -3299,10 +3313,17 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
   for (size_t i = 0; i + 1 != kNumDeletes; ++i) {
     ASSERT_OK(Delete(1, std::to_string(i)));
   }
-  ASSERT_OK(GetAllKeyVersions(db_, handles_[1], Slice(), Slice(),
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[1], {}, {},
                               std::numeric_limits<size_t>::max(),
                               &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates - 3, key_versions.size());
+
+  // Change from historical behavior: empty key is now interpreted literally as
+  // a legal key (rather than as a "not present" key)
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[1], Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
+  ASSERT_EQ(key_versions.size(), 0);
 }
 
 TEST_F(DBBasicTest, ValueTypeString) {
@@ -3352,6 +3373,69 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
 
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data(), true);
+}
+
+TEST_F(DBBasicTest, MultiGetWithSnapshotsAndPersistedTier) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = true;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"cf1", "cf2"}, options);
+
+  // Insert initial data
+  ASSERT_OK(Put(0, "key1", "value1_cf0"));
+  ASSERT_OK(Put(1, "key1", "value1_cf1"));
+  ASSERT_OK(Put(2, "key1", "value1_cf2"));
+  ASSERT_OK(Flush({0, 1, 2}));
+  for (auto cf : {0, 1, 2}) {
+    ASSERT_EQ(1, NumTableFilesAtLevel(0, cf));
+  }
+
+  ASSERT_OK(Put(0, "key1", "value2_cf0"));
+  ASSERT_OK(Put(1, "key1", "value2_cf1"));
+  ASSERT_OK(Put(2, "key1", "value2_cf2"));
+
+  // Prepare for concurrent atomic flush
+  std::atomic<bool> flush_done(false);
+  std::thread flush_thread([&]() {
+    ASSERT_OK(Flush({0, 1, 2}));
+    flush_done.store(true);
+  });
+
+  // Perform MultiGet with snapshot and read_tier = kPersistentTier
+  ReadOptions ro;
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ro.snapshot = snapshot;
+  ro.read_tier = kPersistedTier;
+
+  std::string k = "key1";
+  std::vector<Slice> keys(3, Slice(k));
+  std::vector<Status> statuses(keys.size());
+  std::vector<ColumnFamilyHandle*> cfs(keys.size());
+  std::vector<Slice> new_keys(keys.size());
+  std::vector<PinnableSlice> pin_values(keys.size());
+  for (size_t i = 0; i < keys.size(); ++i) {
+    cfs[i] = handles_[i];
+  }
+  db_->MultiGet(ro, cfs.size(), cfs.data(), keys.data(), pin_values.data(),
+                statuses.data());
+  for (const auto& s : statuses) {
+    ASSERT_OK(s);
+  }
+
+  if (pin_values[0] == "value1_cf0") {
+    // Check if the first value matches expected value
+    ASSERT_EQ(pin_values[1], "value1_cf1");
+    ASSERT_EQ(pin_values[2], "value1_cf2");
+  } else {
+    // If first value doesn't match, check if we got the updated values
+    ASSERT_EQ(pin_values[0], "value2_cf0");
+    ASSERT_EQ(pin_values[1], "value2_cf1");
+    ASSERT_EQ(pin_values[2], "value2_cf2");
+  }
+
+  flush_thread.join();
+  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_F(DBBasicTest, IncrementalRecoveryNoCorrupt) {
@@ -4992,6 +5076,97 @@ TEST_F(DBBasicTest, VerifyFileChecksumsReadahead) {
   ASSERT_TRUE(last_read);
   ASSERT_EQ(env_->random_read_counter_.Read(),
             (sst_size + alignment - 1) / (alignment));
+}
+
+TEST_F(DBBasicTest, DisallowMemtableWrite) {
+  // This test is mostly about what you can't do with memtable writes
+  // disallowed. For what you can do, see
+  // ExternalSSTFileBasicTest.FailIfNotBottommostLevelAndDisallowMemtable
+  Options options_allow = GetDefaultOptions();
+  options_allow.create_if_missing = true;
+  Options options_disallow = options_allow;
+  options_disallow.disallow_memtable_writes = true;
+
+  DestroyAndReopen(options_allow);
+  // CFs allowing and disallowing memtable write
+  CreateColumnFamilies({"cf1", "cf2"}, options_allow);
+  CreateColumnFamilies({"cf3"}, options_disallow);
+  // XXX: needed to get consistent handles_ mappings
+  ReopenWithColumnFamilies(
+      {"default", "cf1", "cf2", "cf3"},
+      {options_allow, options_allow, options_allow, options_disallow});
+
+  EXPECT_EQ(Put(0, "a0", "1").code(), Status::Code::kOk);
+  EXPECT_EQ(Put(1, "a1", "1").code(), Status::Code::kOk);
+  EXPECT_EQ(Put(2, "a2", "1").code(), Status::Code::kOk);
+  EXPECT_EQ(Put(3, "a3", "1").code(), Status::Code::kInvalidArgument);
+
+  EXPECT_EQ(Get(0, "a0"), "1");
+  EXPECT_EQ(Get(1, "a1"), "1");
+  EXPECT_EQ(Get(2, "a2"), "1");
+  EXPECT_EQ(Get(3, "a3"), "NOT_FOUND");
+
+  EXPECT_EQ(Delete(0, "z0").code(), Status::Code::kOk);
+  EXPECT_EQ(Delete(1, "z1").code(), Status::Code::kOk);
+  EXPECT_EQ(Delete(2, "z2").code(), Status::Code::kOk);
+  EXPECT_EQ(Delete(3, "z3").code(), Status::Code::kInvalidArgument);
+
+  WriteBatch wb;
+  EXPECT_EQ(wb.Put(handles_[0], "b0", "2").code(), Status::Code::kOk);
+  EXPECT_EQ(wb.Put(handles_[1], "b1", "2").code(), Status::Code::kOk);
+  EXPECT_EQ(wb.Put(handles_[2], "b2", "2").code(), Status::Code::kOk);
+  EXPECT_EQ(wb.Put(handles_[3], "b3", "2").code(),
+            Status::Code::kInvalidArgument);
+  ASSERT_OK(db_->Write({}, &wb));
+  wb.Clear();
+
+  EXPECT_EQ(Get(0, "b0"), "2");
+  EXPECT_EQ(Get(1, "b1"), "2");
+  EXPECT_EQ(Get(2, "b2"), "2");
+  EXPECT_EQ(Get(3, "b3"), "NOT_FOUND");
+
+  // When the DB is re-opened with WAL entries for a CF that is newly setting
+  // disallow_memtable_writes, we detect that and fail the open gracefully.
+  ASSERT_EQ(TryReopenWithColumnFamilies(
+                {"default", "cf1", "cf2", "cf3"},
+                {options_allow, options_allow, options_disallow, options_allow})
+                .code(),
+            Status::Code::kInvalidArgument);
+
+  // Successfully opening with allow creates L0 files from the WAL
+  ReopenWithColumnFamilies({"default", "cf1", "cf2", "cf3"}, options_allow);
+
+  EXPECT_EQ(Get(0, "a0"), "1");
+  EXPECT_EQ(Get(1, "a1"), "1");
+  EXPECT_EQ(Get(2, "a2"), "1");
+  EXPECT_EQ(Get(3, "a3"), "NOT_FOUND");
+
+  // Now able to disallow on CF2 because no relevant WAL entries
+  ReopenWithColumnFamilies(
+      {"default", "cf1", "cf2", "cf3"},
+      {options_allow, options_allow, options_disallow, options_allow});
+
+  EXPECT_EQ(Get(0, "a0"), "1");
+  EXPECT_EQ(Get(1, "a1"), "1");
+  EXPECT_EQ(Get(2, "a2"), "1");
+  EXPECT_EQ(Get(3, "a3"), "NOT_FOUND");
+
+  // Now able to write to CF 3 but not CF 2
+  EXPECT_EQ(Put(0, "c0", "3").code(), Status::Code::kOk);
+  EXPECT_EQ(Put(1, "c1", "3").code(), Status::Code::kOk);
+  EXPECT_EQ(Put(2, "c2", "3").code(), Status::Code::kInvalidArgument);
+  EXPECT_EQ(Put(3, "c3", "3").code(), Status::Code::kOk);
+
+  EXPECT_EQ(Get(0, "c0"), "3");
+  EXPECT_EQ(Get(1, "c1"), "3");
+  EXPECT_EQ(Get(2, "c2"), "NOT_FOUND");
+  EXPECT_EQ(Get(3, "c3"), "3");
+
+  // disallow_memtable_writes not supported on default column family.
+  // (Would be complicated to make a WriteBatch aware of the setting in order
+  // to reject the write before entering the write path.)
+  Destroy(options_allow);
+  EXPECT_EQ(TryReopen(options_disallow).code(), Status::Code::kInvalidArgument);
 }
 
 // TODO: re-enable after we provide finer-grained control for WAL tracking to

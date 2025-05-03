@@ -72,7 +72,6 @@ class ColumnFamilyTestBase : public testing::Test {
     env_->skip_fsync_ = true;
     dbname_ = test::PerThreadDBPath("column_family_test");
     db_options_.create_if_missing = true;
-    db_options_.fail_if_options_file_error = true;
     db_options_.env = env_;
   }
 
@@ -271,7 +270,8 @@ class ColumnFamilyTestBase : public testing::Test {
       // them.
       ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
           ConfigOptions(), desc.options,
-          SanitizeOptions(dbfull()->immutable_db_options(), current_cf_opt)));
+          SanitizeCfOptions(dbfull()->immutable_db_options(),
+                            /*read_only*/ false, current_cf_opt)));
       cfi++;
     }
   }
@@ -2175,7 +2175,7 @@ TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
   ASSERT_TRUE(has_cf2_sst);
 
   ASSERT_OK(Flush(0));
-  ASSERT_EQ(0, dbfull()->TEST_total_log_size());
+  ASSERT_EQ(0, dbfull()->TEST_wals_total_size());
   Close();
 }
 
@@ -2232,7 +2232,7 @@ TEST_P(ColumnFamilyTest, CreateMissingColumnFamilies) {
   ASSERT_EQ(my_fs->options_files_created.load(), 2);
 }
 
-TEST_P(ColumnFamilyTest, SanitizeOptions) {
+TEST_P(ColumnFamilyTest, SanitizeCfOptions) {
   DBOptions db_options;
   for (int s = kCompactionStyleLevel; s <= kCompactionStyleUniversal; ++s) {
     for (int l = 0; l <= 2; l++) {
@@ -2248,8 +2248,8 @@ TEST_P(ColumnFamilyTest, SanitizeOptions) {
             original.write_buffer_size =
                 l * 4 * 1024 * 1024 + i * 1024 * 1024 + j * 1024 + k;
 
-            ColumnFamilyOptions result =
-                SanitizeOptions(ImmutableDBOptions(db_options), original);
+            ColumnFamilyOptions result = SanitizeCfOptions(
+                ImmutableDBOptions(db_options), /*read_only*/ false, original);
             ASSERT_TRUE(result.level0_stop_writes_trigger >=
                         result.level0_slowdown_writes_trigger);
             ASSERT_TRUE(result.level0_slowdown_writes_trigger >=

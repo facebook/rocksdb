@@ -74,8 +74,8 @@ Status BuildTable(
     EventLogger* event_logger, int job_id, TableProperties* table_properties,
     Env::WriteLifeTimeHint write_hint, const std::string* full_history_ts_low,
     BlobFileCompletionCallback* blob_callback, Version* version,
-    uint64_t* num_input_entries, uint64_t* memtable_payload_bytes,
-    uint64_t* memtable_garbage_bytes) {
+    uint64_t* memtable_payload_bytes, uint64_t* memtable_garbage_bytes,
+    InternalStats::CompactionStats* flush_stats) {
   assert((tboptions.column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          tboptions.column_family_name.empty());
@@ -145,7 +145,9 @@ Status BuildTable(
       bool use_direct_writes = file_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
-      IOStatus io_s = NewWritableFile(fs, fname, &file, file_options);
+      FileOptions fo_copy = file_options;
+      fo_copy.write_hint = write_hint;
+      IOStatus io_s = NewWritableFile(fs, fname, &file, fo_copy);
       assert(s.ok());
       s = io_s;
       if (io_status->ok()) {
@@ -163,7 +165,9 @@ Status BuildTable(
       table_file_created = true;
       FileTypeSet tmp_set = ioptions.checksum_handoff_file_types;
       file->SetIOPriority(tboptions.write_options.rate_limiter_priority);
-      file->SetWriteLifeTimeHint(write_hint);
+      // Subsequent attempts to override the hint via SetWriteLifeTimeHint
+      // with the very same value will be ignored by the fs.
+      file->SetWriteLifeTimeHint(fo_copy.write_hint);
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, ioptions.clock, io_tracer,
           ioptions.stats, Histograms::SST_WRITE_MICROS, ioptions.listeners,
@@ -249,6 +253,10 @@ Status BuildTable(
       }
       builder->Add(key_after_flush, value_after_flush);
 
+      if (flush_stats) {
+        flush_stats->num_output_records++;
+      }
+
       s = meta->UpdateBoundaries(key_after_flush, value_after_flush,
                                  ikey.sequence, ikey.type);
       if (!s.ok()) {
@@ -280,6 +288,9 @@ Status BuildTable(
         auto tombstone = range_del_it->Tombstone();
         std::pair<InternalKey, Slice> kv = tombstone.Serialize();
         builder->Add(kv.first.Encode(), kv.second);
+        if (flush_stats) {
+          flush_stats->num_output_records++;
+        }
         InternalKey tombstone_end = tombstone.SerializeEndKey();
         meta->UpdateBoundariesForRange(kv.first, tombstone_end, tombstone.seq_,
                                        tboptions.internal_comparator);
@@ -301,9 +312,9 @@ Status BuildTable(
 
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
     const bool empty = builder->IsEmpty();
-    if (num_input_entries != nullptr) {
+    if (flush_stats) {
       assert(c_iter.HasNumInputEntryScanned());
-      *num_input_entries =
+      flush_stats->num_input_records =
           c_iter.NumInputEntryScanned() + num_unfragmented_tombstones;
     }
     if (!s.ok() || empty) {

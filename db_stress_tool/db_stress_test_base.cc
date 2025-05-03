@@ -838,11 +838,15 @@ Status StressTest::NewTxn(WriteOptions& write_opts, ThreadState* thread,
         FLAGS_use_only_the_last_commit_time_batch_for_recovery;
     txn_options.lock_timeout = 600000;  // 10 min
     txn_options.deadlock_detect = true;
-    if (FLAGS_commit_bypass_memtable_one_in > 0) {
+    if (FLAGS_commit_bypass_memtable_one_in > 0 &&
+        thread->rand.OneIn(FLAGS_commit_bypass_memtable_one_in)) {
       assert(FLAGS_txn_write_policy == 0);
       assert(FLAGS_user_timestamp_size == 0);
-      txn_options.commit_bypass_memtable =
-          thread->rand.OneIn(FLAGS_commit_bypass_memtable_one_in);
+      if (thread->rand.OneIn(2)) {
+        txn_options.commit_bypass_memtable = true;
+      } else {
+        txn_options.large_txn_commit_optimize_threshold = 1;
+      }
       if (commit_bypass_memtable) {
         *commit_bypass_memtable = txn_options.commit_bypass_memtable;
       }
@@ -3376,8 +3380,6 @@ void StressTest::PrintEnv() const {
           FLAGS_sync_fault_injection);
   fprintf(stdout, "Best efforts recovery     : %d\n",
           static_cast<int>(FLAGS_best_efforts_recovery));
-  fprintf(stdout, "Fail if OPTIONS file error: %d\n",
-          static_cast<int>(FLAGS_fail_if_options_file_error));
   fprintf(stdout, "User timestamp size bytes : %d\n",
           static_cast<int>(FLAGS_user_timestamp_size));
   fprintf(stdout, "Persist user defined timestamps : %d\n",
@@ -4047,8 +4049,6 @@ void InitializeOptionsFromFlags(
   options.max_write_buffer_number = FLAGS_max_write_buffer_number;
   options.min_write_buffer_number_to_merge =
       FLAGS_min_write_buffer_number_to_merge;
-  options.max_write_buffer_number_to_maintain =
-      FLAGS_max_write_buffer_number_to_maintain;
   options.max_write_buffer_size_to_maintain =
       FLAGS_max_write_buffer_size_to_maintain;
   options.memtable_prefix_bloom_size_ratio =
@@ -4257,7 +4257,6 @@ void InitializeOptionsFromFlags(
 
   options.best_efforts_recovery = FLAGS_best_efforts_recovery;
   options.paranoid_file_checks = FLAGS_paranoid_file_checks;
-  options.fail_if_options_file_error = FLAGS_fail_if_options_file_error;
 
   if (FLAGS_user_timestamp_size > 0) {
     CheckAndSetOptionsForUserTimestamp(options);
@@ -4321,6 +4320,8 @@ void InitializeOptionsFromFlags(
   if (FLAGS_enable_remote_compaction) {
     options.compaction_service = std::make_shared<DbStressCompactionService>();
   }
+
+  options.memtable_op_scan_flush_trigger = FLAGS_memtable_op_scan_flush_trigger;
 }
 
 void InitializeOptionsGeneral(

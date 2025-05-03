@@ -57,7 +57,8 @@ Status GetFileChecksumsFromCurrentManifest(FileSystem* fs,
   }
   assert(checksum_list);
 
-  const ReadOptions read_options(Env::IOActivity::kReadManifest);
+  const ReadOptions read_options(
+      Env::IOActivity::kGetFileChecksumsFromCurrentManifest);
   checksum_list->reset();
 
   std::unique_ptr<SequentialFileReader> file_reader;

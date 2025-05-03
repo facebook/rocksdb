@@ -336,6 +336,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
      "rocksdb.error.handler.autoresume.retry.count"},
     {ASYNC_READ_BYTES, "rocksdb.async.read.bytes"},
     {POLL_WAIT_MICROS, "rocksdb.poll.wait.micros"},
+    {COMPACTION_PREFETCH_BYTES, "rocksdb.compaction.prefetch.bytes"},
     {PREFETCHED_BYTES_DISCARDED, "rocksdb.prefetched.bytes.discarded"},
     {ASYNC_PREFETCH_ABORT_MICROS, "rocksdb.async.prefetch.abort.micros"},
     {TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,

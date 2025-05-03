@@ -30,6 +30,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "table/multiget_context.h"
+#include "util/atomic.h"
 #include "util/cast_util.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
@@ -354,13 +355,13 @@ class ReadOnlyMemTable {
   // be flushed to storage
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  uint64_t GetNextLogNumber() const { return mem_next_logfile_number_; }
+  uint64_t GetNextLogNumber() const { return mem_next_walfile_number_; }
 
   // Sets the next active logfile number when this memtable is about to
   // be flushed to storage
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
+  void SetNextLogNumber(uint64_t num) { mem_next_walfile_number_ = num; }
 
   // REQUIRES: db_mutex held.
   void SetID(uint64_t id) { id_ = id; }
@@ -496,6 +497,10 @@ class ReadOnlyMemTable {
     return false;
   }
 
+  void MarkForFlush() { marked_for_flush_.StoreRelaxed(true); }
+
+  bool IsMarkedForFlush() const { return marked_for_flush_.LoadRelaxed(); }
+
  protected:
   friend class MemTableList;
 
@@ -511,7 +516,7 @@ class ReadOnlyMemTable {
   VersionEdit edit_;
 
   // The log files earlier than this number can be deleted.
-  uint64_t mem_next_logfile_number_{0};
+  uint64_t mem_next_walfile_number_{0};
 
   // Memtable id to track flush.
   uint64_t id_ = 0;
@@ -524,6 +529,8 @@ class ReadOnlyMemTable {
 
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
+
+  RelaxedAtomic<bool> marked_for_flush_{false};
 };
 
 class MemTable final : public ReadOnlyMemTable {
@@ -818,6 +825,8 @@ class MemTable final : public ReadOnlyMemTable {
            is_range_del_table_empty_;
   }
 
+  //  Gets the newest user defined timestamps in the memtable. This should only
+  //  be called when user defined timestamp is enabled.
   const Slice& GetNewestUDT() const override;
 
   // Returns Corruption status if verification fails.
@@ -893,14 +902,10 @@ class MemTable final : public ReadOnlyMemTable {
   // Size in bytes for the user-defined timestamps.
   size_t ts_sz_;
 
-  // Whether to persist user-defined timestamps
-  bool persist_user_defined_timestamps_;
-
   // Newest user-defined timestamp contained in this MemTable. For ts1, and ts2
   // if Comparator::CompareTimestamp(ts1, ts2) > 0, ts1 is considered newer than
   // ts2. We track this field for a MemTable if its column family has UDT
-  // feature enabled and the `persist_user_defined_timestamp` flag is false.
-  // Otherwise, this field just contains an empty Slice.
+  // feature enabled.
   Slice newest_udt_;
 
   // Updates flush_state_ using ShouldFlushNow()

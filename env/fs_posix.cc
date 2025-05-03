@@ -322,8 +322,17 @@ class PosixFileSystem : public FileSystem {
     if (options.use_mmap_writes) {
       MaybeForceDisableMmap(fd);
     }
+    uint64_t initial_file_size = 0;
+    if (reopen) {
+      s = GetFileSize(fname, IOOptions(), &initial_file_size, nullptr);
+      if (!s.ok()) {
+        close(fd);
+        return s;
+      }
+    }
     if (options.use_mmap_writes && !forceMmapOff_) {
-      result->reset(new PosixMmapFile(fname, fd, page_size_, options));
+      result->reset(
+          new PosixMmapFile(fname, fd, page_size_, options, initial_file_size));
     } else if (options.use_direct_writes && !options.use_mmap_writes) {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
@@ -343,7 +352,7 @@ class PosixFileSystem : public FileSystem {
 #endif
       result->reset(new PosixWritableFile(
           fname, fd, GetLogicalBlockSizeForWriteIfNeeded(options, fname, fd),
-          options));
+          options, initial_file_size));
     } else {
       // disable mmap writes
       EnvOptions no_mmap_writes_options = options;
@@ -352,7 +361,7 @@ class PosixFileSystem : public FileSystem {
           new PosixWritableFile(fname, fd,
                                 GetLogicalBlockSizeForWriteIfNeeded(
                                     no_mmap_writes_options, fname, fd),
-                                no_mmap_writes_options));
+                                no_mmap_writes_options, initial_file_size));
     }
     return s;
   }
@@ -418,7 +427,8 @@ class PosixFileSystem : public FileSystem {
       MaybeForceDisableMmap(fd);
     }
     if (options.use_mmap_writes && !forceMmapOff_) {
-      result->reset(new PosixMmapFile(fname, fd, page_size_, options));
+      result->reset(new PosixMmapFile(fname, fd, page_size_, options,
+                                      /*initial_file_size=*/0));
     } else if (options.use_direct_writes && !options.use_mmap_writes) {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
@@ -438,16 +448,16 @@ class PosixFileSystem : public FileSystem {
 #endif
       result->reset(new PosixWritableFile(
           fname, fd, GetLogicalBlockSizeForWriteIfNeeded(options, fname, fd),
-          options));
+          options, /*initial_file_size=*/0));
     } else {
       // disable mmap writes
       FileOptions no_mmap_writes_options = options;
       no_mmap_writes_options.use_mmap_writes = false;
-      result->reset(
-          new PosixWritableFile(fname, fd,
-                                GetLogicalBlockSizeForWriteIfNeeded(
-                                    no_mmap_writes_options, fname, fd),
-                                no_mmap_writes_options));
+      result->reset(new PosixWritableFile(
+          fname, fd,
+          GetLogicalBlockSizeForWriteIfNeeded(no_mmap_writes_options, fname,
+                                              fd),
+          no_mmap_writes_options, /*initial_file_size=*/0));
     }
     return s;
   }

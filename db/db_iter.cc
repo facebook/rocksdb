@@ -9,7 +9,6 @@
 
 #include "db/db_iter.h"
 
-#include <iostream>
 #include <limits>
 #include <string>
 
@@ -42,9 +41,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const MutableCFOptions& mutable_cf_options,
                const Comparator* cmp, InternalIterator* iter,
                const Version* version, SequenceNumber s, bool arena_mode,
-               uint64_t max_sequential_skip_in_iterations,
                ReadCallback* read_callback, ColumnFamilyHandleImpl* cfh,
-               bool expose_blob_index)
+               bool expose_blob_index, ReadOnlyMemTable* active_mem)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
       clock_(ioptions.clock),
@@ -58,11 +56,21 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       read_callback_(read_callback),
       sequence_(s),
       statistics_(ioptions.stats),
-      max_skip_(max_sequential_skip_in_iterations),
+      max_skip_(mutable_cf_options.max_sequential_skip_in_iterations),
       max_skippable_internal_keys_(read_options.max_skippable_internal_keys),
       num_internal_keys_skipped_(0),
       iterate_lower_bound_(read_options.iterate_lower_bound),
       iterate_upper_bound_(read_options.iterate_upper_bound),
+      cfh_(cfh),
+      timestamp_ub_(read_options.timestamp),
+      timestamp_lb_(read_options.iter_start_ts),
+      timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0),
+      active_mem_(active_mem),
+      memtable_seqno_lb_((active_mem_ && !active_mem_->IsEmpty())
+                             ? active_mem_->GetFirstSequenceNumber()
+                             : kMaxSequenceNumber),
+      memtable_op_scan_flush_trigger_(
+          mutable_cf_options.memtable_op_scan_flush_trigger),
       direction_(kForward),
       valid_(false),
       current_entry_is_merged_(false),
@@ -76,11 +84,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       expose_blob_index_(expose_blob_index),
       allow_unprepared_value_(read_options.allow_unprepared_value),
       is_blob_(false),
-      arena_mode_(arena_mode),
-      cfh_(cfh),
-      timestamp_ub_(read_options.timestamp),
-      timestamp_lb_(read_options.iter_start_ts),
-      timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {
+      arena_mode_(arena_mode) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
   if (pin_thru_lifetime_) {
     pinned_iters_mgr_.StartPinning();
@@ -369,6 +373,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   // to one.
   bool reseek_done = false;
 
+  uint64_t mem_ops_scanned = 0;
+  bool marked_for_flush = false;
   do {
     // Will update is_key_seqnum_zero_ as soon as we parsed the current key
     // but we need to save the previous value to be used in the loop.
@@ -425,6 +431,12 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) <= 0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
+        if (memtable_op_scan_flush_trigger_ && active_mem_ &&
+            ikey_.sequence >= memtable_seqno_lb_ && !marked_for_flush &&
+            ++mem_ops_scanned >= memtable_op_scan_flush_trigger_) {
+          active_mem_->MarkForFlush();
+          marked_for_flush = true;
+        }
       } else {
         assert(!skipping_saved_key ||
                CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) > 0);
@@ -446,6 +458,12 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                                       !iter_.iter()->IsKeyPinned() /* copy */);
               skipping_saved_key = true;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
+              if (memtable_op_scan_flush_trigger_ && active_mem_ &&
+                  ikey_.sequence >= memtable_seqno_lb_ && !marked_for_flush &&
+                  ++mem_ops_scanned >= memtable_op_scan_flush_trigger_) {
+                active_mem_->MarkForFlush();
+                marked_for_flush = true;
+              }
             }
             break;
           case kTypeValue:
@@ -1224,6 +1242,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
     if (timestamp_lb_ != nullptr) {
       saved_key_.SetInternalKey(ikey);
+    } else {
+      saved_key_.SetUserKey(ikey.user_key);
     }
 
     valid_ = true;
@@ -1790,21 +1810,4 @@ void DBIter::SeekToLast() {
         StripTimestampFromUserKey(saved_key_.GetUserKey(), timestamp_size_)));
   }
 }
-
-Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
-                        const ImmutableOptions& ioptions,
-                        const MutableCFOptions& mutable_cf_options,
-                        const Comparator* user_key_comparator,
-                        InternalIterator* internal_iter, const Version* version,
-                        const SequenceNumber& sequence,
-                        uint64_t max_sequential_skip_in_iterations,
-                        ReadCallback* read_callback,
-                        ColumnFamilyHandleImpl* cfh, bool expose_blob_index) {
-  DBIter* db_iter = new DBIter(
-      env, read_options, ioptions, mutable_cf_options, user_key_comparator,
-      internal_iter, version, sequence, false,
-      max_sequential_skip_in_iterations, read_callback, cfh, expose_blob_index);
-  return db_iter;
-}
-
 }  // namespace ROCKSDB_NAMESPACE

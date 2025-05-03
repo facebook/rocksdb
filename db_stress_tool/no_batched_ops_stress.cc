@@ -1600,12 +1600,6 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
 
-    // There is a narrow window in iterator auto refresh run where injected read
-    // errors are simply untraceable, ex. failure to delete file as a part of
-    // superversion cleanup callback invoked by the DBIter destructor.
-    bool ignore_injected_read_error_in_iter =
-        ro_copy.auto_refresh_iterator_with_snapshot;
-
     // Randomly test with `iterate_upper_bound` and `prefix_same_as_start`
     //
     // Get the next prefix first and then see if we want to set it to be the
@@ -1698,8 +1692,7 @@ class NonBatchedOpsStressTest : public StressTest {
               FaultInjectionIOType::kRead),
           fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kMetadataRead));
-      if (!ignore_injected_read_error_in_iter &&
-          !SharedState::ignore_read_error && injected_error_count > 0 &&
+      if (!SharedState::ignore_read_error && injected_error_count > 0 &&
           s.ok()) {
         // Grab mutex so multiple thread don't try to print the
         // stack trace at the same time
@@ -1852,7 +1845,17 @@ class NonBatchedOpsStressTest : public StressTest {
       } else if (FLAGS_use_merge) {
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
-            s = db_->Merge(write_opts, cfh, k, v);
+            if (FLAGS_ingest_wbwi_one_in &&
+                thread->rand.OneIn(FLAGS_ingest_wbwi_one_in)) {
+              auto wbwi = std::make_shared<WriteBatchWithIndex>(
+                  options_.comparator, 0, /*overwrite_key=*/true);
+              s = wbwi->Merge(cfh, k, v);
+              if (s.ok()) {
+                s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              }
+            } else {
+              s = db_->Merge(write_opts, cfh, k, v);
+            }
           } else {
             s = db_->Merge(write_opts, cfh, k, write_ts, v);
           }
@@ -1864,7 +1867,17 @@ class NonBatchedOpsStressTest : public StressTest {
       } else {
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
-            s = db_->Put(write_opts, cfh, k, v);
+            if (FLAGS_ingest_wbwi_one_in &&
+                thread->rand.OneIn(FLAGS_ingest_wbwi_one_in)) {
+              auto wbwi = std::make_shared<WriteBatchWithIndex>(
+                  options_.comparator, 0, /*overwrite_key=*/true);
+              s = wbwi->Put(cfh, k, v);
+              if (s.ok()) {
+                s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              }
+            } else {
+              s = db_->Put(write_opts, cfh, k, v);
+            }
           } else {
             s = db_->Put(write_opts, cfh, k, write_ts, v);
           }
@@ -1956,7 +1969,17 @@ class NonBatchedOpsStressTest : public StressTest {
         }
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
-            s = db_->Delete(write_opts, cfh, key);
+            if (FLAGS_ingest_wbwi_one_in &&
+                thread->rand.OneIn(FLAGS_ingest_wbwi_one_in)) {
+              auto wbwi = std::make_shared<WriteBatchWithIndex>(
+                  options_.comparator, 0, /*overwrite_key=*/true);
+              s = wbwi->Delete(cfh, key);
+              if (s.ok()) {
+                s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              }
+            } else {
+              s = db_->Delete(write_opts, cfh, key);
+            }
           } else {
             s = db_->Delete(write_opts, cfh, key, write_ts);
           }
@@ -2013,7 +2036,17 @@ class NonBatchedOpsStressTest : public StressTest {
         }
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
-            s = db_->SingleDelete(write_opts, cfh, key);
+            if (FLAGS_ingest_wbwi_one_in &&
+                thread->rand.OneIn(FLAGS_ingest_wbwi_one_in)) {
+              auto wbwi = std::make_shared<WriteBatchWithIndex>(
+                  options_.comparator, 0, /*overwrite_key=*/true);
+              s = wbwi->SingleDelete(cfh, key);
+              if (s.ok()) {
+                s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              }
+            } else {
+              s = db_->SingleDelete(write_opts, cfh, key);
+            }
           } else {
             s = db_->SingleDelete(write_opts, cfh, key, write_ts);
           }

@@ -2825,7 +2825,7 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
     // Try to get table properties from the table reader of sst_reader
     if (!sst_reader.ReadTableProperties(&tp).ok()) {
       // FIXME (peterd): this logic is untested and seems obsolete.
-      // Try to use table properites from the initialization of sst_reader
+      // Try to use table properties from the initialization of sst_reader
       table_properties = sst_reader.GetInitTableProperties();
     } else {
       table_properties = tp.get();

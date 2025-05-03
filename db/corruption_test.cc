@@ -863,7 +863,6 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
     ASSERT_OK(DB::Open(options, dbname_, &db_));
     assert(db_ != nullptr);  // suppress false clang-analyze report
     Build(100, 2);
-    // ASSERT_OK(db_->Flush(FlushOptions()));
     DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
     ASSERT_OK(dbi->TEST_FlushMemTable());
     mock->SetCorruptionMode(mode);

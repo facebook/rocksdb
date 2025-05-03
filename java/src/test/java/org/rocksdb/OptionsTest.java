@@ -903,15 +903,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void failIfOptionsFileError() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setFailIfOptionsFileError(boolValue);
-      assertThat(opt.failIfOptionsFileError()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void dumpMallocStats() {
     try (final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();
@@ -1198,19 +1189,6 @@ public class OptionsTest {
         final Options options = new Options().setStatistics(statistics);
         final Statistics stats = options.statistics()) {
       assertThat(stats).isNotNull();
-    }
-  }
-
-  @Test
-  public void maxWriteBufferNumberToMaintain() {
-    try (final Options options = new Options()) {
-      int intValue = rand.nextInt();
-      // Size has to be positive
-      intValue = (intValue < 0) ? -intValue : intValue;
-      intValue = (intValue == 0) ? intValue + 1 : intValue;
-      options.setMaxWriteBufferNumberToMaintain(intValue);
-      assertThat(options.maxWriteBufferNumberToMaintain()).
-          isEqualTo(intValue);
     }
   }
 

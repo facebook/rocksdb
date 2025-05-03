@@ -299,8 +299,17 @@ TEST_P(PrefetchTest, Basic) {
   const uint64_t prev_table_open_prefetch_tail_hit =
       options.statistics->getTickerCount(TABLE_OPEN_PREFETCH_TAIL_HIT);
 
+  HistogramData pre_compaction_prefetch_bytes;
+  options.statistics->histogramData(COMPACTION_PREFETCH_BYTES,
+                                    &pre_compaction_prefetch_bytes);
+  ASSERT_EQ(pre_compaction_prefetch_bytes.count, 0);
+
   // commenting out the line below causes the example to work correctly
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  HistogramData post_compaction_prefetch_bytes;
+  options.statistics->histogramData(COMPACTION_PREFETCH_BYTES,
+                                    &post_compaction_prefetch_bytes);
 
   HistogramData cur_table_open_prefetch_tail_read;
   options.statistics->histogramData(TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
@@ -318,6 +327,7 @@ TEST_P(PrefetchTest, Basic) {
     ASSERT_GT(fs->GetPrefetchCount(), 1);
     ASSERT_EQ(0, buff_prefetch_count);
     fs->ClearPrefetchCount();
+    ASSERT_EQ(post_compaction_prefetch_bytes.count, 0);
   } else {
     ASSERT_FALSE(fs->IsPrefetchCalled());
     // To rule out false positive by the SST file tail prefetch during
@@ -331,6 +341,20 @@ TEST_P(PrefetchTest, Basic) {
               prev_table_open_prefetch_tail_hit);
     ASSERT_GE(cur_table_open_prefetch_tail_miss,
               prev_table_open_prefetch_tail_miss);
+
+    ASSERT_GT(post_compaction_prefetch_bytes.count, 0);
+
+    // Not an exact match due to potential roundup/down for alignment
+    auto expected_compaction_readahead_size =
+        Options().compaction_readahead_size;
+    ASSERT_LE(post_compaction_prefetch_bytes.max,
+              expected_compaction_readahead_size * 1.1);
+    ASSERT_GE(post_compaction_prefetch_bytes.max,
+              expected_compaction_readahead_size * 0.9);
+    ASSERT_LE(post_compaction_prefetch_bytes.average,
+              expected_compaction_readahead_size * 1.1);
+    ASSERT_GE(post_compaction_prefetch_bytes.average,
+              expected_compaction_readahead_size * 0.9);
   }
 
   for (bool disable_io : {false, true}) {
@@ -3251,8 +3275,9 @@ TEST_F(FilePrefetchBufferTest, SyncReadaheadStats) {
   ReadaheadParams readahead_params;
   readahead_params.initial_readahead_size = 8192;
   readahead_params.max_readahead_size = 8192;
-  FilePrefetchBuffer fpb(readahead_params, true, false, fs(), nullptr,
-                         stats.get());
+  FilePrefetchBuffer fpb(
+      readahead_params, true, false, fs(), nullptr, stats.get(),
+      nullptr /* cb */, FilePrefetchBufferUsage::kUserScanPrefetch /* usage */);
   Slice result;
   // Simulate a seek of 4096 bytes at offset 0. Due to the readahead settings,
   // it will do a read of offset 0 and length - (4096 + 8192) 12288.
@@ -3497,9 +3522,10 @@ TEST_P(FSBufferPrefetchTest, FSBufferPrefetchStatsInternals) {
   size_t num_buffers = use_async_prefetch ? 2 : 1;
   readahead_params.num_buffers = num_buffers;
 
-  FilePrefetchBuffer fpb(readahead_params, true /* enable */,
-                         false /* track_min_offset */, fs(), clock(),
-                         stats.get());
+  FilePrefetchBuffer fpb(
+      readahead_params, true /* enable */, false /* track_min_offset */, fs(),
+      clock(), stats.get(), nullptr /* cb */,
+      FilePrefetchBufferUsage::kUserScanPrefetch /* usage */);
 
   int overlap_buffer_write_ct = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(

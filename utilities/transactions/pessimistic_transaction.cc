@@ -105,13 +105,16 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   commit_timestamp_ = kMaxTxnTimestamp;
 
   if (txn_options.commit_bypass_memtable) {
-    commit_bypass_memtable_threshold_ = 0;
+    // No need to optimize for empty transction
+    commit_bypass_memtable_threshold_ = 1;
+  } else if (txn_options.large_txn_commit_optimize_threshold !=
+             std::numeric_limits<uint32_t>::max()) {
+    commit_bypass_memtable_threshold_ =
+        txn_options.large_txn_commit_optimize_threshold;
   } else {
     commit_bypass_memtable_threshold_ =
         db_options.txn_commit_bypass_memtable_threshold;
   }
-  write_batch_.SetTrackPerCFStat(commit_bypass_memtable_threshold_ <
-                                 std::numeric_limits<uint32_t>::max());
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
@@ -811,7 +814,7 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
   }
   auto s = db_impl_->WriteImpl(
       write_options_, wb,
-      /*callback*/ nullptr, /*user_write_cb=*/nullptr, /*log_used*/ nullptr,
+      /*callback*/ nullptr, /*user_write_cb=*/nullptr, /*wal_used*/ nullptr,
       /*log_ref*/ 0, /*disable_memtable*/ false, &seq_used, /*batch_cnt=*/0,
       /*pre_release_callback=*/nullptr, post_mem_cb);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
@@ -825,7 +828,7 @@ Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch, size_t) {
   uint64_t seq_used = kMaxSequenceNumber;
   auto s = db_impl_->WriteImpl(write_options_, batch, /*callback*/ nullptr,
                                /*user_write_cb=*/nullptr,
-                               /*log_used*/ nullptr, /*log_ref*/ 0,
+                               /*wal_used*/ nullptr, /*log_ref*/ 0,
                                /*disable_memtable*/ false, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
@@ -889,7 +892,7 @@ Status WriteCommittedTxn::CommitInternal() {
   // any operations appended to this working_batch will be ignored from WAL
   working_batch->MarkWalTerminationPoint();
 
-  bool bypass_memtable = wb->Count() > commit_bypass_memtable_threshold_;
+  bool bypass_memtable = wb->Count() >= commit_bypass_memtable_threshold_;
   if (!bypass_memtable) {
     // insert prepared batch into Memtable only skipping WAL.
     // Memtable will ignore BeginPrepare/EndPrepare markers
@@ -914,14 +917,17 @@ Status WriteCommittedTxn::CommitInternal() {
   TEST_SYNC_POINT_CALLBACK("WriteCommittedTxn::CommitInternal:bypass_memtable",
                            static_cast<void*>(&bypass_memtable));
   if (bypass_memtable) {
+    // Used for differentiating commiting WBWI vs directly ingesting WBWI
+    // see (IngestWriteBatchWithIndex())
+    assert(working_batch->HasCommit());
     s = db_impl_->WriteImpl(
         write_options_, working_batch, /*callback*/ nullptr,
         /*user_write_cb=*/nullptr,
-        /*log_used*/ nullptr, /*log_ref*/ log_number_,
+        /*wal_used*/ nullptr, /*log_ref*/ log_number_,
         /*disable_memtable*/ false, &seq_used,
         /*batch_cnt=*/0, /*pre_release_callback=*/nullptr, post_mem_cb,
-        /*wbwi=*/std::make_shared<WriteBatchWithIndex>(std::move(write_batch_)),
-        /*min_prep_log=*/log_number_);
+        /*wbwi=*/
+        std::make_shared<WriteBatchWithIndex>(std::move(write_batch_)));
     // Reset write_batch_ since it's accessed in transaction clean up and
     // might be used for transaction reuse.
     write_batch_ = WriteBatchWithIndex(cmp_, 0, true, 0,
@@ -929,7 +935,7 @@ Status WriteCommittedTxn::CommitInternal() {
   } else {
     s = db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
                             /*user_write_cb=*/nullptr,
-                            /*log_used*/ nullptr, /*log_ref*/ log_number_,
+                            /*wal_used*/ nullptr, /*log_ref*/ log_number_,
                             /*disable_memtable*/ false, &seq_used,
                             /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
                             post_mem_cb);

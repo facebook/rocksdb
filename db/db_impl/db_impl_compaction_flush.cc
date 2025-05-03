@@ -168,7 +168,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // had not been committed yet. Make sure we sync them to keep the persisted
   // WAL state at least as new as the persisted SST state.
   const bool needs_to_sync_closed_wals =
-      logfile_number_ > 0 &&
+      cur_wal_number_ > 0 &&
       (versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1 ||
        allow_2pc());
 
@@ -224,7 +224,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   bool need_cancel = false;
   IOStatus log_io_s = IOStatus::OK();
   if (needs_to_sync_closed_wals) {
-    // SyncClosedWals() may unlock and re-lock the log_write_mutex multiple
+    // SyncClosedWals() may unlock and re-lock the wal_write_mutex multiple
     // times.
     VersionEdit synced_wals;
     bool error_recovery_in_prog = error_handler_.IsRecoveryInProgress();
@@ -512,7 +512,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
                        job_context->job_id, flush_reason);
   }
 
-  if (logfile_number_ > 0) {
+  if (cur_wal_number_ > 0) {
     // TODO (yanqin) investigate whether we should sync the closed logs for
     // single column family case.
     VersionEdit synced_wals;
@@ -528,7 +528,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
         !log_io_s.IsColumnFamilyDropped()) {
-      if (total_log_size_ > 0) {
+      if (wals_total_size_.LoadRelaxed() > 0) {
         error_handler_.SetBGError(log_io_s, BackgroundErrorReason::kFlush);
       } else {
         // If the WAL is empty, we use different error reason
@@ -981,7 +981,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
 
   std::string begin_str, end_str;
   auto [begin, end] =
-      MaybeAddTimestampsToRange(begin_without_ts, end_without_ts, ts_sz,
+      MaybeAddTimestampsToRange(OptSlice::CopyFromPtr(begin_without_ts),
+                                OptSlice::CopyFromPtr(end_without_ts), ts_sz,
                                 &begin_str, &end_str, false /*exclusive_end*/);
 
   return CompactRangeInternal(
@@ -1695,11 +1696,13 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
   }
 
   c->SetNotifyOnCompactionCompleted();
+  int num_l0_files = c->input_version()->storage_info()->NumLevelFiles(0);
   // release lock while notifying events
   mutex_.Unlock();
   TEST_SYNC_POINT("DBImpl::NotifyOnCompactionBegin::UnlockMutex");
   {
     CompactionJobInfo info{};
+    info.num_l0_files = num_l0_files;
     BuildCompactionJobInfo(cfd, c, st, job_stats, job_id, &info);
     for (const auto& listener : immutable_db_options_.listeners) {
       listener->OnCompactionBegin(this, info);
@@ -1724,11 +1727,13 @@ void DBImpl::NotifyOnCompactionCompleted(
     return;
   }
 
+  int num_l0_files = cfd->current()->storage_info()->NumLevelFiles(0);
   // release lock while notifying events
   mutex_.Unlock();
   TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
   {
     CompactionJobInfo info{};
+    info.num_l0_files = num_l0_files;
     BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, &info);
     for (const auto& listener : immutable_db_options_.listeners) {
       listener->OnCompactionCompleted(this, info);
@@ -3798,6 +3803,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     compaction_job_stats.num_input_files = c->num_input_files(0);
     // Trivial moves do not get compacted remotely
     compaction_job_stats.is_remote_compaction = false;
+    compaction_job_stats.num_input_files_trivially_moved =
+        compaction_job_stats.num_input_files;
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
@@ -4273,9 +4280,10 @@ void DBImpl::BuildCompactionJobInfo(
 // for superversion_to_free
 
 void DBImpl::InstallSuperVersionAndScheduleWork(
-    ColumnFamilyData* cfd, SuperVersionContext* sv_context) {
+    ColumnFamilyData* cfd, SuperVersionContext* sv_context,
+    std::optional<std::shared_ptr<SeqnoToTimeMapping>>
+        new_seqno_to_time_mapping) {
   mutex_.AssertHeld();
-  const auto& mutable_cf_options = cfd->GetLatestMutableCFOptions();
 
   // Update max_total_in_memory_state_
   size_t old_memtable_size = 0;
@@ -4289,7 +4297,8 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   if (UNLIKELY(sv_context->new_superversion == nullptr)) {
     sv_context->NewSuperVersion();
   }
-  cfd->InstallSuperVersion(sv_context, mutable_cf_options);
+  cfd->InstallSuperVersion(sv_context, &mutex_,
+                           std::move(new_seqno_to_time_mapping));
 
   // There may be a small data race here. The snapshot tricking bottommost
   // compaction may already be released here. But assuming there will always be
@@ -4316,9 +4325,10 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   MaybeScheduleFlushOrCompaction();
 
   // Update max_total_in_memory_state_
-  max_total_in_memory_state_ = max_total_in_memory_state_ - old_memtable_size +
-                               mutable_cf_options.write_buffer_size *
-                                   mutable_cf_options.max_write_buffer_number;
+  max_total_in_memory_state_ =
+      max_total_in_memory_state_ - old_memtable_size +
+      cfd->GetLatestMutableCFOptions().write_buffer_size *
+          cfd->GetLatestMutableCFOptions().max_write_buffer_number;
 }
 
 // ShouldPurge is called by FindObsoleteFiles when doing a full scan,

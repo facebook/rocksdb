@@ -29,8 +29,8 @@ class CompactionState {
   Status status;
 
   void AggregateCompactionStats(
-      InternalStats::CompactionStatsFull& compaction_stats,
-      CompactionJobStats& compaction_job_stats);
+      InternalStats::CompactionStatsFull& internal_stats,
+      CompactionJobStats& job_stats);
 
   explicit CompactionState(Compaction* c) : compaction(c) {}
 
