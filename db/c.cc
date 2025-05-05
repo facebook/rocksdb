@@ -14,6 +14,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/advanced_cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -26,7 +27,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/options.h"
+#include "rocksdb/metadata.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
@@ -77,11 +78,13 @@ using ROCKSDB_NAMESPACE::DBOptions;
 using ROCKSDB_NAMESPACE::DbPath;
 using ROCKSDB_NAMESPACE::Env;
 using ROCKSDB_NAMESPACE::EnvOptions;
+using ROCKSDB_NAMESPACE::ExportImportFilesMetaData;
 using ROCKSDB_NAMESPACE::FileLock;
 using ROCKSDB_NAMESPACE::FilterPolicy;
 using ROCKSDB_NAMESPACE::FlushOptions;
 using ROCKSDB_NAMESPACE::HistogramData;
 using ROCKSDB_NAMESPACE::HyperClockCacheOptions;
+using ROCKSDB_NAMESPACE::ImportColumnFamilyOptions;
 using ROCKSDB_NAMESPACE::InfoLogLevel;
 using ROCKSDB_NAMESPACE::IngestExternalFileOptions;
 using ROCKSDB_NAMESPACE::Iterator;
@@ -234,12 +237,24 @@ struct rocksdb_sst_file_manager_t {
 struct rocksdb_livefiles_t {
   std::vector<LiveFileMetaData> rep;
 };
+struct rocksdb_livefile_t {
+  LiveFileMetaData rep;
+};
 struct rocksdb_column_family_handle_t {
   ColumnFamilyHandle* rep;
   bool immortal; /* only true for default cf */
 };
 struct rocksdb_column_family_metadata_t {
   ColumnFamilyMetaData rep;
+};
+struct rocksdb_column_family_options_t {
+  ColumnFamilyOptions rep;
+};
+struct rocksdb_import_column_family_options_t {
+  ImportColumnFamilyOptions rep;
+};
+struct rocksdb_export_import_files_metadata_t {
+  ExportImportFilesMetaData rep;
 };
 struct rocksdb_level_metadata_t {
   const LevelMetaData* rep;
@@ -1122,6 +1137,61 @@ rocksdb_column_family_handle_t* rocksdb_create_column_family(
                         std::string(column_family_name), &(handle->rep)));
   handle->immortal = false;
   return handle;
+}
+
+rocksdb_column_family_handle_t* rocksdb_create_column_family_with_import(
+    rocksdb_t* db, const rocksdb_options_t* column_family_options,
+    const char* column_family_name,
+    const rocksdb_import_column_family_options_t* import_column_family_options,
+    const rocksdb_export_import_files_metadata_t* metadatas, char** errptr) {
+  ColumnFamilyHandle* handle = nullptr;
+  SaveError(errptr,
+            db->rep->CreateColumnFamilyWithImport(
+                ColumnFamilyOptions(column_family_options->rep),
+                std::string(column_family_name),
+                ImportColumnFamilyOptions(import_column_family_options->rep),
+                ExportImportFilesMetaData(metadatas->rep), &handle));
+  rocksdb_column_family_handle_t* c_handle = new rocksdb_column_family_handle_t;
+  c_handle->rep = handle;
+  return c_handle;
+}
+
+rocksdb_export_import_files_metadata_t*
+rocksdb_checkpoint_export_column_family(rocksdb_checkpoint_t* checkpoint,
+                                        rocksdb_column_family_handle_t* handle,
+                                        const char* export_dir, char** errptr) {
+  ExportImportFilesMetaData* metadata = nullptr;
+
+  SaveError(errptr,
+            checkpoint->rep->ExportColumnFamily(
+                (handle->rep), std::string(export_dir), 
+                &metadata));
+  //rocksdb_export_import_files_metadata_t* c_metadata =
+  //    static_cast<rocksdb_export_import_files_metadata_t*>(malloc(sizeof(*metadata)));
+  rocksdb_export_import_files_metadata_t* c_metadata = new rocksdb_export_import_files_metadata_t;
+  c_metadata->rep.db_comparator_name = metadata->db_comparator_name;
+  for (size_t i = 0; i < metadata->files.size(); i++) {
+    c_metadata->rep.files.push_back(metadata->files[i]);
+  }
+  return c_metadata;
+}
+
+rocksdb_import_column_family_options_t* rocksdb_import_column_family_options_create(void) {
+  return new rocksdb_import_column_family_options_t;
+}
+
+void rocksdb_import_column_family_options_destroy(rocksdb_import_column_family_options_t* opt) {
+  delete opt;
+}
+
+void rocksdb_import_column_family_options_set_move_files(
+    rocksdb_import_column_family_options_t* opt, unsigned char v) {
+  opt->rep.move_files = v;
+}
+
+unsigned char rocksdb_import_column_family_options_get_move_files(
+    rocksdb_import_column_family_options_t* opt) {
+  return opt->rep.move_files;
 }
 
 rocksdb_column_family_handle_t** rocksdb_create_column_families(
@@ -5771,6 +5841,184 @@ uint64_t rocksdb_livefiles_entries(const rocksdb_livefiles_t* lf, int index) {
 
 uint64_t rocksdb_livefiles_deletions(const rocksdb_livefiles_t* lf, int index) {
   return lf->rep[index].num_deletions;
+}
+
+void rocksdb_create_export_import_files_metadata(
+    const char* dbComparatorName, size_t dbComparatorNameLen,
+    rocksdb_export_import_files_metadata_t** eifm) {
+  const std::string str = std::string(dbComparatorName, dbComparatorNameLen);
+  *eifm = new rocksdb_export_import_files_metadata_t();
+  (*eifm)->rep.db_comparator_name = str;
+}
+
+void rocksdb_export_import_files_metadata_add_livefile(
+    rocksdb_t* db, rocksdb_export_import_files_metadata_t* eifm,
+    const char* columnFamilyName, size_t columnFamilyNameSize, 
+    int level, uint64_t smallestSeqNo, uint64_t largestSeqNo, 
+    const char* smallestKey, size_t smallestKeySize,
+    const char* largestKey, size_t largestKeySize, 
+    uint64_t numReadsSampled, bool beingCompacted, 
+    uint64_t numEntries, uint64_t numDeletions,
+    uint64_t oldestBlobFileNumber, uint64_t oldestAncesterTime,
+    uint64_t fileCreationTime, uint64_t epochNumber,
+    const char* smallestInternalKey, size_t smallestInternalKeySize,
+    const char* largestInternalKey, size_t largestInternalKeySize,
+    const char* fileName, size_t fileNameSize, 
+    const char* databasePath, size_t databasePathSize, 
+    const char* relativeFilename, size_t relativeFilenameSize, 
+    const char* directoryName, size_t directoryNameSize, 
+    uint64_t fileNumber, uint64_t fileType,
+    uint64_t size, uint64_t temperature,
+    const char* fileChecksum, size_t fileChecksumSize, 
+    const char* fileChecksumFuncName, size_t fileChecksumFuncNameSize, 
+    int* index) {
+
+    LiveFileMetaData* lf = new LiveFileMetaData();
+    // use passed parameters to initialize a newly created 
+    // LiveFileMetadata object and add to passed in ExportImportFilesMetadata
+
+    // LiveFileMetaData
+    const std::string strColumnFamily = std::string(columnFamilyName, columnFamilyNameSize);
+    lf->column_family_name = strColumnFamily;
+    lf->level = level;
+
+    // SstFileMetaData
+    lf->smallest_seqno = smallestSeqNo;
+    lf->largest_seqno = largestSeqNo;
+    const std::string strSmallestKey = std::string(smallestKey, smallestKeySize);
+    lf->smallestkey = strSmallestKey;
+    const std::string strLargestKey = std::string(largestKey, largestKeySize);
+    lf->smallestkey = strLargestKey;
+    lf->num_reads_sampled = numReadsSampled;
+    lf->being_compacted = beingCompacted;
+    lf->num_entries = numEntries;
+    lf->num_deletions = numDeletions;
+    lf->oldest_blob_file_number = oldestBlobFileNumber;
+    lf->oldest_ancester_time = oldestAncesterTime;
+    lf->file_creation_time = fileCreationTime;
+    lf->epoch_number = epochNumber;
+    const std::string strSmallestInternalKey =
+        std::string(smallestInternalKey, smallestInternalKeySize);
+    lf->smallest = strSmallestInternalKey;
+    const std::string strLargestInternalKey =
+        std::string(largestInternalKey, largestInternalKeySize);
+    lf->largest = strLargestInternalKey;
+    const std::string strFileName = std::string(fileName, fileNameSize);
+    lf->name = strFileName;
+    const std::string strDatabasePath = std::string(databasePath, databasePathSize);
+    lf->db_path = strDatabasePath;
+
+    // FileStorageInfo
+    const std::string strRelativeFilename =
+        std::string(relativeFilename, relativeFilenameSize);
+    lf->relative_filename = strRelativeFilename;
+    const std::string strDirectoryName =
+        std::string(directoryName, directoryNameSize);
+    lf->directory = strDirectoryName;
+    lf->file_number = fileNumber;
+    lf->file_type = (rocksdb::FileType)fileType;
+    lf->size = size;
+    lf->temperature = (rocksdb::Temperature)temperature;
+    const std::string strFileChecksum =
+        std::string(fileChecksum, fileChecksumSize);
+    lf->file_checksum = strFileChecksum;
+    const std::string strFileChecksumFuncName =
+        std::string(fileChecksumFuncName, fileChecksumFuncNameSize);
+    lf->file_checksum_func_name = strFileChecksumFuncName;
+
+    ROCKS_LOG_INFO(db->rep->GetOptions().info_log,
+                "[%s] Add LiveFile: Smallest Internal Key: (%s), size (%lu); Largest Internal Key: (%s), size (%lu)",
+                lf->relative_filename.data(), smallestInternalKey, smallestInternalKeySize,
+                largestInternalKey, largestInternalKeySize);
+
+    // Add the LiveFileMetadata to the vector
+    eifm->rep.files.push_back(*lf);
+
+    // returns - index of added file
+    *index = (int)(eifm->rep.files.size()) - 1;
+}
+
+void rocksdb_export_import_files_metadata_properties(const rocksdb_export_import_files_metadata_t* eifm, 
+                                                     char** dbComparatorName, size_t* dbComparatorNameSize,
+                                                     rocksdb_livefiles_t** lf, size_t* lfSize) {
+    // ExportImportFilesMetadata
+    *dbComparatorNameSize = eifm->rep.db_comparator_name.size();
+    *dbComparatorName = (char *)eifm->rep.db_comparator_name.data();
+    *lfSize = eifm->rep.files.size();
+    *lf = new rocksdb_livefiles_t();
+    for (size_t i = 0; i < eifm->rep.files.size(); i++) {
+        (*lf)->rep.push_back(eifm->rep.files[i]);
+    }
+}
+
+void rocksdb_livefiles_get_livefile_properties(rocksdb_t* db, const rocksdb_livefiles_t* lf, int index, 
+                                               char** columnFamilyName, size_t* columnFamilyNameSize,
+                                               int* level, uint64_t* smallestSeqNo, uint64_t* largestSeqNo,
+                                               char** smallestKey, size_t* smallestKeySize, 
+                                               char** largestKey, size_t* largestKeySize, 
+                                               uint64_t* numReadsSampled, bool* beingCompacted, 
+                                               uint64_t* numEntries, uint64_t* numDeletions,
+                                               uint64_t* oldestBlobFileNumber, uint64_t* oldestAncesterTime, 
+                                               uint64_t* fileCreationTime, uint64_t* epochNumber, 
+                                               char** smallestInternalKey, size_t* smallestInternalKeySize, 
+                                               char** largestInternalKey, size_t* largestInternalKeySize, 
+                                               char** fileName, size_t* fileNameSize, 
+                                               char** databasePath, size_t* databasePathSize,
+                                               char** relativeFilename, size_t* relativeFilenameSize, 
+                                               char** directoryName, size_t* directoryNameSize,
+                                               uint64_t* fileNumber, uint64_t* fileType,
+                                               size_t* size, uint64_t* temperature,
+                                               char** fileChecksum, size_t* fileChecksumSize,
+                                               char** fileChecksumFuncName, size_t* fileChecksumFuncNameSize) {
+    // LiveFileMetaData
+    *columnFamilyNameSize = lf->rep[index].column_family_name.size();
+    *columnFamilyName = (char *)lf->rep[index].column_family_name.data();
+    *level = lf->rep[index].level;
+
+    // SstFileMetaData
+    *smallestSeqNo = lf->rep[index].smallest_seqno;
+    *largestSeqNo = lf->rep[index].largest_seqno;
+    *smallestKeySize = lf->rep[index].smallestkey.size();
+    *smallestKey = (char *)lf->rep[index].smallestkey.data();
+    *largestKeySize = lf->rep[index].largestkey.size();
+    *largestKey = (char *)lf->rep[index].largestkey.data();
+    *numReadsSampled = lf->rep[index].num_reads_sampled;
+    *beingCompacted = lf->rep[index].being_compacted;
+    *numEntries =  lf->rep[index].num_entries;
+    *numDeletions = lf->rep[index].num_deletions;
+    *oldestBlobFileNumber = lf->rep[index].oldest_blob_file_number;
+    *oldestAncesterTime = lf->rep[index].oldest_ancester_time;
+    *fileCreationTime = lf->rep[index].file_creation_time;
+    *epochNumber = lf->rep[index].epoch_number;
+    *smallestInternalKeySize = lf->rep[index].smallest.size();
+    *smallestInternalKey = (char *)lf->rep[index].smallest.data();
+    *largestInternalKeySize = lf->rep[index].largest.size();
+    *largestInternalKey = (char *)lf->rep[index].largest.data();
+    *fileNameSize = lf->rep[index].name.size();
+    *fileName = (char *)lf->rep[index].name.data();
+    *databasePathSize = lf->rep[index].db_path.size();
+    *databasePath = (char *)lf->rep[index].db_path.data();
+
+    // FileStorageInfo
+    *relativeFilenameSize = lf->rep[index].relative_filename.size();
+    *relativeFilename = (char *)lf->rep[index].relative_filename.data();
+    *directoryNameSize = lf->rep[index].directory.size();
+    *directoryName = (char *)lf->rep[index].directory.data();
+    *fileNumber= lf->rep[index].file_number;
+    *fileType = (uint64_t)(lf->rep[index].file_type);
+    *size = lf->rep[index].size;
+    *temperature = (uint64_t)(lf->rep[index].temperature);
+    *fileChecksumSize = lf->rep[index].file_checksum.size();
+    *fileChecksum = (char *)lf->rep[index].file_checksum.data();
+    *fileChecksumFuncNameSize = lf->rep[index].file_checksum_func_name.size();
+    *fileChecksumFuncName = (char *)lf->rep[index].file_checksum_func_name.data();
+    
+    ROCKS_LOG_INFO(db->rep->GetOptions().info_log,
+                   "[%s] Get LiveFile: Smallest Internal Key: (%s), size: "
+                   "(%lu), strlen (%lu); Largest Internal Key: (%s), size (%lu), strlen (%lu)",
+        *relativeFilename, *smallestInternalKey, *smallestInternalKeySize,
+        strlen((char*)lf->rep[index].smallest.data()), *largestInternalKey,
+        *largestInternalKeySize, strlen((char*)lf->rep[index].largest.data()));
 }
 
 void rocksdb_livefiles_destroy(const rocksdb_livefiles_t* lf) { delete lf; }

@@ -344,7 +344,7 @@ void CheckMetaData(rocksdb_column_family_metadata_t* cf_meta,
 
   size_t cf_size = rocksdb_column_family_metadata_get_size(cf_meta);
   assert(cf_size > 0);
-  size_t cf_file_count = rocksdb_column_family_metadata_get_size(cf_meta);
+  size_t cf_file_count = rocksdb_column_family_metadata_get_file_count(cf_meta);
   assert(cf_file_count > 0);
 
   uint64_t total_level_size = 0;
@@ -1655,6 +1655,7 @@ int main(int argc, char** argv) {
     db = rocksdb_open(db_options, dbname, &err);
     rocksdb_column_family_handle_t* cfh;
     cfh = rocksdb_create_column_family(db, db_options, "cf1", &err);
+
     rocksdb_column_family_handle_destroy(cfh);
     CheckNoError(err);
     rocksdb_close(db);
@@ -1916,6 +1917,132 @@ int main(int argc, char** argv) {
       LoadAndCheckLatestOptions(dbname, env, false, cache, NULL, 1,
                                 expected_cf_names, NULL);
     }
+
+    rocksdb_options_set_create_if_missing(db_options, 1);
+    db = rocksdb_open(db_options, dbname, &err);
+    rocksdb_column_family_handle_t* cfh1 = rocksdb_create_column_family(db, db_options, "cf1", &err);
+
+    /* put some data */
+    rocksdb_put_cf(db, woptions, cfh1, "foo", 3, "hello", 5, &err);
+    CheckNoError(err);
+
+    /* create checkpoint for export and export column family */
+    rocksdb_checkpoint_t* checkpoint =
+        rocksdb_checkpoint_object_create(db, &err);
+    CheckNoError(err);
+    rocksdb_checkpoint_create(checkpoint, dbcheckpointname, 0, &err);
+    CheckNoError(err);
+
+    char exportPath[200];
+    snprintf(exportPath, sizeof(exportPath), "%s/rocksdb_c_test-%d/exportdir",
+             GetTempDir(), ((int)geteuid()));
+    rocksdb_export_import_files_metadata_t* metadata =
+        rocksdb_checkpoint_export_column_family(checkpoint, cfh1, exportPath, &err);
+    CheckNoError(err);
+
+    rocksdb_drop_column_family(db, cfh1, &err);
+    CheckNoError(err);
+
+    /* check metadata */
+    char* dbComparatorName = NULL;
+    size_t dbComparatorNameSize = 0;
+    rocksdb_livefiles_t* plf = NULL;
+    size_t lfSize = 0;
+    char* columnFamilyNamePtr = NULL;
+    size_t columnFamilyNameSize = 0;
+    int level = 0;
+    uint64_t smallestSeqNo = 0;
+    uint64_t largestSeqNo = 0;
+    char* smallestKeyPtr = NULL;
+    size_t smallestKeySize = 0;
+    char* largestKeyPtr = NULL;
+    size_t largestKeySize = 0;
+    uint64_t numReadsSampled = 0;
+    bool beingCompacted = false;
+    uint64_t numEntries = 0;
+    uint64_t numDeletions = 0;
+    uint64_t oldestBlobFileNumber = 0;
+    uint64_t oldestAncesterTime = 0;
+    uint64_t fileCreationTime = 0;
+    uint64_t epochNumber = 0;
+    char* smallestInternalKeyPtr = NULL;
+    size_t smallestInternalKeySize = 0;
+    char* largestInternalKeyPtr = NULL;
+    size_t largestInternalKeySize = 0;
+    char* fileNamePtr = NULL;
+    size_t fileNameSize = 0;
+    char* databasePathPtr = NULL;
+    size_t databasePathSize = 0;
+    char* relativeFilenamePtr = NULL;
+    size_t relativeFilenameSize = 0;
+    char* directoryNamePtr = NULL;
+    size_t directoryNameSize = 0;
+    uint64_t fileNumber = 0;
+    uint64_t fileType = 0;
+    size_t size = 0;
+    uint64_t temperature = 0;
+    char* fileChecksumPtr = NULL;
+    size_t fileChecksumSize = 0;
+    char* fileChecksumFuncNamePtr = NULL;
+    size_t fileChecksumFuncNameSize = 0;
+
+    rocksdb_export_import_files_metadata_properties(
+        metadata, &dbComparatorName, &dbComparatorNameSize, &plf, &lfSize);
+    for (int idx = 0; idx < (int)lfSize; idx++) {
+      rocksdb_livefiles_get_livefile_properties(
+          db, plf, idx, &columnFamilyNamePtr, &columnFamilyNameSize, &level,
+          &smallestSeqNo, &largestSeqNo, &smallestKeyPtr, &smallestKeySize,
+          &largestKeyPtr, &largestKeySize, &numReadsSampled, &beingCompacted,
+          &numEntries, &numDeletions, &oldestBlobFileNumber,
+          &oldestAncesterTime, &fileCreationTime, &epochNumber,
+          &smallestInternalKeyPtr, &smallestInternalKeySize,
+          &largestInternalKeyPtr, &largestInternalKeySize, &fileNamePtr,
+          &fileNameSize, &databasePathPtr, &databasePathSize,
+          &relativeFilenamePtr, &relativeFilenameSize, &directoryNamePtr,
+          &directoryNameSize, &fileNumber, &fileType, &size, &temperature,
+          &fileChecksumPtr, &fileChecksumSize, &fileChecksumFuncNamePtr,
+          &fileChecksumFuncNameSize);
+    }
+
+    int index = 0;
+    rocksdb_export_import_files_metadata_t* metadata2;
+    rocksdb_create_export_import_files_metadata(dbComparatorName, 
+        dbComparatorNameSize, &metadata2);
+    for (int idx2 = 0; idx2 < (int)lfSize; idx2++) {
+      rocksdb_export_import_files_metadata_add_livefile(db, metadata2,
+                    columnFamilyNamePtr, columnFamilyNameSize, level,
+                    smallestSeqNo, largestSeqNo, smallestKeyPtr, smallestKeySize,
+                    largestKeyPtr, largestKeySize, numReadsSampled, beingCompacted,
+                    numEntries, numDeletions, oldestBlobFileNumber,
+                    oldestAncesterTime, fileCreationTime, epochNumber,
+                    smallestInternalKeyPtr, smallestInternalKeySize,
+                    largestInternalKeyPtr, largestInternalKeySize,
+                    fileNamePtr, fileNameSize, databasePathPtr, databasePathSize,
+                    relativeFilenamePtr, relativeFilenameSize, directoryNamePtr,
+                    directoryNameSize, fileNumber, fileType, size, temperature,
+                    fileChecksumPtr, fileChecksumSize,
+                    fileChecksumFuncNamePtr, fileChecksumFuncNameSize, &index);
+    }
+
+    rocksdb_import_column_family_options_t* importCFOptions =
+        rocksdb_import_column_family_options_create();
+    rocksdb_import_column_family_options_set_move_files(importCFOptions, true);
+    cfh1 = rocksdb_create_column_family_with_import(
+        db, db_options, "cf1", importCFOptions, metadata, &err);
+    CheckNoError(err);
+
+    /* put some more data */
+    rocksdb_put_cf(db, woptions, cfh1, "foo2", 4, "hello2", 6, &err);
+    CheckNoError(err);
+
+    /* validate data puts */ 
+    CheckGetCF(db, roptions, cfh1, "foo", "hello");
+    CheckGetCF(db, roptions, cfh1, "foo2", "hello2");
+
+    rocksdb_column_family_handle_destroy(cfh1);
+    CheckNoError(err);
+    rocksdb_close(db);
+
     rocksdb_destroy_db(options, dbname, &err);
     rocksdb_options_destroy(db_options);
     rocksdb_options_destroy(cf_options_1);
