@@ -71,9 +71,9 @@ class DBIter final : public Iterator {
                          InternalIterator* internal_iter,
                          const Version* version, const SequenceNumber& sequence,
                          ReadCallback* read_callback,
+                         ReadOnlyMemTable* active_mem,
                          ColumnFamilyHandleImpl* cfh = nullptr,
                          bool expose_blob_index = false,
-                         ReadOnlyMemTable* active_mem = nullptr,
                          Arena* arena = nullptr) {
     void* mem = arena ? arena->AllocateAligned(sizeof(DBIter))
                       : operator new(sizeof(DBIter));
