@@ -3886,12 +3886,14 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
 
     auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                     /* allow_unprepared_value */ true);
+    // TODO(cbi): Add support for `memtable_op_scan_flush_trigger` for tailing
+    // iterator. This requires refreshing DBIter's pointer to active_mem when
+    // tailing iterator refreshes to new memtable internally.
     result = DBIter::NewIter(env_, read_options, cfd->ioptions(),
                              sv->mutable_cf_options, cfd->user_comparator(),
                              iter, sv->current, kMaxSequenceNumber,
-                             /*read_callback=*/nullptr, cfh,
-                             /*expose_blob_index=*/false,
-                             /*active_mem=*/sv->mem);
+                             /*read_callback=*/nullptr, /*active_mem=*/nullptr,
+                             cfh, /*expose_blob_index=*/false);
   } else {
     // Note: no need to consider the special case of
     // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
@@ -4095,12 +4097,12 @@ Status DBImpl::NewIterators(
       auto iter = new ForwardIterator(this, read_options, cf_sv_pair.cfd,
                                       cf_sv_pair.super_version,
                                       /* allow_unprepared_value */ true);
-      iterators->push_back(
-          DBIter::NewIter(env_, read_options, cf_sv_pair.cfd->ioptions(),
-                          cf_sv_pair.super_version->mutable_cf_options,
-                          cf_sv_pair.cfd->user_comparator(), iter,
-                          cf_sv_pair.super_version->current, kMaxSequenceNumber,
-                          nullptr /*read_callback*/, cf_sv_pair.cfh));
+      iterators->push_back(DBIter::NewIter(
+          env_, read_options, cf_sv_pair.cfd->ioptions(),
+          cf_sv_pair.super_version->mutable_cf_options,
+          cf_sv_pair.cfd->user_comparator(), iter,
+          cf_sv_pair.super_version->current, kMaxSequenceNumber,
+          nullptr /*read_callback*/, /*active_mem=*/nullptr, cf_sv_pair.cfh));
     }
   } else {
     for (const auto& cf_sv_pair : cf_sv_pairs) {
