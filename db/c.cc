@@ -109,6 +109,7 @@ using ROCKSDB_NAMESPACE::Range;
 using ROCKSDB_NAMESPACE::RateLimiter;
 using ROCKSDB_NAMESPACE::ReadOptions;
 using ROCKSDB_NAMESPACE::RestoreOptions;
+using ROCKSDB_NAMESPACE::SavePoint;
 using ROCKSDB_NAMESPACE::SequentialFile;
 using ROCKSDB_NAMESPACE::Slice;
 using ROCKSDB_NAMESPACE::SliceParts;
@@ -155,6 +156,9 @@ struct rocksdb_iterator_t {
 };
 struct rocksdb_writebatch_t {
   WriteBatch rep;
+};
+struct rocksdb_save_point_t {
+  SavePoint rep;
 };
 struct rocksdb_writebatch_wi_t {
   WriteBatchWithIndex* rep;
@@ -2345,6 +2349,10 @@ const char* rocksdb_writebatch_data(rocksdb_writebatch_t* b, size_t* size) {
   return b->rep.Data().c_str();
 }
 
+size_t rocksdb_writebatch_get_data_size(rocksdb_writebatch_t* b) {
+  return b->rep.GetDataSize();
+}
+
 void rocksdb_writebatch_set_save_point(rocksdb_writebatch_t* b) {
   b->rep.SetSavePoint();
 }
@@ -2384,6 +2392,58 @@ void rocksdb_writebatch_update_timestamps(
                         Slice(ts, tslen), [&get_ts_size, &state](uint32_t cf) {
                           return (*get_ts_size)(state, cf);
                         }));
+}
+
+unsigned char rocksdb_writebatch_has_put(rocksdb_writebatch_t* b) {
+  return b->rep.HasPut();
+}
+
+unsigned char rocksdb_writebatch_has_delete(rocksdb_writebatch_t* b) {
+  return b->rep.HasDelete();
+}
+
+unsigned char rocksdb_writebatch_has_single_delete(rocksdb_writebatch_t* b) {
+  return b->rep.HasSingleDelete();
+}
+
+unsigned char rocksdb_writebatch_has_delete_range(rocksdb_writebatch_t* b) {
+  return b->rep.HasDeleteRange();
+}
+
+unsigned char rocksdb_writebatch_has_merge(rocksdb_writebatch_t* b) {
+  return b->rep.HasMerge();
+}
+
+unsigned char rocksdb_writebatch_has_begin_prepare(rocksdb_writebatch_t* b) {
+  return b->rep.HasBeginPrepare();
+}
+
+unsigned char rocksdb_writebatch_has_end_prepare(rocksdb_writebatch_t* b) {
+  return b->rep.HasEndPrepare();
+}
+
+unsigned char rocksdb_writebatch_has_commit(rocksdb_writebatch_t* b) {
+  return b->rep.HasCommit();
+}
+
+unsigned char rocksdb_writebatch_has_rollback(rocksdb_writebatch_t* b) {
+  return b->rep.HasRollback();
+}
+
+void rocksdb_writebatch_set_max_bytes(rocksdb_writebatch_t* b,
+                                      size_t max_bytes) {
+  b->rep.SetMaxBytes(max_bytes);
+}
+
+void rocksdb_writebatch_mark_wal_termination_point(rocksdb_writebatch_t* b) {
+  b->rep.MarkWalTerminationPoint();
+}
+
+rocksdb_save_point_t* rocksdb_writebatch_get_wal_termination_point(
+    rocksdb_writebatch_t* b) {
+  rocksdb_save_point_t* sp = new rocksdb_save_point_t;
+  sp->rep = b->rep.GetWalTerminationPoint();
+  return sp;
 }
 
 void rocksdb_writebatch_wi_update_timestamps(
@@ -2615,6 +2675,10 @@ const char* rocksdb_writebatch_wi_data(rocksdb_writebatch_wi_t* b,
   return wb->Data().c_str();
 }
 
+size_t rocksdb_writebatch_wi_get_data_size(rocksdb_writebatch_wi_t* b) {
+  return b->rep->GetDataSize();
+}
+
 void rocksdb_writebatch_wi_set_save_point(rocksdb_writebatch_wi_t* b) {
   b->rep->SetSavePoint();
 }
@@ -2728,6 +2792,26 @@ void rocksdb_write_writebatch_wi(rocksdb_t* db,
   WriteBatch* wb = wbwi->rep->GetWriteBatch();
   SaveError(errptr, db->rep->Write(options->rep, wb));
 }
+
+size_t rocksdb_save_point_get_size(rocksdb_save_point_t* sp) {
+  return sp->rep.size;
+}
+
+uint32_t rocksdb_save_point_get_count(rocksdb_save_point_t* sp) {
+  return sp->rep.count;
+}
+
+uint32_t rocksdb_save_point_get_content_flags(rocksdb_save_point_t* sp) {
+  return sp->rep.content_flags;
+}
+
+void rocksdb_save_point_clear(rocksdb_save_point_t* sp) { sp->rep.clear(); }
+
+bool rocksdb_save_point_is_cleared(rocksdb_save_point_t* sp) {
+  return sp->rep.is_cleared();
+}
+
+void rocksdb_save_point_destroy(rocksdb_save_point_t* sp) { delete sp; }
 
 void rocksdb_load_latest_options(
     const char* db_path, rocksdb_env_t* env, bool ignore_unknown_options,

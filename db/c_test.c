@@ -1243,6 +1243,10 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_wi_delete(wbi, "bar", 3);
     int count = rocksdb_writebatch_wi_count(wbi);
     CheckCondition(count == 3);
+
+    size_t data_size = rocksdb_writebatch_wi_get_data_size(wbi);
+    CheckCondition(data_size > 0);
+
     size_t size;
     char* value;
     value = rocksdb_writebatch_wi_get_from_batch(wbi, options, "box", 3, &size,
@@ -3266,6 +3270,28 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_put(wb, "bar", 3, "b", 1);
     rocksdb_writebatch_put(wb, "box", 3, "c", 1);
     rocksdb_writebatch_delete(wb, "bar", 3);
+
+    CheckCondition(rocksdb_writebatch_has_put(wb));
+    CheckCondition(rocksdb_writebatch_has_delete(wb));
+    CheckCondition(0 == rocksdb_writebatch_has_single_delete(wb));
+    CheckCondition(0 == rocksdb_writebatch_has_delete_range(wb));
+    CheckCondition(0 == rocksdb_writebatch_has_merge(wb));
+    CheckCondition(0 == rocksdb_writebatch_has_rollback(wb));
+    CheckCondition(0 == rocksdb_writebatch_has_commit(wb));
+    CheckCondition(0 == rocksdb_writebatch_has_begin_prepare(wb));
+    CheckCondition(0 == rocksdb_writebatch_has_end_prepare(wb));
+
+    // CheckCondition(rocksdb_writebatch_get_data_size(wb) > 0);
+
+    rocksdb_writebatch_mark_wal_termination_point(wb);
+    rocksdb_save_point_t* sp = rocksdb_writebatch_get_wal_termination_point(wb);
+
+    CheckCondition(rocksdb_save_point_get_size(sp) > 0);
+    CheckCondition(rocksdb_save_point_get_count(sp) > 0);
+    CheckCondition(rocksdb_save_point_get_content_flags(sp) > 0);
+    CheckCondition(!rocksdb_save_point_is_cleared(sp));
+    rocksdb_save_point_destroy(sp);
+
     rocksdb_transactiondb_write(txn_db, woptions, wb, &err);
     rocksdb_writebatch_destroy(wb);
     CheckTxnDBGet(txn_db, roptions, "box", "c");

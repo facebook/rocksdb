@@ -108,6 +108,7 @@ typedef struct rocksdb_slicetransform_t rocksdb_slicetransform_t;
 typedef struct rocksdb_snapshot_t rocksdb_snapshot_t;
 typedef struct rocksdb_writablefile_t rocksdb_writablefile_t;
 typedef struct rocksdb_writebatch_t rocksdb_writebatch_t;
+typedef struct rocksdb_save_point_t rocksdb_save_point_t;
 typedef struct rocksdb_writebatch_wi_t rocksdb_writebatch_wi_t;
 typedef struct rocksdb_writeoptions_t rocksdb_writeoptions_t;
 typedef struct rocksdb_universal_compaction_options_t
@@ -870,6 +871,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate_cf(
                      const char* v, size_t vlen));
 extern ROCKSDB_LIBRARY_API const char* rocksdb_writebatch_data(
     rocksdb_writebatch_t*, size_t* size);
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_writebatch_get_data_size(rocksdb_writebatch_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_set_save_point(
     rocksdb_writebatch_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_rollback_to_save_point(
@@ -879,6 +882,33 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_pop_save_point(
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_update_timestamps(
     rocksdb_writebatch_t* wb, const char* ts, size_t tslen, void* state,
     size_t (*get_ts_size)(void*, uint32_t), char** errptr);
+
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_writebatch_has_put(
+    rocksdb_writebatch_t*);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_writebatch_has_delete(
+    rocksdb_writebatch_t*);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_writebatch_has_single_delete(
+    rocksdb_writebatch_t*);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_writebatch_has_delete_range(
+    rocksdb_writebatch_t*);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_writebatch_has_merge(
+    rocksdb_writebatch_t*);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_writebatch_has_begin_prepare(
+    rocksdb_writebatch_t*);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_writebatch_has_end_prepare(
+    rocksdb_writebatch_t*);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_writebatch_has_commit(
+    rocksdb_writebatch_t*);
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_writebatch_has_rollback(
+    rocksdb_writebatch_t*);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_set_max_bytes(
+    rocksdb_writebatch_t* b, size_t max_bytes);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_mark_wal_termination_point(
+    rocksdb_writebatch_t* b);
+extern ROCKSDB_LIBRARY_API rocksdb_save_point_t*
+rocksdb_writebatch_get_wal_termination_point(rocksdb_writebatch_t* b);
 
 /* Write batch with index */
 
@@ -972,6 +1002,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_iterate(
     void (*deleted)(void*, const char* k, size_t klen));
 extern ROCKSDB_LIBRARY_API const char* rocksdb_writebatch_wi_data(
     rocksdb_writebatch_wi_t* b, size_t* size);
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_writebatch_wi_get_data_size(rocksdb_writebatch_wi_t* b);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_set_save_point(
     rocksdb_writebatch_wi_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_rollback_to_save_point(
@@ -1005,6 +1037,21 @@ rocksdb_writebatch_wi_create_iterator_with_base_cf(
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_update_timestamps(
     rocksdb_writebatch_wi_t* wbwi, const char* ts, size_t tslen, void* state,
     size_t (*get_ts_size)(void*, uint32_t), char** errptr);
+
+/* Save point */
+
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_save_point_get_size(rocksdb_save_point_t* sp);
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_save_point_get_count(rocksdb_save_point_t* sp);
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_save_point_get_content_flags(rocksdb_save_point_t* sp);
+extern ROCKSDB_LIBRARY_API void rocksdb_save_point_clear(
+    rocksdb_save_point_t* sp);
+extern ROCKSDB_LIBRARY_API bool rocksdb_save_point_is_cleared(
+    rocksdb_save_point_t* sp);
+extern ROCKSDB_LIBRARY_API void rocksdb_save_point_destroy(
+    rocksdb_save_point_t* sp);
 
 /* Options utils */
 
