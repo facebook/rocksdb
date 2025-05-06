@@ -17,8 +17,8 @@
 #include "rocksdb/options.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksjni/comparatorjnicallback.h"
-#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 #include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 
 /*
  * Class:     org_rocksdb_SstFileWriter

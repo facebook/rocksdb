@@ -13,8 +13,8 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/checksum_type_jni.h"
+#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/data_block_index_type_jni.h"
 #include "rocksjni/portal/filter_policy_jni.h"
 #include "rocksjni/portal/index_shortening_mode_jni.h"

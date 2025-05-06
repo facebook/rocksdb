@@ -13,8 +13,8 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/column_family_options_jni.h"
+#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/java_class.h"
 #include "rocksjni/portal/jni_util.h"
 

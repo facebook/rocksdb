@@ -13,8 +13,8 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
-#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/abstract_slice_jni.h"
+#include "rocksjni/portal/common.h"
 #include "rocksjni/portal/native_rocks_mutable_object.h"
 #include "rocksjni/portal/rocks_d_b_native_class.h"
 
