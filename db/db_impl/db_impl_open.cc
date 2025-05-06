@@ -2000,6 +2000,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   const size_t ts_sz = ucmp->timestamp_size();
   const bool logical_strip_timestamp =
       ts_sz > 0 && !cfd->ioptions().persist_user_defined_timestamps;
+  // Note that here we treat flush as level 0 compaction in internal stats
+  InternalStats::CompactionStats flush_stats(CompactionReason::kFlush,
+                                             1 /* count */);
   {
     ScopedArenaPtr<InternalIterator> iter(
         logical_strip_timestamp
@@ -2072,19 +2075,20 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           kMaxSequenceNumber);
       Version* version = cfd->current();
       version->Ref();
-      uint64_t num_input_entries = 0;
-      s = BuildTable(dbname_, versions_.get(), immutable_db_options_, tboptions,
-                     file_options_for_compaction_, cfd->table_cache(),
-                     iter.get(), std::move(range_del_iters), &meta,
-                     &blob_file_additions, snapshot_seqs, earliest_snapshot,
-                     earliest_write_conflict_snapshot, kMaxSequenceNumber,
-                     snapshot_checker, paranoid_file_checks,
-                     cfd->internal_stats(), &io_s, io_tracer_,
-                     BlobFileCreationReason::kRecovery,
-                     nullptr /* seqno_to_time_mapping */, &event_logger_,
-                     job_id, nullptr /* table_properties */, write_hint,
-                     nullptr /*full_history_ts_low*/, &blob_callback_, version,
-                     &num_input_entries);
+      TableProperties temp_table_proerties;
+      s = BuildTable(
+          dbname_, versions_.get(), immutable_db_options_, tboptions,
+          file_options_for_compaction_, cfd->table_cache(), iter.get(),
+          std::move(range_del_iters), &meta, &blob_file_additions,
+          snapshot_seqs, earliest_snapshot, earliest_write_conflict_snapshot,
+          kMaxSequenceNumber, snapshot_checker, paranoid_file_checks,
+          cfd->internal_stats(), &io_s, io_tracer_,
+          BlobFileCreationReason::kRecovery,
+          nullptr /* seqno_to_time_mapping */, &event_logger_, job_id,
+          &temp_table_proerties /* table_properties */, write_hint,
+          nullptr /*full_history_ts_low*/, &blob_callback_, version,
+          nullptr /* memtable_payload_bytes */,
+          nullptr /* memtable_garbage_bytes */, &flush_stats);
       version->Unref();
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
@@ -2100,10 +2104,31 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       }
 
       uint64_t total_num_entries = mem->NumEntries();
-      if (s.ok() && total_num_entries != num_input_entries) {
+      if (s.ok() && total_num_entries != flush_stats.num_input_records) {
         std::string msg = "Expected " + std::to_string(total_num_entries) +
                           " entries in memtable, but read " +
-                          std::to_string(num_input_entries);
+                          std::to_string(flush_stats.num_input_records);
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "[%s] [JOB %d] Level-0 flush during recover: %s",
+                       cfd->GetName().c_str(), job_id, msg.c_str());
+        if (immutable_db_options_.flush_verify_memtable_count) {
+          s = Status::Corruption(msg);
+        }
+      }
+      // Only verify on table with format collects table properties
+      const auto& mutable_cf_options = cfd->GetLatestMutableCFOptions();
+      if (s.ok() &&
+          (mutable_cf_options.table_factory->IsInstanceOf(
+               TableFactory::kBlockBasedTableName()) ||
+           mutable_cf_options.table_factory->IsInstanceOf(
+               TableFactory::kPlainTableName())) &&
+          flush_stats.num_output_records != temp_table_proerties.num_entries) {
+        std::string msg =
+            "Number of keys in flush output SST files does not match "
+            "number of keys added to the table. Expected " +
+            std::to_string(flush_stats.num_output_records) + " but there are " +
+            std::to_string(temp_table_proerties.num_entries) +
+            " in output SST files";
         ROCKS_LOG_WARN(immutable_db_options_.info_log,
                        "[%s] [JOB %d] Level-0 flush during recover: %s",
                        cfd->GetName().c_str(), job_id, msg.c_str());
@@ -2151,25 +2176,25 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     }
   }
 
-  InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
-  stats.micros = immutable_db_options_.clock->NowMicros() - start_micros;
+  flush_stats.micros = immutable_db_options_.clock->NowMicros() - start_micros;
 
   if (has_output) {
-    stats.bytes_written = meta.fd.GetFileSize();
-    stats.num_output_files = 1;
+    flush_stats.bytes_written = meta.fd.GetFileSize();
+    flush_stats.num_output_files = 1;
   }
 
   const auto& blobs = edit->GetBlobFileAdditions();
   for (const auto& blob : blobs) {
-    stats.bytes_written_blob += blob.GetTotalBlobBytes();
+    flush_stats.bytes_written_blob += blob.GetTotalBlobBytes();
   }
 
-  stats.num_output_files_blob = static_cast<int>(blobs.size());
+  flush_stats.num_output_files_blob = static_cast<int>(blobs.size());
 
-  cfd->internal_stats()->AddCompactionStats(level, Env::Priority::USER, stats);
+  cfd->internal_stats()->AddCompactionStats(level, Env::Priority::USER,
+                                            flush_stats);
   cfd->internal_stats()->AddCFStats(
       InternalStats::BYTES_FLUSHED,
-      stats.bytes_written + stats.bytes_written_blob);
+      flush_stats.bytes_written + flush_stats.bytes_written_blob);
   RecordTick(stats_, COMPACT_WRITE_BYTES, meta.fd.GetFileSize());
   return s;
 }

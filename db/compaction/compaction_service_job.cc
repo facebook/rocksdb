@@ -113,7 +113,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   }
 
   std::string debug_str_before_wait =
-      compaction->input_version()->DebugString();
+      compaction->input_version()->DebugString(/*hex=*/true);
 
   ROCKS_LOG_INFO(db_options_.info_log,
                  "[%s] [JOB %d] Waiting for remote compaction...",
@@ -124,13 +124,14 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
                                            &compaction_result_binary);
 
   if (compaction_status != CompactionServiceJobStatus::kSuccess) {
-    ROCKS_LOG_ERROR(db_options_.info_log,
-                    "[%s] [JOB %d] Wait() status is not kSuccess. "
-                    "\nDebugString Before Wait():\n%s"
-                    "\nDebugString After Wait():\n%s",
-                    compaction->column_family_data()->GetName().c_str(),
-                    job_id_, debug_str_before_wait.c_str(),
-                    compaction->input_version()->DebugString().c_str());
+    ROCKS_LOG_ERROR(
+        db_options_.info_log,
+        "[%s] [JOB %d] Wait() status is not kSuccess. "
+        "\nDebugString Before Wait():\n%s"
+        "\nDebugString After Wait():\n%s",
+        compaction->column_family_data()->GetName().c_str(), job_id_,
+        debug_str_before_wait.c_str(),
+        compaction->input_version()->DebugString(/*hex=*/true).c_str());
   }
 
   if (compaction_status == CompactionServiceJobStatus::kUseLocal) {

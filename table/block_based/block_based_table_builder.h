@@ -118,12 +118,6 @@ class BlockBasedTableBuilder : public TableBuilder {
   // REQUIRES: `rep_->state == kBuffered`
   void EnterUnbuffered();
 
-  // Call block's Finish() method and then
-  // - in buffered mode, buffer the uncompressed block contents.
-  // - in unbuffered mode, write the compressed block contents to file.
-  void WriteBlock(BlockBuilder* block, BlockHandle* handle,
-                  BlockType blocktype);
-
   // Compress and write block content to the file.
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
                   BlockType block_type);
@@ -185,7 +179,6 @@ class BlockBasedTableBuilder : public TableBuilder {
                               const CompressionContext& compression_ctx,
                               UncompressionContext* verify_ctx,
                               std::string* compressed_output,
-                              Slice* result_block_contents,
                               CompressionType* result_compression_type,
                               Status* out_status);
 
@@ -199,13 +192,6 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Stop BGWorkCompression and BGWorkWriteMaybeCompressedBlock threads
   void StopParallelCompression();
 };
-
-Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
-                    CompressionType* type, uint32_t format_version,
-                    uint64_t sample_for_compression,
-                    std::string* compressed_output,
-                    std::string* sampled_output_fast,
-                    std::string* sampled_output_slow);
 
 #ifndef NDEBUG
 // 0 == disable the hack

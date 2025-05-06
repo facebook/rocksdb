@@ -29,9 +29,6 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/utilities/stackable_db.h"
 #include "rocksdb/utilities/transaction.h"
-#include "table/block_based/block.h"
-#include "table/block_based/block_based_table_builder.h"
-#include "table/block_based/block_builder.h"
 #include "table/meta_blocks.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
@@ -1163,9 +1160,9 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   CompressionOptions opts;
   CompressionContext context(type, opts);
   CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(), type);
-  CompressBlock(raw, info, &type, kBlockBasedTableVersionFormat,
-                0 /* sample_for_compression */, compression_output, nullptr,
-                nullptr);
+  CompressData(raw, info,
+               GetCompressFormatForVersion(kBlockBasedTableVersionFormat),
+               compression_output);
   return *compression_output;
 }
 

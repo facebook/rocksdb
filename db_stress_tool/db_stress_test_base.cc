@@ -838,11 +838,15 @@ Status StressTest::NewTxn(WriteOptions& write_opts, ThreadState* thread,
         FLAGS_use_only_the_last_commit_time_batch_for_recovery;
     txn_options.lock_timeout = 600000;  // 10 min
     txn_options.deadlock_detect = true;
-    if (FLAGS_commit_bypass_memtable_one_in > 0) {
+    if (FLAGS_commit_bypass_memtable_one_in > 0 &&
+        thread->rand.OneIn(FLAGS_commit_bypass_memtable_one_in)) {
       assert(FLAGS_txn_write_policy == 0);
       assert(FLAGS_user_timestamp_size == 0);
-      txn_options.commit_bypass_memtable =
-          thread->rand.OneIn(FLAGS_commit_bypass_memtable_one_in);
+      if (thread->rand.OneIn(2)) {
+        txn_options.commit_bypass_memtable = true;
+      } else {
+        txn_options.large_txn_commit_optimize_threshold = 1;
+      }
       if (commit_bypass_memtable) {
         *commit_bypass_memtable = txn_options.commit_bypass_memtable;
       }

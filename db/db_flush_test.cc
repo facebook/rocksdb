@@ -3504,6 +3504,63 @@ TEST_F(DBFlushTest, DBStuckAfterAtomicFlushError) {
   ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 }
+
+TEST_F(DBFlushTest, VerifyOutputRecordCount) {
+  for (bool use_plain_table : {false, true}) {
+    Options options = CurrentOptions();
+    options.flush_verify_memtable_count = true;
+    options.merge_operator = MergeOperators::CreateStringAppendOperator();
+    DestroyAndReopen(options);
+    // Verify flush output record count verification in different table
+    // formats
+    if (use_plain_table) {
+      options.table_factory.reset(NewPlainTableFactory());
+    }
+
+    // Verify that flush output record count verification does not produce false
+    // positives.
+    ASSERT_OK(Merge("k0", "v1"));
+    ASSERT_OK(Put("k1", "v1"));
+    ASSERT_OK(Put("k2", "v1"));
+    ASSERT_OK(SingleDelete("k2"));
+    ASSERT_OK(Delete("k2"));
+    ASSERT_OK(Delete("k3"));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), "k1", "k3"));
+    ASSERT_OK(Flush());
+
+    // Verify that flush output record count verification catch corruption
+    DestroyAndReopen(options);
+    if (use_plain_table) {
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "PlainTableBuilder::Add::skip",
+          [&](void* skip) { *(bool*)skip = true; });
+
+    } else {
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "BlockBasedTableBuilder::Add::skip",
+          [&](void* skip) { *(bool*)skip = true; });
+    }
+    SyncPoint::GetInstance()->EnableProcessing();
+    const char* expect =
+        "Number of keys in flush output SST files does not match";
+
+    // 1. During DB open flush
+    ASSERT_OK(Put("k1", "v1"));
+    ASSERT_OK(Put("k2", "v1"));
+    Status s = TryReopen(options);
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(std::strstr(s.getState(), expect));
+
+    // 2. During regular flush
+    DestroyAndReopen(options);
+    ASSERT_OK(Put("k1", "v1"));
+    ASSERT_OK(Put("k2", "v1"));
+    s = Flush();
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(std::strstr(s.getState(), expect));
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
