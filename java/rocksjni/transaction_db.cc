@@ -18,12 +18,12 @@
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksjni/portal/common.h"
-#include "rocksjni/portal/hash_map_jni.h"
-#include "rocksjni/portal/long_jni.h"
-#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 #include "rocksjni/portal/deadlock_info_jni.h"
 #include "rocksjni/portal/deadlock_path_jni.h"
+#include "rocksjni/portal/hash_map_jni.h"
 #include "rocksjni/portal/key_lock_info_jni.h"
+#include "rocksjni/portal/long_jni.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 #include "rocksjni/portal/transaction_d_b_jni.h"
 
 /*

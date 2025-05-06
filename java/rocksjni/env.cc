@@ -16,14 +16,14 @@
 #include "include/org_rocksdb_RocksEnv.h"
 #include "include/org_rocksdb_RocksMemEnv.h"
 #include "include/org_rocksdb_TimedEnv.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal/common.h"
 #include "rocksjni/portal/operation_stage_jni.h"
 #include "rocksjni/portal/operation_type_jni.h"
 #include "rocksjni/portal/priority_jni.h"
 #include "rocksjni/portal/state_type_jni.h"
-#include "rocksjni/portal/thread_type_jni.h"
 #include "rocksjni/portal/thread_status_jni.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
+#include "rocksjni/portal/thread_type_jni.h"
 
 /*
  * Class:     org_rocksdb_Env
