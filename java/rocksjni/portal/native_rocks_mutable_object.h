@@ -14,6 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/rocks_d_b_native_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Native class template for sub-classes of RocksMutableObject
@@ -68,4 +69,5 @@ class NativeRocksMutableObject : public RocksDBNativeClass<PTR, DERIVED> {
     return false;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

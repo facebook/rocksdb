@@ -10,7 +10,7 @@
 #include <memory>
 
 #include "include/org_rocksdb_util_StdErrLogger.h"
-#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/jni_util.h"
 
 /*
  * Class:     org_rocksdb_util_StdErrLogger

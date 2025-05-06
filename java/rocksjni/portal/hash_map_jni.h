@@ -14,6 +14,11 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/integer_jni.h"
+#include "rocksjni/portal/java_class.h"
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/long_jni.h"
+#include "rocksjni/portal/map_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 class HashMapJni : public JavaClass {
@@ -331,4 +336,5 @@ class HashMapJni : public JavaClass {
     return jhash_map;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

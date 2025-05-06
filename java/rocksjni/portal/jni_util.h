@@ -14,6 +14,8 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/byte_jni.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 // various utility functions for working with RocksDB and JNI
@@ -877,4 +879,5 @@ class JniUtil {
     return cvalue_len;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

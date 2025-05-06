@@ -60,4 +60,5 @@ class IndexShorteningModeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

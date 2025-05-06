@@ -312,4 +312,5 @@ class HistogramTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

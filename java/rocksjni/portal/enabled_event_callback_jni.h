@@ -34,4 +34,5 @@ class EnabledEventCallbackJni {
     return enabled_event_callbacks;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

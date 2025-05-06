@@ -14,6 +14,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/status_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 class TableFileDeletionInfoJni : public JavaClass {
@@ -61,4 +64,5 @@ class TableFileDeletionInfoJni : public JavaClass {
         "(Ljava/lang/String;Ljava/lang/String;ILorg/rocksdb/Status;)V");
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

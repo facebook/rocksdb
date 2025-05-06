@@ -14,6 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 class WriteBatchSavePointJni : public JavaClass {
@@ -85,4 +86,5 @@ class WriteBatchSavePointJni : public JavaClass {
     return jsave_point;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

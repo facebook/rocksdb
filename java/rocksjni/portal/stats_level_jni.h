@@ -54,4 +54,5 @@ class StatsLevelJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

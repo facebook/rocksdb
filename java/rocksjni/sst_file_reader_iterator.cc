@@ -12,7 +12,8 @@
 
 #include "include/org_rocksdb_SstFileReaderIterator.h"
 #include "rocksdb/iterator.h"
-#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
+#include "rocksjni/portal/jni_util.h"
 
 /*
  * Class:     org_rocksdb_SstFileReaderIterator

@@ -53,4 +53,5 @@ class CompactionStopStyleJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -60,4 +60,5 @@ class ChecksumTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

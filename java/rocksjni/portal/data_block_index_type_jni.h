@@ -54,4 +54,5 @@ class DataBlockIndexTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

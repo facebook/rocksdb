@@ -4,10 +4,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "rocksdb/metadata.h"
+
 #include "include/org_rocksdb_ExportImportFilesMetaData.h"
 #include "include/org_rocksdb_LiveFileMetaData.h"
 #include "rocksjni/portal/common.h"
 
+namespace ROCKSDB_NAMESPACE {
 /*
  * Class:     org_rocksdb_ExportImportFilesMetaData
  * Method:    disposeInternal
@@ -20,3 +23,4 @@ void Java_org_rocksdb_ExportImportFilesMetaData_disposeInternal(
   assert(metadata != nullptr);
   delete metadata;
 }
+} // ROCKSDB_NAMESPACE

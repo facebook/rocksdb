@@ -14,6 +14,12 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/operation_stage_jni.h"
+#include "rocksjni/portal/operation_type_jni.h"
+#include "rocksjni/portal/state_type_jni.h"
+#include "rocksjni/portal/thread_type_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for org.rocksdb.ThreadStatus
@@ -122,4 +128,5 @@ class ThreadStatusJni : public JavaClass {
     return jcfd;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -49,4 +49,5 @@ class PrepopulateBlobCacheJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

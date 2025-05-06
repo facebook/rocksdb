@@ -14,6 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for org.rocksdb.TransactionLogIterator.BatchResult
@@ -70,4 +71,5 @@ class BatchResultJni : public JavaClass {
     return jbatch_result;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

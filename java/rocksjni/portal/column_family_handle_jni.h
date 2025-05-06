@@ -14,8 +14,18 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/rocks_d_b_native_class.h"
 
 namespace ROCKSDB_NAMESPACE {
+/**
+   * Get the Java Class org.rocksdb.FilterPolicy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
 // The portal class for org.rocksdb.ColumnFamilyHandle
 class ColumnFamilyHandleJni
     : public RocksDBNativeClass<ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
@@ -47,4 +57,5 @@ class ColumnFamilyHandleJni
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/ColumnFamilyHandle");
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

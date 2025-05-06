@@ -14,6 +14,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/level_meta_data_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 class ColumnFamilyMetaDataJni : public JavaClass {
@@ -94,4 +97,5 @@ class ColumnFamilyMetaDataJni : public JavaClass {
     return JavaClass::getJClass(env, "org/rocksdb/ColumnFamilyMetaData");
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

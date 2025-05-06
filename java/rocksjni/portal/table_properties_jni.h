@@ -14,6 +14,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/hash_map_jni.h"
+#include "rocksjni/portal/java_class.h"
+#include "rocksjni/portal/jni_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 class TablePropertiesJni : public JavaClass {
@@ -191,4 +194,5 @@ class TablePropertiesJni : public JavaClass {
     return JavaClass::getJClass(env, "org/rocksdb/TableProperties");
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -60,4 +60,5 @@ class BottommostLevelCompactionJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

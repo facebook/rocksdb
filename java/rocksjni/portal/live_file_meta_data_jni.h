@@ -14,6 +14,8 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
+#include "rocksjni/portal/jni_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 class LiveFileMetaDataJni : public JavaClass {
@@ -137,4 +139,5 @@ class LiveFileMetaDataJni : public JavaClass {
     return JavaClass::getJClass(env, "org/rocksdb/LiveFileMetaData");
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -20,8 +20,11 @@
 #include "rocksdb/status.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "rocksjni/comparatorjnicallback.h"
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 #include "rocksjni/portal/write_batch_handler_jni.h"
 #include "rocksjni/portal/write_batch_save_point_jni.h"
+#include "rocksjni/writebatchhandlerjnicallback.h"
 
 /*
  * Class:     org_rocksdb_WriteBatch

@@ -937,4 +937,5 @@ class TickerTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

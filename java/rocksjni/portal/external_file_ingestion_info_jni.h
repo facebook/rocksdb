@@ -14,6 +14,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/table_properties_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 class ExternalFileIngestionInfoJni : public JavaClass {
@@ -64,4 +67,5 @@ class ExternalFileIngestionInfoJni : public JavaClass {
                             "String;JLorg/rocksdb/TableProperties;)V");
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

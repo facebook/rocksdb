@@ -7,6 +7,7 @@
 // ROCKSDB_NAMESPACE::TraceWriter.
 
 #include "rocksjni/trace_writer_jnicallback.h"
+#include "rocksjni/portal/status_jni.h"
 #include "rocksjni/portal/abstract_trace_writer_jni.h"
 
 namespace ROCKSDB_NAMESPACE {

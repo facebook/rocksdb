@@ -48,4 +48,5 @@ class StateTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

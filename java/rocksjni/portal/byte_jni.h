@@ -14,6 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for java.lang.Byte
@@ -115,4 +116,5 @@ class ByteJni : public JavaClass {
     return jbyte_obj;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

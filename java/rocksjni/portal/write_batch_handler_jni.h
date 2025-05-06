@@ -14,7 +14,8 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
-#include "rocksjni/writebatchhandlerjnicallback.h"
+#include "rocksjni/portal/rocks_d_b_native_class.h"
+#include "java/rocksjni/writebatchhandlerjnicallback.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for org.rocksdb.WriteBatch.Handler
@@ -417,4 +418,5 @@ class WriteBatchHandlerJni
     return mid;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

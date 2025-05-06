@@ -61,4 +61,5 @@ class PerfLevelTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

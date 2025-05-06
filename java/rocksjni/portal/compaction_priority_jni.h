@@ -60,4 +60,5 @@ class CompactionPriorityJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

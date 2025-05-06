@@ -14,7 +14,9 @@
 #include <memory>
 
 #include "include/org_rocksdb_SstFileManager.h"
-#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/hash_map_jni.h"
+#include "rocksjni/portal/long_jni.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 
 /*
  * Class:     org_rocksdb_SstFileManager

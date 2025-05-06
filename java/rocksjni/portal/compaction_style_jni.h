@@ -56,4 +56,5 @@ class CompactionStyleJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

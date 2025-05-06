@@ -47,4 +47,5 @@ class WalFileTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

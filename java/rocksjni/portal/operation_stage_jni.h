@@ -102,4 +102,5 @@ class OperationStageJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

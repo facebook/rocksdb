@@ -14,6 +14,12 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/checksum_type_jni.h"
+#include "rocksjni/portal/data_block_index_type_jni.h"
+#include "rocksjni/portal/filter_policy_jni.h"
+#include "rocksjni/portal/index_shortening_mode_jni.h"
+#include "rocksjni/portal/index_type_jni.h"
+#include "rocksjni/portal/rocks_d_b_native_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for org.rocksdb.BlockBasedTableOptions
@@ -111,4 +117,5 @@ class BlockBasedTableOptionsJni
     return jcfd;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

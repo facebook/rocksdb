@@ -14,6 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for org.rocksdb.TransactionDB.DeadlockPath
@@ -65,4 +66,5 @@ class DeadlockPathJni : public JavaClass {
     return jdeadlock_path;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

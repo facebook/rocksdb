@@ -13,7 +13,11 @@
 #include <vector>
 
 #include "include/org_rocksdb_MemoryUtil.h"
+#include "rocksjni/portal/jni_util.h"
 #include "rocksjni/portal/memory_usage_type_jni.h"
+#include "rocksjni/portal/byte_jni.h"
+#include "rocksjni/portal/long_jni.h"
+#include "rocksjni/portal/hash_map_jni.h"
 
 /*
  * Class:     org_rocksdb_MemoryUtil

@@ -14,6 +14,8 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_exception.h"
+#include "rocksjni/portal/status_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for org.rocksdb.RocksDBException
@@ -306,4 +308,5 @@ class RocksDBExceptionJni : public JavaException<RocksDBExceptionJni> {
     return ROCKSDB_NAMESPACE::StatusJni::toCppStatus(env, jstatus);
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

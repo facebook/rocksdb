@@ -14,6 +14,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/wal_file_type_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 class LogFileJni : public JavaClass {
@@ -71,4 +74,5 @@ class LogFileJni : public JavaClass {
     return JavaClass::getJClass(env, "org/rocksdb/LogFile");
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -14,11 +14,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/rocks_d_b_native_class.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-// The portal class for org.rocksdb.FilterPolicy
-
 enum FilterPolicyTypeJni {
   kUnknownFilterPolicy = 0x00,
   kBloomFilterPolicy = 0x01,
@@ -54,4 +52,5 @@ class FilterPolicyJni
     return kUnknownFilterPolicy;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE
