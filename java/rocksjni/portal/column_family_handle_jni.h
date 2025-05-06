@@ -18,14 +18,14 @@
 
 namespace ROCKSDB_NAMESPACE {
 /**
-   * Get the Java Class org.rocksdb.FilterPolicy
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
+ * Get the Java Class org.rocksdb.FilterPolicy
+ *
+ * @param env A pointer to the Java environment
+ *
+ * @return The Java Class or nullptr if one of the
+ *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+ *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+ */
 // The portal class for org.rocksdb.ColumnFamilyHandle
 class ColumnFamilyHandleJni
     : public RocksDBNativeClass<ROCKSDB_NAMESPACE::ColumnFamilyHandle*,

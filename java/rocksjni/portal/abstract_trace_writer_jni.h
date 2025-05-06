@@ -11,11 +11,11 @@
 
 #include <jni.h>
 
+#include "java/rocksjni/trace_writer_jnicallback.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
 #include "rocksjni/portal/rocks_d_b_native_class.h"
-#include "java/rocksjni/trace_writer_jnicallback.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for org.rocksdb.AbstractTraceWriter
