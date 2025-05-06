@@ -53,4 +53,5 @@ class ReusedSynchronisationTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

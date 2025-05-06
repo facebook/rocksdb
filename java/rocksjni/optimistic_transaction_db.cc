@@ -13,7 +13,7 @@
 #include "include/org_rocksdb_OptimisticTransactionDB.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction.h"
-#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 
 /*
  * Class:     org_rocksdb_OptimisticTransactionDB

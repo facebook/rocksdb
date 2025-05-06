@@ -11,6 +11,7 @@
 #include "rocksjni/portal/abstract_comparator_jni.h"
 #include "rocksjni/portal/abstract_comparator_jni_bridge.h"
 #include "rocksjni/portal/byte_buffer_jni.h"
+#include "rocksjni/portal/jni_util.h"
 namespace ROCKSDB_NAMESPACE {
 ComparatorJniCallback::ComparatorJniCallback(
     JNIEnv* env, jobject jcomparator,

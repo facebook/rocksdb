@@ -52,4 +52,5 @@ class TxnDBWritePolicyJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

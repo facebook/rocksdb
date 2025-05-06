@@ -14,6 +14,8 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
+#include "rocksjni/portal/rocks_d_b_native_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 class AbstractTableFilterJni
@@ -47,4 +49,5 @@ class AbstractTableFilterJni
     return JavaClass::getJClass(env, "org/rocksdb/TableFilter");
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

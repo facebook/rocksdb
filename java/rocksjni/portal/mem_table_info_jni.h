@@ -14,6 +14,8 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
+#include "rocksjni/portal/jni_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 class MemTableInfoJni : public JavaClass {
@@ -43,4 +45,5 @@ class MemTableInfoJni : public JavaClass {
     return env->GetMethodID(clazz, "<init>", "(Ljava/lang/String;JJJJ)V");
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

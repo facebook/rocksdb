@@ -57,4 +57,5 @@ class MemoryUsageTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

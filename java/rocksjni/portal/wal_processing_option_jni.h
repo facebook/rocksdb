@@ -64,4 +64,5 @@ class WalProcessingOptionJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

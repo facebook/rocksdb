@@ -24,7 +24,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
-#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/jni_util.h"
 #include "utilities/merge_operators.h"
 
 /*

@@ -14,9 +14,11 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Native class template
 template <class PTR, class DERIVED>
 class RocksDBNativeClass : public JavaClass {};
+
 }  // namespace ROCKSDB_NAMESPACE

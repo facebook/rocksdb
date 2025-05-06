@@ -35,4 +35,5 @@ class JavaClass {
     return jclazz;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

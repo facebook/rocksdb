@@ -14,6 +14,10 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/status_jni.h"
+#include "rocksjni/portal/table_properties_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 class TableFileCreationInfoJni : public JavaClass {
@@ -70,4 +74,5 @@ class TableFileCreationInfoJni : public JavaClass {
         "String;Ljava/lang/String;Ljava/lang/String;IB)V");
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

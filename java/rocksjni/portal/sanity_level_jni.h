@@ -52,4 +52,5 @@ class SanityLevelJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

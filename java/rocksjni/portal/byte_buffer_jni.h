@@ -14,6 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for java.nio.ByteBuffer
@@ -171,4 +172,5 @@ class ByteBufferJni : public JavaClass {
     return static_cast<jbyteArray>(jarray);
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

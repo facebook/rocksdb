@@ -14,6 +14,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/table_properties_jni.h"
 
 namespace ROCKSDB_NAMESPACE {
 class FlushJobInfoJni : public JavaClass {
@@ -73,4 +76,5 @@ class FlushJobInfoJni : public JavaClass {
                             "rocksdb/TableProperties;B)V");
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

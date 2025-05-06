@@ -56,4 +56,5 @@ class ThreadTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

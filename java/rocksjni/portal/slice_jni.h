@@ -14,6 +14,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/abstract_slice_jni.h"
+#include "rocksjni/portal/native_rocks_mutable_object.h"
+#include "rocksjni/portal/rocks_d_b_native_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for org.rocksdb.Slice
@@ -63,4 +66,5 @@ class SliceJni
     return jslice;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

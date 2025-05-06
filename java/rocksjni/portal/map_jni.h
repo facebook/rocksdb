@@ -14,6 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 class MapJni : public JavaClass {
@@ -53,4 +54,5 @@ class MapJni : public JavaClass {
     return mid;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

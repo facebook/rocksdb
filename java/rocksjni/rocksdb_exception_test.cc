@@ -8,7 +8,7 @@
 #include "include/org_rocksdb_RocksDBExceptionTest.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 
 /*
  * Class:     org_rocksdb_RocksDBExceptionTest

@@ -11,7 +11,7 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_CompactionJobStats.h"
-#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/jni_util.h"
 
 /*
  * Class:     org_rocksdb_CompactionJobStats

@@ -120,4 +120,5 @@ class CompactionReasonJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

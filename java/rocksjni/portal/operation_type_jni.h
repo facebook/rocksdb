@@ -56,4 +56,5 @@ class OperationTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -14,6 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Java Exception template
@@ -48,4 +49,5 @@ class JavaException : public JavaClass {
     return true;
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

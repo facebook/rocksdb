@@ -14,6 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_exception.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for java.lang.IllegalArgumentException
@@ -74,4 +75,5 @@ class IllegalArgumentExceptionJni
     return JavaException::ThrowNew(env, msg);
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

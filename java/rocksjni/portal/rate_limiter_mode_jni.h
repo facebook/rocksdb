@@ -55,4 +55,5 @@ class RateLimiterModeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -14,7 +14,7 @@
 
 #include "include/org_rocksdb_Transaction.h"
 #include "rocksjni/jni_multiget_helpers.h"
-#include "rocksjni/portal/common.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 #include "rocksjni/portal/transaction_jni.h"
 #include "rocksjni/kv_helper.h"
 #include "rocksjni/transaction_notifier_jnicallback.h"

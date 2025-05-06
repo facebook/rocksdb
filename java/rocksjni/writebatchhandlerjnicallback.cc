@@ -8,6 +8,8 @@
 
 #include "rocksjni/writebatchhandlerjnicallback.h"
 
+#include "rocksjni/portal/jni_util.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
 #include "rocksjni/portal/write_batch_handler_jni.h"
 
 namespace ROCKSDB_NAMESPACE {

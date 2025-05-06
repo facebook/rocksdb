@@ -11,6 +11,7 @@
 #include "include/org_rocksdb_VectorMemTableConfig.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksjni/portal/illegal_argument_exception_jni.h"
+#include "rocksjni/portal/jni_util.h"
 
 /*
  * Class:     org_rocksdb_HashSkipListMemTableConfig

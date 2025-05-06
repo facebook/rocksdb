@@ -58,4 +58,5 @@ class WALRecoveryModeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

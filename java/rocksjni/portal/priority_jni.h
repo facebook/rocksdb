@@ -55,4 +55,5 @@ class PriorityJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

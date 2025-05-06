@@ -73,4 +73,5 @@ class CompressionTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

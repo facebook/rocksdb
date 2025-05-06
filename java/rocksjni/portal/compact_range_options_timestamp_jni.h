@@ -14,6 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_class.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CompactRangeOptionsTimestampJni : public JavaClass {
@@ -37,4 +38,5 @@ class CompactRangeOptionsTimestampJni : public JavaClass {
     return env->GetMethodID(clazz, "<init>", "(JJ)V");
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

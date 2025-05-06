@@ -14,6 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksjni/portal/common.h"
+#include "rocksjni/portal/java_exception.h"
 
 namespace ROCKSDB_NAMESPACE {
 // The portal class for java.lang.IllegalArgumentException
@@ -73,4 +74,5 @@ class OutOfMemoryErrorJni : public JavaException<OutOfMemoryErrorJni> {
     return JavaException::ThrowNew(env, s.ToString());
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE

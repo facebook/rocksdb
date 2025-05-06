@@ -63,4 +63,5 @@ class IndexTypeJni {
     }
   }
 };
+
 }  // namespace ROCKSDB_NAMESPACE
