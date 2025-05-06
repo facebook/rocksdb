@@ -79,6 +79,7 @@ typedef struct rocksdb_hyper_clock_cache_options_t
     rocksdb_hyper_clock_cache_options_t;
 typedef struct rocksdb_cache_t rocksdb_cache_t;
 typedef struct rocksdb_write_buffer_manager_t rocksdb_write_buffer_manager_t;
+typedef struct rocksdb_sst_file_manager_t rocksdb_sst_file_manager_t;
 typedef struct rocksdb_compactionfilter_t rocksdb_compactionfilter_t;
 typedef struct rocksdb_compactionfiltercontext_t
     rocksdb_compactionfiltercontext_t;
@@ -1341,6 +1342,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_periodic_compaction_seconds(
     rocksdb_options_t*, uint64_t);
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_options_get_periodic_compaction_seconds(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_memtable_op_scan_flush_trigger(rocksdb_options_t*,
+                                                   uint32_t);
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_options_get_memtable_op_scan_flush_trigger(rocksdb_options_t*);
 
 enum {
   rocksdb_statistics_level_disable_all = 0,
@@ -2219,6 +2225,51 @@ extern ROCKSDB_LIBRARY_API void rocksdb_write_buffer_manager_set_buffer_size(
     rocksdb_write_buffer_manager_t* wbm, size_t new_size);
 extern ROCKSDB_LIBRARY_API void rocksdb_write_buffer_manager_set_allow_stall(
     rocksdb_write_buffer_manager_t* wbm, bool new_allow_stall);
+
+/* SstFileManager */
+
+extern ROCKSDB_LIBRARY_API rocksdb_sst_file_manager_t*
+rocksdb_sst_file_manager_create(rocksdb_env_t* env);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_sst_file_manager_destroy(
+    rocksdb_sst_file_manager_t* sfm);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_sst_file_manager_set_max_allowed_space_usage(
+    rocksdb_sst_file_manager_t* sfm, uint64_t max_allowed_space);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_sst_file_manager_set_compaction_buffer_size(
+    rocksdb_sst_file_manager_t* sfm, uint64_t compaction_buffer_size);
+
+extern ROCKSDB_LIBRARY_API bool
+rocksdb_sst_file_manager_is_max_allowed_space_reached(
+    rocksdb_sst_file_manager_t* sfm);
+
+extern ROCKSDB_LIBRARY_API bool
+rocksdb_sst_file_manager_is_max_allowed_space_reached_including_compactions(
+    rocksdb_sst_file_manager_t* sfm);
+
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_sst_file_manager_get_total_size(rocksdb_sst_file_manager_t* sfm);
+
+extern ROCKSDB_LIBRARY_API int64_t
+rocksdb_sst_file_manager_get_delete_rate_bytes_per_second(
+    rocksdb_sst_file_manager_t* sfm);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_sst_file_manager_set_delete_rate_bytes_per_second(
+    rocksdb_sst_file_manager_t* sfm, int64_t delete_rate);
+
+extern ROCKSDB_LIBRARY_API double
+rocksdb_sst_file_manager_get_max_trash_db_ratio(
+    rocksdb_sst_file_manager_t* sfm);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_sst_file_manager_set_max_trash_db_ratio(
+    rocksdb_sst_file_manager_t* sfm, double ratio);
+
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_sst_file_manager_get_total_trash_size(rocksdb_sst_file_manager_t* sfm);
 
 /* HyperClockCache */
 

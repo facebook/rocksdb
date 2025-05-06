@@ -382,6 +382,7 @@ struct BlockContents {
 
   // The additional memory space taken by the block data.
   size_t usable_size() const {
+    // FIXME: doesn't account for possible block trailer
     if (allocation.get() != nullptr) {
       auto allocator = allocation.get_deleter().allocator;
       if (allocator) {

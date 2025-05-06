@@ -2693,6 +2693,81 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
   }
 }
 
+// This tests an internal user's exact usage and expectation of the
+// IngestExternalFiles APIs to bulk load and replace files.
+TEST_F(ExternalSSTFileBasicTest,
+       AtomicReplaceColumnFamilyWithIngestedVersionKey) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  options.num_levels = 7;
+  options.disallow_memtable_writes = false;
+
+  DestroyAndReopen(options);
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  std::string data_file_original = sst_files_dir_ + "data_original";
+  ASSERT_OK(sst_file_writer.Open(data_file_original));
+  ASSERT_OK(sst_file_writer.Put("ukey1", "uval1_orig"));
+  ASSERT_OK(sst_file_writer.Put("ukey2", "uval2_orig"));
+  ASSERT_OK(sst_file_writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile(db_->DefaultColumnFamily(),
+                                    {data_file_original},
+                                    IngestExternalFileOptions()));
+
+  ASSERT_OK(Put("data_version", "v_original"));
+  ASSERT_OK(Flush());
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "data_version", &value));
+  ASSERT_EQ(value, "v_original");
+  ASSERT_OK(db_->Get(ReadOptions(), "ukey1", &value));
+  ASSERT_EQ(value, "uval1_orig");
+  ASSERT_OK(db_->Get(ReadOptions(), "ukey2", &value));
+  ASSERT_EQ(value, "uval2_orig");
+  // Set up a 1) data version key file on L0, and 2) a user data file on L6
+  // to test the initial transitioning to use `atomic_replace_range`.
+  ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
+
+  // Test multiple cycles of replacing by atomically ingest a data file and a
+  // version key file while replace the whole range in the column family.
+  for (int i = 0; i < 10; i++) {
+    std::string version_file_path =
+        sst_files_dir_ + "version" + std::to_string(i);
+    ASSERT_OK(sst_file_writer.Open(version_file_path));
+    ASSERT_OK(sst_file_writer.Put("data_version", "v" + std::to_string(i)));
+    ASSERT_OK(sst_file_writer.Finish());
+
+    std::string file_path = sst_files_dir_ + std::to_string(i);
+    ASSERT_OK(sst_file_writer.Open(file_path));
+    ASSERT_OK(sst_file_writer.Put("ukey1", "uval1" + std::to_string(i)));
+    ASSERT_OK(sst_file_writer.Put("ukey2", "uval2" + std::to_string(i)));
+    ASSERT_OK(sst_file_writer.Finish());
+
+    IngestExternalFileArg arg;
+    arg.column_family = db_->DefaultColumnFamily();
+    arg.external_files = {version_file_path, file_path};
+    arg.atomic_replace_range = {{nullptr, nullptr}};
+    // Test both fail_if_not_bottomost_level: true and false
+    arg.options.fail_if_not_bottommost_level = i % 2 == 0;
+    arg.options.snapshot_consistency = false;
+    // Ingest 1) a new data version file and 2) a new user data file while erase
+    // the whole column family
+    Status s = db_->IngestExternalFiles({arg});
+    ASSERT_OK(s);
+
+    // Check ingestion result and the expected LSM shape:
+    // Two files on L6, 1) a data version file 2) a user data file.
+    ASSERT_OK(db_->Get(ReadOptions(), "ukey1", &value));
+    ASSERT_EQ(value, "uval1" + std::to_string(i));
+    ASSERT_OK(db_->Get(ReadOptions(), "ukey2", &value));
+    ASSERT_EQ(value, "uval2" + std::to_string(i));
+    ASSERT_OK(db_->Get(ReadOptions(), "data_version", &value));
+    ASSERT_EQ(value, "v" + std::to_string(i));
+    ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+  }
+
+  Close();
+}
+
 TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
   for (bool disallow_memtable : {false, true}) {
     Options options = GetDefaultOptions();

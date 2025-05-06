@@ -287,8 +287,10 @@ class ExternalTableFactoryAdapter : public TableFactory {
       std::unique_ptr<TableReader>* table_reader,
       bool /* prefetch_index_and_filter_in_cache */) const override {
     std::unique_ptr<ExternalTableReader> reader;
+    FileOptions fopts(topts.env_options);
     ExternalTableOptions ext_topts(topts.prefix_extractor,
-                                   topts.ioptions.user_comparator);
+                                   topts.ioptions.user_comparator,
+                                   topts.ioptions.fs, fopts);
     auto status =
         inner_->NewTableReader(ro, file->file_name(), ext_topts, &reader);
     if (!status.ok()) {
@@ -307,7 +309,8 @@ class ExternalTableFactoryAdapter : public TableFactory {
         topts.read_options, topts.write_options,
         topts.moptions.prefix_extractor, topts.ioptions.user_comparator,
         topts.column_family_name, topts.reason);
-    builder.reset(inner_->NewTableBuilder(ext_topts, file->file_name()));
+    builder.reset(inner_->NewTableBuilder(ext_topts, file->file_name(),
+                                          file->writable_file()));
     if (builder) {
       return new ExternalTableBuilderAdapter(std::move(builder));
     }

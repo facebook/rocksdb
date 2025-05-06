@@ -74,6 +74,7 @@
 #include "options/cf_options.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
+#include "util/udt_util.h"
 #ifdef ROCKSDB_JEMALLOC
 #include "port/jemalloc_helper.h"
 #endif
@@ -1853,6 +1854,69 @@ Status DBImpl::GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
   assert(ts_low->empty() ||
          cfd->user_comparator()->timestamp_size() == ts_low->size());
   return Status::OK();
+}
+
+Status DBImpl::GetNewestUserDefinedTimestamp(ColumnFamilyHandle* column_family,
+                                             std::string* newest_timestamp) {
+  if (newest_timestamp == nullptr) {
+    return Status::InvalidArgument("newest_timestamp is nullptr");
+  }
+  ColumnFamilyData* cfd = nullptr;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    assert(cfh != nullptr);
+    cfd = cfh->cfd();
+  }
+  assert(cfd != nullptr && cfd->user_comparator() != nullptr);
+  if (cfd->user_comparator()->timestamp_size() == 0) {
+    return Status::InvalidArgument(
+        "Timestamp is not enabled in this column family");
+  }
+  if (cfd->ioptions().persist_user_defined_timestamps) {
+    return Status::NotSupported(
+        "GetNewestUserDefinedTimestamp doesn't support the case when user"
+        "defined timestamps are persisted.");
+  }
+
+  Status status;
+  // Acquire SuperVersion
+  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  {
+    InstrumentedMutexLock l(&mutex_);
+    bool enter_write_thread = sv->mem == cfd->mem();
+    WriteThread::Writer w;
+    // Enter write thread to read the mutable memtable to avoid racing access
+    // with concurrent writes. No need to enter nonmem_write_thread_ since this
+    // call only care about memtable writes, not WAL writes.
+    if (enter_write_thread) {
+      write_thread_.EnterUnbatched(&w, &mutex_);
+      WaitForPendingWrites();
+    }
+    *newest_timestamp = sv->mem->GetNewestUDT().ToString();
+    assert(!newest_timestamp->empty() || sv->mem->IsEmpty());
+    if (enter_write_thread) {
+      write_thread_.ExitUnbatched(&w);
+    }
+  }
+  // Read from immutable memtables if nothing found in mutable memtable.
+  if (newest_timestamp->empty()) {
+    *newest_timestamp = sv->imm->GetNewestUDT().ToString();
+  }
+  // Read from SST files if no result can be found in memtables.
+  if (newest_timestamp->empty() && sv->current->GetSstFilesSize() != 0) {
+    // full_history_ts_low is used to track the exclusive upperbound of
+    // flushed user defined timestamp. So we can use it to deduce the newest
+    // timestamp in the SST files that the column family has seen.
+    Slice full_history_ts_low = sv->full_history_ts_low;
+    if (!full_history_ts_low.empty()) {
+      GetU64CutoffTsFromFullHistoryTsLow(&full_history_ts_low,
+                                         newest_timestamp);
+    }
+  }
+  ReturnAndCleanupSuperVersion(cfd, sv);
+  return status;
 }
 
 InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
@@ -3822,12 +3886,14 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
 
     auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                     /* allow_unprepared_value */ true);
+    // TODO(cbi): Add support for `memtable_op_scan_flush_trigger` for tailing
+    // iterator. This requires refreshing DBIter's pointer to active_mem when
+    // tailing iterator refreshes to new memtable internally.
     result = DBIter::NewIter(env_, read_options, cfd->ioptions(),
                              sv->mutable_cf_options, cfd->user_comparator(),
                              iter, sv->current, kMaxSequenceNumber,
-                             /*read_callback=*/nullptr, cfh,
-                             /*expose_blob_index=*/false,
-                             /*active_mem=*/sv->mem);
+                             /*read_callback=*/nullptr, /*active_mem=*/nullptr,
+                             cfh, /*expose_blob_index=*/false);
   } else {
     // Note: no need to consider the special case of
     // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
@@ -4031,12 +4097,12 @@ Status DBImpl::NewIterators(
       auto iter = new ForwardIterator(this, read_options, cf_sv_pair.cfd,
                                       cf_sv_pair.super_version,
                                       /* allow_unprepared_value */ true);
-      iterators->push_back(
-          DBIter::NewIter(env_, read_options, cf_sv_pair.cfd->ioptions(),
-                          cf_sv_pair.super_version->mutable_cf_options,
-                          cf_sv_pair.cfd->user_comparator(), iter,
-                          cf_sv_pair.super_version->current, kMaxSequenceNumber,
-                          nullptr /*read_callback*/, cf_sv_pair.cfh));
+      iterators->push_back(DBIter::NewIter(
+          env_, read_options, cf_sv_pair.cfd->ioptions(),
+          cf_sv_pair.super_version->mutable_cf_options,
+          cf_sv_pair.cfd->user_comparator(), iter,
+          cf_sv_pair.super_version->current, kMaxSequenceNumber,
+          nullptr /*read_callback*/, /*active_mem=*/nullptr, cf_sv_pair.cfh));
     }
   } else {
     for (const auto& cf_sv_pair : cf_sv_pairs) {

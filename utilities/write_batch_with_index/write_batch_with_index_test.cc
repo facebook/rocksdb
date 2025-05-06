@@ -3646,7 +3646,6 @@ TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
 
 TEST_P(WriteBatchWithIndexTest, TrackAndClearCFStats) {
   std::string value;
-  batch_->SetTrackPerCFStat(true);
   ASSERT_OK(batch_->Put("A", "val"));
   ASSERT_OK(batch_->SingleDelete("B"));
 
@@ -3735,7 +3734,6 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   Random& rnd = *Random::GetTLSInstance();
   auto wbwi = std::make_shared<WriteBatchWithIndex>(
       cmp, 0, /*overwrite_key=*/true, 0, 0);
-  wbwi->SetTrackPerCFStat(true);
   std::vector<std::pair<std::string, std::string>> expected;
   const int kNumUpdate = 10000;
   expected.resize(kNumUpdate);
@@ -3999,7 +3997,6 @@ TEST_F(WBWIMemTableTest, IterEmitSingleDelete) {
 
   auto wbwi = std::make_shared<WriteBatchWithIndex>(
       cmp, 0, /*overwrite_key=*/true, 0, 0);
-  wbwi->SetTrackPerCFStat(true);
 
   ASSERT_OK(wbwi->Put(DBTestBase::Key(0), "val0"));
   ASSERT_OK(wbwi->SingleDelete(DBTestBase::Key(0)));
@@ -4153,7 +4150,6 @@ TEST_F(WBWIMemTableTest, WBWIMemTableWithMerge) {
 
   auto wbwi = std::make_shared<WriteBatchWithIndex>(
       cmp, 0, /*overwrite_key=*/true, 0, 0);
-  wbwi->SetTrackPerCFStat(true);
   std::unique_ptr<WBWIMemTable> wbwi_mem{
       new WBWIMemTable(wbwi, cmp,
                        /*cf_id=*/0, &immutable_opts, &mutable_cf_options,

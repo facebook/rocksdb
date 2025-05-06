@@ -2129,6 +2129,10 @@ int main(int argc, char** argv) {
     CheckCondition(100000 ==
                    rocksdb_options_get_periodic_compaction_seconds(o));
 
+    rocksdb_options_set_memtable_op_scan_flush_trigger(o, 100);
+    CheckCondition(100 ==
+                   rocksdb_options_get_memtable_op_scan_flush_trigger(o));
+
     rocksdb_options_set_ttl(o, 5000);
     CheckCondition(5000 == rocksdb_options_get_ttl(o));
 
@@ -2565,6 +2569,12 @@ int main(int argc, char** argv) {
                    rocksdb_options_get_periodic_compaction_seconds(copy));
     CheckCondition(100000 ==
                    rocksdb_options_get_periodic_compaction_seconds(o));
+
+    rocksdb_options_set_memtable_op_scan_flush_trigger(copy, 800);
+    CheckCondition(800 ==
+                   rocksdb_options_get_memtable_op_scan_flush_trigger(copy));
+    CheckCondition(100 ==
+                   rocksdb_options_get_memtable_op_scan_flush_trigger(o));
 
     rocksdb_options_set_ttl(copy, 8000);
     CheckCondition(8000 == rocksdb_options_get_ttl(copy));
@@ -4038,6 +4048,23 @@ int main(int argc, char** argv) {
 
     rocksdb_write_buffer_manager_destroy(write_buffer_manager);
     rocksdb_cache_destroy(lru);
+  }
+
+  StartPhase("sst_file_manager");
+  {
+    rocksdb_sst_file_manager_t* sst_file_manager;
+    sst_file_manager = rocksdb_sst_file_manager_create(env);
+    rocksdb_sst_file_manager_set_delete_rate_bytes_per_second(sst_file_manager,
+                                                              1);
+    rocksdb_sst_file_manager_set_max_trash_db_ratio(sst_file_manager, 0.75);
+
+    CheckCondition(1 ==
+                   rocksdb_sst_file_manager_get_delete_rate_bytes_per_second(
+                       sst_file_manager));
+    CheckCondition(0.75 == rocksdb_sst_file_manager_get_max_trash_db_ratio(
+                               sst_file_manager));
+
+    rocksdb_sst_file_manager_destroy(sst_file_manager);
   }
 
   StartPhase("cancel_all_background_work");

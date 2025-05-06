@@ -477,12 +477,19 @@ struct CompactionServiceJobInfo {
   bool is_manual_compaction;
   bool bottommost_level;
 
+  // the smallest input level of the compaction.
+  // (same as Compaction::start_level and CompactionJobInfo::base_input_level)
+  int base_input_level;
+  // the output level of the compaction.
+  int output_level;
+
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
                            std::string db_session_id_, uint64_t job_id_,
                            Env::Priority priority_,
                            CompactionReason compaction_reason_,
                            bool is_full_compaction_, bool is_manual_compaction_,
-                           bool bottommost_level_)
+                           bool bottommost_level_, int base_input_level_,
+                           int output_level_)
       : db_name(std::move(db_name_)),
         db_id(std::move(db_id_)),
         db_session_id(std::move(db_session_id_)),
@@ -491,7 +498,9 @@ struct CompactionServiceJobInfo {
         compaction_reason(compaction_reason_),
         is_full_compaction(is_full_compaction_),
         is_manual_compaction(is_manual_compaction_),
-        bottommost_level(bottommost_level_) {}
+        bottommost_level(bottommost_level_),
+        base_input_level(base_input_level_),
+        output_level(output_level_) {}
 };
 
 struct CompactionServiceScheduleResponse {
@@ -596,7 +605,8 @@ struct DBOptions {
   // DEPRECATED: This option might be removed in a future release.
   //
   // If true, during memtable flush, RocksDB will validate total entries
-  // read in flush, and compare with counter inserted into it.
+  // read in flush, total entries written in the SST and compare them with
+  // counter of keys added.
   //
   // The option is here to turn the feature off in case this new validation
   // feature has a bug. The option may be removed in the future once the
@@ -2506,10 +2516,16 @@ struct CompactionServiceOptionsOverride {
   // to set it here.
   std::shared_ptr<Statistics> statistics = nullptr;
 
+  // Info Log. If not overriden, default one will be used.
+  std::shared_ptr<Logger> info_log = nullptr;
+
   // Only compaction generated SST files use this user defined table properties
   // collector.
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
       table_properties_collector_factories;
+
+  // All other options to override. Unknown options will be ignored.
+  std::unordered_map<std::string, std::string> options_map;
 };
 
 struct OpenAndCompactOptions {

@@ -30,6 +30,7 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/sst_file_manager.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -113,6 +114,7 @@ using ROCKSDB_NAMESPACE::Slice;
 using ROCKSDB_NAMESPACE::SliceParts;
 using ROCKSDB_NAMESPACE::SliceTransform;
 using ROCKSDB_NAMESPACE::Snapshot;
+using ROCKSDB_NAMESPACE::SstFileManager;
 using ROCKSDB_NAMESPACE::SstFileMetaData;
 using ROCKSDB_NAMESPACE::SstFileWriter;
 using ROCKSDB_NAMESPACE::Status;
@@ -225,6 +227,9 @@ struct rocksdb_cache_t {
 };
 struct rocksdb_write_buffer_manager_t {
   std::shared_ptr<WriteBufferManager> rep;
+};
+struct rocksdb_sst_file_manager_t {
+  std::shared_ptr<SstFileManager> rep;
 };
 struct rocksdb_livefiles_t {
   std::vector<LiveFileMetaData> rep;
@@ -3295,6 +3300,16 @@ uint64_t rocksdb_options_get_periodic_compaction_seconds(
   return opt->rep.periodic_compaction_seconds;
 }
 
+void rocksdb_options_set_memtable_op_scan_flush_trigger(rocksdb_options_t* opt,
+                                                        uint32_t n) {
+  opt->rep.memtable_op_scan_flush_trigger = n;
+}
+
+uint32_t rocksdb_options_get_memtable_op_scan_flush_trigger(
+    rocksdb_options_t* opt) {
+  return opt->rep.memtable_op_scan_flush_trigger;
+}
+
 void rocksdb_options_enable_statistics(rocksdb_options_t* opt) {
   opt->rep.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 }
@@ -5227,6 +5242,67 @@ void rocksdb_write_buffer_manager_set_buffer_size(
 ROCKSDB_LIBRARY_API void rocksdb_write_buffer_manager_set_allow_stall(
     rocksdb_write_buffer_manager_t* wbm, bool new_allow_stall) {
   wbm->rep->SetAllowStall(new_allow_stall);
+}
+
+rocksdb_sst_file_manager_t* rocksdb_sst_file_manager_create(
+    rocksdb_env_t* env) {
+  rocksdb_sst_file_manager_t* sfm = new rocksdb_sst_file_manager_t;
+  sfm->rep.reset(ROCKSDB_NAMESPACE::NewSstFileManager(env->rep));
+  return sfm;
+}
+
+void rocksdb_sst_file_manager_destroy(rocksdb_sst_file_manager_t* sfm) {
+  delete sfm;
+}
+
+void rocksdb_sst_file_manager_set_max_allowed_space_usage(
+    rocksdb_sst_file_manager_t* sfm, uint64_t max_allowed_space) {
+  sfm->rep->SetMaxAllowedSpaceUsage(max_allowed_space);
+}
+
+void rocksdb_sst_file_manager_set_compaction_buffer_size(
+    rocksdb_sst_file_manager_t* sfm, uint64_t compaction_buffer_size) {
+  sfm->rep->SetCompactionBufferSize(compaction_buffer_size);
+}
+
+bool rocksdb_sst_file_manager_is_max_allowed_space_reached(
+    rocksdb_sst_file_manager_t* sfm) {
+  return sfm->rep->IsMaxAllowedSpaceReached();
+}
+
+bool rocksdb_sst_file_manager_is_max_allowed_space_reached_including_compactions(
+    rocksdb_sst_file_manager_t* sfm) {
+  return sfm->rep->IsMaxAllowedSpaceReachedIncludingCompactions();
+}
+
+uint64_t rocksdb_sst_file_manager_get_total_size(
+    rocksdb_sst_file_manager_t* sfm) {
+  return sfm->rep->GetTotalSize();
+}
+
+int64_t rocksdb_sst_file_manager_get_delete_rate_bytes_per_second(
+    rocksdb_sst_file_manager_t* sfm) {
+  return sfm->rep->GetDeleteRateBytesPerSecond();
+}
+
+void rocksdb_sst_file_manager_set_delete_rate_bytes_per_second(
+    rocksdb_sst_file_manager_t* sfm, int64_t delete_rate) {
+  return sfm->rep->SetDeleteRateBytesPerSecond(delete_rate);
+}
+
+double rocksdb_sst_file_manager_get_max_trash_db_ratio(
+    rocksdb_sst_file_manager_t* sfm) {
+  return sfm->rep->GetMaxTrashDBRatio();
+}
+
+void rocksdb_sst_file_manager_set_max_trash_db_ratio(
+    rocksdb_sst_file_manager_t* sfm, double ratio) {
+  return sfm->rep->SetMaxTrashDBRatio(ratio);
+}
+
+uint64_t rocksdb_sst_file_manager_get_total_trash_size(
+    rocksdb_sst_file_manager_t* sfm) {
+  return sfm->rep->GetTotalTrashSize();
 }
 
 rocksdb_dbpath_t* rocksdb_dbpath_create(const char* path,

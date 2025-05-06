@@ -71,9 +71,9 @@ class DBIter final : public Iterator {
                          InternalIterator* internal_iter,
                          const Version* version, const SequenceNumber& sequence,
                          ReadCallback* read_callback,
+                         ReadOnlyMemTable* active_mem,
                          ColumnFamilyHandleImpl* cfh = nullptr,
                          bool expose_blob_index = false,
-                         ReadOnlyMemTable* active_mem = nullptr,
                          Arena* arena = nullptr) {
     void* mem = arena ? arena->AllocateAligned(sizeof(DBIter))
                       : operator new(sizeof(DBIter));
@@ -475,9 +475,9 @@ class DBIter final : public Iterator {
   const size_t timestamp_size_;
   std::string saved_timestamp_;
   std::optional<std::vector<ScanOptions>> scan_opts_;
-  ReadOnlyMemTable* active_mem_;
-  SequenceNumber memtable_seqno_lb_;
-  uint32_t memtable_op_scan_flush_trigger_;
+  ReadOnlyMemTable* const active_mem_;
+  const SequenceNumber memtable_seqno_lb_;
+  const uint32_t memtable_op_scan_flush_trigger_;
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;

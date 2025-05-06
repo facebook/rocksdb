@@ -225,6 +225,8 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
     flush_stats.micros = 1;
     flush_stats.bytes_written = bytes_per_file;
     flush_stats.num_output_files = 1;
+    flush_stats.num_input_records = kNumKeys;
+    flush_stats.num_output_records = kNumKeys;
     expect_stats[0].Add(flush_stats);
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -1080,6 +1082,8 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
     flush_stats.micros = 1;
     flush_stats.bytes_written = bytes_per_file;
     flush_stats.num_output_files = 1;
+    flush_stats.num_input_records = kNumKeys;
+    flush_stats.num_output_records = kNumKeys;
     expect_stats[0].Add(flush_stats);
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());

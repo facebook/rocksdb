@@ -75,9 +75,8 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
   } else {
     CompressionOptions opts;
     CompressionContext context(compression, opts);
-    constexpr uint64_t sample_for_compression = 0;
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                         compression, sample_for_compression);
+                         compression);
 
     constexpr uint32_t compression_format_version = 2;
 

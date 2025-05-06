@@ -3446,6 +3446,11 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
+  Status GetNewestUserDefinedTimestamp(
+      ColumnFamilyHandle* /*cf*/, std::string* /*newest_timestamp*/) override {
+    return Status::OK();
+  }
+
   ColumnFamilyHandle* DefaultColumnFamily() const override { return nullptr; }
 
  private:
@@ -5458,7 +5463,6 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   options.max_bytes_for_level_multiplier = 8;
   options.max_background_compactions = 1;
   options.num_levels = 5;
-  options.compaction_verify_record_count = false;
   std::shared_ptr<mock::MockTableFactory> mtf(new mock::MockTableFactory);
   options.table_factory = mtf;
 
