@@ -851,9 +851,6 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
   options.env = env_.get();
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
-  // Skip verifying record count against TableProperties for
-  // MockTables
-  options.compaction_verify_record_count = false;
   Status s;
   for (const auto& mode : corruption_modes) {
     delete db_;

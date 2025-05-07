@@ -605,7 +605,8 @@ struct DBOptions {
   // DEPRECATED: This option might be removed in a future release.
   //
   // If true, during memtable flush, RocksDB will validate total entries
-  // read in flush, and compare with counter inserted into it.
+  // read in flush, total entries written in the SST and compare them with
+  // counter of keys added.
   //
   // The option is here to turn the feature off in case this new validation
   // feature has a bug. The option may be removed in the future once the
@@ -2522,6 +2523,9 @@ struct CompactionServiceOptionsOverride {
   // collector.
   std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
       table_properties_collector_factories;
+
+  // All other options to override. Unknown options will be ignored.
+  std::unordered_map<std::string, std::string> options_map;
 };
 
 struct OpenAndCompactOptions {

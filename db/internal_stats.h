@@ -697,7 +697,10 @@ class InternalStats {
   // a full cache, which would force a re-scan on the next GetStats.
   std::shared_ptr<CacheEntryStatsCollector<CacheEntryRoleStats>>
       cache_entry_stats_collector_;
-  // Per-ColumnFamily/level compaction stats
+
+  // Per-column family and level compaction statistics, including flush and file
+  // ingestion. These are treated as compactions to L0 or the level where the
+  // file was ingested.
   std::vector<CompactionStats> comp_stats_;
   std::vector<CompactionStats> comp_stats_by_pri_;
   CompactionStats per_key_placement_comp_stats_;

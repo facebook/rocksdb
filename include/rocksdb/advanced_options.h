@@ -1106,6 +1106,8 @@ struct AdvancedColumnFamilyOptions {
   // CompactOnDeletionCollectorFactory) together with this option to compact
   // away tombstones after the memtable is flushed.
   //
+  // Note that this option has no effect on tailing iterators yet.
+  //
   // Default: 0 (disabled)
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_op_scan_flush_trigger = 0;

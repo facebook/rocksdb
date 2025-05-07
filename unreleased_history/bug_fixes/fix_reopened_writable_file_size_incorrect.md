@@ -1,1 +1,0 @@
-Fix a bug in Posix file system that the FSWritableFile created via `FileSystem::ReopenWritableFile` internally does not track the correct file size.

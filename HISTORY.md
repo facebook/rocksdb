@@ -1,6 +1,29 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.2.0 (04/21/2025)
+### New Features
+* Provide histogram stats `COMPACTION_PREFETCH_BYTES` to measure number of bytes for RocksDB's prefetching (as opposed to file
+system's prefetch) on SST file during compaction read
+* A new API DB::GetNewestUserDefinedTimestamp is added to return the newest user defined timestamp seen in a column family
+* Introduce API `IngestWriteBatchWithIndex()` for ingesting updates into DB while bypassing memtable writes. This improves performance when writing a large write batch to the DB.
+* Add a new CF option `memtable_op_scan_flush_trigger` that triggers a flush of the memtable if an iterator's Seek()/Next() scans over a certain number of invisible entries from the memtable.
+
+### Public API Changes
+* AdvancedColumnFamilyOptions.max_write_buffer_number_to_maintain is deleted. It's deprecated since introduction of a better option max_write_buffer_size_to_maintain since RocksDB 6.5.0.
+* Deprecated API `DB::MaxMemCompactionLevel()`.
+* Deprecated `ReadOptions::ignore_range_deletions`.
+* Deprecated API `experimental::PromoteL0()`.
+* Added arbitrary string map for additional options to be overriden for remote compactions
+* The fail_if_options_file_error option in DBOptions has been removed. The behavior now is to always return failure in any API that fails to persist the OPTIONS file.
+
+### Behavior Changes
+* Make stats `PREFETCH_BYTES_USEFUL`, `PREFETCH_HITS`, `PREFETCH_BYTES` only account for prefetching during user initiated scan
+
+### Bug Fixes
+* Fix a bug in Posix file system that the FSWritableFile created via `FileSystem::ReopenWritableFile` internally does not track the correct file size.
+* Fix a bug where tail size of remote compaction output is not persisted in primary db's manifest
+
 ## 10.1.0 (03/24/2025)
 ### New Features
 * Added a new `DBOptions.calculate_sst_write_lifetime_hint_set` setting that allows to customize which compaction styles SST write lifetime hint calculation is allowed on. Today RocksDB supports only two modes `kCompactionStyleLevel` and `kCompactionStyleUniversal`.
