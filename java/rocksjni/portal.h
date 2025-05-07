@@ -5273,6 +5273,47 @@ class TickerTypeJni {
         return -0x56;
       case ROCKSDB_NAMESPACE::Tickers::FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT:
         return -0x57;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_UNKNOWN_COUNT:
+        return -0x58;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_LEVEL_L0_FILES_NUM_COUNT:
+        return -0x59;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_LEVEL_MAX_LEVEL_SIZE_COUNT:
+        return -0x5A;
+      case ROCKSDB_NAMESPACE::Tickers::
+          COMPACT_UNIVERSAL_SIZE_AMPLIFICATION_COUNT:
+        return -0x5B;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_UNIVERSAL_SIZE_RATIO_COUNT:
+        return -0x5C;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_UNIVERSAL_SORTED_RUN_NUM_COUNT:
+        return -0x5D;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_FIFO_MAX_SIZE_COUNT:
+        return -0x5E;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_FIFO_REDUCE_NUM_FILES_COUNT:
+        return -0x5F;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_FIFO_TTL_COUNT:
+        return -0x60;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_MANUAL_COUNT:
+        return -0x61;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_FILES_MARKED_COUNT:
+        return -0x62;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_BOTTOMMOST_FILES_COUNT:
+        return -0x63;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_TTL_COUNT:
+        return -0x64;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_FLUSH_COUNT:
+        return -0x65;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_EXTERNAL_SST_INGESTION_COUNT:
+        return -0x66;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_PERIODIC_COUNT:
+        return -0x67;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_CHANGE_TEMPERATURE_COUNT:
+        return -0x68;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_FORCED_BLOB_GC_COUNT:
+        return -0x69;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_ROUND_ROBIN_TTL_COUNT:
+        return -0x6A;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_REFIT_LEVEL_COUNT:
+        return -0x6B;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5735,6 +5776,48 @@ class TickerTypeJni {
       case -0x57:
         return ROCKSDB_NAMESPACE::Tickers::
             FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT;
+      case -0x58:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_UNKNOWN_COUNT;
+      case -0x59:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_LEVEL_L0_FILES_NUM_COUNT;
+      case -0x5A:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_LEVEL_MAX_LEVEL_SIZE_COUNT;
+      case -0x5B:
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPACT_UNIVERSAL_SIZE_AMPLIFICATION_COUNT;
+      case -0x5C:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_UNIVERSAL_SIZE_RATIO_COUNT;
+      case -0x5D:
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPACT_UNIVERSAL_SORTED_RUN_NUM_COUNT;
+      case -0x5E:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_FIFO_MAX_SIZE_COUNT;
+      case -0x5F:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_FIFO_REDUCE_NUM_FILES_COUNT;
+      case -0x60:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_FIFO_TTL_COUNT;
+      case -0x61:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_MANUAL_COUNT;
+      case -0x62:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_FILES_MARKED_COUNT;
+      case -0x63:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_BOTTOMMOST_FILES_COUNT;
+      case -0x64:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_TTL_COUNT;
+      case -0x65:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_FLUSH_COUNT;
+      case -0x66:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_EXTERNAL_SST_INGESTION_COUNT;
+      case -0x67:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_PERIODIC_COUNT;
+      case -0x68:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_CHANGE_TEMPERATURE_COUNT;
+      case -0x69:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_FORCED_BLOB_GC_COUNT;
+      case -0x6A:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_ROUND_ROBIN_TTL_COUNT;
+      case -0x6B:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_REFIT_LEVEL_COUNT;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next

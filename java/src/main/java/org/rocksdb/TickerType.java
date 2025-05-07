@@ -882,6 +882,27 @@ public enum TickerType {
 
     FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT((byte) -0x57),
 
+    COMPACT_UNKNOWN_COUNT((byte) -0x58),
+    COMPACT_LEVEL_L0_FILES_NUM_COUNT((byte) -0x59),
+    COMPACT_LEVEL_MAX_LEVEL_SIZE_COUNT((byte) -0x5A),
+    COMPACT_UNIVERSAL_SIZE_AMPLIFICATION_COUNT((byte) -0x5B),
+    COMPACT_UNIVERSAL_SIZE_RATIO_COUNT((byte) -0x5C),
+    COMPACT_UNIVERSAL_SORTED_RUN_NUM_COUNT((byte) -0x5D),
+    COMPACT_FIFO_MAX_SIZE_COUNT((byte) -0x5E),
+    COMPACT_FIFO_REDUCE_NUM_FILES_COUNT((byte) -0x5F),
+    COMPACT_FIFO_TTL_COUNT((byte) -0x60),
+    COMPACT_MANUAL_COUNT((byte) -0x61),
+    COMPACT_FILES_MARKED_COUNT((byte) -0x62),
+    COMPACT_BOTTOMMOST_FILES_COUNT((byte) -0x63),
+    COMPACT_TTL_COUNT((byte) -0x64),
+    COMPACT_FLUSH_COUNT((byte) -0x65),
+    COMPACT_EXTERNAL_SST_INGESTION_COUNT((byte) -0x66),
+    COMPACT_PERIODIC_COUNT((byte) -0x67),
+    COMPACT_CHANGE_TEMPERATURE_COUNT((byte) -0x68),
+    COMPACT_FORCED_BLOB_GC_COUNT((byte) -0x69),
+    COMPACT_ROUND_ROBIN_TTL_COUNT((byte) -0x6A),
+    COMPACT_REFIT_LEVEL_COUNT((byte) -0x6B),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;
@@ -914,7 +935,6 @@ public enum TickerType {
                 return tickerType;
             }
         }
-        throw new IllegalArgumentException(
-            "Illegal value provided for TickerType.");
+        throw new IllegalArgumentException("Illegal value provided for TickerType.");
     }
 }
