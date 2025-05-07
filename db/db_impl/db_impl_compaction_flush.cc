@@ -3898,6 +3898,29 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           ,
           copy_files_compaction_io_options /* readIOOptions */,
           copy_files_compaction_io_options /* writeIOOptions */);
+      if (dest_writer) {
+        IOOptions close_files_compaction_io_options;
+        close_files_compaction_io_options.rate_limiter_priority =
+            Env::IOPriority::IO_LOW;
+        close_files_compaction_io_options.type = IOType::kData;
+        close_files_compaction_io_options.io_activity =
+            Env::IOActivity::kCompaction;
+        // Close the dest_write
+        io_s = dest_writer->Close(close_files_compaction_io_options);
+        if (!io_s.ok()) {
+          ROCKS_LOG_BUFFER(
+              log_buffer,
+              "[%s] Failed to close the writer. Failed to copy from: %s\n"
+              " temperature=%s, to=%s, temperature=%s, io_status=%s",
+              c->column_family_data()->GetName().c_str(), in_fname.c_str(),
+              temperature_to_string[in_file->temperature].c_str(),
+              out_fname.c_str(),
+              temperature_to_string[c->output_temperature()].c_str(),
+              io_s.ToString().c_str());
+          break;
+        }
+      }
+
       io_s = copy_file_io_status;
 
       if (!io_s.ok()) {
@@ -3974,19 +3997,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           });
     }
 
-    // Log and notify table file creation finished
-    for (const auto& out_file_it : out_files) {
-      const std::string out_fname =
-          TableFileName(c->immutable_options().cf_paths,
-                        out_file_it.fd.GetNumber(), c->output_path_id());
-      EventHelpers::LogAndNotifyTableFileCreationFinished(
-          &event_logger_, c->column_family_data()->ioptions().listeners,
-          dbname_, c->column_family_data()->GetName(), out_fname,
-          job_context->job_id, out_file_it.fd,
-          out_file_it.oldest_blob_file_number, TableProperties(),
-          TableFileCreationReason::kCompaction, status,
-          out_file_it.file_checksum, out_file_it.file_checksum_func_name);
-    }
+    // TODO (mikechuang): Currently skip calling
+    // EventHelper::LogAndNotifyTableFileCreationFinished for the trivial copy.
+    // Since it's a trivial copy we should ideally use the exact TableProperties
+    // from the input file but that will break some existing stress tests. For
+    // now skip the listener call for the FIFO kChangeTemperature trivail copy
+    // move.
 
     if (io_s.ok()) {
       io_s = versions_->io_status();
