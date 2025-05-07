@@ -13,10 +13,11 @@
 #include <functional>
 
 #include "include/org_rocksdb_Transaction.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/jni_multiget_helpers.h"
 #include "rocksjni/kv_helper.h"
-#include "rocksjni/portal.h"
+#include "rocksjni/portal/rocks_d_b_exception_jni.h"
+#include "rocksjni/portal/transaction_jni.h"
+#include "rocksjni/transaction_notifier_jnicallback.h"
 
 #if defined(_MSC_VER)
 #pragma warning(push)

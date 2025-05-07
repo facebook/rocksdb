@@ -12,9 +12,8 @@
 #include <cstdio>
 
 #include "include/org_rocksdb_Logger.h"
-#include "rocksjni/cplusplus_to_java_convert.h"
-#include "rocksjni/portal.h"
-
+#include "rocksjni/portal/info_log_level_jni.h"
+#include "rocksjni/portal/logger_jni.h"
 namespace ROCKSDB_NAMESPACE {
 
 LoggerJniCallback::LoggerJniCallback(JNIEnv* env, jobject jlogger)
