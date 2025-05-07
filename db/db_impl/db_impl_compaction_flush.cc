@@ -3818,9 +3818,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                         c->output_path_id());
 
       ColumnFamilyData* cfd = c->column_family_data();
-      EventHelpers::NotifyTableFileCreationStarted(
-          cfd->ioptions().listeners, dbname_, cfd->GetName(), out_fname,
-          job_context->job_id, TableFileCreationReason::kCompaction);
+
+      // TODO (mikechuang): Currently skip calling
+      // EventHelpers::NotifyTableFileCreationStarted for the trivial copy.
+      // Since it's a trivial copy we should ideally use the exact
+      // TableProperties from the input file but that will break some existing
+      // stress tests. For now skip the listener call for the FIFO
+      // kChangeTemperature trivial copy move.
 
       int64_t tmp_current_time = 0;
       auto get_time_status =
@@ -4001,7 +4005,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // EventHelper::LogAndNotifyTableFileCreationFinished for the trivial copy.
     // Since it's a trivial copy we should ideally use the exact TableProperties
     // from the input file but that will break some existing stress tests. For
-    // now skip the listener call for the FIFO kChangeTemperature trivail copy
+    // now skip the listener call for the FIFO kChangeTemperature trivial copy
     // move.
 
     if (io_s.ok()) {

@@ -23,7 +23,7 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
                   std::unique_ptr<WritableFileWriter>& dest_writer,
                   uint64_t size, bool use_fsync,
                   const std::shared_ptr<IOTracer>& io_tracer,
-                  size_t max_read_buffer_size,
+                  uint64_t max_read_buffer_size,
                   const std::optional<IOOptions>& readIOOptions,
                   const std::optional<IOOptions>& writeIOOptions) {
   FileOptions soptions;
@@ -91,7 +91,7 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
                   Temperature src_temp_hint, const std::string& destination,
                   Temperature dst_temp, uint64_t size, bool use_fsync,
                   const std::shared_ptr<IOTracer>& io_tracer,
-                  size_t max_read_buffer_size,
+                  uint64_t max_read_buffer_size,
                   const std::optional<IOOptions>& readIOOptions,
                   const std::optional<IOOptions>& writeIOOptions) {
   FileOptions options;
