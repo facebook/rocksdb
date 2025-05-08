@@ -334,6 +334,7 @@ class ExternalTableFactoryAdapter : public TableFactory {
     ExternalTableWritableFileWrapper(WritableFileWriter* writer)
         : writer_(writer) {}
 
+    using FSWritableFile::Append;
     IOStatus Append(const Slice& data, const IOOptions& options,
                     IODebugContext* /*dbg*/) override {
       return writer_->Append(options, data);
