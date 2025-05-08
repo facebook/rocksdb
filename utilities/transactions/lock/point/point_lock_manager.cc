@@ -486,7 +486,7 @@ bool PointLockManager::IncrementWaiters(
 // Returns Status::TimeOut if the lock cannot be acquired due to it being
 // held by other transactions, `txn_ids` will be populated with the id of
 // transactions that hold the lock, excluding lock_info.txn_ids[0].
-// Returns Status::Aborted(kLockLiimt) if the lock cannot be acquired due to
+// Returns Status::Aborted(kLockLimit) if the lock cannot be acquired due to
 // reaching per CF limit on the number of locks.
 //
 // REQUIRED:  Stripe mutex must be held. txn_ids must be empty.

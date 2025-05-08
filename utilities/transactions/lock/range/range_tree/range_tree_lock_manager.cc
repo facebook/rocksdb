@@ -130,7 +130,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
     case DB_LOCK_NOTGRANTED:
       return Status::TimedOut(Status::SubCode::kLockTimeout);
     case TOKUDB_OUT_OF_LOCKS:
-      return Status::Busy(Status::SubCode::kLockLimit);
+      return Status::LockLimit();
     case DB_LOCK_DEADLOCK: {
       std::reverse(di_path.begin(), di_path.end());
       dlock_buffer_.AddNewPath(
@@ -139,7 +139,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
     }
     default:
       assert(0);
-      return Status::Busy(Status::SubCode::kLockLimit);
+      return Status::LockLimit();
   }
 
   return Status::OK();
