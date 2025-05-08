@@ -6525,10 +6525,10 @@ TEST_F(CacheUsageOptionsOverridesTest, SanitizeAndValidateOptions) {
   Destroy(options);
 }
 
-class ExternalTableReaderTest : public DBTestBase {
+class ExternalTableTest : public DBTestBase {
  public:
-  ExternalTableReaderTest()
-      : DBTestBase("external_table_reader_test", /*env_do_fsync=*/false) {}
+  ExternalTableTest()
+      : DBTestBase("external_table_test", /*env_do_fsync=*/false) {}
 
  protected:
   class DummyExternalTableFile {
@@ -6872,7 +6872,7 @@ class ExternalTableReaderTest : public DBTestBase {
   };
 };
 
-TEST_F(ExternalTableReaderTest, BasicTest) {
+TEST_F(ExternalTableTest, BasicTest) {
   std::shared_ptr<ExternalTableFactory> factory =
       std::make_shared<DummyExternalTableFactory>();
 
@@ -6920,9 +6920,9 @@ TEST_F(ExternalTableReaderTest, BasicTest) {
   ASSERT_EQ(statuses[1], Status::NotFound());
 }
 
-TEST_F(ExternalTableReaderTest, SstReaderTest) {
+TEST_F(ExternalTableTest, SstReaderTest) {
   Options options = GetDefaultOptions();
-  std::string dbname = test::PerThreadDBPath("external_table_reader_test");
+  std::string dbname = test::PerThreadDBPath("external_table_test");
   std::string ingest_file = dbname + "test.immutabledb";
   dbname += "_db";
   // This test doesn't work with some custom Envs, like EncryptedEnv
@@ -6953,9 +6953,42 @@ TEST_F(ExternalTableReaderTest, SstReaderTest) {
   ASSERT_TRUE(iter->status().ok());
 }
 
-TEST_F(ExternalTableReaderTest, DBIterTest) {
+TEST_F(ExternalTableTest, ExternalFileChecksumTest) {
   Options options = GetDefaultOptions();
-  std::string dbname = test::PerThreadDBPath("external_table_reader_test");
+  std::string dbname = test::PerThreadDBPath("external_table_test");
+  std::string ingest_file = dbname + "test.immutable";
+  dbname += "_db";
+  // This test doesn't work with some custom Envs, like EncryptedEnv
+  options.env = Env::Default();
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>();
+  options.table_factory = NewExternalTableFactory(factory);
+
+  // Create a file
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("foo", "bar"));
+  ASSERT_OK(writer->Put("foo2", "bar2"));
+  ExternalSstFileInfo info;
+  ASSERT_OK(writer->Finish(&info));
+  writer.reset();
+
+  FileChecksumGenContext cksum_ctx;
+  FileChecksumGenCrc32c cksum_gen(cksum_ctx);
+  std::string file_data;
+  ASSERT_OK(ReadFileToString(options.env, ingest_file, &file_data));
+  cksum_gen.Update(file_data.data(), file_data.size());
+  cksum_gen.Finalize();
+  ASSERT_EQ(info.file_checksum, cksum_gen.GetChecksum());
+}
+
+TEST_F(ExternalTableTest, DBIterTest) {
+  Options options = GetDefaultOptions();
+  std::string dbname = test::PerThreadDBPath("external_table_test");
   std::string ingest_file = dbname + "test.immutable";
   dbname += "_db";
   // This test doesn't work with some custom Envs, like EncryptedEnv
@@ -7007,9 +7040,9 @@ TEST_F(ExternalTableReaderTest, DBIterTest) {
   ASSERT_OK(db->Close());
 }
 
-TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
+TEST_F(ExternalTableTest, DBMultiScanTest) {
   Options options = GetDefaultOptions();
-  std::string dbname = test::PerThreadDBPath("external_table_reader_test");
+  std::string dbname = test::PerThreadDBPath("external_table_test");
   std::string ingest_file = dbname + "test.immutable";
   dbname += "_db";
   // This test doesn't work with some custom Envs, like EncryptedEnv
