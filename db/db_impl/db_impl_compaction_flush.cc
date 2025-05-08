@@ -3817,8 +3817,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           TableFileName(c->immutable_options().cf_paths, out_file_number,
                         c->output_path_id());
 
-      ColumnFamilyData* cfd = c->column_family_data();
-
       // TODO (mikechuang): Currently skip calling
       // EventHelpers::NotifyTableFileCreationStarted for the trivial copy.
       // Since it's a trivial copy we should ideally use the exact
