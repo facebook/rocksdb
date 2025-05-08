@@ -6921,12 +6921,14 @@ TEST_F(ExternalTableTest, BasicTest) {
 }
 
 TEST_F(ExternalTableTest, SstReaderTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
   Options options = GetDefaultOptions();
   std::string dbname = test::PerThreadDBPath("external_table_test");
   std::string ingest_file = dbname + "test.immutabledb";
   dbname += "_db";
-  // This test doesn't work with some custom Envs, like EncryptedEnv
-  options.env = Env::Default();
 
   std::shared_ptr<ExternalTableFactory> factory =
       std::make_shared<DummyExternalTableFactory>();
@@ -6954,12 +6956,14 @@ TEST_F(ExternalTableTest, SstReaderTest) {
 }
 
 TEST_F(ExternalTableTest, ExternalFileChecksumTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
   Options options = GetDefaultOptions();
   std::string dbname = test::PerThreadDBPath("external_table_test");
   std::string ingest_file = dbname + "test.immutable";
   dbname += "_db";
-  // This test doesn't work with some custom Envs, like EncryptedEnv
-  options.env = Env::Default();
   ASSERT_OK(DestroyDB(dbname, options));
 
   std::shared_ptr<ExternalTableFactory> factory =
@@ -6987,12 +6991,14 @@ TEST_F(ExternalTableTest, ExternalFileChecksumTest) {
 }
 
 TEST_F(ExternalTableTest, DBIterTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
   Options options = GetDefaultOptions();
   std::string dbname = test::PerThreadDBPath("external_table_test");
   std::string ingest_file = dbname + "test.immutable";
   dbname += "_db";
-  // This test doesn't work with some custom Envs, like EncryptedEnv
-  options.env = Env::Default();
   ASSERT_OK(DestroyDB(dbname, options));
 
   std::shared_ptr<ExternalTableFactory> factory =
@@ -7041,12 +7047,14 @@ TEST_F(ExternalTableTest, DBIterTest) {
 }
 
 TEST_F(ExternalTableTest, DBMultiScanTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
   Options options = GetDefaultOptions();
   std::string dbname = test::PerThreadDBPath("external_table_test");
   std::string ingest_file = dbname + "test.immutable";
   dbname += "_db";
-  // This test doesn't work with some custom Envs, like EncryptedEnv
-  options.env = Env::Default();
   ASSERT_OK(DestroyDB(dbname, options));
 
   std::shared_ptr<ExternalTableFactory> factory =

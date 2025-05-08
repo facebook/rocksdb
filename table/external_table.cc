@@ -311,8 +311,8 @@ class ExternalTableFactoryAdapter : public TableFactory {
         topts.read_options, topts.write_options,
         topts.moptions.prefix_extractor, topts.ioptions.user_comparator,
         topts.column_family_name, topts.reason);
-    std::unique_ptr<ExternalTableWritableFileWrapper> file_wrapper(
-        new ExternalTableWritableFileWrapper(file));
+    auto file_wrapper =
+        std::make_unique<ExternalTableWritableFileWrapper>(file);
     builder.reset(inner_->NewTableBuilder(ext_topts, file->file_name(),
                                           file_wrapper.get()));
     if (builder) {
@@ -326,12 +326,12 @@ class ExternalTableFactoryAdapter : public TableFactory {
 
  private:
   // An FSWritableFile subclass for wrapping a WritableFileWriter. The
-  // latter is private to RocksDB, so we wrp it here in order to pass it
+  // latter is private to RocksDB, so we wrap it here in order to pass it
   // to the ExternalTableBuilder. This is necessary for WritableFileWriter
   // to intercept Append so that it can calculate the file checksum.
   class ExternalTableWritableFileWrapper : public FSWritableFile {
    public:
-    ExternalTableWritableFileWrapper(WritableFileWriter* writer)
+    explicit ExternalTableWritableFileWrapper(WritableFileWriter* writer)
         : writer_(writer) {}
 
     using FSWritableFile::Append;
