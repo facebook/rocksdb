@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
 #include <deque>
+#include <iostream>
 
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
@@ -1381,6 +1382,9 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   TEST_SYNC_POINT_CALLBACK("TestCompactFiles:PausingManualCompaction:3",
                            static_cast<void*>(const_cast<std::atomic<int>*>(
                                &manual_compaction_paused_)));
+  TEST_SYNC_POINT_CALLBACK("TestCancelCompactFiles:SuccessfulCompaction",
+                           static_cast<void*>(const_cast<std::atomic<int>*>(
+                               &manual_compaction_paused_)));
   {
     InstrumentedMutexLock l(&mutex_);
     auto* current = cfd->current();
@@ -1434,6 +1438,14 @@ Status DBImpl::CompactFilesImpl(
     return Status::ShutdownInProgress();
   }
   if (manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
+    return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+  }
+
+  // TODO: VIRAJ INSERT HERE
+
+  if (compact_options.canceled &&
+      compact_options.canceled->load(std::memory_order_acquire)) {
+    std::cout << "Canceling as per the deleted flag";
     return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
 

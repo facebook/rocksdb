@@ -1058,6 +1058,16 @@ TEST_F(CompactionServiceTest, CancelCompactionOnRemoteSide) {
   // Test cancel compaction at the beginning
   my_cs->SetCanceled(true);
   auto s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+  // TODO: VIRAJ TESTING
+
+  // std::vector<std::string> input_file_names;
+  // for (int i = 15; i < 45; i++) {
+  //   input_file_names.push_back(Key(i));
+  // }
+
+  // generate a vector of all the file names between start and end
+
+  // auto s = db_->CompactFiles(CompactionOptions(), input_file_names, 1);
   ASSERT_TRUE(s.IsIncomplete());
   // compaction number is not increased
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num);
@@ -1110,8 +1120,18 @@ TEST_F(CompactionServiceTest, CancelCompactionOnPrimarySide) {
       [&](void* /*arg*/) { CancelAllBackgroundWork(db_, false /*wait*/); });
 
   SyncPoint::GetInstance()->EnableProcessing();
+  // TODO: VIRAJ TESTING
 
+  std::vector<std::string> input_file_names;
+  for (int i = 15; i < 45; i++) {
+    input_file_names.push_back(Key(i));
+  }
+
+  // generate a vector of all the file names between start and end
+
+  // Status s = db_->CompactFiles(CompactionOptions(), input_file_names, 1);
   Status s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+
   ASSERT_TRUE(s.IsIncomplete());
 
   // Check canceled_ was set to true by CancelAwaitingJobs()
