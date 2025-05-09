@@ -424,7 +424,8 @@ class ColumnFamilyData {
       const MutableCFOptions& mutable_options,
       const MutableDBOptions& mutable_db_options,
       const std::vector<SequenceNumber>& existing_snapshots,
-      const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer);
+      const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
+      Env::Priority thread_priority_for_picking = Env::Priority::TOTAL);
 
   // Check if the passed range overlap with any running compactions.
   // REQUIRES: DB mutex held
@@ -792,11 +793,17 @@ class ColumnFamilySet {
 
   WriteController* write_controller() { return write_controller_; }
 
+  // REQUIRES: DB mutex held
+  bool HasUniversalCompactionCF() const { return has_universal_compaction_cf_; }
+
  private:
   friend class ColumnFamilyData;
   // helper function that gets called from cfd destructor
   // REQUIRES: DB mutex held
   void RemoveColumnFamily(ColumnFamilyData* cfd);
+
+  // REQUIRES: DB mutex held
+  void MaybeUpdateHasUniversalCompactionCF(ColumnFamilyData* cfd_to_remove);
 
   // column_families_ and column_family_data_ need to be protected:
   // * when mutating both conditions have to be satisfied:
@@ -836,6 +843,7 @@ class ColumnFamilySet {
   std::shared_ptr<IOTracer> io_tracer_;
   const std::string& db_id_;
   std::string db_session_id_;
+  bool has_universal_compaction_cf_;
 };
 
 // A wrapper for ColumnFamilySet that supports releasing DB mutex during each

@@ -5275,6 +5275,9 @@ class TickerTypeJni {
         return -0x57;
       case ROCKSDB_NAMESPACE::Tickers::FIFO_CHANGE_TEMPERATURE_COMPACTIONS:
         return -0x58;
+      case ROCKSDB_NAMESPACE::Tickers::
+          UNIVERSAL_PICK_NO_COMPACTION_BY_MISMATCHED_THREAD_PRI:
+        return -0x59;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5739,6 +5742,9 @@ class TickerTypeJni {
             FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT;
       case -0x58:
         return ROCKSDB_NAMESPACE::Tickers::FIFO_CHANGE_TEMPERATURE_COMPACTIONS;
+      case -0x59:
+        return ROCKSDB_NAMESPACE::Tickers::
+            UNIVERSAL_PICK_NO_COMPACTION_BY_MISMATCHED_THREAD_PRI;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next

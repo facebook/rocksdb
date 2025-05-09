@@ -174,7 +174,9 @@ struct MutableCFOptions {
         bottommost_file_compaction_delay(
             options.bottommost_file_compaction_delay),
         uncache_aggressiveness(options.uncache_aggressiveness),
-        memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger) {
+        memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger),
+        universal_pick_compaction_by_thread_pri(
+            options.universal_pick_compaction_by_thread_pri) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -230,7 +232,8 @@ struct MutableCFOptions {
         memtable_max_range_deletions(0),
         bottommost_file_compaction_delay(0),
         uncache_aggressiveness(0),
-        memtable_op_scan_flush_trigger(0) {}
+        memtable_op_scan_flush_trigger(0),
+        universal_pick_compaction_by_thread_pri(false) {}
 
   explicit MutableCFOptions(const Options& options);
 
@@ -339,6 +342,7 @@ struct MutableCFOptions {
   uint32_t bottommost_file_compaction_delay;
   uint32_t uncache_aggressiveness;
   uint32_t memtable_op_scan_flush_trigger;
+  bool universal_pick_compaction_by_thread_pri;
 
   // Derived options
   // Per-level target file size.

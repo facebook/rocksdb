@@ -882,6 +882,8 @@ public enum TickerType {
 
     FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT((byte) -0x57),
 
+    UNIVERSAL_PICK_NO_COMPACTION_BY_MISMATCHED_THREAD_PRI((byte) -0x59),
+
     TICKER_ENUM_MAX((byte) -0x54);
 
     private final byte value;

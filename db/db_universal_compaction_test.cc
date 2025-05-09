@@ -1676,51 +1676,83 @@ TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
   options.compaction_style = kCompactionStyleUniversal;
   options.max_background_compactions = 2;
   options.num_levels = num_levels_;
-  options.write_buffer_size = 100 << 10;     // 100KB
-  options.target_file_size_base = 32 << 10;  // 32KB
+  options.disable_auto_compactions = true;
   options.level0_file_num_compaction_trigger = kNumFilesTrigger;
-  // Trigger compaction if size amplification exceeds 110%
-  options.compaction_options_universal.max_size_amplification_percent = 110;
-  DestroyAndReopen(options);
+  // Trigger periodic full compaction which will get scheduled as bottom-pri
+  // compaction
+  auto periodic_compaction_seconds = 30 * 24 * 60 * 60;  // 30 days
+  options.periodic_compaction_seconds = periodic_compaction_seconds;
+  env_->SetMockSleep();
+  for (bool universal_pick_compaction_by_thread_pri : {true, false}) {
+    options.universal_pick_compaction_by_thread_pri =
+        universal_pick_compaction_by_thread_pri;
 
-  // Need to get a token to enable compaction parallelism up to
-  // `max_background_compactions` jobs.
-  auto pressure_token =
-      dbfull()->TEST_write_controler().GetCompactionPressureToken();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {// wait for the full compaction to be picked before adding files intended
-       // for the second one.
-       {"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
-        "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0"},
-       // the full (bottom-pri) compaction waits until a partial (low-pri)
-       // compaction has started to verify they can run in parallel.
-       {"DBImpl::BackgroundCompaction:NonTrivial",
-        "DBImpl::BGWorkBottomCompaction"}});
-  SyncPoint::GetInstance()->EnableProcessing();
+    DestroyAndReopen(options);
 
-  Random rnd(301);
-  for (int i = 0; i < 2; ++i) {
-    for (int num = 0; num < kNumFilesTrigger; num++) {
-      int key_idx = 0;
-      GenerateNewFile(&rnd, &key_idx, true /* no_wait */);
-      // use no_wait above because that one waits for flush and compaction. We
-      // don't want to wait for compaction because the full compaction is
-      // intentionally blocked while more files are flushed.
-      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    // Need to get a token to enable compaction parallelism up to
+    // `max_background_compactions` jobs.
+    auto pressure_token =
+        dbfull()->TEST_write_controler().GetCompactionPressureToken();
+    // Create one bottommost level file in need of periodic compaction
+    ASSERT_OK(Put("bottom", "v1"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("bottom", "v2"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+    ASSERT_EQ(NumTableFilesAtLevel(num_levels_ - 1), 1);
+    // Create one L0 file in need of periodic compaction
+    ASSERT_OK(Put("l0forperiodic", "v1"));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+    env_->MockSleepForSeconds(periodic_compaction_seconds + 1);
+    // Set up sync points before background compaction is triggered
+    if (universal_pick_compaction_by_thread_pri) {
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+          {// wait for the full compaction to be picked before adding files
+           // intended for the second one.
+           {"DBImpl::BackgroundCompaction():AfterPickCompactionBOTTOM",
+            "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:"
+            "0"}});
+    } else {
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+          {// wait for the full compaction to be forwarded before adding files
+           // intended for the second one.
+           {"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+            "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:"
+            "0"}});
     }
-    if (i == 0) {
-      TEST_SYNC_POINT(
-          "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0");
-    }
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+        {// the full (bottom-pri) compaction waits until a partial (low-pri)
+         // compaction is ready to run to verify they can run in parallel.
+         {"DBImpl::BackgroundCompaction:NonTrivial:BeforeRunLOW",
+          "DBImpl::BackgroundCompaction:NonTrivial:BeforeRunBOTTOM"}});
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    ASSERT_OK(
+        dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
+
+    TEST_SYNC_POINT(
+        "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0");
+    // Create three L0 files to trigger low-pri compaction
+    ASSERT_OK(Put("l0", "v1"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("l0", "v2"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("l0", "v3"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+    // Bottom-pri compaction should output to the last level.
+    // Low-pri compaction should output to the L0 since older L0 files pending
+    // compaction prevent it from being placed lower.
+    ASSERT_EQ(NumSortedRuns(), 2);
+    ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+    ASSERT_EQ(NumTableFilesAtLevel(num_levels_ - 2), 0);
+    ASSERT_EQ(NumTableFilesAtLevel(num_levels_ - 1), 1);
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  // First compaction should output to bottom level. Second should output to L0
-  // since older L0 files pending compaction prevent it from being placed lower.
-  ASSERT_EQ(NumSortedRuns(), 2);
-  ASSERT_GT(NumTableFilesAtLevel(0), 0);
-  ASSERT_GT(NumTableFilesAtLevel(num_levels_ - 1), 0);
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
@@ -1796,7 +1828,7 @@ TEST_P(DBTestUniversalCompaction, FinalSortedRunCompactFilesConflict) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"CompactFilesImpl:0",
         "DBTestUniversalCompaction:FinalSortedRunCompactFilesConflict:0"},
-       {"DBImpl::BackgroundCompaction():AfterPickCompaction",
+       {"DBImpl::BackgroundCompaction():AfterPickCompactionLOW",
         "CompactFilesImpl:1"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 

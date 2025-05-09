@@ -707,6 +707,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, memtable_op_scan_flush_trigger),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"universal_pick_compaction_by_thread_pri",
+         {offsetof(struct MutableCFOptions,
+                   universal_pick_compaction_by_thread_pri),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -1190,7 +1195,9 @@ void MutableCFOptions::Dump(Logger* log) const {
                  uncache_aggressiveness);
   ROCKS_LOG_INFO(log, "             memtable_op_scan_flush_trigger: %" PRIu32,
                  memtable_op_scan_flush_trigger);
-
+  ROCKS_LOG_INFO(
+      log, "             universal_pick_compaction_by_thread_pri: %" PRIu32,
+      universal_pick_compaction_by_thread_pri);
   // Universal Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_universal.size_ratio : %d",
                  compaction_options_universal.size_ratio);

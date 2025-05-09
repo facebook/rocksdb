@@ -272,6 +272,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.file.read.corruption.retry.count"},
     {FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT,
      "rocksdb.file.read.corruption.retry.success.count"},
+    {UNIVERSAL_PICK_NO_COMPACTION_BY_MISMATCHED_THREAD_PRI,
+     "rocksdb.universal.pick.no.compaction.by.mismatched.thread.pri"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

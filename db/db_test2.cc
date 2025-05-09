@@ -3492,11 +3492,9 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
 
 TEST_F(DBTest2, CompactionOnBottomPriorityWithListener) {
   int num_levels = 3;
-  const int kNumFilesTrigger = 4;
+  const int kNumFilesTrigger = 2;
 
   Options options = CurrentOptions();
-  env_->SetBackgroundThreads(0, Env::Priority::HIGH);
-  env_->SetBackgroundThreads(0, Env::Priority::LOW);
   env_->SetBackgroundThreads(1, Env::Priority::BOTTOM);
   options.env = env_;
   options.compaction_style = kCompactionStyleUniversal;
@@ -3504,17 +3502,24 @@ TEST_F(DBTest2, CompactionOnBottomPriorityWithListener) {
   options.write_buffer_size = 100 << 10;     // 100KB
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = kNumFilesTrigger;
-  // Trigger compaction if size amplification exceeds 110%
-  options.compaction_options_universal.max_size_amplification_percent = 110;
-
+  // Trigger compaction if size amplification exceeds 50%
+  options.compaction_options_universal.max_size_amplification_percent = 50;
   CancelCompactionListener* listener = new CancelCompactionListener();
   options.listeners.emplace_back(listener);
+  listener->code_ = Status::kOk;
+  listener->subcode_ = Status::SubCode::kNone;
 
   DestroyAndReopen(options);
 
-  int num_bottom_thread_compaction_scheduled = 0;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(num_levels - 1);
+  ASSERT_OK(Put("k1", "v2"));
 
+  // Set up sync points and counters before background compaction is triggered
+  listener->num_compaction_started_ = 0;
+  listener->num_compaction_ended_ = 0;
+  int num_bottom_thread_compaction_scheduled = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
       [&](void* /*arg*/) { num_bottom_thread_compaction_scheduled++; });
@@ -3524,28 +3529,20 @@ TEST_F(DBTest2, CompactionOnBottomPriorityWithListener) {
       "CompactionJob::Run():End",
       [&](void* /*arg*/) { num_compaction_jobs++; });
 
-  listener->code_ = Status::kOk;
-  listener->subcode_ = Status::SubCode::kNone;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  Random rnd(301);
-  for (int i = 0; i < 1; ++i) {
-    for (int num = 0; num < kNumFilesTrigger; num++) {
-      int key_idx = 0;
-      GenerateNewFile(&rnd, &key_idx, true /* no_wait */);
-      // use no_wait above because that one waits for flush and compaction. We
-      // don't want to wait for compaction because the full compaction is
-      // intentionally blocked while more files are flushed.
-      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-    }
-  }
+  ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_GT(num_bottom_thread_compaction_scheduled, 0);
-  ASSERT_EQ(num_compaction_jobs, 1);
-  ASSERT_GT(listener->num_compaction_started_, 0);
-  ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  ASSERT_EQ(num_bottom_thread_compaction_scheduled, 1);
+  ASSERT_EQ(num_compaction_jobs, 1);
+  ASSERT_EQ(listener->num_compaction_started_, 1);
+  ASSERT_EQ(listener->num_compaction_started_, listener->num_compaction_ended_);
+
+  env_->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
 TEST_F(DBTest2, OptimizeForPointLookup) {

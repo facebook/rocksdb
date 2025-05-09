@@ -555,7 +555,7 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
            {"DBImpl::BackgroundCompaction():BeforePickCompaction",
             "DBOptionsTest::EnableAutoCompactionAndTriggerStall:2"},
            {"DBOptionsTest::EnableAutoCompactionAndTriggerStall:3",
-            "DBImpl::BackgroundCompaction():AfterPickCompaction"}});
+            "DBImpl::BackgroundCompaction():AfterPickCompactionLOW"}});
       // Block background compaction.
       SyncPoint::GetInstance()->EnableProcessing();
 

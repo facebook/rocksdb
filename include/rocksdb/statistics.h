@@ -536,6 +536,10 @@ enum Tickers : uint32_t {
   FILE_READ_CORRUPTION_RETRY_COUNT,
   FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT,
 
+  // Counters for universal compaction picking by thread priority ends up
+  // picking nothing due to mismatched thread priority
+  UNIVERSAL_PICK_NO_COMPACTION_BY_MISMATCHED_THREAD_PRI,
+
   TICKER_ENUM_MAX
 };
 
