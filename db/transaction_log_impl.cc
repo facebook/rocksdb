@@ -17,6 +17,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     const std::string& dir, const ImmutableDBOptions* options,
     const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
+    WalManager* wal_manager,
     std::unique_ptr<VectorWalPtr> files, VersionSet const* const versions,
     const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer)
     : dir_(dir),
@@ -37,6 +38,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
   assert(versions_ != nullptr);
   assert(!seq_per_batch_);
   current_status_.PermitUncheckedError();  // Clear on start
+  get_live_wal_handle_.wm = wal_manager;
   reporter_.env = options_->env;
   reporter_.info_log = options_->info_log.get();
   SeekToStartSequence();  // Seek till starting sequence
@@ -83,9 +85,10 @@ Status TransactionLogIteratorImpl::status() { return current_status_; }
 
 bool TransactionLogIteratorImpl::Valid() { return started_ && is_valid_; }
 
-bool TransactionLogIteratorImpl::RestrictedRead(Slice* record) {
+bool TransactionLogIteratorImpl::RestrictedRead(Slice* record, bool& no_new_entry) {
   // Don't read if no more complete entries to read from logs
   if (current_last_seq_ >= versions_->LastSequence()) {
+    no_new_entry = true;
     return false;
   }
   return current_log_reader_->ReadRecord(record, &scratch_);
@@ -119,7 +122,8 @@ void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
     reporter_.Info(current_status_.ToString().c_str());
     return;
   }
-  while (RestrictedRead(&record)) {
+  bool no_new_entry;
+  while (RestrictedRead(&record, no_new_entry)) {
     if (record.size() < WriteBatchInternal::kHeader) {
       reporter_.Corruption(record.size(),
                            Status::Corruption("very small log record"));
@@ -185,22 +189,22 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
     if (current_log_reader_->IsEOF()) {
       current_log_reader_->UnmarkEOF();
     }
-    while (RestrictedRead(&record)) {
+    bool no_new_entry;
+    while (RestrictedRead(&record, no_new_entry)) {
       if (record.size() < WriteBatchInternal::kHeader) {
         reporter_.Corruption(record.size(),
                              Status::Corruption("very small log record"));
         continue;
-      } else {
-        // started_ should be true if called by application
-        assert(internal || started_);
-        // started_ should be false if called internally
-        assert(!internal || !started_);
-        UpdateCurrentWriteBatch(record);
-        if (internal && !started_) {
-          started_ = true;
-        }
-        return;
       }
+      // started_ should be true if called by application
+      assert(internal || started_);
+      // started_ should be false if called internally
+      assert(!internal || !started_);
+      UpdateCurrentWriteBatch(record);
+      if (internal && !started_) {
+        started_ = true;
+      }
+      return;
     }
 
     // Open the next file
@@ -212,16 +216,36 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
         current_status_ = s;
         return;
       }
-    } else {
-      is_valid_ = false;
-      if (current_last_seq_ == versions_->LastSequence()) {
-        current_status_ = Status::OK();
-      } else {
-        const char* msg = "Create a new iterator to fetch the new tail.";
-        current_status_ = Status::TryAgain(msg);
-      }
+      continue;
+    }
+
+    is_valid_ = false;
+    if (no_new_entry) {
+      current_status_ = Status::OK();
       return;
     }
+
+    // in some case current_log_reader_->ReadRecord return kEof,
+    // but files_->at(current_file_index_) didn't reach the end
+    // which lead to severe delay of replication
+    if (current_log_reader_->IsEOF()) {
+      std::unique_ptr<VectorWalPtr> new_wal_files(new VectorWalPtr);
+      SequenceNumber start_seq = files_->at(current_file_index_).get()->StartSequence();
+      // only get live wal is enough in this case, GetLiveWalFiles will cost no more than 100us
+      if (get_live_wal_handle_.GetLiveWalFiles(start_seq, *new_wal_files).ok()) {
+        if (new_wal_files->size() == 1 &&
+            new_wal_files->begin()->get()->StartSequence() == start_seq) {
+          current_status_ = Status::OK();
+          return;
+        }
+
+        // if new_wal_files->size() >1, just set files as new_wal_files may be more efficiency
+      }
+    }
+
+    const char* msg = "Create a new iterator to fetch the new tail.";
+    current_status_ = Status::TryAgain(msg);
+    return;
   }
 }
 
