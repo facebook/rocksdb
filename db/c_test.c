@@ -1362,6 +1362,46 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_wi_destroy(wbi);
   }
 
+  StartPhase("wbwi_iter_readoptions");
+  {
+    rocksdb_readoptions_t* iter_roptions = rocksdb_readoptions_create();
+    rocksdb_readoptions_set_iterate_lower_bound(iter_roptions, "boy", 3);
+    rocksdb_readoptions_set_iterate_upper_bound(iter_roptions, "fool", 4);
+    rocksdb_iterator_t* base_iter = rocksdb_create_iterator(db, iter_roptions);
+    rocksdb_writebatch_wi_t* wbi = rocksdb_writebatch_wi_create(0, 1);
+    rocksdb_writebatch_wi_put(wbi, "bar", 3, "b",
+                              1);  // should get filtered out
+    rocksdb_writebatch_wi_put(wbi, "cat", 3, "miau", 4);
+    rocksdb_writebatch_wi_put(wbi, "gnu", 3, "muh",
+                              3);  // should get filtered out
+    rocksdb_iterator_t* iter =
+        rocksdb_writebatch_wi_create_iterator_with_base_readopts(wbi, base_iter,
+                                                                 iter_roptions);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_seek_to_first(iter);
+    CheckCondition(rocksdb_iter_valid(iter));
+    CheckIter(iter, "cat", "miau");
+    rocksdb_iter_next(iter);
+    CheckIter(iter, "foo", "hello");
+    rocksdb_iter_prev(iter);
+    CheckIter(iter, "cat", "miau");
+    rocksdb_iter_prev(iter);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_seek_to_last(iter);
+    CheckIter(iter, "foo", "hello");
+    rocksdb_iter_seek(iter, "b", 1);
+    CheckIter(iter, "cat", "miau");
+    rocksdb_iter_seek_for_prev(iter, "d", 1);
+    CheckIter(iter, "cat", "miau");
+    rocksdb_iter_seek_for_prev(iter, "fool", 3);
+    CheckIter(iter, "foo", "hello");
+    rocksdb_iter_get_error(iter, &err);
+    CheckNoError(err);
+    rocksdb_iter_destroy(iter);
+    rocksdb_writebatch_wi_destroy(wbi);
+    rocksdb_readoptions_destroy(iter_roptions);
+  }
+
   StartPhase("multiget");
   {
     const char* keys[3] = {"box", "foo", "notfound"};
@@ -1791,6 +1831,35 @@ int main(int argc, char** argv) {
 
     rocksdb_flush_wal(db, 1, &err);
     CheckNoError(err);
+
+    // Test WriteBatchWithIndex iteration with Column Family
+    rocksdb_writebatch_wi_t* wbwi = rocksdb_writebatch_wi_create(0, true);
+    rocksdb_writebatch_wi_put_cf(wbwi, handles[1], "boat", 4, "row",
+                                 3);  // should be filtered out
+    rocksdb_writebatch_wi_put_cf(wbwi, handles[1], "buffy", 5, "charmed", 7);
+    rocksdb_writebatch_wi_put_cf(wbwi, handles[1], "bus", 3, "yellow",
+                                 6);  // should be filtered out
+    rocksdb_readoptions_t* iter_roptions = rocksdb_readoptions_create();
+    rocksdb_readoptions_set_iterate_lower_bound(iter_roptions, "bu", 2);
+    rocksdb_readoptions_set_iterate_upper_bound(iter_roptions, "buffz", 5);
+    rocksdb_iterator_t* base_iter =
+        rocksdb_create_iterator_cf(db, iter_roptions, handles[1]);
+    rocksdb_iterator_t* wbwi_iter =
+        rocksdb_writebatch_wi_create_iterator_with_base_cf_readopts(
+            wbwi, base_iter, handles[1], iter_roptions);
+
+    CheckCondition(!rocksdb_iter_valid(wbwi_iter));
+    rocksdb_iter_seek_to_first(wbwi_iter);
+    CheckCondition(rocksdb_iter_valid(wbwi_iter));
+    CheckIter(wbwi_iter, "buff", "rocksdb");
+    rocksdb_iter_next(wbwi_iter);
+    CheckIter(wbwi_iter, "buffy", "charmed");
+    rocksdb_iter_next(wbwi_iter);
+    CheckCondition(!rocksdb_iter_valid(wbwi_iter));
+
+    rocksdb_iter_destroy(wbwi_iter);
+    rocksdb_writebatch_wi_destroy(wbwi);
+    rocksdb_readoptions_destroy(iter_roptions);
 
     const char* keys[3] = {"box", "box", "barfooxx"};
     const rocksdb_column_family_handle_t* get_handles[3] = {

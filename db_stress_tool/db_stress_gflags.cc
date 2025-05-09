@@ -536,6 +536,9 @@ DEFINE_string(file_temperature_age_thresholds, "",
               "See CompactionOptionsFIFO::file_temperature_age_thresholds. "
               "empty == unset");
 
+DEFINE_bool(allow_trivial_copy_when_change_temperature, true,
+            "Allow kChangeTemperature to do trivial copy");
+
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
