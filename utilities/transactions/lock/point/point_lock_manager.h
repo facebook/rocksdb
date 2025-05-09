@@ -209,6 +209,8 @@ class PointLockManager : public LockManager {
   void UnLockKey(PessimisticTransaction* txn, const std::string& key,
                  LockMapStripe* stripe, LockMap* lock_map, Env* env);
 
+  // Returns true if a deadlock is detected.
+  // Will DecrementWaiters() if a deadlock is detected.
   bool IncrementWaiters(const PessimisticTransaction* txn,
                         const autovector<TransactionID>& wait_ids,
                         const std::string& key, const uint32_t& cf_id,

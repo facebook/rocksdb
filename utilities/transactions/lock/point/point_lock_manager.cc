@@ -277,13 +277,13 @@ Status PointLockManager::AcquireWithTimeout(
   autovector<TransactionID> wait_ids;
   result = AcquireLocked(lock_map, stripe, key, env, lock_info,
                          &expire_time_hint, &wait_ids);
-
   if (!result.ok() && timeout != 0) {
     PERF_TIMER_GUARD(key_lock_wait_time);
     PERF_COUNTER_ADD(key_lock_wait_count, 1);
     // If we weren't able to acquire the lock, we will keep retrying as long
     // as the timeout allows.
     bool timed_out = false;
+    bool cv_wait_fail = false;
     do {
       // Decide how long to wait
       int64_t cv_end_time = -1;
@@ -294,8 +294,7 @@ Status PointLockManager::AcquireWithTimeout(
       } else if (end_time > 0) {
         cv_end_time = end_time;
       }
-
-      assert(result.IsBusy() || wait_ids.size() != 0);
+      assert(result.IsLockLimit() == wait_ids.empty());
 
       // We are dependent on a transaction to finish, so perform deadlock
       // detection.
@@ -315,7 +314,12 @@ Status PointLockManager::AcquireWithTimeout(
       if (cv_end_time < 0) {
         // Wait indefinitely
         result = stripe->stripe_cv->Wait(stripe->stripe_mutex);
+        cv_wait_fail = !result.ok();
       } else {
+        // FIXME: in this case, cv_end_time could be `expire_time_hint` from the
+        // current lock holder, a time out does not mean we reached the current
+        // transaction's timeout, and we should continue to retry locking
+        // instead of exiting this while loop below.
         uint64_t now = env->NowMicros();
         if (static_cast<uint64_t>(cv_end_time) > now) {
           // This may be invoked multiple times since we divide
@@ -323,6 +327,10 @@ Status PointLockManager::AcquireWithTimeout(
           (void)ROCKSDB_THREAD_YIELD_CHECK_ABORT();
           result = stripe->stripe_cv->WaitFor(stripe->stripe_mutex,
                                               cv_end_time - now);
+          cv_wait_fail = !result.ok() && !result.IsTimedOut();
+        } else {
+          // now >= cv_end_time, we already timed out
+          result = Status::TimedOut(Status::SubCode::kLockTimeout);
         }
       }
 
@@ -332,6 +340,9 @@ Status PointLockManager::AcquireWithTimeout(
           DecrementWaiters(txn, wait_ids);
         }
       }
+      if (cv_wait_fail) {
+        break;
+      }
 
       if (result.IsTimedOut()) {
         timed_out = true;
@@ -339,12 +350,10 @@ Status PointLockManager::AcquireWithTimeout(
         // acquire lock below (it is possible the lock expired and we
         // were never signaled).
       }
-
-      if (result.ok() || result.IsTimedOut()) {
-        wait_ids.clear();
-        result = AcquireLocked(lock_map, stripe, key, env, lock_info,
-                               &expire_time_hint, &wait_ids);
-      }
+      assert(result.ok() || result.IsTimedOut());
+      wait_ids.clear();
+      result = AcquireLocked(lock_map, stripe, key, env, lock_info,
+                             &expire_time_hint, &wait_ids);
     } while (!result.ok() && !timed_out);
   }
 
@@ -477,8 +486,8 @@ bool PointLockManager::IncrementWaiters(
 // Returns Status::TimeOut if the lock cannot be acquired due to it being
 // held by other transactions, `txn_ids` will be populated with the id of
 // transactions that hold the lock, excluding lock_info.txn_ids[0].
-// Returns Status::Busy if the lock cannot be acquired due to reaching
-// per CF limit on the number of locks.
+// Returns Status::Aborted(kLockLimit) if the lock cannot be acquired due to
+// reaching per CF limit on the number of locks.
 //
 // REQUIRED:  Stripe mutex must be held. txn_ids must be empty.
 Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
@@ -538,7 +547,7 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
     // Check lock limit
     if (max_num_locks_ > 0 &&
         lock_map->lock_cnt.load(std::memory_order_acquire) >= max_num_locks_) {
-      result = Status::Busy(Status::SubCode::kLockLimit);
+      result = Status::LockLimit();
     } else {
       // acquire lock
       stripe->keys.emplace(key, txn_lock_info);
