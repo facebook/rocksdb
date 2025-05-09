@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.2.2 (05/08/2025)
+### Bug Fixes
+* Pass wrapped WritableFileWriter pointer to ExternalTableBuilder so that the file checksum can be correctly calculated and returned by SstFileWriter for external table files.
+
 ## 10.2.1 (04/24/2025)
 ### Bug Fixes
 * Fix improper initialization of ExternalTableOptions
