@@ -1,0 +1,1 @@
+CompactForTieringCollectorFactory supports collecting and aggregating data write time when it's available.

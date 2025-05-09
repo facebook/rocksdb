@@ -59,7 +59,8 @@ class CompactionOutputs {
   }
 
   // Set new table builder for the current output
-  void NewBuilder(const TableBuilderOptions& tboptions);
+  void NewBuilder(const TableBuilderOptions& tboptions,
+                  UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping);
 
   // Assign a new WritableFileWriter to the current output
   void AssignFileWriter(WritableFileWriter* writer) {

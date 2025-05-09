@@ -14,8 +14,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-void CompactionOutputs::NewBuilder(const TableBuilderOptions& tboptions) {
+void CompactionOutputs::NewBuilder(
+    const TableBuilderOptions& tboptions,
+    UnownedPtr<const SeqnoToTimeMapping> seqno_to_time_mapping) {
   builder_.reset(NewTableBuilder(tboptions, file_writer_.get()));
+  builder_->SetSeqnoTimeForTrackingWriteTime(seqno_to_time_mapping);
 }
 
 Status CompactionOutputs::Finish(

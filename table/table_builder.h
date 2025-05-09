@@ -24,6 +24,7 @@
 #include "rocksdb/table_properties.h"
 #include "table/unique_id_impl.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -230,6 +231,12 @@ class TableBuilder {
 
   // Return file checksum function name
   virtual const char* GetFileChecksumFuncName() const = 0;
+
+  // Set the sequence number to time mapping for use in tracking data's unix
+  // write time during table building. It should be set before table building
+  // starts.
+  virtual void SetSeqnoTimeForTrackingWriteTime(
+      UnownedPtr<const SeqnoToTimeMapping> /*seqno_to_time_mapping*/) {}
 
   // Set the sequence number to time mapping. `relevant_mapping` must be in
   // enforced state (ready to encode to string).
