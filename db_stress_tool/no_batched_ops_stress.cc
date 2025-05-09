@@ -233,8 +233,13 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           Status s = secondary_db_->TryCatchUpWithPrimary();
+#ifndef NDEBUG
           uint64_t manifest_num = static_cast_with_check<DBImpl>(secondary_db_)
                                       ->TEST_Current_Manifest_FileNo();
+#else
+          uint64_t manifest_num = 0;
+#endif
+
           if (!s.ok()) {
             VerificationAbort(shared,
                               "Secondary failed to catch up to the primary");
