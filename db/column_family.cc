@@ -455,6 +455,14 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
     result.memtable_op_scan_flush_trigger = 0;
   }
 
+  if (result.universal_pick_compaction_by_thread_pri) {
+    if (result.compaction_style != kCompactionStyleUniversal) {
+      ROCKS_LOG_INFO(db_options.info_log.get(),
+                     "universal_pick_compaction_by_thread_pri only makes sense "
+                     "for universal compaction");
+      result.universal_pick_compaction_by_thread_pri = false;
+    }
+  }
   return result;
 }
 
@@ -534,10 +542,11 @@ void SuperVersionUnrefHandle(void* ptr) {
   SuperVersion* sv = static_cast<SuperVersion*>(ptr);
   bool was_last_ref __attribute__((__unused__));
   was_last_ref = sv->Unref();
-  // Thread-local SuperVersions can't outlive ColumnFamilyData::super_version_.
-  // This is important because we can't do SuperVersion cleanup here.
-  // That would require locking DB mutex, which would deadlock because
-  // SuperVersionUnrefHandle is called with locked ThreadLocalPtr mutex.
+  // Thread-local SuperVersions can't outlive
+  // ColumnFamilyData::super_version_. This is important because we can't do
+  // SuperVersion cleanup here. That would require locking DB mutex, which
+  // would deadlock because SuperVersionUnrefHandle is called with locked
+  // ThreadLocalPtr mutex.
   assert(!was_last_ref);
 }
 }  // anonymous namespace
@@ -612,7 +621,8 @@ ColumnFamilyData::ColumnFamilyData(
   }
   Ref();
 
-  // Convert user defined table properties collector factories to internal ones.
+  // Convert user defined table properties collector factories to internal
+  // ones.
   GetInternalTblPropCollFactory(ioptions_, &internal_tbl_prop_coll_factories_);
 
   // if _dummy_versions is nullptr, then this is a dummy column family.
@@ -734,10 +744,10 @@ ColumnFamilyData::~ColumnFamilyData() {
     // EnvWrapper, that's the main reason why we use env here.
     Status s = ioptions_.env->UnregisterDbPaths(GetDbPaths());
     if (!s.ok()) {
-      ROCKS_LOG_ERROR(
-          ioptions_.logger,
-          "Failed to unregister data paths of column family (id: %d, name: %s)",
-          id_, name_.c_str());
+      ROCKS_LOG_ERROR(ioptions_.logger,
+                      "Failed to unregister data paths of column family (id: "
+                      "%d, name: %s)",
+                      id_, name_.c_str());
     }
   }
 }
@@ -834,10 +844,10 @@ std::unique_ptr<WriteControllerToken> SetupDelay(
     // Ignore compaction_needed_bytes = 0 case because compaction_needed_bytes
     // is only available in level-based compaction
     //
-    // If the compaction debt stays the same as previously, we also further slow
-    // down. It usually means a mem table is full. It's mainly for the case
-    // where both of flush and compaction are much slower than the speed we
-    // insert to mem tables, so we need to actively slow down before we get
+    // If the compaction debt stays the same as previously, we also further
+    // slow down. It usually means a mem table is full. It's mainly for the
+    // case where both of flush and compaction are much slower than the speed
+    // we insert to mem tables, so we need to actively slow down before we get
     // feedback signal from compaction and flushes to avoid the full stop
     // because of hitting the max write buffer number.
     //
@@ -862,8 +872,8 @@ std::unique_ptr<WriteControllerToken> SetupDelay(
       }
     } else if (prev_compaction_need_bytes > compaction_needed_bytes) {
       // We are speeding up by ratio of kSlowdownRatio when we have paid
-      // compaction debt. But we'll never speed up to faster than the write rate
-      // given by users.
+      // compaction debt. But we'll never speed up to faster than the write
+      // rate given by users.
       write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) *
                                          kDecSlowdownRatio);
       if (write_rate > max_write_rate) {
@@ -912,7 +922,8 @@ uint64_t GetPendingCompactionBytesForCompactionSpeedup(
   // Compaction debt relatively large compared to the stable (bottommost) data
   // size indicates compaction fell behind.
   const uint64_t kBottommostSizeDivisor = 8;
-  // Meaningful progress toward the slowdown trigger is another good indication.
+  // Meaningful progress toward the slowdown trigger is another good
+  // indication.
   const uint64_t kSlowdownTriggerDivisor = 4;
 
   uint64_t bottommost_files_size = 0;
@@ -921,12 +932,14 @@ uint64_t GetPendingCompactionBytesForCompactionSpeedup(
   }
 
   // Slowdown trigger might be zero but that means compaction speedup should
-  // always happen (undocumented/historical), so no special treatment is needed.
+  // always happen (undocumented/historical), so no special treatment is
+  // needed.
   uint64_t slowdown_threshold =
       mutable_cf_options.soft_pending_compaction_bytes_limit /
       kSlowdownTriggerDivisor;
 
-  // Size of zero, however, should not be used to decide to speedup compaction.
+  // Size of zero, however, should not be used to decide to speedup
+  // compaction.
   if (bottommost_files_size == 0) {
     return slowdown_threshold;
   }
@@ -940,10 +953,11 @@ uint64_t GetPendingCompactionBytesForCompactionSpeedup(
 }
 
 uint64_t GetMarkedFileCountForCompactionSpeedup() {
-  // When just one file is marked, it is not clear that parallel compaction will
-  // help the compaction that the user nicely requested to happen sooner. When
-  // multiple files are marked, however, it is pretty clearly helpful, except
-  // for the rare case in which a single compaction grabs all the marked files.
+  // When just one file is marked, it is not clear that parallel compaction
+  // will help the compaction that the user nicely requested to happen sooner.
+  // When multiple files are marked, however, it is pretty clearly helpful,
+  // except for the rare case in which a single compaction grabs all the
+  // marked files.
   return 2;
 }
 }  // anonymous namespace
@@ -1074,9 +1088,9 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
                      write_controller->delayed_write_rate());
     } else if (write_stall_condition == WriteStallCondition::kDelayed &&
                write_stall_cause == WriteStallCause::kPendingCompactionBytes) {
-      // If the distance to hard limit is less than 1/4 of the gap between soft
-      // and
-      // hard bytes limit, we think it is near stop and speed up the slowdown.
+      // If the distance to hard limit is less than 1/4 of the gap between
+      // soft and hard bytes limit, we think it is near stop and speed up the
+      // slowdown.
       bool near_stop =
           mutable_cf_options.hard_pending_compaction_bytes_limit > 0 &&
           (compaction_needed_bytes -
@@ -1148,9 +1162,9 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
         write_controller->set_delayed_write_rate(static_cast<uint64_t>(
             static_cast<double>(write_rate) * kDelayRecoverSlowdownRatio));
         // Set the low pri limit to be 1/4 the delayed write rate.
-        // Note we don't reset this value even after delay condition is relased.
-        // Low-pri rate will continue to apply if there is a compaction
-        // pressure.
+        // Note we don't reset this value even after delay condition is
+        // relased. Low-pri rate will continue to apply if there is a
+        // compaction pressure.
         write_controller->low_pri_rate_limiter()->SetBytesPerSecond(write_rate /
                                                                     4);
       }
@@ -1209,10 +1223,12 @@ Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options,
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& existing_snapshots,
-    const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer) {
+    const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
+    Env::Priority thread_priority_for_picking) {
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, existing_snapshots,
-      snapshot_checker, current_->storage_info(), log_buffer);
+      snapshot_checker, current_->storage_info(), log_buffer,
+      thread_priority_for_picking);
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }
@@ -1388,9 +1404,9 @@ void ColumnFamilyData::InstallSuperVersion(
   if (old_superversion == nullptr || old_superversion->current != current() ||
       old_superversion->mem != mem_ ||
       old_superversion->imm != imm_.current()) {
-    // Should not recalculate slow down condition if nothing has changed, since
-    // currently RecalculateWriteStallConditions() treats it as further slowing
-    // down is needed.
+    // Should not recalculate slow down condition if nothing has changed,
+    // since currently RecalculateWriteStallConditions() treats it as further
+    // slowing down is needed.
     super_version_->write_stall_condition =
         RecalculateWriteStallConditions(new_superversion->mutable_cf_options);
   } else {
@@ -1560,7 +1576,8 @@ Status ColumnFamilyData::ValidateOptions(
       for (size_t i = 0; i < ages.size() - 1; ++i) {
         if (ages[i].age >= ages[i + 1].age) {
           return Status::NotSupported(
-              "Option file_temperature_age_thresholds requires elements to be "
+              "Option file_temperature_age_thresholds requires elements to "
+              "be "
               "sorted in increasing order with respect to `age` field.");
         }
       }
@@ -1575,7 +1592,8 @@ Status ColumnFamilyData::ValidateOptions(
     } else if (0 < max_read_amp &&
                max_read_amp < cf_options.level0_file_num_compaction_trigger) {
       return Status::NotSupported(
-          "CompactionOptionsUniversal::max_read_amp limits the number of sorted"
+          "CompactionOptionsUniversal::max_read_amp limits the number of "
+          "sorted"
           " runs but is smaller than the compaction trigger "
           "level0_file_num_compaction_trigger.");
     }
@@ -1677,8 +1695,8 @@ bool ColumnFamilyData::ShouldPostponeFlushToRetainUDT(
     }
     assert(table_newest_udt.size() == full_history_ts_low.size());
     // Checking the newest UDT contained in MemTable with ascending ID up to
-    // `max_memtable_id`. Return immediately on finding the first MemTable that
-    // needs postponing.
+    // `max_memtable_id`. Return immediately on finding the first MemTable
+    // that needs postponing.
     if (ucmp->CompareTimestamp(table_newest_udt, full_history_ts_low) >= 0) {
       return true;
     }
@@ -1719,7 +1737,8 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       block_cache_tracer_(block_cache_tracer),
       io_tracer_(io_tracer),
       db_id_(db_id),
-      db_session_id_(db_session_id) {
+      db_session_id_(db_session_id),
+      has_universal_compaction_cf_(false) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;
   dummy_cfd_->next_ = dummy_cfd_;
@@ -1806,6 +1825,10 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   if (id == 0) {
     default_cfd_cache_ = new_cfd;
   }
+  if (!has_universal_compaction_cf_ &&
+      options.compaction_style == kCompactionStyleUniversal) {
+    has_universal_compaction_cf_ = true;
+  }
   return new_cfd;
 }
 
@@ -1818,6 +1841,22 @@ void ColumnFamilySet::RemoveColumnFamily(ColumnFamilyData* cfd) {
   column_families_.erase(cfd->GetName());
   running_ts_sz_.erase(cf_id);
   ts_sz_for_record_.erase(cf_id);
+}
+
+void ColumnFamilySet::MaybeUpdateHasUniversalCompactionCF(
+    ColumnFamilyData* cfd_to_remove) {
+  if (has_universal_compaction_cf_ &&
+      cfd_to_remove->ioptions().compaction_style == kCompactionStyleUniversal) {
+    bool found = false;
+    for (const auto pair : column_family_data_) {
+      if (pair.second->ioptions().compaction_style ==
+          kCompactionStyleUniversal) {
+        found = true;
+        break;
+      }
+    }
+    has_universal_compaction_cf_ = found;
+  }
 }
 
 // under a DB mutex OR from a write thread

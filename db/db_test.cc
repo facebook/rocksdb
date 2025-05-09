@@ -6681,7 +6681,7 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
       {{"DBImpl::BackgroundCompaction:Start",
         "DBTest::AutomaticConflictsWithManualCompaction:PrePuts"},
        {"DBTest::AutomaticConflictsWithManualCompaction:PostPuts",
-        "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"}});
+        "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW"}});
   std::atomic<int> callback_count(0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MaybeScheduleFlushOrCompaction:Conflict",
