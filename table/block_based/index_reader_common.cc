@@ -27,8 +27,8 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
 
   const Status s = table->RetrieveBlock(
       prefetch_buffer, read_options, rep->index_handle,
-      UncompressionDict::GetEmptyDict(), &index_block->As<Block_kIndex>(),
-      get_context, lookup_context, /* for_compaction */ false, use_cache,
+      /* dict */ nullptr, &index_block->As<Block_kIndex>(), get_context,
+      lookup_context, /* for_compaction */ false, use_cache,
       /* async_read */ false, /* use_block_cache_for_lookup */ true);
 
   return s;

@@ -52,10 +52,10 @@ void BlockCreateContext::Create(
       table_options->filter_policy.get(), std::move(block)));
 }
 
-void BlockCreateContext::Create(std::unique_ptr<UncompressionDict>* parsed_out,
+void BlockCreateContext::Create(std::unique_ptr<DecompressorDict>* parsed_out,
                                 BlockContents&& block) {
-  parsed_out->reset(new UncompressionDict(
-      block.data, std::move(block.allocation), using_zstd));
+  parsed_out->reset(new DecompressorDict(
+      block.data, std::move(block.allocation), *decompressor));
 }
 
 namespace {
@@ -69,7 +69,7 @@ const std::array<const Cache::CacheItemHelper*,
         BlockCacheInterface<ParsedFullFilterBlock>::GetFullHelper(),
         BlockCacheInterface<Block_kFilterPartitionIndex>::GetFullHelper(),
         nullptr,  // kProperties
-        BlockCacheInterface<UncompressionDict>::GetFullHelper(),
+        BlockCacheInterface<DecompressorDict>::GetFullHelper(),
         BlockCacheInterface<Block_kRangeDeletion>::GetFullHelper(),
         nullptr,  // kHashIndexPrefixes
         nullptr,  // kHashIndexMetadata
@@ -86,7 +86,7 @@ const std::array<const Cache::CacheItemHelper*,
         BlockCacheInterface<ParsedFullFilterBlock>::GetBasicHelper(),
         BlockCacheInterface<Block_kFilterPartitionIndex>::GetBasicHelper(),
         nullptr,  // kProperties
-        BlockCacheInterface<UncompressionDict>::GetBasicHelper(),
+        BlockCacheInterface<DecompressorDict>::GetBasicHelper(),
         BlockCacheInterface<Block_kRangeDeletion>::GetBasicHelper(),
         nullptr,  // kHashIndexPrefixes
         nullptr,  // kHashIndexMetadata

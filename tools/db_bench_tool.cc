@@ -2830,8 +2830,8 @@ class Benchmark {
                             const Slice& input, std::string* compressed) {
     constexpr uint32_t compress_format_version = 2;
 
-    return CompressData(input, compression_info, compress_format_version,
-                        compressed);
+    return OLD_CompressData(input, compression_info, compress_format_version,
+                            compressed);
   }
 
   void PrintHeader(const Options& options) {
@@ -4178,7 +4178,7 @@ class Benchmark {
     while (ok && bytes < 1024 * 1048576) {
       constexpr uint32_t compress_format_version = 2;
 
-      CacheAllocationPtr uncompressed = UncompressData(
+      CacheAllocationPtr uncompressed = OLD_UncompressData(
           uncompression_info, compressed.data(), compressed.size(),
           &uncompressed_size, compress_format_version);
 

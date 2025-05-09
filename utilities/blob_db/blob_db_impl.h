@@ -509,5 +509,7 @@ class BlobDBImpl : public BlobDB {
   uint32_t debug_level_;
 };
 
+Decompressor& BlobDecompressor();
+
 }  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE

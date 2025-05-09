@@ -190,6 +190,8 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
 
     if (status) {
       *status = s;
+    } else {
+      ASSERT_OK(s);
     }
   }
 

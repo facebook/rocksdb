@@ -5675,11 +5675,13 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
       read_options_for_helper.verify_checksums = false;
       PersistentCacheOptions cache_options;
 
+      auto mgr = GetBuiltinCompressionManager(
+          GetCompressFormatForVersion(footer.format_version()));
       BlockFetcher block_fetcher(
           file, nullptr /* prefetch_buffer */, footer, read_options_for_helper,
           handle, contents, ioptions, false /* decompress */,
-          false /*maybe_compressed*/, block_type,
-          UncompressionDict::GetEmptyDict(), cache_options);
+          false /*maybe_compressed*/, block_type, mgr->GetDecompressor().get(),
+          nullptr /*dict*/, cache_options);
 
       ASSERT_OK(block_fetcher.ReadBlockContents());
     };
@@ -5812,11 +5814,13 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
   auto metaindex_handle = footer.metaindex_handle();
   BlockContents metaindex_contents;
   PersistentCacheOptions pcache_opts;
+  auto mgr = GetBuiltinCompressionManager(
+      GetCompressFormatForVersion(footer.format_version()));
   BlockFetcher block_fetcher(
       table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
       metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
       false /*maybe_compressed*/, BlockType::kMetaIndex,
-      UncompressionDict::GetEmptyDict(), pcache_opts,
+      mgr->GetDecompressor().get(), nullptr /*dict*/, pcache_opts,
       nullptr /*memory_allocator*/);
   ASSERT_OK(block_fetcher.ReadBlockContents());
   Block metaindex_block(std::move(metaindex_contents));
@@ -5894,11 +5898,13 @@ TEST_P(BlockBasedTableTest, SeekMetaBlocks) {
   auto metaindex_handle = footer.metaindex_handle();
   BlockContents metaindex_contents;
   PersistentCacheOptions pcache_opts;
+  auto mgr = GetBuiltinCompressionManager(
+      GetCompressFormatForVersion(footer.format_version()));
   BlockFetcher block_fetcher(
       table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
       metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
       false /*maybe_compressed*/, BlockType::kMetaIndex,
-      UncompressionDict::GetEmptyDict(), pcache_opts,
+      mgr->GetDecompressor().get(), nullptr /*dict*/, pcache_opts,
       nullptr /*memory_allocator*/);
   ASSERT_OK(block_fetcher.ReadBlockContents());
   Block metaindex_block(std::move(metaindex_contents));

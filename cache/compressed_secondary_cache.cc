@@ -24,7 +24,14 @@ CompressedSecondaryCache::CompressedSecondaryCache(
       cache_res_mgr_(std::make_shared<ConcurrentCacheReservationManager>(
           std::make_shared<CacheReservationManagerImpl<CacheEntryRole::kMisc>>(
               cache_))),
-      disable_cache_(opts.capacity == 0) {}
+      disable_cache_(opts.capacity == 0) {
+  auto mgr =
+      GetBuiltinCompressionManager(cache_options_.compress_format_version);
+  compressor_ = mgr->GetCompressor(cache_options_.compression_opts,
+                                   cache_options_.compression_type);
+  decompressor_ =
+      mgr->GetDecompressorOptimizeFor(cache_options_.compression_type);
+}
 
 CompressedSecondaryCache::~CompressedSecondaryCache() = default;
 
@@ -97,25 +104,24 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
                             kNoCompression, CacheTier::kVolatileTier,
                             create_context, allocator, &value, &charge);
     } else {
-      UncompressionContext uncompression_context(
-          cache_options_.compression_type);
-      UncompressionInfo uncompression_info(uncompression_context,
-                                           UncompressionDict::GetEmptyDict(),
-                                           cache_options_.compression_type);
-
-      size_t uncompressed_size{0};
-      CacheAllocationPtr uncompressed =
-          UncompressData(uncompression_info, (char*)data_ptr,
-                         handle_value_charge, &uncompressed_size,
-                         cache_options_.compress_format_version, allocator);
-
-      if (!uncompressed) {
-        cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
-        return nullptr;
+      // TODO: can we work some magic with create_cb, which might be based on
+      // custom compression, to decompress without an extra copy in create_cb?
+      Decompressor::Args args;
+      args.compressed_data = Slice(data_ptr, handle_value_charge);
+      args.compression_type = cache_options_.compression_type;
+      s = decompressor_->ExtractUncompressedSize(args);
+      assert(s.ok());
+      if (s.ok()) {
+        auto uncompressed = std::make_unique<char[]>(args.uncompressed_size);
+        s = decompressor_->DecompressBlock(args, uncompressed.get());
+        assert(s.ok());
+        if (s.ok()) {
+          s = helper->create_cb(
+              Slice(uncompressed.get(), args.uncompressed_size), kNoCompression,
+              CacheTier::kVolatileTier, create_context, allocator, &value,
+              &charge);
+        }
       }
-      s = helper->create_cb(Slice(uncompressed.get(), uncompressed_size),
-                            kNoCompression, CacheTier::kVolatileTier,
-                            create_context, allocator, &value, &charge);
     }
   } else {
     // The item was not compressed by us. Let the helper create_cb
@@ -198,18 +204,17 @@ Status CompressedSecondaryCache::InsertInternal(
       type == kNoCompression &&
       !cache_options_.do_not_compress_roles.Contains(helper->role)) {
     PERF_COUNTER_ADD(compressed_sec_cache_uncompressed_bytes, data_size);
-    CompressionContext compression_context(cache_options_.compression_type,
-                                           cache_options_.compression_opts);
-    CompressionInfo compression_info(
-        cache_options_.compression_opts, compression_context,
-        CompressionDict::GetEmptyDict(), cache_options_.compression_type);
 
-    bool success =
-        CompressData(val, compression_info,
-                     cache_options_.compress_format_version, &compressed_val);
-
-    if (!success) {
-      return Status::Corruption("Error compressing value.");
+    CompressionType to_type = kNoCompression;
+    s = compressor_->CompressBlock(val, &compressed_val, &to_type,
+                                   nullptr /*working_area*/);
+    if (!s.ok()) {
+      return s;
+    }
+    // TODO: allow values not compressed when there's no size savings?
+    assert(to_type == cache_options_.compression_type);
+    if (to_type != cache_options_.compression_type) {
+      return Status::Corruption("Failed to compress value.");
     }
 
     val = Slice(compressed_val);
