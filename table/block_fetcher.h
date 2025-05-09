@@ -94,7 +94,7 @@ class BlockFetcher {
   }
   inline Slice& GetCompressedBlock() {
     assert(compression_type() != kNoCompression);
-    return decomp_args_.compressed_data;
+    return slice_;
   }
 
 #ifndef NDEBUG
@@ -131,6 +131,7 @@ class BlockFetcher {
   MemoryAllocator* memory_allocator_;
   MemoryAllocator* memory_allocator_compressed_;
   IOStatus io_status_;
+  Slice slice_;
   char* used_buf_ = nullptr;
   AlignedBuf direct_io_buf_;
   CacheAllocationPtr heap_buf_;
@@ -168,6 +169,5 @@ class BlockFetcher {
       }
     }
   }
-  inline Slice& slice() { return decomp_args_.compressed_data; }
 };
 }  // namespace ROCKSDB_NAMESPACE

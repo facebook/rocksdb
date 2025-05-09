@@ -1279,7 +1279,7 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
       Decompressor::DictArg* dict_arg =
           is_data_block ? DecompressorDict::AsArg(r->verify_dict.get())
                         : nullptr;
-      Status uncompress_status = UncompressBlockData(
+      Status uncompress_status = DecompressBlockData(
           compressed_output->data(), compressed_output->size(), type,
           *r->verify_decompressor, dict_arg, &contents, r->ioptions,
           /*allocator=*/nullptr, &working_area.verify);
@@ -1561,9 +1561,17 @@ Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
   if (block_cache && helper && helper->create_cb) {
     CacheKey key = BlockBasedTable::GetCacheKey(rep_->base_cache_key, *handle);
     size_t charge;
-    s = WarmInCache(block_cache, key.AsSlice(), block_contents,
-                    &rep_->uncompressed_create_context, helper,
-                    Cache::Priority::LOW, &charge);
+    if (block_type != BlockType::kCompressionDictionary) {
+      s = WarmInCache(block_cache, key.AsSlice(), block_contents,
+                      &rep_->uncompressed_create_context, helper,
+                      Cache::Priority::LOW, &charge);
+    } else {
+      // FIXME: Processing the dictionary block for block cache needs the
+      // decompressor, yet the table reader could use a compatible but
+      // distinct decompressor. Should the block cache entry keep reference to
+      // the decompressor? Should the decompressor hold the dictionary itself?
+      // This case needs a unit test (discovered in crash test)
+    }
 
     if (s.ok()) {
       BlockBasedTable::UpdateCacheInsertionMetrics(

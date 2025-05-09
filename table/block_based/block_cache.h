@@ -104,7 +104,7 @@ struct BlockCreateContext : public Cache::CreateContext {
     BlockContents uncompressed_block_contents;
     if (type != CompressionType::kNoCompression) {
       assert(decompressor != nullptr);
-      Status s = UncompressBlockData(
+      Status s = DecompressBlockData(
           data.data(), data.size(), type, *decompressor, dict,
           &uncompressed_block_contents, *ioptions, alloc);
       if (!s.ok()) {

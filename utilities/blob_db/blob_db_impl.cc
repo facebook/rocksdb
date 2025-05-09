@@ -1185,7 +1185,7 @@ Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
   {
     StopWatch decompression_sw(clock_, statistics_,
                                BLOB_DB_DECOMPRESSION_MICROS);
-    Status s = UncompressBlockData(compressed_value.data(),
+    Status s = DecompressBlockData(compressed_value.data(),
                                    compressed_value.size(), compression_type,
                                    BlobDecompressor(), /*dict*/ nullptr,
                                    &contents, cfh->cfd()->ioptions());

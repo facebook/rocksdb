@@ -320,7 +320,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
           GetBlockCompressionType(serialized_block);
       BlockContents contents;
       if (compression_type != kNoCompression) {
-        s = UncompressSerializedBlock(
+        s = DecompressSerializedBlock(
             req.result.data() + req_offset, handle.size(), compression_type,
             *rep_->decompressor, dict ? &dict->arg_ : nullptr, &contents,
             rep_->ioptions, memory_allocator);

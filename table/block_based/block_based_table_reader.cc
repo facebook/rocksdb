@@ -1414,7 +1414,7 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::PutDataBlockToCache(
       uncompressed_block_contents.data.empty()) {
     assert(compressed_block_contents.data.data());
     // Retrieve the uncompressed contents into a new buffer
-    s = UncompressBlockData(
+    s = DecompressBlockData(
         compressed_block_contents.data.data(),
         compressed_block_contents.data.size(), block_comp_type,
         *rep_->decompressor, dict ? &dict->arg_ : nullptr,

@@ -420,7 +420,7 @@ struct BlockContents {
 // contents are returned in `out_contents`.
 // format_version is as defined in include/rocksdb/table.h, which is
 // used to determine compression format version.
-Status UncompressSerializedBlock(const char* data, size_t size,
+Status DecompressSerializedBlock(const char* data, size_t size,
                                  CompressionType type,
                                  Decompressor& decompressor,
                                  UnownedPtr<const Decompressor::DictArg> dict,
@@ -428,14 +428,25 @@ Status UncompressSerializedBlock(const char* data, size_t size,
                                  const ImmutableOptions& ioptions,
                                  MemoryAllocator* allocator = nullptr);
 
-// This is a variant of UncompressSerializedBlock that does not expect a
+Status DecompressSerializedBlock(Decompressor::Args& args,
+                                 Decompressor& decompressor,
+                                 BlockContents* out_contents,
+                                 const ImmutableOptions& ioptions,
+                                 MemoryAllocator* allocator = nullptr);
+
+// This is a variant of DecompressSerializedBlock that does not expect a
 // block trailer beyond `size`. (CompressionType is taken from `info`.)
-Status UncompressBlockData(
+Status DecompressBlockData(
     const char* data, size_t size, CompressionType type,
     Decompressor& decompressor, UnownedPtr<const Decompressor::DictArg> dict,
     BlockContents* out_contents, const ImmutableOptions& ioptions,
     MemoryAllocator* allocator = nullptr,
     Decompressor::ManagedWorkingArea* working_area = nullptr);
+
+Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
+                           BlockContents* out_contents,
+                           const ImmutableOptions& ioptions,
+                           MemoryAllocator* allocator = nullptr);
 
 // Replace db_host_id contents with the real hostname if necessary
 Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);
