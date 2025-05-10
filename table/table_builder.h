@@ -207,6 +207,9 @@ class TableBuilder {
     return NumEntries() == 0 && GetTableProperties().num_range_deletions == 0;
   }
 
+  // Size of the file before its content is compressed.
+  virtual uint64_t PreCompressionSize() const { return 0; }
+
   // Size of the file generated so far.  If invoked after a successful
   // Finish() call, returns the size of the final generated file.
   virtual uint64_t FileSize() const = 0;

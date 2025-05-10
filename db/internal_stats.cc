@@ -45,6 +45,8 @@ const std::map<LevelStatType, LevelStat> InternalStats::compaction_level_stats =
         {LevelStatType::RN_GB, LevelStat{"RnGB", "Rn(GB)"}},
         {LevelStatType::RNP1_GB, LevelStat{"Rnp1GB", "Rnp1(GB)"}},
         {LevelStatType::WRITE_GB, LevelStat{"WriteGB", "Write(GB)"}},
+        {LevelStatType::WRITE_PRE_COMP_GB,
+         LevelStat{"WPreCompGB", "WPreComp(GB)"}},
         {LevelStatType::W_NEW_GB, LevelStat{"WnewGB", "Wnew(GB)"}},
         {LevelStatType::MOVED_GB, LevelStat{"MovedGB", "Moved(GB)"}},
         {LevelStatType::WRITE_AMP, LevelStat{"WriteAmp", "W-Amp"}},
@@ -100,19 +102,20 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name,
   int line_size = snprintf(
       buf + written_size, len - written_size,
       "%s    %s   %s     %s %s  %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s "
+      "%s "
       "%s\n",
       // Note that we skip COMPACTED_FILES and merge it with Files column
       group_by.c_str(), hdr(LevelStatType::NUM_FILES),
       hdr(LevelStatType::SIZE_BYTES), hdr(LevelStatType::SCORE),
       hdr(LevelStatType::READ_GB), hdr(LevelStatType::RN_GB),
       hdr(LevelStatType::RNP1_GB), hdr(LevelStatType::WRITE_GB),
-      hdr(LevelStatType::W_NEW_GB), hdr(LevelStatType::MOVED_GB),
-      hdr(LevelStatType::WRITE_AMP), hdr(LevelStatType::READ_MBPS),
-      hdr(LevelStatType::WRITE_MBPS), hdr(LevelStatType::COMP_SEC),
-      hdr(LevelStatType::COMP_CPU_SEC), hdr(LevelStatType::COMP_COUNT),
-      hdr(LevelStatType::AVG_SEC), hdr(LevelStatType::KEY_IN),
-      hdr(LevelStatType::KEY_DROP), hdr(LevelStatType::R_BLOB_GB),
-      hdr(LevelStatType::W_BLOB_GB));
+      hdr(LevelStatType::WRITE_PRE_COMP_GB), hdr(LevelStatType::W_NEW_GB),
+      hdr(LevelStatType::MOVED_GB), hdr(LevelStatType::WRITE_AMP),
+      hdr(LevelStatType::READ_MBPS), hdr(LevelStatType::WRITE_MBPS),
+      hdr(LevelStatType::COMP_SEC), hdr(LevelStatType::COMP_CPU_SEC),
+      hdr(LevelStatType::COMP_COUNT), hdr(LevelStatType::AVG_SEC),
+      hdr(LevelStatType::KEY_IN), hdr(LevelStatType::KEY_DROP),
+      hdr(LevelStatType::R_BLOB_GB), hdr(LevelStatType::W_BLOB_GB));
 
   written_size += line_size;
   written_size = std::min(written_size, static_cast<int>(len));
@@ -140,6 +143,8 @@ void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
       stats.bytes_read_non_output_levels / kGB;
   (*level_stats)[LevelStatType::RNP1_GB] = stats.bytes_read_output_level / kGB;
   (*level_stats)[LevelStatType::WRITE_GB] = stats.bytes_written / kGB;
+  (*level_stats)[LevelStatType::WRITE_PRE_COMP_GB] =
+      stats.bytes_written_pre_comp / kGB;
   (*level_stats)[LevelStatType::W_NEW_GB] = bytes_new / kGB;
   (*level_stats)[LevelStatType::MOVED_GB] = stats.bytes_moved / kGB;
   (*level_stats)[LevelStatType::WRITE_AMP] = w_amp;
@@ -164,12 +169,13 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
       buf, len,
       "%4s "      /*  Level */
       "%6d/%-3d " /*  Files */
-      "%8s "      /*  Size */
+      "%10s "     /*  Size */
       "%5.1f "    /*  Score */
       "%8.1f "    /*  Read(GB) */
       "%7.1f "    /*  Rn(GB) */
       "%8.1f "    /*  Rnp1(GB) */
       "%9.1f "    /*  Write(GB) */
+      "%9.1f "    /*  WPreComp(GB) */
       "%8.1f "    /*  Wnew(GB) */
       "%9.1f "    /*  Moved(GB) */
       "%5.1f "    /*  W-Amp */
@@ -193,6 +199,7 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
       stat_value.at(LevelStatType::RN_GB),
       stat_value.at(LevelStatType::RNP1_GB),
       stat_value.at(LevelStatType::WRITE_GB),
+      stat_value.at(LevelStatType::WRITE_PRE_COMP_GB),
       stat_value.at(LevelStatType::W_NEW_GB),
       stat_value.at(LevelStatType::MOVED_GB),
       stat_value.at(LevelStatType::WRITE_AMP),

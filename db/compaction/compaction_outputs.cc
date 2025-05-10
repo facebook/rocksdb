@@ -54,6 +54,7 @@ Status CompactionOutputs::Finish(
   }
   current_output().finished = true;
   stats_.bytes_written += current_bytes;
+  stats_.bytes_written_pre_comp += builder_->PreCompressionSize();
   stats_.num_output_files = static_cast<int>(outputs_.size());
 
   return s;
