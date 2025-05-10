@@ -855,8 +855,19 @@ int main(int argc, char** argv) {
     rocksdb_delete(db, woptions, "does-not-exist", 14, &err);
     CheckNoError(err);
 
-    rocksdb_backup_engine_create_new_backup(be, db, &err);
+    rocksdb_create_backup_options_t* beo =
+        rocksdb_create_backup_options_create();
+    rocksdb_create_backup_options_set_flush_before_backup(beo, false);
+
+    uint32_t backup_id = 0;
+
+    rocksdb_backup_engine_create_new_backup_with_options_with_metadata(
+        be, db, beo, "a", &backup_id, &err);
     CheckNoError(err);
+
+    CheckCondition(backup_id > 0);
+
+    rocksdb_create_backup_options_destroy(beo);
 
     const rocksdb_backup_engine_info_t* bei =
         rocksdb_backup_engine_get_backup_info(be);
@@ -870,7 +881,18 @@ int main(int argc, char** argv) {
     CheckCondition(rocksdb_backup_engine_info_count(bei) == 1);
     rocksdb_backup_engine_info_destroy(bei);
 
+    size_t num_corrupted_backups = 0;
+    int* corrupted_backups =
+        rocksdb_backup_engine_get_corrupted_backups(be, &num_corrupted_backups);
+    CheckCondition(num_corrupted_backups == 0);
+    if (corrupted_backups) {
+      free(corrupted_backups);
+    }
+
     rocksdb_delete(db, woptions, "foo", 3, &err);
+    CheckNoError(err);
+
+    rocksdb_backup_engine_garbage_collect(be, &err);
     CheckNoError(err);
 
     // get the identity before the backup
