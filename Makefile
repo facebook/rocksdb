@@ -160,6 +160,11 @@ endif
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
 
+#Only in non debug mode
+ifeq ($(HIDE_PRIVATE_SYMBOLS), 1)
+	CXXFLAGS += -fvisibility=hidden -fvisibility-inlines-hidden -DHIDE_PRIVATE_SYMBOLS
+endif
+
 ifneq ($(USE_RTTI), 1)
 	CXXFLAGS += -fno-rtti
 else

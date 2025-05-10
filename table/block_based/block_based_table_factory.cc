@@ -964,7 +964,7 @@ Status GetBlockBasedTableOptionsFromMap(
   return s;
 }
 
-TableFactory* NewBlockBasedTableFactory(
+ROCKSDB_LIBRARY_API TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options) {
   return new BlockBasedTableFactory(_table_options);
 }
