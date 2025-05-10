@@ -407,6 +407,10 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
         for (size_t i = 0; i < num_fs_reqs; ++i) {
           FSReadRequest& req = fs_reqs[i];
           total_multi_read_size += req.len;
+          // Even if we don't end up reading all of additional_read_size, for
+          // rate limiting purposes we should assume the max amount of data is
+          // returned
+          total_multi_read_size += req.additional_read_size;
         }
         size_t remaining_bytes = total_multi_read_size;
         size_t request_bytes = 0;
