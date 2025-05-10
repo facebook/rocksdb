@@ -283,6 +283,13 @@ class Compaction {
   // are non-overlapping and can be trivially moved.
   bool is_trivial_move() const { return is_trivial_move_; }
 
+  bool is_trivial_copy_compaction() const {
+    return immutable_options_.compaction_style == kCompactionStyleFIFO &&
+           compaction_reason_ == CompactionReason::kChangeTemperature &&
+           mutable_cf_options_.compaction_options_fifo
+               .allow_trivial_copy_when_change_temperature;
+  }
+
   // How many total levels are there?
   int number_levels() const { return number_levels_; }
 
