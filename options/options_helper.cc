@@ -301,6 +301,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->uncache_aggressiveness = moptions.uncache_aggressiveness;
   cf_opts->memtable_op_scan_flush_trigger =
       moptions.memtable_op_scan_flush_trigger;
+  cf_opts->memtable_avg_op_scan_flush_trigger =
+      moptions.memtable_avg_op_scan_flush_trigger;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
