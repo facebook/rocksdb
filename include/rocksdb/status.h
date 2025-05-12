@@ -316,6 +316,8 @@ class Status {
     return Status(kInvalidArgument, kTxnNotPrepared, msg, msg2);
   }
 
+  static Status LockLimit() { return Status(kAborted, kLockLimit); }
+
   // Returns true iff the status indicates success.
   bool ok() const {
     MarkChecked();
