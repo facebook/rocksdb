@@ -428,7 +428,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& /* existing_snapshots */,
     const SnapshotChecker* /* snapshot_checker */, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer) {
+    LogBuffer* log_buffer, Env::Priority /*thread_priority_for_picking*/) {
   Compaction* c = nullptr;
   if (mutable_cf_options.ttl > 0) {
     c = PickTTLCompaction(cf_name, mutable_cf_options, mutable_db_options,
@@ -462,10 +462,10 @@ Compaction* FIFOCompactionPicker::CompactRange(
   assert(output_level == 0);
   *compaction_end = nullptr;
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, ioptions_.logger);
-  Compaction* c =
-      PickCompaction(cf_name, mutable_cf_options, mutable_db_options,
-                     /*existing_snapshots*/ {}, /*snapshot_checker*/ nullptr,
-                     vstorage, &log_buffer);
+  Compaction* c = PickCompaction(
+      cf_name, mutable_cf_options, mutable_db_options,
+      /*existing_snapshots*/ {}, /*snapshot_checker*/ nullptr, vstorage,
+      &log_buffer, Env::Priority::TOTAL /* thread_priority_for_picking */);
   log_buffer.FlushBufferToLog();
   return c;
 }
