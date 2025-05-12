@@ -1398,7 +1398,7 @@ TEST_P(ExternalSSTFileTest, PickedLevel) {
       {"DBImpl::BackgroundCompaction:Start",
        "ExternalSSTFileTest::PickedLevel:1"},
       {"ExternalSSTFileTest::PickedLevel:2",
-       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"},
+       "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW"},
   });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1552,7 +1552,7 @@ TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
       {"DBImpl::BackgroundCompaction:Start",
        "ExternalSSTFileTest::PickedLevelDynamic:1"},
       {"ExternalSSTFileTest::PickedLevelDynamic:2",
-       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"},
+       "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW"},
   });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 

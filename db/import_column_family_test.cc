@@ -1027,7 +1027,7 @@ TEST_F(ImportColumnFamilyTest, AssignEpochNumberToMultipleCF) {
 
   std::atomic_int compaction_counter = 0;
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun",
+      "DBImpl::BackgroundCompaction:NonTrivial:BeforeRunLOW",
       [&compaction_counter](void*) {
         compaction_counter++;
         if (compaction_counter == 1) {

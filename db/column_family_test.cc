@@ -1380,7 +1380,8 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
        {"ColumnFamilyTest::MultiManual:2", "ColumnFamilyTest::MultiManual:5"},
        {"ColumnFamilyTest::MultiManual:2", "ColumnFamilyTest::MultiManual:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW",
+      [&](void* /*arg*/) {
         if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:4");
           TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:3");
@@ -1477,7 +1478,8 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
        {"ColumnFamilyTest::AutoManual:2", "ColumnFamilyTest::AutoManual:5"},
        {"ColumnFamilyTest::AutoManual:2", "ColumnFamilyTest::AutoManual:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW",
+      [&](void* /*arg*/) {
         if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:4");
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:3");
@@ -1582,7 +1584,8 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
        {"ColumnFamilyTest::ManualAuto:5", "ColumnFamilyTest::ManualAuto:2"},
        {"ColumnFamilyTest::ManualAuto:2", "ColumnFamilyTest::ManualAuto:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW",
+      [&](void* /*arg*/) {
         if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:4");
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:3");
@@ -1676,7 +1679,8 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
        {"ColumnFamilyTest::ManualManual:1",
         "ColumnFamilyTest::ManualManual:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW",
+      [&](void* /*arg*/) {
         if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualManual:4");
           TEST_SYNC_POINT("ColumnFamilyTest::ManualManual:3");
@@ -1775,7 +1779,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
        {"ColumnFamilyTest::ManualAuto:1", "ColumnFamilyTest::ManualAuto:2"},
        {"ColumnFamilyTest::ManualAuto:1", "ColumnFamilyTest::ManualAuto:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW",
+      [&](void* /*arg*/) {
         if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:4");
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:3");
@@ -1868,7 +1873,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
         "ColumnFamilyTest::ManualAuto:3"},
        {"ColumnFamilyTest::ManualAuto:1", "ColumnFamilyTest::ManualAuto:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW",
+      [&](void* /*arg*/) {
         if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:4");
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:3");
@@ -1914,7 +1920,7 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
 }
 
 // In this test, we generate enough files to trigger automatic compactions.
-// The automatic compaction waits in NonTrivial:AfterRun
+// The automatic compaction waits in NonTrivial:AfterRunLOW
 // We generate more files and then trigger an automatic compaction
 // This will wait because the automatic compaction has files it needs.
 // Once the conflict is hit, the automatic compaction starts and ends
@@ -1956,7 +1962,8 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
        {"CompactionPicker::CompactRange:Conflict",
         "ColumnFamilyTest::AutoManual:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW",
+      [&](void* /*arg*/) {
         if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:4");
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:3");

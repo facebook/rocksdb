@@ -1316,7 +1316,7 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
         ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun",
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW",
       [&](void* /*arg*/) { completed_compactions++; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
