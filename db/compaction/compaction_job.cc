@@ -2300,8 +2300,8 @@ void CompactionJob::LogCompaction() {
                    cfd->GetName().c_str(), scratch);
     // build event logger report
     auto stream = event_logger_->Log();
-    stream << "job" << job_id_ << "event" << "compaction_started"
-           << "compaction_reason"
+    stream << "job" << job_id_ << "event" << "compaction_started" << "cf_name"
+           << cfd->GetName() << "compaction_reason"
            << GetCompactionReasonString(compaction->compaction_reason());
     for (size_t i = 0; i < compaction->num_input_levels(); ++i) {
       stream << ("files_L" + std::to_string(compaction->level(i)));
