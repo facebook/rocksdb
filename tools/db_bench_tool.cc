@@ -1808,6 +1808,10 @@ DEFINE_bool(track_and_verify_wals_in_manifest, false,
 
 DEFINE_bool(track_and_verify_wals, false, "See Options.track_and_verify_wals");
 
+DEFINE_bool(
+    universal_pick_compaction_by_thread_pri,
+    ROCKSDB_NAMESPACE::Options().universal_pick_compaction_by_thread_pri,
+    "See Options.universal_pick_compaction_by_thread_pri");
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -4752,6 +4756,8 @@ class Benchmark {
     options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
     options.memtable_op_scan_flush_trigger =
         FLAGS_memtable_op_scan_flush_trigger;
+    options.universal_pick_compaction_by_thread_pri =
+        FLAGS_universal_pick_compaction_by_thread_pri;
   }
 
   void InitializeOptionsGeneral(Options* opts, ToolHooks& hooks) {

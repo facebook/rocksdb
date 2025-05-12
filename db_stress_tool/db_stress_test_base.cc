@@ -4331,6 +4331,8 @@ void InitializeOptionsFromFlags(
   }
 
   options.memtable_op_scan_flush_trigger = FLAGS_memtable_op_scan_flush_trigger;
+  options.universal_pick_compaction_by_thread_pri =
+      FLAGS_universal_pick_compaction_by_thread_pri;
 }
 
 void InitializeOptionsGeneral(
