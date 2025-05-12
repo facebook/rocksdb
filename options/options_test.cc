@@ -137,6 +137,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"default_temperature", "kHot"},
       {"persist_user_defined_timestamps", "true"},
       {"memtable_max_range_deletions", "0"},
+      {"universal_pick_compaction_by_thread_pri", "true"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -292,6 +293,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.default_temperature, Temperature::kHot);
   ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
   ASSERT_EQ(new_cf_opt.memtable_max_range_deletions, 0);
+  ASSERT_EQ(new_cf_opt.universal_pick_compaction_by_thread_pri, true);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(exact, base_cf_opt, cf_options_map,
@@ -2440,6 +2442,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"default_temperature", "kHot"},
       {"persist_user_defined_timestamps", "true"},
       {"memtable_max_range_deletions", "0"},
+      {"universal_pick_compaction_by_thread_pri", "true"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -2591,6 +2594,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.default_temperature, Temperature::kHot);
   ASSERT_EQ(new_cf_opt.persist_user_defined_timestamps, true);
   ASSERT_EQ(new_cf_opt.memtable_max_range_deletions, 0);
+  ASSERT_EQ(new_cf_opt.universal_pick_compaction_by_thread_pri, true);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(cf_config_options, base_cf_opt,

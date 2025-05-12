@@ -566,11 +566,17 @@ struct DBOptions {
   // memtable to cost to
   DBOptions* OptimizeForSmallDb(std::shared_ptr<Cache>* cache = nullptr);
 
-  // By default, RocksDB uses only one background thread for flush and
-  // compaction. Calling this function will set it up such that total of
-  // `total_threads` is used. Good value for `total_threads` is the number of
-  // cores. You almost definitely want to call this function if your system is
-  // bottlenecked by RocksDB.
+  // Configure RocksDB to utilize multiple background threads for flush and
+  // compaction operations.
+  //
+  // By default, RocksDB uses a single thread. This function allows you to set
+  // the total number of threads (`total_threads`) distributed among LOW and
+  // HIGH pools while maintaining the same existing number of bottom priority
+  // threads.
+  //
+  // A good value for `total_threads` is typically equal to the number of CPU
+  // cores available. Consider calling this function if your system's
+  // performance is being limited by RocksDB.
   DBOptions* IncreaseParallelism(int total_threads = 16);
 
   // If true, the database will be created if it is missing.
@@ -846,11 +852,16 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   uint64_t delete_obsolete_files_period_micros = 6ULL * 60 * 60 * 1000000;
 
-  // Maximum number of concurrent background jobs (compactions and flushes).
+  // Maximum number of concurrent background jobs, including compactions and
+  // flushes.
+  //
+  // Note: If Env::BOTTOM thread pool is configured to be non-empty,
+  //       `max_background_jobs` must be at least 3 to allow Env::BOTTOM threads
+  //       to run in this DB.
   //
   // Default: 2
   //
-  // Dynamically changeable through SetDBOptions() API.
+  // Can be dynamically changed using the SetDBOptions() API.
   int max_background_jobs = 2;
 
   // DEPRECATED: RocksDB automatically decides this based on the

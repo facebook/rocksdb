@@ -1127,6 +1127,28 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_op_scan_flush_trigger = 0;
 
+  // EXPERIMENTAL
+  //
+  // If true, universal compaction picking logic
+  // is adjusted as below to efficiently distribute compaction work among LOW
+  // and BOTTOM priority threads:
+  // - If the picking thread is BOTTOM priority, only pick and execute
+  // the compaction with output to a non-zero max output
+  // level in this CF.
+  // - Otherwise (i.e,`thread_priority_for_picking` is LOW priority), only pick
+  // and execute the compaction with output to a L0 or non-"max output level".
+  //
+  // Default: false (disabled)
+  //
+  // This options does not apply to manual compactions.
+  //
+  // This option is temporary in case turning on this feature causes problems
+  // and users need to undo it quickly. This option is planned for removal in
+  // the near future with default value set to true.
+  //
+  // Dynamically changeable through the SetOptions() API.
+  bool universal_pick_compaction_by_thread_pri = false;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
