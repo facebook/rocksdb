@@ -463,6 +463,11 @@ class Compaction {
                                    const int start_level,
                                    const int output_level);
 
+  static bool OutputToNonZeroMaxOutputLevel(int output_level,
+                                            int max_output_level) {
+    return output_level > 0 && output_level == max_output_level;
+  }
+
   // If some data cannot be safely migrated "up" the LSM tree due to a change
   // in the preclude_last_level_data_seconds setting, this indicates a sequence
   // number for the newest data that must be kept in the last level.

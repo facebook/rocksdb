@@ -1969,16 +1969,53 @@ class DBImpl : public DB {
     // background compaction takes ownership of `prepicked_compaction`.
     PrepickedCompaction* prepicked_compaction;
     Env::Priority compaction_pri_;
+    bool attempt_universal_compaction_picking_by_thread_pri;
   };
 
   static bool IsRecoveryFlush(FlushReason flush_reason) {
     return flush_reason == FlushReason::kErrorRecoveryRetryFlush ||
            flush_reason == FlushReason::kErrorRecovery;
   }
-  // Initialize the built-in column family for persistent stats. Depending on
-  // whether on-disk persistent stats have been enabled before, it may either
-  // create a new column family and column family handle or just a column family
-  // handle.
+
+  static bool ShouldAttemptUniversalCompactionPickingByThreadPri(
+      bool has_universal_compaction_cf, bool is_bottom_pri_pool_empty) {
+    return has_universal_compaction_cf && !is_bottom_pri_pool_empty;
+  }
+
+  static bool IsThreadPriorityAllowedForCompactionStyle(
+      Env::Priority thread_pri, CompactionStyle compaction_style,
+      Env::Priority* allowed_thread_pri) {
+    // We only allow auto universal compaction to be picked by bottom priority
+    // thread at this point. For other compactions, it should be picked by low
+    // priority thread.
+    if (thread_pri == Env::Priority::BOTTOM &&
+        compaction_style != CompactionStyle::kCompactionStyleUniversal) {
+      assert(allowed_thread_pri);
+      *allowed_thread_pri = Env::Priority::LOW;
+      return false;
+    }
+    return true;
+  }
+
+  static bool ShouldTryDifferentThreadPriority(
+      bool pick_universal_compaction_by_thread_pri, const ColumnFamilyData* cfd,
+      Env::Priority tried_thread_pri, Env::Priority* thread_pri_to_try) {
+    if (pick_universal_compaction_by_thread_pri && cfd->NeedsCompaction()) {
+      assert(cfd->ioptions().compaction_style ==
+             CompactionStyle::kCompactionStyleUniversal);
+      assert(thread_pri_to_try);
+      *thread_pri_to_try = tried_thread_pri == Env::Priority::LOW
+                               ? Env::Priority::BOTTOM
+                               : Env::Priority::LOW;
+      return true;
+    }
+    return false;
+  }
+
+  // Initialize the built-in column family for persistent stats. Depending
+  // on whether on-disk persistent stats have been enabled before, it may
+  // either create a new column family and column family handle or just a
+  // column family handle.
   // Required: DB mutex held
   Status InitPersistStatsColumnFamily();
 
@@ -2389,8 +2426,19 @@ class DBImpl : public DB {
   void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,
                            bool track);
 
-  void MaybeScheduleFlushOrCompaction();
+  // `preferred_compaction_priority` applies only when
+  // `ShouldAttemptUniversalCompactionPickingByThreadPri()` return true.
+  //  In this case, for even numbers of available slots, tasks are still
+  //  distributed equally. For odd numbers of available slots:
+  //   - If `preferred_compaction_priority` is not set, one more task is
+  //   scheduled from the LOW pool than the BOTTTOM pool.
+  //   - If `preferred_compaction_priority` is set, tasks with this priority are
+  //   scheduled one more than tasks of other priority.
+  void MaybeScheduleFlushOrCompaction(
+      Env::Priority preferred_compaction_priority = Env::Priority::TOTAL);
 
+  void MaybeScheduleCompaction(const BGJobLimits& bg_job_limits,
+                               Env::Priority preferred_compaction_priority);
   struct FlushRequest {
     FlushReason flush_reason;
     // A map from column family to flush to largest memtable id to persist for
@@ -2447,14 +2495,16 @@ class DBImpl : public DB {
   static void BGWorkPurge(void* arg);
   static void UnscheduleCompactionCallback(void* arg);
   static void UnscheduleFlushCallback(void* arg);
-  void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
-                                Env::Priority thread_pri);
+  void BackgroundCallCompaction(
+      PrepickedCompaction* prepicked_compaction, Env::Priority thread_pri,
+      bool attempt_universal_compaction_picking_by_thread_pri);
   void BackgroundCallFlush(Env::Priority thread_pri);
   void BackgroundCallPurge();
-  Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
-                              LogBuffer* log_buffer,
-                              PrepickedCompaction* prepicked_compaction,
-                              Env::Priority thread_pri);
+  Status BackgroundCompaction(
+      bool* madeProgress, JobContext* job_context, LogBuffer* log_buffer,
+      PrepickedCompaction* prepicked_compaction, Env::Priority thread_pri,
+      bool attempt_universal_compaction_picking_by_thread_pri,
+      Env::Priority* next_compaction_thread_pri_to_schedule_compaction);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer, FlushReason* reason,
                          bool* flush_rescheduled_to_retain_udt,

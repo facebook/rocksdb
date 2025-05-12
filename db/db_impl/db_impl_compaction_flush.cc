@@ -2184,6 +2184,7 @@ Status DBImpl::RunManualCompaction(
       ca->prepicked_compaction = new PrepickedCompaction;
       ca->prepicked_compaction->manual_compaction_state = &manual;
       ca->prepicked_compaction->compaction = compaction;
+      ca->attempt_universal_compaction_picking_by_thread_pri = false;
       if (!RequestCompactionToken(
               cfd, true, &ca->prepicked_compaction->task_token, &log_buffer)) {
         // Don't throttle manual compaction, only count outstanding tasks.
@@ -2838,7 +2839,8 @@ void DBImpl::EnableManualCompaction() {
   manual_compaction_paused_.fetch_sub(1, std::memory_order_release);
 }
 
-void DBImpl::MaybeScheduleFlushOrCompaction() {
+void DBImpl::MaybeScheduleFlushOrCompaction(
+    Env::Priority preferred_compaction_priority) {
   mutex_.AssertHeld();
   TEST_SYNC_POINT("DBImpl::MaybeScheduleFlushOrCompaction:Start");
   if (!opened_successfully_) {
@@ -2917,13 +2919,58 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     return;
   }
 
-  while (bg_compaction_scheduled_ + bg_bottom_compaction_scheduled_ <
-             bg_job_limits.max_compactions &&
-         unscheduled_compactions_ > 0) {
+  MaybeScheduleCompaction(bg_job_limits, preferred_compaction_priority);
+}
+
+void DBImpl::MaybeScheduleCompaction(
+    const BGJobLimits& bg_job_limits,
+    Env::Priority preferred_compaction_priority) {
+  const int total_bg_compaction_scheduled =
+      bg_compaction_scheduled_ + bg_bottom_compaction_scheduled_;
+  const int total_bg_compaction_to_schedule = unscheduled_compactions_;
+  const int total_bg_compaction_allowed = bg_job_limits.max_compactions;
+  const int total_bg_compaction_can_schedule =
+      std::min(total_bg_compaction_to_schedule,
+               total_bg_compaction_allowed > total_bg_compaction_scheduled
+                   ? total_bg_compaction_allowed - total_bg_compaction_scheduled
+                   : 0);
+
+  const bool has_universal_compaction_cf =
+      versions_->GetColumnFamilySet()->HasUniversalCompactionCF();
+  const bool is_bottom_pool_empty =
+      env_->GetBackgroundThreads(Env::Priority::BOTTOM) == 0;
+  const bool attempt = ShouldAttemptUniversalCompactionPickingByThreadPri(
+      has_universal_compaction_cf, is_bottom_pool_empty);
+
+  const int total_bottom_pri_compaction_can_schedule =
+      !attempt
+          ? 0
+          : (total_bg_compaction_can_schedule +
+             (preferred_compaction_priority == Env::Priority::BOTTOM ? 1 : 0)) /
+                2;
+
+  const int total_low_pri_compaction_can_schedule =
+      total_bg_compaction_can_schedule -
+      total_bottom_pri_compaction_can_schedule;
+
+  for (int i = 0; i < total_bottom_pri_compaction_can_schedule; i++) {
+    CompactionArg* ca = new CompactionArg;
+    ca->db = this;
+    ca->compaction_pri_ = Env::Priority::BOTTOM;
+    ca->prepicked_compaction = nullptr;
+    ca->attempt_universal_compaction_picking_by_thread_pri = attempt;
+    bg_bottom_compaction_scheduled_++;
+    unscheduled_compactions_--;
+    env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
+                   this, &DBImpl::UnscheduleCompactionCallback);
+  }
+
+  for (int i = 0; i < total_low_pri_compaction_can_schedule; i++) {
     CompactionArg* ca = new CompactionArg;
     ca->db = this;
     ca->compaction_pri_ = Env::Priority::LOW;
     ca->prepicked_compaction = nullptr;
+    ca->attempt_universal_compaction_picking_by_thread_pri = attempt;
     bg_compaction_scheduled_++;
     unscheduled_compactions_--;
     env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
@@ -3099,7 +3146,8 @@ void DBImpl::BGWorkCompaction(void* arg) {
   auto prepicked_compaction =
       static_cast<PrepickedCompaction*>(ca.prepicked_compaction);
   static_cast_with_check<DBImpl>(ca.db)->BackgroundCallCompaction(
-      prepicked_compaction, Env::Priority::LOW);
+      prepicked_compaction, Env::Priority::LOW,
+      ca.attempt_universal_compaction_picking_by_thread_pri);
   delete prepicked_compaction;
 }
 
@@ -3109,8 +3157,9 @@ void DBImpl::BGWorkBottomCompaction(void* arg) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::BOTTOM);
   TEST_SYNC_POINT("DBImpl::BGWorkBottomCompaction");
   auto* prepicked_compaction = ca.prepicked_compaction;
-  assert(prepicked_compaction && prepicked_compaction->compaction);
-  ca.db->BackgroundCallCompaction(prepicked_compaction, Env::Priority::BOTTOM);
+  ca.db->BackgroundCallCompaction(
+      prepicked_compaction, Env::Priority::BOTTOM,
+      ca.attempt_universal_compaction_picking_by_thread_pri);
   delete prepicked_compaction;
 }
 
@@ -3406,8 +3455,9 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
   }
 }
 
-void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
-                                      Env::Priority bg_thread_pri) {
+void DBImpl::BackgroundCallCompaction(
+    PrepickedCompaction* prepicked_compaction, Env::Priority bg_thread_pri,
+    bool attempt_universal_compaction_picking_by_thread_pri) {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
   TEST_SYNC_POINT("BackgroundCallCompaction:0");
@@ -3425,8 +3475,13 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     assert((bg_thread_pri == Env::Priority::BOTTOM &&
             bg_bottom_compaction_scheduled_) ||
            (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
-    Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
-                                    prepicked_compaction, bg_thread_pri);
+
+    Env::Priority next_compaction_thread_pri_to_schedule_compaction =
+        Env::Priority::TOTAL;
+    Status s = BackgroundCompaction(
+        &made_progress, &job_context, &log_buffer, prepicked_compaction,
+        bg_thread_pri, attempt_universal_compaction_picking_by_thread_pri,
+        &next_compaction_thread_pri_to_schedule_compaction);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
     if (s.IsBusy()) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
@@ -3500,7 +3555,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     }
 
     // See if there's more work to be done
-    MaybeScheduleFlushOrCompaction();
+    MaybeScheduleFlushOrCompaction(
+        next_compaction_thread_pri_to_schedule_compaction);
 
     if (prepicked_compaction != nullptr &&
         prepicked_compaction->task_token != nullptr) {
@@ -3530,11 +3586,11 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
 }
 
 // Precondition: mutex_ must be held when calling this function.
-Status DBImpl::BackgroundCompaction(bool* made_progress,
-                                    JobContext* job_context,
-                                    LogBuffer* log_buffer,
-                                    PrepickedCompaction* prepicked_compaction,
-                                    Env::Priority thread_pri) {
+Status DBImpl::BackgroundCompaction(
+    bool* made_progress, JobContext* job_context, LogBuffer* log_buffer,
+    PrepickedCompaction* prepicked_compaction, Env::Priority thread_pri,
+    bool attempt_universal_compaction_picking_by_thread_pri,
+    Env::Priority* next_compaction_thread_pri_to_schedule_compaction) {
   ManualCompactionState* manual_compaction =
       prepicked_compaction == nullptr
           ? nullptr
@@ -3683,68 +3739,100 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // eventually be installed into SuperVersion
     const auto& mutable_cf_options = cfd->GetLatestMutableCFOptions();
     if (!mutable_cf_options.disable_auto_compactions && !cfd->IsDropped()) {
-      // NOTE: try to avoid unnecessary copy of MutableCFOptions if
-      // compaction is not necessary. Need to make sure mutex is held
-      // until we make a copy in the following code
-      TEST_SYNC_POINT("DBImpl::BackgroundCompaction():BeforePickCompaction");
-      SnapshotChecker* snapshot_checker = nullptr;
-      std::vector<SequenceNumber> snapshot_seqs;
-      // This info is not useful for other scenarios, so save querying existing
-      // snapshots for those cases.
-      if (cfd->ioptions().compaction_style == kCompactionStyleUniversal &&
-          cfd->user_comparator()->timestamp_size() == 0) {
-        SequenceNumber earliest_write_conflict_snapshot;
-        GetSnapshotContext(job_context, &snapshot_seqs,
-                           &earliest_write_conflict_snapshot,
-                           &snapshot_checker);
-        assert(is_snapshot_supported_ || snapshots_.empty());
-      }
-      c.reset(cfd->PickCompaction(mutable_cf_options, mutable_db_options_,
-                                  snapshot_seqs, snapshot_checker, log_buffer));
-      TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
+      if (!IsThreadPriorityAllowedForCompactionStyle(
+              thread_pri, cfd->ioptions().compaction_style,
+              next_compaction_thread_pri_to_schedule_compaction)) {
+        AddToCompactionQueue(cfd);
+      } else {
+        // NOTE: try to avoid unnecessary copy of MutableCFOptions if
+        // compaction is not necessary. Need to make sure mutex is held
+        // until we make a copy in the following code
+        TEST_SYNC_POINT("DBImpl::BackgroundCompaction():BeforePickCompaction");
+        SnapshotChecker* snapshot_checker = nullptr;
+        std::vector<SequenceNumber> snapshot_seqs;
+        // This info is not useful for other scenarios, so save querying
+        // existing snapshots for those cases.
+        if (cfd->ioptions().compaction_style == kCompactionStyleUniversal &&
+            cfd->user_comparator()->timestamp_size() == 0) {
+          SequenceNumber earliest_write_conflict_snapshot;
+          GetSnapshotContext(job_context, &snapshot_seqs,
+                             &earliest_write_conflict_snapshot,
+                             &snapshot_checker);
+          assert(is_snapshot_supported_ || snapshots_.empty());
+        }
 
-      if (c != nullptr) {
-        bool enough_room = EnoughRoomForCompaction(
-            cfd, *(c->inputs()), &sfm_reserved_compact_space, log_buffer);
+        const bool pick_universal_compaction_by_thread_pri =
+            cfd->GetLatestMutableCFOptions()
+                .universal_pick_compaction_by_thread_pri &&
+            cfd->ioptions().compaction_style == kCompactionStyleUniversal &&
+            attempt_universal_compaction_picking_by_thread_pri;
 
-        if (!enough_room) {
-          // Then don't do the compaction
-          c->ReleaseCompactionFiles(status);
-          c->column_family_data()
-              ->current()
-              ->storage_info()
-              ->ComputeCompactionScore(c->immutable_options(),
-                                       c->mutable_cf_options());
+        c.reset(cfd->PickCompaction(
+            mutable_cf_options, mutable_db_options_, snapshot_seqs,
+            snapshot_checker, log_buffer,
+            pick_universal_compaction_by_thread_pri
+                ? thread_pri
+                : Env::Priority::TOTAL /* thread_priority_for_picking */));
+
+        if (thread_pri == Env::Priority::LOW) {
+          TEST_SYNC_POINT(
+              "DBImpl::BackgroundCompaction():AfterPickCompactionLOW");
+        } else if (thread_pri == Env::Priority::BOTTOM) {
+          TEST_SYNC_POINT(
+              "DBImpl::BackgroundCompaction():AfterPickCompactionBOTTOM");
+        }
+
+        if ((c == nullptr) &&
+            ShouldTryDifferentThreadPriority(
+                pick_universal_compaction_by_thread_pri, cfd, thread_pri,
+                next_compaction_thread_pri_to_schedule_compaction)) {
           AddToCompactionQueue(cfd);
+          RecordTick(stats_,
+                     UNIVERSAL_PICK_NO_COMPACTION_BY_MISMATCHED_THREAD_PRI);
+        } else if (c != nullptr) {
+          bool enough_room = EnoughRoomForCompaction(
+              cfd, *(c->inputs()), &sfm_reserved_compact_space, log_buffer);
 
-          c.reset();
-          // Don't need to sleep here, because BackgroundCallCompaction
-          // will sleep if !s.ok()
-          status = Status::CompactionTooLarge();
-        } else {
-          // update statistics
-          size_t num_files = 0;
-          for (auto& each_level : *c->inputs()) {
-            num_files += each_level.files.size();
-          }
-          RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION, num_files);
-
-          // There are three things that can change compaction score:
-          // 1) When flush or compaction finish. This case is covered by
-          // InstallSuperVersionAndScheduleWork
-          // 2) When MutableCFOptions changes. This case is also covered by
-          // InstallSuperVersionAndScheduleWork, because this is when the new
-          // options take effect.
-          // 3) When we Pick a new compaction, we "remove" those files being
-          // compacted from the calculation, which then influences compaction
-          // score. Here we check if we need the new compaction even without the
-          // files that are currently being compacted. If we need another
-          // compaction, we might be able to execute it in parallel, so we add
-          // it to the queue and schedule a new thread.
-          if (cfd->NeedsCompaction()) {
-            // Yes, we need more compactions!
+          if (!enough_room) {
+            // Then don't do the compaction
+            c->ReleaseCompactionFiles(status);
+            c->column_family_data()
+                ->current()
+                ->storage_info()
+                ->ComputeCompactionScore(c->immutable_options(),
+                                         c->mutable_cf_options());
             AddToCompactionQueue(cfd);
-            MaybeScheduleFlushOrCompaction();
+
+            c.reset();
+            // Don't need to sleep here, because BackgroundCallCompaction
+            // will sleep if !s.ok()
+            status = Status::CompactionTooLarge();
+          } else {
+            // update statistics
+            size_t num_files = 0;
+            for (auto& each_level : *c->inputs()) {
+              num_files += each_level.files.size();
+            }
+            RecordInHistogram(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
+                              num_files);
+
+            // There are three things that can change compaction score:
+            // 1) When flush or compaction finish. This case is covered by
+            // InstallSuperVersionAndScheduleWork
+            // 2) When MutableCFOptions changes. This case is also covered by
+            // InstallSuperVersionAndScheduleWork, because this is when the new
+            // options take effect.
+            // 3) When we Pick a new compaction, we "remove" those files being
+            // compacted from the calculation, which then influences compaction
+            // score. Here we check if we need the new compaction even without
+            // the files that are currently being compacted. If we need another
+            // compaction, we might be able to execute it in parallel, so we add
+            // it to the queue and schedule a new thread.
+            if (cfd->NeedsCompaction()) {
+              // Yes, we need more compactions!
+              AddToCompactionQueue(cfd);
+              MaybeScheduleFlushOrCompaction();
+            }
           }
         }
       }
@@ -4123,13 +4211,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ThreadStatusUtil::ResetThreadStatus();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
                              c->column_family_data());
-  } else if (!is_prepicked && c->output_level() > 0 &&
-             c->output_level() ==
+  } else if (thread_pri == Env::Priority::LOW && !is_prepicked &&
+             Compaction::OutputToNonZeroMaxOutputLevel(
+                 c->output_level(),
                  c->column_family_data()
                      ->current()
                      ->storage_info()
                      ->MaxOutputLevel(
-                         immutable_db_options_.allow_ingest_behind) &&
+                         immutable_db_options_.allow_ingest_behind)) &&
              env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
     // Forward compactions involving last level to the bottom pool if it exists,
     // such that compactions unlikely to contribute to write stalls can be
@@ -4143,6 +4232,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ca->prepicked_compaction->manual_compaction_state = nullptr;
     // Transfer requested token, so it doesn't need to do it again.
     ca->prepicked_compaction->task_token = std::move(task_token);
+    ca->attempt_universal_compaction_picking_by_thread_pri = false;
     ++bg_bottom_compaction_scheduled_;
     assert(c == nullptr);
     env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
@@ -4188,11 +4278,24 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
     mutex_.Unlock();
-    TEST_SYNC_POINT_CALLBACK(
-        "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", nullptr);
+
+    if (thread_pri == Env::Priority::LOW) {
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::BackgroundCompaction:NonTrivial:BeforeRunLOW", nullptr);
+    } else if (thread_pri == Env::Priority::BOTTOM) {
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::BackgroundCompaction:NonTrivial:BeforeRunBOTTOM", nullptr);
+    }
+
     // Should handle error?
     compaction_job.Run().PermitUncheckedError();
-    TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
+
+    if (thread_pri == Env::Priority::LOW) {
+      TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW");
+    } else if (thread_pri == Env::Priority::BOTTOM) {
+      TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRunBOTTOM");
+    }
+
     mutex_.Lock();
 
     if (immutable_db_options().compaction_service != nullptr) {

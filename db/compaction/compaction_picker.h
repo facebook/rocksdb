@@ -65,7 +65,8 @@ class CompactionPicker {
       const MutableDBOptions& mutable_db_options,
       const std::vector<SequenceNumber>& existing_snapshots,
       const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
-      LogBuffer* log_buffer) = 0;
+      LogBuffer* log_buffer,
+      Env::Priority /* thread_priority_for_picking */) = 0;
 
   // The returned Compaction might not include the whole requested range.
   // In that case, compaction_end will be set to the next key that needs
@@ -272,7 +273,8 @@ class NullCompactionPicker : public CompactionPicker {
       const MutableDBOptions& /*mutable_db_options*/,
       const std::vector<SequenceNumber>& /*existing_snapshots*/,
       const SnapshotChecker* /*snapshot_checker*/,
-      VersionStorageInfo* /*vstorage*/, LogBuffer* /* log_buffer */) override {
+      VersionStorageInfo* /*vstorage*/, LogBuffer* /* log_buffer */,
+      Env::Priority /*thread_priority_for_picking*/) override {
     return nullptr;
   }
 
