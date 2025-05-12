@@ -3995,7 +3995,7 @@ TEST_P(TransactionTest, LockLimitWithTimeoutHangTest) {
   TransactionOptions txn_options;
 
   txn_db_options.max_num_locks = 3;
-  txn_db_options.transaction_lock_timeout = 1000;  // 10ms
+  txn_db_options.transaction_lock_timeout = 10;  // 10ms
   ASSERT_OK(ReOpen());
 
   Transaction* txn = db->BeginTransaction(write_options, txn_options);
@@ -4011,8 +4011,8 @@ TEST_P(TransactionTest, LockLimitWithTimeoutHangTest) {
 
   SyncPoint::GetInstance()->SetCallBack(
       "PointLockManager::AcquireWithTimeout:WaitingTxn", [&](void*) {
-        // Release all locks and txn2 can proceed
-        // Sleep for 2ms, so timeout is already passed before waiting.
+        // Sleep for 2ms, so timeout is already passed for txn2 before waiting.
+        // txn2 should fail instead of waiting forever.
         env->SleepForMicroseconds(2 * 1000);
       });
   SyncPoint::GetInstance()->EnableProcessing();
