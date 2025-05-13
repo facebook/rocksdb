@@ -126,8 +126,8 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
     if (pri_cache_res_mismatch) {
       fprintf(stderr,
               "~CacheWithSecondaryAdapter: Primary cache reservation: "
-              "%lu, Secondary cache capacity: %lu, "
-              "Secondary cache reserved: %lu\n",
+              "%zu, Secondary cache capacity: %zu, "
+              "Secondary cache reserved: %zu\n",
               pri_cache_res_->GetTotalMemoryUsed(), sec_capacity,
               sec_reserved_);
       assert(pri_cache_res_mismatch);
