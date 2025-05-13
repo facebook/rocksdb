@@ -1894,7 +1894,8 @@ enum {
   rocksdb_blob_decompress_time,
   rocksdb_internal_range_del_reseek_count,
   rocksdb_block_read_cpu_time,
-  rocksdb_total_metric_count = 79
+  rocksdb_internal_merge_point_lookup_count,
+  rocksdb_total_metric_count = 80
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);

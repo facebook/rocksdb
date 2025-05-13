@@ -4393,6 +4393,8 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->internal_recent_skipped_count;
     case rocksdb_internal_merge_count:
       return rep->internal_merge_count;
+    case rocksdb_internal_merge_point_lookup_count:
+      return rep->internal_merge_point_lookup_count;
     case rocksdb_get_snapshot_time:
       return rep->get_snapshot_time;
     case rocksdb_get_from_memtable_time:
