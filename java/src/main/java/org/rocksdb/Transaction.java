@@ -691,14 +691,14 @@ public class Transaction extends RocksObject {
    *    native library.
    */
   public List<byte[]> multiGetAsList(final ReadOptions readOptions,
-                                             final ColumnFamilyHandle columnFamilyHandle,
-                                             final List<byte[]> keys) throws RocksDBException {
+      final ColumnFamilyHandle columnFamilyHandle, final List<byte[]> keys)
+      throws RocksDBException {
     if (keys.isEmpty()) {
       return new ArrayList<>(0);
     }
     final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
-    return Arrays.asList(multiGet(nativeHandle_, readOptions.nativeHandle_,
-        columnFamilyHandle.nativeHandle_, keysArray));
+    return Arrays.asList(multiGet(
+        nativeHandle_, readOptions.nativeHandle_, columnFamilyHandle.nativeHandle_, keysArray));
   }
 
   /**
@@ -2917,8 +2917,8 @@ public class Transaction extends RocksObject {
       final byte[][] keys, final long[] columnFamilyHandles) throws RocksDBException;
   private static native byte[][] multiGet(
       final long handle, final long readOptionsHandle, final byte[][] keys) throws RocksDBException;
-  private static native byte[][] multiGet(
-      final long nativeHandle, final long readOptionsHandle, final long cfHandle, final byte[][] keys) throws RocksDBException;
+  private static native byte[][] multiGet(final long nativeHandle, final long readOptionsHandle,
+      final long cfHandle, final byte[][] keys) throws RocksDBException;
   private static native byte[] getForUpdate(final long handle, final long readOptionsHandle,
       final byte[] key, final int keyOffset, final int keyLength, final long columnFamilyHandle,
       final boolean exclusive, final boolean doValidate) throws RocksDBException;

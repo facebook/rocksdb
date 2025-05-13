@@ -355,19 +355,20 @@ jobjectArray Java_org_rocksdb_Transaction_multiGet__JJJ_3_3B(
   }
 
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  auto* cf_handle = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  auto* cf_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
 
   size_t num_keys = keys.size();
   std::vector<ROCKSDB_NAMESPACE::PinnableSlice> values(num_keys);
   std::vector<ROCKSDB_NAMESPACE::Status> statuses(num_keys);
 
   txn->MultiGet(
-    *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle),
-    cf_handle, num_keys, keys.slices().data(), values.data(),
-    statuses.data(), /*sorted_input=*/false);
+      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jread_options_handle),
+      cf_handle, num_keys, keys.slices().data(), values.data(), statuses.data(),
+      /*sorted_input=*/false);
 
-  return ROCKSDB_NAMESPACE::MultiGetJNIValues::byteArrays<ROCKSDB_NAMESPACE::PinnableSlice>(env, values, statuses);
-
+  return ROCKSDB_NAMESPACE::MultiGetJNIValues::byteArrays<
+      ROCKSDB_NAMESPACE::PinnableSlice>(env, values, statuses);
 }
 
 /*

@@ -364,7 +364,8 @@ public class TransactionTest extends AbstractTransactionTest {
       }
 
       try (final Transaction txn = dbContainer.beginTransaction()) {
-        final List<byte[]> result = txn.multiGetAsList(readOptions, testCf, Arrays.asList(k1, k2, k3));
+        final List<byte[]> result =
+            txn.multiGetAsList(readOptions, testCf, Arrays.asList(k1, k2, k3));
         assertThat(result).containsExactly(v1, v2, null);
       }
     }
