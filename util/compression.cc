@@ -484,6 +484,7 @@ Status LZ4_DecompressBlock(const Decompressor::Args& args, Slice dict,
   return Status::OK();
 #else
   (void)args;
+  (void)dict;
   (void)uncompressed_output;
   return Status::NotSupported("LZ4 not supported in this build");
 #endif
@@ -550,6 +551,7 @@ Status ZSTD_DecompressBlockWithContext(
   }
 #else
   (void)args;
+  (void)dict;
   (void)zstd_context;
   (void)uncompressed_output;
   return Status::NotSupported("ZSTD not supported in this build");

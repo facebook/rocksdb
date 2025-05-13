@@ -246,15 +246,19 @@ struct BlockBasedTableBuilder::Rep {
   // Once configured/determined, points to one of the above Compressors to
   // use on data blocks.
   Compressor* data_block_compressor = nullptr;
-  // When non-nullptr, compression should be verified with this corresponding
-  // decompressor, except when using dictionary compression.
-  std::shared_ptr<Decompressor> verify_decompressor;
-  // When non-nullptr, a decompressor for verifying compression using a
+  // A decompressor corresponding to basic_compressor (when non-nullptr).
+  // Used for verification and cache warming.
+  std::shared_ptr<Decompressor> basic_decompressor;
+  // When needed, a decompressor for verifying compression using a
   // dictionary sampled/trained from this file.
   std::unique_ptr<Decompressor> verify_decompressor_with_dict;
+  // When non-nullptr, compression should be verified with this corresponding
+  // decompressor, except for data blocks. (Points to same as basic_decompressor
+  // when verify_compression is set.)
+  UnownedPtr<Decompressor> verify_decompressor;
   // Once configured/determined, points to one of the above Decompressors to use
   // in verifying data blocks.
-  Decompressor* data_block_verify_decompressor = nullptr;
+  UnownedPtr<Decompressor> data_block_verify_decompressor;
 
   // Working area for basic_compressor when compression_parallel_threads==1
   WorkingAreaPair basic_working_area;
@@ -308,7 +312,7 @@ struct BlockBasedTableBuilder::Rep {
   std::vector<std::unique_ptr<InternalTblPropColl>> table_properties_collectors;
 
   std::unique_ptr<ParallelCompressionRep> pc_rep;
-  BlockCreateContext uncompressed_create_context;
+  BlockCreateContext create_context;
 
   // The size of the "tail" part of a SST file. "Tail" refers to
   // all blocks after data blocks till the end of the SST file.
@@ -440,14 +444,13 @@ struct BlockBasedTableBuilder::Rep {
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
-        uncompressed_create_context(
-            &table_options, &ioptions, ioptions.stats,
-            /*decompressor=*/nullptr,
-            tbo.moptions.block_protection_bytes_per_key,
-            tbo.internal_comparator.user_comparator(),
-            !use_delta_encoding_for_index_values,
-            table_opt.index_type ==
-                BlockBasedTableOptions::kBinarySearchWithFirstKey),
+        create_context(&table_options, &ioptions, ioptions.stats,
+                       /*decompressor=*/nullptr,
+                       tbo.moptions.block_protection_bytes_per_key,
+                       tbo.internal_comparator.user_comparator(),
+                       !use_delta_encoding_for_index_values,
+                       table_opt.index_type ==
+                           BlockBasedTableOptions::kBinarySearchWithFirstKey),
         tail_size(0),
         status_ok(true),
         io_status_ok(true) {
@@ -501,9 +504,12 @@ struct BlockBasedTableBuilder::Rep {
               data_block_compressor->ObtainWorkingArea();
         }
       }
+      basic_decompressor =
+          mgr->GetDecompressorOptimizeFor(tbo.compression_type);
+      create_context.decompressor = basic_decompressor.get();
+
       if (table_options.verify_compression) {
-        verify_decompressor =
-            mgr->GetDecompressorOptimizeFor(tbo.compression_type);
+        verify_decompressor = basic_decompressor.get();
         if (state == State::kUnbuffered) {
           data_block_verify_decompressor = verify_decompressor.get();
           for (uint32_t i = 0; i < compression_parallel_threads; i++) {
@@ -1265,7 +1271,7 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
         *out_status = r->data_block_compressor->CompressBlock(
             uncompressed_block_data, compressed_output, &type,
             &working_area.compress);
-        verify_decomp = r->data_block_verify_decompressor;
+        verify_decomp = r->data_block_verify_decompressor.get();
       }
     } else {
       if (r->basic_compressor) {
@@ -1581,18 +1587,14 @@ Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
   if (block_cache && helper && helper->create_cb) {
     CacheKey key = BlockBasedTable::GetCacheKey(rep_->base_cache_key, *handle);
     size_t charge;
-    if (block_type != BlockType::kCompressionDictionary) {
-      s = WarmInCache(block_cache, key.AsSlice(), block_contents,
-                      &rep_->uncompressed_create_context, helper,
-                      Cache::Priority::LOW, &charge);
-    } else {
-      // FIXME: Processing the dictionary block for block cache needs the
-      // decompressor, yet the table reader could use a compatible but
-      // distinct decompressor. Should the block cache entry keep reference to
-      // the decompressor? Should the decompressor hold the dictionary itself?
-      // This case needs a unit test (discovered in crash test)
-    }
-
+    // NOTE: data blocks (and everything else) will be warmed in decompressed
+    // state, so does not need a dictionary-aware decompressor. The only thing
+    // needing a decompressor here (in create_context) is warming the
+    // (de)compression dictionary, which will clone and save a dict-based
+    // decompressor from the corresponding non-dict decompressor.
+    s = WarmInCache(block_cache, key.AsSlice(), block_contents,
+                    &rep_->create_context, helper, Cache::Priority::LOW,
+                    &charge);
     if (s.ok()) {
       BlockBasedTable::UpdateCacheInsertionMetrics(
           block_type, nullptr /*get_context*/, charge, s.IsOkOverwritten(),
@@ -1978,7 +1980,9 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
             r->data_block_verify_decompressor->ObtainWorkingArea(
                 r->data_block_compressor->GetPreferredCompressionType());
       }
+      assert(s.ok());
     } else {
+      assert(!s.ok());
       r->SetStatus(s);
     }
   }
