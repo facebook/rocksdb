@@ -527,7 +527,8 @@ Status ZSTD_DecompressBlockWithContext(
         args.compressed_data.data(), args.compressed_data.size(),
         static_cast<ZSTD_DDict*>(dict));
 #else
-    static_assert(false, "ZSTD not built with full digested dict support");
+    static_assert(!kIsDigestedDict,
+                  "Inconsistent expectation of ZSTD digested dict support");
 #endif  // ROCKSDB_ZSTD_DDICT
   } else if (dict.empty()) {
     uncompressed_size = ZSTD_decompressDCtx(
