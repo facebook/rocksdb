@@ -661,6 +661,35 @@ public class Transaction extends RocksObject {
     return Arrays.asList(multiGet(nativeHandle_, readOptions.nativeHandle_, keysArray));
   }
 
+  /**
+   * This function is similar to
+   * {@link RocksDB#multiGetAsList} except it will
+   * also read pending changes in this transaction.
+   * Currently, this function will return Status::MergeInProgress if the most
+   * recent write to the queried key in this batch is a Merge.
+   * <p>
+   * If {@link ReadOptions#snapshot()} is not set, the current version of the
+   * key will be read. Calling {@link #setSnapshot()} does not affect the
+   * version of the data returned.
+   * <p>
+   * Note that setting {@link ReadOptions#setSnapshot(Snapshot)} will affect
+   * what is read from the DB but will NOT change which keys are read from this
+   * transaction (the keys in this transaction do not yet belong to any snapshot
+   * and will be fetched regardless).
+   * <p>
+   * This method uses the optimized path with support for batched reads.
+   *
+   * @param readOptions Read options.=
+   *     {@link org.rocksdb.ColumnFamilyHandle} instances.
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param keys of keys for which values need to be retrieved.
+   *
+   * @return Array of values, one for each key
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
   public List<byte[]> multiGetAsList(final ReadOptions readOptions,
                                              final ColumnFamilyHandle columnFamilyHandle,
                                              final List<byte[]> keys) throws RocksDBException {
