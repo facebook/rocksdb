@@ -106,13 +106,13 @@ class ManagedPtr {
   ManagedPtr(const ManagedPtr&) = delete;
   ManagedPtr& operator=(const ManagedPtr&) = delete;
   // Moves
-  ManagedPtr(ManagedPtr&& other) {
+  ManagedPtr(ManagedPtr&& other) noexcept {
     ptr_ = other.ptr_;
     owner_ = other.owner_;
     other.ptr_ = nullptr;
     other.owner_ = nullptr;
   }
-  ManagedPtr& operator=(ManagedPtr&& other) {
+  ManagedPtr& operator=(ManagedPtr&& other) noexcept {
     ptr_ = other.ptr_;
     owner_ = other.owner_;
     other.ptr_ = nullptr;

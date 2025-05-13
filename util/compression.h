@@ -320,8 +320,6 @@ class Compressor {
 
 // TODO: CompressorBase and CompressorWrapper
 
-struct DecompressorDict;
-
 // A Decompressor usually has a wide capability to decompress all kinds of
 // compressed data in the scope of a CompressionManager (see that class below),
 // except
@@ -393,11 +391,8 @@ class Decompressor {
   // (created with MaybeCloneForDict()), this returns a pointer to those raw (or
   // "serialized") bytes, which are externally managed (see
   // MaybeCloneForDict()).
-  virtual const Slice& GetSerializedDict() const {
-    // Default: empty slice => no dictionary
-    static Slice kEmptySlice;
-    return kEmptySlice;
-  }
+  // Default: empty slice => no dictionary
+  virtual const Slice& GetSerializedDict() const;
 
   // Create a variant of this Decompressor in `out` using the specified raw
   // ("serialized") dictionary. This step is required for decompressing data
@@ -569,42 +564,10 @@ class CompressionManager
 // END future compression customization interface
 // ***********************************************************************
 
-class DecompressorWrapper : public Decompressor {
- public:
-  ManagedWorkingArea ObtainWorkingArea(CompressionType preferred) override {
-    return wrapped_->ObtainWorkingArea(preferred);
-  }
-
-  const Slice& GetSerializedDict() const override {
-    return wrapped_->GetSerializedDict();
-  }
-
-  Status MaybeCloneForDict(const Slice& serialized_dict,
-                           std::unique_ptr<Decompressor>* out) override {
-    return wrapped_->MaybeCloneForDict(serialized_dict, out);
-  }
-
-  size_t ApproximateOwnedMemoryUsage() const override {
-    return sizeof(DecompressorWrapper) +
-           wrapped_->ApproximateOwnedMemoryUsage();
-  }
-
-  Status ExtractUncompressedSize(Args& args) override {
-    return wrapped_->ExtractUncompressedSize(args);
-  }
-
-  Status DecompressBlock(const Args& args, char* uncompressed_output) override {
-    return wrapped_->DecompressBlock(args, uncompressed_output);
-  }
-
- protected:
-  std::shared_ptr<Decompressor> wrapped_;
-};
-
 class FailureDecompressor : public Decompressor {
  public:
-  FailureDecompressor(Status&& status) : status_(std::move(status)) {
-    assert(!status.ok());
+  explicit FailureDecompressor(Status&& status) : status_(std::move(status)) {
+    assert(!status_.ok());
   }
   ~FailureDecompressor() override { status_.PermitUncheckedError(); }
 
@@ -648,23 +611,22 @@ struct DecompressorDict {
 
   DecompressorDict(std::string&& dict, Decompressor& from_decompressor)
       : dict_str_(std::move(dict)) {
-    Status s = from_decompressor.MaybeCloneForDict(dict_str_, &decompressor_);
-    Populate(std::move(s));
+    Populate(from_decompressor, dict_str_);
   }
 
   DecompressorDict(Slice slice, CacheAllocationPtr&& allocation,
                    Decompressor& from_decompressor)
       : dict_allocation_(std::move(allocation)) {
-    Status s = from_decompressor.MaybeCloneForDict(slice, &decompressor_);
-    Populate(std::move(s));
+    Populate(from_decompressor, slice);
   }
 
-  DecompressorDict(DecompressorDict&& rhs)
+  DecompressorDict(DecompressorDict&& rhs) noexcept
       : dict_str_(std::move(rhs.dict_str_)),
         dict_allocation_(std::move(rhs.dict_allocation_)),
-        decompressor_(std::move(rhs.decompressor_)) {}
+        decompressor_(std::move(rhs.decompressor_)),
+        memory_usage_(std::move(rhs.memory_usage_)) {}
 
-  DecompressorDict& operator=(DecompressorDict&& rhs) {
+  DecompressorDict& operator=(DecompressorDict&& rhs) noexcept {
     if (this == &rhs) {
       return *this;
     }
@@ -693,15 +655,15 @@ struct DecompressorDict {
   size_t ApproximateMemoryUsage() const { return memory_usage_; }
 
  private:
-  void Populate(Status&& maybe_clone_status) {
+  void Populate(Decompressor& from_decompressor, Slice dict) {
+    Status s = from_decompressor.MaybeCloneForDict(dict, &decompressor_);
     if (decompressor_ == nullptr) {
       dict_str_ = {};
       dict_allocation_ = {};
-      assert(!maybe_clone_status.ok());
-      decompressor_ =
-          std::make_unique<FailureDecompressor>(std::move(maybe_clone_status));
+      assert(!s.ok());
+      decompressor_ = std::make_unique<FailureDecompressor>(std::move(s));
     } else {
-      assert(maybe_clone_status.ok());
+      assert(s.ok());
     }
 
     memory_usage_ = sizeof(struct DecompressorDict);

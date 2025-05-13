@@ -124,6 +124,12 @@ void ZSTDStreamingUncompress::Reset() {
 // ***********************************************************************
 // BEGIN built-in implementation of customization interface
 // ***********************************************************************
+const Slice& Decompressor::GetSerializedDict() const {
+  // Default: empty slice => no dictionary
+  static Slice kEmptySlice;
+  return kEmptySlice;
+}
+
 namespace {
 
 class BuiltinCompressorV1 : public Compressor {
@@ -636,7 +642,7 @@ class BuiltinDecompressorV2 : public Decompressor {
 
 class BuiltinDecompressorV2WithDict : public BuiltinDecompressorV2 {
  public:
-  BuiltinDecompressorV2WithDict(const Slice& dict) : dict_(dict) {}
+  explicit BuiltinDecompressorV2WithDict(const Slice& dict) : dict_(dict) {}
 
   const char* Name() const override { return "BuiltinDecompressorV2WithDict"; }
 
@@ -709,10 +715,14 @@ class BuiltinDecompressorV2OptimizeZstd : public BuiltinDecompressorV2 {
       return BuiltinDecompressorV2::DecompressBlock(args, uncompressed_output);
     }
   }
+
+  Status MaybeCloneForDict(const Slice& /*serialized_dict*/,
+                           std::unique_ptr<Decompressor>* /*out*/) override;
 };
 
 class BuiltinDecompressorV2OptimizeZstdWithDict
     : public BuiltinDecompressorV2OptimizeZstd {
+ public:
   BuiltinDecompressorV2OptimizeZstdWithDict(const Slice& dict)
       :
 #ifdef ROCKSDB_ZSTD_DDICT
@@ -767,6 +777,13 @@ class BuiltinDecompressorV2OptimizeZstdWithDict
   ZSTD_DDict* const ddict_;
 #endif  // ROCKSDB_ZSTD_DDICT
 };
+
+Status BuiltinDecompressorV2OptimizeZstd::MaybeCloneForDict(
+    const Slice& serialized_dict, std::unique_ptr<Decompressor>* out) {
+  *out = std::make_unique<BuiltinDecompressorV2OptimizeZstdWithDict>(
+      serialized_dict);
+  return Status::OK();
+}
 
 class BuiltinCompressionManagerV2 : public CompressionManager {
  public:
