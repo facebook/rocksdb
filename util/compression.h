@@ -159,7 +159,7 @@ struct FilterBuildingContext;
 // compressing blocks, including the relevant algorithm(s), options, dictionary,
 // etc. as applicable--every input except the sequence of bytes to compress.
 // Compressor is generally thread-safe so can be shared by multiple threads. (It
-// might make sense to convert unique_ptr<Compressor> to
+// could make sense to convert unique_ptr<Compressor> to
 // shared_ptr<Compressor>.) A Compressor for data files is expected to be used
 // for just one file, so that compression strategy can be explicitly
 // reconsidered for each new file. However, a Compressor for in-memory use could
@@ -179,7 +179,12 @@ struct FilterBuildingContext;
 // dictionary (which will often be relevant alongside); see relevant functions.
 // If the Compressor wants to decide block-by-block whether to apply the
 // configured dictionary, that would need to be encoded in CompressionType or
-// the compressed output.
+// the compressed output. (NOTE: this was historically NOT encoded in
+// CompressionType and instead implied by BlockType and the presence of a
+// dictionary block in the file. Some of the resulting awkwardness includes
+// a number of built-in CompressionTypes that ignore any dictionary block in
+// the file; therefore they cannot accommodate dictionary compression in the
+// future without a schema change / extension.)
 class Compressor {
  public:
   Compressor() = default;
@@ -199,6 +204,12 @@ class Compressor {
   // Returns the serialized form of the data dictionary associated with this
   // Compressor. NOTE: empty dict is equivalent to no dict.
   virtual Slice GetSerializedDict() const { return Slice(); }
+
+  // If there's a dominant compression type returned by this compressor as
+  // configured, return it. Otherwise, return kDisableCompressionOption.
+  virtual CompressionType GetPreferredCompressionType() const {
+    return CompressionType::kDisableCompressionOption;
+  }
 
   // Utility struct for providing sample data for the compression dictionary.
   // Potentially extensible by callers of Compressor (but not recommended)
@@ -251,15 +262,10 @@ class Compressor {
 
  protected:
   // To allow for flexible re-use / reclaimation, we have explicit Get and
-  // Release functions, which below are wrapped in a special RAII smart pointer.
+  // Release functions, and usually wrap in a special RAII smart pointer.
   // For example, a WorkingArea could be saved/recycled in thread-local or
   // core-local storage, or heap managed, etc., though an explicit WorkingArea
   // is only advised for repeated compression (by a single thread).
-  virtual WorkingArea* GetWorkingAreaImpl() {
-    // Default implementation: no working area
-    return nullptr;
-  }
-
   virtual void ReleaseWorkingArea(WorkingArea*) {}
 
  public:
@@ -267,9 +273,9 @@ class Compressor {
       ManagedPtr<WorkingArea, Compressor, &Compressor::ReleaseWorkingArea>;
 
   // See struct WorkingArea above
-  inline ManagedWorkingArea GetWorkingArea() {
+  virtual ManagedWorkingArea ObtainWorkingArea() {
     // Default implementation: no working area
-    return ManagedWorkingArea(GetWorkingAreaImpl(), this);
+    return {};
   }
 
   // Compress `uncompressed_data` to `compressed_output`, which should be
@@ -318,11 +324,25 @@ struct DecompressorDict;
 
 // A Decompressor usually has a wide capability to decompress all kinds of
 // compressed data in the scope of a CompressionManager (see that class below),
-// but might be optimized for or limited to a particular compression type(s).
+// except
+// (a) it might be optimized for or limited to a particular compression type(s)
+//     (see GetDecompressor* functions for in CompressionManager),
+// (b) distinct Decompressors are required to decompress with compression
+//     dictionaries. (Decompressors are generally associated with empty/no
+//     dictionary unless created with MaybeCloneForDict().)
+//
 // Similar to Compressor, Decompressor is generally thread safe except that each
-// WorkingArea can only be used by a single thread at a time. Unlike Compressor,
-// the dictionary (when applicable) is a separate argument and not part of the
-// state or identity of the Decompressor object. (See DictArg etc.)
+// WorkingArea can only be used by a single thread at a time.
+//
+// Decompressors known to be associated with no dictionary are typically
+// returned as shared_ptr, because they are broadly usable across threads.
+// Because compression dictionaries are externally managed (see
+// MaybeCloneForDict()), Decompressors associated with compression dictionaries
+// are typically returned as unique_ptr, so that they are more easily
+// guaranteed not to outlive their dictionaries (e.g. in block cache).
+// Decompressors associated with compression dictionaries might include a
+// processed or "digested" form of the raw dictionary for efficient repeated
+// compressions.
 //
 // NOTE: Splitting the interface between ExtractUncompressedSize and
 // DecompressBlock leaves to the caller details of (and flexibility in)
@@ -335,6 +355,9 @@ class Decompressor {
   Decompressor() = default;
   virtual ~Decompressor() = default;
 
+  // A name for logging / debugging purposes
+  virtual const char* Name() const = 0;
+
   // A WorkingArea is an optional structure (both for callers and
   // implementations) that can enable optimizing repeated decompressions by
   // reusing working space or thread-local tracking of statistics. This enables
@@ -343,22 +366,13 @@ class Decompressor {
   // EXTENSIBLE or reinterpret_cast-able by custom Compressor implementations
   struct WorkingArea {};
 
-  // Represents an immutable dictionary for decompression, that is optionally
-  // processed for efficient use (e.g ZSTD "digested" dictionary)
-  // EXTENSIBLE or reinterpret_cast-able by custom Compressor implementations
-  struct ProcessedDict {};
-
  protected:
-  // To allow for flexible re-use / reclaimation, we have explicit Get and
-  // Release functions, which below are wrapped in a special RAII smart pointer.
-  // For example, a WorkingArea could be saved/recycled in thread-local or
-  // core-local storage, or heap managed, etc., though an explicit WorkingArea
-  // is only advised for repeated decompression (by a single thread).
-
-  virtual WorkingArea* GetWorkingAreaImpl(CompressionType /*preferred*/) {
-    // Default implementation: no working area
-    return nullptr;
-  }
+  // To allow for flexible re-use / reclaimation, we have explicit Obtain and
+  // Release functions, which are typically wrapped in a special RAII smart
+  // pointer. For example, a WorkingArea could be saved/recycled in thread-local
+  // or core-local storage, or heap managed, etc., though an explicit
+  // WorkingArea is only advised for repeated decompression (by a single
+  // thread).
 
   virtual void ReleaseWorkingArea(WorkingArea* wa) {
     // Default implementation: no working area
@@ -366,57 +380,49 @@ class Decompressor {
     assert(wa == nullptr);
   }
 
-  virtual ProcessedDict* ProcessDictImpl(Slice /*serialized_dict*/) {
-    // Default: no processed form of dictionary supported
-    return nullptr;
-  }
-
-  virtual void ReleaseProcessedDict(ProcessedDict* processed) {
-    // Default: no processed form of dictionary supported
-    (void)processed;
-    assert(processed == nullptr);
-  }
-
  public:
   using ManagedWorkingArea =
       ManagedPtr<WorkingArea, Decompressor, &Decompressor::ReleaseWorkingArea>;
 
-  inline ManagedWorkingArea GetWorkingArea(CompressionType preferred) {
-    // Wrap underlying object in a smart pointer
-    return ManagedWorkingArea(GetWorkingAreaImpl(preferred), this);
+  virtual ManagedWorkingArea ObtainWorkingArea(CompressionType /*preferred*/) {
+    // Default implementation: no working area
+    return {};
   }
 
-  using ManagedProcessedDict = ManagedPtr<ProcessedDict, Decompressor,
-                                          &Decompressor::ReleaseProcessedDict>;
+  // If this Decompressor is associated with a (de)compression dictionary
+  // (created with MaybeCloneForDict()), this returns a pointer to those raw (or
+  // "serialized") bytes, which are externally managed (see
+  // MaybeCloneForDict()).
+  virtual const Slice& GetSerializedDict() const {
+    // Default: empty slice => no dictionary
+    static Slice kEmptySlice;
+    return kEmptySlice;
+  }
 
-  // Get the approximate memory usage of the processed dict, NOT including the
-  // `serialized_dict` it was created from (except to the extent that data was
-  // copied)
-  virtual size_t ApproximateMemoryUsage(
-      const ManagedProcessedDict& processed) const {
-    // Default: no processed form of dictionary supported
-    (void)processed;
-    assert(!processed);
+  // Create a variant of this Decompressor in `out` using the specified raw
+  // ("serialized") dictionary. This step is required for decompressing data
+  // compressed with the same dictionary. The new Decompressor references the
+  // given Slice through its lifetime so the data it points to must be managed
+  // by the caller along with (or beyond) the new Decompressor. If the
+  // dictionary is processed into a form reusable by repeated compressions in
+  // many threads, that happens within this call.
+  //
+  // Must return OK if storing a result in `out`. Otherwise, could return values
+  // like NotSupported - dictionary compression is not (yet) supported for this
+  // kind of Decompressor.
+  // Corruption - dictionary is malformed (though many implementations will
+  // accept any data as a dictionary)
+  virtual Status MaybeCloneForDict(const Slice& /*serialized_dict*/,
+                                   std::unique_ptr<Decompressor>* /*out*/) {
+    return Status::NotSupported(
+        "Dictionary compression not (yet) supported by " + std::string(Name()));
+  }
+
+  // Memory size of this object and others it owns. Does not include the
+  // serialized dictionary (when used) which is externally managed.
+  virtual size_t ApproximateOwnedMemoryUsage() const {
+    // Default: negligible
     return 0;
-  }
-
-  // Potentially extensible by callers of Decompressor
-  struct DictArg {
-    // *Must* match the data from Compressor::GetSerializedDict() when the
-    // block was compressed.
-    Slice serialized_dict;
-    // Optional processed form of dictionary. Passing in ManagedProcessedDict
-    // not just ProcessedDict to allow a Decompressor to check that a
-    // ProcessedDict was provided by the same Decompressor, which is useful
-    // so that a single Decompressor can wrap multiple Decompressors and
-    // ignore incompatible ProcessedDicts (not from the same Decompressor).
-    ManagedProcessedDict processed;
-  };
-
-  inline void MaybeProcessDict(DictArg& arg) {
-    if (!arg.serialized_dict.empty()) {
-      arg.processed = {ProcessDictImpl(arg.serialized_dict), this};
-    }
   }
 
   // Potentially extensible by callers of Decompressor (but not recommended)
@@ -425,9 +431,6 @@ class Decompressor {
     Slice compressed_data;
     uint64_t uncompressed_size = 0;
     ManagedWorkingArea* working_area = nullptr;
-    // May be omitted if Compressor::GetSerializedDict() was empty when the
-    // block was compressed.
-    const DictArg* dict = nullptr;
   };
 
   // For efficiency on the read path, RocksDB strongly prefers the uncompressed
@@ -537,7 +540,11 @@ class CompressionManager
   // **************************** Decompressors ************************** //
   // Get a decompressor that is compatible with any blocks compressed by
   // compressors returned by this CompressionManager (at least this code
-  // revision and earlier).
+  // revision and earlier). (NOTE: recommended to return a shared_ptr alias of
+  // this shared_ptr to a field that is a Decompressor.)
+  // Justification for not making CompressionManager inherit Decompressor: this
+  // tends to run into the diamond inheritance problem in implementations and
+  // potential overheads of virtual inheritance.
   virtual std::shared_ptr<Decompressor> GetDecompressor() = 0;
 
   // Compatible with same as above, but potentially optimized for a certain
@@ -549,10 +556,11 @@ class CompressionManager
   }
 
   // Get a decompressor that is allowed to have support only for the
-  // CompressionTypes in the given array (cast to char, sorted by unsigned char,
-  // put in a Slice)
+  // CompressionTypes in the given start-to-end array (unique, sorted by
+  // unsigned char)
   virtual std::shared_ptr<Decompressor> GetDecompressorForTypes(
-      Slice /*types*/) {
+      const CompressionType* /*types_begin*/,
+      const CompressionType* /*types_end*/) {
     // Safe default implementation
     return GetDecompressor();
   }
@@ -561,51 +569,108 @@ class CompressionManager
 // END future compression customization interface
 // ***********************************************************************
 
-// Owns raw and processed dictionary for block cache.
+class DecompressorWrapper : public Decompressor {
+ public:
+  ManagedWorkingArea ObtainWorkingArea(CompressionType preferred) override {
+    return wrapped_->ObtainWorkingArea(preferred);
+  }
+
+  const Slice& GetSerializedDict() const override {
+    return wrapped_->GetSerializedDict();
+  }
+
+  Status MaybeCloneForDict(const Slice& serialized_dict,
+                           std::unique_ptr<Decompressor>* out) override {
+    return wrapped_->MaybeCloneForDict(serialized_dict, out);
+  }
+
+  size_t ApproximateOwnedMemoryUsage() const override {
+    return sizeof(DecompressorWrapper) +
+           wrapped_->ApproximateOwnedMemoryUsage();
+  }
+
+  Status ExtractUncompressedSize(Args& args) override {
+    return wrapped_->ExtractUncompressedSize(args);
+  }
+
+  Status DecompressBlock(const Args& args, char* uncompressed_output) override {
+    return wrapped_->DecompressBlock(args, uncompressed_output);
+  }
+
+ protected:
+  std::shared_ptr<Decompressor> wrapped_;
+};
+
+class FailureDecompressor : public Decompressor {
+ public:
+  FailureDecompressor(Status&& status) : status_(std::move(status)) {
+    assert(!status.ok());
+  }
+  ~FailureDecompressor() override { status_.PermitUncheckedError(); }
+
+  const char* Name() const override { return "FailureDecompressor"; }
+
+  Status ExtractUncompressedSize(Args& /*args*/) override { return status_; }
+
+  Status DecompressBlock(const Args& /*args*/,
+                         char* /*uncompressed_output*/) override {
+    return status_;
+  }
+
+ protected:
+  Status status_;
+};
+
+// Owns a decompression dictionary, and associated Decompressor, for storing
+// in the block cache.
+//
+// Justification: for a "processed" dictionary to be saved in block cache, we
+// also need a reference to the decompressor that processed it, to ensure it
+// is recognized properly. At that point, we might as well have the dictionary
+// part of the decompressor identity and track an associated decompressor along
+// with a decompression dictionary in the block cache, and the decompressor
+// hides potential details of processing the dictionary.
 struct DecompressorDict {
   // Block containing the data for the compression dictionary in case the
   // constructor that takes a string parameter is used.
-  std::string dict_;
+  std::string dict_str_;
 
   // Block containing the data for the compression dictionary in case the
   // constructor that takes a Slice parameter is used and the passed in
   // CacheAllocationPtr is not nullptr.
-  CacheAllocationPtr allocation_;
+  CacheAllocationPtr dict_allocation_;
 
-  // For Decompressor. Contains a Slice pointing to the compression dictionary
-  // data, which can point to dict_, allocation_, or some other memory location,
-  // depending on how the object was constructed. Also contains the
-  // ProcessedDict when applicable.
-  Decompressor::DictArg arg_;
+  // A Decompressor referencing and using the dictionary owned by this.
+  std::unique_ptr<Decompressor> decompressor_;
 
   // Approximate owned memory usage
   size_t memory_usage_;
 
-  DecompressorDict(std::string&& dict, Decompressor& decompressor)
-      : dict_(std::move(dict)) {
-    arg_.serialized_dict = dict_;
-    Populate(decompressor);
+  DecompressorDict(std::string&& dict, Decompressor& from_decompressor)
+      : dict_str_(std::move(dict)) {
+    Status s = from_decompressor.MaybeCloneForDict(dict_str_, &decompressor_);
+    Populate(std::move(s));
   }
 
   DecompressorDict(Slice slice, CacheAllocationPtr&& allocation,
-                   Decompressor& decompressor)
-      : allocation_(std::move(allocation)) {
-    arg_.serialized_dict = slice;
-    Populate(decompressor);
+                   Decompressor& from_decompressor)
+      : dict_allocation_(std::move(allocation)) {
+    Status s = from_decompressor.MaybeCloneForDict(slice, &decompressor_);
+    Populate(std::move(s));
   }
 
   DecompressorDict(DecompressorDict&& rhs)
-      : dict_(std::move(rhs.dict_)),
-        allocation_(std::move(rhs.allocation_)),
-        arg_(std::move(rhs.arg_)) {}
+      : dict_str_(std::move(rhs.dict_str_)),
+        dict_allocation_(std::move(rhs.dict_allocation_)),
+        decompressor_(std::move(rhs.decompressor_)) {}
 
   DecompressorDict& operator=(DecompressorDict&& rhs) {
     if (this == &rhs) {
       return *this;
     }
-    dict_ = std::move(rhs.dict_);
-    allocation_ = std::move(rhs.allocation_);
-    arg_ = std::move(rhs.arg_);
+    dict_str_ = std::move(rhs.dict_str_);
+    dict_allocation_ = std::move(rhs.dict_allocation_);
+    decompressor_ = std::move(rhs.decompressor_);
     return *this;
   }
   // Disable copy
@@ -616,41 +681,41 @@ struct DecompressorDict {
   // Slice constructor is invoked with a non-null allocation. Otherwise, it
   // is the caller's responsibility to ensure that the underlying storage
   // outlives this object.
-  bool own_bytes() const { return !dict_.empty() || allocation_; }
+  bool own_bytes() const { return !dict_str_.empty() || dict_allocation_; }
 
-  const Slice& GetRawDict() const { return arg_.serialized_dict; }
+  const Slice& GetRawDict() const { return decompressor_->GetSerializedDict(); }
 
   // For TypedCacheInterface
-  const Slice& ContentSlice() const { return arg_.serialized_dict; }
+  const Slice& ContentSlice() const { return GetRawDict(); }
   static constexpr CacheEntryRole kCacheEntryRole = CacheEntryRole::kOtherBlock;
   static constexpr BlockType kBlockType = BlockType::kCompressionDictionary;
 
   size_t ApproximateMemoryUsage() const { return memory_usage_; }
 
-  template <class DecompressorDictPtr,
-            typename = std::enable_if_t<
-                std::is_same_v<std::remove_cv_t<std::remove_reference_t<
-                                   decltype(*(DecompressorDictPtr{}))>>,
-                               DecompressorDict>,
-                std::nullptr_t>>
-  static inline auto AsArg(DecompressorDictPtr dict) {
-    return dict ? &dict->arg_ : nullptr;
-  }
-
  private:
-  void Populate(Decompressor& decompressor) {
-    decompressor.MaybeProcessDict(arg_);
+  void Populate(Status&& maybe_clone_status) {
+    if (decompressor_ == nullptr) {
+      dict_str_ = {};
+      dict_allocation_ = {};
+      assert(!maybe_clone_status.ok());
+      decompressor_ =
+          std::make_unique<FailureDecompressor>(std::move(maybe_clone_status));
+    } else {
+      assert(maybe_clone_status.ok());
+    }
+
     memory_usage_ = sizeof(struct DecompressorDict);
-    memory_usage_ += dict_.size();
-    if (allocation_) {
-      auto allocator = allocation_.get_deleter().allocator;
+    memory_usage_ += dict_str_.size();
+    if (dict_allocation_) {
+      auto allocator = dict_allocation_.get_deleter().allocator;
       if (allocator) {
-        memory_usage_ += allocator->UsableSize(allocation_.get(),
-                                               arg_.serialized_dict.size());
+        memory_usage_ +=
+            allocator->UsableSize(dict_allocation_.get(), GetRawDict().size());
       } else {
-        memory_usage_ += arg_.serialized_dict.size();
+        memory_usage_ += GetRawDict().size();
       }
     }
+    memory_usage_ += decompressor_->ApproximateOwnedMemoryUsage();
   }
 };
 

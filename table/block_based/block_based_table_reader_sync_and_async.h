@@ -33,7 +33,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 (const ReadOptions& options, const MultiGetRange* batch,
  const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
  Status* statuses, CachableEntry<Block_kData>* results, char* scratch,
- UnownedPtr<const DecompressorDict> dict, bool use_fs_scratch) const {
+ UnownedPtr<Decompressor> decomp, bool use_fs_scratch) const {
   RandomAccessFileReader* file = rep_->file.get();
   const Footer& footer = rep_->footer;
   const ImmutableOptions& ioptions = rep_->ioptions;
@@ -51,7 +51,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 
       // XXX: use_cache=true means double cache query?
       statuses[idx_in_batch] = RetrieveBlock(
-          nullptr, options, handle, dict,
+          nullptr, options, handle, decomp,
           &results[idx_in_batch].As<Block_kData>(), mget_iter->get_context,
           /* lookup_context */ nullptr,
           /* for_compaction */ false, /* use_cache */ true,
@@ -298,7 +298,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         // necessary. Since we're passing the serialized block contents, it
         // will avoid looking up the block cache
         s = MaybeReadBlockAndLoadToCache(
-            nullptr, options, handle, dict,
+            nullptr, options, handle, decomp,
             /*for_compaction=*/false, block_entry, mget_iter->get_context,
             /*lookup_context=*/nullptr, &serialized_block,
             /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
@@ -322,8 +322,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
       if (compression_type != kNoCompression) {
         s = DecompressSerializedBlock(
             req.result.data() + req_offset, handle.size(), compression_type,
-            *rep_->decompressor, dict ? &dict->arg_ : nullptr, &contents,
-            rep_->ioptions, memory_allocator);
+            *decomp, &contents, rep_->ioptions, memory_allocator);
       } else {
         // There are two cases here:
         // 1) caller uses the shared buffer (scratch or direct io buffer);
@@ -479,8 +478,12 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             data_block_range.SkipKey(miter);
             sst_file_range.SkipKey(miter);
             continue;
+          } else {
+            assert(!dict_inited || dict.GetValue() != nullptr);
           }
-          create_ctx.dict = dict.GetValue() ? &dict.GetValue()->arg_ : nullptr;
+          if (dict.GetValue()) {
+            create_ctx.decompressor = dict.GetValue()->decompressor_.get();
+          }
 
           if (v.handle.offset() == prev_offset) {
             // This key can reuse the previous block (later on).
@@ -591,7 +594,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         }
         CO_AWAIT(RetrieveMultipleBlocks)
         (read_options, &data_block_range, &block_handles, &statuses[0],
-         &results[0], scratch, dict.GetValue(), use_fs_scratch);
+         &results[0], scratch,
+         dict.GetValue() ? dict.GetValue()->decompressor_.get()
+                         : rep_->decompressor.get(),
+         use_fs_scratch);
         if (get_context) {
           ++(get_context->get_context_stats_.num_sst_read);
         }

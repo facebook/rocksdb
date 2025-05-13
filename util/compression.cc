@@ -134,6 +134,8 @@ class BuiltinCompressorV1 : public Compressor {
     assert(type != kNoCompression);
   }
 
+  CompressionType GetPreferredCompressionType() const override { return type_; }
+
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override {
@@ -184,6 +186,8 @@ class BuiltinCompressorV2 : public Compressor {
   // NOTE: empty dict is equivalent to no dict
   Slice GetSerializedDict() const override { return dict_.GetRawDict(); }
 
+  CompressionType GetPreferredCompressionType() const override { return type_; }
+
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
       CacheEntryRole /*block_type*/, DictSampleArgs&& dict_samples) override {
     assert(dict_samples.Verify());
@@ -215,8 +219,9 @@ class BuiltinCompressorV2 : public Compressor {
   }
 
   // TODO: use ZSTD_CCtx directly
-  WorkingArea* GetWorkingAreaImpl() override {
-    return static_cast<WorkingArea*>(new CompressionContext(type_, opts_));
+  ManagedWorkingArea ObtainWorkingArea() override {
+    return ManagedWorkingArea(
+        static_cast<WorkingArea*>(new CompressionContext(type_, opts_)), this);
   }
   void ReleaseWorkingArea(WorkingArea* wa) override {
     delete static_cast<CompressionContext*>(wa);
@@ -265,6 +270,8 @@ class BuiltinCompressorV2 : public Compressor {
 // and NOT EFFICIENT because this is an old/deprecated format.
 class BuiltinDecompressorV1 : public Decompressor {
  public:
+  const char* Name() const override { return "BuiltinDecompressorV1"; }
+
   Status ExtractUncompressedSize(Args& args) override {
     CacheAllocationPtr throw_away_output;
     return DoUncompress(args, &throw_away_output, &args.uncompressed_size);
@@ -287,7 +294,6 @@ class BuiltinDecompressorV1 : public Decompressor {
  protected:
   Status DoUncompress(const Args& args, CacheAllocationPtr* out_data,
                       uint64_t* out_uncompressed_size) {
-    assert(args.dict == nullptr);
     assert(args.working_area == nullptr);
     assert(*out_uncompressed_size == 0);
 
@@ -362,7 +368,7 @@ Status Snappy_DecompressBlock(const Decompressor::Args& args,
 #endif
 }
 
-Status Zlib_DecompressBlock(const Decompressor::Args& args,
+Status Zlib_DecompressBlock(const Decompressor::Args& args, Slice dict,
                             char* uncompressed_output) {
 #ifdef ZLIB
   // NOTE: uses "raw" format
@@ -380,8 +386,7 @@ Status Zlib_DecompressBlock(const Decompressor::Args& args,
                               std::to_string(st));
   }
 
-  if (args.dict && !args.dict->serialized_dict.empty()) {
-    const Slice& dict = args.dict->serialized_dict;
+  if (!dict.empty()) {
     // Initialize the compression library's dictionary
     st = inflateSetDictionary(&_stream,
                               reinterpret_cast<const Bytef*>(dict.data()),
@@ -416,6 +421,7 @@ Status Zlib_DecompressBlock(const Decompressor::Args& args,
   return Status::OK();
 #else
   (void)args;
+  (void)dict;
   (void)uncompressed_output;
   return Status::NotSupported("Zlib not supported in this build");
 #endif
@@ -443,15 +449,14 @@ Status BZip2_DecompressBlock(const Decompressor::Args& args,
 #endif
 }
 
-Status LZ4_DecompressBlock(const Decompressor::Args& args,
+Status LZ4_DecompressBlock(const Decompressor::Args& args, Slice dict,
                            char* uncompressed_output) {
 #ifdef LZ4
   int expected_uncompressed_size = static_cast<int>(args.uncompressed_size);
 #if LZ4_VERSION_NUMBER >= 10400  // r124+
   LZ4_streamDecode_t* stream = LZ4_createStreamDecode();
-  if (args.dict != nullptr && !args.dict->serialized_dict.empty()) {
-    LZ4_setStreamDecode(stream, args.dict->serialized_dict.data(),
-                        static_cast<int>(args.dict->serialized_dict.size()));
+  if (!dict.empty()) {
+    LZ4_setStreamDecode(stream, dict.data(), static_cast<int>(dict.size()));
   }
   int uncompressed_size = LZ4_decompress_safe_continue(
       stream, args.compressed_data.data(), uncompressed_output,
@@ -459,7 +464,7 @@ Status LZ4_DecompressBlock(const Decompressor::Args& args,
       expected_uncompressed_size);
   LZ4_freeStreamDecode(stream);
 #else   // up to r123
-  if (args.dict != nullptr && !args.dict->serialized_dict.empty()) {
+  if (!dict.empty()) {
     return Status::NotSupported(
         "This build doesn't support dictionary compression with LZ4");
   }
@@ -506,29 +511,33 @@ Status XPRESS_DecompressBlock(const Decompressor::Args& args,
 #endif
 }
 
+template <bool kIsDigestedDict = false>
 Status ZSTD_DecompressBlockWithContext(
     const Decompressor::Args& args,
+    std::conditional_t<kIsDigestedDict, void*, Slice> dict,
     ZSTDUncompressCachedData::ZSTDNativeContext zstd_context,
     char* uncompressed_output) {
 #ifdef ZSTD
   size_t uncompressed_size;
   assert(zstd_context != nullptr);
-  if (args.dict == nullptr) {
-    uncompressed_size = ZSTD_decompressDCtx(
-        zstd_context, uncompressed_output, args.uncompressed_size,
-        args.compressed_data.data(), args.compressed_data.size());
+  if constexpr (kIsDigestedDict) {
 #ifdef ROCKSDB_ZSTD_DDICT
-  } else if (args.dict->processed.get() != nullptr) {
     uncompressed_size = ZSTD_decompress_usingDDict(
         zstd_context, uncompressed_output, args.uncompressed_size,
         args.compressed_data.data(), args.compressed_data.size(),
-        reinterpret_cast<ZSTD_DDict*>(args.dict->processed.get()));
+        static_cast<ZSTD_DDict*>(dict));
+#else
+    static_assert(false, "ZSTD not built with full digested dict support");
 #endif  // ROCKSDB_ZSTD_DDICT
+  } else if (dict.empty()) {
+    uncompressed_size = ZSTD_decompressDCtx(
+        zstd_context, uncompressed_output, args.uncompressed_size,
+        args.compressed_data.data(), args.compressed_data.size());
   } else {
     uncompressed_size = ZSTD_decompress_usingDict(
         zstd_context, uncompressed_output, args.uncompressed_size,
-        args.compressed_data.data(), args.compressed_data.size(),
-        args.dict->serialized_dict.data(), args.dict->serialized_dict.size());
+        args.compressed_data.data(), args.compressed_data.size(), dict.data(),
+        dict.size());
   }
   if (ZSTD_isError(uncompressed_size)) {
     return Status::Corruption(std::string("ZSTD ") +
@@ -546,23 +555,28 @@ Status ZSTD_DecompressBlockWithContext(
 #endif
 }
 
-Status ZSTD_DecompressBlock(const Decompressor::Args& args,
-                            const Decompressor* decompressor,
-                            char* uncompressed_output) {
+template <bool kIsDigestedDict = false>
+Status ZSTD_DecompressBlock(
+    const Decompressor::Args& args,
+    std::conditional_t<kIsDigestedDict, void*, Slice> dict,
+    const Decompressor* decompressor, char* uncompressed_output) {
   if (args.working_area && args.working_area->owner() == decompressor) {
     auto ctx = static_cast<UncompressionContext*>(args.working_area->get());
-    if (ctx != nullptr && ctx->GetZSTDContext() != nullptr) {
-      return ZSTD_DecompressBlockWithContext(args, ctx->GetZSTDContext(),
-                                             uncompressed_output);
+    assert(ctx != nullptr);
+    if (ctx->GetZSTDContext() != nullptr) {
+      return ZSTD_DecompressBlockWithContext<kIsDigestedDict>(
+          args, dict, ctx->GetZSTDContext(), uncompressed_output);
     }
   }
   UncompressionContext tmp_ctx{kZSTD};
-  return ZSTD_DecompressBlockWithContext(args, tmp_ctx.GetZSTDContext(),
-                                         uncompressed_output);
+  return ZSTD_DecompressBlockWithContext<kIsDigestedDict>(
+      args, dict, tmp_ctx.GetZSTDContext(), uncompressed_output);
 }
 
 class BuiltinDecompressorV2 : public Decompressor {
  public:
+  const char* Name() const override { return "BuiltinDecompressorV2"; }
+
   Status ExtractUncompressedSize(Args& args) override {
     assert(args.compression_type != kNoCompression);
     if (args.compression_type == kSnappyCompression) {
@@ -590,33 +604,93 @@ class BuiltinDecompressorV2 : public Decompressor {
       case kSnappyCompression:
         return Snappy_DecompressBlock(args, uncompressed_output);
       case kZlibCompression:
-        return Zlib_DecompressBlock(args, uncompressed_output);
+        return Zlib_DecompressBlock(args, /*dict=*/Slice{},
+                                    uncompressed_output);
       case kBZip2Compression:
         return BZip2_DecompressBlock(args, uncompressed_output);
       case kLZ4Compression:
       case kLZ4HCCompression:
-        return LZ4_DecompressBlock(args, uncompressed_output);
+        return LZ4_DecompressBlock(args, /*dict=*/Slice{}, uncompressed_output);
       case kXpressCompression:
         return XPRESS_DecompressBlock(args, uncompressed_output);
       case kZSTD:
-        return ZSTD_DecompressBlock(args, this, uncompressed_output);
+        return ZSTD_DecompressBlock(args, /*dict=*/Slice{}, this,
+                                    uncompressed_output);
       default:
         return Status::NotSupported(
             "Compression type not supported or not built-in: " +
             CompressionTypeToString(args.compression_type));
     }
   }
+
+  Status MaybeCloneForDict(const Slice&,
+                           std::unique_ptr<Decompressor>*) override;
+
+  size_t ApproximateOwnedMemoryUsage() const override {
+    return sizeof(BuiltinDecompressorV2);
+  }
 };
 
-class BuiltinDecompressorV2OptimizeZstd : public BuiltinDecompressorV2 {
+class BuiltinDecompressorV2WithDict : public BuiltinDecompressorV2 {
+ public:
+  BuiltinDecompressorV2WithDict(const Slice& dict) : dict_(dict) {}
+
+  const char* Name() const override { return "BuiltinDecompressorV2WithDict"; }
+
+  Status DecompressBlock(const Args& args, char* uncompressed_output) override {
+    switch (args.compression_type) {
+      case kSnappyCompression:
+        // NOTE: quietly ignores the dictionary (for compatibility)
+        return Snappy_DecompressBlock(args, uncompressed_output);
+      case kZlibCompression:
+        return Zlib_DecompressBlock(args, dict_, uncompressed_output);
+      case kBZip2Compression:
+        // NOTE: quietly ignores the dictionary (for compatibility)
+        return BZip2_DecompressBlock(args, uncompressed_output);
+      case kLZ4Compression:
+      case kLZ4HCCompression:
+        return LZ4_DecompressBlock(args, dict_, uncompressed_output);
+      case kXpressCompression:
+        // NOTE: quietly ignores the dictionary (for compatibility)
+        return XPRESS_DecompressBlock(args, uncompressed_output);
+      case kZSTD:
+        return ZSTD_DecompressBlock(args, dict_, this, uncompressed_output);
+      default:
+        return Status::NotSupported(
+            "Compression type not supported or not built-in: " +
+            CompressionTypeToString(args.compression_type));
+    }
+  }
+
+  const Slice& GetSerializedDict() const override { return dict_; }
+
+  size_t ApproximateOwnedMemoryUsage() const override {
+    return sizeof(BuiltinDecompressorV2WithDict);
+  }
+
  protected:
-  WorkingArea* GetWorkingAreaImpl(CompressionType preferred) override {
+  const Slice dict_;
+};
+
+Status BuiltinDecompressorV2::MaybeCloneForDict(
+    const Slice& dict, std::unique_ptr<Decompressor>* out) {
+  *out = std::make_unique<BuiltinDecompressorV2WithDict>(dict);
+  return Status::OK();
+}
+
+class BuiltinDecompressorV2OptimizeZstd : public BuiltinDecompressorV2 {
+ public:
+  const char* Name() const override {
+    return "BuiltinDecompressorV2OptimizeZstd";
+  }
+
+  ManagedWorkingArea ObtainWorkingArea(CompressionType preferred) override {
     if (preferred == kZSTD) {
       // TODO: evaluate whether it makes sense to use core local cache here.
       // (Perhaps not, because explicit WorkingArea could be long-running.)
-      return static_cast<WorkingArea*>(new UncompressionContext(kZSTD));
+      return ManagedWorkingArea(new UncompressionContext(kZSTD), this);
     } else {
-      return nullptr;
+      return {};
     }
   }
 
@@ -624,54 +698,71 @@ class BuiltinDecompressorV2OptimizeZstd : public BuiltinDecompressorV2 {
     delete static_cast<UncompressionContext*>(wa);
   }
 
-  ProcessedDict* ProcessDictImpl(Slice dict) override {
-#ifdef ROCKSDB_ZSTD_DDICT
-    if (!dict.empty()) {
-      auto ddict = ZSTD_createDDict_byReference(dict.data(), dict.size());
-      assert(ddict != nullptr);
-      return reinterpret_cast<ProcessedDict*>(ddict);
-    }
-#else
-    (void)dict;
-#endif  // ROCKSDB_ZSTD_DDICT
-    return nullptr;
-  }
-
-  void ReleaseProcessedDict(ProcessedDict* pdict) override {
-#ifdef ROCKSDB_ZSTD_DDICT
-    size_t res = 0;
-    if (pdict != nullptr) {
-      res = ZSTD_freeDDict(reinterpret_cast<ZSTD_DDict*>(pdict));
-    }
-    assert(res == 0);  // Last I checked they can't fail
-    (void)res;         // prevent unused var warning
-#else
-    assert(pdict == nullptr);
-    (void)pdict;
-#endif  // ROCKSDB_ZSTD_DDICT
-  }
-
- public:
-  size_t ApproximateMemoryUsage(
-      const ManagedProcessedDict& pdict) const override {
-#ifdef ROCKSDB_ZSTD_DDICT
-    if (pdict.get() != nullptr) {
-      return ZSTD_sizeof_DDict(
-          reinterpret_cast<const ZSTD_DDict*>(pdict.get()));
-    }
-#else
-    (void)pdict;
-#endif  // ROCKSDB_ZSTD_DDICT
-    return 0;
-  }
-
   Status DecompressBlock(const Args& args, char* uncompressed_output) override {
     if (LIKELY(args.compression_type == kZSTD)) {
-      return ZSTD_DecompressBlock(args, this, uncompressed_output);
+      return ZSTD_DecompressBlock(args, /*dict=*/Slice{}, this,
+                                  uncompressed_output);
     } else {
       return BuiltinDecompressorV2::DecompressBlock(args, uncompressed_output);
     }
   }
+};
+
+class BuiltinDecompressorV2OptimizeZstdWithDict
+    : public BuiltinDecompressorV2OptimizeZstd {
+  BuiltinDecompressorV2OptimizeZstdWithDict(const Slice& dict)
+      :
+#ifdef ROCKSDB_ZSTD_DDICT
+        dict_(dict),
+        ddict_(ZSTD_createDDict_byReference(dict.data(), dict.size())) {
+    assert(ddict_ != nullptr);
+  }
+#else
+        dict_(dict) {
+  }
+#endif  // ROCKSDB_ZSTD_DDICT
+
+  const char* Name() const override {
+    return "BuiltinDecompressorV2OptimizeZstdWithDict";
+  }
+
+  ~BuiltinDecompressorV2OptimizeZstdWithDict() override {
+#ifdef ROCKSDB_ZSTD_DDICT
+    size_t res = ZSTD_freeDDict(ddict_);
+    assert(res == 0);  // Last I checked they can't fail
+    (void)res;         // prevent unused var warning
+#endif                 // ROCKSDB_ZSTD_DDICT
+  }
+
+  const Slice& GetSerializedDict() const override { return dict_; }
+
+  size_t ApproximateOwnedMemoryUsage() const override {
+    size_t sz = sizeof(BuiltinDecompressorV2WithDict);
+#ifdef ROCKSDB_ZSTD_DDICT
+    sz += ZSTD_sizeof_DDict(ddict_);
+#endif  // ROCKSDB_ZSTD_DDICT
+    return sz;
+  }
+
+  Status DecompressBlock(const Args& args, char* uncompressed_output) override {
+    if (LIKELY(args.compression_type == kZSTD)) {
+#ifdef ROCKSDB_ZSTD_DDICT
+      return ZSTD_DecompressBlock</*kIsDigestedDict=*/true>(
+          args, ddict_, this, uncompressed_output);
+#else
+      return ZSTD_DecompressBlock(args, dict_, this, uncompressed_output);
+#endif  // ROCKSDB_ZSTD_DDICT
+    } else {
+      return BuiltinDecompressorV2WithDict(dict_).DecompressBlock(
+          args, uncompressed_output);
+    }
+  }
+
+ protected:
+  const Slice dict_;
+#ifdef ROCKSDB_ZSTD_DDICT
+  ZSTD_DDict* const ddict_;
+#endif  // ROCKSDB_ZSTD_DDICT
 };
 
 class BuiltinCompressionManagerV2 : public CompressionManager {
@@ -713,10 +804,10 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
     }
   }
 
-  std::shared_ptr<Decompressor> GetDecompressorForTypes(Slice types) override {
-    auto begin = types.data();
-    auto end = begin + types.size();
-    if (std::find(begin, end, static_cast<char>(kZSTD))) {
+  std::shared_ptr<Decompressor> GetDecompressorForTypes(
+      const CompressionType* types_begin,
+      const CompressionType* types_end) override {
+    if (std::find(types_begin, types_end, kZSTD)) {
       return GetZstdDecompressor();
     } else {
       return GetGeneralDecompressor();

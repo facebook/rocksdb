@@ -413,7 +413,7 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
 
   const Status s = table()->RetrieveBlock(
       prefetch_buffer, read_options, fltr_blk_handle,
-      /* dict */ nullptr, filter_block, get_context, lookup_context,
+      /* decomp */ nullptr, filter_block, get_context, lookup_context,
       /* for_compaction */ false, /* use_cache */ true,
       /* async_read */ false, /* use_block_cache_for_lookup */ true);
 

@@ -321,12 +321,11 @@ class BlockFetcherTest : public testing::Test {
     ReadFooter(file, &footer);
     auto mgr = GetBuiltinCompressionManager(
         GetCompressFormatForVersion(footer.format_version()));
-    std::unique_ptr<BlockFetcher> fetcher(
-        new BlockFetcher(file, nullptr /* prefetch_buffer */, footer, roptions,
-                         block, contents, ioptions, do_uncompress, compressed,
-                         block_type, mgr->GetDecompressor().get(),
-                         nullptr /*dict*/, persistent_cache_options,
-                         heap_buf_allocator, compressed_buf_allocator));
+    std::unique_ptr<BlockFetcher> fetcher(new BlockFetcher(
+        file, nullptr /* prefetch_buffer */, footer, roptions, block, contents,
+        ioptions, do_uncompress, compressed, block_type,
+        mgr->GetDecompressor().get(), persistent_cache_options,
+        heap_buf_allocator, compressed_buf_allocator));
 
     ASSERT_OK(fetcher->ReadBlockContents());
 

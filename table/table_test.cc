@@ -5677,11 +5677,11 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
 
       auto mgr = GetBuiltinCompressionManager(
           GetCompressFormatForVersion(footer.format_version()));
-      BlockFetcher block_fetcher(
-          file, nullptr /* prefetch_buffer */, footer, read_options_for_helper,
-          handle, contents, ioptions, false /* decompress */,
-          false /*maybe_compressed*/, block_type, mgr->GetDecompressor().get(),
-          nullptr /*dict*/, cache_options);
+      BlockFetcher block_fetcher(file, nullptr /* prefetch_buffer */, footer,
+                                 read_options_for_helper, handle, contents,
+                                 ioptions, false /* decompress */,
+                                 false /*maybe_compressed*/, block_type,
+                                 mgr->GetDecompressor().get(), cache_options);
 
       ASSERT_OK(block_fetcher.ReadBlockContents());
     };
@@ -5820,8 +5820,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
       table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
       metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
       false /*maybe_compressed*/, BlockType::kMetaIndex,
-      mgr->GetDecompressor().get(), nullptr /*dict*/, pcache_opts,
-      nullptr /*memory_allocator*/);
+      mgr->GetDecompressor().get(), pcache_opts, nullptr /*memory_allocator*/);
   ASSERT_OK(block_fetcher.ReadBlockContents());
   Block metaindex_block(std::move(metaindex_contents));
 
@@ -5904,8 +5903,7 @@ TEST_P(BlockBasedTableTest, SeekMetaBlocks) {
       table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
       metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
       false /*maybe_compressed*/, BlockType::kMetaIndex,
-      mgr->GetDecompressor().get(), nullptr /*dict*/, pcache_opts,
-      nullptr /*memory_allocator*/);
+      mgr->GetDecompressor().get(), pcache_opts, nullptr /*memory_allocator*/);
   ASSERT_OK(block_fetcher.ReadBlockContents());
   Block metaindex_block(std::move(metaindex_contents));
 

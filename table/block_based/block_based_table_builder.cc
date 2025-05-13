@@ -246,8 +246,15 @@ struct BlockBasedTableBuilder::Rep {
   // Once configured/determined, points to one of the above Compressors to
   // use on data blocks.
   Compressor* data_block_compressor = nullptr;
+  // When non-nullptr, compression should be verified with this corresponding
+  // decompressor, except when using dictionary compression.
   std::shared_ptr<Decompressor> verify_decompressor;
-  std::unique_ptr<DecompressorDict> verify_dict;
+  // When non-nullptr, a decompressor for verifying compression using a
+  // dictionary sampled/trained from this file.
+  std::unique_ptr<Decompressor> verify_decompressor_with_dict;
+  // Once configured/determined, points to one of the above Decompressors to use
+  // in verifying data blocks.
+  Decompressor* data_block_verify_decompressor = nullptr;
 
   // Working area for basic_compressor when compression_parallel_threads==1
   WorkingAreaPair basic_working_area;
@@ -487,15 +494,19 @@ struct BlockBasedTableBuilder::Rep {
         data_block_compressor = basic_compressor.get();
         for (uint32_t i = 0; i < compression_parallel_threads; i++) {
           data_block_working_areas[i].compress =
-              data_block_compressor->GetWorkingArea();
+              data_block_compressor->ObtainWorkingArea();
         }
       }
       if (table_options.verify_compression) {
         verify_decompressor =
             mgr->GetDecompressorOptimizeFor(tbo.compression_type);
-        for (uint32_t i = 0; i < compression_parallel_threads; i++) {
-          data_block_working_areas[i].verify =
-              verify_decompressor->GetWorkingArea(tbo.compression_type);
+        if (state == State::kUnbuffered) {
+          data_block_verify_decompressor = verify_decompressor.get();
+          for (uint32_t i = 0; i < compression_parallel_threads; i++) {
+            data_block_working_areas[i].verify =
+                data_block_verify_decompressor->ObtainWorkingArea(
+                    tbo.compression_type);
+          }
         }
       }
     }
@@ -1240,6 +1251,7 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
 
   CompressionType type = kNoCompression;
   if (uncompressed_block_data.size() < kCompressionSizeLimit) {
+    Decompressor* verify_decomp = nullptr;
     StopWatchNano timer(
         r->ioptions.clock,
         ShouldReportDetailedTime(r->ioptions.env, r->ioptions.stats));
@@ -1249,16 +1261,20 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
         *out_status = r->data_block_compressor->CompressBlock(
             uncompressed_block_data, compressed_output, &type,
             &working_area.compress);
+        verify_decomp = r->data_block_verify_decompressor;
       }
     } else {
       if (r->basic_compressor) {
         *out_status = r->basic_compressor->CompressBlock(
             uncompressed_block_data, compressed_output, &type,
             &working_area.compress);
+        verify_decomp = r->verify_decompressor.get();
       }
     }
     // Post-condition of Compressor::CompressBlock
     assert(type == kNoCompression || out_status->ok());
+    assert(type == kNoCompression ||
+           r->table_options.verify_compression == (verify_decomp != nullptr));
 
     // Check for acceptable compression ratio. (For efficiency, avoid floating
     // point and division.)
@@ -1274,14 +1290,11 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     // Some of the compression algorithms are known to be unreliable. If
     // the verify_compression flag is set then try to de-compress the
     // compressed data and compare to the input.
-    if (r->verify_decompressor && type != kNoCompression) {
+    if (verify_decomp && type != kNoCompression) {
       BlockContents contents;
-      Decompressor::DictArg* dict_arg =
-          is_data_block ? DecompressorDict::AsArg(r->verify_dict.get())
-                        : nullptr;
       Status uncompress_status = DecompressBlockData(
           compressed_output->data(), compressed_output->size(), type,
-          *r->verify_decompressor, dict_arg, &contents, r->ioptions,
+          *verify_decomp, &contents, r->ioptions,
           /*allocator=*/nullptr, &working_area.verify);
 
       if (uncompress_status.ok()) {
@@ -1939,12 +1952,27 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
                                  : r->basic_compressor.get();
   for (uint32_t i = 0; i < r->compression_parallel_threads; i++) {
     r->data_block_working_areas[i].compress =
-        r->data_block_compressor->GetWorkingArea();
+        r->data_block_compressor->ObtainWorkingArea();
   }
   Slice serialized_dict = r->data_block_compressor->GetSerializedDict();
   if (!serialized_dict.empty() && r->verify_decompressor) {
-    r->verify_dict = std::make_unique<DecompressorDict>(
-        serialized_dict, CacheAllocationPtr{}, *r->verify_decompressor);
+    // Get an updated dictionary-aware decompressor for verification.
+    Status s = r->verify_decompressor->MaybeCloneForDict(
+        serialized_dict, &r->verify_decompressor_with_dict);
+    // Dictionary support must be present on the decompressor side if it's on
+    // the compressor side.
+    assert(r->verify_decompressor_with_dict);
+    if (r->verify_decompressor_with_dict) {
+      r->data_block_verify_decompressor =
+          r->verify_decompressor_with_dict.get();
+      for (uint32_t i = 0; i < r->compression_parallel_threads; i++) {
+        r->data_block_working_areas[i].verify =
+            r->data_block_verify_decompressor->ObtainWorkingArea(
+                r->data_block_compressor->GetPreferredCompressionType());
+      }
+    } else {
+      r->SetStatus(s);
+    }
   }
 
   auto get_iterator_for_block = [&r](size_t i) {

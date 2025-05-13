@@ -211,10 +211,9 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
     UncompressionContext context(compression);
     UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
                            compression);
-    s = DecompressBlockData(slice.data() + key_size,
-                            static_cast<size_t>(value_size), compression,
-                            BlobDecompressor(), nullptr /*dict*/, &contents,
-                            ImmutableOptions(Options()));
+    s = DecompressBlockData(
+        slice.data() + key_size, static_cast<size_t>(value_size), compression,
+        BlobDecompressor(), &contents, ImmutableOptions(Options()));
     if (!s.ok()) {
       return s;
     }

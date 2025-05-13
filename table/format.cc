@@ -693,7 +693,6 @@ Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
 
 Status DecompressBlockData(const char* data, size_t size, CompressionType type,
                            Decompressor& decompressor,
-                           UnownedPtr<const Decompressor::DictArg> dict,
                            BlockContents* out_contents,
                            const ImmutableOptions& ioptions,
                            MemoryAllocator* allocator,
@@ -701,7 +700,6 @@ Status DecompressBlockData(const char* data, size_t size, CompressionType type,
   Decompressor::Args args;
   args.compressed_data = Slice(data, size);
   args.compression_type = type;
-  args.dict = dict.get();
   args.working_area = working_area;
   return DecompressBlockData(args, decompressor, out_contents, ioptions,
                              allocator);
@@ -710,13 +708,12 @@ Status DecompressBlockData(const char* data, size_t size, CompressionType type,
 Status DecompressSerializedBlock(const char* data, size_t size,
                                  CompressionType type,
                                  Decompressor& decompressor,
-                                 UnownedPtr<const Decompressor::DictArg> dict,
                                  BlockContents* out_contents,
                                  const ImmutableOptions& ioptions,
                                  MemoryAllocator* allocator) {
   assert(data[size] != kNoCompression);
   assert(data[size] == static_cast<char>(type));
-  return DecompressBlockData(data, size, type, decompressor, dict, out_contents,
+  return DecompressBlockData(data, size, type, decompressor, out_contents,
                              ioptions, allocator);
 }
 

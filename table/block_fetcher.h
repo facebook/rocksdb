@@ -47,7 +47,6 @@ class BlockFetcher {
                const ImmutableOptions& ioptions /* ref retained */,
                bool do_uncompress, bool maybe_compressed, BlockType block_type,
                UnownedPtr<Decompressor> decompressor,
-               UnownedPtr<const DecompressorDict> _dict,
                const PersistentCacheOptions& cache_options /* ref retained */,
                MemoryAllocator* memory_allocator = nullptr,
                MemoryAllocator* memory_allocator_compressed = nullptr,
@@ -69,7 +68,6 @@ class BlockFetcher {
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
         for_compaction_(for_compaction) {
-    decomp_args_.dict = DecompressorDict::AsArg(_dict);
     io_status_.PermitUncheckedError();  // TODO(AR) can we improve on this?
     if (CheckFSFeatureSupport(ioptions_.fs.get(), FSSupportedOps::kFSBuffer)) {
       use_fs_scratch_ = true;

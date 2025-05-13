@@ -1185,10 +1185,9 @@ Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
   {
     StopWatch decompression_sw(clock_, statistics_,
                                BLOB_DB_DECOMPRESSION_MICROS);
-    Status s = DecompressBlockData(compressed_value.data(),
-                                   compressed_value.size(), compression_type,
-                                   BlobDecompressor(), /*dict*/ nullptr,
-                                   &contents, cfh->cfd()->ioptions());
+    Status s = DecompressBlockData(
+        compressed_value.data(), compressed_value.size(), compression_type,
+        BlobDecompressor(), &contents, cfh->cfd()->ioptions());
     if (!s.ok()) {
       return Status::Corruption("Unable to decompress blob.");
     }

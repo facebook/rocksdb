@@ -88,9 +88,8 @@ struct BlockCreateContext : public Cache::CreateContext {
   const BlockBasedTableOptions* table_options = nullptr;
   const ImmutableOptions* ioptions = nullptr;
   Statistics* statistics = nullptr;
-  Decompressor* decompressor = nullptr;
   // TODO: refactor to avoid copying BlockCreateContext for dict in block cache
-  const Decompressor::DictArg* dict = nullptr;
+  Decompressor* decompressor = nullptr;
   const Comparator* raw_ucmp = nullptr;
   uint8_t protection_bytes_per_key = 0;
   bool index_value_is_full;
@@ -104,9 +103,9 @@ struct BlockCreateContext : public Cache::CreateContext {
     BlockContents uncompressed_block_contents;
     if (type != CompressionType::kNoCompression) {
       assert(decompressor != nullptr);
-      Status s = DecompressBlockData(
-          data.data(), data.size(), type, *decompressor, dict,
-          &uncompressed_block_contents, *ioptions, alloc);
+      Status s =
+          DecompressBlockData(data.data(), data.size(), type, *decompressor,
+                              &uncompressed_block_contents, *ioptions, alloc);
       if (!s.ok()) {
         parsed_out->reset();
         return;

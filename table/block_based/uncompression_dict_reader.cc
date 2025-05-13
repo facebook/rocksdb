@@ -60,7 +60,7 @@ Status UncompressionDictReader::ReadUncompressionDictionary(
 
   const Status s = table->RetrieveBlock(
       prefetch_buffer, read_options, rep->compression_dict_handle,
-      /* dict */ nullptr, uncompression_dict, get_context, lookup_context,
+      /* decomp */ nullptr, uncompression_dict, get_context, lookup_context,
       /* for_compaction */ false, use_cache,
       /* async_read */ false, /* use_block_cache_for_lookup */ true);
 
