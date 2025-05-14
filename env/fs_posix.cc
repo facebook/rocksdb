@@ -717,7 +717,8 @@ class PosixFileSystem : public FileSystem {
                                           : "Links not supported by FS");
       }
       if (errno == EPERM && IsProtectedHardLinksEnabled()) {
-        return IOStatus::NotSupported("Cannot hard-link non-owned file: protected_hardlinks enabled");
+        return IOStatus::NotSupported(
+          "Cannot hard-link non-owned file: protected_hardlinks enabled");
       }
       return IOError("while link file to " + target, src, errno);
     }
