@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
+#include <iostream>
 #include <string>
 
 #include "file/filename.h"
@@ -77,6 +78,10 @@ IOStatus GenerateOneFileChecksum(
 
 inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
                                          SystemClock* clock, IOOptions& opts) {
+  if (ro.request_id != nullptr && opts.request_id == nullptr) {
+    opts.request_id = ro.request_id;
+    std::cout << "Plumbing request_id";
+  }
   if (ro.deadline.count()) {
     std::chrono::microseconds now =
         std::chrono::microseconds(clock->NowMicros());

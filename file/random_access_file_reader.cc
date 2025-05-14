@@ -111,6 +111,8 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
   const Env::IOPriority rate_limiter_priority = opts.rate_limiter_priority;
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
+  TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read:IOOptions",
+                           const_cast<void*>(static_cast<const void*>(&opts)));
 
   // To be paranoid: modify scratch a little bit, so in case underlying
   // FileSystem doesn't fill the buffer but return success and `scratch` returns

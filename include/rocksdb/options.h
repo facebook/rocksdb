@@ -1756,6 +1756,15 @@ struct ScanOptions {
 
 // Options that control read operations
 struct ReadOptions {
+  // *** BEGIN options for logging across Application/RocksDB/Filesystem use
+  // only ***
+
+  // request_id a unique id assigned by the application. It used to allow us to
+  // link file system metrics/logs to rocksDB and application logs.
+  const std::string* request_id = nullptr;
+  // *** END options for logging across Application/RocksDB/Filesystem use only
+  // ***
+
   // *** BEGIN options relevant to point lookups as well as scans ***
 
   // If "snapshot" is non-nullptr, read as of the supplied snapshot
@@ -2053,9 +2062,12 @@ struct ReadOptions {
 
   // *** END options for RocksDB internal use only ***
 
-  ReadOptions() {}
-  ReadOptions(bool _verify_checksums, bool _fill_cache);
-  explicit ReadOptions(Env::IOActivity _io_activity);
+  ReadOptions(){};
+  ReadOptions(const std::string* _request_id);
+  ReadOptions(bool _verify_checksums, bool _fill_cache,
+              const std::string* _request_id = nullptr);
+  explicit ReadOptions(Env::IOActivity _io_activity,
+                       const std::string* _request_id = nullptr);
 };
 
 // Options that control write operations

@@ -144,6 +144,41 @@ TEST_F(DBTest, MockEnvTest) {
   delete db;
 }
 
+TEST_F(DBTest, RequestIdPlumbingTest) {
+  // test that request_id makes it all the way to the file system from
+  // ReadOptions to IOOptions
+  Options options = CurrentOptions();
+  options.env = env_;
+
+  // Create a mock environment to capture IOOptions during reads
+  const std::string* captured_request_id;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::Read:IOOptions", [&](void* arg) {
+        const IOOptions* io_opts = static_cast<IOOptions*>(arg);
+        captured_request_id = io_opts->request_id;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  DestroyAndReopen(options);
+
+  // Write a key to ensure it's flushed to disk
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  // Perform a read with a specific request_id
+  const std::string test_request_id = "test_request_id_123";
+  ReadOptions read_opts;
+  read_opts.request_id = &test_request_id;
+  std::string value;
+  ASSERT_OK(db_->Get(read_opts, "foo", &value));
+
+  // Verify the request_id was propagated to the file system
+  ASSERT_EQ(*captured_request_id, test_request_id);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(DBTest, MemEnvTest) {
   std::unique_ptr<Env> env{NewMemEnv(Env::Default())};
   Options options;

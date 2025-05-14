@@ -85,6 +85,8 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   for (Env::IOPriority rate_limiter_priority : {Env::IO_LOW, Env::IO_TOTAL}) {
     IOOptions io_opts;
     io_opts.rate_limiter_priority = rate_limiter_priority;
+    const std::string request_id = "test-req-id-123";
+    io_opts.request_id = &request_id;
     ASSERT_OK(r->Read(io_opts, offset, len, &result, nullptr, &buf));
     ASSERT_EQ(result.ToString(), content.substr(offset, len));
   }

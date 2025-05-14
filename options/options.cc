@@ -684,11 +684,18 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
   return this;
 }
 
-ReadOptions::ReadOptions(bool _verify_checksums, bool _fill_cache)
-    : verify_checksums(_verify_checksums), fill_cache(_fill_cache) {}
+ReadOptions::ReadOptions(bool _verify_checksums, bool _fill_cache,
+                         const std::string* _request_id)
+    : request_id(_request_id),
+      verify_checksums(_verify_checksums),
+      fill_cache(_fill_cache) {}
 
-ReadOptions::ReadOptions(Env::IOActivity _io_activity)
-    : io_activity(_io_activity) {}
+ReadOptions::ReadOptions(Env::IOActivity _io_activity,
+                         const std::string* _request_id)
+    : request_id(_request_id), io_activity(_io_activity) {}
+
+ReadOptions::ReadOptions(const std::string* _request_id)
+    : request_id(_request_id) {}
 
 WriteOptions::WriteOptions(Env::IOActivity _io_activity)
     : io_activity(_io_activity) {}

@@ -3553,6 +3553,22 @@ class TestAsyncRead : public testing::Test {
   Env* env_;
 };
 
+class TestIOOptions : public testing::Test {
+ public:
+  TestIOOptions() { env_ = Env::Default(); }
+  Env* env_;
+};
+
+TEST_F(TestIOOptions, PopulateRequestIdInIOOptions) {
+  const IOOptions opts;
+  ASSERT_EQ(opts.request_id, nullptr);
+
+  const std::string request_id = "1234567890";
+  const IOOptions opts_with_request_id(true, &request_id);
+  ASSERT_EQ(opts_with_request_id.request_id, &request_id);
+  ASSERT_EQ(*opts_with_request_id.request_id, request_id);
+}
+
 // Tests the default implementation of ReadAsync API.
 TEST_F(TestAsyncRead, ReadAsync) {
   EnvOptions soptions;

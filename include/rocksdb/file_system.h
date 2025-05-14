@@ -142,6 +142,10 @@ struct IOOptions {
   // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
 
+  // request_id a unique id assigned by the application. It used to allow us to
+  // link file system metrics/logs to rocksDB and application logs.
+  const std::string* request_id;
+
   IOOptions() : IOOptions(false) {}
 
   explicit IOOptions(bool force_dir_fsync_)
@@ -151,7 +155,21 @@ struct IOOptions {
         type(IOType::kUnknown),
         force_dir_fsync(force_dir_fsync_),
         do_not_recurse(false),
-        verify_and_reconstruct_read(false) {}
+        verify_and_reconstruct_read(false),
+        request_id(nullptr) {}
+
+  explicit IOOptions(bool force_dir_fsync_, const std::string* request_id_)
+      : timeout(std::chrono::microseconds::zero()),
+        prio(IOPriority::kIOLow),
+        rate_limiter_priority(Env::IO_TOTAL),
+        type(IOType::kUnknown),
+        force_dir_fsync(force_dir_fsync_),
+        do_not_recurse(false),
+        verify_and_reconstruct_read(false),
+        request_id(request_id_) {}
+
+  explicit IOOptions(const std::string* request_id_)
+      : request_id(request_id_) {}
 };
 
 struct DirFsyncOptions {
@@ -230,8 +248,9 @@ struct IODebugContext {
   // To be set by the FileSystem implementation
   std::string msg;
 
-  // To be set by the underlying FileSystem implementation.
-  std::string request_id;
+  // To be set by the application, to allow tracing logs/metrics from user ->
+  // RocksDB -> FS.
+  const std::string* request_id;
 
   // In order to log required information in IO tracing for different
   // operations, Each bit in trace_data stores which corresponding info from
@@ -255,7 +274,7 @@ struct IODebugContext {
 
   // Called by underlying file system to set request_id and log request_id in
   // IOTracing.
-  void SetRequestId(const std::string& _request_id) {
+  void SetRequestId(const std::string* _request_id) {
     request_id = _request_id;
     trace_data |= (1 << TraceData::kRequestID);
   }
