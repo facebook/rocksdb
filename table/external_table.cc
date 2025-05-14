@@ -388,7 +388,9 @@ class ExternalTableFactoryAdapter : public TableFactory {
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t /* file_size */,
       std::unique_ptr<TableReader>* table_reader,
       bool /* prefetch_index_and_filter_in_cache */) const override {
-    if (topts.largest_seqno > 0) {
+    // SstFileReader specifies largest_seqno as kMaxSequenceNumber to denote
+    // that its unknown
+    if (topts.largest_seqno > 0 && topts.largest_seqno != kMaxSequenceNumber) {
       return Status::NotSupported(
           "Ingesting file with sequence number larger than 0");
     }
