@@ -3051,6 +3051,9 @@ size_t rocksdb_compactionjobinfo_input_files_count(
 
 const char* rocksdb_compactionjobinfo_input_file_at(
     const rocksdb_compactionjobinfo_t* info, size_t pos, size_t* size) {
+  assert(info != nullptr);
+  assert(pos < info->rep.input_files.size());
+
   const std::string& path = info->rep.input_files[pos];
   *size = path.size();
   return path.data();
@@ -3063,6 +3066,9 @@ size_t rocksdb_compactionjobinfo_output_files_count(
 
 const char* rocksdb_compactionjobinfo_output_file_at(
     const rocksdb_compactionjobinfo_t* info, size_t pos, size_t* size) {
+  assert(info != nullptr);
+  assert(pos < info->rep.output_files.size());
+
   const std::string& path = info->rep.output_files[pos];
   *size = path.size();
   return path.data();
@@ -3207,80 +3213,90 @@ uint64_t rocksdb_memtableinfo_num_deletes(const rocksdb_memtableinfo_t* info) {
 /* event listener */
 
 struct rocksdb_eventlistener_t : public EventListener {
-  void* state_;
-  void (*destructor_)(void*);
-  void (*on_flush_begin)(void*, rocksdb_t*, const rocksdb_flushjobinfo_t*);
-  void (*on_flush_completed)(void*, rocksdb_t*, const rocksdb_flushjobinfo_t*);
+  void* state_{};
+  void (*destructor_)(void*){};
+  void (*on_flush_begin)(void*, rocksdb_t*, const rocksdb_flushjobinfo_t*){};
+  void (*on_flush_completed)(void*, rocksdb_t*,
+                             const rocksdb_flushjobinfo_t*){};
   void (*on_compaction_begin)(void*, rocksdb_t*,
-                              const rocksdb_compactionjobinfo_t*);
+                              const rocksdb_compactionjobinfo_t*){};
   void (*on_compaction_completed)(void*, rocksdb_t*,
-                                  const rocksdb_compactionjobinfo_t*);
-  void (*on_subcompaction_begin)(void*, const rocksdb_subcompactionjobinfo_t*);
+                                  const rocksdb_compactionjobinfo_t*){};
+  void (*on_subcompaction_begin)(void*,
+                                 const rocksdb_subcompactionjobinfo_t*){};
   void (*on_subcompaction_completed)(void*,
-                                     const rocksdb_subcompactionjobinfo_t*);
-  void (*on_external_file_ingested)(void*, rocksdb_t*,
-                                    const rocksdb_externalfileingestioninfo_t*);
-  void (*on_background_error)(void*, uint32_t, rocksdb_status_ptr_t*);
-  void (*on_stall_conditions_changed)(void*, const rocksdb_writestallinfo_t*);
-  void (*on_memtable_sealed)(void*, const rocksdb_memtableinfo_t*);
+                                     const rocksdb_subcompactionjobinfo_t*){};
+  void (*on_external_file_ingested)(
+      void*, rocksdb_t*, const rocksdb_externalfileingestioninfo_t*){};
+  void (*on_background_error)(void*, uint32_t, rocksdb_status_ptr_t*){};
+  void (*on_stall_conditions_changed)(void*, const rocksdb_writestallinfo_t*){};
+  void (*on_memtable_sealed)(void*, const rocksdb_memtableinfo_t*){};
 
-  virtual void OnFlushBegin(DB* db, const FlushJobInfo& info) {
+  rocksdb_eventlistener_t() = default;
+
+  rocksdb_eventlistener_t(const rocksdb_eventlistener_t&) = delete;
+  rocksdb_eventlistener_t& operator=(const rocksdb_eventlistener_t&) = delete;
+  rocksdb_eventlistener_t(rocksdb_eventlistener_t&&) = delete;
+  rocksdb_eventlistener_t& operator=(rocksdb_eventlistener_t&&) = delete;
+
+  void OnFlushBegin(DB* db, const FlushJobInfo& info) override {
     rocksdb_t c_db = {db};
     on_flush_begin(state_, &c_db,
                    reinterpret_cast<const rocksdb_flushjobinfo_t*>(&info));
   }
 
-  virtual void OnFlushCompleted(DB* db, const FlushJobInfo& info) {
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
     rocksdb_t c_db = {db};
     on_flush_completed(state_, &c_db,
                        reinterpret_cast<const rocksdb_flushjobinfo_t*>(&info));
   }
 
-  virtual void OnCompactionBegin(DB* db, const CompactionJobInfo& info) {
+  void OnCompactionBegin(DB* db, const CompactionJobInfo& info) override {
     rocksdb_t c_db = {db};
     on_compaction_begin(
         state_, &c_db,
         reinterpret_cast<const rocksdb_compactionjobinfo_t*>(&info));
   }
 
-  virtual void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) {
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
     rocksdb_t c_db = {db};
     on_compaction_completed(
         state_, &c_db,
         reinterpret_cast<const rocksdb_compactionjobinfo_t*>(&info));
   }
 
-  virtual void OnSubcompactionBegin(const SubcompactionJobInfo& info) {
+  void OnSubcompactionBegin(const SubcompactionJobInfo& info) override {
     on_subcompaction_begin(
         state_, reinterpret_cast<const rocksdb_subcompactionjobinfo_t*>(&info));
   }
 
-  virtual void OnSubcompactionCompleted(const SubcompactionJobInfo& info) {
+  void OnSubcompactionCompleted(const SubcompactionJobInfo& info) override {
     on_subcompaction_completed(
         state_, reinterpret_cast<const rocksdb_subcompactionjobinfo_t*>(&info));
   }
 
-  virtual void OnExternalFileIngested(DB* db,
-                                      const ExternalFileIngestionInfo& info) {
+  void OnExternalFileIngested(DB* db,
+                              const ExternalFileIngestionInfo& info) override {
     rocksdb_t c_db = {db};
     on_external_file_ingested(
         state_, &c_db,
         reinterpret_cast<const rocksdb_externalfileingestioninfo_t*>(&info));
   }
 
-  virtual void OnBackgroundError(BackgroundErrorReason reason, Status* status) {
+  void OnBackgroundError(BackgroundErrorReason reason,
+                         Status* status) override {
     rocksdb_status_ptr_t* s = new rocksdb_status_ptr_t;
     s->rep = status;
     on_background_error(state_, static_cast<uint32_t>(reason), s);
     delete s;
   }
 
-  virtual void OnStallConditionsChanged(const WriteStallInfo& info) {
+  void OnStallConditionsChanged(const WriteStallInfo& info) override {
     on_stall_conditions_changed(
         state_, reinterpret_cast<const rocksdb_writestallinfo_t*>(&info));
   }
 
-  virtual void OnMemTableSealed(const MemTableInfo& info) {
+  void OnMemTableSealed(const MemTableInfo& info) override {
     on_memtable_sealed(state_,
                        reinterpret_cast<const rocksdb_memtableinfo_t*>(&info));
   }
