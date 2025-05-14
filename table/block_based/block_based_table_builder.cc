@@ -328,6 +328,10 @@ struct BlockBasedTableBuilder::Rep {
   // all blocks after data blocks till the end of the SST file.
   uint64_t tail_size;
 
+  // The total size of all blocks in this file before they are compressed.
+  // This is used for logging compaction stats.
+  uint64_t pre_compression_size = 0;
+
   // See class Footer
   uint32_t base_context_checksum;
 
@@ -1443,6 +1447,8 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
     }
   }
 
+  r->pre_compression_size +=
+      uncompressed_block_data->size() + kBlockTrailerSize;
   r->set_offset(r->get_offset() + block_contents.size() + kBlockTrailerSize);
   if (r->table_options.block_align && is_data_block) {
     size_t pad_bytes =
@@ -1452,6 +1458,7 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
 
     io_s = r->file->Pad(io_options, pad_bytes);
     if (io_s.ok()) {
+      r->pre_compression_size += pad_bytes;
       r->set_offset(r->get_offset() + pad_bytes);
     } else {
       r->SetIOStatus(io_s);
@@ -1889,6 +1896,7 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   }
   ios = r->file->Append(io_options, footer.GetSlice());
   if (ios.ok()) {
+    r->pre_compression_size += footer.GetSlice().size();
     r->set_offset(r->get_offset() + footer.GetSlice().size());
   } else {
     r->SetIOStatus(ios);
@@ -2139,6 +2147,10 @@ uint64_t BlockBasedTableBuilder::NumEntries() const {
 
 bool BlockBasedTableBuilder::IsEmpty() const {
   return rep_->props.num_entries == 0 && rep_->props.num_range_deletions == 0;
+}
+
+uint64_t BlockBasedTableBuilder::PreCompressionSize() const {
+  return rep_->pre_compression_size;
 }
 
 uint64_t BlockBasedTableBuilder::FileSize() const { return rep_->offset; }

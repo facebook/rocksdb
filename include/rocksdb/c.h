@@ -987,11 +987,22 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_writebatch_wi_get_from_batch_and_db(
     rocksdb_writebatch_wi_t* wbwi, rocksdb_t* db,
     const rocksdb_readoptions_t* options, const char* key, size_t keylen,
     size_t* vallen, char** errptr);
+extern ROCKSDB_LIBRARY_API rocksdb_pinnableslice_t*
+rocksdb_writebatch_wi_get_pinned_from_batch_and_db(
+    rocksdb_writebatch_wi_t* wbwi, rocksdb_t* db,
+    const rocksdb_readoptions_t* options, const char* key, size_t keylen,
+    char** errptr);
 extern ROCKSDB_LIBRARY_API char* rocksdb_writebatch_wi_get_from_batch_and_db_cf(
     rocksdb_writebatch_wi_t* wbwi, rocksdb_t* db,
     const rocksdb_readoptions_t* options,
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, size_t* vallen, char** errptr);
+extern ROCKSDB_LIBRARY_API rocksdb_pinnableslice_t*
+rocksdb_writebatch_wi_get_pinned_from_batch_and_db_cf(
+    rocksdb_writebatch_wi_t* wbwi, rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_write_writebatch_wi(
     rocksdb_t* db, const rocksdb_writeoptions_t* options,
     rocksdb_writebatch_wi_t* wbwi, char** errptr);
@@ -1883,7 +1894,8 @@ enum {
   rocksdb_blob_decompress_time,
   rocksdb_internal_range_del_reseek_count,
   rocksdb_block_read_cpu_time,
-  rocksdb_total_metric_count = 79
+  rocksdb_internal_merge_point_lookup_count,
+  rocksdb_total_metric_count = 80
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);

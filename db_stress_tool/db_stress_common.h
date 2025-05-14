@@ -418,6 +418,7 @@ DECLARE_uint32(uncache_aggressiveness);
 DECLARE_int32(test_ingest_standalone_range_deletion_one_in);
 DECLARE_bool(allow_unprepared_value);
 DECLARE_string(file_temperature_age_thresholds);
+DECLARE_bool(allow_trivial_copy_when_change_temperature);
 DECLARE_uint32(commit_bypass_memtable_one_in);
 DECLARE_bool(track_and_verify_wals);
 DECLARE_bool(enable_remote_compaction);

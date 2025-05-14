@@ -301,7 +301,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
              OptionTypeInfo::Struct("file_temperature_age_thresholds",
                                     &file_temperature_age_type_info, 0,
                                     OptionVerificationType::kNormal,
-                                    OptionTypeFlags::kMutable))}};
+                                    OptionTypeFlags::kMutable))},
+        {"allow_trivial_copy_when_change_temperature",
+         {offsetof(struct CompactionOptionsFIFO,
+                   allow_trivial_copy_when_change_temperature),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"trivial_copy_buffer_size",
+         {offsetof(struct CompactionOptionsFIFO, trivial_copy_buffer_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     universal_compaction_options_type_info = {
