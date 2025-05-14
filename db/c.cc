@@ -2632,12 +2632,33 @@ rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base(
   return result;
 }
 
+rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_readopts(
+    rocksdb_writebatch_wi_t* wbwi, rocksdb_iterator_t* base_iterator,
+    const rocksdb_readoptions_t* options) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep =
+      wbwi->rep->NewIteratorWithBase(base_iterator->rep, &options->rep);
+  delete base_iterator;
+  return result;
+}
+
 rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_cf(
     rocksdb_writebatch_wi_t* wbwi, rocksdb_iterator_t* base_iterator,
     rocksdb_column_family_handle_t* column_family) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;
   result->rep =
       wbwi->rep->NewIteratorWithBase(column_family->rep, base_iterator->rep);
+  delete base_iterator;
+  return result;
+}
+
+rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_cf_readopts(
+    rocksdb_writebatch_wi_t* wbwi, rocksdb_iterator_t* base_iterator,
+    rocksdb_column_family_handle_t* column_family,
+    const rocksdb_readoptions_t* options) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep = wbwi->rep->NewIteratorWithBase(
+      column_family->rep, base_iterator->rep, &options->rep);
   delete base_iterator;
   return result;
 }
@@ -2701,6 +2722,23 @@ char* rocksdb_writebatch_wi_get_from_batch_and_db(
   return result;
 }
 
+rocksdb_pinnableslice_t* rocksdb_writebatch_wi_get_pinned_from_batch_and_db(
+    rocksdb_writebatch_wi_t* wbwi, rocksdb_t* db,
+    const rocksdb_readoptions_t* options, const char* key, size_t keylen,
+    char** errptr) {
+  rocksdb_pinnableslice_t* v = new (rocksdb_pinnableslice_t);
+  Status s = wbwi->rep->GetFromBatchAndDB(db->rep, options->rep,
+                                          Slice(key, keylen), &v->rep);
+  if (!s.ok()) {
+    delete (v);
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+    return nullptr;
+  }
+  return v;
+}
+
 char* rocksdb_writebatch_wi_get_from_batch_and_db_cf(
     rocksdb_writebatch_wi_t* wbwi, rocksdb_t* db,
     const rocksdb_readoptions_t* options,
@@ -2720,6 +2758,24 @@ char* rocksdb_writebatch_wi_get_from_batch_and_db_cf(
     }
   }
   return result;
+}
+
+rocksdb_pinnableslice_t* rocksdb_writebatch_wi_get_pinned_from_batch_and_db_cf(
+    rocksdb_writebatch_wi_t* wbwi, rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr) {
+  rocksdb_pinnableslice_t* v = new (rocksdb_pinnableslice_t);
+  Status s = wbwi->rep->GetFromBatchAndDB(
+      db->rep, options->rep, column_family->rep, Slice(key, keylen), &v->rep);
+  if (!s.ok()) {
+    delete (v);
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+    return nullptr;
+  }
+  return v;
 }
 
 void rocksdb_write_writebatch_wi(rocksdb_t* db,
@@ -4337,6 +4393,8 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->internal_recent_skipped_count;
     case rocksdb_internal_merge_count:
       return rep->internal_merge_count;
+    case rocksdb_internal_merge_point_lookup_count:
+      return rep->internal_merge_point_lookup_count;
     case rocksdb_get_snapshot_time:
       return rep->get_snapshot_time;
     case rocksdb_get_from_memtable_time:

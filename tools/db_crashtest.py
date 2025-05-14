@@ -616,6 +616,7 @@ tiered_params = {
             "{{temperature=kCold;age=100}}",
         ]
     ),
+    "allow_trivial_copy_when_change_temperature": lambda: random.choice([0, 1]),
     # tiered storage doesn't support blob db yet
     "enable_blob_files": 0,
     "use_blob_db": 0,
