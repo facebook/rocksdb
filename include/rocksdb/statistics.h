@@ -679,6 +679,9 @@ enum Histograms : uint32_t {
   // system's prefetch) from the end of SST table during block based table open
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
 
+  // Number of operations per transaction.
+  NUM_OP_PER_TRANSACTION,
+
   HISTOGRAM_ENUM_MAX
 };
 
