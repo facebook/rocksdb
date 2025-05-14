@@ -929,6 +929,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                /*min_prep_log=*/log_ref, last_sequence,
                                /*memtable_updated=*/memtable_update_count > 0,
                                write_options.ignore_missing_column_families);
+      RecordTick(stats_, NUMBER_WBWI_INGEST);
     }
   }
 

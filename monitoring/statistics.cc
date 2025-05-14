@@ -272,6 +272,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.file.read.corruption.retry.count"},
     {FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT,
      "rocksdb.file.read.corruption.retry.success.count"},
+    {NUMBER_WBWI_INGEST, "rocksdb.number.wbwi.ingest"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

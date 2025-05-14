@@ -536,6 +536,12 @@ enum Tickers : uint32_t {
   FILE_READ_CORRUPTION_RETRY_COUNT,
   FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT,
 
+  // Counter for the number of times a WBWI is ingested into the DB. This
+  // happens when IngestWriteBatchWithIndex() is used and when large
+  // transaction optimization is enabled through
+  // TransactionOptions::large_txn_commit_optimize_threshold.
+  NUMBER_WBWI_INGEST,
+
   TICKER_ENUM_MAX
 };
 
