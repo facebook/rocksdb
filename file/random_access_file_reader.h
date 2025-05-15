@@ -184,7 +184,8 @@ class RandomAccessFileReader {
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 
-  IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts) const;
+  IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts,
+                            IODebugContext* dbg = nullptr) const;
 
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
                      std::function<void(FSReadRequest&, void*)> cb,

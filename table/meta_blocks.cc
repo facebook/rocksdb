@@ -567,8 +567,9 @@ Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
                                 Footer* footer_out) {
   Footer footer;
   IOOptions opts;
+  IODebugContext dbg;
   Status s;
-  s = file->PrepareIOOptions(read_options, opts);
+  s = file->PrepareIOOptions(read_options, opts, &dbg);
   if (!s.ok()) {
     return s;
   }

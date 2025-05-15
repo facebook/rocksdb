@@ -230,7 +230,7 @@ IOStatus GenerateOneFileChecksum(
   Slice slice;
   uint64_t offset = 0;
   IOOptions opts;
-  io_s = reader->PrepareIOOptions(read_options, opts);
+  io_s = reader->PrepareIOOptions(read_options, opts, nullptr);
   if (!io_s.ok()) {
     return io_s;
   }

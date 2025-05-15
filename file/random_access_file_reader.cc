@@ -422,6 +422,9 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
           remaining_bytes -= request_bytes;
         }
       }
+      TEST_SYNC_POINT_CALLBACK(
+          "RandomAccessFileReader::MultiRead:IOOptions",
+          const_cast<void*>(static_cast<const void*>(&opts)));
       io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts,
                               /*IODebugContext*=*/nullptr);
       RecordInHistogram(stats_, MULTIGET_IO_BATCH_SIZE, num_fs_reqs);
@@ -477,11 +480,13 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
 }
 
 IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
-                                                  IOOptions& opts) const {
+                                                  IOOptions& opts,
+                                                  IODebugContext* dbg) const {
   if (clock_ != nullptr) {
-    return PrepareIOFromReadOptions(ro, clock_, opts);
+    return PrepareIOFromReadOptions(ro, clock_, opts, dbg);
   } else {
-    return PrepareIOFromReadOptions(ro, SystemClock::Default().get(), opts);
+    return PrepareIOFromReadOptions(ro, SystemClock::Default().get(), opts,
+                                    dbg);
   }
 }
 

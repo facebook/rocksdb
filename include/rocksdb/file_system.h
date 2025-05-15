@@ -250,7 +250,7 @@ struct IODebugContext {
 
   // To be set by the application, to allow tracing logs/metrics from user ->
   // RocksDB -> FS.
-  const std::string* request_id;
+  const std::string* request_id = nullptr;
 
   // In order to log required information in IO tracing for different
   // operations, Each bit in trace_data stores which corresponding info from

@@ -246,7 +246,8 @@ inline void BlockFetcher::GetBlockContents() {
 void BlockFetcher::ReadBlock(bool retry) {
   FSReadRequest read_req;
   IOOptions opts;
-  io_status_ = file_->PrepareIOOptions(read_options_, opts);
+  IODebugContext dbg;
+  io_status_ = file_->PrepareIOOptions(read_options_, opts, &dbg);
   opts.verify_and_reconstruct_read = retry;
   read_req.status.PermitUncheckedError();
   // Actual file read
@@ -419,7 +420,8 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
     assert(prefetch_buffer_ != nullptr);
     if (!for_compaction_) {
       IOOptions opts;
-      IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
+      IODebugContext dbg;
+      IOStatus io_s = file_->PrepareIOOptions(read_options_, opts, &dbg);
       if (!io_s.ok()) {
         return io_s;
       }

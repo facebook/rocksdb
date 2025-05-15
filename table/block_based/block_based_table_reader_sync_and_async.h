@@ -138,7 +138,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
   AlignedBuf direct_io_buf;
   {
     IOOptions opts;
-    IOStatus s = file->PrepareIOOptions(options, opts);
+    IODebugContext dbg;
+    IOStatus s = file->PrepareIOOptions(options, opts, &dbg);
     if (s.ok()) {
 #if defined(WITH_COROUTINES)
       if (file->use_direct_io()) {
@@ -240,7 +241,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
           // its not a memory mapped file
           Slice result;
           IOOptions opts;
-          IOStatus io_s = file->PrepareIOOptions(options, opts);
+          IODebugContext dbg;
+          IOStatus io_s = file->PrepareIOOptions(options, opts, &dbg);
           opts.verify_and_reconstruct_read = true;
           io_s = file->Read(opts, handle.offset(), BlockSizeWithTrailer(handle),
                             &result, const_cast<char*>(data), nullptr);
