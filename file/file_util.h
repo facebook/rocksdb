@@ -84,6 +84,7 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
       opts.request_id = ro.request_id;
     }
     if (dbg != nullptr && dbg->request_id == nullptr) {
+      // dbg->request_id = ro.request_id;
       dbg->SetRequestId(opts.request_id);
     }
   }

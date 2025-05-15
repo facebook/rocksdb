@@ -151,11 +151,22 @@ TEST_F(DBTest, RequestIdPlumbingTest) {
   options.env = env_;
 
   // Create a mock environment to capture IOOptions during reads
-  const std::string* captured_request_id;
+  const std::string* captured_request_id_io_opts;
+  const std::string* captured_request_id_dbg;
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "RandomAccessFileReader::Read:IOOptions", [&](void* arg) {
         const IOOptions* io_opts = static_cast<IOOptions*>(arg);
-        captured_request_id = io_opts->request_id;
+        captured_request_id_io_opts = io_opts->request_id;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::Read:IODebugContext", [&](void* arg) {
+        IODebugContext* dbg = static_cast<IODebugContext*>(arg);
+        if (dbg == nullptr) {
+          captured_request_id_dbg = nullptr;
+        } else {
+          captured_request_id_dbg = dbg->request_id;
+        }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -171,11 +182,14 @@ TEST_F(DBTest, RequestIdPlumbingTest) {
     ASSERT_OK(db_->Get(read_opts, "k1", &value));
 
     // Verify the request_id was propagated to the file system
-    ASSERT_NE(captured_request_id, nullptr);
-    ASSERT_EQ(*captured_request_id, test_request_id);
+    ASSERT_NE(captured_request_id_io_opts, nullptr);
+    ASSERT_EQ(*captured_request_id_io_opts, test_request_id);
+    ASSERT_NE(captured_request_id_dbg, nullptr);
+    ASSERT_EQ(*captured_request_id_dbg, test_request_id);
   }
 
-  captured_request_id = nullptr;
+  captured_request_id_io_opts = nullptr;
+  captured_request_id_dbg = nullptr;
 
   // test request_id plumbing during iterator seek
   ASSERT_OK(Put("k2", "v2"));
@@ -190,25 +204,43 @@ TEST_F(DBTest, RequestIdPlumbingTest) {
     ASSERT_TRUE(iter->Valid());
 
     // Verify the request_id was propagated to the file system
-    ASSERT_NE(captured_request_id, nullptr);
-    ASSERT_EQ(*captured_request_id, request_id);
+    ASSERT_NE(captured_request_id_io_opts, nullptr);
+    ASSERT_EQ(*captured_request_id_io_opts, request_id);
+    ASSERT_NE(captured_request_id_dbg, nullptr);
+    ASSERT_EQ(*captured_request_id_dbg, request_id);
   }
 
   // test request_id plumbing during multiget
+  captured_request_id_io_opts = nullptr;
+  captured_request_id_dbg = nullptr;
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "RandomAccessFileReader::MultiRead:IOOptions", [&](void* arg) {
         const IOOptions* io_opts = static_cast<IOOptions*>(arg);
-        captured_request_id = io_opts->request_id;
+        captured_request_id_io_opts = io_opts->request_id;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::MultiRead:IODebugContext", [&](void* arg) {
+        IODebugContext* dbg = static_cast<IODebugContext*>(arg);
+        if (dbg == nullptr) {
+          captured_request_id_dbg = nullptr;
+        } else {
+          captured_request_id_dbg = dbg->request_id;
+        }
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  rocksdb::BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
 
   ASSERT_OK(Put("k3", "v3"));
   ASSERT_OK(Put("k4", "v4"));
   ASSERT_OK(Flush());
 
-  captured_request_id = nullptr;
   {
     ReadOptions read_opts;
     const std::string multiget_request_id = "test_request_id_789";
@@ -226,8 +258,10 @@ TEST_F(DBTest, RequestIdPlumbingTest) {
     db_->MultiGet(read_opts, cfhs, keys, &values);
 
     // Verify the request_id was propagated to the file system
-    ASSERT_NE(captured_request_id, nullptr);
-    ASSERT_EQ(*captured_request_id, multiget_request_id);
+    ASSERT_NE(captured_request_id_io_opts, nullptr);
+    ASSERT_EQ(*captured_request_id_io_opts, multiget_request_id);
+    ASSERT_NE(captured_request_id_dbg, nullptr);
+    ASSERT_EQ(*captured_request_id_dbg, multiget_request_id);
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();

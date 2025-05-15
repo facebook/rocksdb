@@ -74,7 +74,8 @@ inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
 inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr) {
     IOOptions opts;
-    IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
+    IODebugContext dbg;
+    IOStatus io_s = file_->PrepareIOOptions(read_options_, opts, &dbg);
     if (io_s.ok()) {
       bool read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCache(
           opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
@@ -257,8 +258,9 @@ void BlockFetcher::ReadBlock(bool retry) {
       PERF_CPU_TIMER_GUARD(
           block_read_cpu_time,
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
-      io_status_ = file_->Read(opts, handle_.offset(), block_size_with_trailer_,
-                               &slice_, /*scratch=*/nullptr, &direct_io_buf_);
+      io_status_ =
+          file_->Read(opts, handle_.offset(), block_size_with_trailer_, &slice_,
+                      /*scratch=*/nullptr, &direct_io_buf_, &dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
       used_buf_ = const_cast<char*>(slice_.data());
     } else if (use_fs_scratch_) {
@@ -270,7 +272,7 @@ void BlockFetcher::ReadBlock(bool retry) {
       read_req.len = block_size_with_trailer_;
       read_req.scratch = nullptr;
       io_status_ = file_->MultiRead(opts, &read_req, /*num_reqs=*/1,
-                                    /*AlignedBuf* =*/nullptr);
+                                    /*AlignedBuf* =*/nullptr, &dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
 
       slice_ = Slice(read_req.result.data(), read_req.result.size());
@@ -284,9 +286,10 @@ void BlockFetcher::ReadBlock(bool retry) {
           block_read_cpu_time,
           ioptions_.env ? ioptions_.env->GetSystemClock().get() : nullptr);
 
-      io_status_ = file_->Read(
-          opts, handle_.offset(), /*size*/ block_size_with_trailer_,
-          /*result*/ &slice_, /*scratch*/ used_buf_, /*aligned_buf=*/nullptr);
+      io_status_ =
+          file_->Read(opts, handle_.offset(), /*size*/ block_size_with_trailer_,
+                      /*result*/ &slice_, /*scratch*/ used_buf_,
+                      /*aligned_buf=*/nullptr, &dbg);
       PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
       if (slice_.data() == &stack_buf_[0]) {

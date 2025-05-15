@@ -238,6 +238,8 @@ struct FileOptions : EnvOptions {
 
 // A structure to pass back some debugging information from the FileSystem
 // implementation to RocksDB in case of an IO error
+// TODO(virajthakur): Update all calls to FS APIs for writes to pass in
+// IODebugContext
 struct IODebugContext {
   // file_path to be filled in by RocksDB in case of an error
   std::string file_path;
