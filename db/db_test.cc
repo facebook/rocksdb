@@ -4001,8 +4001,6 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTotalOrderSeek) {
 
   ReadOptions read_options;
   read_options.total_order_seek = true;
-  const std::string request_id = "viraj_req_id";
-  read_options.request_id = &request_id;
   {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
     iter->Seek("k1");
