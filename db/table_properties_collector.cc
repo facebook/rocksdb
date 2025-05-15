@@ -31,6 +31,7 @@ uint64_t GetUint64Property(const UserCollectedProperties& props,
 
 Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
                                                     const Slice& value,
+                                                    uint64_t unix_write_time,
                                                     uint64_t file_size) {
   ParsedInternalKey ikey;
   Status s = ParseInternalKey(key, &ikey, false /* log_err_key */);  // TODO
@@ -38,8 +39,9 @@ Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
     return s;
   }
 
-  return collector_->AddUserKey(ikey.user_key, value, GetEntryType(ikey.type),
-                                ikey.sequence, file_size);
+  return collector_->AddUserKeyWithWriteTime(
+      ikey.user_key, value, GetEntryType(ikey.type), ikey.sequence,
+      unix_write_time, file_size);
 }
 
 void UserKeyTablePropertiesCollector::BlockAdd(

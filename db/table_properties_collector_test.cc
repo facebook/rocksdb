@@ -171,6 +171,7 @@ class RegularKeysStartWithAInternal : public InternalTblPropColl {
   }
 
   Status InternalAdd(const Slice& user_key, const Slice& /*value*/,
+                     uint64_t /*unix_write_time*/,
                      uint64_t /*file_size*/) override {
     // simply asssume all user keys are not empty.
     if (user_key.data()[0] == 'A') {

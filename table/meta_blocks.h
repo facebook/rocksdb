@@ -91,7 +91,8 @@ void LogPropertiesCollectionError(Logger* info_log, const std::string& method,
 // NotifyCollectTableCollectorsOnAdd() triggers the `Add` event for all
 // property collectors.
 bool NotifyCollectTableCollectorsOnAdd(
-    const Slice& key, const Slice& value, uint64_t file_size,
+    const Slice& key, const Slice& value, uint64_t unix_write_time,
+    uint64_t file_size,
     const std::vector<std::unique_ptr<InternalTblPropColl>>& collectors,
     Logger* info_log);
 
