@@ -3301,7 +3301,7 @@ struct rocksdb_eventlistener_t : public EventListener {
                        reinterpret_cast<const rocksdb_memtableinfo_t*>(&info));
   }
 
-  virtual ~rocksdb_eventlistener_t() { destructor_(state_); }
+  ~rocksdb_eventlistener_t() override { destructor_(state_); }
 };
 
 rocksdb_eventlistener_t* rocksdb_eventlistener_create(
