@@ -6834,8 +6834,8 @@ class ExternalTableTest : public DBTestBase {
       }
     }
 
-    Status GetPropertiesBlock(std::unique_ptr<char[]>* block, size_t* size,
-                              size_t* file_offset) override {
+    Status GetPropertiesBlock(std::unique_ptr<char[]>* block, uint64_t* size,
+                              uint64_t* file_offset) override {
       if (!support_property_block_) {
         return Status::NotSupported();
       }
