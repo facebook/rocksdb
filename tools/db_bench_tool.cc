@@ -1284,6 +1284,9 @@ DEFINE_uint32(memtable_op_scan_flush_trigger,
                   .memtable_op_scan_flush_trigger,
               "Setting for CF option memtable_op_scan_flush_trigger.");
 
+DEFINE_bool(verify_compression, false,
+            "See BlockBasedTableOptions::verify_compression");
+
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
@@ -4482,6 +4485,7 @@ class Benchmark {
           FLAGS_initial_auto_readahead_size;
       block_based_options.num_file_reads_for_auto_readahead =
           FLAGS_num_file_reads_for_auto_readahead;
+      block_based_options.verify_compression = FLAGS_verify_compression;
       BlockBasedTableOptions::PrepopulateBlockCache prepopulate_block_cache =
           block_based_options.prepopulate_block_cache;
       switch (FLAGS_prepopulate_block_cache) {

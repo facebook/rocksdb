@@ -1357,7 +1357,10 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::GetDataBlockFromCache(
   if (block_cache) {
     assert(!cache_key.empty());
     typename BlockCacheInterface<TBlocklike>::TypedHandle* cache_handle;
-    if (decomp.get() != rep_->decompressor.get()) {
+    if (decomp.get() != rep_->decompressor.get() && decomp) {
+      // `decomp` must be a dictionary-aware decompressor, which is only
+      // available in the block cache (so that dictionaries can be evicted
+      // from memory) and can't live in the table reader.
       // NOTE: inefficient BlockCreateContext copy for dict-aware decompressor
       // (see TODO in block_cache.h)
       BlockCreateContext create_ctx = rep_->create_context;

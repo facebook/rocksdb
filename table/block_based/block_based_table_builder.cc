@@ -229,6 +229,7 @@ struct BlockBasedTableBuilder::Rep {
 
   std::string last_ikey;  // Internal key or empty (unset)
   const Slice* first_key_in_next_block = nullptr;
+  bool warm_cache = false;
 
   uint64_t sample_for_compression;
   std::atomic<uint64_t> compressible_input_data_bytes;
@@ -239,6 +240,11 @@ struct BlockBasedTableBuilder::Rep {
   uint32_t compression_parallel_threads;
   int max_compressed_bytes_per_kb;
   size_t max_dict_sample_bytes = 0;
+
+  // *** Compressors & decompressors - Yes, it seems like a lot here but ***
+  // *** these are distinct fields to minimize extra conditionals and    ***
+  // *** field reads on hot code paths.                                  ***
+
   // A compressor for blocks in general, without dictionary compression
   std::unique_ptr<Compressor> basic_compressor;
   // A compressor using dictionary compression (when applicable)
@@ -484,6 +490,9 @@ struct BlockBasedTableBuilder::Rep {
     basic_compressor = mgr->GetCompressorForSST(
         filter_context, tbo.compression_opts, tbo.compression_type);
     if (basic_compressor) {
+      if (table_options.enable_index_compression) {
+        basic_working_area.compress = basic_compressor->ObtainWorkingArea();
+      }
       max_dict_sample_bytes = basic_compressor->GetMaxSampleSizeIfWantDict(
           CacheEntryRole::kDataBlock);
       if (max_dict_sample_bytes > 0) {
@@ -510,15 +519,31 @@ struct BlockBasedTableBuilder::Rep {
 
       if (table_options.verify_compression) {
         verify_decompressor = basic_decompressor.get();
+        if (table_options.enable_index_compression) {
+          basic_working_area.verify =
+              verify_decompressor->ObtainWorkingArea(tbo.compression_type);
+        }
         if (state == State::kUnbuffered) {
-          data_block_verify_decompressor = verify_decompressor.get();
           for (uint32_t i = 0; i < compression_parallel_threads; i++) {
             data_block_working_areas[i].verify =
-                data_block_verify_decompressor->ObtainWorkingArea(
-                    tbo.compression_type);
+                verify_decompressor->ObtainWorkingArea(tbo.compression_type);
           }
+          data_block_verify_decompressor = verify_decompressor.get();
         }
       }
+    }
+
+    switch (table_options.prepopulate_block_cache) {
+      case BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly:
+        warm_cache = (reason == TableFileCreationReason::kFlush);
+        break;
+      case BlockBasedTableOptions::PrepopulateBlockCache::kDisable:
+        warm_cache = false;
+        break;
+      default:
+        // missing case
+        assert(false);
+        warm_cache = false;
     }
 
     const auto compress_dict_build_buffer_charged =
@@ -1259,74 +1284,86 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     CompressionType* result_compression_type, Status* out_status) {
   Rep* r = rep_;
 
+  Compressor* compressor = nullptr;
+  Decompressor* verify_decomp = nullptr;
+  if (is_data_block) {
+    compressor = r->data_block_compressor;
+    verify_decomp = r->data_block_verify_decompressor.get();
+  } else {
+    compressor = r->basic_compressor.get();
+    verify_decomp = r->verify_decompressor.get();
+  }
+
   CompressionType type = kNoCompression;
-  if (uncompressed_block_data.size() < kCompressionSizeLimit) {
-    Decompressor* verify_decomp = nullptr;
-    StopWatchNano timer(
-        r->ioptions.clock,
-        ShouldReportDetailedTime(r->ioptions.env, r->ioptions.stats));
+  if (LIKELY(uncompressed_block_data.size() < kCompressionSizeLimit)) {
+    if (compressor) {
+      StopWatchNano timer(
+          r->ioptions.clock,
+          ShouldReportDetailedTime(r->ioptions.env, r->ioptions.stats));
 
-    if (is_data_block) {
-      if (r->data_block_compressor) {
-        *out_status = r->data_block_compressor->CompressBlock(
-            uncompressed_block_data, compressed_output, &type,
-            &working_area.compress);
-        verify_decomp = r->data_block_verify_decompressor.get();
-      }
-    } else {
-      if (r->basic_compressor) {
-        *out_status = r->basic_compressor->CompressBlock(
-            uncompressed_block_data, compressed_output, &type,
-            &working_area.compress);
-        verify_decomp = r->verify_decompressor.get();
-      }
-    }
-    // Post-condition of Compressor::CompressBlock
-    assert(type == kNoCompression || out_status->ok());
-    assert(type == kNoCompression ||
-           r->table_options.verify_compression == (verify_decomp != nullptr));
-
-    // Check for acceptable compression ratio. (For efficiency, avoid floating
-    // point and division.)
-    // TODO: integrate into Compressor?
-    if (compressed_output->size() >
-        (static_cast<uint64_t>(r->max_compressed_bytes_per_kb) *
-         uncompressed_block_data.size()) >>
-        10) {
-      // Prefer to keep uncompressed
-      type = kNoCompression;
-    }
-
-    // Some of the compression algorithms are known to be unreliable. If
-    // the verify_compression flag is set then try to de-compress the
-    // compressed data and compare to the input.
-    if (verify_decomp && type != kNoCompression) {
-      BlockContents contents;
-      Status uncompress_status = DecompressBlockData(
-          compressed_output->data(), compressed_output->size(), type,
-          *verify_decomp, &contents, r->ioptions,
-          /*allocator=*/nullptr, &working_area.verify);
-
-      if (uncompress_status.ok()) {
-        bool data_match = contents.data.compare(uncompressed_block_data) == 0;
-        if (!data_match) {
-          // The result of the compression was invalid. abort.
-          const char* const msg =
-              "Decompressed block did not match pre-compression block";
-          ROCKS_LOG_ERROR(r->ioptions.logger, "%s", msg);
-          *out_status = Status::Corruption(msg);
-          type = kNoCompression;
+      if (is_data_block) {
+        if (r->data_block_compressor) {
+          *out_status = r->data_block_compressor->CompressBlock(
+              uncompressed_block_data, compressed_output, &type,
+              &working_area.compress);
+          verify_decomp = r->data_block_verify_decompressor.get();
         }
       } else {
-        // Decompression reported an error. abort.
-        *out_status = Status::Corruption(std::string("Could not decompress: ") +
-                                         uncompress_status.getState());
+        if (r->basic_compressor) {
+          *out_status = r->basic_compressor->CompressBlock(
+              uncompressed_block_data, compressed_output, &type,
+              &working_area.compress);
+          verify_decomp = r->verify_decompressor.get();
+        }
+      }
+      // Post-condition of Compressor::CompressBlock
+      assert(type == kNoCompression || out_status->ok());
+      assert(type == kNoCompression ||
+             r->table_options.verify_compression == (verify_decomp != nullptr));
+
+      // Check for acceptable compression ratio. (For efficiency, avoid floating
+      // point and division.)
+      // TODO: integrate into Compressor?
+      if (compressed_output->size() >
+          (static_cast<uint64_t>(r->max_compressed_bytes_per_kb) *
+           uncompressed_block_data.size()) >>
+          10) {
+        // Prefer to keep uncompressed
         type = kNoCompression;
       }
-    }
-    if (timer.IsStarted()) {
-      RecordTimeToHistogram(r->ioptions.stats, COMPRESSION_TIMES_NANOS,
-                            timer.ElapsedNanos());
+
+      // Some of the compression algorithms are known to be unreliable. If
+      // the verify_compression flag is set then try to de-compress the
+      // compressed data and compare to the input.
+      if (verify_decomp && type != kNoCompression) {
+        BlockContents contents;
+        Status uncompress_status = DecompressBlockData(
+            compressed_output->data(), compressed_output->size(), type,
+            *verify_decomp, &contents, r->ioptions,
+            /*allocator=*/nullptr, &working_area.verify);
+
+        if (uncompress_status.ok()) {
+          bool data_match = contents.data.compare(uncompressed_block_data) == 0;
+          if (!data_match) {
+            // The result of the compression was invalid. abort.
+            const char* const msg =
+                "Decompressed block did not match pre-compression block";
+            ROCKS_LOG_ERROR(r->ioptions.logger, "%s", msg);
+            *out_status = Status::Corruption(msg);
+            type = kNoCompression;
+          }
+        } else {
+          // Decompression reported an error. abort.
+          *out_status =
+              Status::Corruption(std::string("Could not decompress: ") +
+                                 uncompress_status.getState());
+          type = kNoCompression;
+        }
+      }
+      if (timer.IsStarted()) {
+        RecordTimeToHistogram(r->ioptions.stats, COMPRESSION_TIMES_NANOS,
+                              timer.ElapsedNanos());
+      }
     }
     if (is_data_block) {
       r->compressible_input_data_bytes.fetch_add(uncompressed_block_data.size(),
@@ -1341,7 +1378,6 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
           uncompressed_block_data.size() + kBlockTrailerSize,
           std::memory_order_relaxed);
     }
-    type = kNoCompression;
   }
 
   // Abort compression if the block is too big, or did not pass
@@ -1393,6 +1429,9 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
     assert(comp_type == kNoCompression);
   }
 
+  // TODO: consider a variant of this function that puts the trailer after
+  // block_contents (if it comes from a std::string) so we only need one
+  // r->file->Append call
   {
     io_s = r->file->Append(io_options, block_contents);
     if (!io_s.ok()) {
@@ -1428,27 +1467,12 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
     }
   }
 
-  {
-    bool warm_cache;
-    switch (r->table_options.prepopulate_block_cache) {
-      case BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly:
-        warm_cache = (r->reason == TableFileCreationReason::kFlush);
-        break;
-      case BlockBasedTableOptions::PrepopulateBlockCache::kDisable:
-        warm_cache = false;
-        break;
-      default:
-        // missing case
-        assert(false);
-        warm_cache = false;
-    }
-    if (warm_cache) {
-      Status s = InsertBlockInCacheHelper(*uncompressed_block_data, handle,
-                                          block_type);
-      if (!s.ok()) {
-        r->SetStatus(s);
-        return;
-      }
+  if (r->warm_cache) {
+    Status s =
+        InsertBlockInCacheHelper(*uncompressed_block_data, handle, block_type);
+    if (!s.ok()) {
+      r->SetStatus(s);
+      return;
     }
   }
 
