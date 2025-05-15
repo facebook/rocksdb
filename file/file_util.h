@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
-#include <iostream>
 #include <string>
 
 #include "file/filename.h"
@@ -84,7 +83,6 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
       opts.request_id = ro.request_id;
     }
     if (dbg != nullptr && dbg->request_id == nullptr) {
-      // dbg->request_id = ro.request_id;
       dbg->SetRequestId(opts.request_id);
     }
   }

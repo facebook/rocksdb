@@ -337,7 +337,6 @@ Status BlobFileReader::GetBlob(
     IOOptions io_options;
     IODebugContext dbg;
     s = file_reader_->PrepareIOOptions(read_options, io_options, &dbg);
-    std::cout << "This is where info is lost" << std::endl;
     if (!s.ok()) {
       return s;
     }
