@@ -427,6 +427,11 @@ bool StressTest::BuildOptionsTable() {
         std::vector<std::string>{
             "{{temperature=kWarm;age=30}:{temperature=kCold;age=300}}",
             "{{temperature=kCold;age=100}}", "{}"});
+    options_tbl.emplace(
+        "allow_trivial_copy_when_change_temperature",
+        std::vector<std::string>{
+            FLAGS_allow_trivial_copy_when_change_temperature ? "true"
+                                                             : "false"});
   }
 
   // NOTE: allow -1 to mean starting disabled but dynamically changing
@@ -4220,10 +4225,14 @@ void InitializeOptionsFromFlags(
       StringToTemperature(FLAGS_default_temperature.c_str());
 
   if (!FLAGS_file_temperature_age_thresholds.empty()) {
+    const std::string allowTrivialCopyBoolStr =
+        FLAGS_allow_trivial_copy_when_change_temperature ? "true" : "false";
     Status s = GetColumnFamilyOptionsFromString(
         {}, options,
         "compaction_options_fifo={file_temperature_age_thresholds=" +
-            FLAGS_file_temperature_age_thresholds + "}",
+            FLAGS_file_temperature_age_thresholds +
+            ";allow_trivial_copy_when_change_temperature=" +
+            allowTrivialCopyBoolStr + "}",
         &options);
     if (!s.ok()) {
       fprintf(stderr, "While setting file_temperature_age_thresholds: %s\n",

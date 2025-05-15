@@ -233,6 +233,13 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           Status s = secondary_db_->TryCatchUpWithPrimary();
+#ifndef NDEBUG
+          uint64_t manifest_num = static_cast_with_check<DBImpl>(secondary_db_)
+                                      ->TEST_Current_Manifest_FileNo();
+#else
+          uint64_t manifest_num = 0;
+#endif
+
           if (!s.ok()) {
             VerificationAbort(shared,
                               "Secondary failed to catch up to the primary");
@@ -267,9 +274,11 @@ class NonBatchedOpsStressTest : public StressTest {
             assert(!pre_read_expected_values.empty() &&
                    static_cast<size_t>(i - start) <
                        pre_read_expected_values.size());
-            VerifyValueRange(static_cast<int>(cf), i, options, shared, from_db,
-                             /* msg_prefix */ "Secondary get verification", s,
-                             pre_read_expected_values[i - start]);
+            VerifyValueRange(
+                static_cast<int>(cf), i, options, shared, from_db,
+                /* msg_prefix */ "Secondary get verification, manifest: " +
+                    std::to_string(manifest_num),
+                s, pre_read_expected_values[i - start]);
           }
         }
       } else if (method == VerificationMethod::kGetEntity) {

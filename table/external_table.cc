@@ -219,8 +219,9 @@ class ExternalTableReaderAdapter : public TableReader {
 class ExternalTableBuilderAdapter : public TableBuilder {
  public:
   explicit ExternalTableBuilderAdapter(
-      std::unique_ptr<ExternalTableBuilder>&& builder)
-      : builder_(std::move(builder)), num_entries_(0) {}
+      std::unique_ptr<ExternalTableBuilder>&& builder,
+      std::unique_ptr<FSWritableFile>&& file)
+      : builder_(std::move(builder)), file_(std::move(file)), num_entries_(0) {}
 
   void Add(const Slice& key, const Slice& value) override {
     ParsedInternalKey pkey;
@@ -269,6 +270,7 @@ class ExternalTableBuilderAdapter : public TableBuilder {
  private:
   Status status_;
   std::unique_ptr<ExternalTableBuilder> builder_;
+  std::unique_ptr<FSWritableFile> file_;
   uint64_t num_entries_;
 };
 
@@ -309,10 +311,13 @@ class ExternalTableFactoryAdapter : public TableFactory {
         topts.read_options, topts.write_options,
         topts.moptions.prefix_extractor, topts.ioptions.user_comparator,
         topts.column_family_name, topts.reason);
+    auto file_wrapper =
+        std::make_unique<ExternalTableWritableFileWrapper>(file);
     builder.reset(inner_->NewTableBuilder(ext_topts, file->file_name(),
-                                          file->writable_file()));
+                                          file_wrapper.get()));
     if (builder) {
-      return new ExternalTableBuilderAdapter(std::move(builder));
+      return new ExternalTableBuilderAdapter(std::move(builder),
+                                             std::move(file_wrapper));
     }
     return nullptr;
   }
@@ -320,6 +325,42 @@ class ExternalTableFactoryAdapter : public TableFactory {
   std::unique_ptr<TableFactory> Clone() const override { return nullptr; }
 
  private:
+  // An FSWritableFile subclass for wrapping a WritableFileWriter. The
+  // latter is private to RocksDB, so we wrap it here in order to pass it
+  // to the ExternalTableBuilder. This is necessary for WritableFileWriter
+  // to intercept Append so that it can calculate the file checksum.
+  class ExternalTableWritableFileWrapper : public FSWritableFile {
+   public:
+    explicit ExternalTableWritableFileWrapper(WritableFileWriter* writer)
+        : writer_(writer) {}
+
+    using FSWritableFile::Append;
+    IOStatus Append(const Slice& data, const IOOptions& options,
+                    IODebugContext* /*dbg*/) override {
+      return writer_->Append(options, data);
+    }
+
+    IOStatus Close(const IOOptions& options, IODebugContext* /*dbg*/) override {
+      return writer_->Close(options);
+    }
+
+    IOStatus Flush(const IOOptions& options, IODebugContext* /*dbg*/) override {
+      return writer_->Flush(options);
+    }
+
+    IOStatus Sync(const IOOptions& options, IODebugContext* /*dbg*/) override {
+      return writer_->Sync(options, /*use_fsync=*/false);
+    }
+
+    uint64_t GetFileSize(const IOOptions& options,
+                         IODebugContext* dbg) override {
+      return writer_->writable_file()->GetFileSize(options, dbg);
+    }
+
+   private:
+    WritableFileWriter* writer_;
+  };
+
   std::shared_ptr<ExternalTableFactory> inner_;
 };
 

@@ -83,6 +83,8 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   bool IsEmpty() const override;
 
+  uint64_t PreCompressionSize() const override;
+
   // Size of the file generated so far.  If invoked after a successful
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;

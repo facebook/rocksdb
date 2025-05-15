@@ -84,6 +84,7 @@ void DBImpl::TEST_GetFilesMetaData(
 }
 
 uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
+  InstrumentedMutexLock l(&mutex_);
   return versions_->manifest_file_number();
 }
 
