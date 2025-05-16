@@ -1722,16 +1722,14 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
         });
   } else if (compression_failure_type_ == kTestDecompressionFail) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "UncompressBlockData:TamperWithReturnValue", [](void* arg) {
+        "DecompressBlockData:TamperWithReturnValue", [](void* arg) {
           Status* ret = static_cast<Status*>(arg);
           ASSERT_OK(*ret);
           *ret = Status::Corruption("kTestDecompressionFail");
         });
   } else if (compression_failure_type_ == kTestDecompressionCorruption) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "UncompressBlockData:"
-        "TamperWithDecompressionOutput",
-        [](void* arg) {
+        "DecompressBlockData:TamperWithDecompressionOutput", [](void* arg) {
           BlockContents* contents = static_cast<BlockContents*>(arg);
           // Ensure uncompressed data != original data
           const size_t len = contents->data.size() + 1;

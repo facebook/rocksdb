@@ -892,7 +892,10 @@ Status WriteCommittedTxn::CommitInternal() {
   // any operations appended to this working_batch will be ignored from WAL
   working_batch->MarkWalTerminationPoint();
 
-  bool bypass_memtable = wb->Count() >= commit_bypass_memtable_threshold_;
+  uint32_t wb_count = wb->Count();
+  RecordInHistogram(db_impl_->immutable_db_options_.stats,
+                    NUM_OP_PER_TRANSACTION, wb_count);
+  bool bypass_memtable = wb_count >= commit_bypass_memtable_threshold_;
   if (!bypass_memtable) {
     // insert prepared batch into Memtable only skipping WAL.
     // Memtable will ignore BeginPrepare/EndPrepare markers

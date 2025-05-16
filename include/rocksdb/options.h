@@ -464,6 +464,12 @@ struct CompactionServiceJobInfo {
   std::string db_name;
   std::string db_id;
   std::string db_session_id;
+
+  // the id of the column family where the compaction happened.
+  uint32_t cf_id;
+  // the name of the column family where the compaction happened.
+  std::string cf_name;
+
   uint64_t job_id;  // job_id is only unique within the current DB and session,
                     // restart DB will reset the job_id. `db_id` and
                     // `db_session_id` could help you build unique id across
@@ -484,7 +490,8 @@ struct CompactionServiceJobInfo {
   int output_level;
 
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
-                           std::string db_session_id_, uint64_t job_id_,
+                           std::string db_session_id_, uint32_t cf_id_,
+                           std::string cf_name_, uint64_t job_id_,
                            Env::Priority priority_,
                            CompactionReason compaction_reason_,
                            bool is_full_compaction_, bool is_manual_compaction_,
@@ -493,6 +500,8 @@ struct CompactionServiceJobInfo {
       : db_name(std::move(db_name_)),
         db_id(std::move(db_id_)),
         db_session_id(std::move(db_session_id_)),
+        cf_id(cf_id_),
+        cf_name(std::move(cf_name_)),
         job_id(job_id_),
         priority(priority_),
         compaction_reason(compaction_reason_),

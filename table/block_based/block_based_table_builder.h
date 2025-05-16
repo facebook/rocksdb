@@ -155,7 +155,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   class BlockBasedTablePropertiesCollectorFactory;
   class BlockBasedTablePropertiesCollector;
   Rep* rep_;
-
+  struct WorkingAreaPair;
   struct ParallelCompressionRep;
 
   // Advanced operation: flush any buffered key/value pairs to file.
@@ -171,15 +171,12 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   // Get blocks from mem-table walking thread, compress them and
   // pass them to the write thread. Used in parallel compression mode only
-  void BGWorkCompression(const CompressionContext& compression_ctx,
-                         UncompressionContext* verify_ctx);
+  void BGWorkCompression(WorkingAreaPair& working_area);
 
   // Given uncompressed block content, try to compress it and return result and
   // compression type
   void CompressAndVerifyBlock(const Slice& uncompressed_block_data,
-                              bool is_data_block,
-                              const CompressionContext& compression_ctx,
-                              UncompressionContext* verify_ctx,
+                              bool is_data_block, WorkingAreaPair& working_area,
                               std::string* compressed_output,
                               CompressionType* result_compression_type,
                               Status* out_status);
@@ -194,11 +191,5 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Stop BGWorkCompression and BGWorkWriteMaybeCompressedBlock threads
   void StopParallelCompression();
 };
-
-#ifndef NDEBUG
-// 0 == disable the hack
-// > 0 => counter for rotating through compression types
-extern RelaxedAtomic<uint64_t> g_hack_mixed_compression_in_block_based_table;
-#endif
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -417,21 +417,30 @@ struct BlockContents {
 // The `data` points to serialized block contents read in from file, which
 // must be compressed and include a trailer beyond `size`. A new buffer is
 // allocated with the given allocator (or default) and the uncompressed
-// contents are returned in `out_contents`.
-// format_version is as defined in include/rocksdb/table.h, which is
-// used to determine compression format version.
-Status UncompressSerializedBlock(const UncompressionInfo& info,
-                                 const char* data, size_t size,
+// contents are returned in `out_contents`. Statistics updated.
+Status DecompressSerializedBlock(const char* data, size_t size,
+                                 CompressionType type,
+                                 Decompressor& decompressor,
                                  BlockContents* out_contents,
-                                 uint32_t format_version,
                                  const ImmutableOptions& ioptions,
                                  MemoryAllocator* allocator = nullptr);
 
-// This is a variant of UncompressSerializedBlock that does not expect a
-// block trailer beyond `size`. (CompressionType is taken from `info`.)
-Status UncompressBlockData(const UncompressionInfo& info, const char* data,
-                           size_t size, BlockContents* out_contents,
-                           uint32_t format_version,
+Status DecompressSerializedBlock(Decompressor::Args& args,
+                                 Decompressor& decompressor,
+                                 BlockContents* out_contents,
+                                 const ImmutableOptions& ioptions,
+                                 MemoryAllocator* allocator = nullptr);
+
+// This is a variant of DecompressSerializedBlock that does not expect a
+// block trailer beyond `size`. (CompressionType is passed in.)
+Status DecompressBlockData(
+    const char* data, size_t size, CompressionType type,
+    Decompressor& decompressor, BlockContents* out_contents,
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator = nullptr,
+    Decompressor::ManagedWorkingArea* working_area = nullptr);
+
+Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
+                           BlockContents* out_contents,
                            const ImmutableOptions& ioptions,
                            MemoryAllocator* allocator = nullptr);
 

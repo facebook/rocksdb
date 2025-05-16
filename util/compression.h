@@ -11,6 +11,10 @@
 
 #include <algorithm>
 #include <limits>
+
+#include "port/likely.h"
+#include "util/atomic.h"
+#include "util/cast_util.h"
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
 #ifdef OS_FREEBSD
 #include <malloc_np.h>
@@ -143,6 +147,539 @@ class ZSTDUncompressCachedData {
 #endif
 
 namespace ROCKSDB_NAMESPACE {
+
+// ***********************************************************************
+// BEGIN future compression customization interface
+// ***********************************************************************
+
+// TODO: alias/adapt for compression
+struct FilterBuildingContext;
+
+// A Compressor represents a very specific but potentially adapting strategy for
+// compressing blocks, including the relevant algorithm(s), options, dictionary,
+// etc. as applicable--every input except the sequence of bytes to compress.
+// Compressor is generally thread-safe so can be shared by multiple threads. (It
+// could make sense to convert unique_ptr<Compressor> to
+// shared_ptr<Compressor>.) A Compressor for data files is expected to be used
+// for just one file, so that compression strategy can be explicitly
+// reconsidered for each new file. However, a Compressor for in-memory use could
+// live indefinitely.
+//
+// If a single thread is doing many compressions under the same strategy, it
+// should request a WorkingArea that will in some cases make repeated
+// compression in a single thread more efficient. Unlike the rest of Compressor,
+// each WorkingArea can only be used by one thread at a time. WorkingAreas can
+// have pre-allocated space and/or data structures, and/or thread-local
+// statistics that are later incorporated into shared statistics objects.
+//
+// The Compressor marks each block with a CompressionType to guide
+// decompression. However, the compression dictionary (or whether there is one
+// associated) is determined at Compressor creation time, though the process of
+// getting a Compressor with a dictionary starts with a Compressor without
+// dictionary (which will often be relevant alongside); see relevant functions.
+// If the Compressor wants to decide block-by-block whether to apply the
+// configured dictionary, that would need to be encoded in CompressionType or
+// the compressed output. (NOTE: this was historically NOT encoded in
+// CompressionType and instead implied by BlockType and the presence of a
+// dictionary block in the file. Some of the resulting awkwardness includes
+// a number of built-in CompressionTypes that ignore any dictionary block in
+// the file; therefore they cannot accommodate dictionary compression in the
+// future without a schema change / extension.)
+class Compressor {
+ public:
+  Compressor() = default;
+  virtual ~Compressor() = default;
+
+  // Returns the max total bytes of for all sampled blocks for creating the data
+  // dictionary, or zero indicating dictionary compression should not be
+  // used/configured. This will typically be called after
+  // CompressionManager::GetCompressor() to see if samples should be accumulated
+  // and passed to MaybeCloneSpecialized().
+  virtual size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const {
+    // Default implementation: no dictionary
+    (void)block_type;
+    return 0;
+  }
+
+  // Returns the serialized form of the data dictionary associated with this
+  // Compressor. NOTE: empty dict is equivalent to no dict.
+  virtual Slice GetSerializedDict() const { return Slice(); }
+
+  // If there's a dominant compression type returned by this compressor as
+  // configured, return it. Otherwise, return kDisableCompressionOption.
+  virtual CompressionType GetPreferredCompressionType() const {
+    return CompressionType::kDisableCompressionOption;
+  }
+
+  // Utility struct for providing sample data for the compression dictionary.
+  // Potentially extensible by callers of Compressor (but not recommended)
+  struct DictSampleArgs {
+    // All the sample input blocks stored contiguously
+    std::string sample_data;
+    // The lengths of each of the sample blocks in `sample_data`
+    std::vector<size_t> sample_lens;
+
+    bool empty() { return sample_data.empty(); }
+    bool Verify() {
+      size_t total_len = 0;
+      for (auto len : sample_lens) {
+        total_len += len;
+      }
+      return total_len == sample_data.size();
+    }
+  };
+
+  // Create potential variants of the same Compressor that might be
+  // (a) optimized for a particular block type (does not affect correct
+  //     decompression), and/or
+  // (b) configured to use a compression dictionary, based on the given
+  //     samples (decompression must provide the dictionary from
+  //     GetSerializedDict())
+  // Return of nullptr indicates no specialization exists or was attempted
+  // and the caller is best to use the current Compressor for the desired
+  // scenario. Using CacheEntryRole:kMisc for block_type generally means
+  // "unspecified", and both parameters are merely suggestions. The exact
+  // dictionary associated with a returned compressor must be read from
+  // GetSerializedDict().
+  virtual std::unique_ptr<Compressor> MaybeCloneSpecialized(
+      CacheEntryRole block_type, DictSampleArgs&& dict_samples) {
+    // Default implementation: no specialization
+    (void)block_type;
+    (void)dict_samples;
+    // Caller should have checked GetMaxSampleSizeIfWantDict before attempting
+    // to provide dictionary samples
+    assert(dict_samples.empty());
+    return nullptr;
+  }
+
+  // A WorkingArea is an optional structure (both for callers and
+  // implementations) that can enable optimizing repeated compressions by
+  // reusing working space or thread-local tracking of statistics or trends.
+  // This enables use of ZSTD context, for example.
+  //
+  // EXTENSIBLE or reinterpret_cast-able by custom Compressor implementations
+  struct WorkingArea {};
+
+ protected:
+  // To allow for flexible re-use / reclaimation, we have explicit Get and
+  // Release functions, and usually wrap in a special RAII smart pointer.
+  // For example, a WorkingArea could be saved/recycled in thread-local or
+  // core-local storage, or heap managed, etc., though an explicit WorkingArea
+  // is only advised for repeated compression (by a single thread).
+  virtual void ReleaseWorkingArea(WorkingArea*) {}
+
+ public:
+  using ManagedWorkingArea =
+      ManagedPtr<WorkingArea, Compressor, &Compressor::ReleaseWorkingArea>;
+
+  // See struct WorkingArea above
+  virtual ManagedWorkingArea ObtainWorkingArea() {
+    // Default implementation: no working area
+    return {};
+  }
+
+  // Compress `uncompressed_data` to `compressed_output`, which should be
+  // passed in empty. Note that the compressed output will be decompressed
+  // by the sequence Decompressor::ExtractUncompressedSize() followed by
+  // Decompressor::DecompressBlock(), which must also be provided the same
+  // CompressionType saved in `out_compression_type`. (In many configurations,
+  // `compressed_output` will have a prefix storing the uncompressed_data size
+  // before the compressed bytes returned by the underlying compression
+  // algorithm. And the compression type is usually stored adjacent to the
+  // compressed data, or in some cases assumed/asserted based on the particular
+  // Compressor.)
+  //
+  // If return status is not OK, then some fatal condition has arisen. On OK
+  // status, setting `*out_compression_type = kNoCompression` means compression
+  // is declined and the caller should use the original uncompressed_data and
+  // ignore any result in `compressed_output`. Otherwise, compression has
+  // happened with results in `compressed_output` and `out_compression_type`,
+  // which are allowed to vary from call to call.
+  //
+  // The working area is optional and used to optimize repeated compression by
+  // a single thread. ManagedWorkingArea is provided rather than just
+  // WorkingArea so that it can be used only if the `owner` matches expectation.
+  // This could be useful for a Compressor wrapping more than one alternative
+  // underlying Compressor.
+  //
+  // TODO: instead of string, consider a buffer only large enough for max
+  // tolerable compressed size. Does that work for all existing algorithms?
+  // * Looks like Snappy doesn't support that. :(
+  // * But looks like everything else should. :)
+  // Could save CPU by eliminating extra zero-ing and giving up quicker when
+  // ratio is insufficient.
+  virtual Status CompressBlock(Slice uncompressed_data,
+                               std::string* compressed_output,
+                               CompressionType* out_compression_type,
+                               ManagedWorkingArea* working_area) = 0;
+
+  // TODO: something to populate table properties based on settings, after all
+  // or as WorkingAreas released. Maybe also update stats, or that could be in
+  // thread-specific WorkingArea.
+};
+
+// TODO: CompressorBase and CompressorWrapper
+
+// A Decompressor usually has a wide capability to decompress all kinds of
+// compressed data in the scope of a CompressionManager (see that class below),
+// except
+// (a) it might be optimized for or limited to a particular compression type(s)
+//     (see GetDecompressor* functions for in CompressionManager),
+// (b) distinct Decompressors are required to decompress with compression
+//     dictionaries. (Decompressors are generally associated with empty/no
+//     dictionary unless created with MaybeCloneForDict().)
+//
+// Similar to Compressor, Decompressor is generally thread safe except that each
+// WorkingArea can only be used by a single thread at a time.
+//
+// Decompressors known to be associated with no dictionary are typically
+// returned as shared_ptr, because they are broadly usable across threads.
+// Because compression dictionaries are externally managed (see
+// MaybeCloneForDict()), Decompressors associated with compression dictionaries
+// are typically returned as unique_ptr, so that they are more easily
+// guaranteed not to outlive their dictionaries (e.g. in block cache).
+// Decompressors associated with compression dictionaries might include a
+// processed or "digested" form of the raw dictionary for efficient repeated
+// compressions.
+//
+// NOTE: Splitting the interface between ExtractUncompressedSize and
+// DecompressBlock leaves to the caller details of (and flexibility in)
+// allocating buffers for decompressing into. For example, the data could be
+// decompressed into part of a single buffer allocated to hold a block's
+// uncompressed contents along with an in-memory object representation of the
+// block (to reduce fragmentation and other overheads of separate objects).
+class Decompressor {
+ public:
+  Decompressor() = default;
+  virtual ~Decompressor() = default;
+
+  // A name for logging / debugging purposes
+  virtual const char* Name() const = 0;
+
+  // A WorkingArea is an optional structure (both for callers and
+  // implementations) that can enable optimizing repeated decompressions by
+  // reusing working space or thread-local tracking of statistics. This enables
+  // use of ZSTD context, for example.
+  //
+  // EXTENSIBLE or reinterpret_cast-able by custom Compressor implementations
+  struct WorkingArea {};
+
+ protected:
+  // To allow for flexible re-use / reclaimation, we have explicit Obtain and
+  // Release functions, which are typically wrapped in a special RAII smart
+  // pointer. For example, a WorkingArea could be saved/recycled in thread-local
+  // or core-local storage, or heap managed, etc., though an explicit
+  // WorkingArea is only advised for repeated decompression (by a single
+  // thread).
+
+  virtual void ReleaseWorkingArea(WorkingArea* wa) {
+    // Default implementation: no working area
+    (void)wa;
+    assert(wa == nullptr);
+  }
+
+ public:
+  using ManagedWorkingArea =
+      ManagedPtr<WorkingArea, Decompressor, &Decompressor::ReleaseWorkingArea>;
+
+  virtual ManagedWorkingArea ObtainWorkingArea(CompressionType /*preferred*/) {
+    // Default implementation: no working area
+    return {};
+  }
+
+  // If this Decompressor is associated with a (de)compression dictionary
+  // (created with MaybeCloneForDict()), this returns a pointer to those raw (or
+  // "serialized") bytes, which are externally managed (see
+  // MaybeCloneForDict()).
+  // Default: empty slice => no dictionary
+  virtual const Slice& GetSerializedDict() const;
+
+  // Create a variant of this Decompressor in `out` using the specified raw
+  // ("serialized") dictionary. This step is required for decompressing data
+  // compressed with the same dictionary. The new Decompressor references the
+  // given Slice through its lifetime so the data it points to must be managed
+  // by the caller along with (or beyond) the new Decompressor. If the
+  // dictionary is processed into a form reusable by repeated compressions in
+  // many threads, that happens within this call.
+  //
+  // Must return OK if storing a result in `out`. Otherwise, could return values
+  // like NotSupported - dictionary compression is not (yet) supported for this
+  // kind of Decompressor.
+  // Corruption - dictionary is malformed (though many implementations will
+  // accept any data as a dictionary)
+  virtual Status MaybeCloneForDict(const Slice& /*serialized_dict*/,
+                                   std::unique_ptr<Decompressor>* /*out*/) {
+    return Status::NotSupported(
+        "Dictionary compression not (yet) supported by " + std::string(Name()));
+  }
+
+  // Memory size of this object and others it owns. Does not include the
+  // serialized dictionary (when used) which is externally managed.
+  virtual size_t ApproximateOwnedMemoryUsage() const {
+    // Default: negligible
+    return 0;
+  }
+
+  // Potentially extensible by callers of Decompressor (but not recommended)
+  struct Args {
+    CompressionType compression_type = kNoCompression;
+    Slice compressed_data;
+    uint64_t uncompressed_size = 0;
+    ManagedWorkingArea* working_area = nullptr;
+  };
+
+  // For efficiency on the read path, RocksDB strongly prefers the uncompressed
+  // data size to be encoded in the compressed data in an easily accessible way,
+  // so that allocation of a potentially long-lived buffer can be ideally sized.
+  // This function determines the uncompressed size and potentially modifies
+  // `args.compressed_data` to strip off the size metadata, for providing both
+  // to DecompressBlock along with an appropriate buffer based on that size.
+  // Some implementations will leave `compressed_data` unmodified and let
+  // DecompressBlock call a library function that processes a format that
+  // includes size metadata (e.g. Snappy).
+  //
+  // Even for legacy cases without size metadata (e.g. some very old RocksDB
+  // formats), an exact size is required and could require decompressing the
+  // data (here and in DecompressBlock()).
+  //
+  // Return non-OK in case of corrupt data or some other unworkable limitation
+  // or failure.
+  virtual Status ExtractUncompressedSize(Args& args) {
+    // Default implementation:
+    //
+    // Standard format for prepending uncompressed size to the compressed
+    // payload. (RocksDB compress_format_version=2 except Snappy)
+    //
+    // This is historically a varint32, but it is preliminarily generalized
+    // to varint64. (TODO: support that on the write side, at least for some
+    // codecs, in BBT format_version=7)
+    if (LIKELY(GetVarint64(&args.compressed_data, &args.uncompressed_size))) {
+      if (LIKELY(args.uncompressed_size <= SIZE_MAX)) {
+        return Status::OK();
+      } else {
+        return Status::MemoryLimit("Uncompressed size too large for platform");
+      }
+    } else {
+      return Status::Corruption("Unable to extract uncompressed size");
+    }
+  }
+
+  // Called to decompress a block of data after running ExtractUncompressedSize
+  // on it. `args.compressed_data` is what ExtractUncompressedSize left there
+  // after potentially stripping off the uncompressed size metadata. Returns OK
+  // iff uncompressed data of size `uncompressed_size` is written to
+  // `uncompressed_output`.
+  virtual Status DecompressBlock(const Args& args,
+                                 char* uncompressed_output) = 0;
+};
+
+// A CompressionManager represents
+// * When/where/how to use different compressions
+// * A schema (or set of schemas) and implementation for mapping
+//     <CompressionType, dictionary, compressed data>
+//   to uncompressed data (or error), which can expand over time (error in fewer
+//   cases) for a given CompatibilityName() but can never change that mapping
+//   (because that would break backward compatibility, potential quiet
+//   corruption)
+// TODO: consider adding optional streaming compression support (low priority)
+class CompressionManager
+    : public std::enable_shared_from_this<CompressionManager> {
+ public:
+  CompressionManager() = default;
+  virtual ~CompressionManager() = default;
+
+  // TODO: Customizable (for compression side configuration and recording our
+  // compression strategy)
+  virtual const char* Name() const = 0;
+  virtual std::string GetId() const {
+    std::string id = Name();
+    return id;
+  }
+
+  // *************** Peer or variant Compression Managers **************** //
+  // A name for the schema family of this CompressionManager. In short, if
+  // two CompressionManagers have functionally the same Decompressor(s), they
+  // should have the same CompatibilityName(), so that a compatible
+  // CompressionManager/Decompressor might be used if the original is
+  // unavailable. (Name() can be useful in addition to CompatibilityName() for
+  // understanding what compression strategy was used.)
+  virtual const char* CompatibilityName() const = 0;
+
+  // Default implementation checks the current compatibility name and returns
+  // this CompressionManager (via `out`) if appropriate, and otherwise looks
+  // for a matching built-in CompressionManager.
+  virtual Status FindCompatibleCompressionManager(
+      Slice compatibility_name, std::shared_ptr<CompressionManager>* out);
+
+  // ************************* Compressor creation *********************** //
+  // Returning nullptr means compression is entirely disabled for the file,
+  // which is valid at the discretion of the CompressionManager. Returning
+  // nullptr should normally be the result if preferred == kNoCompression.
+  //
+  // These functions must be thread-safe.
+
+  // Get a compressor for an SST file.
+  // SUBJECT TO CHANGE
+  // TODO: is it practical to get ColumnFamilyOptions plumbed into here?
+  virtual std::unique_ptr<Compressor> GetCompressorForSST(
+      const FilterBuildingContext&, const CompressionOptions& opts,
+      CompressionType preferred) {
+    return GetCompressor(opts, preferred);
+  }
+
+  // Get a compressor for a generic/unspecified purpose (e.g. in-memory
+  // compression).
+  virtual std::unique_ptr<Compressor> GetCompressor(
+      const CompressionOptions& opts, CompressionType type) = 0;
+
+  // **************************** Decompressors ************************** //
+  // Get a decompressor that is compatible with any blocks compressed by
+  // compressors returned by this CompressionManager (at least this code
+  // revision and earlier). (NOTE: recommended to return a shared_ptr alias of
+  // this shared_ptr to a field that is a Decompressor.)
+  // Justification for not making CompressionManager inherit Decompressor: this
+  // tends to run into the diamond inheritance problem in implementations and
+  // potential overheads of virtual inheritance.
+  virtual std::shared_ptr<Decompressor> GetDecompressor() = 0;
+
+  // Compatible with same as above, but potentially optimized for a certain
+  // expected CompressionType
+  virtual std::shared_ptr<Decompressor> GetDecompressorOptimizeFor(
+      CompressionType /*optimize_for_type*/) {
+    // Safe default implementation
+    return GetDecompressor();
+  }
+
+  // Get a decompressor that is allowed to have support only for the
+  // CompressionTypes in the given start-to-end array (unique, sorted by
+  // unsigned char)
+  virtual std::shared_ptr<Decompressor> GetDecompressorForTypes(
+      const CompressionType* /*types_begin*/,
+      const CompressionType* /*types_end*/) {
+    // Safe default implementation
+    return GetDecompressor();
+  }
+};
+// ***********************************************************************
+// END future compression customization interface
+// ***********************************************************************
+
+class FailureDecompressor : public Decompressor {
+ public:
+  explicit FailureDecompressor(Status&& status) : status_(std::move(status)) {
+    assert(!status_.ok());
+  }
+  ~FailureDecompressor() override { status_.PermitUncheckedError(); }
+
+  const char* Name() const override { return "FailureDecompressor"; }
+
+  Status ExtractUncompressedSize(Args& /*args*/) override { return status_; }
+
+  Status DecompressBlock(const Args& /*args*/,
+                         char* /*uncompressed_output*/) override {
+    return status_;
+  }
+
+ protected:
+  Status status_;
+};
+
+// Owns a decompression dictionary, and associated Decompressor, for storing
+// in the block cache.
+//
+// Justification: for a "processed" dictionary to be saved in block cache, we
+// also need a reference to the decompressor that processed it, to ensure it
+// is recognized properly. At that point, we might as well have the dictionary
+// part of the decompressor identity and track an associated decompressor along
+// with a decompression dictionary in the block cache, and the decompressor
+// hides potential details of processing the dictionary.
+struct DecompressorDict {
+  // Block containing the data for the compression dictionary in case the
+  // constructor that takes a string parameter is used.
+  std::string dict_str_;
+
+  // Block containing the data for the compression dictionary in case the
+  // constructor that takes a Slice parameter is used and the passed in
+  // CacheAllocationPtr is not nullptr.
+  CacheAllocationPtr dict_allocation_;
+
+  // A Decompressor referencing and using the dictionary owned by this.
+  std::unique_ptr<Decompressor> decompressor_;
+
+  // Approximate owned memory usage
+  size_t memory_usage_;
+
+  DecompressorDict(std::string&& dict, Decompressor& from_decompressor)
+      : dict_str_(std::move(dict)) {
+    Populate(from_decompressor, dict_str_);
+  }
+
+  DecompressorDict(Slice slice, CacheAllocationPtr&& allocation,
+                   Decompressor& from_decompressor)
+      : dict_allocation_(std::move(allocation)) {
+    Populate(from_decompressor, slice);
+  }
+
+  DecompressorDict(DecompressorDict&& rhs) noexcept
+      : dict_str_(std::move(rhs.dict_str_)),
+        dict_allocation_(std::move(rhs.dict_allocation_)),
+        decompressor_(std::move(rhs.decompressor_)),
+        memory_usage_(std::move(rhs.memory_usage_)) {}
+
+  DecompressorDict& operator=(DecompressorDict&& rhs) noexcept {
+    if (this == &rhs) {
+      return *this;
+    }
+    dict_str_ = std::move(rhs.dict_str_);
+    dict_allocation_ = std::move(rhs.dict_allocation_);
+    decompressor_ = std::move(rhs.decompressor_);
+    return *this;
+  }
+  // Disable copy
+  DecompressorDict(const DecompressorDict&) = delete;
+  DecompressorDict& operator=(const DecompressorDict&) = delete;
+
+  // The object is self-contained if the string constructor is used, or the
+  // Slice constructor is invoked with a non-null allocation. Otherwise, it
+  // is the caller's responsibility to ensure that the underlying storage
+  // outlives this object.
+  bool own_bytes() const { return !dict_str_.empty() || dict_allocation_; }
+
+  const Slice& GetRawDict() const { return decompressor_->GetSerializedDict(); }
+
+  // For TypedCacheInterface
+  const Slice& ContentSlice() const { return GetRawDict(); }
+  static constexpr CacheEntryRole kCacheEntryRole = CacheEntryRole::kOtherBlock;
+  static constexpr BlockType kBlockType = BlockType::kCompressionDictionary;
+
+  size_t ApproximateMemoryUsage() const { return memory_usage_; }
+
+ private:
+  void Populate(Decompressor& from_decompressor, Slice dict) {
+    Status s = from_decompressor.MaybeCloneForDict(dict, &decompressor_);
+    if (decompressor_ == nullptr) {
+      dict_str_ = {};
+      dict_allocation_ = {};
+      assert(!s.ok());
+      decompressor_ = std::make_unique<FailureDecompressor>(std::move(s));
+    } else {
+      assert(s.ok());
+    }
+
+    memory_usage_ = sizeof(struct DecompressorDict);
+    memory_usage_ += dict_str_.size();
+    if (dict_allocation_) {
+      auto allocator = dict_allocation_.get_deleter().allocator;
+      if (allocator) {
+        memory_usage_ +=
+            allocator->UsableSize(dict_allocation_.get(), GetRawDict().size());
+      } else {
+        memory_usage_ += GetRawDict().size();
+      }
+    }
+    memory_usage_ += decompressor_->ApproximateOwnedMemoryUsage();
+  }
+};
 
 // Holds dictionary and related data, like ZSTD's digested compression
 // dictionary.
@@ -355,7 +892,7 @@ struct UncompressionDict {
   UncompressionDict& operator=(const CompressionDict&) = delete;
 };
 
-class CompressionContext {
+class CompressionContext : public Compressor::WorkingArea {
  private:
 #ifdef ZSTD
   ZSTD_CCtx* zstd_ctx_ = nullptr;
@@ -447,7 +984,7 @@ class CompressionInfo {
 
 // This is like a working area, reusable for different dicts, etc.
 // TODO: refactor / consolidate
-class UncompressionContext {
+class UncompressionContext : public Decompressor::WorkingArea {
  private:
   CompressionContextCache* ctx_cache_ = nullptr;
   ZSTDUncompressCachedData uncomp_cached_data_;
@@ -612,6 +1149,7 @@ inline bool DictCompressionTypeSupported(CompressionType compression_type) {
   }
 }
 
+// WART: does not match OptionsHelper::compression_type_string_map
 inline std::string CompressionTypeToString(CompressionType compression_type) {
   switch (compression_type) {
     case kNoCompression:
@@ -638,8 +1176,56 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
   }
 }
 
+// WART: does not match OptionsHelper::compression_type_string_map
+inline CompressionType CompressionTypeFromString(
+    std::string compression_type_str) {
+  if (!compression_type_str.empty()) {
+    switch (compression_type_str[0]) {
+      case 'N':
+        if (compression_type_str == "NoCompression") {
+          return kNoCompression;
+        }
+        break;
+      case 'S':
+        if (compression_type_str == "Snappy") {
+          return kSnappyCompression;
+        }
+        break;
+      case 'Z':
+        if (compression_type_str == "ZSTD") {
+          return kZSTD;
+        }
+        if (compression_type_str == "Zlib") {
+          return kZlibCompression;
+        }
+        break;
+      case 'B':
+        if (compression_type_str == "BZip2") {
+          return kBZip2Compression;
+        }
+        break;
+      case 'L':
+        if (compression_type_str == "LZ4") {
+          return kLZ4Compression;
+        }
+        if (compression_type_str == "LZ4HC") {
+          return kLZ4HCCompression;
+        }
+        break;
+      case 'X':
+        if (compression_type_str == "Xpress") {
+          return kXpressCompression;
+        }
+        break;
+      default:;
+    }
+  }
+  // unrecognized
+  return kDisableCompressionOption;
+}
+
 inline std::string CompressionOptionsToString(
-    CompressionOptions& compression_options) {
+    const CompressionOptions& compression_options) {
   std::string result;
   result.reserve(512);
   result.append("window_bits=")
@@ -1543,10 +2129,10 @@ inline std::string ZSTD_FinalizeDictionary(
 #endif  // ROCKSDB_ZDICT_FINALIZE
 }
 
-inline bool CompressData(const Slice& raw,
-                         const CompressionInfo& compression_info,
-                         uint32_t compress_format_version,
-                         std::string* compressed_output) {
+inline bool OLD_CompressData(const Slice& raw,
+                             const CompressionInfo& compression_info,
+                             uint32_t compress_format_version,
+                             std::string* compressed_output) {
   bool ret = false;
 
   // Will return compressed block contents if (1) the compression method is
@@ -1590,7 +2176,7 @@ inline bool CompressData(const Slice& raw,
   return ret;
 }
 
-inline CacheAllocationPtr UncompressData(
+inline CacheAllocationPtr OLD_UncompressData(
     const UncompressionInfo& uncompression_info, const char* data, size_t n,
     size_t* uncompressed_size, uint32_t compress_format_version,
     MemoryAllocator* allocator = nullptr,
@@ -1620,6 +2206,19 @@ inline CacheAllocationPtr UncompressData(
       return CacheAllocationPtr();
   }
 }
+
+// ***********************************************************************
+// BEGIN built-in implementation of customization interface
+// ***********************************************************************
+
+// NOTE: to avoid compression API depending on block-based table API, uses
+// its own format version. See internal function GetCompressFormatForVersion()
+const std::shared_ptr<CompressionManager>& GetBuiltinCompressionManager(
+    int compression_format_version);
+
+// ***********************************************************************
+// END built-in implementation of customization interface
+// ***********************************************************************
 
 // Records the compression type for subsequent WAL records.
 class CompressionTypeRecord {
@@ -1796,5 +2395,11 @@ class ZSTDStreamingUncompress final : public StreamingUncompress {
   ZSTD_inBuffer input_buffer_;
 #endif
 };
+
+#ifndef NDEBUG
+// 0 == disable the hack
+// > 0 => counter for rotating through compression types
+extern RelaxedAtomic<uint64_t> g_hack_mixed_compression;
+#endif
 
 }  // namespace ROCKSDB_NAMESPACE
