@@ -125,6 +125,17 @@ class ExternalTableReader {
                         std::vector<std::string>* values,
                         std::vector<Status>* statuses) = 0;
 
+  // Allocate and return the contents of the properties block. If the builder
+  // supports PutPropertiesBlock(), then this must be supported. The
+  // properties block should be written to the table file as is (no
+  // compression or mutation of any kind), and its offset in the file
+  // should be returned in file_offset.
+  virtual Status GetPropertiesBlock(std::unique_ptr<char[]>* /*property_block*/,
+                                    uint64_t* /*size*/,
+                                    uint64_t* /*file_offset*/) {
+    return Status::NotSupported();
+  }
+
   // Return TableProperties for the file. At a minimum, the following
   // properties need to be returned -
   // comparator_name
@@ -178,6 +189,11 @@ class ExternalTableBuilder {
   // Return the size of the table file. Will be called at the end, after
   // Finish().
   virtual uint64_t FileSize() const = 0;
+
+  // Write the raw properties block as is in the table file
+  virtual Status PutPropertiesBlock(const Slice& /*property_block*/) {
+    return Status::NotSupported();
+  }
 
   //  As mentioned in earlier comments, the following table properties must be
   //  returned at a minimum -
