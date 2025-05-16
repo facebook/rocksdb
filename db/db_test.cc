@@ -232,11 +232,6 @@ TEST_F(DBTest, RequestIdPlumbingTest) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  rocksdb::BlockBasedTableOptions table_options;
-  table_options.no_block_cache = true;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-
   ASSERT_OK(Put("k3", "v3"));
   ASSERT_OK(Put("k4", "v4"));
   ASSERT_OK(Flush());
