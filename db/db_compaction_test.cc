@@ -9434,104 +9434,134 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
 }
 
 TEST_F(DBCompactionTest, FIFOChangeTemperature) {
-  for (bool write_time_default : {false, true}) {
-    SCOPED_TRACE("write time default? " + std::to_string(write_time_default));
+  for (bool should_allow_trivial_copy : {false, true}) {
+    for (bool write_time_default : {false, true}) {
+      int32_t before_compaction_calls = 0;
+      int32_t after_compaction_calls = 0;
+      if (should_allow_trivial_copy) {
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:TriviaCopyBeforeCompaction",
+            [&](void*) { ++before_compaction_calls; });
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:TriviaCopyAfterCompaction",
+            [&](void*) { ++after_compaction_calls; });
+      } else {
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:BeforeCompaction",
+            [&](void*) { ++before_compaction_calls; });
 
-    Options options = CurrentOptions();
-    options.compaction_style = kCompactionStyleFIFO;
-    options.num_levels = 1;
-    options.max_open_files = -1;
-    options.level0_file_num_compaction_trigger = 2;
-    options.create_if_missing = true;
-    CompactionOptionsFIFO fifo_options;
-    fifo_options.file_temperature_age_thresholds = {{Temperature::kCold, 1000}};
-    fifo_options.max_table_files_size = 100000000;
-    options.compaction_options_fifo = fifo_options;
-    env_->SetMockSleep();
-    if (write_time_default) {
-      options.default_write_temperature = Temperature::kWarm;
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:AfterCompaction",
+            [&](void*) { ++after_compaction_calls; });
+      }
+
+      SCOPED_TRACE("write time default? " + std::to_string(write_time_default));
+
+      Options options = CurrentOptions();
+      options.compaction_style = kCompactionStyleFIFO;
+      options.num_levels = 1;
+      options.max_open_files = -1;
+      options.level0_file_num_compaction_trigger = 2;
+      options.create_if_missing = true;
+      CompactionOptionsFIFO fifo_options;
+      fifo_options.file_temperature_age_thresholds = {
+          {Temperature::kCold, 1000}};
+      fifo_options.max_table_files_size = 100000000;
+      fifo_options.allow_trivial_copy_when_change_temperature =
+          should_allow_trivial_copy;
+      fifo_options.trivial_copy_buffer_size = 4096;
+      options.compaction_options_fifo = fifo_options;
+      env_->SetMockSleep();
+      if (write_time_default) {
+        options.default_write_temperature = Temperature::kWarm;
+      }
+      // Should be ignored (TODO: fail?)
+      options.last_level_temperature = Temperature::kHot;
+      Reopen(options);
+
+      int total_cold = 0;
+      int total_warm = 0;
+      int total_hot = 0;
+      int total_unknown = 0;
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "NewWritableFile::FileOptions.temperature", [&](void* arg) {
+            Temperature temperature = *(static_cast<Temperature*>(arg));
+            if (temperature == Temperature::kCold) {
+              total_cold++;
+            } else if (temperature == Temperature::kWarm) {
+              total_warm++;
+            } else if (temperature == Temperature::kHot) {
+              total_hot++;
+            } else {
+              assert(temperature == Temperature::kUnknown);
+              total_unknown++;
+            }
+          });
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+      // The file system does not support checksum handoff. The check
+      // will be ignored.
+      ASSERT_OK(Put(Key(0), "value1"));
+      env_->MockSleepForSeconds(800);
+      ASSERT_OK(Put(Key(2), "value2"));
+      ASSERT_OK(Flush());
+
+      ASSERT_OK(Put(Key(0), "value1"));
+      ASSERT_OK(Put(Key(2), "value2"));
+      ASSERT_OK(Flush());
+
+      // First two L0 files both become eligible for temperature change
+      // compaction They should be compacted one-by-one.
+      ASSERT_OK(Put(Key(0), "value1"));
+      env_->MockSleepForSeconds(1200);
+      ASSERT_OK(Put(Key(2), "value2"));
+      ASSERT_OK(Flush());
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+      if (write_time_default) {
+        // Also test dynamic option change
+        ASSERT_OK(db_->SetOptions({{"default_write_temperature", "kHot"}}));
+      }
+
+      ASSERT_OK(Put(Key(0), "value1"));
+      env_->MockSleepForSeconds(800);
+      ASSERT_OK(Put(Key(2), "value2"));
+      ASSERT_OK(Flush());
+
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+      ColumnFamilyMetaData metadata;
+      db_->GetColumnFamilyMetaData(&metadata);
+      ASSERT_EQ(4, metadata.file_count);
+      if (write_time_default) {
+        ASSERT_EQ(Temperature::kHot, metadata.levels[0].files[0].temperature);
+        ASSERT_EQ(Temperature::kWarm, metadata.levels[0].files[1].temperature);
+        // Includes obsolete/deleted files moved to cold
+        ASSERT_EQ(total_warm, 3);
+        ASSERT_EQ(total_hot, 1);
+        // Includes non-SST DB files
+        ASSERT_GT(total_unknown, 0);
+      } else {
+        ASSERT_EQ(Temperature::kUnknown,
+                  metadata.levels[0].files[0].temperature);
+        ASSERT_EQ(Temperature::kUnknown,
+                  metadata.levels[0].files[1].temperature);
+        ASSERT_EQ(total_warm, 0);
+        ASSERT_EQ(total_hot, 0);
+        // Includes non-SST DB files
+        ASSERT_GT(total_unknown, 4);
+      }
+      ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[2].temperature);
+      ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[3].temperature);
+      ASSERT_EQ(2, total_cold);
+
+      ASSERT_EQ(2, before_compaction_calls);
+      ASSERT_EQ(2, after_compaction_calls);
+
+      Destroy(options);
     }
-    // Should be ignored (TODO: fail?)
-    options.last_level_temperature = Temperature::kHot;
-    Reopen(options);
-
-    int total_cold = 0;
-    int total_warm = 0;
-    int total_hot = 0;
-    int total_unknown = 0;
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "NewWritableFile::FileOptions.temperature", [&](void* arg) {
-          Temperature temperature = *(static_cast<Temperature*>(arg));
-          if (temperature == Temperature::kCold) {
-            total_cold++;
-          } else if (temperature == Temperature::kWarm) {
-            total_warm++;
-          } else if (temperature == Temperature::kHot) {
-            total_hot++;
-          } else {
-            assert(temperature == Temperature::kUnknown);
-            total_unknown++;
-          }
-        });
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
-    // The file system does not support checksum handoff. The check
-    // will be ignored.
-    ASSERT_OK(Put(Key(0), "value1"));
-    env_->MockSleepForSeconds(800);
-    ASSERT_OK(Put(Key(2), "value2"));
-    ASSERT_OK(Flush());
-
-    ASSERT_OK(Put(Key(0), "value1"));
-    ASSERT_OK(Put(Key(2), "value2"));
-    ASSERT_OK(Flush());
-
-    // First two L0 files both become eligible for temperature change compaction
-    // They should be compacted one-by-one.
-    ASSERT_OK(Put(Key(0), "value1"));
-    env_->MockSleepForSeconds(1200);
-    ASSERT_OK(Put(Key(2), "value2"));
-    ASSERT_OK(Flush());
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-    if (write_time_default) {
-      // Also test dynamic option change
-      ASSERT_OK(db_->SetOptions({{"default_write_temperature", "kHot"}}));
-    }
-
-    ASSERT_OK(Put(Key(0), "value1"));
-    env_->MockSleepForSeconds(800);
-    ASSERT_OK(Put(Key(2), "value2"));
-    ASSERT_OK(Flush());
-
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-
-    ColumnFamilyMetaData metadata;
-    db_->GetColumnFamilyMetaData(&metadata);
-    ASSERT_EQ(4, metadata.file_count);
-    if (write_time_default) {
-      ASSERT_EQ(Temperature::kHot, metadata.levels[0].files[0].temperature);
-      ASSERT_EQ(Temperature::kWarm, metadata.levels[0].files[1].temperature);
-      // Includes obsolete/deleted files moved to cold
-      ASSERT_EQ(total_warm, 3);
-      ASSERT_EQ(total_hot, 1);
-      // Includes non-SST DB files
-      ASSERT_GT(total_unknown, 0);
-    } else {
-      ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
-      ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[1].temperature);
-      ASSERT_EQ(total_warm, 0);
-      ASSERT_EQ(total_hot, 0);
-      // Includes non-SST DB files
-      ASSERT_GT(total_unknown, 4);
-    }
-    ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[2].temperature);
-    ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[3].temperature);
-    ASSERT_EQ(2, total_cold);
-
-    Destroy(options);
   }
 }
 

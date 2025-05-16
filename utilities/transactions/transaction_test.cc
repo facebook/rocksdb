@@ -3912,16 +3912,16 @@ TEST_P(TransactionTest, LockLimitTest) {
 
   // lock limit reached
   s = txn->Put("W", "w");
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsLockLimit());
 
   // re-locking same key shouldn't put us over the limit
   s = txn->Put("X", "xx");
   ASSERT_OK(s);
 
   s = txn->GetForUpdate(read_options, "W", &value);
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsLockLimit());
   s = txn->GetForUpdate(read_options, "V", &value);
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsLockLimit());
 
   // re-locking same key shouldn't put us over the limit
   s = txn->GetForUpdate(read_options, "Y", &value);
@@ -3940,7 +3940,7 @@ TEST_P(TransactionTest, LockLimitTest) {
 
   // lock limit reached
   s = txn2->Put("M", "m");
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsLockLimit());
 
   s = txn->Commit();
   ASSERT_OK(s);
@@ -3967,7 +3967,7 @@ TEST_P(TransactionTest, LockLimitTest) {
 
   // lock limit reached
   s = txn2->Delete("Y");
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsLockLimit());
 
   s = txn2->Commit();
   ASSERT_OK(s);
@@ -3982,6 +3982,44 @@ TEST_P(TransactionTest, LockLimitTest) {
 
   s = db->Get(read_options, "X", &value);
   ASSERT_TRUE(s.IsNotFound());
+
+  delete txn;
+  delete txn2;
+}
+
+TEST_P(TransactionTest, LockLimitWithTimeoutHangTest) {
+  // Tests a bug where transaction can infinite-loop during lock acquiry.
+  // This happens when lock limit is reached and user specifies a positive
+  // timeout which is reached before the transaction start waiting for it.
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+
+  txn_db_options.max_num_locks = 3;
+  txn_db_options.transaction_lock_timeout = 10;  // 10ms
+  ASSERT_OK(ReOpen());
+
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn);
+
+  ASSERT_OK(txn->Put("X", "x"));
+  ASSERT_OK(txn->Put("Y", "y"));
+  ASSERT_OK(txn->Put("Z", "z"));
+
+  TransactionOptions txn2_options;
+  txn2_options.lock_timeout = 1;  // 1ms short timeout
+  Transaction* txn2 = db->BeginTransaction(write_options, txn2_options);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "PointLockManager::AcquireWithTimeout:WaitingTxn", [&](void*) {
+        // Sleep for 2ms, so timeout is already passed for txn2 before waiting.
+        // txn2 should fail instead of waiting forever.
+        env->SleepForMicroseconds(2 * 1000);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // This lock attempt should fail and return
+  ASSERT_TRUE(txn2->Put("W", "w").IsLockLimit());
+  SyncPoint::GetInstance()->DisableProcessing();
 
   delete txn;
   delete txn2;
