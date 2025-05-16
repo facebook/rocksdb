@@ -5,8 +5,11 @@
 
 #include "rocksdb/external_table.h"
 
+#include "logging/logging.h"
 #include "rocksdb/table.h"
+#include "table/block_based/block.h"
 #include "table/internal_iterator.h"
+#include "table/meta_blocks.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
 
@@ -156,8 +159,9 @@ class ExternalTableIteratorAdapter : public InternalIterator {
 class ExternalTableReaderAdapter : public TableReader {
  public:
   explicit ExternalTableReaderAdapter(
+      const ImmutableOptions& ioptions,
       std::unique_ptr<ExternalTableReader>&& reader)
-      : reader_(std::move(reader)) {}
+      : ioptions_(ioptions), reader_(std::move(reader)) {}
 
   ~ExternalTableReaderAdapter() override {}
 
@@ -193,9 +197,34 @@ class ExternalTableReaderAdapter : public TableReader {
   void SetupForCompaction() override {}
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override {
-    std::shared_ptr<TableProperties> props =
-        std::make_shared<TableProperties>(*reader_->GetTableProperties());
-    props->key_largest_seqno = 0;
+    std::shared_ptr<TableProperties> props;
+    std::unique_ptr<char[]> property_block;
+    uint64_t property_block_size = 0;
+    uint64_t property_block_offset = 0;
+    Status s;
+    // Get the raw properties block from the external table reader. We don't
+    // support writing the global sequence number, but we still get and return
+    // the correct global seqno offset in the file to prevent accidental
+    // corruption.
+    s = reader_->GetPropertiesBlock(&property_block, &property_block_size,
+                                    &property_block_offset);
+    if (s.ok()) {
+      std::unique_ptr<TableProperties> table_properties =
+          std::make_unique<TableProperties>();
+      BlockContents block_contents(std::move(property_block),
+                                   property_block_size);
+      Block block(std::move(block_contents));
+      s = ParsePropertiesBlock(ioptions_, property_block_offset, block,
+                               table_properties);
+      if (s.ok()) {
+        props.reset(table_properties.release());
+      }
+    } else {
+      // Fallback to getting a minimal table properties structure from the
+      // external table reader
+      props = std::make_shared<TableProperties>(*reader_->GetTableProperties());
+      props->key_largest_seqno = 0;
+    }
     return props;
   }
 
@@ -213,15 +242,54 @@ class ExternalTableReaderAdapter : public TableReader {
   }
 
  private:
+  const ImmutableOptions& ioptions_;
   std::unique_ptr<ExternalTableReader> reader_;
 };
 
 class ExternalTableBuilderAdapter : public TableBuilder {
  public:
   explicit ExternalTableBuilderAdapter(
+      const TableBuilderOptions& topts,
       std::unique_ptr<ExternalTableBuilder>&& builder,
       std::unique_ptr<FSWritableFile>&& file)
-      : builder_(std::move(builder)), file_(std::move(file)), num_entries_(0) {}
+      : builder_(std::move(builder)),
+        file_(std::move(file)),
+        ioptions_(topts.ioptions) {
+    properties_.num_data_blocks = 1;
+    properties_.index_size = 0;
+    properties_.filter_size = 0;
+    properties_.format_version = 0;
+    properties_.key_largest_seqno = 0;
+    properties_.column_family_id = topts.column_family_id;
+    properties_.column_family_name = topts.column_family_name;
+    properties_.db_id = topts.db_id;
+    properties_.db_session_id = topts.db_session_id;
+    properties_.db_host_id = topts.ioptions.db_host_id;
+    if (!ReifyDbHostIdProperty(topts.ioptions.env, &properties_.db_host_id)
+             .ok()) {
+      ROCKS_LOG_INFO(topts.ioptions.logger,
+                     "db_host_id property will not be set");
+    }
+    properties_.orig_file_number = topts.cur_file_num;
+    properties_.comparator_name = topts.ioptions.user_comparator != nullptr
+                                      ? topts.ioptions.user_comparator->Name()
+                                      : "nullptr";
+    properties_.prefix_extractor_name =
+        topts.moptions.prefix_extractor != nullptr
+            ? topts.moptions.prefix_extractor->AsString()
+            : "nullptr";
+
+    for (auto& factory : *topts.internal_tbl_prop_coll_factories) {
+      assert(factory);
+      std::unique_ptr<InternalTblPropColl> collector{
+          factory->CreateInternalTblPropColl(topts.column_family_id,
+                                             topts.level_at_creation,
+                                             topts.ioptions.num_levels)};
+      if (collector) {
+        table_properties_collectors_.emplace_back(std::move(collector));
+      }
+    }
+  }
 
   void Add(const Slice& key, const Slice& value) override {
     ParsedInternalKey pkey;
@@ -232,7 +300,12 @@ class ExternalTableBuilderAdapter : public TableBuilder {
             "Value type " + std::to_string(pkey.type) + "not supported");
       } else {
         builder_->Add(pkey.user_key, value);
-        num_entries_++;
+        properties_.num_entries++;
+        properties_.raw_key_size += key.size();
+        properties_.raw_value_size += value.size();
+        NotifyCollectTableCollectorsOnAdd(key, value, /*offset=*/0,
+                                          table_properties_collectors_,
+                                          ioptions_.logger);
       }
     }
   }
@@ -247,13 +320,37 @@ class ExternalTableBuilderAdapter : public TableBuilder {
 
   IOStatus io_status() const override { return status_to_io_status(status()); }
 
-  Status Finish() override { return builder_->Finish(); }
+  Status Finish() override {
+    // Approximate the data size
+    properties_.data_size =
+        properties_.raw_key_size + properties_.raw_value_size;
+
+    PropertyBlockBuilder property_block_builder;
+    property_block_builder.AddTableProperty(properties_);
+    UserCollectedProperties more_user_collected_properties;
+    NotifyCollectTableCollectorsOnFinish(
+        table_properties_collectors_, ioptions_.logger, &property_block_builder,
+        more_user_collected_properties, properties_.readable_properties);
+    properties_.user_collected_properties.insert(
+        more_user_collected_properties.begin(),
+        more_user_collected_properties.end());
+
+    Slice prop_block = property_block_builder.Finish();
+    Status s = builder_->PutPropertiesBlock(prop_block);
+    if (s.ok() || s.IsNotSupported()) {
+      // If the builder doesn't support writing the properties block,
+      // we still call Finish() and let the external builder handle it.
+      s = builder_->Finish();
+    }
+
+    return s;
+  }
 
   void Abandon() override { builder_->Abandon(); }
 
   uint64_t FileSize() const override { return builder_->FileSize(); }
 
-  uint64_t NumEntries() const override { return num_entries_; }
+  uint64_t NumEntries() const override { return properties_.num_entries; }
 
   TableProperties GetTableProperties() const override {
     return builder_->GetTableProperties();
@@ -271,7 +368,10 @@ class ExternalTableBuilderAdapter : public TableBuilder {
   Status status_;
   std::unique_ptr<ExternalTableBuilder> builder_;
   std::unique_ptr<FSWritableFile> file_;
-  uint64_t num_entries_;
+  const ImmutableOptions& ioptions_;
+  TableProperties properties_;
+  std::vector<std::unique_ptr<InternalTblPropColl>>
+      table_properties_collectors_;
 };
 
 class ExternalTableFactoryAdapter : public TableFactory {
@@ -288,6 +388,12 @@ class ExternalTableFactoryAdapter : public TableFactory {
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t /* file_size */,
       std::unique_ptr<TableReader>* table_reader,
       bool /* prefetch_index_and_filter_in_cache */) const override {
+    // SstFileReader specifies largest_seqno as kMaxSequenceNumber to denote
+    // that its unknown
+    if (topts.largest_seqno > 0 && topts.largest_seqno != kMaxSequenceNumber) {
+      return Status::NotSupported(
+          "Ingesting file with sequence number larger than 0");
+    }
     std::unique_ptr<ExternalTableReader> reader;
     FileOptions fopts(topts.env_options);
     ExternalTableOptions ext_topts(topts.prefix_extractor,
@@ -298,7 +404,8 @@ class ExternalTableFactoryAdapter : public TableFactory {
     if (!status.ok()) {
       return status;
     }
-    table_reader->reset(new ExternalTableReaderAdapter(std::move(reader)));
+    table_reader->reset(
+        new ExternalTableReaderAdapter(topts.ioptions, std::move(reader)));
     file.reset();
     return Status::OK();
   }
@@ -316,7 +423,7 @@ class ExternalTableFactoryAdapter : public TableFactory {
     builder.reset(inner_->NewTableBuilder(ext_topts, file->file_name(),
                                           file_wrapper.get()));
     if (builder) {
-      return new ExternalTableBuilderAdapter(std::move(builder),
+      return new ExternalTableBuilderAdapter(topts, std::move(builder),
                                              std::move(file_wrapper));
     }
     return nullptr;
