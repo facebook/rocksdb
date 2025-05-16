@@ -33,7 +33,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 (const ReadOptions& options, const MultiGetRange* batch,
  const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
  Status* statuses, CachableEntry<Block_kData>* results, char* scratch,
- const UncompressionDict& uncompression_dict, bool use_fs_scratch) const {
+ UnownedPtr<Decompressor> decomp, bool use_fs_scratch) const {
   RandomAccessFileReader* file = rep_->file.get();
   const Footer& footer = rep_->footer;
   const ImmutableOptions& ioptions = rep_->ioptions;
@@ -51,7 +51,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
 
       // XXX: use_cache=true means double cache query?
       statuses[idx_in_batch] = RetrieveBlock(
-          nullptr, options, handle, uncompression_dict,
+          nullptr, options, handle, decomp,
           &results[idx_in_batch].As<Block_kData>(), mget_iter->get_context,
           /* lookup_context */ nullptr,
           /* for_compaction */ false, /* use_cache */ true,
@@ -298,7 +298,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
         // necessary. Since we're passing the serialized block contents, it
         // will avoid looking up the block cache
         s = MaybeReadBlockAndLoadToCache(
-            nullptr, options, handle, uncompression_dict,
+            nullptr, options, handle, decomp,
             /*for_compaction=*/false, block_entry, mget_iter->get_context,
             /*lookup_context=*/nullptr, &serialized_block,
             /*async_read=*/false, /*use_block_cache_for_lookup=*/true);
@@ -320,11 +320,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
           GetBlockCompressionType(serialized_block);
       BlockContents contents;
       if (compression_type != kNoCompression) {
-        UncompressionContext context(compression_type);
-        UncompressionInfo info(context, uncompression_dict, compression_type);
-        s = UncompressSerializedBlock(
-            info, req.result.data() + req_offset, handle.size(), &contents,
-            footer.format_version(), rep_->ioptions, memory_allocator);
+        s = DecompressSerializedBlock(
+            req.result.data() + req_offset, handle.size(), compression_type,
+            *decomp, &contents, rep_->ioptions, memory_allocator);
       } else {
         // There are two cases here:
         // 1) caller uses the shared buffer (scratch or direct io buffer);
@@ -421,10 +419,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
     {
       MultiGetRange data_block_range(sst_file_range, sst_file_range.begin(),
                                      sst_file_range.end());
-      CachableEntry<UncompressionDict> uncompression_dict;
-      Status uncompression_dict_status;
-      uncompression_dict_status.PermitUncheckedError();
-      bool uncompression_dict_inited = false;
+      CachableEntry<DecompressorDict> dict;
+      Status dict_status;
+      dict_status.PermitUncheckedError();
+      bool dict_inited = false;
       size_t total_len = 0;
 
       // GetContext for any key will do, as the stats will be aggregated
@@ -466,26 +464,26 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
             continue;
           }
 
-          if (!uncompression_dict_inited && rep_->uncompression_dict_reader) {
-            uncompression_dict_status =
-                rep_->uncompression_dict_reader
-                    ->GetOrReadUncompressionDictionary(
-                        nullptr /* prefetch_buffer */, read_options,
-                        get_context, &metadata_lookup_context,
-                        &uncompression_dict);
-            uncompression_dict_inited = true;
+          if (!dict_inited && rep_->uncompression_dict_reader) {
+            dict_status = rep_->uncompression_dict_reader
+                              ->GetOrReadUncompressionDictionary(
+                                  nullptr /* prefetch_buffer */, read_options,
+                                  get_context, &metadata_lookup_context, &dict);
+            dict_inited = true;
           }
 
-          if (!uncompression_dict_status.ok()) {
-            assert(!uncompression_dict_status.IsNotFound());
-            *(miter->s) = uncompression_dict_status;
+          if (!dict_status.ok()) {
+            assert(!dict_status.IsNotFound());
+            *(miter->s) = dict_status;
             data_block_range.SkipKey(miter);
             sst_file_range.SkipKey(miter);
             continue;
+          } else {
+            assert(!dict_inited || dict.GetValue() != nullptr);
           }
-          create_ctx.dict = uncompression_dict.GetValue()
-                                ? uncompression_dict.GetValue()
-                                : &UncompressionDict::GetEmptyDict();
+          if (dict.GetValue()) {
+            create_ctx.decompressor = dict.GetValue()->decompressor_.get();
+          }
 
           if (v.handle.offset() == prev_offset) {
             // This key can reuse the previous block (later on).
@@ -565,11 +563,8 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
       if (total_len) {
         char* scratch = nullptr;
         bool use_fs_scratch = false;
-        const UncompressionDict& dict = uncompression_dict.GetValue()
-                                            ? *uncompression_dict.GetValue()
-                                            : UncompressionDict::GetEmptyDict();
-        assert(uncompression_dict_inited || !rep_->uncompression_dict_reader);
-        assert(uncompression_dict_status.ok());
+        assert(dict_inited || !rep_->uncompression_dict_reader);
+        assert(dict_status.ok());
 
         if (!rep_->file->use_direct_io()) {
           if (CheckFSFeatureSupport(rep_->ioptions.fs.get(),
@@ -589,7 +584,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         // 3. If blocks are compressed and no compressed block cache, use
         //    stack buf
         if (!use_fs_scratch && !rep_->file->use_direct_io() &&
-            rep_->blocks_maybe_compressed) {
+            rep_->decompressor) {
           if (total_len <= kMultiGetReadStackBufSize) {
             scratch = stack_buf;
           } else {
@@ -599,7 +594,10 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         }
         CO_AWAIT(RetrieveMultipleBlocks)
         (read_options, &data_block_range, &block_handles, &statuses[0],
-         &results[0], scratch, dict, use_fs_scratch);
+         &results[0], scratch,
+         dict.GetValue() ? dict.GetValue()->decompressor_.get()
+                         : rep_->decompressor.get(),
+         use_fs_scratch);
         if (get_context) {
           ++(get_context->get_context_stats_.num_sst_read);
         }

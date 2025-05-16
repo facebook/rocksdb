@@ -364,7 +364,7 @@ class BlockBasedTable : public TableReader {
   template <typename TBlocklike>
   WithBlocklikeCheck<Status, TBlocklike> MaybeReadBlockAndLoadToCache(
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
-      const BlockHandle& handle, const UncompressionDict& uncompression_dict,
+      const BlockHandle& handle, UnownedPtr<Decompressor> decomp,
       bool for_compaction, CachableEntry<TBlocklike>* block_entry,
       GetContext* get_context, BlockCacheLookupContext* lookup_context,
       BlockContents* contents, bool async_read,
@@ -376,7 +376,7 @@ class BlockBasedTable : public TableReader {
   template <typename TBlocklike>
   WithBlocklikeCheck<Status, TBlocklike> RetrieveBlock(
       FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
-      const BlockHandle& handle, const UncompressionDict& uncompression_dict,
+      const BlockHandle& handle, UnownedPtr<Decompressor> decomp,
       CachableEntry<TBlocklike>* block_entry, GetContext* get_context,
       BlockCacheLookupContext* lookup_context, bool for_compaction,
       bool use_cache, bool async_read, bool use_block_cache_for_lookup) const;
@@ -397,7 +397,7 @@ class BlockBasedTable : public TableReader {
       const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
       Status* statuses, CachableEntry<Block_kData>* results, char* scratch,
-      const UncompressionDict& uncompression_dict, bool use_fs_scratch);
+      UnownedPtr<Decompressor> decomp, bool use_fs_scratch);
 
   // Get the iterator from the index reader.
   //
@@ -429,7 +429,7 @@ class BlockBasedTable : public TableReader {
   WithBlocklikeCheck<Status, TBlocklike> GetDataBlockFromCache(
       const Slice& cache_key, BlockCacheInterface<TBlocklike> block_cache,
       CachableEntry<TBlocklike>* block, GetContext* get_context,
-      const UncompressionDict* dict) const;
+      UnownedPtr<Decompressor> decomp) const;
 
   // Put a maybe compressed block to the corresponding block caches.
   // This method will perform decompression against block_contents if needed
@@ -447,8 +447,7 @@ class BlockBasedTable : public TableReader {
       CachableEntry<TBlocklike>* cached_block,
       BlockContents&& uncompressed_block_contents,
       BlockContents&& compressed_block_contents,
-      CompressionType block_comp_type,
-      const UncompressionDict& uncompression_dict,
+      CompressionType block_comp_type, UnownedPtr<Decompressor> decomp,
       MemoryAllocator* memory_allocator, GetContext* get_context) const;
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
@@ -650,9 +649,11 @@ struct BlockBasedTable::Rep {
   Slice min_timestamp;
   Slice max_timestamp;
 
-  // If false, blocks in this file are definitely all uncompressed. Knowing this
-  // before reading individual blocks enables certain optimizations.
-  bool blocks_maybe_compressed = true;
+  // If blocks might be compressed, refers to a decompressor that can decompress
+  // them. (nullptr -> no blocks compressed)  However, if (data) blocks are
+  // dictionary compressed, a dictionary-aware decompressor is needed, which
+  // might live in the block cache.
+  std::shared_ptr<Decompressor> decompressor;
 
   // These describe how index is encoded.
   bool index_has_first_key = false;

@@ -39,7 +39,6 @@
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "table/block_based/block_based_table_builder.h"
 #include "table/sst_file_dumper.h"
 #include "tools/ldb_cmd_impl.h"
 #include "util/cast_util.h"
@@ -872,7 +871,7 @@ bool LDBCommand::ParseCompressionTypeOption(
       // types, as this has been *de facto* supported for a long time on the
       // read side with no code to generate them on the write side. We can test
       // that functionality, e.g. in check_format_compatible.sh, with this hack
-      g_hack_mixed_compression_in_block_based_table.StoreRelaxed(1);
+      g_hack_mixed_compression.StoreRelaxed(1);
       // Need to list zstd in compression_name table property if it's
       // potentially in the mix, for proper handling of context and dictionary.
       value = ZSTD_Supported() ? kZSTD : GetSupportedCompressions()[0];

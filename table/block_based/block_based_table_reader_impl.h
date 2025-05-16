@@ -60,33 +60,32 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   }
 
   CachableEntry<Block> block;
-  if (rep_->uncompression_dict_reader && block_type == BlockType::kData) {
-    CachableEntry<UncompressionDict> uncompression_dict;
-    // For async scans, don't use the prefetch buffer since an async prefetch
-    // might already be under way and this would invalidate it. Also, the
-    // uncompression dict is typically at the end of the file and would
-    // most likely break the sequentiality of the access pattern.
-    // Same is with auto_readahead_size. It iterates over index to lookup for
-    // data blocks. And this could break the the sequentiality of the access
-    // pattern.
-    s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-        ((ro.async_io || ro.auto_readahead_size) ? nullptr : prefetch_buffer),
-        ro, get_context, lookup_context, &uncompression_dict);
-    if (!s.ok()) {
-      iter->Invalidate(s);
-      return iter;
+  {
+    CachableEntry<DecompressorDict> dict;
+    Decompressor* decomp = rep_->decompressor.get();
+    if (rep_->uncompression_dict_reader && block_type == BlockType::kData) {
+      // For async scans, don't use the prefetch buffer since an async prefetch
+      // might already be under way and this would invalidate it. Also, the
+      // uncompression dict is typically at the end of the file and would
+      // most likely break the sequentiality of the access pattern.
+      // Same is with auto_readahead_size. It iterates over index to lookup for
+      // data blocks. And this could break the the sequentiality of the access
+      // pattern.
+      s = rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+          ((ro.async_io || ro.auto_readahead_size) ? nullptr : prefetch_buffer),
+          ro, get_context, lookup_context, &dict);
+      if (!s.ok()) {
+        iter->Invalidate(s);
+        return iter;
+      }
+      assert(dict.GetValue());
+      if (dict.GetValue()) {
+        decomp = dict.GetValue()->decompressor_.get();
+      }
     }
-    const UncompressionDict& dict = uncompression_dict.GetValue()
-                                        ? *uncompression_dict.GetValue()
-                                        : UncompressionDict::GetEmptyDict();
     s = RetrieveBlock(
-        prefetch_buffer, ro, handle, dict, &block.As<IterBlocklike>(),
+        prefetch_buffer, ro, handle, decomp, &block.As<IterBlocklike>(),
         get_context, lookup_context, for_compaction,
-        /* use_cache */ true, async_read, use_block_cache_for_lookup);
-  } else {
-    s = RetrieveBlock(
-        prefetch_buffer, ro, handle, UncompressionDict::GetEmptyDict(),
-        &block.As<IterBlocklike>(), get_context, lookup_context, for_compaction,
         /* use_cache */ true, async_read, use_block_cache_for_lookup);
   }
 

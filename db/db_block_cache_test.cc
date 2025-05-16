@@ -506,6 +506,8 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   table_options.prepopulate_block_cache =
       BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  // Include a compression dictionary block
+  options.compression_opts.max_dict_bytes = 123;
   DestroyAndReopen(options);
 
   std::string value(kValueSize, 'a');
@@ -537,6 +539,9 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
                 options.statistics->getTickerCount(BLOCK_CACHE_FILTER_HIT));
     }
     ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_FILTER_MISS));
+
+    // Including compression dict
+    ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_MISS));
   }
 
   // Verify compaction not counted

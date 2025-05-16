@@ -74,7 +74,9 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
       compaction->column_family_data()->GetName().c_str(), job_id_,
       compaction_input.output_level, input_files_oss.str().c_str());
   CompactionServiceJobInfo info(
-      dbname_, db_id_, db_session_id_, GetCompactionId(sub_compact),
+      dbname_, db_id_, db_session_id_,
+      compaction->column_family_data()->GetID(),
+      compaction->column_family_data()->GetName(), GetCompactionId(sub_compact),
       thread_pri_, compaction->compaction_reason(),
       compaction->is_full_compaction(), compaction->is_manual_compaction(),
       compaction->bottommost_level(), compaction->start_level(),
