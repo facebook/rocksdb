@@ -146,11 +146,11 @@ TEST_F(DBTest, MockEnvTest) {
 
 TEST_F(DBTest, RequestIdPlumbingTest) {
   // test that request_id is passed to the filesystem, from
-  // ReadOptions to IOOptions/IODebugContext
+  // ReadOptions to IODebugContext
   Options options = CurrentOptions();
   options.env = env_;
 
-  // Create a mock environment to capture IOOptions during reads
+  // Create a mock environment to capture IODebugContext during reads
   const std::string* captured_request_id_dbg;
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
