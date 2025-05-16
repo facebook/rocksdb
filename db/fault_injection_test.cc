@@ -451,7 +451,7 @@ TEST_P(FaultInjectionTest, UninstalledCompaction) {
         {"FaultInjectionTest::FaultTest:0", "DBImpl::BGWorkCompaction"},
         {"CompactionJob::Run():End", "FaultInjectionTest::FaultTest:1"},
         {"FaultInjectionTest::FaultTest:2",
-         "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"},
+         "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW"},
     });
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();

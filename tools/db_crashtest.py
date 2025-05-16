@@ -107,7 +107,8 @@ default_params = {
     "iterpercent": 10,
     "lock_wal_one_in": lambda: random.choice([10000, 1000000]),
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
-    "max_background_compactions": 20,
+    "max_background_compactions": lambda: random.choice([2, 20]),
+    "num_bottom_pri_threads": lambda: random.choice([0, 1, 20]),
     "max_bytes_for_level_base": 10485760,
     # max_key has to be the same across invocations for verification to work, hence no lambda
     "max_key": random.choice([100000, 25000000]),
@@ -346,6 +347,7 @@ default_params = {
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
+    "universal_pick_compaction_by_thread_pri": lambda: random.randint(0, 1),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR

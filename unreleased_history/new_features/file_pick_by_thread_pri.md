@@ -1,0 +1,1 @@
+Add a new Options `universal_pick_compaction_by_thread_pri` (by default set to false) to efficiently distribute universal compaction work among LOW and BOTTOM priority threads. This option is temporary in case turning on this feature causes problems and users need to undo it quickly. This option is planned for removal in the near future with default value set to true.

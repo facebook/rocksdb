@@ -18,12 +18,21 @@ class UniversalCompactionPicker : public CompactionPicker {
   UniversalCompactionPicker(const ImmutableOptions& ioptions,
                             const InternalKeyComparator* icmp)
       : CompactionPicker(ioptions, icmp) {}
+
+  // If `thread_priority_for_picking != Env::Priority::TOTAL`, file picking
+  // is adjusted as below:
+  // - If `thread_priority_for_picking` is BOTTOM, only pick compaction with
+  // output to a non-zero max output level decided by
+  // `VersionStorageInfo::MaxOutputLevel(bool allow_ingest_behind)` in this CF.
+  // - If `thread_priority_for_picking` is LOW, only pick compaction with output
+  // to a L0 or non-"max output level".
   Compaction* PickCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options,
       const std::vector<SequenceNumber>& existing_snapshots,
       const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
-      LogBuffer* log_buffer) override;
+      LogBuffer* log_buffer,
+      Env::Priority thread_priority_for_picking) override;
   int MaxOutputLevel() const override { return NumberLevels() - 1; }
 
   bool NeedsCompaction(const VersionStorageInfo* vstorage) const override;

@@ -456,6 +456,393 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
 }
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
+TEST_F(DBCompactionTest, UniversalCompactionFilePickingByThreadPri) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.max_background_jobs = 3;
+  Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  options.num_levels = 3;
+  options.level0_file_num_compaction_trigger = 3;
+  options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
+  options.universal_pick_compaction_by_thread_pri = true;
+
+  for (auto compaction_reason : {CompactionReason::kPeriodicCompaction,
+                                 CompactionReason::kUniversalSizeRatio,
+                                 CompactionReason::kUniversalSortedRunNum,
+                                 CompactionReason::kUniversalSizeAmplification,
+                                 CompactionReason::kFilesMarkedForCompaction}) {
+    // For `kPeriodicCompaction`, verify it can only be picked by bottom pri
+    // thread due to its implementation
+    //
+    // For `kUniversalSizeRatio` and `kUniversalSortedRunNum`, though it can be
+    // picked by low and bottom pri theoretically, it's tricky to create such in
+    // the test due to (1) low pri thread always attempts picking first by
+    // excluding the last sorted run though the last sorted run still
+    // constributes to the triggering (2) bottom pri thread only attempts right
+    // after if low pri wasn't able to pick any compaction (3) it's hard to
+    // create a LSM shape that bottom pri will have anything to pick after low
+    // pri had nothing to do for these two reasons.
+    // Therefore we only verify the
+    // case where they can be picked by low pri thread
+    //
+    // For `kUniversalSizeAmplification` and `kFilesMarkedForCompaction`, we
+    // need to explictly control output level to verify it can be picked by
+    // low and bottom pri thread
+    const int kLastLevel = -1;
+    const int kSecondToLastLevel = -2;
+    for (int output_level : {kLastLevel, kSecondToLastLevel}) {
+      if (compaction_reason == CompactionReason::kPeriodicCompaction &&
+          output_level == kSecondToLastLevel) {
+        continue;
+      } else if ((compaction_reason == CompactionReason::kUniversalSizeRatio ||
+                  compaction_reason ==
+                      CompactionReason::kUniversalSortedRunNum) &&
+                 output_level == kLastLevel) {
+        continue;
+      }
+
+      Options specific_options = options;
+      if (compaction_reason == CompactionReason::kPeriodicCompaction) {
+        specific_options.periodic_compaction_seconds =
+            30 * 24 * 60 * 60;  // 30 days
+        env_->SetMockSleep();
+      } else if (compaction_reason ==
+                 CompactionReason::kUniversalSizeAmplification) {
+        specific_options.compaction_options_universal
+            .max_size_amplification_percent = 1;
+      } else if (compaction_reason ==
+                 CompactionReason::kUniversalSortedRunNum) {
+        specific_options.level0_file_num_compaction_trigger = 2;
+      } else if (compaction_reason ==
+                 CompactionReason::kFilesMarkedForCompaction) {
+        specific_options.level0_file_num_compaction_trigger = -1;
+      }
+
+      DestroyAndReopen(specific_options);
+
+      // Set up LSM before compaction
+      if (compaction_reason == CompactionReason::kUniversalSizeRatio ||
+          compaction_reason == CompactionReason::kPeriodicCompaction) {
+        // When low-pri thread pick kUniversalSizeRatio compaction to execute in
+        // the same thread, it will exclude the last sorted run to prevent
+        // picking a bottom pri compaction
+        if (compaction_reason == CompactionReason::kUniversalSizeRatio) {
+          ASSERT_OK(Put("l0", "not_to_compact"));
+          ASSERT_OK(Flush());
+        }
+        ASSERT_OK(Put("l0", "to_compact"));
+        ASSERT_OK(Flush());
+        ASSERT_OK(Put("l0", "to_compact"));
+        ASSERT_OK(Flush());
+        ASSERT_EQ(compaction_reason == CompactionReason::kUniversalSizeRatio
+                      ? "3"
+                      : "2",
+                  FilesPerLevel(0));
+        if (compaction_reason == CompactionReason::kPeriodicCompaction) {
+          env_->MockSleepForSeconds(
+              specific_options.periodic_compaction_seconds + 1);
+        }
+      } else if (compaction_reason ==
+                 CompactionReason::kUniversalSizeAmplification) {
+        // Set up bottommost level file
+        ASSERT_OK(Put("bottom", "to_compact"));
+        ASSERT_OK(Flush());
+        CompactRangeOptions cro;
+        cro.change_level = true;
+        cro.target_level = 2;
+        ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+        ASSERT_EQ("0,0,1", FilesPerLevel(0));
+
+        // Set up l0 files that will trigger kUniversalSizeAmplification picking
+        // only
+        ASSERT_OK(Put("l0", "big_file_to_compact"));
+        ASSERT_OK(Put(std::string(1024, 'a'), std::string(1024, 'v')));
+        ASSERT_OK(Flush());
+
+        ASSERT_OK(Put("l0", "to_compact"));
+        ASSERT_OK(Flush());
+
+        ASSERT_EQ("2,0,1", FilesPerLevel(0));
+
+        // Set up `preclude_last_level_data_seconds` to force output level
+        if (output_level == kSecondToLastLevel) {
+          specific_options.preclude_last_level_data_seconds = 1;
+          Reopen(specific_options);
+        }
+      } else if (compaction_reason ==
+                 CompactionReason::kUniversalSortedRunNum) {
+        // Set up bottommost level file
+        // When low-pri thread pick kUniversalSortedRunNum compaction, it will
+        // exclude the last sorted run to prevent picking a bottom pri
+        // compaction
+        ASSERT_OK(Put("bottom", "not_compact"));
+        ASSERT_OK(Flush());
+        CompactRangeOptions cro;
+        cro.change_level = true;
+        cro.target_level = 2;
+        ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+        ASSERT_EQ("0,0,1", FilesPerLevel(0));
+
+        // Set up l0 files that will trigger kUniversalSortedRunNum picking
+        // first
+        ASSERT_OK(Put("l0", "big_file_to_compact"));
+        ASSERT_OK(Put(std::string(1024, 'a'), std::string(1024, 'v')));
+        ASSERT_OK(Flush());
+
+        ASSERT_OK(Put("l0", "to_compact"));
+        ASSERT_OK(Flush());
+        ASSERT_EQ("2,0,1", FilesPerLevel(0));
+      } else if (compaction_reason ==
+                 CompactionReason::kFilesMarkedForCompaction) {
+        if (output_level == kLastLevel) {
+          ASSERT_OK(Put("bottom", "to_compact"));
+          ASSERT_OK(Flush());
+          CompactRangeOptions cro;
+          cro.change_level = true;
+          cro.target_level = 2;
+          ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+          ASSERT_EQ("0,0,1", FilesPerLevel(0));
+
+          // Set up second-to-the-last level file
+          specific_options.preclude_last_level_data_seconds = 1;
+          Reopen(specific_options);
+          ASSERT_OK(Put("second_to_the_last", "to_compact"));
+          ASSERT_OK(Flush());
+          ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+          specific_options.preclude_last_level_data_seconds = 0;
+          Reopen(specific_options);
+          ASSERT_EQ("0,1,1", FilesPerLevel(0));
+        } else {
+          assert(output_level == kSecondToLastLevel);
+          ASSERT_OK(Put("second_to_the_last", "to_compact"));
+          ASSERT_OK(Flush());
+          CompactRangeOptions cro;
+          cro.change_level = true;
+          cro.target_level = 1;
+          ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+          ASSERT_EQ("0,1", FilesPerLevel(0));
+
+          // Set up L0 file
+          ASSERT_OK(Put("l0", "to_compact"));
+          ASSERT_OK(Flush());
+          ASSERT_EQ("1,1", FilesPerLevel(0));
+        }
+
+        // Mark files to compact
+        VersionSet* const versions = dbfull()->GetVersionSet();
+        assert(versions);
+        ColumnFamilyData* const cfd =
+            versions->GetColumnFamilySet()->GetDefault();
+        ASSERT_NE(cfd, nullptr);
+        Version* const current = cfd->current();
+        ASSERT_NE(current, nullptr);
+        VersionStorageInfo* storage_info = current->storage_info();
+        ASSERT_NE(storage_info, nullptr);
+
+        const std::vector<FileMetaData*> files_to_mark_compaction =
+            storage_info->LevelFiles(output_level == kLastLevel ? 1 : 0);
+        for (FileMetaData* f : files_to_mark_compaction) {
+          storage_info->TEST_AddFileMarkedForCompaction(
+              output_level == kLastLevel ? 1 : 0, f);
+        }
+      }
+
+      // Set up sync point
+      int low_pri_self_pickd = 0;
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "DBImpl::BackgroundCompaction():AfterPickCompactionLOW",
+          [&](void* /* arg */) { ++low_pri_self_pickd; });
+
+      int bottom_pri_self_picked = 0;
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "DBImpl::BackgroundCompaction():AfterPickCompactionBOTTOM",
+          [&](void* /* arg */) { ++bottom_pri_self_picked; });
+
+      bool compaction_job_to_verify = true;
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "CompactionJob::ProcessKeyValueCompaction()::Processing",
+          [&](void* arg) {
+            if (!compaction_job_to_verify) {
+              return;
+            }
+            const auto* compaction = static_cast<Compaction*>(arg);
+            assert(compaction->compaction_reason() == compaction_reason);
+            if (compaction_reason == CompactionReason::kUniversalSortedRunNum) {
+              assert(compaction->num_input_files(0) == 2);
+              assert(compaction->num_input_files(1) == 0);
+              assert(compaction->num_input_files(2) == 0);
+              // To verify the first triggered compaction job only for
+              // `CompactionReason::kUniversalSortedRunNum`
+              compaction_job_to_verify = false;
+            }
+          });
+      SyncPoint::GetInstance()->EnableProcessing();
+
+      ASSERT_OK(
+          dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+      SyncPoint::GetInstance()->DisableProcessing();
+
+      // Verification
+      if (compaction_reason == CompactionReason::kUniversalSizeRatio) {
+        ASSERT_EQ("2", FilesPerLevel(0));
+        ASSERT_EQ(low_pri_self_pickd, 1);
+        ASSERT_EQ(bottom_pri_self_picked, 0);
+      } else if (compaction_reason == CompactionReason::kPeriodicCompaction) {
+        ASSERT_EQ("0,0,1", FilesPerLevel(0));
+        // Low pri thread will attempt to pick files but will give up as it
+        // can't execute compaction output to bottommost level e.g,
+        // kPeriodicCompaction
+        ASSERT_EQ(low_pri_self_pickd, 1);
+        ASSERT_EQ(bottom_pri_self_picked, 1);
+      } else if (compaction_reason ==
+                     CompactionReason::kUniversalSizeAmplification &&
+                 output_level == kLastLevel) {
+        ASSERT_EQ("0,0,1", FilesPerLevel(0));
+        // Low pri thread will attempt to pick files but will give up as it
+        // can't execute compaction output to bottommost level
+        ASSERT_EQ(low_pri_self_pickd, 1);
+        ASSERT_EQ(bottom_pri_self_picked, 1);
+      } else if (compaction_reason ==
+                     CompactionReason::kUniversalSizeAmplification &&
+                 output_level == kSecondToLastLevel) {
+        ASSERT_EQ("0,1,1", FilesPerLevel(0));
+        ASSERT_EQ(low_pri_self_pickd, 1);
+        ASSERT_EQ(bottom_pri_self_picked, 0);
+      } else if (compaction_reason ==
+                 CompactionReason::kUniversalSortedRunNum) {
+        // Low pri thread will compact from "2,0,1" to "0,1,1" and eventually
+        // a bottom pri thread will compact from "0,1,1" to "0,0,1". In between,
+        // a low pri thread will attempt to compact files from
+        // second-to-the-last level to bottommost level but will give up.
+        ASSERT_EQ("0,0,1", FilesPerLevel(0));
+        ASSERT_EQ(low_pri_self_pickd, 2);
+        ASSERT_EQ(bottom_pri_self_picked, 1);
+      } else if (compaction_reason ==
+                     CompactionReason::kFilesMarkedForCompaction &&
+                 output_level == kLastLevel) {
+        // Low pri thread will attempt to compact marked files from
+        // second-to-the-last level to bottommost level but will give up
+        ASSERT_EQ("0,0,2", FilesPerLevel(0));
+        ASSERT_EQ(low_pri_self_pickd, 1);
+        ASSERT_EQ(bottom_pri_self_picked, 1);
+      } else if (compaction_reason ==
+                     CompactionReason::kFilesMarkedForCompaction &&
+                 output_level == kSecondToLastLevel) {
+        ASSERT_EQ("0,2", FilesPerLevel(0));
+        ASSERT_EQ(low_pri_self_pickd, 1);
+        ASSERT_EQ(bottom_pri_self_picked, 0);
+      }
+    }
+  }
+  Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
+}
+TEST_F(DBCompactionTest, BottomTaskSchedulingWithMixedUniversalLevelCF) {
+  // To verify bottom pri compaction picks its own files only for universal
+  // compaction CF
+  Options options = CurrentOptions();
+  options.max_background_jobs = 3;
+  Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  options.level0_file_num_compaction_trigger = 3;
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+
+  Options copy_options_universal = options;
+  copy_options_universal.compaction_style = kCompactionStyleUniversal;
+  copy_options_universal.periodic_compaction_seconds =
+      30 * 24 * 60 * 60;  // 30 days
+  env_->SetMockSleep();
+  copy_options_universal.universal_pick_compaction_by_thread_pri = true;
+  Options copy_options_level = options;
+  copy_options_level.compaction_style = kCompactionStyleLevel;
+  copy_options_level.level_compaction_dynamic_level_bytes = true;
+  ColumnFamilyHandle* cf_universal;
+  ASSERT_OK(db_->CreateColumnFamily(copy_options_universal, "cf_universal",
+                                    &cf_universal));
+  ColumnFamilyHandle* cf_level;
+  ASSERT_OK(db_->CreateColumnFamily(copy_options_level, "cf_level", &cf_level));
+
+  // Verify different compaction styles set across CFs
+  ASSERT_EQ(db_->GetOptions(cf_universal).compaction_style,
+            kCompactionStyleUniversal);
+  ASSERT_EQ(db_->GetOptions(cf_level).compaction_style, kCompactionStyleLevel);
+
+  // Create 2 L0 file needing periodic compaction in cf_universal
+  ASSERT_OK(db_->Put(WriteOptions(), cf_universal, "a", "v"));
+  ASSERT_OK(db_->Put(WriteOptions(), cf_universal, "c", "v"));
+  ASSERT_OK(db_->Flush(FlushOptions(), cf_universal));
+
+  ASSERT_OK(db_->Put(WriteOptions(), cf_universal, "a", "v"));
+  ASSERT_OK(db_->Put(WriteOptions(), cf_universal, "b", "v"));
+  ASSERT_OK(db_->Flush(FlushOptions(), cf_universal));
+
+  env_->MockSleepForSeconds(copy_options_universal.periodic_compaction_seconds +
+                            1);
+
+  ColumnFamilyMetaData cf_universal_meta;
+  db_->GetColumnFamilyMetaData(cf_universal, &cf_universal_meta);
+  ASSERT_EQ(2U, cf_universal_meta.levels[0].files.size());
+  ASSERT_EQ(0U, cf_universal_meta.levels[1].files.size());
+  ASSERT_EQ(0U, cf_universal_meta.levels[2].files.size());
+
+  // Create 3 L0 files in cf_level
+  ASSERT_OK(db_->Put(WriteOptions(), cf_level, "a", "v"));
+  ASSERT_OK(db_->Put(WriteOptions(), cf_level, "c", "v"));
+  ASSERT_OK(db_->Flush(FlushOptions(), cf_level));
+
+  ASSERT_OK(db_->Put(WriteOptions(), cf_level, "b", "v"));
+  ASSERT_OK(db_->Flush(FlushOptions(), cf_level));
+
+  ASSERT_OK(db_->Put(WriteOptions(), cf_level, "b", "v"));
+  ASSERT_OK(db_->Put(WriteOptions(), cf_level, "d", "v"));
+  ASSERT_OK(db_->Flush(FlushOptions(), cf_level));
+
+  ColumnFamilyMetaData cf_level_meta;
+  db_->GetColumnFamilyMetaData(cf_level, &cf_level_meta);
+  ASSERT_EQ(3U, cf_level_meta.levels[0].files.size());
+  ASSERT_EQ(0U, cf_level_meta.levels[1].files.size());
+  ASSERT_EQ(0U, cf_level_meta.levels[2].files.size());
+
+  int bottom_self_picked = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction():AfterPickCompactionBOTTOM",
+      [&](void* /* arg */) { ++bottom_self_picked; });
+
+  int low_forward = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+      [&](void* /* arg */) { ++low_forward; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->EnableAutoCompaction({cf_universal, cf_level}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Verify bottom compactions are done in both CFs
+  ColumnFamilyMetaData cf_universal_meta_post_compaction;
+  db_->GetColumnFamilyMetaData(cf_universal,
+                               &cf_universal_meta_post_compaction);
+  ASSERT_EQ(0U, cf_universal_meta_post_compaction.levels[0].files.size());
+  ASSERT_EQ(0U, cf_universal_meta_post_compaction.levels[1].files.size());
+  ASSERT_EQ(1U, cf_universal_meta_post_compaction.levels[2].files.size());
+  ColumnFamilyMetaData cf_level_meta_post_compaction;
+  db_->GetColumnFamilyMetaData(cf_level, &cf_level_meta_post_compaction);
+  ASSERT_EQ(0U, cf_level_meta_post_compaction.levels[0].files.size());
+  ASSERT_EQ(0U, cf_level_meta_post_compaction.levels[1].files.size());
+  ASSERT_EQ(1U, cf_level_meta_post_compaction.levels[2].files.size());
+
+  // Verify only one bottom compaction gets forwarded and one bottom compaction
+  // gets to pick its files
+  ASSERT_EQ(bottom_self_picked, 1);
+  ASSERT_EQ(low_forward, 1);
+
+  delete cf_universal;
+  delete cf_level;
+}
+
 TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   // This test verify UpdateAccumulatedStats is not on
   // if options.skip_stats_update_on_db_open = true
@@ -664,6 +1051,10 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTriggerReopen) {
 }
 
 TEST_F(DBCompactionTest, CompactRangeBottomPri) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
   ASSERT_OK(Put(Key(50), ""));
   ASSERT_OK(Flush());
   ASSERT_OK(Put(Key(100), ""));
@@ -1618,7 +2009,8 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
        {"DBCompaction::ManualPartial:5", "DBCompaction::ManualPartial:2"},
        {"DBCompaction::ManualPartial:5", "DBCompaction::ManualPartial:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW",
+      [&](void* /*arg*/) {
         if (first) {
           first = false;
           TEST_SYNC_POINT("DBCompaction::ManualPartial:4");
@@ -1759,7 +2151,8 @@ TEST_F(DBCompactionTest, DISABLED_ManualPartialFill) {
       {{"DBCompaction::PartialFill:4", "DBCompaction::PartialFill:1"},
        {"DBCompaction::PartialFill:2", "DBCompaction::PartialFill:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW",
+      [&](void* /*arg*/) {
         if (first) {
           TEST_SYNC_POINT("DBCompaction::PartialFill:4");
           first = false;
@@ -3984,45 +4377,85 @@ TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
 }
 
 TEST_P(DBCompactionTestWithParam, FullCompactionInBottomPriThreadPool) {
-  const int kNumFilesTrigger = 3;
-  Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
-  for (bool use_universal_compaction : {false, true}) {
-    Options options = CurrentOptions();
-    if (use_universal_compaction) {
-      options.compaction_style = kCompactionStyleUniversal;
-    } else {
-      options.compaction_style = kCompactionStyleLevel;
-      options.level_compaction_dynamic_level_bytes = true;
+  const int kNumFilesTrigger = 2;
+  // Verify full compaction will be
+  // (1) executed in bottom pri pool only if bottom
+  // pri pool is not empty
+  // (2) picked if it's universal compaction,
+  // Options::universal_pick_compaction_by_thread_pri == true and bottom pri
+  // pool is not empty
+  for (bool empty_bottom_pri_pool : {false, true}) {
+    Env::Default()->SetBackgroundThreads(empty_bottom_pri_pool ? 0 : 1,
+                                         Env::Priority::BOTTOM);
+    for (bool use_universal_compaction : {false, true}) {
+      for (bool universal_pick_compaction_by_thread_pri : {false, true}) {
+        if (universal_pick_compaction_by_thread_pri &&
+            !use_universal_compaction) {
+          continue;
+        }
+        Options options = CurrentOptions();
+        if (use_universal_compaction) {
+          options.compaction_style = kCompactionStyleUniversal;
+          options.compaction_options_universal.max_size_amplification_percent =
+              50;
+          options.universal_pick_compaction_by_thread_pri =
+              universal_pick_compaction_by_thread_pri;
+        } else {
+          options.compaction_style = kCompactionStyleLevel;
+          options.level_compaction_dynamic_level_bytes = true;
+        }
+        options.num_levels = 4;
+        options.write_buffer_size = 100 << 10;     // 100KB
+        options.target_file_size_base = 32 << 10;  // 32KB
+        options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+        DestroyAndReopen(options);
+
+        int num_bottom_pri_compactions = 0;
+        SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BGWorkBottomCompaction",
+            [&](void* /*arg*/) { ++num_bottom_pri_compactions; });
+        int num_bottom_pri_compactions_forwarded = 0;
+        SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+            [&](void* /*arg*/) { ++num_bottom_pri_compactions_forwarded; });
+        int num_bottom_pri_compactions_self_picked = 0;
+        SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction():AfterPickCompactionBOTTOM",
+            [&](void* /*arg*/) { ++num_bottom_pri_compactions_self_picked; });
+
+        SyncPoint::GetInstance()->EnableProcessing();
+
+        Random rnd(301);
+        for (int num = 0; num < kNumFilesTrigger; num++) {
+          ASSERT_EQ(NumSortedRuns(), num);
+          int key_idx = 0;
+          GenerateNewFile(&rnd, &key_idx);
+        }
+        ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+        // Verify that compaction did occur
+        ASSERT_EQ(NumSortedRuns(), 1);
+        // Verify full compaction is executed in bottom pri pool only if bottom
+        // pri pool is not empty
+        ASSERT_EQ(empty_bottom_pri_pool ? 0 : 1, num_bottom_pri_compactions);
+        ASSERT_EQ(num_bottom_pri_compactions_self_picked +
+                      num_bottom_pri_compactions_forwarded,
+                  num_bottom_pri_compactions);
+        // Verify self-picked bottom pri compaction only happens when
+        // `Options::universal_pick_compaction_by_thread_pri == true` in
+        // universal compaction configured with bottom pri threads
+        ASSERT_EQ(use_universal_compaction &&
+                          universal_pick_compaction_by_thread_pri &&
+                          !empty_bottom_pri_pool
+                      ? 1
+                      : 0,
+                  num_bottom_pri_compactions_self_picked);
+
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+      }
     }
-    options.num_levels = 4;
-    options.write_buffer_size = 100 << 10;     // 100KB
-    options.target_file_size_base = 32 << 10;  // 32KB
-    options.level0_file_num_compaction_trigger = kNumFilesTrigger;
-    // Trigger compaction if size amplification exceeds 110%
-    options.compaction_options_universal.max_size_amplification_percent = 110;
-    DestroyAndReopen(options);
-
-    int num_bottom_pri_compactions = 0;
-    SyncPoint::GetInstance()->SetCallBack(
-        "DBImpl::BGWorkBottomCompaction",
-        [&](void* /*arg*/) { ++num_bottom_pri_compactions; });
-    SyncPoint::GetInstance()->EnableProcessing();
-
-    Random rnd(301);
-    for (int num = 0; num < kNumFilesTrigger; num++) {
-      ASSERT_EQ(NumSortedRuns(), num);
-      int key_idx = 0;
-      GenerateNewFile(&rnd, &key_idx);
-    }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-    ASSERT_EQ(1, num_bottom_pri_compactions);
-
-    // Verify that size amplification did occur
-    ASSERT_EQ(NumSortedRuns(), 1);
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
   }
-  Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
 TEST_F(DBCompactionTest, CancelCompactionWaitingOnRunningConflict) {
@@ -4197,7 +4630,7 @@ TEST_F(DBCompactionTest, CompactFilesPendingL0Bug) {
       {{"LevelCompactionPicker::PickCompaction:Return",
         "DBCompactionTest::CompactFilesPendingL0Bug:Picked"},
        {"DBCompactionTest::CompactFilesPendingL0Bug:ManualCompacted",
-        "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"}});
+        "DBImpl::BackgroundCompaction:NonTrivial:AfterRunLOW"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   auto schedule_multi_compaction_token =
@@ -7090,7 +7523,7 @@ TEST_F(DBCompactionTest, CompactionDuringShutdown) {
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun",
+      "DBImpl::BackgroundCompaction:NonTrivial:BeforeRunLOW",
       [&](void* /*arg*/) { dbfull()->shutting_down_.store(true); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   Status s = dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
@@ -7226,7 +7659,7 @@ class DBCompactionTestWithOngoingFileIngestionParam
       SyncPoint::GetInstance()->SetCallBack(
           "ExternalSstFileIngestionJob::Run", [&](void*) {
             SyncPoint::GetInstance()->LoadDependency(
-                {{"DBImpl::BackgroundCompaction():AfterPickCompaction",
+                {{"DBImpl::BackgroundCompaction():AfterPickCompactionLOW",
                   "VersionSet::LogAndApply:WriteManifest"}});
           });
     } else if (compaction_path_to_test_ == "NonRefitLevelCompactRange") {
@@ -10055,6 +10488,8 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
   compact_range_thread.join();
+
+  env_->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
 TEST_F(DBCompactionTest, BottommostFileCompactionAllowIngestBehind) {
@@ -10431,7 +10866,7 @@ TEST_F(DBCompactionTest, ManualCompactionCompactAllKeysInRange) {
   // will contain 2 files: one for Key(1000) and one for Key(1), Key(5) and
   // Key(6).
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::BackgroundCompaction():AfterPickCompaction",
+      {{"DBImpl::BackgroundCompaction():AfterPickCompactionLOW",
         "DBImpl::RunManualCompaction()::1"}});
   SyncPoint::GetInstance()->EnableProcessing();
   std::string begin_str = Key(1);
@@ -10486,7 +10921,7 @@ TEST_F(DBCompactionTest,
   ASSERT_OK(
       db_->Put(WriteOptions(), Key(2), rnd.RandomString(kBaseLevelBytes / 3)));
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::BackgroundCompaction():AfterPickCompaction",
+      {{"DBImpl::BackgroundCompaction():AfterPickCompactionLOW",
         "DBImpl::RunManualCompaction()::1"}});
   SyncPoint::GetInstance()->EnableProcessing();
   // After compacting the file with [Key(1), Key(2)] to L5,
@@ -10874,6 +11309,8 @@ TEST_F(DBCompactionTest, ReleaseCompactionDuringManifestWrite) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  env_->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
 TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
