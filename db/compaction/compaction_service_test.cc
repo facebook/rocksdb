@@ -21,10 +21,10 @@ class MyTestCompactionService : public CompactionService {
       : db_path_(std::move(db_path)),
         options_(options),
         statistics_(statistics),
-        start_info_("na", "na", "na", 0, Env::TOTAL, CompactionReason::kUnknown,
-                    false, false, false, -1, -1),
-        wait_info_("na", "na", "na", 0, Env::TOTAL, CompactionReason::kUnknown,
-                   false, false, false, -1, -1),
+        start_info_("na", "na", "na", 0, "na", 0, Env::TOTAL,
+                    CompactionReason::kUnknown, false, false, false, -1, -1),
+        wait_info_("na", "na", "na", 0, "na", 0, Env::TOTAL,
+                   CompactionReason::kUnknown, false, false, false, -1, -1),
         listeners_(listeners),
         table_properties_collector_factories_(
             std::move(table_properties_collector_factories)) {}
@@ -434,6 +434,30 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
   ASSERT_OK(result.status);
   ASSERT_TRUE(result.stats.is_manual_compaction);
   ASSERT_TRUE(result.stats.is_remote_compaction);
+
+  auto info = my_cs->GetCompactionInfoForStart();
+  ASSERT_EQ(0, info.cf_id);
+  ASSERT_EQ(kDefaultColumnFamilyName, info.cf_name);
+
+  info = my_cs->GetCompactionInfoForWait();
+  ASSERT_EQ(0, info.cf_id);
+  ASSERT_EQ(kDefaultColumnFamilyName, info.cf_name);
+
+  // Test non-default CF
+  ASSERT_OK(
+      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr));
+  my_cs->GetResult(&result);
+  ASSERT_OK(result.status);
+  ASSERT_TRUE(result.stats.is_manual_compaction);
+  ASSERT_TRUE(result.stats.is_remote_compaction);
+
+  info = my_cs->GetCompactionInfoForStart();
+  ASSERT_EQ(handles_[1]->GetID(), info.cf_id);
+  ASSERT_EQ(handles_[1]->GetName(), info.cf_name);
+
+  info = my_cs->GetCompactionInfoForWait();
+  ASSERT_EQ(handles_[1]->GetID(), info.cf_id);
+  ASSERT_EQ(handles_[1]->GetName(), info.cf_name);
 }
 
 TEST_F(CompactionServiceTest, CompactionOutputFileIOError) {
@@ -1371,6 +1395,7 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
   ASSERT_EQ(true, info.bottommost_level);
   ASSERT_EQ(1, info.base_input_level);
   ASSERT_EQ(2, info.output_level);
+  ASSERT_EQ(kDefaultColumnFamilyName, info.cf_name);
 
   // Test priority BOTTOM
   env_->SetBackgroundThreads(1, Env::BOTTOM);
