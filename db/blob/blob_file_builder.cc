@@ -278,8 +278,8 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
   {
     StopWatch stop_watch(immutable_options_->clock, immutable_options_->stats,
                          BLOB_DB_COMPRESSION_MICROS);
-    success =
-        CompressData(*blob, info, compression_format_version, compressed_blob);
+    success = OLD_CompressData(*blob, info, compression_format_version,
+                               compressed_blob);
   }
 
   if (!success) {

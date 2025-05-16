@@ -76,8 +76,8 @@ Status HashIndexReader::Create(const BlockBasedTable* table,
   BlockFetcher prefixes_block_fetcher(
       file, prefetch_buffer, footer, ro, prefixes_handle, &prefixes_contents,
       ioptions, true /*decompress*/, true /*maybe_compressed*/,
-      BlockType::kHashIndexPrefixes, UncompressionDict::GetEmptyDict(),
-      cache_options, memory_allocator);
+      BlockType::kHashIndexPrefixes, rep->decompressor.get(), cache_options,
+      memory_allocator);
   s = prefixes_block_fetcher.ReadBlockContents();
   if (!s.ok()) {
     return s;
@@ -87,7 +87,7 @@ Status HashIndexReader::Create(const BlockBasedTable* table,
       file, prefetch_buffer, footer, ro, prefixes_meta_handle,
       &prefixes_meta_contents, ioptions, true /*decompress*/,
       true /*maybe_compressed*/, BlockType::kHashIndexMetadata,
-      UncompressionDict::GetEmptyDict(), cache_options, memory_allocator);
+      rep->decompressor.get(), cache_options, memory_allocator);
   s = prefixes_meta_block_fetcher.ReadBlockContents();
   if (!s.ok()) {
     // TODO: log error

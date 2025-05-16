@@ -602,9 +602,9 @@ Status BlobFileReader::UncompressBlobIfNeeded(
   {
     PERF_TIMER_GUARD(blob_decompress_time);
     StopWatch stop_watch(clock, statistics, BLOB_DB_DECOMPRESSION_MICROS);
-    output = UncompressData(info, value_slice.data(), value_slice.size(),
-                            &uncompressed_size, compression_format_version,
-                            allocator);
+    output = OLD_UncompressData(info, value_slice.data(), value_slice.size(),
+                                &uncompressed_size, compression_format_version,
+                                allocator);
   }
 
   TEST_SYNC_POINT_CALLBACK(

@@ -1160,10 +1160,18 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   CompressionOptions opts;
   CompressionContext context(type, opts);
   CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(), type);
-  CompressData(raw, info,
-               GetCompressFormatForVersion(kBlockBasedTableVersionFormat),
-               compression_output);
+  OLD_CompressData(raw, info,
+                   GetCompressFormatForVersion(kBlockBasedTableVersionFormat),
+                   compression_output);
   return *compression_output;
+}
+
+Decompressor& BlobDecompressor() {
+  static auto mgr = GetBuiltinCompressionManager(
+      GetCompressFormatForVersion(kBlockBasedTableVersionFormat));
+  static auto decompressor = mgr->GetDecompressor();
+
+  return *decompressor;
 }
 
 Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
@@ -1177,12 +1185,9 @@ Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
   {
     StopWatch decompression_sw(clock_, statistics_,
                                BLOB_DB_DECOMPRESSION_MICROS);
-    UncompressionContext context(compression_type);
-    UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
-                           compression_type);
-    Status s = UncompressBlockData(
-        info, compressed_value.data(), compressed_value.size(), &contents,
-        kBlockBasedTableVersionFormat, cfh->cfd()->ioptions());
+    Status s = DecompressBlockData(
+        compressed_value.data(), compressed_value.size(), compression_type,
+        BlobDecompressor(), &contents, cfh->cfd()->ioptions());
     if (!s.ok()) {
       return Status::Corruption("Unable to decompress blob.");
     }
