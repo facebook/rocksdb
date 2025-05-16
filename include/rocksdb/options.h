@@ -2057,6 +2057,9 @@ struct ReadOptions {
 
   // *** BEGIN options for RocksDB internal use only ***
 
+  // TODO: create a new struct for per-request options, potentially including
+  // timestamps in point lookups/scans
+
   // request_id a unique id assigned by the application. It is used to allow us
   // to link file system metrics/logs to rocksDB and application logs.
   const std::string* request_id = nullptr;
@@ -2067,11 +2070,8 @@ struct ReadOptions {
   // *** END options for RocksDB internal use only ***
 
   ReadOptions(){};
-  ReadOptions(const std::string* _request_id);
-  ReadOptions(bool _verify_checksums, bool _fill_cache,
-              const std::string* _request_id = nullptr);
-  explicit ReadOptions(Env::IOActivity _io_activity,
-                       const std::string* _request_id = nullptr);
+  ReadOptions(bool _verify_checksums, bool _fill_cache);
+  explicit ReadOptions(Env::IOActivity _io_activity);
 };
 
 // Options that control write operations
