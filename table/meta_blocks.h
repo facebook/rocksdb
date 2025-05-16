@@ -22,6 +22,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class Block;
 class BlockBuilder;
 class BlockHandle;
 class Env;
@@ -109,6 +110,10 @@ bool NotifyCollectTableCollectorsOnFinish(
     Logger* info_log, PropertyBlockBuilder* builder,
     UserCollectedProperties& user_collected_properties,
     UserCollectedProperties& readable_properties);
+
+Status ParsePropertiesBlock(
+    const ImmutableOptions& ioptions, uint64_t offset, Block& block,
+    std::unique_ptr<TableProperties>& new_table_properties);
 
 // Read table properties from a file using known BlockHandle.
 // @returns a status to indicate if the operation succeeded. On success,
