@@ -536,6 +536,12 @@ enum Tickers : uint32_t {
   FILE_READ_CORRUPTION_RETRY_COUNT,
   FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT,
 
+  // Counter for the number of times a WBWI is ingested into the DB. This
+  // happens when IngestWriteBatchWithIndex() is used and when large
+  // transaction optimization is enabled through
+  // TransactionOptions::large_txn_commit_optimize_threshold.
+  NUMBER_WBWI_INGEST,
+
   TICKER_ENUM_MAX
 };
 
@@ -672,6 +678,9 @@ enum Histograms : uint32_t {
   // Number of bytes for RocksDB's prefetching contents (as opposed to file
   // system's prefetch) from the end of SST table during block based table open
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
+
+  // Number of operations per transaction.
+  NUM_OP_PER_TRANSACTION,
 
   HISTOGRAM_ENUM_MAX
 };
