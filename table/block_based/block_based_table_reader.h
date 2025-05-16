@@ -34,6 +34,7 @@
 #include "table/two_level_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
 #include "util/atomic.h"
+#include "util/cast_util.h"
 #include "util/coro_utils.h"
 #include "util/hash_containers.h"
 

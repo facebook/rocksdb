@@ -6,6 +6,7 @@
 #include "util/compression.h"
 
 #include "options/options_helper.h"
+#include "rocksdb/convenience.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -124,6 +125,26 @@ void ZSTDStreamingUncompress::Reset() {
 // ***********************************************************************
 // BEGIN built-in implementation of customization interface
 // ***********************************************************************
+Status Decompressor::ExtractUncompressedSize(Args& args) {
+  // Default implementation:
+  //
+  // Standard format for prepending uncompressed size to the compressed
+  // payload. (RocksDB compress_format_version=2 except Snappy)
+  //
+  // This is historically a varint32, but it is preliminarily generalized
+  // to varint64. (TODO: support that on the write side, at least for some
+  // codecs, in BBT format_version=7)
+  if (LIKELY(GetVarint64(&args.compressed_data, &args.uncompressed_size))) {
+    if (LIKELY(args.uncompressed_size <= SIZE_MAX)) {
+      return Status::OK();
+    } else {
+      return Status::MemoryLimit("Uncompressed size too large for platform");
+    }
+  } else {
+    return Status::Corruption("Unable to extract uncompressed size");
+  }
+}
+
 const Slice& Decompressor::GetSerializedDict() const {
   // Default: empty slice => no dictionary
   static Slice kEmptySlice;
@@ -858,22 +879,36 @@ const std::shared_ptr<BuiltinCompressionManagerV2>
 
 }  // namespace
 
+Status CompressionManager::CreateFromString(
+    const ConfigOptions& /*config_options*/, const std::string& id,
+    std::shared_ptr<CompressionManager>* result) {
+  if (id == kNullptrString || id.empty()) {
+    result->reset();
+    return Status::OK();
+  } else if (id.compare(kBuiltinCompressionManagerV1->CompatibilityName()) ==
+                 0 ||
+             id.compare(kBuiltinCompressionManagerV1->Name()) == 0) {
+    *result = kBuiltinCompressionManagerV1;
+    return Status::OK();
+  } else if (id.compare(kBuiltinCompressionManagerV2->CompatibilityName()) ==
+                 0 ||
+             id.compare(kBuiltinCompressionManagerV2->Name()) == 0) {
+    *result = kBuiltinCompressionManagerV2;
+    return Status::OK();
+  } else {
+    return Status::NotFound("Compatible compression manager for \"" + id +
+                            "\"");
+  }
+}
+
 Status CompressionManager::FindCompatibleCompressionManager(
     Slice compatibility_name, std::shared_ptr<CompressionManager>* out) {
   if (compatibility_name.compare(CompatibilityName()) == 0) {
     *out = shared_from_this();
     return Status::OK();
-  } else if (compatibility_name.compare(
-                 kBuiltinCompressionManagerV1->CompatibilityName()) == 0) {
-    *out = kBuiltinCompressionManagerV1;
-    return Status::OK();
-  } else if (compatibility_name.compare(
-                 kBuiltinCompressionManagerV2->CompatibilityName()) == 0) {
-    *out = kBuiltinCompressionManagerV2;
-    return Status::OK();
   } else {
-    return Status::NotFound("Compatible compression manager for \"" +
-                            compatibility_name.ToString() + "\"");
+    return CreateFromString(ConfigOptions(), compatibility_name.ToString(),
+                            out);
   }
 }
 
@@ -893,6 +928,11 @@ const std::shared_ptr<CompressionManager>& GetBuiltinCompressionManager(
     // rightfully crash.
     return none;
   }
+}
+
+const std::shared_ptr<CompressionManager>&
+GetDefaultBuiltinCompressionManager() {
+  return GetBuiltinCompressionManager(2);
 }
 
 // ***********************************************************************

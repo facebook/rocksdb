@@ -874,6 +874,7 @@ bool LDBCommand::ParseCompressionTypeOption(
       g_hack_mixed_compression.StoreRelaxed(1);
       // Need to list zstd in compression_name table property if it's
       // potentially in the mix, for proper handling of context and dictionary.
+      // (Older versions of RocksDB could crash if that's not satisfied.)
       value = ZSTD_Supported() ? kZSTD : GetSupportedCompressions()[0];
       return true;
 #endif  // !NDEBUG
