@@ -424,9 +424,6 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
           remaining_bytes -= request_bytes;
         }
       }
-      // TEST_SYNC_POINT_CALLBACK(
-      //     "RandomAccessFileReader::MultiRead:IOOptions",
-      //     const_cast<void*>(static_cast<const void*>(&opts)));
       TEST_SYNC_POINT_CALLBACK(
           "RandomAccessFileReader::MultiRead:IODebugContext",
           const_cast<void*>(static_cast<void*>(dbg)));
