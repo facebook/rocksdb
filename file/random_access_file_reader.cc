@@ -112,8 +112,6 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
   const Env::IOPriority rate_limiter_priority = opts.rate_limiter_priority;
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
-  TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read:IOOptions",
-                           const_cast<void*>(static_cast<const void*>(&opts)));
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read:IODebugContext",
                            const_cast<void*>(static_cast<void*>(dbg)));
 
@@ -426,9 +424,9 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
           remaining_bytes -= request_bytes;
         }
       }
-      TEST_SYNC_POINT_CALLBACK(
-          "RandomAccessFileReader::MultiRead:IOOptions",
-          const_cast<void*>(static_cast<const void*>(&opts)));
+      // TEST_SYNC_POINT_CALLBACK(
+      //     "RandomAccessFileReader::MultiRead:IOOptions",
+      //     const_cast<void*>(static_cast<const void*>(&opts)));
       TEST_SYNC_POINT_CALLBACK(
           "RandomAccessFileReader::MultiRead:IODebugContext",
           const_cast<void*>(static_cast<void*>(dbg)));

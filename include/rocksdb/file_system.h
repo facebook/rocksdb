@@ -142,10 +142,6 @@ struct IOOptions {
   // EXPERIMENTAL
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
 
-  // request_id a unique id assigned by the application. It used to allow us to
-  // link file system metrics/logs to rocksDB and application logs.
-  const std::string* request_id;
-
   IOOptions() : IOOptions(false) {}
 
   explicit IOOptions(bool force_dir_fsync_)
@@ -155,21 +151,7 @@ struct IOOptions {
         type(IOType::kUnknown),
         force_dir_fsync(force_dir_fsync_),
         do_not_recurse(false),
-        verify_and_reconstruct_read(false),
-        request_id(nullptr) {}
-
-  explicit IOOptions(bool force_dir_fsync_, const std::string* request_id_)
-      : timeout(std::chrono::microseconds::zero()),
-        prio(IOPriority::kIOLow),
-        rate_limiter_priority(Env::IO_TOTAL),
-        type(IOType::kUnknown),
-        force_dir_fsync(force_dir_fsync_),
-        do_not_recurse(false),
-        verify_and_reconstruct_read(false),
-        request_id(request_id_) {}
-
-  explicit IOOptions(const std::string* request_id_)
-      : request_id(request_id_) {}
+        verify_and_reconstruct_read(false) {}
 };
 
 struct DirFsyncOptions {

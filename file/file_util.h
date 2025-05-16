@@ -89,11 +89,8 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
                                          SystemClock* clock, IOOptions& opts,
                                          IODebugContext* dbg = nullptr) {
   if (ro.request_id != nullptr) {
-    if (opts.request_id == nullptr) {
-      opts.request_id = ro.request_id;
-    }
     if (dbg != nullptr && dbg->request_id == nullptr) {
-      dbg->SetRequestId(opts.request_id);
+      dbg->SetRequestId(ro.request_id);
     }
   }
 
