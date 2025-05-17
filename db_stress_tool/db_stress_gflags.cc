@@ -1482,4 +1482,8 @@ DEFINE_uint32(
     ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_op_scan_flush_trigger,
     "Sets CF option memtable_op_scan_flush_trigger.");
 
+DEFINE_uint32(
+    memtable_avg_op_scan_flush_trigger,
+    ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_avg_op_scan_flush_trigger,
+    "Sets CF option memtable_avg_op_scan_flush_trigger.");
 #endif  // GFLAGS

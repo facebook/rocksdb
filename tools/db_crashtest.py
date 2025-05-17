@@ -345,6 +345,7 @@ default_params = {
     "enable_remote_compaction": lambda: random.choice([0, 1]),
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
+    "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
 }
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
