@@ -2494,6 +2494,8 @@ checkout_folly:
 	perl -pi -e 's/(#include <atomic>)/$$1\n#include <cstring>/' third-party/folly/folly/lang/Exception.h
 	@# Warning-as-error on memcpy
 	perl -pi -e 's/memcpy.&ptr/memcpy((void*)&ptr/' third-party/folly/folly/lang/Exception.cpp
+	@# const mismatch
+	perl -pi -e 's/: environ/: (const char**)(environ)/' third-party/folly/folly/Subprocess.cpp
 	@# NOTE: boost source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on boost headers
 	cd third-party/folly && $(PYTHON) build/fbcode_builder/getdeps.py fetch boost
 
