@@ -21,7 +21,7 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
   awaiter->del_fn_.resize(awaiter->num_reqs_);
   for (size_t i = 0; i < awaiter->num_reqs_; ++i) {
     IOStatus s = awaiter->file_->ReadAsync(
-        awaiter->read_reqs_[i], awaiter->opts_,
+        awaiter->read_reqs_[i], awaiter->opts_, awaiter->dbg_,
         [](FSReadRequest& req, void* cb_arg) {
           FSReadRequest* read_req = static_cast<FSReadRequest*>(cb_arg);
           read_req->status = req.status;
