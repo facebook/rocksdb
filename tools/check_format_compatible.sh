@@ -11,6 +11,8 @@
 # Return value 0 means all regression tests pass. 1 if not pass.
 #
 # Environment options:
+#  SANITY_CHECK=1 - Do a syntax check and git checkout test as a sanity check
+#    that the script hasn't been broken by e.g. adding a new release wrongly.
 #  SHORT_TEST=1 - Test only the oldest branch for each kind of test. This is
 #    a good choice for PR validation as it is relatively fast and will find
 #    most issues.
@@ -135,7 +137,7 @@ EOF
 
 # To check for DB forward compatibility with loading options (old version
 # reading data from new), as well as backward compatibility
-declare -a db_forward_with_options_refs=("8.6.fb" "8.7.fb" "8.8.fb" "8.9.fb" "8.10.fb" "8.11.fb" "9.0.fb" "9.1.fb" "9.2.fb" "9.3.fb" "9.4.fb" "9.5.fb" "9.6.fb" "9.7.fb" "9.8.fb" "9.9.fb" "9.10.fb" "9.11.fb" "10.0.fb" "10.1.fb" "10.2.fb")
+declare -a db_forward_with_options_refs=("8.6.fb" "8.7.fb" "8.8.fb" "8.9.fb" "8.10.fb" "8.11.fb" "9.0.fb" "9.1.fb" "9.2.fb" "9.3.fb" "9.4.fb" "9.5.fb" "9.6.fb" "9.7.fb" "9.8.fb" "9.9.fb" "9.10.fb" "9.11.fb" "10.0.fb" "10.1.fb" "10.2.fb" "10.3.fb")
 # To check for DB forward compatibility without loading options (in addition
 # to the "with loading options" set), as well as backward compatibility
 declare -a db_forward_no_options_refs=() # N/A at the moment
@@ -195,10 +197,14 @@ if [ "$SHORT_TEST" == "" ]; then
   done
 fi
 
+invoke_make()
+{
+    [ "$SANITY_CHECK" ] || make "$*"
+}
 generate_db()
 {
     set +e
-    bash "$script_copy_dir"/generate_random_db.sh "$1" "$2"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/generate_random_db.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error loading data from $2 to $1 ====
         exit 1
@@ -209,7 +215,7 @@ generate_db()
 compare_db()
 {
     set +e
-    bash "$script_copy_dir"/verify_random_db.sh "$1" "$2" "$3" "$4" "$5"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/verify_random_db.sh "$1" "$2" "$3" "$4" "$5"
     if [ $? -ne 0 ]; then
         echo ==== Read different content from $1 and $2 or error happened. ====
         exit 1
@@ -220,7 +226,7 @@ compare_db()
 write_external_sst()
 {
     set +e
-    bash "$script_copy_dir"/write_external_sst.sh "$1" "$2" "$3"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/write_external_sst.sh "$1" "$2" "$3"
     if [ $? -ne 0 ]; then
         echo ==== Error writing external SST file using data from $1 to $3 ====
         exit 1
@@ -231,7 +237,7 @@ write_external_sst()
 ingest_external_sst()
 {
     set +e
-    bash "$script_copy_dir"/ingest_external_sst.sh "$1" "$2"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/ingest_external_sst.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error ingesting external SST in $2 to DB at $1 ====
         exit 1
@@ -242,7 +248,7 @@ ingest_external_sst()
 backup_db()
 {
     set +e
-    bash "$script_copy_dir"/backup_db.sh "$1" "$2"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/backup_db.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error backing up DB $1 to $2 ====
         exit 1
@@ -253,7 +259,7 @@ backup_db()
 restore_db()
 {
     set +e
-    bash "$script_copy_dir"/restore_db.sh "$1" "$2"
+    [ "$SANITY_CHECK" ] || bash "$script_copy_dir"/restore_db.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error restoring from $1 to $2 ====
         exit 1
@@ -297,8 +303,8 @@ current_checkout_name="$current_checkout_name ($current_checkout_hash)"
 echo "== Building $current_checkout_name debug"
 git checkout -B $tmp_branch $current_checkout_hash
 force_no_fbcode
-make clean
-DISABLE_WARNING_AS_ERROR=1 make ldb -j$J
+invoke_make clean
+DISABLE_WARNING_AS_ERROR=1 invoke_make ldb -j$J
 
 echo "== Using $current_checkout_name, generate DB with extern SST and ingest"
 current_ext_test_dir=$ext_test_dir"/current"
@@ -318,8 +324,8 @@ do
   echo "== Building $checkout_ref debug"
   git reset --hard $tmp_origin/$checkout_ref
   force_no_fbcode
-  make clean
-  DISABLE_WARNING_AS_ERROR=1 make ldb -j$J
+  invoke_make clean
+  DISABLE_WARNING_AS_ERROR=1 invoke_make ldb -j$J
 
   # We currently assume DB backward compatibility for every branch listed
   echo "== Use $checkout_ref to generate a DB ..."
@@ -376,8 +382,8 @@ done
 echo "== Building $current_checkout_name debug (again, final)"
 git reset --hard $current_checkout_hash
 force_no_fbcode
-make clean
-DISABLE_WARNING_AS_ERROR=1 make ldb -j$J
+invoke_make clean
+DISABLE_WARNING_AS_ERROR=1 invoke_make ldb -j$J
 
 for checkout_ref in "${checkout_refs[@]}"
 do
@@ -404,4 +410,8 @@ do
   fi
 done
 
-echo ==== Compatibility Test PASSED ====
+if [ "$SANITY_CHECK" ]; then
+  echo "==== check_format_compatible.sh sanity check PASSED ===="
+else
+  echo ==== Compatibility Test PASSED ====
+fi
