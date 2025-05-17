@@ -2075,7 +2075,7 @@ struct ReadOptions {
 
   // *** END per-request settings for internal team use only ***
 
-  ReadOptions(){};
+  ReadOptions() {}
   ReadOptions(bool _verify_checksums, bool _fill_cache);
   explicit ReadOptions(Env::IOActivity _io_activity);
 };
