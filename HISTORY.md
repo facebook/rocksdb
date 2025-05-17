@@ -1,7 +1,7 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
-## 10.4.0 (05/17/2025)
+## 10.3.0 (05/17/2025)
 ### New Features
 * Add new experimental `CompactionOptionsFIFO::allow_trivial_copy_when_change_temperature` along with `CompactionOptionsFIFO::trivial_copy_buffer_size` to allow optimizing FIFO compactions with tiering when kChangeTemperature to move files from source tier FileSystem to another tier FileSystem via trivial and direct copying raw sst file instead of reading thru the content of the SST file then rebuilding the table files.
 * Add a new field to Compaction Stats in LOG files for the pre-compression size written to each level.
