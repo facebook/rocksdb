@@ -39,7 +39,8 @@ void BlockPrefetcher::PrefetchIfNeeded(
         return;
       }
       IOOptions opts;
-      Status s = rep->file->PrepareIOOptions(read_options, opts);
+      IODebugContext dbg;
+      Status s = rep->file->PrepareIOOptions(read_options, opts, &dbg);
       if (!s.ok()) {
         return;
       }

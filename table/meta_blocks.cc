@@ -434,15 +434,16 @@ Status ReadTablePropertiesHelper(
       // If retrying, use a stronger file system read to check and correct
       // data corruption
       IOOptions opts;
-      if (PrepareIOFromReadOptions(ro, ioptions.clock, opts) !=
+      IODebugContext dbg;
+      if (PrepareIOFromReadOptions(ro, ioptions.clock, opts, &dbg) !=
           IOStatus::OK()) {
         return s;
       }
       opts.verify_and_reconstruct_read = true;
       std::unique_ptr<char[]> data(new char[len]);
       Slice result;
-      IOStatus io_s =
-          file->Read(opts, handle.offset(), len, &result, data.get(), nullptr);
+      IOStatus io_s = file->Read(opts, handle.offset(), len, &result,
+                                 data.get(), nullptr, &dbg);
       RecordTick(ioptions.stats, FILE_READ_CORRUPTION_RETRY_COUNT);
       if (!io_s.ok()) {
         ROCKS_LOG_INFO(ioptions.info_log,
@@ -574,8 +575,9 @@ Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
                                 Footer* footer_out) {
   Footer footer;
   IOOptions opts;
+  IODebugContext dbg;
   Status s;
-  s = file->PrepareIOOptions(read_options, opts);
+  s = file->PrepareIOOptions(read_options, opts, &dbg);
   if (!s.ok()) {
     return s;
   }

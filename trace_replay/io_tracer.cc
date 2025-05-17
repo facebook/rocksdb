@@ -82,7 +82,7 @@ Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record,
     uint32_t set_pos = static_cast<uint32_t>(log2(trace_data & -trace_data));
     switch (set_pos) {
       case IODebugContext::TraceData::kRequestID: {
-        Slice request_id(dbg->request_id);
+        Slice request_id(*dbg->request_id);
         PutLengthPrefixedSlice(&trace.payload, request_id);
       } break;
       default:

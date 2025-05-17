@@ -220,6 +220,8 @@ struct FileOptions : EnvOptions {
 
 // A structure to pass back some debugging information from the FileSystem
 // implementation to RocksDB in case of an IO error
+// TODO(virajthakur): Update all calls to FS APIs for writes to pass in
+// IODebugContext
 struct IODebugContext {
   // file_path to be filled in by RocksDB in case of an error
   std::string file_path;
@@ -230,8 +232,9 @@ struct IODebugContext {
   // To be set by the FileSystem implementation
   std::string msg;
 
-  // To be set by the underlying FileSystem implementation.
-  std::string request_id;
+  // To be set by the application, to allow tracing logs/metrics from user ->
+  // RocksDB -> FS.
+  const std::string* request_id = nullptr;
 
   // In order to log required information in IO tracing for different
   // operations, Each bit in trace_data stores which corresponding info from
@@ -255,7 +258,7 @@ struct IODebugContext {
 
   // Called by underlying file system to set request_id and log request_id in
   // IOTracing.
-  void SetRequestId(const std::string& _request_id) {
+  void SetRequestId(const std::string* _request_id) {
     request_id = _request_id;
     trace_data |= (1 << TraceData::kRequestID);
   }

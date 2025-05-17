@@ -247,15 +247,16 @@ IOStatus GenerateOneFileChecksum(
   Slice slice;
   uint64_t offset = 0;
   IOOptions opts;
-  io_s = reader->PrepareIOOptions(read_options, opts);
+  IODebugContext dbg;
+  io_s = reader->PrepareIOOptions(read_options, opts, &dbg);
   if (!io_s.ok()) {
     return io_s;
   }
   while (size > 0) {
     size_t bytes_to_read =
         static_cast<size_t>(std::min(uint64_t{readahead_size}, size));
-    io_s =
-        reader->Read(opts, offset, bytes_to_read, &slice, buf.get(), nullptr);
+    io_s = reader->Read(opts, offset, bytes_to_read, &slice, buf.get(), nullptr,
+                        &dbg);
     if (!io_s.ok()) {
       return IOStatus::Corruption("file read failed with error: " +
                                   io_s.ToString());

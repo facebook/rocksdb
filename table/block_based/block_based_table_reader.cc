@@ -683,7 +683,8 @@ Status BlockBasedTable::Open(
   //    6. [meta block: index]
   //    7. [meta block: filter]
   IOOptions opts;
-  s = file->PrepareIOOptions(ro, opts);
+  IODebugContext dbg;
+  s = file->PrepareIOOptions(ro, opts, &dbg);
   if (s.ok()) {
     s = ReadFooterFromFile(opts, file.get(), *ioptions.fs,
                            prefetch_buffer.get(), file_size, &footer,
@@ -941,7 +942,8 @@ Status BlockBasedTable::PrefetchTail(
 #endif  // NDEBUG
 
   IOOptions opts;
-  Status s = file->PrepareIOOptions(ro, opts);
+  IODebugContext dbg;
+  Status s = file->PrepareIOOptions(ro, opts, &dbg);
   // Try file system prefetch
   if (s.ok() && !file->use_direct_io() && !force_direct_prefetch) {
     if (!file->Prefetch(opts, prefetch_off, prefetch_len).IsNotSupported()) {

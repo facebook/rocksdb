@@ -138,17 +138,18 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
   AlignedBuf direct_io_buf;
   {
     IOOptions opts;
-    IOStatus s = file->PrepareIOOptions(options, opts);
+    IODebugContext dbg;
+    IOStatus s = file->PrepareIOOptions(options, opts, &dbg);
     if (s.ok()) {
 #if defined(WITH_COROUTINES)
       if (file->use_direct_io()) {
 #endif  // WITH_COROUTINES
         s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(),
-                            &direct_io_buf);
+                            &direct_io_buf, &dbg);
 #if defined(WITH_COROUTINES)
       } else {
         co_await batch->context()->reader().MultiReadAsync(
-            file, opts, &read_reqs[0], read_reqs.size(), &direct_io_buf);
+            file, opts, &read_reqs[0], read_reqs.size(), &direct_io_buf, &dbg);
       }
 #endif  // WITH_COROUTINES
     }
@@ -240,10 +241,11 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
           // its not a memory mapped file
           Slice result;
           IOOptions opts;
-          IOStatus io_s = file->PrepareIOOptions(options, opts);
+          IODebugContext dbg;
+          IOStatus io_s = file->PrepareIOOptions(options, opts, &dbg);
           opts.verify_and_reconstruct_read = true;
           io_s = file->Read(opts, handle.offset(), BlockSizeWithTrailer(handle),
-                            &result, const_cast<char*>(data), nullptr);
+                            &result, const_cast<char*>(data), nullptr, &dbg);
           if (io_s.ok()) {
             assert(result.data() == data);
             assert(result.size() == BlockSizeWithTrailer(handle));
