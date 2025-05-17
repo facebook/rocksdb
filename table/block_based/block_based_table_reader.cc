@@ -1243,7 +1243,10 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     }
   }
 
-  if (!rep_->compression_dict_handle.IsNull()) {
+  // NOTE: before the fix to https://github.com/facebook/rocksdb/issues/12409, a
+  // file could have a (de)compression dictionary block without a configured
+  // compression, so we need to ignore the dictionary in that case.
+  if (!rep_->compression_dict_handle.IsNull() && rep_->decompressor) {
     std::unique_ptr<UncompressionDictReader> uncompression_dict_reader;
     s = UncompressionDictReader::Create(
         this, ro, prefetch_buffer, use_cache, prefetch_all || pin_unpartitioned,
