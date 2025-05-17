@@ -427,6 +427,7 @@ struct CompactionServiceInput {
 // CompactionServiceOutputFile is the metadata for the output SST file
 struct CompactionServiceOutputFile {
   std::string file_name;
+  uint64_t file_size;
   SequenceNumber smallest_seqno;
   SequenceNumber largest_seqno;
   std::string smallest_internal_key;
@@ -445,15 +446,17 @@ struct CompactionServiceOutputFile {
 
   CompactionServiceOutputFile() = default;
   CompactionServiceOutputFile(
-      const std::string& name, SequenceNumber smallest, SequenceNumber largest,
-      std::string _smallest_internal_key, std::string _largest_internal_key,
-      uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
-      uint64_t _epoch_number, const std::string& _file_checksum,
+      const std::string& name, uint64_t size, SequenceNumber smallest,
+      SequenceNumber largest, std::string _smallest_internal_key,
+      std::string _largest_internal_key, uint64_t _oldest_ancester_time,
+      uint64_t _file_creation_time, uint64_t _epoch_number,
+      const std::string& _file_checksum,
       const std::string& _file_checksum_func_name, uint64_t _paranoid_hash,
       bool _marked_for_compaction, UniqueId64x2 _unique_id,
       const TableProperties& _table_properties, bool _is_proximal_level_output,
       Temperature _file_temperature)
       : file_name(name),
+        file_size(size),
         smallest_seqno(smallest),
         largest_seqno(largest),
         smallest_internal_key(std::move(_smallest_internal_key)),
