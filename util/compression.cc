@@ -184,8 +184,9 @@ class BuiltinCompressorV2 : public Compressor {
       // Dictionary compression disabled
       return 0;
     } else {
-      return opts_.zstd_max_train_bytes > 0 ? opts_.zstd_max_train_bytes
-                                            : opts_.max_dict_bytes;
+      return type_ == kZSTD && opts_.zstd_max_train_bytes > 0
+                 ? opts_.zstd_max_train_bytes
+                 : opts_.max_dict_bytes;
     }
   }
 
