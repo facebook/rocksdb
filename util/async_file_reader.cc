@@ -21,7 +21,7 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
   awaiter->del_fn_.resize(awaiter->num_reqs_);
   for (size_t i = 0; i < awaiter->num_reqs_; ++i) {
     IOStatus s = awaiter->file_->ReadAsync(
-        awaiter->read_reqs_[i], awaiter->opts_, awaiter->dbg_,
+        awaiter->read_reqs_[i], awaiter->opts_,
         [](FSReadRequest& req, void* cb_arg) {
           FSReadRequest* read_req = static_cast<FSReadRequest*>(cb_arg);
           read_req->status = req.status;
@@ -31,7 +31,7 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
           }
         },
         &awaiter->read_reqs_[i], &awaiter->io_handle_[i], &awaiter->del_fn_[i],
-        /*aligned_buf=*/nullptr);
+        /*aligned_buf=*/nullptr, awaiter->dbg_);
     if (!s.ok()) {
       // For any non-ok status, the FileSystem will not call the callback
       // So let's update the status ourselves
