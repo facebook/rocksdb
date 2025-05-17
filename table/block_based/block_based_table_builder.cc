@@ -1301,21 +1301,10 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
           r->ioptions.clock,
           ShouldReportDetailedTime(r->ioptions.env, r->ioptions.stats));
 
-      if (is_data_block) {
-        if (r->data_block_compressor) {
-          *out_status = r->data_block_compressor->CompressBlock(
-              uncompressed_block_data, compressed_output, &type,
-              &working_area.compress);
-          verify_decomp = r->data_block_verify_decompressor.get();
-        }
-      } else {
-        if (r->basic_compressor) {
-          *out_status = r->basic_compressor->CompressBlock(
-              uncompressed_block_data, compressed_output, &type,
-              &working_area.compress);
-          verify_decomp = r->verify_decompressor.get();
-        }
-      }
+      *out_status =
+          compressor->CompressBlock(uncompressed_block_data, compressed_output,
+                                    &type, &working_area.compress);
+
       // Post-condition of Compressor::CompressBlock
       assert(type == kNoCompression || out_status->ok());
       assert(type == kNoCompression ||
@@ -1989,25 +1978,30 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
         r->data_block_compressor->ObtainWorkingArea();
   }
   Slice serialized_dict = r->data_block_compressor->GetSerializedDict();
-  if (!serialized_dict.empty() && r->verify_decompressor) {
-    // Get an updated dictionary-aware decompressor for verification.
-    Status s = r->verify_decompressor->MaybeCloneForDict(
-        serialized_dict, &r->verify_decompressor_with_dict);
-    // Dictionary support must be present on the decompressor side if it's on
-    // the compressor side.
-    assert(r->verify_decompressor_with_dict);
-    if (r->verify_decompressor_with_dict) {
-      r->data_block_verify_decompressor =
-          r->verify_decompressor_with_dict.get();
-      for (uint32_t i = 0; i < r->compression_parallel_threads; i++) {
-        r->data_block_working_areas[i].verify =
-            r->data_block_verify_decompressor->ObtainWorkingArea(
-                r->data_block_compressor->GetPreferredCompressionType());
-      }
-      assert(s.ok());
+  if (r->verify_decompressor) {
+    if (serialized_dict.empty()) {
+      // No dictionary
+      r->data_block_verify_decompressor = r->verify_decompressor.get();
     } else {
-      assert(!s.ok());
-      r->SetStatus(s);
+      // Get an updated dictionary-aware decompressor for verification.
+      Status s = r->verify_decompressor->MaybeCloneForDict(
+          serialized_dict, &r->verify_decompressor_with_dict);
+      // Dictionary support must be present on the decompressor side if it's on
+      // the compressor side.
+      assert(r->verify_decompressor_with_dict);
+      if (r->verify_decompressor_with_dict) {
+        r->data_block_verify_decompressor =
+            r->verify_decompressor_with_dict.get();
+        for (uint32_t i = 0; i < r->compression_parallel_threads; i++) {
+          r->data_block_working_areas[i].verify =
+              r->data_block_verify_decompressor->ObtainWorkingArea(
+                  r->data_block_compressor->GetPreferredCompressionType());
+        }
+        assert(s.ok());
+      } else {
+        assert(!s.ok());
+        r->SetStatus(s);
+      }
     }
   }
 
