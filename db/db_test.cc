@@ -225,17 +225,13 @@ TEST_F(DBTest, RequestIdPlumbingTest) {
     read_opts.request_id = &multiget_request_id;
 
     std::vector<std::string> values;
-    std::vector<Status> statuses;
     std::vector<Slice> keys = {Slice("k3"), Slice("k4")};
 
     values.resize(keys.size());
-    statuses.resize(keys.size());
 
     std::vector<ColumnFamilyHandle*> cfhs(keys.size(),
                                           db_->DefaultColumnFamily());
     db_->MultiGet(read_opts, cfhs, keys, &values);
-
-    // Verify the request_id was propagated to the file system
 
     ASSERT_NE(captured_request_id_dbg, nullptr);
     ASSERT_EQ(*captured_request_id_dbg, multiget_request_id);
