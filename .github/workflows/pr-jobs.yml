@@ -57,6 +57,7 @@ jobs:
         export TEST_TMPDIR=/dev/shm/rocksdb
         rm -rf /dev/shm/rocksdb
         mkdir /dev/shm/rocksdb
+        git reset --hard
         git config --global --add safe.directory /__w/rocksdb/rocksdb
         SANITY_CHECK=1 LONG_TEST=1 tools/check_format_compatible.sh
   # ========================= Linux With Tests ======================== #

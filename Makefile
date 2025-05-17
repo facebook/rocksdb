@@ -2490,10 +2490,8 @@ checkout_folly:
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically
 	cd third-party/folly && git reset --hard d17bf897cb5bbf8f07b122a614e8cffdc38edcde
-	@# NOTE: this hack is required for clang in some cases
-	perl -pi -e 's/int rv = syscall/int rv = (int)syscall/' third-party/folly/folly/detail/Futex.cpp
-	@# NOTE: this hack is required for gcc in some cases
-	perl -pi -e 's/(__has_include.<experimental.memory_resource>.)/__cpp_rtti && $$1/' third-party/folly/folly/memory/MemoryResource.h
+	@# Apparently missing include
+	perl -pi -e 's/(#include <atomic>)/$$1\n#include <cstring>/' third-party/folly/folly/lang/Exception.h
 	@# NOTE: boost source will be needed for any build including `USE_FOLLY_LITE` builds as those depend on boost headers
 	cd third-party/folly && $(PYTHON) build/fbcode_builder/getdeps.py fetch boost
 
