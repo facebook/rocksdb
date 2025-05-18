@@ -1,6 +1,19 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.3.0 (05/17/2025)
+### New Features
+* Add new experimental `CompactionOptionsFIFO::allow_trivial_copy_when_change_temperature` along with `CompactionOptionsFIFO::trivial_copy_buffer_size` to allow optimizing FIFO compactions with tiering when kChangeTemperature to move files from source tier FileSystem to another tier FileSystem via trivial and direct copying raw sst file instead of reading thru the content of the SST file then rebuilding the table files.
+* Add a new field to Compaction Stats in LOG files for the pre-compression size written to each level.
+* Add new experimental `TransactionOptions::large_txn_commit_optimize_threshold` to enable optimizations for large transaction commit with per transaction threshold. `TransactionDBOptions::txn_commit_bypass_memtable_threshold` is deprecated in favor of this transaction option.
+* [internal team use only] Allow an application-defined `request_id` to be passed to RocksDB and propagated to the filesystem via IODebugContext
+
+### Bug Fixes
+* Fix a bug where transaction lock upgrade can incorrectly fail with a Deadlock status. This happens when a transaction has a non-zero timeout and tries to upgrade a shared lock that is also held by another transaction.
+* Pass wrapped WritableFileWriter pointer to ExternalTableBuilder so that the file checksum can be correctly calculated and returned by SstFileWriter for external table files.
+* Fix an infinite-loop bug in transaction locking. This can happen if a transaction reaches lock limit and its time out expires before it attempts to wait for it.
+* Fixed a potential data race with `CompressionOptions::parallel_threads > 1` and a `TablePropertiesCollector` overriding `BlockAdd()`.
+
 ## 10.2.0 (04/21/2025)
 ### New Features
 * Provide histogram stats `COMPACTION_PREFETCH_BYTES` to measure number of bytes for RocksDB's prefetching (as opposed to file
