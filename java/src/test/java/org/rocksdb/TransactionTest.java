@@ -354,7 +354,7 @@ public class TransactionTest extends AbstractTransactionTest {
     final byte[] v2 = "v2".getBytes(UTF_8);
 
     try (final DBContainer dbContainer = startDb();
-        final ReadOptions readOptions = new ReadOptions()) {
+         final ReadOptions readOptions = new ReadOptions()) {
       final ColumnFamilyHandle testCf = dbContainer.getTestColumnFamily();
 
       try (final Transaction txn = dbContainer.beginTransaction()) {
