@@ -1069,9 +1069,9 @@ public class WriteBatchWithIndexTest {
   @Test
   public void wideColumnBatch() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
-         final WriteOptions wOpt = new WriteOptions();
-         final ColumnFamilyHandle cf = db.getDefaultColumnFamily()) {
+        final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
+        final WriteOptions wOpt = new WriteOptions();
+        final ColumnFamilyHandle cf = db.getDefaultColumnFamily()) {
       WideColumn<byte[]> column = new WideColumn<>("name".getBytes(UTF_8), "value".getBytes(UTF_8));
       List<WideColumn<byte[]>> columns = new ArrayList<>();
       columns.add(column);
@@ -1093,9 +1093,9 @@ public class WriteBatchWithIndexTest {
   @Test
   public void wideColumnBatchDirect() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
-         final WriteOptions wOpt = new WriteOptions();
-         final ColumnFamilyHandle cf = db.getDefaultColumnFamily()) {
+        final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
+        final WriteOptions wOpt = new WriteOptions();
+        final ColumnFamilyHandle cf = db.getDefaultColumnFamily()) {
       ByteBuffer key = ByteBuffer.allocateDirect(10);
       key.put("key".getBytes(UTF_8));
       key.flip();
