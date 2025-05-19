@@ -137,6 +137,10 @@ class CompactionPicker {
   bool IsLevel0CompactionInProgress() const {
     return !level0_compactions_in_progress_.empty();
   }
+  bool IsLevel0ToLbaseCompactionInProgress() const {
+    return !level0_to_lbase_compactions_in_progress_.empty();
+  }
+
 
   // Is any compaction in progress
   bool IsCompactionInProgress() const {
@@ -230,6 +234,9 @@ class CompactionPicker {
   std::set<Compaction*>* level0_compactions_in_progress() {
     return &level0_compactions_in_progress_;
   }
+  std::set<Compaction*>* level0_to_lbase_compactions_in_progress() {
+    return &level0_to_lbase_compactions_in_progress_;
+  }
   std::unordered_set<Compaction*>* compactions_in_progress() {
     return &compactions_in_progress_;
   }
@@ -248,6 +255,10 @@ class CompactionPicker {
   // Keeps track of all compactions that are running on Level0.
   // Protected by DB mutex
   std::set<Compaction*> level0_compactions_in_progress_;
+
+  // Keeps track of all level-0 to level-base compactions that are running on Level0.
+  // Protected by DB mutex
+  std::set<Compaction*> level0_to_lbase_compactions_in_progress_;
 
   // Keeps track of all compactions that are running.
   // Protected by DB mutex
