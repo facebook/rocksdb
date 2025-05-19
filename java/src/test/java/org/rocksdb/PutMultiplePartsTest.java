@@ -129,10 +129,11 @@ public class PutMultiplePartsTest {
 
   private void validateResultsCF() throws RocksDBException {
     final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
-    try (final ColumnFamilyDescriptor testCF = new ColumnFamilyDescriptor("cfTest".getBytes());
-         final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor("default".getBytes());
-         final RocksDB db = RocksDB.open(new DBOptions(), dbFolder.getRoot().getAbsolutePath(),
-             Arrays.asList(testCF, defaultCF), columnFamilyHandles)) {
+    try (
+        final ColumnFamilyDescriptor testCF = new ColumnFamilyDescriptor("cfTest".getBytes());
+        final ColumnFamilyDescriptor defaultCF = new ColumnFamilyDescriptor("default".getBytes());
+        final RocksDB db = RocksDB.open(new DBOptions(), dbFolder.getRoot().getAbsolutePath(),
+            Arrays.asList(testCF, defaultCF), columnFamilyHandles)) {
       final List<byte[]> keys = generateItemsAsList("key", ":", numParts);
       final byte[][] values = generateItems("value", "", numParts);
 
