@@ -199,7 +199,7 @@ fi
 
 invoke_make()
 {
-    [ "$SANITY_CHECK" ] || make "$*"
+    [ "$SANITY_CHECK" ] || make "$@"
 }
 generate_db()
 {
