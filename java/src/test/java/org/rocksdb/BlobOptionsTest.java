@@ -302,8 +302,8 @@ public class BlobOptionsTest {
 
            final ColumnFamilyOptions columnFamilyOptions2 =
                new ColumnFamilyOptions().setMinBlobSize(minBlobSize).setEnableBlobFiles(false);
-           final ColumnFamilyDescriptor columnFamilyDescriptor1 =
-               new ColumnFamilyDescriptor("column_family_1".getBytes(UTF_8), columnFamilyOptions1);
+           final ColumnFamilyDescriptor columnFamilyDescriptor1 = new ColumnFamilyDescriptor(
+               "column_family_1".getBytes(UTF_8), columnFamilyOptions1);
            final ColumnFamilyDescriptor columnFamilyDescriptor2 = new ColumnFamilyDescriptor(
                "column_family_2".getBytes(UTF_8), columnFamilyOptions2)) {
         assertThat(columnFamilyOptions1.enableBlobFiles()).isEqualTo(true);

@@ -104,10 +104,10 @@ public class MultiGetManyKeysTest {
     final List<byte[]> keys = generateRandomKeys(numKeys);
     final Map<Key, byte[]> keyValues = generateRandomKeyValues(keys, 10);
 
-    try (
-        final ColumnFamilyDescriptor columnFamilyDescriptor =
-            new ColumnFamilyDescriptor("cfTest".getBytes());
-        final ColumnFamilyDescriptor defaultCf = new ColumnFamilyDescriptor("default".getBytes())) {
+    try (final ColumnFamilyDescriptor columnFamilyDescriptor =
+             new ColumnFamilyDescriptor("cfTest".getBytes());
+         final ColumnFamilyDescriptor defaultCf =
+             new ColumnFamilyDescriptor("default".getBytes())) {
       putKeysAndValues(columnFamilyDescriptor, keyValues);
 
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>();
@@ -143,10 +143,10 @@ public class MultiGetManyKeysTest {
   public void multiGetForUpdateAsListLargeTransactionalCF() throws RocksDBException {
     final List<byte[]> keys = generateRandomKeys(numKeys);
     final Map<Key, byte[]> keyValues = generateRandomKeyValues(keys, 10);
-    try (
-        final ColumnFamilyDescriptor columnFamilyDescriptor =
-            new ColumnFamilyDescriptor("cfTest".getBytes());
-        final ColumnFamilyDescriptor defaultCf = new ColumnFamilyDescriptor("default".getBytes())) {
+    try (final ColumnFamilyDescriptor columnFamilyDescriptor =
+             new ColumnFamilyDescriptor("cfTest".getBytes());
+         final ColumnFamilyDescriptor defaultCf =
+             new ColumnFamilyDescriptor("default".getBytes())) {
       putKeysAndValues(columnFamilyDescriptor, keyValues);
 
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>();
