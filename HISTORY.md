@@ -1,6 +1,9 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.2.3 (05/19/2025)
+* Fix a failure in IngestExternalFiles() when ingesting an external table with the allow_db_generated_files option set to false.
+
 ## 10.2.2 (05/08/2025)
 ### Bug Fixes
 * Pass wrapped WritableFileWriter pointer to ExternalTableBuilder so that the file checksum can be correctly calculated and returned by SstFileWriter for external table files.
