@@ -1669,6 +1669,7 @@ TEST_F(CompactionJobTest, ResultSerialization) {
     UniqueId64x2 id{rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX)};
     result.output_files.emplace_back(
         rnd.RandomString(rnd.Uniform(kStrMaxLen)) /* file_name */,
+        rnd64.Uniform(UINT64_MAX) /* file_size */,
         rnd64.Uniform(UINT64_MAX) /* smallest_seqno */,
         rnd64.Uniform(UINT64_MAX) /* largest_seqno */,
         rnd.RandomBinaryString(

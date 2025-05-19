@@ -221,20 +221,15 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     }
 
     FileMetaData meta;
-    uint64_t file_size;
-    // FIXME: file_size should be part of CompactionServiceOutputFile so that
-    // we don't get DB corruption if the full file size has not been propagated
-    // back to the caller through the file system (which could have metadata
-    // lag or caching bugs).
-    s = fs_->GetFileSize(tgt_file, IOOptions(), &file_size, nullptr);
     if (!s.ok()) {
       sub_compact->status = s;
       db_options_.compaction_service->OnInstallation(
           response.scheduled_job_id, CompactionServiceJobStatus::kFailure);
       return CompactionServiceJobStatus::kFailure;
     }
-    meta.fd = FileDescriptor(file_num, compaction->output_path_id(), file_size,
-                             file.smallest_seqno, file.largest_seqno);
+    meta.fd =
+        FileDescriptor(file_num, compaction->output_path_id(), file.file_size,
+                       file.smallest_seqno, file.largest_seqno);
     meta.smallest.DecodeFrom(file.smallest_internal_key);
     meta.largest.DecodeFrom(file.largest_internal_key);
     meta.oldest_ancester_time = file.oldest_ancester_time;
@@ -246,7 +241,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.unique_id = file.unique_id;
     meta.temperature = file.file_temperature;
     meta.tail_size =
-        FileMetaData::CalculateTailSize(file_size, file.table_properties);
+        FileMetaData::CalculateTailSize(file.file_size, file.table_properties);
     auto cfd = compaction->column_family_data();
     CompactionOutputs* compaction_outputs =
         sub_compact->Outputs(file.is_proximal_level_output);
@@ -421,14 +416,14 @@ Status CompactionServiceCompactionJob::Run() {
     for (const auto& output_file : sub_compact->GetOutputs()) {
       auto& meta = output_file.meta;
       compaction_result_->output_files.emplace_back(
-          MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
-          meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
-          meta.largest.Encode().ToString(), meta.oldest_ancester_time,
-          meta.file_creation_time, meta.epoch_number, meta.file_checksum,
-          meta.file_checksum_func_name, output_file.validator.GetHash(),
-          meta.marked_for_compaction, meta.unique_id,
-          *output_file.table_properties, output_file.is_proximal_level,
-          meta.temperature);
+          MakeTableFileName(meta.fd.GetNumber()), meta.fd.GetFileSize(),
+          meta.fd.smallest_seqno, meta.fd.largest_seqno,
+          meta.smallest.Encode().ToString(), meta.largest.Encode().ToString(),
+          meta.oldest_ancester_time, meta.file_creation_time, meta.epoch_number,
+          meta.file_checksum, meta.file_checksum_func_name,
+          output_file.validator.GetHash(), meta.marked_for_compaction,
+          meta.unique_id, *output_file.table_properties,
+          output_file.is_proximal_level, meta.temperature);
     }
   }
 
@@ -527,6 +522,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"file_name",
          {offsetof(struct CompactionServiceOutputFile, file_name),
           OptionType::kEncodedString, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"file_size",
+         {offsetof(struct CompactionServiceOutputFile, file_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"smallest_seqno",
          {offsetof(struct CompactionServiceOutputFile, smallest_seqno),
