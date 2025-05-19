@@ -221,15 +221,26 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     }
 
     FileMetaData meta;
+    uint64_t file_size = file.file_size;
+
+    // TODO - Clean this up in the next release.
+    // For backward compatibility - in case the remote worker does not populate
+    // the file_size yet. If missing, continue to populate this from the file
+    // system.
+    if (file_size == 0) {
+      s = fs_->GetFileSize(tgt_file, IOOptions(), &file_size, nullptr);
+    }
+
     if (!s.ok()) {
       sub_compact->status = s;
       db_options_.compaction_service->OnInstallation(
           response.scheduled_job_id, CompactionServiceJobStatus::kFailure);
       return CompactionServiceJobStatus::kFailure;
     }
-    meta.fd =
-        FileDescriptor(file_num, compaction->output_path_id(), file.file_size,
-                       file.smallest_seqno, file.largest_seqno);
+    assert(file_size > 0);
+
+    meta.fd = FileDescriptor(file_num, compaction->output_path_id(), file_size,
+                             file.smallest_seqno, file.largest_seqno);
     meta.smallest.DecodeFrom(file.smallest_internal_key);
     meta.largest.DecodeFrom(file.largest_internal_key);
     meta.oldest_ancester_time = file.oldest_ancester_time;
@@ -241,7 +252,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.unique_id = file.unique_id;
     meta.temperature = file.file_temperature;
     meta.tail_size =
-        FileMetaData::CalculateTailSize(file.file_size, file.table_properties);
+        FileMetaData::CalculateTailSize(file_size, file.table_properties);
     auto cfd = compaction->column_family_data();
     CompactionOutputs* compaction_outputs =
         sub_compact->Outputs(file.is_proximal_level_output);
