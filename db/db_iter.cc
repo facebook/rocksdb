@@ -445,7 +445,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) <= 0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
-        CheckCurKeyForFlushTrigger(mem_hidden_op_scanned);
+        MarkMemtableForFlushForPerOpTrigger(mem_hidden_op_scanned);
       } else {
         assert(!skipping_saved_key ||
                CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) > 0);
@@ -467,7 +467,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                                       !iter_.iter()->IsKeyPinned() /* copy */);
               skipping_saved_key = true;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-              CheckCurKeyForFlushTrigger(mem_hidden_op_scanned);
+              MarkMemtableForFlushForPerOpTrigger(mem_hidden_op_scanned);
             }
             break;
           case kTypeValue:
@@ -1592,7 +1592,7 @@ void DBIter::Seek(const Slice& target) {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
-  MarkMemtableForFlushIfNeeded();
+  MarkMemtableForFlushForAvgTrigger();
 
   // Seek the inner iterator based on the target key.
   {
@@ -1669,7 +1669,7 @@ void DBIter::SeekForPrev(const Slice& target) {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
-  MarkMemtableForFlushIfNeeded();
+  MarkMemtableForFlushForAvgTrigger();
 
   // Seek the inner iterator based on the target key.
   {
@@ -1731,7 +1731,7 @@ void DBIter::SeekToFirst() {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
-  MarkMemtableForFlushIfNeeded();
+  MarkMemtableForFlushForAvgTrigger();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
 
@@ -1795,7 +1795,7 @@ void DBIter::SeekToLast() {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
-  MarkMemtableForFlushIfNeeded();
+  MarkMemtableForFlushForAvgTrigger();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
 

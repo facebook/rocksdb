@@ -145,7 +145,7 @@ class DBIter final : public Iterator {
   void operator=(const DBIter&) = delete;
 
   ~DBIter() override {
-    MarkMemtableForFlushIfNeeded();
+    MarkMemtableForFlushForAvgTrigger();
     ThreadStatus::OperationType cur_op_type =
         ThreadStatusUtil::GetThreadOperation();
     ThreadStatusUtil::SetThreadOperation(
@@ -418,10 +418,10 @@ class DBIter final : public Iterator {
     return true;
   }
 
-  void MarkMemtableForFlushIfNeeded() {
+  void MarkMemtableForFlushForAvgTrigger() {
     if (avg_op_scan_flush_trigger_ &&
-        mem_hidden_op_since_seek_ >= memtable_op_scan_flush_trigger_ &&
-        mem_hidden_op_since_seek_ >=
+        mem_hidden_op_scanned_since_seek_ >= memtable_op_scan_flush_trigger_ &&
+        mem_hidden_op_scanned_since_seek_ >=
             static_cast<uint64_t>(iter_step_since_seek_) *
                 avg_op_scan_flush_trigger_) {
       assert(memtable_op_scan_flush_trigger_ > 0);
@@ -430,10 +430,10 @@ class DBIter final : public Iterator {
       memtable_op_scan_flush_trigger_ = 0;
     }
     iter_step_since_seek_ = 1;
-    mem_hidden_op_since_seek_ = 0;
+    mem_hidden_op_scanned_since_seek_ = 0;
   }
 
-  void CheckCurKeyForFlushTrigger(uint64_t& mem_hidden_op_scanned) {
+  void MarkMemtableForFlushForPerOpTrigger(uint64_t& mem_hidden_op_scanned) {
     if (memtable_op_scan_flush_trigger_ &&
         ikey_.sequence >= memtable_seqno_lb_) {
       if (++mem_hidden_op_scanned >= memtable_op_scan_flush_trigger_) {
@@ -443,7 +443,7 @@ class DBIter final : public Iterator {
         avg_op_scan_flush_trigger_ = 0;
       }
       if (avg_op_scan_flush_trigger_) {
-        ++mem_hidden_op_since_seek_;
+        ++mem_hidden_op_scanned_since_seek_;
       }
     }
   }
@@ -511,7 +511,7 @@ class DBIter final : public Iterator {
   uint32_t memtable_op_scan_flush_trigger_ = 0;
   uint32_t avg_op_scan_flush_trigger_ = 0;
   uint32_t iter_step_since_seek_ = 1;
-  uint32_t mem_hidden_op_since_seek_ = 0;
+  uint32_t mem_hidden_op_scanned_since_seek_ = 0;
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;

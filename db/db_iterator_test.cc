@@ -3992,9 +3992,10 @@ TEST_P(DBIteratorTest, AverageMemtableOpsScanFlushTrigger) {
   Random* r = Random::GetTLSInstance();
 
   const int kAvgTrigger = 10;
+  const int kMaxTrigger = 500;
   Options options;
   options.create_if_missing = true;
-  options.memtable_op_scan_flush_trigger = 500;
+  options.memtable_op_scan_flush_trigger = kMaxTrigger;
   options.memtable_avg_op_scan_flush_trigger = kAvgTrigger;
   options.level_compaction_dynamic_level_bytes = true;
   DestroyAndReopen(options);
@@ -4033,19 +4034,35 @@ TEST_P(DBIteratorTest, AverageMemtableOpsScanFlushTrigger) {
 
   get_perf_context()->Reset();
   iter.reset(db_->NewIterator(ReadOptions()));
+  int num_ops = 1;
+  uint64_t num_skipped = 0;
   iter->Seek(Key(0));
   ASSERT_EQ(iter->key(), Key(0));
+  uint64_t last_memtable_next_count =
+      get_perf_context()->next_on_memtable_count;
   iter->Next();
+  num_ops++;
   while (iter->Valid()) {
     ASSERT_OK(iter->status());
-    ASSERT_GE(get_perf_context()->next_on_memtable_count, kAvgTrigger + 1);
-    get_perf_context()->Reset();
+    uint64_t num_skipped_in_op =
+        get_perf_context()->next_on_memtable_count - last_memtable_next_count;
+    ASSERT_GE(num_skipped_in_op, kAvgTrigger + 1);
+    last_memtable_next_count = get_perf_context()->next_on_memtable_count;
+    num_skipped += num_skipped_in_op;
     iter->Next();
+    num_ops++;
   }
   // During iterator destruction we mark memtable for flush
   iter.reset();
 
-  // Average hidden entries scanned from memtable per operation is 2.
+  // avg trigger
+  ASSERT_GE(num_skipped, kAvgTrigger * num_ops);
+  // memtable_op_scan_flush_trigger
+  ASSERT_GE(num_skipped, kMaxTrigger);
+  // Average hidden entries scanned from memtable per operation is more than
+  // kAvgTrigger and the total skipped is more than
+  // memtable_op_scan_flush_trigger, the current memtable should be marked for
+  // flush. The following two writes will trigger the flush.
   ASSERT_OK(Put(Key(0), "dummy write"));
   // Before a write, we schedule memtables for flush if requested.
   ASSERT_OK(Put(Key(0), "dummy write"));
@@ -4094,6 +4111,10 @@ TEST_P(DBIteratorTest, AverageMemtableOpsScanFlushTriggerByOverwrites) {
   iter->Seek(Key(1));
   // Should not flush since total entries skipped is below
   // memtable_op_scan_flush_trigger
+  ASSERT_FALSE(static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
+                   ->cfd()
+                   ->mem()
+                   ->IsMarkedForFlush());
   ASSERT_OK(Put(Key(0), "dummy write"));
   ASSERT_OK(Put(Key(0), "dummy write"));
   ASSERT_OK(db_->WaitForCompact({}));
