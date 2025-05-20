@@ -66,11 +66,6 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       timestamp_lb_(read_options.iter_start_ts),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0),
       active_mem_(active_mem),
-      memtable_seqno_lb_((active_mem_ && !active_mem_->IsEmpty())
-                             ? active_mem_->GetFirstSequenceNumber()
-                             : kMaxSequenceNumber),
-      memtable_op_scan_flush_trigger_(
-          mutable_cf_options.memtable_op_scan_flush_trigger),
       direction_(kForward),
       valid_(false),
       current_entry_is_merged_(false),
@@ -98,6 +93,25 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
   // prefix_seek_opt_in_only should force total_order_seek whereever the caller
   // is duplicating the original ReadOptions
   assert(!ioptions.prefix_seek_opt_in_only || read_options.total_order_seek);
+  if (active_mem_) {
+    // FIXME: GetEarliestSequenceNumber() may return a seqno that is one smaller
+    // than the smallest seqno in the memtable. This violates its comment and
+    // entries with that seqno may not be in the active memtable. Before it's
+    // fixed, we use GetFirstSequenceNumber() for more accurate result.
+    memtable_seqno_lb_ = active_mem_->IsEmpty()
+                             ? active_mem_->GetEarliestSequenceNumber()
+                             : active_mem_->GetFirstSequenceNumber();
+    memtable_op_scan_flush_trigger_ =
+        mutable_cf_options.memtable_op_scan_flush_trigger;
+    if (memtable_op_scan_flush_trigger_) {
+      // avg_op_scan_flush_trigger_ requires memtable_op_scan_flush_trigger_ > 0
+      avg_op_scan_flush_trigger_ =
+          mutable_cf_options.memtable_avg_op_scan_flush_trigger;
+    }
+  } else {
+    // memtable_op_scan_flush_trigger_ and avg_op_scan_flush_trigger_ are
+    // initialized to 0(disabled) as default.
+  }
 }
 
 Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
@@ -159,6 +173,7 @@ void DBIter::Next() {
   local_stats_.skip_count_ += num_internal_keys_skipped_;
   local_stats_.skip_count_--;
   num_internal_keys_skipped_ = 0;
+  iter_step_since_seek_++;
   bool ok = true;
   if (direction_ == kReverse) {
     is_key_seqnum_zero_ = false;
@@ -373,8 +388,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   // to one.
   bool reseek_done = false;
 
-  uint64_t mem_ops_scanned = 0;
-  bool marked_for_flush = false;
+  uint64_t mem_hidden_op_scanned = 0;
   do {
     // Will update is_key_seqnum_zero_ as soon as we parsed the current key
     // but we need to save the previous value to be used in the loop.
@@ -431,12 +445,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) <= 0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
-        if (memtable_op_scan_flush_trigger_ && active_mem_ &&
-            ikey_.sequence >= memtable_seqno_lb_ && !marked_for_flush &&
-            ++mem_ops_scanned >= memtable_op_scan_flush_trigger_) {
-          active_mem_->MarkForFlush();
-          marked_for_flush = true;
-        }
+        MarkMemtableForFlushForPerOpTrigger(mem_hidden_op_scanned);
       } else {
         assert(!skipping_saved_key ||
                CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) > 0);
@@ -458,12 +467,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                                       !iter_.iter()->IsKeyPinned() /* copy */);
               skipping_saved_key = true;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-              if (memtable_op_scan_flush_trigger_ && active_mem_ &&
-                  ikey_.sequence >= memtable_seqno_lb_ && !marked_for_flush &&
-                  ++mem_ops_scanned >= memtable_op_scan_flush_trigger_) {
-                active_mem_->MarkForFlush();
-                marked_for_flush = true;
-              }
+              MarkMemtableForFlushForPerOpTrigger(mem_hidden_op_scanned);
             }
             break;
           case kTypeValue:
@@ -1588,6 +1592,7 @@ void DBIter::Seek(const Slice& target) {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
+  MarkMemtableForFlushForAvgTrigger();
 
   // Seek the inner iterator based on the target key.
   {
@@ -1664,6 +1669,7 @@ void DBIter::SeekForPrev(const Slice& target) {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
+  MarkMemtableForFlushForAvgTrigger();
 
   // Seek the inner iterator based on the target key.
   {
@@ -1725,6 +1731,7 @@ void DBIter::SeekToFirst() {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
+  MarkMemtableForFlushForAvgTrigger();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
 
@@ -1788,6 +1795,7 @@ void DBIter::SeekToLast() {
   ResetBlobData();
   ResetValueAndColumns();
   ResetInternalKeysSkippedCounter();
+  MarkMemtableForFlushForAvgTrigger();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
 
