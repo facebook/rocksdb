@@ -698,6 +698,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                      name, value, addr);
                }
              })},
+        {"compression_manager",
+         OptionTypeInfo::AsCustomSharedPtr<CompressionManager>(
+             offsetof(struct MutableCFOptions, compression_manager),
+             OptionVerificationType::kByNameAllowNull,
+             (OptionTypeFlags::kMutable | OptionTypeFlags::kAllowNull))},
         // End special case properties
         {"memtable_max_range_deletions",
          {offsetof(struct MutableCFOptions, memtable_max_range_deletions),

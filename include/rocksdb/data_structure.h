@@ -183,4 +183,51 @@ class SmallEnumSet {
   StateT state_;
 };
 
+// A smart pointer that tracks an object and an owner, using a statically
+// determined function on those to reclaim the object, if both object and owner
+// are non-null
+template <typename T, class Owner, auto Fn>
+class ManagedPtr {
+ public:
+  ManagedPtr() = default;
+  ManagedPtr(T* ptr, Owner* owner) : ptr_(ptr), owner_(owner) {}
+  ~ManagedPtr() {
+    if (ptr_ && owner_) {
+      if constexpr (std::is_member_function_pointer_v<decltype(Fn)>) {
+        (owner_->*Fn)(ptr_);
+      } else {
+        Fn(owner_, ptr_);
+      }
+    }
+  }
+  // No copies
+  ManagedPtr(const ManagedPtr&) = delete;
+  ManagedPtr& operator=(const ManagedPtr&) = delete;
+  // Moves
+  ManagedPtr(ManagedPtr&& other) noexcept {
+    ptr_ = other.ptr_;
+    owner_ = other.owner_;
+    other.ptr_ = nullptr;
+    other.owner_ = nullptr;
+  }
+  ManagedPtr& operator=(ManagedPtr&& other) noexcept {
+    ptr_ = other.ptr_;
+    owner_ = other.owner_;
+    other.ptr_ = nullptr;
+    other.owner_ = nullptr;
+    return *this;
+  }
+
+  T* get() const { return ptr_; }
+  T* operator->() const { return ptr_; }
+  T& operator*() const { return *ptr_; }
+  operator bool() const { return ptr_ != nullptr; }
+
+  Owner* owner() const { return owner_; }
+
+ private:
+  T* ptr_ = nullptr;
+  Owner* owner_ = nullptr;
+};
+
 }  // namespace ROCKSDB_NAMESPACE
