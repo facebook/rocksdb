@@ -41,7 +41,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   }
 
   compaction_input.cf_name = compaction->column_family_data()->GetName();
-  compaction_input.snapshots = existing_snapshots_;
+  compaction_input.snapshots = job_context_->snapshot_seqs;
   compaction_input.has_begin = sub_compact->start.has_value();
   compaction_input.begin =
       compaction_input.has_begin ? sub_compact->start->ToString() : "";
@@ -304,9 +304,9 @@ CompactionServiceCompactionJob::CompactionServiceCompactionJob(
     VersionSet* versions, const std::atomic<bool>* shutting_down,
     LogBuffer* log_buffer, FSDirectory* output_directory, Statistics* stats,
     InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
-    std::vector<SequenceNumber> existing_snapshots,
-    std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
-    const std::string& dbname, const std::shared_ptr<IOTracer>& io_tracer,
+    JobContext* job_context, std::shared_ptr<Cache> table_cache,
+    EventLogger* event_logger, const std::string& dbname,
+    const std::shared_ptr<IOTracer>& io_tracer,
     const std::atomic<bool>& manual_compaction_canceled,
     const std::string& db_id, const std::string& db_session_id,
     std::string output_path,
@@ -315,9 +315,8 @@ CompactionServiceCompactionJob::CompactionServiceCompactionJob(
     : CompactionJob(job_id, compaction, db_options, mutable_db_options,
                     file_options, versions, shutting_down, log_buffer, nullptr,
                     output_directory, nullptr, stats, db_mutex,
-                    db_error_handler, std::move(existing_snapshots),
-                    kMaxSequenceNumber, nullptr, nullptr,
-                    std::move(table_cache), event_logger,
+                    db_error_handler, job_context, std::move(table_cache),
+                    event_logger,
                     compaction->mutable_cf_options().paranoid_file_checks,
                     compaction->mutable_cf_options().report_bg_io_stats, dbname,
                     &(compaction_service_result->stats), Env::Priority::USER,
