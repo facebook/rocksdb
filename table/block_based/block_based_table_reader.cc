@@ -709,6 +709,13 @@ Status BlockBasedTable::Open(
   rep->file = std::move(file);
   rep->footer = footer;
 
+  // Some ancient versions (~2.5 - 2.7, format_version=1) could compress the
+  // metaindex block, so we need to allow for that
+  if (footer.format_version() < 2) {
+    auto mgr = GetBuiltinCompressionManager(/*compression_format_version=*/1);
+    rep->decompressor = mgr->GetDecompressor();
+  }
+
   // For fully portable/stable cache keys, we need to read the properties
   // block before setting up cache keys. TODO: consider setting up a bootstrap
   // cache key for PersistentCache to use for metaindex and properties blocks.
@@ -743,6 +750,9 @@ Status BlockBasedTable::Open(
       rep->table_properties ? rep->table_properties->compression_name
                             : std::string{});
   if (saved_comp_type != kNoCompression) {
+    // Includes "unrecognized" or "unspecified" case, including some old files
+    // before the compression_name table property was introduced in
+    // version 4.9.0
     // TODO: custom CompressionManager
     auto mgr = GetBuiltinCompressionManager(
         GetCompressFormatForVersion(footer.format_version()));
