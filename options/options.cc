@@ -114,7 +114,9 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       persist_user_defined_timestamps(options.persist_user_defined_timestamps),
       memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger),
       memtable_avg_op_scan_flush_trigger(
-          options.memtable_avg_op_scan_flush_trigger) {
+          options.memtable_avg_op_scan_flush_trigger),
+      allow_deleting_missing_file_during_recovery(
+          options.allow_deleting_missing_file_during_recovery) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -399,6 +401,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                    paranoid_file_checks);
   ROCKS_LOG_HEADER(log, "               Options.force_consistency_checks: %d",
                    force_consistency_checks);
+  ROCKS_LOG_HEADER(
+      log,
+      "               Options.allow_deleting_missing_file_during_recovery: %d",
+      allow_deleting_missing_file_during_recovery);
   ROCKS_LOG_HEADER(log, "               Options.report_bg_io_stats: %d",
                    report_bg_io_stats);
   ROCKS_LOG_HEADER(log, "               Options.disallow_memtable_writes: %d",
