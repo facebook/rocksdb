@@ -1884,6 +1884,13 @@ TEST_F(DBTest2, CompressionOptions) {
 }
 
 TEST_F(DBTest2, CompressionManagerWrapper) {
+  // Test that we can use a custom CompressionManager to wrap the built-in
+  // CompressionManager, thus adopting a custom *strategy* based on existing
+  // algorithms. This will "mark" some blocks (in their contents) as "do not
+  // compress", i.e. no attempt to compress, and some blocks as "reject
+  // compression", i.e. compression attempted but rejected because of ratio
+  // or otherwise. These cases are distinguishable for statistics that
+  // approximate "wasted effort".
   static std::string kDoNotCompress = "do_not_compress";
   static std::string kRejectCompression = "reject_compression";
 
@@ -1951,22 +1958,25 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
       constexpr int kCount = 13;
 
       // Highly compressible blocks, except 1 non-compressible. Half of the
-      // compressible are morked for bypass and 1 marked for rejection.
+      // compressible are morked for bypass and 1 marked for rejection. Values
+      // are large enough to ensure just 1 k-v per block.
       for (int i = 0; i < kCount; ++i) {
         std::string value;
         if (i == 6) {
+          // One non-compressible block
           value = rnd.RandomBinaryString(20000);
         } else {
           test::CompressibleString(&rnd, 0.1, 20000, &value);
           if ((i % 2) == 0) {
+            // Half for bypass
             value += kDoNotCompress;
           } else if (i == 7) {
+            // One for rejection
             value += kRejectCompression;
           }
         }
         ASSERT_OK(Put(Key(i), value));
       }
-      // One non-compressible block
       ASSERT_OK(Flush());
 
       if (use_wrapper) {
