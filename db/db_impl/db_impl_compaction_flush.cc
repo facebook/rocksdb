@@ -2170,6 +2170,7 @@ Status DBImpl::RunManualCompaction(
         // Don't throttle manual compaction, only count outstanding tasks.
         assert(false);
       }
+      ca->prepicked_compaction->need_repick = false;
       manual.incomplete = false;
       if (compaction->bottommost_level() &&
           env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
@@ -3627,8 +3628,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                  : m->manual_end->DebugString(true).c_str()));
       }
     }
-  } else if (!is_prepicked && !compaction_queue_.empty()) {
-    if (HasExclusiveManualCompaction()) {
+  } else if (ShouldPickCompaction(is_prepicked, prepicked_compaction)) {
+    if (!is_prepicked && HasExclusiveManualCompaction()) {
       // Can't compact right now, but try again later
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction()::Conflict");
 
@@ -3638,23 +3639,45 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       return Status::OK();
     }
 
-    auto cfd = PickCompactionFromQueue(&task_token, log_buffer);
-    if (cfd == nullptr) {
-      // Can't find any executable task from the compaction queue.
-      // All tasks have been throttled by compaction thread limiter.
-      ++unscheduled_compactions_;
-      return Status::Busy();
+    ColumnFamilyData* cfd = nullptr;
+
+    if (!is_prepicked) {
+      cfd = PickCompactionFromQueue(&task_token, log_buffer);
+      if (cfd == nullptr) {
+        // Can't find any executable task from the compaction queue.
+        // All tasks have been throttled by compaction thread limiter.
+        ++unscheduled_compactions_;
+        return Status::Busy();
+      }
+
+      // We unreference here because the following code will take a Ref() on
+      // this cfd if it is going to use it (Compaction class holds a
+      // reference).
+      // This will all happen under a mutex so we don't have to be afraid of
+      // somebody else deleting it.
+      if (cfd->UnrefAndTryDelete()) {
+        // This was the last reference of the column family, so no need to
+        // compact.
+        return Status::OK();
+      }
+    } else {
+      cfd = c->column_family_data();
+      assert(cfd);
     }
 
-    // We unreference here because the following code will take a Ref() on
-    // this cfd if it is going to use it (Compaction class holds a
-    // reference).
-    // This will all happen under a mutex so we don't have to be afraid of
-    // somebody else deleting it.
-    if (cfd->UnrefAndTryDelete()) {
-      // This was the last reference of the column family, so no need to
-      // compact.
-      return Status::OK();
+    // Repick for pre-picked compaction
+    if (is_prepicked) {
+      assert(prepicked_compaction->need_repick);
+      assert(status.ok());
+      c->ReleaseCompactionFiles(Status::OK());
+      c.reset();
+
+      const auto& io = cfd->ioptions();
+      const auto& mo = cfd->GetCurrentMutableCFOptions();
+      auto* vstorage = cfd->current()->storage_info();
+      vstorage->ComputeCompactionScore(io, mo);
+
+      cfd->SetBottomPriCompactionIntentForwarded(false);
     }
 
     // Pick up latest mutable CF Options and use it throughout the
@@ -3677,8 +3700,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       }
       c.reset(cfd->PickCompaction(mutable_cf_options, mutable_db_options_,
                                   job_context->snapshot_seqs,
-                                  job_context->snapshot_checker, log_buffer));
-      TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
+                                  job_context->snapshot_checker, log_buffer,
+                                  thread_pri == Env::Priority::BOTTOM));
+      if (thread_pri == Env::Priority::LOW) {
+        TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
+      } else if (thread_pri == Env::Priority::BOTTOM) {
+        TEST_SYNC_POINT(
+            "DBImpl::BackgroundCompaction():AfterPickCompactionBottomPri");
+      }
 
       if (c != nullptr) {
         bool enough_room = EnoughRoomForCompaction(
@@ -3724,6 +3753,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             MaybeScheduleFlushOrCompaction();
           }
         }
+      } else if (is_prepicked) {
+        ROCKS_LOG_BUFFER(
+            log_buffer,
+            "[%s] Pre-picked compaction repicked files for compaction as "
+            "required, "
+            "but upon re-evaluation, no compaction was found necessary \n",
+            cfd->GetName().c_str());
       }
     }
   }
@@ -4100,13 +4136,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ThreadStatusUtil::ResetThreadStatus();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
                              c->column_family_data());
-  } else if (!is_prepicked && c->output_level() > 0 &&
-             c->output_level() ==
+  } else if (thread_pri == Env::Priority::LOW && !is_prepicked &&
+             Compaction::OutputToNonZeroMaxOutputLevel(
+                 c->output_level(),
                  c->column_family_data()
                      ->current()
                      ->storage_info()
                      ->MaxOutputLevel(
-                         immutable_db_options_.allow_ingest_behind) &&
+                         immutable_db_options_.allow_ingest_behind)) &&
              env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
     // Forward compactions involving last level to the bottom pool if it exists,
     // such that compactions unlikely to contribute to write stalls can be
@@ -4116,7 +4153,25 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ca->db = this;
     ca->compaction_pri_ = Env::Priority::BOTTOM;
     ca->prepicked_compaction = new PrepickedCompaction;
-    ca->prepicked_compaction->compaction = c.release();
+
+    // If `universal_reduce_file_locking` is true, we only lock a limited set of
+    // input files by creating an intended compaction to forward to bottom
+    // priority pool and repicking files when bottom priority thread
+    // gets to execute this intended compaction
+    const bool need_repick =
+        c->mutable_cf_options()
+            .compaction_options_universal.reduce_file_locking;
+    if (need_repick) {
+      ca->prepicked_compaction->compaction =
+          CreateIntendedCompactionForwardedToBottomPriorityPool(c.get());
+      c.reset();
+      ca->prepicked_compaction->need_repick = true;
+      ca->prepicked_compaction->compaction->column_family_data()
+          ->SetBottomPriCompactionIntentForwarded(true);
+    } else {
+      ca->prepicked_compaction->compaction = c.release();
+      ca->prepicked_compaction->need_repick = false;
+    }
     ca->prepicked_compaction->manual_compaction_state = nullptr;
     // Transfer requested token, so it doesn't need to do it again.
     ca->prepicked_compaction->task_token = std::move(task_token);
@@ -4160,8 +4215,15 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
     mutex_.Unlock();
-    TEST_SYNC_POINT_CALLBACK(
-        "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", nullptr);
+    if (thread_pri == Env::Priority::LOW) {
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", nullptr);
+    } else {
+      assert(thread_pri == Env::Priority::BOTTOM);
+      TEST_SYNC_POINT(
+          "DBImpl::BackgroundCompaction:NonTrivial:BeforeRunBottomPri");
+    }
+
     // Should handle error?
     compaction_job.Run().PermitUncheckedError();
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
@@ -4300,6 +4362,67 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   }
   TEST_SYNC_POINT("DBImpl::BackgroundCompaction:Finish");
   return status;
+}
+
+// Create an intended compaction to forward based on the original picked
+// compaction. It serves two purposes while it is waiting
+// for a bottom-priority thread becomes available to run:
+// - Prevent the last input file (or sorted run if non-L0) from
+// being included in compaction score calculations unnecessarily since the
+// intended compaction is already scheduled to compact it
+// - Allow other input files to be picked by low-priority compactions that can
+// run right away
+//
+// Once a bottom-priority available to run this intended compaction, it will
+// repick files to consider the LSM updates that occurred during the waiting
+// period.
+Compaction* DBImpl::CreateIntendedCompactionForwardedToBottomPriorityPool(
+    Compaction* c) {
+  auto* cfd = c->column_family_data();
+  const auto& io = c->immutable_options();
+  const auto& mo = c->mutable_cf_options();
+  auto* vstorage = c->input_version()->storage_info();
+  const int output_level = c->output_level();
+
+  std::vector<CompactionInputFiles> inputs(1);
+
+  const std::vector<FileMetaData*>* max_intput_level_files = nullptr;
+  int max_intput_level = 0;
+
+  for (size_t i = c->num_input_levels(); i >= 1; --i) {
+    size_t level = i - 1;
+    if (c->num_input_files(level) > 0) {
+      max_intput_level = static_cast<int>(level);
+      max_intput_level_files = c->inputs(level);
+      break;
+    }
+  }
+
+  assert(max_intput_level_files);
+  assert(!max_intput_level_files->empty());
+  inputs[0].level = max_intput_level;
+
+  if (max_intput_level == 0) {
+    // The last input file
+    inputs[0].files.push_back(
+        (*max_intput_level_files)[max_intput_level_files->size() - 1]);
+  } else {
+    // The last input sorted run
+    for (FileMetaData* f : (*max_intput_level_files)) {
+      inputs[0].files.push_back(f);
+    }
+  }
+
+  c->ReleaseCompactionFiles(Status::OK());
+
+  Compaction* intended_compaction = new Compaction(
+      vstorage, io, mo, mutable_db_options_, std::move(inputs), output_level);
+
+  cfd->compaction_picker()->RegisterCompaction(intended_compaction);
+  vstorage->ComputeCompactionScore(io, mo);
+  intended_compaction->FinalizeInputInfo(cfd->current());
+
+  return intended_compaction;
 }
 
 bool DBImpl::HasPendingManualCompaction() {
@@ -4656,6 +4779,12 @@ Status DBImpl::WaitForCompact(
       return error_handler_.GetBGError();
     }
   }
+}
+
+bool DBImpl::ShouldPickCompaction(
+    bool is_prepicked, const PrepickedCompaction* prepicked_compaction) {
+  return (!is_prepicked && !compaction_queue_.empty()) ||
+         (is_prepicked && prepicked_compaction->need_repick);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
