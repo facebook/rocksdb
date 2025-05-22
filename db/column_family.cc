@@ -464,6 +464,14 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
     }
   }
 
+  if (result.universal_pick_compaction_by_thread_pri) {
+    if (result.compaction_style != kCompactionStyleUniversal) {
+      ROCKS_LOG_INFO(db_options.info_log.get(),
+                     "universal_pick_compaction_by_thread_pri only makes sense "
+                     "for universal compaction");
+      result.universal_pick_compaction_by_thread_pri = false;
+    }
+  }
   return result;
 }
 
@@ -603,7 +611,8 @@ ColumnFamilyData::ColumnFamilyData(
       last_memtable_id_(0),
       db_paths_registered_(false),
       mempurge_used_(false),
-      next_epoch_number_(1) {
+      next_epoch_number_(1),
+      bottom_pri_compaction_intent_forwarded_(false) {
   if (id_ != kDummyColumnFamilyDataId) {
     // TODO(cc): RegisterDbPaths can be expensive, considering moving it
     // outside of this constructor which might be called with db mutex held.
@@ -1218,10 +1227,12 @@ Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options,
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& existing_snapshots,
-    const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer) {
+    const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
+    Env::Priority thread_priority_for_picking) {
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, existing_snapshots,
-      snapshot_checker, current_->storage_info(), log_buffer);
+      snapshot_checker, current_->storage_info(), log_buffer,
+      thread_priority_for_picking);
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }

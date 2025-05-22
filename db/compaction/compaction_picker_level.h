@@ -25,7 +25,8 @@ class LevelCompactionPicker : public CompactionPicker {
       const MutableDBOptions& mutable_db_options,
       const std::vector<SequenceNumber>& /* existing_snapshots */,
       const SnapshotChecker* /* snapshot_checker */,
-      VersionStorageInfo* vstorage, LogBuffer* log_buffer) override;
+      VersionStorageInfo* vstorage, LogBuffer* log_buffer,
+      Env::Priority /* thread_priority_for_picking */) override;
 
   bool NeedsCompaction(const VersionStorageInfo* vstorage) const override;
 };

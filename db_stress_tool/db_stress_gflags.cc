@@ -1486,4 +1486,9 @@ DEFINE_uint32(
     memtable_avg_op_scan_flush_trigger,
     ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_avg_op_scan_flush_trigger,
     "Sets CF option memtable_avg_op_scan_flush_trigger.");
+
+DEFINE_bool(universal_pick_compaction_by_thread_pri,
+            ROCKSDB_NAMESPACE::ColumnFamilyOptions()
+                .universal_pick_compaction_by_thread_pri,
+            "Sets CF option universal_pick_compaction_by_thread_pri.");
 #endif  // GFLAGS

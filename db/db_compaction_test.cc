@@ -455,6 +455,61 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
   }
 }
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
+TEST_F(DBCompactionTest, UniversalBottomPriCompactionRepickNothing) {
+  const int kFileNumCompactionTrigger = 3;
+
+  Options options = CurrentOptions();
+  options.universal_pick_compaction_by_thread_pri = true;
+  // Set `max_background_jobs` to be 3 to allow low and bottom priority thread
+  // to run compaction together
+  options.max_background_jobs = 3;
+  Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  options.num_levels = 3;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.level0_file_num_compaction_trigger = kFileNumCompactionTrigger;
+  options.compaction_options_universal.max_size_amplification_percent = 1;
+
+  DestroyAndReopen(options);
+
+  // Need to get a token to enable compaction parallelism up to
+  // `max_background_compactions` jobs.
+  auto pressure_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {// Wait for the full (bottom-priority) compaction to be pre-picked as an
+       // intent (that is allowing files to be picked by other compactions and
+       // will pick later when the bottom-priority thread is available to
+       // execute the compaction) before triggering the low-priority compaction.
+       {"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+        "LowPriCompaction"},
+       // Wait for low-priority compaction to start before
+       // repicking for the full compaction intent (bottom-priority), enabling
+       // them to run in parallel.
+       {"DBImpl::BackgroundCompaction:NonTrivial",
+        "DBImpl::BGWorkBottomCompaction"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 0; i < kFileNumCompactionTrigger; ++i) {
+    if (i == 0) {
+      ASSERT_OK(Put("file_locked_for_bottom_pri_compaction", "value"));
+    } else {
+      ASSERT_OK(
+          Put("file_not_locked_for_bottom_pri_compaction" + std::to_string(i),
+              "value"));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  TEST_SYNC_POINT("LowPriCompaction");
+  ASSERT_OK(Put("a_new_file_to_pick_for_low_pri_compaction", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  // Verify the intended full compaction for bottom priority thread does not get
+  // to run (i.e, output to bottommost level) since some of the the intended
+  // input files are already compacted by the low priority thread
+  ASSERT_EQ("2", FilesPerLevel(0));
+}
 
 TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   // This test verify UpdateAccumulatedStats is not on

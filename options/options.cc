@@ -114,7 +114,9 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       persist_user_defined_timestamps(options.persist_user_defined_timestamps),
       memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger),
       memtable_avg_op_scan_flush_trigger(
-          options.memtable_avg_op_scan_flush_trigger) {
+          options.memtable_avg_op_scan_flush_trigger),
+      universal_pick_compaction_by_thread_pri(
+          options.universal_pick_compaction_by_thread_pri) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -292,6 +294,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "     Options.memtable_avg_op_scan_flush_trigger: %" PRIu32,
                    memtable_avg_op_scan_flush_trigger);
+  ROCKS_LOG_HEADER(
+      log, "           Options.universal_pick_compaction_by_thread_pri: %d",
+      universal_pick_compaction_by_thread_pri);
   ROCKS_LOG_HEADER(log,
                    "                   Options.max_compaction_bytes: %" PRIu64,
                    max_compaction_bytes);

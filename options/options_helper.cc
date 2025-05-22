@@ -304,6 +304,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.memtable_op_scan_flush_trigger;
   cf_opts->memtable_avg_op_scan_flush_trigger =
       moptions.memtable_avg_op_scan_flush_trigger;
+  cf_opts->universal_pick_compaction_by_thread_pri =
+      moptions.universal_pick_compaction_by_thread_pri;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
