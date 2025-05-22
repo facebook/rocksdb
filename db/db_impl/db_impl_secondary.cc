@@ -934,9 +934,9 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   const int job_id = next_job_id_.fetch_add(1);
   JobContext job_context(0, true /*create_superversion*/);
+  std::vector<SequenceNumber> snapshots = input.snapshots;
   job_context.InitSnapshotContext(nullptr, nullptr, kMaxSequenceNumber,
-                                  std::move(input.snapshots));
-
+                                  std::move(snapshots));
   // use primary host's db_id for running the compaction, but db_session_id is
   // using the local one, which is to make sure the unique id is unique from
   // the remote compactors. Because the id is generated from db_id,

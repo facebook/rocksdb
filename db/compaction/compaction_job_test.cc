@@ -595,11 +595,11 @@ class CompactionJobTestBase : public testing::Test {
       const std::vector<std::vector<FileMetaData*>>& input_files,
       const std::vector<int> input_levels,
       std::function<void(Compaction& comp)>&& verify_func,
-      const std::vector<SequenceNumber>& snapshots = {}) {
+      std::vector<SequenceNumber>&& snapshots = {}) {
     const int kLastLevel = cf_options_.num_levels - 1;
     verify_per_key_placement_ = std::move(verify_func);
     mock::KVVector empty_map;
-    RunCompaction(input_files, input_levels, {empty_map}, snapshots,
+    RunCompaction(input_files, input_levels, {empty_map}, std::move(snapshots),
                   kMaxSequenceNumber, kLastLevel, false);
   }
 
@@ -608,7 +608,7 @@ class CompactionJobTestBase : public testing::Test {
       const std::vector<std::vector<FileMetaData*>>& input_files,
       const std::vector<int>& input_levels,
       const std::vector<mock::KVVector>& expected_results,
-      const std::vector<SequenceNumber>& snapshots = {},
+      std::vector<SequenceNumber>&& snapshots = {},
       SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber,
       int output_level = 1, bool verify = true,
       std::vector<uint64_t> expected_oldest_blob_file_numbers = {},
@@ -2038,7 +2038,7 @@ TEST_F(CompactionJobTest, CutToAlignGrandparentBoundarySameKey) {
     snapshots.emplace_back(i);
   }
   RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                {expected_file1, expected_file2}, snapshots);
+                {expected_file1, expected_file2}, std::move(snapshots));
 }
 
 TEST_F(CompactionJobTest, CutForMaxCompactionBytesSameKey) {
@@ -2097,7 +2097,8 @@ TEST_F(CompactionJobTest, CutForMaxCompactionBytesSameKey) {
     snapshots.emplace_back(i);
   }
   RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                {expected_file1, expected_file2, expected_file3}, snapshots);
+                {expected_file1, expected_file2, expected_file3},
+                std::move(snapshots));
 }
 
 class CompactionJobTimestampTest : public CompactionJobTestBase {

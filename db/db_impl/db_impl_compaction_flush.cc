@@ -4583,21 +4583,23 @@ void DBImpl::InitSnapshotContext(JobContext* job_context) {
   if (use_custom_gc_ && !snapshot_checker) {
     snapshot_checker = DisableGCSnapshotChecker::Instance();
   }
-  ManagedSnapshot* managed_snapshot = nullptr;
+  std::unique_ptr<ManagedSnapshot> managed_snapshot = nullptr;
   if (snapshot_checker) {
     // If snapshot_checker is used, that means the flush/compaction may
     // contain values not visible to snapshot taken after
     // flush/compaction job starts. Take a snapshot and it will appear
     // in snapshot_seqs and force compaction iterator to consider such
     // snapshots.
-    managed_snapshot = new ManagedSnapshot(this, GetSnapshotImpl(false, false));
+    const Snapshot* snapshot =
+        GetSnapshotImpl(/*is_write_conflict_boundary=*/false, /*lock=*/false);
+    managed_snapshot.reset(new ManagedSnapshot(this, snapshot));
   }
   SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber;
   std::vector<SequenceNumber> snapshot_seqs =
       snapshots_.GetAll(&earliest_write_conflict_snapshot);
-  job_context->InitSnapshotContext(snapshot_checker, managed_snapshot,
-                                   earliest_write_conflict_snapshot,
-                                   std::move(snapshot_seqs));
+  job_context->InitSnapshotContext(
+      snapshot_checker, std::move(managed_snapshot),
+      earliest_write_conflict_snapshot, std::move(snapshot_seqs));
 }
 
 Status DBImpl::WaitForCompact(

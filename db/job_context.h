@@ -152,16 +152,16 @@ struct JobContext {
   }
 
   void InitSnapshotContext(SnapshotChecker* checker,
-                           ManagedSnapshot* managed_snapshot,
+                           std::unique_ptr<ManagedSnapshot> managed_snapshot,
                            SequenceNumber earliest_write_conflict,
-                           const std::vector<SequenceNumber>&& snapshots) {
+                           std::vector<SequenceNumber>&& snapshots) {
     if (snapshot_context_initialized) {
       return;
     }
     snapshot_context_initialized = true;
     snapshot_checker = checker;
     assert(!job_snapshot);
-    job_snapshot.reset(std::move(managed_snapshot));
+    job_snapshot = std::move(managed_snapshot);
     earliest_write_conflict_snapshot = earliest_write_conflict;
     snapshot_seqs = std::move(snapshots);
   }
@@ -225,14 +225,14 @@ struct JobContext {
 
   // the current manifest_file_number, log_number and prev_log_number
   // that corresponds to the set of files in 'live'.
-  uint64_t manifest_file_number;
-  uint64_t pending_manifest_file_number;
+  uint64_t manifest_file_number = 0;
+  uint64_t pending_manifest_file_number = 0;
 
   // Used for remote compaction. To prevent OPTIONS files from getting
   // purged by PurgeObsoleteFiles() of the primary host
   uint64_t min_options_file_number;
-  uint64_t log_number;
-  uint64_t prev_log_number;
+  uint64_t log_number = 0;
+  uint64_t prev_log_number = 0;
 
   uint64_t min_pending_output = 0;
   uint64_t prev_wals_total_size = 0;
@@ -255,13 +255,12 @@ struct JobContext {
 
   explicit JobContext(int _job_id, bool create_superversion = false) {
     job_id = _job_id;
-    manifest_file_number = 0;
-    pending_manifest_file_number = 0;
-    log_number = 0;
-    prev_log_number = 0;
     superversion_contexts.emplace_back(
         SuperVersionContext(create_superversion));
   }
+
+  // Delete the default constructor
+  JobContext() = delete;
 
   // For non-empty JobContext Clean() has to be called at least once before
   // before destruction (see asserts in ~JobContext()). Should be called with

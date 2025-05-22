@@ -2305,7 +2305,8 @@ void CompactionJob::LogCompaction() {
            << compaction->CalculateTotalInputSize() << "oldest_snapshot_seqno"
            << (job_context_->snapshot_seqs.empty()
                    ? int64_t{-1}  // Use -1 for "none"
-                   : static_cast<int64_t>(job_context_->snapshot_seqs[0]));
+                   : static_cast<int64_t>(
+                         job_context_->GetEarliestSnapshotSequence()));
     if (compaction->SupportsPerKeyPlacement()) {
       stream << "proximal_after_seqno" << proximal_after_seqno_;
       stream << "preserve_seqno_after" << preserve_seqno_after_;
