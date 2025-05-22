@@ -397,6 +397,10 @@ struct TransactionOptions {
   uint32_t large_txn_commit_optimize_threshold =
       std::numeric_limits<uint32_t>::max();
 
+  // EXPERIMENTAL, SUBJECT TO CHANGE
+  // When the size of a transaction's write batch is at least this threshold,
+  // we will enable optimizations for commiting a large transaction. See
+  // comment for `commit_bypass_memtable` for more optimization detail.
   uint64_t large_txn_commit_optimize_byte_threshold =
       std::numeric_limits<uint64_t>::max();
 };
