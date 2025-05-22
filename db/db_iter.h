@@ -507,11 +507,11 @@ class DBIter final : public Iterator {
   std::string saved_timestamp_;
   std::optional<std::vector<ScanOptions>> scan_opts_;
   ReadOnlyMemTable* const active_mem_;
-  SequenceNumber memtable_seqno_lb_ = kMaxSequenceNumber;
-  uint32_t memtable_op_scan_flush_trigger_ = 0;
-  uint32_t avg_op_scan_flush_trigger_ = 0;
-  uint32_t iter_step_since_seek_ = 1;
-  uint32_t mem_hidden_op_scanned_since_seek_ = 0;
+  SequenceNumber memtable_seqno_lb_;
+  uint32_t memtable_op_scan_flush_trigger_;
+  uint32_t avg_op_scan_flush_trigger_;
+  uint32_t iter_step_since_seek_;
+  uint32_t mem_hidden_op_scanned_since_seek_;
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;

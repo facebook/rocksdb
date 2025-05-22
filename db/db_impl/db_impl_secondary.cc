@@ -933,7 +933,10 @@ Status DBImplSecondary::CompactWithoutInstallation(
                        immutable_db_options_.info_log.get());
 
   const int job_id = next_job_id_.fetch_add(1);
-
+  JobContext job_context(0, true /*create_superversion*/);
+  std::vector<SequenceNumber> snapshots = input.snapshots;
+  job_context.InitSnapshotContext(nullptr, nullptr, kMaxSequenceNumber,
+                                  std::move(snapshots));
   // use primary host's db_id for running the compaction, but db_session_id is
   // using the local one, which is to make sure the unique id is unique from
   // the remote compactors. Because the id is generated from db_id,
@@ -944,7 +947,7 @@ Status DBImplSecondary::CompactWithoutInstallation(
       job_id, c.get(), immutable_db_options_, mutable_db_options_,
       file_options_for_compaction_, versions_.get(), &shutting_down_,
       &log_buffer, output_dir.get(), stats_, &mutex_, &error_handler_,
-      input.snapshots, table_cache_, &event_logger_, dbname_, io_tracer_,
+      &job_context, table_cache_, &event_logger_, dbname_, io_tracer_,
       options.canceled ? *options.canceled : kManualCompactionCanceledFalse_,
       input.db_id, db_session_id_, secondary_path_, input, result);
 

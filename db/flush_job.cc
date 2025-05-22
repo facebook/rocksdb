@@ -92,12 +92,10 @@ FlushJob::FlushJob(
     const MutableCFOptions& mutable_cf_options, uint64_t max_memtable_id,
     const FileOptions& file_options, VersionSet* versions,
     InstrumentedMutex* db_mutex, std::atomic<bool>* shutting_down,
-    std::vector<SequenceNumber> existing_snapshots,
-    SequenceNumber earliest_write_conflict_snapshot,
-    SnapshotChecker* snapshot_checker, JobContext* job_context,
-    FlushReason flush_reason, LogBuffer* log_buffer, FSDirectory* db_directory,
-    FSDirectory* output_file_directory, CompressionType output_compression,
-    Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
+    JobContext* job_context, FlushReason flush_reason, LogBuffer* log_buffer,
+    FSDirectory* db_directory, FSDirectory* output_file_directory,
+    CompressionType output_compression, Statistics* stats,
+    EventLogger* event_logger, bool measure_io_stats,
     const bool sync_output_directory, const bool write_manifest,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
     std::shared_ptr<const SeqnoToTimeMapping> seqno_to_time_mapping,
@@ -114,12 +112,7 @@ FlushJob::FlushJob(
       versions_(versions),
       db_mutex_(db_mutex),
       shutting_down_(shutting_down),
-      existing_snapshots_(std::move(existing_snapshots)),
-      earliest_snapshot_(existing_snapshots_.empty()
-                             ? kMaxSequenceNumber
-                             : existing_snapshots_.at(0)),
-      earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
-      snapshot_checker_(snapshot_checker),
+      earliest_snapshot_(job_context->GetEarliestSnapshotSequence()),
       job_context_(job_context),
       flush_reason_(flush_reason),
       log_buffer_(log_buffer),
@@ -140,6 +133,7 @@ FlushJob::FlushJob(
       full_history_ts_low_(std::move(full_history_ts_low)),
       blob_callback_(blob_callback),
       seqno_to_time_mapping_(std::move(seqno_to_time_mapping)) {
+  assert(job_context->snapshot_context_initialized);
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -456,7 +450,7 @@ Status FlushJob::MemPurge() {
   const std::string* const full_history_ts_low = &(cfd_->GetFullHistoryTsLow());
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
       new CompactionRangeDelAggregator(&(cfd_->internal_comparator()),
-                                       existing_snapshots_,
+                                       job_context_->snapshot_seqs,
                                        full_history_ts_low));
   for (auto& rd_iter : range_del_iters) {
     range_del_agg->AddTombstones(std::move(rd_iter));
@@ -495,19 +489,19 @@ Status FlushJob::MemPurge() {
 
     Env* env = db_options_.env;
     assert(env);
-    MergeHelper merge(
-        env, (cfd_->internal_comparator()).user_comparator(),
-        (ioptions.merge_operator).get(), compaction_filter.get(),
-        ioptions.logger, true /* internal key corruption is not ok */,
-        existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
-        snapshot_checker_);
+    MergeHelper merge(env, (cfd_->internal_comparator()).user_comparator(),
+                      (ioptions.merge_operator).get(), compaction_filter.get(),
+                      ioptions.logger,
+                      true /* internal key corruption is not ok */,
+                      job_context_->GetLatestSnapshotSequence(),
+                      job_context_->snapshot_checker);
     assert(job_context_);
-    SequenceNumber job_snapshot_seq = job_context_->GetJobSnapshotSequence();
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
         iter.get(), (cfd_->internal_comparator()).user_comparator(), &merge,
-        kMaxSequenceNumber, &existing_snapshots_, earliest_snapshot_,
-        earliest_write_conflict_snapshot_, job_snapshot_seq, snapshot_checker_,
+        kMaxSequenceNumber, &job_context_->snapshot_seqs, earliest_snapshot_,
+        job_context_->earliest_write_conflict_snapshot,
+        job_context_->GetJobSnapshotSequence(), job_context_->snapshot_checker,
         env, ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         nullptr, ioptions.allow_data_in_errors,
@@ -761,7 +755,7 @@ bool FlushJob::MemPurgeDecider(double threshold) {
       // Pick the oldest existing snapshot that is more recent
       // than the sequence number of the sampled entry.
       min_seqno_snapshot = kMaxSequenceNumber;
-      for (SequenceNumber seq_num : existing_snapshots_) {
+      for (SequenceNumber seq_num : job_context_->snapshot_seqs) {
         if (seq_num > res.sequence && seq_num < min_seqno_snapshot) {
           min_seqno_snapshot = seq_num;
         }
@@ -1000,20 +994,19 @@ Status FlushJob::WriteLevel0Table() {
           preclude_last_level_min_seqno_ == kMaxSequenceNumber
               ? preclude_last_level_min_seqno_
               : std::min(earliest_snapshot_, preclude_last_level_min_seqno_));
-      const SequenceNumber job_snapshot_seq =
-          job_context_->GetJobSnapshotSequence();
-
       s = BuildTable(
           dbname_, versions_, db_options_, tboptions, file_options_,
           cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
-          &blob_file_additions, existing_snapshots_, earliest_snapshot_,
-          earliest_write_conflict_snapshot_, job_snapshot_seq,
-          snapshot_checker_, mutable_cf_options_.paranoid_file_checks,
-          cfd_->internal_stats(), &io_s, io_tracer_,
-          BlobFileCreationReason::kFlush, seqno_to_time_mapping_.get(),
-          event_logger_, job_context_->job_id, &table_properties_, write_hint,
-          full_history_ts_low, blob_callback_, base_, &memtable_payload_bytes,
-          &memtable_garbage_bytes, &flush_stats);
+          &blob_file_additions, job_context_->snapshot_seqs, earliest_snapshot_,
+          job_context_->earliest_write_conflict_snapshot,
+          job_context_->GetJobSnapshotSequence(),
+          job_context_->snapshot_checker,
+          mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
+          &io_s, io_tracer_, BlobFileCreationReason::kFlush,
+          seqno_to_time_mapping_.get(), event_logger_, job_context_->job_id,
+          &table_properties_, write_hint, full_history_ts_low, blob_callback_,
+          base_, &memtable_payload_bytes, &memtable_garbage_bytes,
+          &flush_stats);
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:s", &s);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
