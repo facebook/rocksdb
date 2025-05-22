@@ -9907,7 +9907,7 @@ TEST_P(CommitBypassMemtableTest,
   TransactionOptions txn_opts;
   txn_opts.large_txn_commit_optimize_byte_threshold = threshold;
 
-  // Test with transaction below threshold
+  // Above threshold
   auto txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
   ASSERT_OK(txn->SetName("xid1"));
   ASSERT_OK(txn->Put("k1", rnd.RandomString(threshold)));
@@ -9916,6 +9916,7 @@ TEST_P(CommitBypassMemtableTest,
   ASSERT_OK(txn->Commit());
   ASSERT_TRUE(commit_bypass_memtable);
 
+  // Below threshold
   txn = txn_db->BeginTransaction(wopts, txn_opts, txn);
   ASSERT_OK(txn->SetName("xid2"));
   ASSERT_OK(txn->Put("k2", "v2"));
@@ -9970,6 +9971,7 @@ TEST_P(CommitBypassMemtableTest,
   ASSERT_OK(txn->Prepare());
   ASSERT_OK(txn->Commit());
   ASSERT_FALSE(commit_bypass_memtable);
+  delete txn;
 
   // Test with multiple column families
   std::vector<std::string> cfs = {"pk", "sk"};

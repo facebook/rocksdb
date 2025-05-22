@@ -366,6 +366,22 @@ struct TransactionOptions {
   // DeleteRange, SingleDelete.
   bool write_batch_track_timestamp_size = false;
 
+  // The following three options enable optimizations for large transaction
+  // commit to bypass memtable write.
+  // - If any transaction's commit should bybass memtable write,
+  //  set commit_bypass_memtable to true.
+  // - If only bypass memtable write for transactions with >= n operations,
+  //  set commit_bypass_memtable to false,
+  //  large_txn_commit_optimize_threshold to n, and
+  //  large_txn_commit_optimize_byte_threshold to max.
+  //  Similarly for only optimize when a transaction's write batch size is >= n.
+  // - If bypass memtable write for transactions with >= n operations or >= x
+  // bytes,
+  //  set commit_bypass_memtable to false,
+  //  large_txn_commit_optimize_threshold to n, and
+  //  large_txn_commit_optimize_byte_threshold to x.
+  //
+  //
   // EXPERIMENTAL, SUBJECT TO CHANGE
   // Only supports write-committed policy. If set to true, the transaction will
   // skip memtable write and ingest into the DB directly during Commit(). This
