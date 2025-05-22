@@ -396,6 +396,9 @@ struct TransactionOptions {
   // comment for `commit_bypass_memtable` for more optimization detail.
   uint32_t large_txn_commit_optimize_threshold =
       std::numeric_limits<uint32_t>::max();
+
+  uint64_t large_txn_commit_optimize_byte_threshold =
+      std::numeric_limits<uint64_t>::max();
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB

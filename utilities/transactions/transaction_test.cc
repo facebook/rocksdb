@@ -9889,6 +9889,116 @@ TEST_F(TransactionDBTest, SelfDeadlockBug) {
   delete txn1;
   delete txn2;
 }
+
+TEST_P(CommitBypassMemtableTest,
+       OptimizeLargeTxnCommitWriteBatchSizeThreshold) {
+  // Tests TransactionOptions::large_txn_commit_optimize_byte_threshold
+  const uint64_t threshold = 100;
+  SetUpTransactionDB();
+  bool commit_bypass_memtable = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteCommittedTxn::CommitInternal:bypass_memtable",
+      [&](void* arg) { commit_bypass_memtable = *(static_cast<bool*>(arg)); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  // Test with transaction option only
+  WriteOptions wopts;
+  TransactionOptions txn_opts;
+  txn_opts.large_txn_commit_optimize_byte_threshold = threshold;
+
+  // Test with transaction below threshold
+  auto txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_OK(txn->SetName("xid1"));
+  ASSERT_OK(txn->Put("k1", rnd.RandomString(threshold)));
+  ASSERT_TRUE(txn->GetWriteBatch()->GetDataSize() >= threshold);
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+
+  txn = txn_db->BeginTransaction(wopts, txn_opts, txn);
+  ASSERT_OK(txn->SetName("xid2"));
+  ASSERT_OK(txn->Put("k2", "v2"));
+  ASSERT_TRUE(txn->GetWriteBatch()->GetDataSize() < threshold);
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_FALSE(commit_bypass_memtable);
+  delete txn;
+
+  // With commit_bypass_memtbale
+  TransactionOptions txn_opts2;
+  txn_opts2.commit_bypass_memtable = true;
+  txn_opts2.large_txn_commit_optimize_byte_threshold = threshold;
+  txn = txn_db->BeginTransaction(wopts, txn_opts2, nullptr);
+  ASSERT_OK(txn->SetName("xid3"));
+  ASSERT_OK(txn->Put("k3", "v3"));
+  ASSERT_TRUE(txn->GetWriteBatch()->GetDataSize() < threshold);
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+  delete txn;
+
+  // With count based threshold `large_txn_commit_optimize_threshold`
+  TransactionOptions txn_opts3;
+  txn_opts3.commit_bypass_memtable = false;
+  txn_opts3.large_txn_commit_optimize_byte_threshold = threshold;
+  txn_opts3.large_txn_commit_optimize_threshold = 3;
+  txn = txn_db->BeginTransaction(wopts, txn_opts3, nullptr);
+  ASSERT_OK(txn->SetName("xid4"));
+  ASSERT_OK(txn->Put("k3", "v3"));
+  ASSERT_OK(txn->Delete("k2"));
+  ASSERT_OK(txn->Delete("k1"));
+  ASSERT_TRUE(txn->GetWriteBatch()->GetDataSize() < threshold);
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+
+  txn = txn_db->BeginTransaction(wopts, txn_opts3, txn);
+  ASSERT_OK(txn->SetName("xid4"));
+  ASSERT_OK(txn->Put("k3", "v3"));
+  ASSERT_OK(txn->Delete("k2"));
+  ASSERT_OK(txn->Delete("k1"));
+  ASSERT_TRUE(txn->GetWriteBatch()->GetDataSize() < threshold);
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+
+  txn = txn_db->BeginTransaction(wopts, txn_opts3, txn);
+  ASSERT_OK(txn->SetName("xid5"));
+  ASSERT_OK(txn->Put("k5", "v5"));
+  ASSERT_TRUE(txn->GetWriteBatch()->GetDataSize() < threshold);
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_FALSE(commit_bypass_memtable);
+
+  // Test with multiple column families
+  std::vector<std::string> cfs = {"pk", "sk"};
+  CreateColumnFamilies(cfs, options);
+  TransactionOptions txn_opts_cf;
+
+  txn_opts_cf.large_txn_commit_optimize_byte_threshold = threshold;
+
+  // Below threshold
+  auto txn_cf = txn_db->BeginTransaction(wopts, txn_opts_cf, nullptr);
+  ASSERT_OK(txn_cf->SetName("xid_cf_above"));
+  ASSERT_OK(txn_cf->Put(handles_[0], "k1", rnd.RandomString(threshold / 2)));
+  ASSERT_OK(txn_cf->Put(handles_[1], "k2", rnd.RandomString(threshold / 2)));
+  ASSERT_TRUE(txn_cf->GetWriteBatch()->GetDataSize() >= threshold);
+  ASSERT_OK(txn_cf->Prepare());
+  ASSERT_OK(txn_cf->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+
+  txn_cf = txn_db->BeginTransaction(wopts, txn_opts_cf, txn_cf);
+  ASSERT_OK(txn_cf->SetName("xid_cf_below"));
+  ASSERT_OK(txn_cf->Put(handles_[0], "k1", rnd.RandomString(10)));
+  ASSERT_OK(txn_cf->Put(handles_[1], "k2", rnd.RandomString(10)));
+  ASSERT_TRUE(txn_cf->GetWriteBatch()->GetDataSize() < threshold);
+  ASSERT_OK(txn_cf->Prepare());
+  ASSERT_OK(txn_cf->Commit());
+  ASSERT_FALSE(commit_bypass_memtable);
+
+  delete txn_cf;
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
