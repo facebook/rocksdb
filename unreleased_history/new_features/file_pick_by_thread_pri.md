@@ -1,0 +1,1 @@
+Add a new Options `universal_pick_compaction_by_thread_pri` (by default set to false) to make auto universal compaction picking aware of the thread priority will run the compaction and to pick compaction according to that. This is to reduce unnecessary file locking when pre-picked compaction is waiting in the bottom-pri pool to execute.

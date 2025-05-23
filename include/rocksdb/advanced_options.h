@@ -1146,6 +1146,25 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_avg_op_scan_flush_trigger = 0;
 
+  // EXPERIMENTAL
+  //
+  // If true, auto universal compaction picking will consider whether it will be
+  // executed in a bottom-priority thread and, if so, select a compaction that
+  // satisfies the output level requirement for execution in a bottom-priority
+  // thread, reducing unnecessary file locking when pre-picked compaction is
+  // waiting in the bottom-pri pool to execute.
+  //
+  // Default: false (disabled)
+  //
+  // This options does not apply to manual compactions.
+  //
+  // This option is temporary in case turning on this feature causes problems
+  // and users need to undo it quickly. This option is planned for removal in
+  // the near future with default value set to true.
+  //
+  // Dynamically changeable through the SetOptions() API.
+  bool universal_pick_compaction_by_thread_pri = false;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
