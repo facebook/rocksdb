@@ -166,10 +166,11 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // Refer to
   // TransactionOptions::skip_prepare
   bool skip_prepare_ = false;
-  // Refer to
-  // TransactionOptions::commit_bypass_memtable
+  // Refer to TransactionOptions::commit_bypass_memtable
   uint32_t commit_bypass_memtable_threshold_ =
       std::numeric_limits<uint32_t>::max();
+  uint64_t commit_bypass_memtable_byte_threshold_ =
+      std::numeric_limits<uint64_t>::max();
 
  private:
   friend class TransactionTest_ValidateSnapshotTest_Test;
