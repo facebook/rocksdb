@@ -373,7 +373,7 @@ struct TransactionOptions {
   // - If only bypass memtable write for transactions with >= n operations,
   //  set commit_bypass_memtable to false,
   //  large_txn_commit_optimize_threshold to n, and
-  //  large_txn_commit_optimize_byte_threshold to max.
+  //  large_txn_commit_optimize_byte_threshold to 0.
   //  Similarly for only optimize when a transaction's write batch size is >= n.
   // - If bypass memtable write for transactions with >= n operations or >= x
   // bytes,

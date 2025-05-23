@@ -854,10 +854,8 @@ Status WriteCommittedTxn::CommitInternal() {
   if (!needs_ts) {
     s = WriteBatchInternal::MarkCommit(working_batch, name_);
   } else {
-    assert(commit_bypass_memtable_threshold_ ==
-           std::numeric_limits<uint32_t>::max());
-    assert(commit_bypass_memtable_byte_threshold_ ==
-           std::numeric_limits<uint64_t>::max());
+    assert(!commit_bypass_memtable_threshold_);
+    assert(!commit_bypass_memtable_byte_threshold_);
     assert(commit_timestamp_ != kMaxTxnTimestamp);
     char commit_ts_buf[sizeof(kMaxTxnTimestamp)];
     EncodeFixed64(commit_ts_buf, commit_timestamp_);
