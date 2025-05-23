@@ -254,7 +254,7 @@ struct TransactionDBOptions {
   // for more details.
   std::vector<std::shared_ptr<SecondaryIndex>> secondary_indices;
 
-  // Deprecated, this option may be removed in the future.
+  // Deprecated, this option has no effect and may be removed in the future.
   // Use TransactionOptions::large_txn_commit_optimize_threshold instead.
   //
   // This option is only valid for write committed. If the number of updates in
@@ -373,7 +373,7 @@ struct TransactionOptions {
   // - If only bypass memtable write for transactions with >= n operations,
   //  set commit_bypass_memtable to false,
   //  large_txn_commit_optimize_threshold to n, and
-  //  large_txn_commit_optimize_byte_threshold to max.
+  //  large_txn_commit_optimize_byte_threshold to 0.
   //  Similarly for only optimize when a transaction's write batch size is >= n.
   // - If bypass memtable write for transactions with >= n operations or >= x
   // bytes,
@@ -410,15 +410,17 @@ struct TransactionOptions {
   // When the number of updates in a transaction is at least this threshold,
   // we will enable optimizations for commiting a large transaction. See
   // comment for `commit_bypass_memtable` for more optimization detail.
-  uint32_t large_txn_commit_optimize_threshold =
-      std::numeric_limits<uint32_t>::max();
+  //
+  // Default: 0 (disabled).
+  uint32_t large_txn_commit_optimize_threshold = 0;
 
   // EXPERIMENTAL, SUBJECT TO CHANGE
   // When the size of a transaction's write batch is at least this threshold,
   // we will enable optimizations for commiting a large transaction. See
   // comment for `commit_bypass_memtable` for more optimization detail.
-  uint64_t large_txn_commit_optimize_byte_threshold =
-      std::numeric_limits<uint64_t>::max();
+  //
+  // Default: 0 (disabled).
+  uint64_t large_txn_commit_optimize_byte_threshold = 0;
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB
