@@ -135,6 +135,37 @@ struct JobContext {
     return kMaxSequenceNumber;
   }
 
+  SequenceNumber GetLatestSnapshotSequence() const {
+    assert(snapshot_context_initialized);
+    if (snapshot_seqs.empty()) {
+      return 0;
+    }
+    return snapshot_seqs.back();
+  }
+
+  SequenceNumber GetEarliestSnapshotSequence() const {
+    assert(snapshot_context_initialized);
+    if (snapshot_seqs.empty()) {
+      return kMaxSequenceNumber;
+    }
+    return snapshot_seqs.front();
+  }
+
+  void InitSnapshotContext(SnapshotChecker* checker,
+                           std::unique_ptr<ManagedSnapshot> managed_snapshot,
+                           SequenceNumber earliest_write_conflict,
+                           std::vector<SequenceNumber>&& snapshots) {
+    if (snapshot_context_initialized) {
+      return;
+    }
+    snapshot_context_initialized = true;
+    snapshot_checker = checker;
+    assert(!job_snapshot);
+    job_snapshot = std::move(managed_snapshot);
+    earliest_write_conflict_snapshot = earliest_write_conflict;
+    snapshot_seqs = std::move(snapshots);
+  }
+
   // Structure to store information for candidate files to delete.
   struct CandidateFileInfo {
     std::string file_name;
@@ -145,9 +176,6 @@ struct JobContext {
       return file_name == other.file_name && file_path == other.file_path;
     }
   };
-
-  // Unique job id
-  int job_id;
 
   // a list of all files that we'll consider deleting
   // (every once in a while this is filled up with all files
@@ -197,14 +225,14 @@ struct JobContext {
 
   // the current manifest_file_number, log_number and prev_log_number
   // that corresponds to the set of files in 'live'.
-  uint64_t manifest_file_number;
-  uint64_t pending_manifest_file_number;
+  uint64_t manifest_file_number = 0;
+  uint64_t pending_manifest_file_number = 0;
 
   // Used for remote compaction. To prevent OPTIONS files from getting
   // purged by PurgeObsoleteFiles() of the primary host
   uint64_t min_options_file_number;
-  uint64_t log_number;
-  uint64_t prev_log_number;
+  uint64_t log_number = 0;
+  uint64_t prev_log_number = 0;
 
   uint64_t min_pending_output = 0;
   uint64_t prev_wals_total_size = 0;
@@ -213,16 +241,26 @@ struct JobContext {
 
   // Snapshot taken before flush/compaction job.
   std::unique_ptr<ManagedSnapshot> job_snapshot;
+  SnapshotChecker* snapshot_checker = nullptr;
+  std::vector<SequenceNumber> snapshot_seqs;
+  // This is the earliest snapshot that could be used for write-conflict
+  // checking by a transaction.  For any user-key newer than this snapshot, we
+  // should make sure not to remove evidence that a write occurred.
+  SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber;
+
+  // Unique job id
+  int job_id;
+
+  bool snapshot_context_initialized = false;
 
   explicit JobContext(int _job_id, bool create_superversion = false) {
     job_id = _job_id;
-    manifest_file_number = 0;
-    pending_manifest_file_number = 0;
-    log_number = 0;
-    prev_log_number = 0;
     superversion_contexts.emplace_back(
         SuperVersionContext(create_superversion));
   }
+
+  // Delete the default constructor
+  JobContext() = delete;
 
   // For non-empty JobContext Clean() has to be called at least once before
   // before destruction (see asserts in ~JobContext()). Should be called with

@@ -91,9 +91,9 @@ bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode) {
   return test_mode != UserDefinedTimestampTestMode::kStripUserDefinedTimestamp;
 }
 
-Slice CompressibleString(Random* rnd, double compressed_fraction, int len,
+Slice CompressibleString(Random* rnd, double compressed_to_fraction, int len,
                          std::string* dst) {
-  int raw = static_cast<int>(len * compressed_fraction);
+  int raw = static_cast<int>(len * compressed_to_fraction);
   if (raw < 1) {
     raw = 1;
   }

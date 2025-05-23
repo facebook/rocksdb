@@ -477,8 +477,11 @@ struct BlockBasedTableBuilder::Rep {
     }
 
     // TODO: get CompressionManager from options and sort out properties
-    auto mgr = GetBuiltinCompressionManager(
-        GetCompressFormatForVersion(table_opt.format_version));
+    auto mgr = tbo.moptions.compression_manager;
+    if (mgr == nullptr) {
+      mgr = GetBuiltinCompressionManager(
+          GetCompressFormatForVersion(table_opt.format_version));
+    }
     props.compression_name = CompressionTypeToString(tbo.compression_type);
     props.compression_options =
         CompressionOptionsToString(tbo.compression_opts);

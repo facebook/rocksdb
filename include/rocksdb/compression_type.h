@@ -182,4 +182,7 @@ struct CompressionOptions {
 #endif
 };
 
+// See advanced_compression.h
+class CompressionManager;
+
 }  // namespace ROCKSDB_NAMESPACE

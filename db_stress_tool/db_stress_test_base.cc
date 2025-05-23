@@ -849,8 +849,14 @@ Status StressTest::NewTxn(WriteOptions& write_opts, ThreadState* thread,
       assert(FLAGS_user_timestamp_size == 0);
       if (thread->rand.OneIn(2)) {
         txn_options.commit_bypass_memtable = true;
-      } else {
+      }
+      if (thread->rand.OneIn(2)) {
         txn_options.large_txn_commit_optimize_threshold = 1;
+      }
+      if (thread->rand.OneIn(2) ||
+          (!txn_options.commit_bypass_memtable &&
+           txn_options.large_txn_commit_optimize_threshold != 1)) {
+        txn_options.large_txn_commit_optimize_byte_threshold = 1;
       }
       if (commit_bypass_memtable) {
         *commit_bypass_memtable = txn_options.commit_bypass_memtable;

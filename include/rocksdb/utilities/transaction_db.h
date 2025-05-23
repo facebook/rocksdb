@@ -366,6 +366,22 @@ struct TransactionOptions {
   // DeleteRange, SingleDelete.
   bool write_batch_track_timestamp_size = false;
 
+  // The following three options enable optimizations for large transaction
+  // commit to bypass memtable write.
+  // - If any transaction's commit should bybass memtable write,
+  //  set commit_bypass_memtable to true.
+  // - If only bypass memtable write for transactions with >= n operations,
+  //  set commit_bypass_memtable to false,
+  //  large_txn_commit_optimize_threshold to n, and
+  //  large_txn_commit_optimize_byte_threshold to max.
+  //  Similarly for only optimize when a transaction's write batch size is >= n.
+  // - If bypass memtable write for transactions with >= n operations or >= x
+  // bytes,
+  //  set commit_bypass_memtable to false,
+  //  large_txn_commit_optimize_threshold to n, and
+  //  large_txn_commit_optimize_byte_threshold to x.
+  //
+  //
   // EXPERIMENTAL, SUBJECT TO CHANGE
   // Only supports write-committed policy. If set to true, the transaction will
   // skip memtable write and ingest into the DB directly during Commit(). This
@@ -396,6 +412,13 @@ struct TransactionOptions {
   // comment for `commit_bypass_memtable` for more optimization detail.
   uint32_t large_txn_commit_optimize_threshold =
       std::numeric_limits<uint32_t>::max();
+
+  // EXPERIMENTAL, SUBJECT TO CHANGE
+  // When the size of a transaction's write batch is at least this threshold,
+  // we will enable optimizations for commiting a large transaction. See
+  // comment for `commit_bypass_memtable` for more optimization detail.
+  uint64_t large_txn_commit_optimize_byte_threshold =
+      std::numeric_limits<uint64_t>::max();
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB

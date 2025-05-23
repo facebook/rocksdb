@@ -115,6 +115,9 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
     commit_bypass_memtable_threshold_ =
         db_options.txn_commit_bypass_memtable_threshold;
   }
+
+  commit_bypass_memtable_byte_threshold_ =
+      txn_options.large_txn_commit_optimize_byte_threshold;
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
@@ -857,6 +860,8 @@ Status WriteCommittedTxn::CommitInternal() {
   } else {
     assert(commit_bypass_memtable_threshold_ ==
            std::numeric_limits<uint32_t>::max());
+    assert(commit_bypass_memtable_byte_threshold_ ==
+           std::numeric_limits<uint64_t>::max());
     assert(commit_timestamp_ != kMaxTxnTimestamp);
     char commit_ts_buf[sizeof(kMaxTxnTimestamp)];
     EncodeFixed64(commit_ts_buf, commit_timestamp_);
@@ -895,7 +900,10 @@ Status WriteCommittedTxn::CommitInternal() {
   uint32_t wb_count = wb->Count();
   RecordInHistogram(db_impl_->immutable_db_options_.stats,
                     NUM_OP_PER_TRANSACTION, wb_count);
-  bool bypass_memtable = wb_count >= commit_bypass_memtable_threshold_;
+  bool bypass_memtable =
+      !needs_ts &&
+      (wb_count >= commit_bypass_memtable_threshold_ ||
+       wb->GetDataSize() >= commit_bypass_memtable_byte_threshold_);
   if (!bypass_memtable) {
     // insert prepared batch into Memtable only skipping WAL.
     // Memtable will ignore BeginPrepare/EndPrepare markers
