@@ -2220,6 +2220,10 @@ int main(int argc, char** argv) {
     CheckCondition(100 ==
                    rocksdb_options_get_memtable_op_scan_flush_trigger(o));
 
+    rocksdb_options_set_memtable_avg_op_scan_flush_trigger(o, 150);
+    CheckCondition(150 ==
+                   rocksdb_options_get_memtable_avg_op_scan_flush_trigger(o));
+
     rocksdb_options_set_ttl(o, 5000);
     CheckCondition(5000 == rocksdb_options_get_ttl(o));
 
@@ -2662,6 +2666,12 @@ int main(int argc, char** argv) {
                    rocksdb_options_get_memtable_op_scan_flush_trigger(copy));
     CheckCondition(100 ==
                    rocksdb_options_get_memtable_op_scan_flush_trigger(o));
+
+    rocksdb_options_set_memtable_avg_op_scan_flush_trigger(copy, 900);
+    CheckCondition(
+        900 == rocksdb_options_get_memtable_avg_op_scan_flush_trigger(copy));
+    CheckCondition(150 ==
+                   rocksdb_options_get_memtable_avg_op_scan_flush_trigger(o));
 
     rocksdb_options_set_ttl(copy, 8000);
     CheckCondition(8000 == rocksdb_options_get_ttl(copy));

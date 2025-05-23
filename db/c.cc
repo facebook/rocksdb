@@ -3748,6 +3748,16 @@ uint32_t rocksdb_options_get_memtable_op_scan_flush_trigger(
   return opt->rep.memtable_op_scan_flush_trigger;
 }
 
+void rocksdb_options_set_memtable_avg_op_scan_flush_trigger(
+    rocksdb_options_t* opt, uint32_t n) {
+  opt->rep.memtable_avg_op_scan_flush_trigger = n;
+}
+
+uint32_t rocksdb_options_get_memtable_avg_op_scan_flush_trigger(
+    rocksdb_options_t* opt) {
+  return opt->rep.memtable_avg_op_scan_flush_trigger;
+}
+
 void rocksdb_options_enable_statistics(rocksdb_options_t* opt) {
   opt->rep.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 }
