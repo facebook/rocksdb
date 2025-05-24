@@ -235,6 +235,16 @@ void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
 
   job_stats_->is_manual_compaction = compaction->is_manual_compaction();
   job_stats_->is_full_compaction = compaction->is_full_compaction();
+  // populate compaction stats num_input_files and total_num_of_bytes
+  size_t num_input_files = 0;
+  for (int input_level = 0;
+       input_level < static_cast<int>(compaction->num_input_levels());
+       ++input_level) {
+    const LevelFilesBrief* flevel = compaction->input_levels(input_level);
+    num_input_files += flevel->num_files;
+  }
+  job_stats_->CompactionJobStats::num_input_files = num_input_files;
+  job_stats_->total_input_bytes = compaction->CalculateTotalInputSize();
 }
 
 void CompactionJob::Prepare(
