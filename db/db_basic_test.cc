@@ -5162,11 +5162,29 @@ TEST_F(DBBasicTest, DisallowMemtableWrite) {
   EXPECT_EQ(Get(2, "c2"), "NOT_FOUND");
   EXPECT_EQ(Get(3, "c3"), "3");
 
-  // disallow_memtable_writes not supported on default column family.
-  // (Would be complicated to make a WriteBatch aware of the setting in order
-  // to reject the write before entering the write path.)
-  Destroy(options_allow);
-  EXPECT_EQ(TryReopen(options_disallow).code(), Status::Code::kInvalidArgument);
+  // disallow_memtable_writes is not as well supported on the default column
+  // family, because it's not always easy to reject until attempting to write
+  // the batch to the memtable.
+  DestroyAndReopen(options_disallow);
+  // Rejected before memtable
+  EXPECT_EQ(Put("a", "b").code(), Status::Code::kInvalidArgument);
+  EXPECT_EQ(Get("a"), "NOT_FOUND");
+  EXPECT_OK(dbfull()->TEST_GetBGError());
+  EXPECT_FALSE(dbfull()->TEST_IsStopped());
+
+  // Only rejected on attempted write to memtable
+  ASSERT_OK(wb.Put("a", "b"));
+  EXPECT_EQ(db_->Write({}, &wb).code(), Status::Code::kInvalidArgument);
+  wb.Clear();
+  EXPECT_EQ(Get("a"), "NOT_FOUND");
+  // WART: DB is in a stopped state, but we should be able to re-open
+  EXPECT_NOK(dbfull()->TEST_GetBGError());
+  EXPECT_TRUE(dbfull()->TEST_IsStopped());
+
+  Reopen(options_allow);
+  EXPECT_EQ(Get("a"), "NOT_FOUND");
+  EXPECT_OK(Put("a", "b"));
+  EXPECT_EQ(Get("a"), "b");
 }
 
 // TODO: re-enable after we provide finer-grained control for WAL tracking to
