@@ -469,7 +469,7 @@ void BlockBasedTableFactory::InitializeOptions() {
   }
 
   if (table_options_.format_version < kMinSupportedFormatVersion) {
-    if (AllowUnsupportedFormatVersion()) {
+    if (TEST_AllowUnsupportedFormatVersion()) {
       // Allow old format version for testing.
       // And relevant old sanitization.
       if (table_options_.format_version == 0 &&
@@ -569,9 +569,11 @@ Status BlockBasedTableFactory::NewTableReader(
       file_size, table_reader_options.block_protection_bytes_per_key,
       table_reader, table_reader_options.tail_size,
       shared_state_->table_reader_cache_res_mgr,
-      table_reader_options.prefix_extractor, prefetch_index_and_filter_in_cache,
-      table_reader_options.skip_filters, table_reader_options.level,
-      table_reader_options.immortal, table_reader_options.largest_seqno,
+      table_reader_options.prefix_extractor,
+      table_reader_options.compression_manager,
+      prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,
+      table_reader_options.level, table_reader_options.immortal,
+      table_reader_options.largest_seqno,
       table_reader_options.force_direct_prefetch,
       &shared_state_->tail_prefetch_stats,
       table_reader_options.block_cache_tracer,
@@ -608,10 +610,21 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Enable pin_l0_filter_and_index_blocks_in_cache, "
         ", but block cache is disabled");
   }
-  if (!IsSupportedFormatVersion(table_options_.format_version)) {
+  if (!IsSupportedFormatVersion(table_options_.format_version) &&
+      !TEST_AllowUnsupportedFormatVersion()) {
     return Status::InvalidArgument(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
+  }
+  if (cf_opts.compression_manager &&
+      strcmp(cf_opts.compression_manager->CompatibilityName(),
+             GetBuiltinCompressionManager(
+                 GetCompressFormatForVersion(table_options_.format_version))
+                 ->CompatibilityName()) != 0 &&
+      !FormatVersionUsesCompressionManagerName(table_options_.format_version)) {
+    return Status::InvalidArgument(
+        "Using a CompressionManager incompatible with built-in (using a custom "
+        "CompatibilityName()) is not supported for format_version < 7");
   }
   if (table_options_.block_align && (cf_opts.compression != kNoCompression)) {
     return Status::InvalidArgument(
@@ -922,11 +935,6 @@ Status BlockBasedTableFactory::ParseOption(const ConfigOptions& config_options,
     }
   }
   return status;
-}
-
-bool& BlockBasedTableFactory::AllowUnsupportedFormatVersion() {
-  static bool allow = false;
-  return allow;
 }
 
 Status GetBlockBasedTableOptionsFromString(
