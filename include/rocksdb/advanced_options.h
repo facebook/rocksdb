@@ -863,7 +863,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (disable the feature)
   //
-  // Not dynamically changeable, change it requires db restart.
+  // Dynamically changeable through the SetOptions() API
   uint64_t preclude_last_level_data_seconds = 0;
 
   // EXPERIMENTAL
@@ -886,7 +886,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (disable the feature)
   //
-  // Not dynamically changeable, change it requires db restart.
+  // Dynamically changeable through the SetOptions() API
   uint64_t preserve_internal_time_seconds = 0;
 
   // When set, large values (blobs) are written to separate blob files, and
