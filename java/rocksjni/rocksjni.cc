@@ -3487,7 +3487,53 @@ jobject Java_org_rocksdb_RocksDB_getPropertiesOfTablesInRange(
   env->ReleaseLongArrayElements(jrange_slice_handles, jrange_slice_handle,
                                 JNI_ABORT);
 
-  return jrange_slice_handles;
+  // convert to Java type (HashMap)
+  jobject jhash_map = ROCKSDB_NAMESPACE::HashMapJni::construct(
+      env, static_cast<uint32_t>(table_properties_collection.size()));
+  if (jhash_map == nullptr) {
+    // exception occurred
+    return nullptr;
+  }
+
+  const ROCKSDB_NAMESPACE::HashMapJni::FnMapKV<
+      const std::string,
+      const std::shared_ptr<const ROCKSDB_NAMESPACE::TableProperties>, jobject,
+      jobject>
+      fn_map_kv =
+          [env](const std::pair<const std::string,
+                                const std::shared_ptr<
+                                    const ROCKSDB_NAMESPACE::TableProperties>>&
+                    kv) {
+            jstring jkey = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
+                env, &(kv.first), false);
+            if (env->ExceptionCheck()) {
+              // an error occurred
+              return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+            }
+
+            jobject jtable_properties =
+                ROCKSDB_NAMESPACE::TablePropertiesJni::fromCppTableProperties(
+                    env, *(kv.second.get()));
+            if (jtable_properties == nullptr) {
+              // an error occurred
+              env->DeleteLocalRef(jkey);
+              return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+            }
+
+            return std::unique_ptr<std::pair<jobject, jobject>>(
+                new std::pair<jobject, jobject>(
+                    static_cast<jobject>(jkey),
+                    static_cast<jobject>(jtable_properties)));
+          };
+
+  if (!ROCKSDB_NAMESPACE::HashMapJni::putAll(
+          env, jhash_map, table_properties_collection.begin(),
+          table_properties_collection.end(), fn_map_kv)) {
+    // exception occurred
+    return nullptr;
+  }
+
+  return jhash_map;
 }
 
 /*
