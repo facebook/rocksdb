@@ -537,17 +537,20 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
   ASSERT_GE(listener->slowdown_count, kSlowdownTrigger * 9);
 }
 
-class TestNumInputFilesPouplatedInListener : public EventListener {
+class TestNumInputFilesTotalInputBytesPouplatedInListener
+    : public EventListener {
  public:
   void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
     std::lock_guard<std::mutex> lock(mutex_);
     num_input_files = ci.stats.num_input_files;
+    total_num_of_bytes = ci.stats.total_input_bytes;
   }
   size_t num_input_files;
+  size_t total_num_of_bytes;
   std::mutex mutex_;
 };
 
-TEST_F(EventListenerTest, NumInputFiles) {
+TEST_F(EventListenerTest, NumInputFilesTotalBytesPopulated) {
   Options options;
   options.level_compaction_dynamic_level_bytes = false;
   options.env = CurrentOptions().env;
@@ -555,8 +558,8 @@ TEST_F(EventListenerTest, NumInputFiles) {
   options.memtable_factory.reset(test::NewSpecialSkipListFactory(
       DBTestBase::kNumKeysByGenerateNewRandomFile));
 
-  TestNumInputFilesPouplatedInListener* listener =
-      new TestNumInputFilesPouplatedInListener();
+  TestNumInputFilesTotalInputBytesPouplatedInListener* listener =
+      new TestNumInputFilesTotalInputBytesPouplatedInListener();
   options.listeners.emplace_back(listener);
 
   options.level0_file_num_compaction_trigger = 4;
@@ -565,47 +568,13 @@ TEST_F(EventListenerTest, NumInputFiles) {
   DestroyAndReopen(options);
   Random rnd(301);
   ASSERT_EQ(listener->num_input_files, 0);
-  // Write 4 files in L0
-  for (int i = 0; i < 4; i++) {
-    GenerateNewRandomFile(&rnd);
-  }
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(listener->num_input_files, 4);
-}
-
-class TestTotalInputBytesPouplatedInListener : public EventListener {
- public:
-  void OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& ci) override {
-    std::lock_guard<std::mutex> lock(mutex_);
-    total_num_of_bytes = ci.stats.total_input_bytes;
-  }
-  size_t total_num_of_bytes;
-  std::mutex mutex_;
-};
-
-TEST_F(EventListenerTest, TotalInputBytes) {
-  Options options;
-  options.level_compaction_dynamic_level_bytes = false;
-  options.env = CurrentOptions().env;
-  options.create_if_missing = true;
-  options.memtable_factory.reset(test::NewSpecialSkipListFactory(
-      DBTestBase::kNumKeysByGenerateNewRandomFile));
-
-  TestTotalInputBytesPouplatedInListener* listener =
-      new TestTotalInputBytesPouplatedInListener();
-  options.listeners.emplace_back(listener);
-
-  options.level0_file_num_compaction_trigger = 4;
-  options.compaction_style = kCompactionStyleLevel;
-
-  DestroyAndReopen(options);
-  Random rnd(301);
   ASSERT_EQ(listener->total_num_of_bytes, 0);
   // Write 4 files in L0
   for (int i = 0; i < 4; i++) {
     GenerateNewRandomFile(&rnd);
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(listener->num_input_files, 4);
   ASSERT_NE(listener->total_num_of_bytes, 0);
 }
 

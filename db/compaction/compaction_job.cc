@@ -217,10 +217,9 @@ void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
       ThreadStatus::COMPACTION_PROP_FLAGS,
       compaction->is_manual_compaction() +
           (compaction->deletion_compaction() << 1));
-
+  auto total_input_bytes = compaction->CalculateTotalInputSize();
   ThreadStatusUtil::SetThreadOperationProperty(
-      ThreadStatus::COMPACTION_TOTAL_INPUT_BYTES,
-      compaction->CalculateTotalInputSize());
+      ThreadStatus::COMPACTION_TOTAL_INPUT_BYTES, total_input_bytes);
 
   IOSTATS_RESET(bytes_written);
   IOSTATS_RESET(bytes_read);
@@ -244,7 +243,7 @@ void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
     num_input_files += flevel->num_files;
   }
   job_stats_->CompactionJobStats::num_input_files = num_input_files;
-  job_stats_->total_input_bytes = compaction->CalculateTotalInputSize();
+  job_stats_->total_input_bytes = total_input_bytes;
 }
 
 void CompactionJob::Prepare(
