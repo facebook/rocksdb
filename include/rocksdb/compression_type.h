@@ -1,4 +1,3 @@
-// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -26,7 +25,7 @@ enum CompressionType : unsigned char {
   kLZ4HCCompression = 0x5,
   kXpressCompression = 0x6,
   kZSTD = 0x7,
-
+  // kMixed = 0x8
   // TODO: add enum values for user custom compression types
 
   // kDisableCompressionOption is used to disable some compression options.
