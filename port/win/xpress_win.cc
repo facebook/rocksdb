@@ -202,7 +202,7 @@ char* Decompress(const char* input_data, size_t input_length,
   return outputBuffer.release();
 }
 
-int64_t GetDecompressedSize(const char* input, size_t input_length) {
+int64_t GetDecompressedSize(const char* input_data, size_t input_length) {
   assert(input_data != nullptr);
 
   if (input_length == 0) {
@@ -251,7 +251,7 @@ int64_t GetDecompressedSize(const char* input, size_t input_length) {
   }
 
   assert(decompressedBufferSize > 0);
-  return static_cast<int64_t>(decompressedDataSize);
+  return static_cast<int64_t>(decompressedBufferSize);
 }
 
 int64_t DecompressToBuffer(const char* input, size_t input_length, char* output,
@@ -262,6 +262,8 @@ int64_t DecompressToBuffer(const char* input, size_t input_length, char* output,
   if (input_length == 0) {
     return 0;
   }
+
+  COMPRESS_ALLOCATION_ROUTINES* allocRoutinesPtr = nullptr;
 
   DECOMPRESSOR_HANDLE decompressor = NULL;
 
