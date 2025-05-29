@@ -826,6 +826,8 @@ inline std::string CompressionOptionsToString(
   result.append("zstd_max_train_bytes=")
       .append(std::to_string(compression_options.zstd_max_train_bytes))
       .append("; ");
+  // NOTE: parallel_threads is skipped because it doesn't really affect the file
+  // contents written, arguably doesn't belong in CompressionOptions
   result.append("enabled=")
       .append(std::to_string(compression_options.enabled))
       .append("; ");
@@ -834,6 +836,12 @@ inline std::string CompressionOptionsToString(
       .append("; ");
   result.append("use_zstd_dict_trainer=")
       .append(std::to_string(compression_options.use_zstd_dict_trainer))
+      .append("; ");
+  result.append("max_compressed_bytes_per_kb=")
+      .append(std::to_string(compression_options.max_compressed_bytes_per_kb))
+      .append("; ");
+  result.append("checksum=")
+      .append(std::to_string(compression_options.checksum))
       .append("; ");
   return result;
 }
