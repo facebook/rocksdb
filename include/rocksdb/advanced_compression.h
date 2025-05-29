@@ -174,10 +174,22 @@ class Compressor {
   // * But looks like everything else should. :)
   // Could save CPU by eliminating extra zero-ing and giving up quicker when
   // ratio is insufficient.
+  // virtual Status CompressBlock(Slice uncompressed_data,
+  //                              std::string* compressed_output,
+  //                              CompressionType* out_compression_type,
+  //                              ManagedWorkingArea* working_area) = 0;
+  // Status CompressBlock(Slice uncompressed_data, std::string*
+  // compressed_output,
+  //                      CompressionType* out_compression_type,
+  //                      ManagedWorkingArea* working_area) {
+  //   CompressBlock(uncompressed_data, compressed_output, out_compression_type,
+  //                 working_area, false);
+  // }
   virtual Status CompressBlock(Slice uncompressed_data,
                                std::string* compressed_output,
                                CompressionType* out_compression_type,
-                               ManagedWorkingArea* working_area) = 0;
+                               ManagedWorkingArea* working_area,
+                               bool forced) = 0;
 
   // TODO: something to populate table properties based on settings, after all
   // or as WorkingAreas released. Maybe also update stats, or that could be in
@@ -444,9 +456,9 @@ class CompressorWrapper : public Compressor {
 
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
-                       ManagedWorkingArea* working_area) override {
+                       ManagedWorkingArea* working_area, bool forced) override {
     return wrapped_->CompressBlock(uncompressed_data, compressed_output,
-                                   out_compression_type, working_area);
+                                   out_compression_type, working_area, forced);
   }
 
  protected:

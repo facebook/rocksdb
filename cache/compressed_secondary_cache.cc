@@ -207,7 +207,7 @@ Status CompressedSecondaryCache::InsertInternal(
 
     CompressionType to_type = kNoCompression;
     s = compressor_->CompressBlock(val, &compressed_val, &to_type,
-                                   nullptr /*working_area*/);
+                                   nullptr /*working_area*/, false);
     if (!s.ok()) {
       return s;
     }

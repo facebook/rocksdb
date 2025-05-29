@@ -165,9 +165,14 @@ class BuiltinCompressorV1 : public Compressor {
 
   CompressionType GetPreferredCompressionType() const override { return type_; }
 
+  // Status CompressBlock(Slice uncompressed_data, std::string*
+  // compressed_output,
+  //                      CompressionType* out_compression_type,
+  //                      ManagedWorkingArea* wa) override {
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
-                       ManagedWorkingArea* wa) override {
+                       ManagedWorkingArea* wa, bool forced) override {
+    assert(!forced);
     std::optional<CompressionContext> tmp_ctx;
     CompressionContext* ctx = nullptr;
     if (wa != nullptr && wa->owner() == this) {
@@ -256,149 +261,40 @@ class BuiltinCompressorV2 : public Compressor {
   void ReleaseWorkingArea(WorkingArea* wa) override {
     delete static_cast<CompressionContext*>(wa);
   }
+  // Status CompressBlock(Slice uncompressed_data, std::string*
+  // compressed_output,
+  //                        CompressionType* out_compression_type,
+  //                        ManagedWorkingArea* wa) override {
 
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
-                       ManagedWorkingArea* wa) override {
+                       ManagedWorkingArea* wa, bool forced) override {
     std::optional<CompressionContext> tmp_ctx;
     CompressionContext* ctx = nullptr;
     if (wa != nullptr && wa->owner() == this) {
       ctx = static_cast<CompressionContext*>(wa->get());
     }
     CompressionType type = type_;
-#ifndef NDEBUG
     if (type != kNoCompression && g_hack_mixed_compression.LoadRelaxed() > 0U) {
-      // If zstd is in the mix, the compression_name table property needs to be
-      // set to it, for proper handling of context and dictionaries.
+      // If zstd is in the mix, the compression_name table property needs to
+      // be set to it, for proper handling of context and dictionaries.
       assert(!ZSTD_Supported() || type == kZSTD);
       const auto& compressions = GetSupportedCompressions();
       auto counter = g_hack_mixed_compression.FetchAddRelaxed(1);
       type = compressions[counter % compressions.size()];
-    }
-#endif  // !NDEBUG
-    if (ctx == nullptr) {
-      tmp_ctx.emplace(type, opts_);
-      ctx = &*tmp_ctx;
-    }
-    CompressionInfo info(opts_, *ctx, dict_, type);
-    if (!OLD_CompressData(uncompressed_data, info,
-                          2 /*compress_format_version*/, compressed_output)) {
-      *out_compression_type = kNoCompression;
-      return Status::OK();
-    }
-    *out_compression_type = type;
-    return Status::OK();
-  }
-
- protected:
-  const CompressionOptions opts_;
-  const CompressionType type_;
-  const CompressionDict dict_;
-};
-
-class SimpleMixedCompressor : public Compressor {
- public:
-  explicit SimpleMixedCompressor(const CompressionOptions& opts,
-                                 CompressionType type,
-                                 CompressionDict&& dict = {})
-      : opts_(opts), type_(type), dict_(std::move(dict)) {
-    assert(type != kNoCompression);
-  }
-
-  size_t GetMaxSampleSizeIfWantDict(
-      CacheEntryRole /*block_type*/) const override {
-    if (opts_.max_dict_bytes == 0) {
-      // Dictionary compression disabled
-      return 0;
     } else {
-      return type_ == kZSTD && opts_.zstd_max_train_bytes > 0
-                 ? opts_.zstd_max_train_bytes
-                 : opts_.max_dict_bytes;
-    }
-  }
-
-  // NOTE: empty dict is equivalent to no dict
-  Slice GetSerializedDict() const override { return dict_.GetRawDict(); }
-
-  CompressionType GetPreferredCompressionType() const override { return type_; }
-
-  std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole /*block_type*/, DictSampleArgs&& dict_samples) override {
-    assert(dict_samples.Verify());
-    if (dict_samples.empty()) {
-      // Nothing to specialize on
-      return nullptr;
-    }
-    std::string dict_data;
-    // Migrated from BlockBasedTableBuilder::EnterUnbuffered()
-    if (type_ == kZSTD && opts_.zstd_max_train_bytes > 0) {
-      assert(dict_samples.sample_data.size() <= opts_.zstd_max_train_bytes);
-      if (opts_.use_zstd_dict_trainer) {
-        dict_data = ZSTD_TrainDictionary(dict_samples.sample_data,
-                                         dict_samples.sample_lens,
-                                         opts_.max_dict_bytes);
-      } else {
-        dict_data = ZSTD_FinalizeDictionary(dict_samples.sample_data,
-                                            dict_samples.sample_lens,
-                                            opts_.max_dict_bytes, opts_.level);
+      if (forced == true) {
+        assert(*out_compression_type != kNoCompression);
+        type = *out_compression_type;
+        fprintf(stdout, "compression type force: %s\n",
+                std::to_string(type).c_str());
       }
-    } else {
-      assert(dict_samples.sample_data.size() <= opts_.max_dict_bytes);
-      // ZSTD "raw content dictionary" - "Any buffer is a valid raw content
-      // dictionary." Or similar for other compressions.
-      dict_data = std::move(dict_samples.sample_data);
     }
-    CompressionDict dict{std::move(dict_data), type_, opts_.level};
-    return std::make_unique<SimpleMixedCompressor>(opts_, type_,
-                                                   std::move(dict));
-  }
-
-  // TODO: use ZSTD_CCtx directly
-  ManagedWorkingArea ObtainWorkingArea() override {
-    return ManagedWorkingArea(
-        static_cast<WorkingArea*>(new CompressionContext(type_, opts_)), this);
-  }
-  void ReleaseWorkingArea(WorkingArea* wa) override {
-    delete static_cast<CompressionContext*>(wa);
-  }
-
-  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
-                       CompressionType* out_compression_type,
-                       ManagedWorkingArea* wa) override {
-    std::optional<CompressionContext> tmp_ctx;
-    CompressionContext* ctx = nullptr;
-    if (wa != nullptr && wa->owner() == this) {
-      ctx = static_cast<CompressionContext*>(wa->get());
-    }
-    CompressionType type = type_;
-#ifndef NDEBUG
-    if (type != kNoCompression && g_hack_mixed_compression.LoadRelaxed() > 0U) {
-      // If zstd is in the mix, the compression_name table property needs to be
-      // set to it, for proper handling of context and dictionaries.
-      assert(!ZSTD_Supported() || type == kZSTD);
-      const auto& compressions = GetSupportedCompressions();
-      // select compression algo in random
-      std::random_device rd;
-      std::mt19937 gen(rd());
-      std::uniform_int_distribution<> dis(0, compressions.size() - 1);
-      auto selected = dis(gen);
-      type = compressions[selected];
-    }
-#endif  // !NDEBUG
+    // #endif  // !NDEBUG
     if (ctx == nullptr) {
       tmp_ctx.emplace(type, opts_);
       ctx = &*tmp_ctx;
-    } else {
-      // get random number referrring to the compression level
-      // std::random_device rd;
-      // std::mt19937 gen(rd());
-      // std::uniform_int_distribution<> dis(1, 9);
-      // int level = dis(gen);
-      // TODO:: set the compression level
-      // ctx->CreateNativeContext(type, level);
     }
-    // TODO:: context refers to the compression level
-
     CompressionInfo info(opts_, *ctx, dict_, type);
     if (!OLD_CompressData(uncompressed_data, info,
                           2 /*compress_format_version*/, compressed_output)) {
@@ -990,78 +886,12 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
   }
 };
 
-class SimpleMixedCompressionManager : public CompressionManager {
- public:
-  SimpleMixedCompressionManager() = default;
-  ~SimpleMixedCompressionManager() override = default;
-
-  const char* Name() const override { return "SimpleMixedCompressionManager"; }
-
-  const char* CompatibilityName() const override { return "SimpleMixed"; }
-
-  std::unique_ptr<Compressor> GetCompressor(const CompressionOptions& opts,
-                                            CompressionType type) override {
-    if (opts.max_compressed_bytes_per_kb <= 0) {
-      // No acceptable compression ratio => no compression
-      return nullptr;
-    }
-    if (type > kZSTD) {
-      // Unrecognized; fall back on default compression
-      type = ColumnFamilyOptions{}.compression;
-    }
-    if (type == kNoCompression) {
-      return nullptr;
-    } else {
-      return std::make_unique<SimpleMixedCompressor>(opts, type);
-    }
-  }
-
-  std::shared_ptr<Decompressor> GetDecompressor() override {
-    return GetGeneralDecompressor();
-  }
-
-  std::shared_ptr<Decompressor> GetDecompressorOptimizeFor(
-      CompressionType optimize_for_type) override {
-    if (optimize_for_type == kZSTD) {
-      return GetZstdDecompressor();
-    } else {
-      return GetGeneralDecompressor();
-    }
-  }
-
-  std::shared_ptr<Decompressor> GetDecompressorForTypes(
-      const CompressionType* types_begin,
-      const CompressionType* types_end) override {
-    if (std::find(types_begin, types_end, kZSTD)) {
-      return GetZstdDecompressor();
-    } else {
-      return GetGeneralDecompressor();
-    }
-  }
-
- protected:
-  BuiltinDecompressorV2 decompressor_;
-  BuiltinDecompressorV2OptimizeZstd zstd_decompressor_;
-
-  inline std::shared_ptr<Decompressor> GetGeneralDecompressor() {
-    return std::shared_ptr<Decompressor>(shared_from_this(), &decompressor_);
-  }
-
-  inline std::shared_ptr<Decompressor> GetZstdDecompressor() {
-    return std::shared_ptr<Decompressor>(shared_from_this(),
-                                         &zstd_decompressor_);
-  }
-};
-
 const std::shared_ptr<BuiltinCompressionManagerV1>
     kBuiltinCompressionManagerV1 =
         std::make_shared<BuiltinCompressionManagerV1>();
 const std::shared_ptr<BuiltinCompressionManagerV2>
     kBuiltinCompressionManagerV2 =
         std::make_shared<BuiltinCompressionManagerV2>();
-const std::shared_ptr<SimpleMixedCompressionManager>
-    kSimpleMixedCompressionManager =
-        std::make_shared<SimpleMixedCompressionManager>();
 
 }  // namespace
 
@@ -1080,12 +910,6 @@ Status CompressionManager::CreateFromString(
                  0 ||
              id.compare(kBuiltinCompressionManagerV2->Name()) == 0) {
     *result = kBuiltinCompressionManagerV2;
-    return Status::OK();
-  } else if (id.compare(kSimpleMixedCompressionManager->CompatibilityName()) ==
-                 0 ||
-             id.compare(kSimpleMixedCompressionManager->CompatibilityName()) ==
-                 0) {
-    *result = kSimpleMixedCompressionManager;
     return Status::OK();
   } else {
     return Status::NotFound("Compatible compression manager for \"" + id +
@@ -1110,15 +934,11 @@ const std::shared_ptr<CompressionManager>& GetBuiltinCompressionManager(
       kBuiltinCompressionManagerV1;
   static const std::shared_ptr<CompressionManager> v2_as_base =
       kBuiltinCompressionManagerV2;
-  static const std::shared_ptr<CompressionManager> simplemixed_as_base =
-      kSimpleMixedCompressionManager;
   static const std::shared_ptr<CompressionManager> none;
   if (compression_format_version == 1) {
     return v1_as_base;
   } else if (compression_format_version == 2) {
     return v2_as_base;
-  } else if (compression_format_version == 3) {
-    return simplemixed_as_base;
   } else {
     // Unrecognized. In some cases this is unexpected and the caller can
     // rightfully crash.
