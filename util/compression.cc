@@ -624,7 +624,7 @@ class BuiltinDecompressorV2 : public Decompressor {
 #else
       return Status::NotSupported("Snappy not supported in this build");
 #endif
-    } else if (args.compression_type == kSnappyCompression) {
+    } else if (args.compression_type == kXpressCompression) {
       // 2nd exception to encoding of uncompressed size
 #ifdef XPRESS
       int64_t result = port::xpress::GetDecompressedSize(
