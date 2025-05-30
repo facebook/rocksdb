@@ -275,21 +275,24 @@ class BuiltinCompressorV2 : public Compressor {
       ctx = static_cast<CompressionContext*>(wa->get());
     }
     CompressionType type = type_;
-    if (type != kNoCompression && g_hack_mixed_compression.LoadRelaxed() > 0U) {
-      // If zstd is in the mix, the compression_name table property needs to
-      // be set to it, for proper handling of context and dictionaries.
-      assert(!ZSTD_Supported() || type == kZSTD);
-      const auto& compressions = GetSupportedCompressions();
-      auto counter = g_hack_mixed_compression.FetchAddRelaxed(1);
-      type = compressions[counter % compressions.size()];
-    } else {
-      if (forced == true) {
-        assert(*out_compression_type != kNoCompression);
-        type = *out_compression_type;
-        fprintf(stdout, "compression type force: %s\n",
-                std::to_string(type).c_str());
+    // if (type != kNoCompression && g_hack_mixed_compression.LoadRelaxed() >
+    // 0U) {
+    //   // If zstd is in the mix, the compression_name table property needs to
+    //   // be set to it, for proper handling of context and dictionaries.
+    //   const auto& compressions = GetSupportedCompressions();
+    //   auto counter = g_hack_mixed_compression.FetchAddRelaxed(1);
+    //   type = compressions[counter % compressions.size()];
+    // } else {
+    if (forced == true) {
+      if (*out_compression_type == kNoCompression) {
+        return Status::OK();
       }
+      assert(!ZSTD_Supported() || type == kZSTD);
+      type = *out_compression_type;
+      fprintf(stdout, "[Compressor] compression type forced: %s\n",
+              std::to_string(type).c_str());
     }
+    // }
     // #endif  // !NDEBUG
     if (ctx == nullptr) {
       tmp_ctx.emplace(type, opts_);

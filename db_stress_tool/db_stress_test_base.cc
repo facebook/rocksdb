@@ -3414,11 +3414,13 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
   // Add the compression manager
   // TODO::Move to appropriate spot
-  auto mgr = std::make_shared<SimpleMixedCompressionManager>(
-      GetDefaultBuiltinCompressionManager());
-  options_.compression_manager = mgr;
-
-  //
+  if (FLAGS_mix_mgr) {
+    options_.compression = kZSTD;
+    options_.bottommost_compression = kZSTD;
+    auto mgr = std::make_shared<RoundRobinManager>(
+        GetDefaultBuiltinCompressionManager());
+    options_.compression_manager = mgr;
+  }
   if (FLAGS_prefix_size == 0 && FLAGS_rep_factory == kHashSkipList) {
     fprintf(stderr,
             "prefeix_size cannot be zero if memtablerep == prefix_hash\n");
@@ -4060,7 +4062,11 @@ void InitializeOptionsFromFlags(
   block_based_options.index_shortening =
       static_cast<BlockBasedTableOptions::IndexShorteningMode>(
           FLAGS_index_shortening);
-  block_based_options.block_align = FLAGS_block_align;
+  if (FLAGS_mix_mgr) {
+    block_based_options.block_align = false;
+  } else {
+    block_based_options.block_align = FLAGS_block_align;
+  }
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
   options.db_write_buffer_size = FLAGS_db_write_buffer_size;
   options.write_buffer_size = FLAGS_write_buffer_size;

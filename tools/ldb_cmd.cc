@@ -44,6 +44,7 @@
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/file_checksum_helper.h"
+#include "util/simple_mixed_compressor.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "util/write_batch_util.h"
@@ -871,7 +872,11 @@ bool LDBCommand::ParseCompressionTypeOption(
       // types, as this has been *de facto* supported for a long time on the
       // read side with no code to generate them on the write side. We can test
       // that functionality, e.g. in check_format_compatible.sh, with this hack
-      g_hack_mixed_compression.StoreRelaxed(1);
+      // TOOD:: use RoundRobin
+      auto mgr = std::make_shared<RoundRobinManager>(
+          std::move(GetDefaultBuiltinCompressionManager()));
+
+      // g_hack_mixed_compression.StoreRelaxed(1);
       // Need to list zstd in compression_name table property if it's
       // potentially in the mix, for proper handling of context and dictionary.
       // (Older versions of RocksDB could crash if that's not satisfied.)

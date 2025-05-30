@@ -1883,79 +1883,16 @@ TEST_F(DBTest2, CompressionOptions) {
     }
   }
 }
-/**
-TEST_F(DBTest2, SimpleMixedCompressionManager) {
-  // Test that we can use a custom CompressionManager to wrap the built-in
-  // CompressionManager, thus adopting a custom *strategy* based on existing
-  // algorithms. This will "mark" some blocks (in their contents) as "do not
-  // compress", i.e. no attempt to compress, and some blocks as "reject
-  // compression", i.e. compression attempted but rejected because of ratio
-  // or otherwise. These cases are distinguishable for statistics that
-  // approximate "wasted effort".
-  // auto mgr =
-  //     std::make_shared<CompressionManager>(GetBuiltinCompressionManager(3));
-
-  // for (CompressionType type : GetSupportedCompressions()) {
-  //     if (type == kNoCompression) {
-  //       continue;
-  //     }
-  //     SCOPED_TRACE("Compression type: " + std::to_string(type) +
-  //                  (use_wrapper ? " with " : " no ") + "wrapper");
-
-  Options options = CurrentOptions();
-  options.compression = kZlibCompression;
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
-  options.compression_manager = GetBuiltinCompressionManager(3);
-  BlockBasedTableOptions bbto;
-  bbto.enable_index_compression = false;
-  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  // DestroyAndReopen(options);
-
-  Random rnd(301);
-  constexpr int kCount = 13;
-
-  // Highly compressible blocks, except 1 non-compressible. Half of the
-  // compressible are morked for bypass and 1 marked for rejection. Values
-  // are large enough to ensure just 1 k-v per block.
-  for (int i = 0; i < kCount; ++i) {
-    std::string value;
-    if (i == 6) {
-      // One non-compressible block
-      value = rnd.RandomBinaryString(20000);
-    } else {
-      test::CompressibleString(&rnd, 0.1, 20000, &value);
-    }
-    ASSERT_OK(Put(Key(i), value));
-  }
-  ASSERT_OK(Flush());
-
-  for (int i = 0; i < kCount; ++i) {
-    ASSERT_NE(Get(Key(i)), "NOT_FOUND");
-  }
-  ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
-  // }
-  // }
-}
-  **/
-TEST_F(DBTest2, SimpleMixedCompressionManager) {
-  // Test that we can use a custom CompressionManager to wrap the built-in
-  // CompressionManager, thus adopting a custom *strategy* based on existing
-  // algorithms. This will "mark" some blocks (in their contents) as "do not
-  // compress", i.e. no attempt to compress, and some blocks as "reject
-  // compression", i.e. compression attempted but rejected because of ratio
-  // or otherwise. These cases are distinguishable for statistics that
-  // approximate "wasted effort".
-  static std::string kDoNotCompress = "do_not_compress";
-  static std::string kRejectCompression = "reject_compression";
-  auto mgr = std::make_shared<SimpleMixedCompressionManager>(
+TEST_F(DBTest2, RoundRobinManager) {
+  // TODO:: May not be right place to put this test case
+  // Just test proper key put and get
+  auto mgr = std::make_shared<RoundRobinManager>(
       GetDefaultBuiltinCompressionManager());
 
-  for (CompressionType type : GetSupportedCompressions()) {
+  // for (CompressionType type : GetSupportedCompressions()) {
+  for (CompressionType type : {kZSTD}) {
+    std::vector<std::string> values;
     for (bool use_wrapper : {true}) {
-      if (type == kNoCompression) {
-        continue;
-      }
       SCOPED_TRACE("Compression type: " + std::to_string(type) +
                    (use_wrapper ? " with " : " no ") + "wrapper");
 
@@ -1982,21 +1919,69 @@ TEST_F(DBTest2, SimpleMixedCompressionManager) {
           value = rnd.RandomBinaryString(20000);
         } else {
           test::CompressibleString(&rnd, 0.1, 20000, &value);
-          if ((i % 2) == 0) {
-            // Half for bypass
-            value += kDoNotCompress;
-          } else if (i == 7) {
-            // One for rejection
-            value += kRejectCompression;
-          }
         }
+        values.push_back(value);
         ASSERT_OK(Put(Key(i), value));
+        ASSERT_EQ(Get(Key(i)), value);
       }
       ASSERT_OK(Flush());
 
       // Ensure well-formed for reads
       for (int i = 0; i < kCount; ++i) {
         ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+        ASSERT_EQ(Get(Key(i)), values[i]);
+      }
+      ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
+    }
+  }
+}
+TEST_F(DBTest2, SimpleMixedCompressionManager) {
+  // TODO:: May not be right place to put this test case
+  // Just test proper key put and get
+  auto mgr = std::make_shared<SimpleMixedCompressionManager>(
+      GetDefaultBuiltinCompressionManager());
+
+  // for (CompressionType type : GetSupportedCompressions()) {
+  for (CompressionType type : {kZSTD}) {
+    std::vector<std::string> values;
+    for (bool use_wrapper : {true}) {
+      SCOPED_TRACE("Compression type: " + std::to_string(type) +
+                   (use_wrapper ? " with " : " no ") + "wrapper");
+
+      Options options = CurrentOptions();
+      options.compression = type;
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+      BlockBasedTableOptions bbto;
+      bbto.enable_index_compression = false;
+      options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+      options.compression_manager = use_wrapper ? mgr : nullptr;
+      DestroyAndReopen(options);
+
+      Random rnd(301);
+      constexpr int kCount = 13;
+
+      // Highly compressible blocks, except 1 non-compressible. Half of the
+      // compressible are morked for bypass and 1 marked for rejection. Values
+      // are large enough to ensure just 1 k-v per block.
+      for (int i = 0; i < kCount; ++i) {
+        std::string value;
+        if (i == 6) {
+          // One non-compressible block
+          value = rnd.RandomBinaryString(20000);
+        } else {
+          test::CompressibleString(&rnd, 0.1, 20000, &value);
+        }
+        values.push_back(value);
+        ASSERT_OK(Put(Key(i), value));
+        ASSERT_EQ(Get(Key(i)), value);
+      }
+      ASSERT_OK(Flush());
+
+      // Ensure well-formed for reads
+      for (int i = 0; i < kCount; ++i) {
+        ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+        ASSERT_EQ(Get(Key(i)), values[i]);
       }
       ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
     }

@@ -21,10 +21,6 @@ struct SimpleMixedCompressor : public CompressorWrapper {
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa, bool forced) override {
-    // CompressionContext* ctx = nullptr;
-    // if (wa != nullptr) {
-    //   ctx = static_cast<CompressionContext*>(wa->get());
-    // }
     const auto& compressions = GetSupportedCompressions();
     // select compression algo in random
     std::random_device rd;
@@ -33,7 +29,8 @@ struct SimpleMixedCompressor : public CompressorWrapper {
         1, compressions.size() - 2);  // avoiding no compression and zstd
     auto selected = dis(gen);
     auto type = compressions[selected];
-    fprintf(stdout, "selected compression algo: %s typeint: %d\n",
+    fprintf(stdout,
+            "[CompressorWrapper] selected compression algo: %s typeint: %d\n",
             std::to_string(type).c_str(), type);
     *out_compression_type = type;
     forced = true;
@@ -49,8 +46,45 @@ class SimpleMixedCompressionManager : public CompressionManagerWrapper {
   std::unique_ptr<Compressor> GetCompressorForSST(
       const FilterBuildingContext& context, const CompressionOptions& opts,
       CompressionType preferred) override {
+    assert(preferred == kZSTD);
     return std::make_unique<SimpleMixedCompressor>(
         wrapped_->GetCompressorForSST(context, opts, preferred));
   }
 };
+
+struct RoundRobinCompressor : public CompressorWrapper {
+  // Modify the constructor to accept the necessary parameters
+  explicit RoundRobinCompressor(std::unique_ptr<Compressor> wrapped)
+      : CompressorWrapper(std::move(wrapped)), g_hack_mixed_compression(0) {}
+  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea* wa, bool forced) override {
+    const auto& compressions = GetSupportedCompressions();
+    auto counter = g_hack_mixed_compression.FetchAddRelaxed(1);
+    auto type = compressions[counter % compressions.size()];
+    *out_compression_type = type;
+    fprintf(stdout,
+            "[CompressorWrapper] selected compression algo: %s typeint: %d\n",
+            std::to_string(type).c_str(), type);
+    forced = true;
+    wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                            out_compression_type, wa, forced);
+    return Status::OK();
+  }
+  RelaxedAtomic<uint64_t> g_hack_mixed_compression;
+};
+
+class RoundRobinManager : public CompressionManagerWrapper {
+  using CompressionManagerWrapper::CompressionManagerWrapper;
+  const char* Name() const override { return wrapped_->Name(); }
+  std::unique_ptr<Compressor> GetCompressorForSST(
+      const FilterBuildingContext& context, const CompressionOptions& opts,
+      CompressionType preferred) override {
+    assert(preferred == kZSTD);
+    // Ask::Possibly add round robin between different compression types?
+    return std::make_unique<RoundRobinCompressor>(
+        wrapped_->GetCompressorForSST(context, opts, preferred));
+  }
+};
+
 }  // namespace ROCKSDB_NAMESPACE
