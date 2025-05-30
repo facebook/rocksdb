@@ -687,7 +687,7 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const IOOptions& opts,
   if (rate_limiter_ != nullptr && rate_limiter_priority_used != Env::IO_TOTAL) {
     while (data_size > 0) {
       size_t tmp_size;
-      tmp_size = rate_limiter_->RequestToken(data_size, buf_.Alignment(),
+      tmp_size = rate_limiter_->RequestToken(data_size, 0,
                                              rate_limiter_priority_used, stats_,
                                              RateLimiter::OpType::kWrite);
       data_size -= tmp_size;
