@@ -590,7 +590,7 @@ class BuiltinDecompressorV2 : public Decompressor {
   Status ExtractUncompressedSize(Args& args) override {
     assert(args.compression_type != kNoCompression);
     if (args.compression_type == kSnappyCompression) {
-      // Exception to encoding of uncompressed size
+      // 1st exception to encoding of uncompressed size
 #ifdef SNAPPY
       size_t uncompressed_length = 0;
       if (!snappy::GetUncompressedLength(args.compressed_data.data(),
@@ -603,6 +603,20 @@ class BuiltinDecompressorV2 : public Decompressor {
 #else
       return Status::NotSupported("Snappy not supported in this build");
 #endif
+    } else if (args.compression_type == kXpressCompression) {
+      // 2nd exception to encoding of uncompressed size
+#ifdef XPRESS
+      int64_t result = port::xpress::GetDecompressedSize(
+          args.compressed_data.data(), args.compressed_data.size());
+      if (result < 0) {
+        return Status::Corruption("Error reading XPRESS compressed length");
+      }
+      args.uncompressed_size = static_cast<size_t>(result);
+      return Status::OK();
+#else
+      return Status::NotSupported("XPRESS not supported in this build");
+#endif
+
     } else {
       // Extract encoded uncompressed size
       return Decompressor::ExtractUncompressedSize(args);
