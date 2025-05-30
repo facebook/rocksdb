@@ -635,7 +635,7 @@ class BuiltinDecompressorV2 : public Decompressor {
       args.uncompressed_size = static_cast<size_t>(result);
       return Status::OK();
 #else
-      return Status::NotSupported("Snappy not supported in this build");
+      return Status::NotSupported("XPRESS not supported in this build");
 #endif
 
     } else {
