@@ -266,8 +266,9 @@ class BuiltinCompressorV2 : public Compressor {
     CompressionType type = type_;
 #ifndef NDEBUG
     if (type != kNoCompression && g_hack_mixed_compression.LoadRelaxed() > 0U) {
-      // If zstd is in the mix, the compression_name table property needs to be
-      // set to it, for proper handling of context and dictionaries.
+      // To assert that if zstd is in the mix, the compression_name table
+      // property (which comes from `type_`) needs to be set to kZSTD, for
+      // proper handling of context and dictionaries.
       assert(!ZSTD_Supported() || type == kZSTD);
       const auto& compressions = GetSupportedCompressions();
       auto counter = g_hack_mixed_compression.FetchAddRelaxed(1);
