@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.3.2 (05/30/2025)
+### Behavior Changes
+* In Remote Compactions, instead of using FileSystem::GetFileSize() for each CompactionOutputFile, use the file size that is being tracked internally as part of the output file's metadata. FileSize is now part of CompactionServiceOutputFile and serialized in the CompactionServiceResult
+
 ## 10.3.1 (05/22/2025)
 ### New Features
 * Add new experimental `TransactionOptions::large_txn_commit_optimize_byte_threshold` to enable optimizations for large transaction commit by transaction batch data size.
