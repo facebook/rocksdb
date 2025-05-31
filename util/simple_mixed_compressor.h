@@ -26,7 +26,7 @@ struct SimpleMixedCompressor : public CompressorWrapper {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(
-        1, compressions.size() - 2U);  // avoiding no compression and zstd
+        1, (int)compressions.size() - 2);  // avoiding no compression and zstd
     auto selected = dis(gen);
     auto type = compressions[selected];
     // fprintf(stdout,
