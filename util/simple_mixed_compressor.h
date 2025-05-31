@@ -60,7 +60,7 @@ struct RoundRobinCompressor : public CompressorWrapper {
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa, bool forced) override {
     const auto& compressions = GetSupportedCompressions();
-    auto counter = g_hack_mixed_compression.FetchAddRelaxed(1);
+    auto counter = block_counter.FetchAddRelaxed(1);
     auto sel_idx = counter % (compressions.size() - 1) + 1;
     auto type = compressions[sel_idx];
     *out_compression_type = type;
@@ -71,9 +71,9 @@ struct RoundRobinCompressor : public CompressorWrapper {
     return wrapped_->CompressBlock(uncompressed_data, compressed_output,
                                    out_compression_type, wa, forced);
   }
-  static RelaxedAtomic<uint64_t> g_hack_mixed_compression;
+  static RelaxedAtomic<uint64_t> block_counter;
 };
-RelaxedAtomic<uint64_t> RoundRobinCompressor::g_hack_mixed_compression{0};
+RelaxedAtomic<uint64_t> RoundRobinCompressor::block_counter{0};
 
 class RoundRobinManager : public CompressionManagerWrapper {
   using CompressionManagerWrapper::CompressionManagerWrapper;
