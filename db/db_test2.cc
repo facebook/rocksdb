@@ -1883,6 +1883,8 @@ TEST_F(DBTest2, CompressionOptions) {
     }
   }
 }
+
+#if defined(ZSTD)
 TEST_F(DBTest2, RoundRobinManager) {
   // TODO:: May not be right place to put this test case
   // Just test proper key put and get
@@ -1935,6 +1937,7 @@ TEST_F(DBTest2, RoundRobinManager) {
     }
   }
 }
+
 TEST_F(DBTest2, SimpleMixedCompressionManager) {
   // TODO:: May not be right place to put this test case
   // Just test proper key put and get
@@ -1987,6 +1990,7 @@ TEST_F(DBTest2, SimpleMixedCompressionManager) {
     }
   }
 }
+#endif
 TEST_F(DBTest2, CompressionManagerWrapper) {
   // Test that we can use a custom CompressionManager to wrap the built-in
   // CompressionManager, thus adopting a custom *strategy* based on existing
