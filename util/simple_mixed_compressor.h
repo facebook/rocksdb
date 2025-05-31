@@ -55,7 +55,8 @@ class SimpleMixedCompressionManager : public CompressionManagerWrapper {
 struct RoundRobinCompressor : public CompressorWrapper {
   // Modify the constructor to accept the necessary parameters
   explicit RoundRobinCompressor(std::unique_ptr<Compressor> wrapped)
-      : CompressorWrapper(std::move(wrapped)), g_hack_mixed_compression(0) {}
+      : CompressorWrapper(std::move(wrapped)) {}
+  // : CompressorWrapper(std::move(wrapped)), g_hack_mixed_compression(0) {}
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa, bool forced) override {
