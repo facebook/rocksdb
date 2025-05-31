@@ -174,17 +174,6 @@ class Compressor {
   // * But looks like everything else should. :)
   // Could save CPU by eliminating extra zero-ing and giving up quicker when
   // ratio is insufficient.
-  // virtual Status CompressBlock(Slice uncompressed_data,
-  //                              std::string* compressed_output,
-  //                              CompressionType* out_compression_type,
-  //                              ManagedWorkingArea* working_area) = 0;
-  // Status CompressBlock(Slice uncompressed_data, std::string*
-  // compressed_output,
-  //                      CompressionType* out_compression_type,
-  //                      ManagedWorkingArea* working_area) {
-  //   CompressBlock(uncompressed_data, compressed_output, out_compression_type,
-  //                 working_area, false);
-  // }
   virtual Status CompressBlock(Slice uncompressed_data,
                                std::string* compressed_output,
                                CompressionType* out_compression_type,

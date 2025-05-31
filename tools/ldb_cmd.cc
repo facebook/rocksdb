@@ -868,17 +868,10 @@ bool LDBCommand::ParseCompressionTypeOption(
             "No compressions are supported in this build for \"mixed\".");
         return false;
       }
-      // A temporary hack to generate an SST file with a mix of compression
-      // types, as this has been *de facto* supported for a long time on the
-      // read side with no code to generate them on the write side. We can test
-      // that functionality, e.g. in check_format_compatible.sh, with this hack
-      // TOOD:: use RoundRobin
       options_.compression = kZSTD;
       auto mgr = std::make_shared<RoundRobinManager>(
           std::move(GetDefaultBuiltinCompressionManager()));
       options_.compression_manager = mgr;
-
-      // g_hack_mixed_compression.StoreRelaxed(1);
       // Need to list zstd in the compression_name table property if it's
       // potentially used by being in the mix (i.e., potentially at least one
       // data block in the table is compressed by zstd). This ensures proper

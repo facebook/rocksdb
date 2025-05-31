@@ -5,8 +5,6 @@
 
 #include "util/compression.h"
 
-#include <random>
-
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 
@@ -165,10 +163,6 @@ class BuiltinCompressorV1 : public Compressor {
 
   CompressionType GetPreferredCompressionType() const override { return type_; }
 
-  // Status CompressBlock(Slice uncompressed_data, std::string*
-  // compressed_output,
-  //                      CompressionType* out_compression_type,
-  //                      ManagedWorkingArea* wa) override {
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa, bool forced) override {
@@ -262,11 +256,6 @@ class BuiltinCompressorV2 : public Compressor {
   void ReleaseWorkingArea(WorkingArea* wa) override {
     delete static_cast<CompressionContext*>(wa);
   }
-  // Status CompressBlock(Slice uncompressed_data, std::string*
-  // compressed_output,
-  //                        CompressionType* out_compression_type,
-  //                        ManagedWorkingArea* wa) override {
-
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa, bool forced) override {
@@ -276,14 +265,6 @@ class BuiltinCompressorV2 : public Compressor {
       ctx = static_cast<CompressionContext*>(wa->get());
     }
     CompressionType type = type_;
-    // if (type != kNoCompression && g_hack_mixed_compression.LoadRelaxed() >
-    // 0U) {
-    //   // If zstd is in the mix, the compression_name table property needs to
-    //   // be set to it, for proper handling of context and dictionaries.
-    //   const auto& compressions = GetSupportedCompressions();
-    //   auto counter = g_hack_mixed_compression.FetchAddRelaxed(1);
-    //   type = compressions[counter % compressions.size()];
-    // } else {
     if (forced == true) {
       if (*out_compression_type == kNoCompression) {
         return Status::OK();
@@ -296,7 +277,6 @@ class BuiltinCompressorV2 : public Compressor {
       // fprintf(stdout, "[Compressor] compression type forced: %s\n",
       //         std::to_string(type).c_str());
     }
-    // }
     if (ctx == nullptr) {
       tmp_ctx.emplace(type, opts_);
       ctx = &*tmp_ctx;

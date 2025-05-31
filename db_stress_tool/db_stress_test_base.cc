@@ -3412,8 +3412,6 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     InitializeOptionsFromFlags(cache_, filter_policy_, options_);
   }
   InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
-  // Add the compression manager
-  // TODO::Move to appropriate spot
   if (FLAGS_mix_mgr) {
     options_.compression = kZSTD;
     options_.bottommost_compression = kZSTD;

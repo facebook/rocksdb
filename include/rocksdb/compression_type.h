@@ -25,7 +25,6 @@ enum CompressionType : unsigned char {
   kLZ4HCCompression = 0x5,
   kXpressCompression = 0x6,
   kZSTD = 0x7,
-  // kMixed = 0x8
   // TODO: add enum values for user custom compression types
 
   // kDisableCompressionOption is used to disable some compression options.
