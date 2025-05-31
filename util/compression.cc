@@ -287,13 +287,15 @@ class BuiltinCompressorV2 : public Compressor {
       if (*out_compression_type == kNoCompression) {
         return Status::OK();
       }
+      // To assert that if zstd is in the mix, the compression_name table
+      // property (which comes from `type_`) needs to be set to kZSTD, for
+      // proper handling of context and dictionaries.
       assert(!ZSTD_Supported() || type == kZSTD);
       type = *out_compression_type;
       fprintf(stdout, "[Compressor] compression type forced: %s\n",
               std::to_string(type).c_str());
     }
     // }
-    // #endif  // !NDEBUG
     if (ctx == nullptr) {
       tmp_ctx.emplace(type, opts_);
       ctx = &*tmp_ctx;
@@ -631,7 +633,7 @@ class BuiltinDecompressorV2 : public Decompressor {
   Status ExtractUncompressedSize(Args& args) override {
     assert(args.compression_type != kNoCompression);
     if (args.compression_type == kSnappyCompression) {
-      // Exception to encoding of uncompressed size
+      // 1st exception to encoding of uncompressed size
 #ifdef SNAPPY
       size_t uncompressed_length = 0;
       if (!snappy::GetUncompressedLength(args.compressed_data.data(),
@@ -644,6 +646,20 @@ class BuiltinDecompressorV2 : public Decompressor {
 #else
       return Status::NotSupported("Snappy not supported in this build");
 #endif
+    } else if (args.compression_type == kXpressCompression) {
+      // 2nd exception to encoding of uncompressed size
+#ifdef XPRESS
+      int64_t result = port::xpress::GetDecompressedSize(
+          args.compressed_data.data(), args.compressed_data.size());
+      if (result < 0) {
+        return Status::Corruption("Error reading XPRESS compressed length");
+      }
+      args.uncompressed_size = static_cast<size_t>(result);
+      return Status::OK();
+#else
+      return Status::NotSupported("XPRESS not supported in this build");
+#endif
+
     } else {
       // Extract encoded uncompressed size
       return Decompressor::ExtractUncompressedSize(args);
