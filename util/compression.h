@@ -1988,10 +1988,4 @@ class ZSTDStreamingUncompress final : public StreamingUncompress {
 #endif
 };
 
-#ifndef NDEBUG
-// 0 == disable the hack
-// > 0 => counter for rotating through compression types
-extern RelaxedAtomic<uint64_t> g_hack_mixed_compression;
-#endif
-
 }  // namespace ROCKSDB_NAMESPACE
