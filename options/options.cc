@@ -359,6 +359,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "Options.compaction_options_universal.max_read_amp: %d",
                    compaction_options_universal.max_read_amp);
   ROCKS_LOG_HEADER(
+      log, "Options.compaction_options_universal.reduce_file_locking: %d",
+      compaction_options_universal.reduce_file_locking);
+  ROCKS_LOG_HEADER(
       log, "Options.compaction_options_fifo.max_table_files_size: %" PRIu64,
       compaction_options_fifo.max_table_files_size);
   ROCKS_LOG_HEADER(log, "Options.compaction_options_fifo.allow_compaction: %d",

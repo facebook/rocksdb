@@ -463,7 +463,6 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
       result.memtable_avg_op_scan_flush_trigger = 0;
     }
   }
-
   return result;
 }
 
@@ -603,7 +602,8 @@ ColumnFamilyData::ColumnFamilyData(
       last_memtable_id_(0),
       db_paths_registered_(false),
       mempurge_used_(false),
-      next_epoch_number_(1) {
+      next_epoch_number_(1),
+      bottom_pri_compaction_intent_forwarded_(false) {
   if (id_ != kDummyColumnFamilyDataId) {
     // TODO(cc): RegisterDbPaths can be expensive, considering moving it
     // outside of this constructor which might be called with db mutex held.
@@ -1218,10 +1218,12 @@ Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options,
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& existing_snapshots,
-    const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer) {
+    const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
+    bool require_max_output_level) {
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, existing_snapshots,
-      snapshot_checker, current_->storage_info(), log_buffer);
+      snapshot_checker, current_->storage_info(), log_buffer,
+      require_max_output_level);
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }
