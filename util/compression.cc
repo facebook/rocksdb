@@ -173,6 +173,7 @@ class BuiltinCompressorV1 : public Compressor {
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa, bool forced) override {
     assert(!forced);
+    (void)forced;  // avoid unused variable warning
     std::optional<CompressionContext> tmp_ctx;
     CompressionContext* ctx = nullptr;
     if (wa != nullptr && wa->owner() == this) {
