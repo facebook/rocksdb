@@ -293,8 +293,8 @@ class BuiltinCompressorV2 : public Compressor {
       // proper handling of context and dictionaries.
       assert(!ZSTD_Supported() || type == kZSTD);
       type = *out_compression_type;
-      fprintf(stdout, "[Compressor] compression type forced: %s\n",
-              std::to_string(type).c_str());
+      // fprintf(stdout, "[Compressor] compression type forced: %s\n",
+      //         std::to_string(type).c_str());
     }
     // }
     if (ctx == nullptr) {

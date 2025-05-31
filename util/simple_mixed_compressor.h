@@ -29,9 +29,9 @@ struct SimpleMixedCompressor : public CompressorWrapper {
         1, compressions.size() - 2);  // avoiding no compression and zstd
     auto selected = dis(gen);
     auto type = compressions[selected];
-    fprintf(stdout,
-            "[CompressorWrapper] selected compression algo: %s typeint: %d\n",
-            std::to_string(type).c_str(), type);
+    // fprintf(stdout,
+    //         "[CompressorWrapper] selected compression algo: %s typeint:
+    //         %d\n", std::to_string(type).c_str(), type);
     *out_compression_type = type;
     forced = true;
     wrapped_->CompressBlock(uncompressed_data, compressed_output,
@@ -65,9 +65,9 @@ struct RoundRobinCompressor : public CompressorWrapper {
     auto sel_idx = counter % (compressions.size() - 1) + 1;
     auto type = compressions[sel_idx];
     *out_compression_type = type;
-    fprintf(stdout,
-            "[CompressorWrapper] selected compression algo: %s typeint: %d\n",
-            std::to_string(type).c_str(), type);
+    // fprintf(stdout,
+    //         "[CompressorWrapper] selected compression algo: %s typeint:
+    //         %d\n", std::to_string(type).c_str(), type);
     forced = true;
     wrapped_->CompressBlock(uncompressed_data, compressed_output,
                             out_compression_type, wa, forced);
