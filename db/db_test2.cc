@@ -1891,7 +1891,6 @@ TEST_F(DBTest2, RoundRobinManager) {
   auto mgr = std::make_shared<RoundRobinManager>(
       GetDefaultBuiltinCompressionManager());
 
-  // for (CompressionType type : GetSupportedCompressions()) {
   for (CompressionType type : {kZSTD}) {
     std::vector<std::string> values;
     for (bool use_wrapper : {true}) {

@@ -34,9 +34,8 @@ struct SimpleMixedCompressor : public CompressorWrapper {
     //         %d\n", std::to_string(type).c_str(), type);
     *out_compression_type = type;
     forced = true;
-    wrapped_->CompressBlock(uncompressed_data, compressed_output,
-                            out_compression_type, wa, forced);
-    return Status::OK();
+    return wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                                   out_compression_type, wa, forced);
   }
 };
 
@@ -69,9 +68,8 @@ struct RoundRobinCompressor : public CompressorWrapper {
     //         "[CompressorWrapper] selected compression algo: %s typeint:
     //         %d\n", std::to_string(type).c_str(), type);
     forced = true;
-    wrapped_->CompressBlock(uncompressed_data, compressed_output,
-                            out_compression_type, wa, forced);
-    return Status::OK();
+    return wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                                   out_compression_type, wa, forced);
   }
   static RelaxedAtomic<uint64_t> g_hack_mixed_compression;
 };
