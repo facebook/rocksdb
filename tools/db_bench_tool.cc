@@ -83,6 +83,7 @@
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/simple_mixed_compressor.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
@@ -92,7 +93,6 @@
 #include "utilities/merge_operators/bytesxor.h"
 #include "utilities/merge_operators/sortlist.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
-
 #ifdef MEMKIND
 #include "memory/memkind_kmem_allocator.h"
 #endif
@@ -1306,6 +1306,8 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
   } else if (!strcasecmp(ctype, "xpress")) {
     return ROCKSDB_NAMESPACE::kXpressCompression;
   } else if (!strcasecmp(ctype, "zstd")) {
+    return ROCKSDB_NAMESPACE::kZSTD;
+  } else if (!strcasecmp(ctype, "mix")) {
     return ROCKSDB_NAMESPACE::kZSTD;
   } else {
     fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
@@ -2884,9 +2886,13 @@ class Benchmark {
       }
 #endif
     }
-
-    auto compression = CompressionTypeToString(FLAGS_compression_type_e);
-    fprintf(stdout, "Compression: %s\n", compression.c_str());
+    auto compression = std::string("mix");
+    if (!strcasecmp(FLAGS_compression_type.c_str(), "mix")) {
+      fprintf(stdout, "Compression: mix\n");
+    } else {
+      compression = CompressionTypeToString(FLAGS_compression_type_e);
+      fprintf(stdout, "Compression: %s\n", compression.c_str());
+    }
     fprintf(stdout, "Compression sampling rate: %" PRId64 "\n",
             FLAGS_sample_for_compression);
     if (options.memtable_factory != nullptr) {
@@ -4610,7 +4616,16 @@ class Benchmark {
         FLAGS_level0_file_num_compaction_trigger;
     options.level0_slowdown_writes_trigger =
         FLAGS_level0_slowdown_writes_trigger;
-    options.compression = FLAGS_compression_type_e;
+    if (!strcasecmp(FLAGS_compression_type.c_str(), "mix")) {
+      options.compression = kZSTD;
+      options.bottommost_compression = kZSTD;
+      auto mgr = std::make_shared<RoundRobinManager>(
+          std::move(GetDefaultBuiltinCompressionManager()));
+      options.compression_manager = mgr;
+    } else {
+      options.compression = FLAGS_compression_type_e;
+    }
+
     if (FLAGS_simulate_hybrid_fs_file != "") {
       options.last_level_temperature = Temperature::kWarm;
     }
