@@ -545,8 +545,8 @@ class TestNumInputFilesTotalInputBytesPouplatedInListener
     num_input_files = ci.stats.num_input_files;
     total_num_of_bytes = ci.stats.total_input_bytes;
   }
-  size_t num_input_files;
-  size_t total_num_of_bytes;
+  size_t num_input_files = 0;
+  size_t total_num_of_bytes = 0;
   std::mutex mutex_;
 };
 
