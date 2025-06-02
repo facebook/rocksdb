@@ -202,10 +202,68 @@ char* Decompress(const char* input_data, size_t input_length,
   return outputBuffer.release();
 }
 
+int64_t GetDecompressedSize(const char* input_data, size_t input_length) {
+  assert(input_data != nullptr);
+
+  if (input_length == 0) {
+    return 0;
+  }
+
+  COMPRESS_ALLOCATION_ROUTINES* allocRoutinesPtr = nullptr;
+
+  DECOMPRESSOR_HANDLE decompressor = NULL;
+
+  BOOL success =
+      CreateDecompressor(COMPRESS_ALGORITHM_XPRESS,  //  Compression Algorithm
+                         allocRoutinesPtr,  //  Optional allocation routine
+                         &decompressor);    //  Handle
+
+  if (!success) {
+#ifdef _DEBUG
+    std::cerr << "XPRESS: Failed to create Decompressor LastError "
+              << GetLastError() << std::endl;
+#endif
+    return -1;
+  }
+
+  std::unique_ptr<void, decltype(CloseDecompressorFun)> decompressorGuard(
+      decompressor, CloseDecompressorFun);
+
+  SIZE_T decompressedBufferSize = 0;
+
+  success = ::Decompress(decompressor,                   //  Compressor Handle
+                         const_cast<char*>(input_data),  //  Compressed data
+                         input_length,              //  Compressed data size
+                         NULL,                      //  Buffer set to NULL
+                         0,                         //  Buffer size set to 0
+                         &decompressedBufferSize);  //  Decompressed Data size
+
+  assert(!success);
+  auto lastError = GetLastError();
+
+  if (lastError != ERROR_INSUFFICIENT_BUFFER) {
+#ifdef _DEBUG
+    std::cerr
+        << "XPRESS: Failed to estimate decompressed buffer size LastError "
+        << lastError << std::endl;
+#endif
+    return -1;
+  }
+
+  assert(decompressedBufferSize > 0);
+  return static_cast<int64_t>(decompressedBufferSize);
+}
+
 int64_t DecompressToBuffer(const char* input, size_t input_length, char* output,
                            size_t output_length) {
   assert(input != nullptr);
   assert(output != nullptr);
+
+  if (input_length == 0) {
+    return 0;
+  }
+
+  COMPRESS_ALLOCATION_ROUTINES* allocRoutinesPtr = nullptr;
 
   DECOMPRESSOR_HANDLE decompressor = NULL;
 
