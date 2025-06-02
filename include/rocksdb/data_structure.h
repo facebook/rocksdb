@@ -179,8 +179,7 @@ class SmallEnumSet {
 
   // Return a new set based on this one with the additional value(s) inserted
   constexpr SmallEnumSet With(const ENUM_TYPE e) const {
-    int value = static_cast<int>(e);
-    assert(value >= 0 && value <= kMaxValue);
+    assert(static_cast<int>(e) >= 0 && static_cast<int>(e) <= kMaxValue);
     SmallEnumSet rv(*this);
     rv.Add(e);
     return rv;
@@ -193,8 +192,7 @@ class SmallEnumSet {
 
   // Return a new set based on this one excluding the given value(s)
   constexpr SmallEnumSet Without(const ENUM_TYPE e) const {
-    int value = static_cast<int>(e);
-    assert(value >= 0 && value <= kMaxValue);
+    assert(static_cast<int>(e) >= 0 && static_cast<int>(e) <= kMaxValue);
     SmallEnumSet rv(*this);
     rv.Remove(e);
     return rv;
