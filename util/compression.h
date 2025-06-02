@@ -851,7 +851,8 @@ inline std::string CompressionOptionsToString(
 // block. Also, decompressed sizes for LZ4 are encoded in platform-dependent
 // way.
 // 2 -- Zlib, BZip2 and LZ4 encode decompressed size as Varint32 just before the
-// start of compressed block. Snappy format is the same as version 1.
+// start of compressed block. Snappy and XPRESS instead extract the decompressed
+// size from the compressed block itself, same as version 1.
 
 inline bool Snappy_Compress(const CompressionInfo& /*info*/, const char* input,
                             size_t length, ::std::string* output) {

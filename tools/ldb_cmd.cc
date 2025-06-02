@@ -872,9 +872,15 @@ bool LDBCommand::ParseCompressionTypeOption(
       // read side with no code to generate them on the write side. We can test
       // that functionality, e.g. in check_format_compatible.sh, with this hack
       g_hack_mixed_compression.StoreRelaxed(1);
-      // Need to list zstd in compression_name table property if it's
-      // potentially in the mix, for proper handling of context and dictionary.
-      // (Older versions of RocksDB could crash if that's not satisfied.)
+      // Need to list zstd in the compression_name table property if it's
+      // potentially used by being in the mix (i.e., potentially at least one
+      // data block in the table is compressed by zstd). This ensures proper
+      // context and dictionary handling, and prevents crashes in older RocksDB
+      // versions.
+      //
+      // To achieve this, set `value` (the compression_type in Options which
+      // will be used to set compression_name table property) to kZSTD, even if
+      // multiple compression types are used within a single table.
       value = ZSTD_Supported() ? kZSTD : GetSupportedCompressions()[0];
       return true;
 #endif  // !NDEBUG
