@@ -36,7 +36,7 @@ struct CassandraOptions {
 };
 #ifndef ROCKSDB_LITE
 extern "C" {
-int RegisterCassandraObjects(ObjectLibrary& library, const std::string& arg);
+int RocksDBRegisterCassandraObjects(ObjectLibrary& library, const std::string& arg);
 }  // extern "C"
 #endif  // ROCKSDB_LITE
 }  // namespace cassandra

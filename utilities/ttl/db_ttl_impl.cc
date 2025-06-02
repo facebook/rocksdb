@@ -279,7 +279,7 @@ Status TtlCompactionFilterFactory::ValidateOptions(
   }
 }
 
-int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
+int RocksDBRegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
   library.AddFactory<MergeOperator>(
       TtlMergeOperator::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
@@ -330,7 +330,7 @@ Status DBWithTTLImpl::Close() {
 void DBWithTTLImpl::RegisterTtlClasses() {
   static std::once_flag once;
   std::call_once(once, [&]() {
-    ObjectRegistry::Default()->AddLibrary("TTL", RegisterTtlObjects, "");
+    ObjectRegistry::Default()->AddLibrary("TTL", RocksDBRegisterTtlObjects, "");
   });
 }
 

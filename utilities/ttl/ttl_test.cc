@@ -772,8 +772,8 @@ static int RegisterTestObjects(ObjectLibrary& library,
 class TtlOptionsTest : public testing::Test {
  public:
   TtlOptionsTest() {
-    config_options_.registry->AddLibrary("RegisterTtlObjects",
-                                         RegisterTtlObjects, "");
+    config_options_.registry->AddLibrary("RocksDBRegisterTtlObjects",
+                                         RocksDBRegisterTtlObjects, "");
     config_options_.registry->AddLibrary("RegisterTtlTestObjects",
                                          RegisterTestObjects, "");
   }

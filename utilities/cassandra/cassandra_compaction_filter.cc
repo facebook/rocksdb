@@ -78,7 +78,7 @@ CassandraCompactionFilterFactory::CreateCompactionFilter(
 }
 
 #ifndef ROCKSDB_LITE
-int RegisterCassandraObjects(ObjectLibrary& library,
+int RocksDBRegisterCassandraObjects(ObjectLibrary& library,
                              const std::string& /*arg*/) {
   library.AddFactory<MergeOperator>(
       CassandraValueMergeOperator::kClassName(),

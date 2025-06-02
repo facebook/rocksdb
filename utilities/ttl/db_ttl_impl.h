@@ -242,7 +242,7 @@ class TtlMergeOperator : public MergeOperator {
   SystemClock* clock_;
 };
 extern "C" {
-int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/);
+int RocksDBRegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/);
 }  // extern "C"
 
 }  // namespace ROCKSDB_NAMESPACE

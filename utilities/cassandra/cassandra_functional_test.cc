@@ -335,7 +335,7 @@ TEST_F(CassandraFunctionalTest, LoadMergeOperator) {
   ASSERT_NOK(MergeOperator::CreateFromString(
       config_options, CassandraValueMergeOperator::kClassName(), &mo));
 
-  config_options.registry->AddLibrary("cassandra", RegisterCassandraObjects,
+  config_options.registry->AddLibrary("cassandra", RocksDBRegisterCassandraObjects,
                                       "cassandra");
 
   ASSERT_OK(MergeOperator::CreateFromString(
@@ -363,7 +363,7 @@ TEST_F(CassandraFunctionalTest, LoadCompactionFilter) {
 
   ASSERT_NOK(CompactionFilter::CreateFromString(
       config_options, CassandraCompactionFilter::kClassName(), &filter));
-  config_options.registry->AddLibrary("cassandra", RegisterCassandraObjects,
+  config_options.registry->AddLibrary("cassandra", RocksDBRegisterCassandraObjects,
                                       "cassandra");
 
   ASSERT_OK(CompactionFilter::CreateFromString(
@@ -395,7 +395,7 @@ TEST_F(CassandraFunctionalTest, LoadCompactionFilterFactory) {
   ASSERT_NOK(CompactionFilterFactory::CreateFromString(
       config_options, CassandraCompactionFilterFactory::kClassName(),
       &factory));
-  config_options.registry->AddLibrary("cassandra", RegisterCassandraObjects,
+  config_options.registry->AddLibrary("cassandra", RocksDBRegisterCassandraObjects,
                                       "cassandra");
 
   ASSERT_OK(CompactionFilterFactory::CreateFromString(
