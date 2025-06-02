@@ -64,9 +64,9 @@ struct RoundRobinCompressor : public CompressorWrapper {
     auto sel_idx = counter % (compressions.size() - 1) + 1;
     auto type = compressions[sel_idx];
     *out_compression_type = type;
-    // fprintf(stdout,
-    //         "[CompressorWrapper] selected compression algo: %s typeint:
-    //         %d\n", std::to_string(type).c_str(), type);
+    fprintf(stdout,
+            "[CompressorWrapper] selected compression algo: %s typeint:%d\n",
+            std::to_string(type).c_str(), type);
     forced = true;
     return wrapped_->CompressBlock(uncompressed_data, compressed_output,
                                    out_compression_type, wa, forced);

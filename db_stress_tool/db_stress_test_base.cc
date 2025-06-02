@@ -3412,9 +3412,18 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     InitializeOptionsFromFlags(cache_, filter_policy_, options_);
   }
   InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
-  if (FLAGS_mix_mgr) {
+  if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+    // Currently limited to ZSTD compression. Table property compression_name
+    // needs to set to zstd for now even when there can be more than one
+    // algorithm in the table under your compressor.
     options_.compression = kZSTD;
     options_.bottommost_compression = kZSTD;
+    if (!ZSTD_Supported()) {
+      fprintf(stderr,
+              "ZSTD compression not supported thus mixed compression cannot be "
+              "used\n");
+      exit(1);
+    }
     auto mgr = std::make_shared<RoundRobinManager>(
         GetDefaultBuiltinCompressionManager());
     options_.compression_manager = mgr;
@@ -4060,7 +4069,7 @@ void InitializeOptionsFromFlags(
   block_based_options.index_shortening =
       static_cast<BlockBasedTableOptions::IndexShorteningMode>(
           FLAGS_index_shortening);
-  if (FLAGS_mix_mgr) {
+  if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
     block_based_options.block_align = false;
   } else {
     block_based_options.block_align = FLAGS_block_align;

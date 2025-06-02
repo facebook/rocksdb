@@ -347,8 +347,15 @@ default_params = {
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
-    "mix_mgr": lambda: random.choice([0, 1]),
+    "compression_manager": lambda: random.choice(["mixed", "none"]),
 }
+
+compression_manager_consistency_params = {
+    "block_align": (
+        0 if default_params["compression_manager"] == 0 else random.choice([0, 1])
+    )
+}
+
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
 _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
@@ -1444,6 +1451,7 @@ def main():
 
     all_params = dict(
         list(default_params.items())
+        + list(compression_manager_consistency_params.items())
         + list(blackbox_default_params.items())
         + list(whitebox_default_params.items())
         + list(simple_default_params.items())

@@ -17,7 +17,6 @@
 #include "util/file_checksum_helper.h"
 #include "util/xxhash.h"
 
-DEFINE_bool(mix_mgr, true, "Using RoundRobinMixManager");
 ROCKSDB_NAMESPACE::Env* db_stress_listener_env = nullptr;
 ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
 std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
