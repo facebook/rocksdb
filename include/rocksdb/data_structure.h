@@ -57,7 +57,7 @@ class SmallEnumSet {
     for (int i = 0; i < kPieceCount - 1; ++i) {
       tmp[i] = ~PieceT{0};
     }
-    if constexpr ((kMaxValue + 1) & kPieceMask) {
+    if constexpr (((kMaxValue + 1) & kPieceMask) != 0) {
       tmp[kPieceCount - 1] = (PieceT{1} << ((kMaxValue + 1) & kPieceMask)) - 1;
     } else {
       tmp[kPieceCount - 1] = ~PieceT{0};
