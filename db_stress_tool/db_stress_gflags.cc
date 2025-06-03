@@ -467,7 +467,9 @@ DEFINE_uint64(blob_file_size,
 DEFINE_string(blob_compression_type, "none",
               "[Integrated BlobDB] The compression algorithm to use for large "
               "values stored in blob files.");
-
+DEFINE_string(compression_manager, "mixed",
+              "Ability to change compression manager specified in "
+              "simple_mixed_manager.h (mixed -> roundRobin)");
 DEFINE_bool(enable_blob_garbage_collection,
             ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                 .enable_blob_garbage_collection,

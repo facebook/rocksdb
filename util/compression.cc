@@ -165,9 +165,7 @@ class BuiltinCompressorV1 : public Compressor {
 
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
-                       ManagedWorkingArea* wa, bool forced) override {
-    assert(!forced);
-    (void)forced;  // avoid unused variable warning
+                       ManagedWorkingArea* wa) override {
     std::optional<CompressionContext> tmp_ctx;
     CompressionContext* ctx = nullptr;
     if (wa != nullptr && wa->owner() == this) {
@@ -258,25 +256,13 @@ class BuiltinCompressorV2 : public Compressor {
   }
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
-                       ManagedWorkingArea* wa, bool forced) override {
+                       ManagedWorkingArea* wa) override {
     std::optional<CompressionContext> tmp_ctx;
     CompressionContext* ctx = nullptr;
     if (wa != nullptr && wa->owner() == this) {
       ctx = static_cast<CompressionContext*>(wa->get());
     }
     CompressionType type = type_;
-    if (forced == true) {
-      if (*out_compression_type == kNoCompression) {
-        return Status::OK();
-      }
-      // To assert that if zstd is in the mix, the compression_name table
-      // property (which comes from `type_`) needs to be set to kZSTD, for
-      // proper handling of context and dictionaries.
-      assert(!ZSTD_Supported() || type == kZSTD);
-      type = *out_compression_type;
-      // fprintf(stdout, "[Compressor] compression type forced: %s\n",
-      //         std::to_string(type).c_str());
-    }
     if (ctx == nullptr) {
       tmp_ctx.emplace(type, opts_);
       ctx = &*tmp_ctx;
@@ -955,7 +941,4 @@ GetDefaultBuiltinCompressionManager() {
 // END built-in implementation of customization interface
 // ***********************************************************************
 
-#ifndef NDEBUG
-RelaxedAtomic<uint64_t> g_hack_mixed_compression{0};
-#endif  // !NDEBUG
 }  // namespace ROCKSDB_NAMESPACE
