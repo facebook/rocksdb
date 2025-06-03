@@ -47,6 +47,11 @@ class MultiCompressorWrapper : public Compressor {
   ManagedWorkingArea ObtainWorkingArea() override {
     return compressors_.back()->ObtainWorkingArea();
   }
+  virtual std::unique_ptr<Compressor> MaybeCloneSpecialized(
+      CacheEntryRole block_type, DictSampleArgs&& dict_samples) override {
+    return compressors_.back()->MaybeCloneSpecialized(block_type,
+                                                      std::move(dict_samples));
+  }
 
  protected:
   std::vector<std::unique_ptr<Compressor>> compressors_;
