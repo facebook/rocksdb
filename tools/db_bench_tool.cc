@@ -1307,7 +1307,7 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     return ROCKSDB_NAMESPACE::kXpressCompression;
   } else if (!strcasecmp(ctype, "zstd")) {
     return ROCKSDB_NAMESPACE::kZSTD;
-  } else if (!strcasecmp(ctype, "mix")) {
+  } else if (!strcasecmp(ctype, "mixed")) {
     return ROCKSDB_NAMESPACE::kZSTD;
   } else {
     fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
@@ -1813,6 +1813,10 @@ DEFINE_bool(track_and_verify_wals_in_manifest, false,
 
 DEFINE_bool(track_and_verify_wals, false, "See Options.track_and_verify_wals");
 
+DEFINE_double(
+    same_value_rate, 0.0,
+    "Amount of time value will be same i.e good for compression of the block");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -1967,11 +1971,23 @@ class RandomGenerator {
 
   Slice Generate(unsigned int len) {
     assert(len <= data_.size());
-    if (pos_ + len > data_.size()) {
-      pos_ = 0;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0.0, 1.0);
+    auto prob = dis(gen);
+    if (prob < FLAGS_same_value_rate) {
+      if (pos_ + len > data_.size()) {
+        pos_ = 0;
+      }
+      pos_ += len;
+      return Slice(data_.data() + pos_ - len, len);
+    } else {
+      if (pos_ + len > data_.size()) {
+        pos_ = 0;
+      }
+      pos_ += len;
+      return Slice(data_.data() + pos_ - len, len);
     }
-    pos_ += len;
-    return Slice(data_.data() + pos_ - len, len);
   }
 
   Slice Generate() {
@@ -2886,9 +2902,9 @@ class Benchmark {
       }
 #endif
     }
-    auto compression = std::string("mix");
-    if (!strcasecmp(FLAGS_compression_type.c_str(), "mix")) {
-      fprintf(stdout, "Compression: mix\n");
+    auto compression = std::string("mixed");
+    if (!strcasecmp(FLAGS_compression_type.c_str(), "mixed")) {
+      fprintf(stdout, "Compression: mixed\n");
     } else {
       compression = CompressionTypeToString(FLAGS_compression_type_e);
       fprintf(stdout, "Compression: %s\n", compression.c_str());
@@ -4616,7 +4632,7 @@ class Benchmark {
         FLAGS_level0_file_num_compaction_trigger;
     options.level0_slowdown_writes_trigger =
         FLAGS_level0_slowdown_writes_trigger;
-    if (!strcasecmp(FLAGS_compression_type.c_str(), "mix")) {
+    if (!strcasecmp(FLAGS_compression_type.c_str(), "mixed")) {
       options.compression = kZSTD;
       options.bottommost_compression = kZSTD;
       auto mgr = std::make_shared<RoundRobinManager>(
