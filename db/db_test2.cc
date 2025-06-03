@@ -1940,8 +1940,8 @@ TEST_F(DBTest2, SimpleMixedCompressionManager) {
   if (ZSTD_Supported()) {
     auto mgr = std::make_shared<SimpleMixedCompressionManager>(
         GetDefaultBuiltinCompressionManager());
-
-    // for (CompressionType type : GetSupportedCompressions()) {
+    // Currently mixedmanager only supports with preffered compression manager
+    // zstd
     for (CompressionType type : {kZSTD}) {
       std::vector<std::string> values;
       for (bool use_wrapper : {true}) {
@@ -2015,6 +2015,8 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
         return Status::OK();
       } else if (std::search(begin, end, kRejectCompression.begin(),
                              kRejectCompression.end()) != end) {
+        // Simulate attempted & rejected compression
+        *compressed_output = "blah";
         EXPECT_EQ(*out_compression_type, kNoCompression);
         return Status::OK();
       } else {
