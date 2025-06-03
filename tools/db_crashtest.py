@@ -350,12 +350,6 @@ default_params = {
     "compression_manager": lambda: random.choice(["mixed", "none"]),
 }
 
-compression_manager_consistency_params = {
-    "block_align": (
-        0 if default_params["compression_manager"] == 0 else random.choice([0, 1])
-    )
-}
-
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
 # If TEST_TMPDIR_EXPECTED is not specified, default value will be TEST_TMPDIR
 _TEST_EXPECTED_DIR_ENV_VAR = "TEST_TMPDIR_EXPECTED"
@@ -1003,10 +997,17 @@ def finalize_and_sanitize(src_params):
             # have to disable metadata write fault injection to other file
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
-    # Enabling block_align with compression is not supported
-    if dest_params.get("block_align") == 1:
-        dest_params["compression_type"] = "none"
+    # Disabling block align if mixed manager is neing used
+    if dest_params.get("compression_manager") == "mixed":
+        if dest_params.get("block_align") == 1:
+            dest_params["block_align"] = 0
+        dest_params["compression_type"] = "zstd"
         dest_params["bottommost_compression_type"] = "none"
+    else:
+        # Enabling block_align with compression is not supported
+        if dest_params.get("block_align") == 1:
+            dest_params["compression_type"] = "none"
+            dest_params["bottommost_compression_type"] = "none"
     # If periodic_compaction_seconds is not set, daily_offpeak_time_utc doesn't do anything
     if dest_params.get("periodic_compaction_seconds") == 0:
         dest_params["daily_offpeak_time_utc"] = ""
@@ -1451,7 +1452,6 @@ def main():
 
     all_params = dict(
         list(default_params.items())
-        + list(compression_manager_consistency_params.items())
         + list(blackbox_default_params.items())
         + list(whitebox_default_params.items())
         + list(simple_default_params.items())
