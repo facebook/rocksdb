@@ -1306,7 +1306,7 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
 
       *out_status =
           compressor->CompressBlock(uncompressed_block_data, compressed_output,
-                                    &type, &working_area.compress, false);
+                                    &type, &working_area.compress);
 
       // Post-condition of Compressor::CompressBlock
       assert(type == kNoCompression || out_status->ok());

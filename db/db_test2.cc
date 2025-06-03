@@ -2005,8 +2005,7 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
     Status CompressBlock(Slice uncompressed_data,
                          std::string* compressed_output,
                          CompressionType* out_compression_type,
-                         ManagedWorkingArea* working_area,
-                         bool forced) override {
+                         ManagedWorkingArea* working_area) override {
       auto begin = uncompressed_data.data();
       auto end = uncompressed_data.data() + uncompressed_data.size();
       if (std::search(begin, end, kDoNotCompress.begin(),
@@ -2016,16 +2015,11 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
         return Status::OK();
       } else if (std::search(begin, end, kRejectCompression.begin(),
                              kRejectCompression.end()) != end) {
-        // Simulate attempted & rejected compression
-        if (!forced) {
-          *compressed_output = "blah";
-        }
         EXPECT_EQ(*out_compression_type, kNoCompression);
         return Status::OK();
       } else {
         return wrapped_->CompressBlock(uncompressed_data, compressed_output,
-                                       out_compression_type, working_area,
-                                       false);
+                                       out_compression_type, working_area);
       }
     }
   };

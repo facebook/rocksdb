@@ -15,27 +15,62 @@
 #include "rocksdb/advanced_compression.h"
 
 namespace ROCKSDB_NAMESPACE {
-struct SimpleMixedCompressor : public CompressorWrapper {
-  using CompressorWrapper::CompressorWrapper;
 
+class MultiCompressorWrapper : public Compressor {
+ public:
+  explicit MultiCompressorWrapper(const CompressionOptions& opts,
+                                  CompressionType type,
+                                  CompressionDict&& dict = {}) {
+    assert(type != kNoCompression);
+    assert(type == kZSTD);
+    static auto builtInManager = GetDefaultBuiltinCompressionManager();
+    const auto& compressions = GetSupportedCompressions();
+    for (auto type_ : compressions) {
+      if (type_ == kNoCompression) {  // Avoid no compression
+        continue;
+      }
+      compressors_.push_back(builtInManager->GetCompressor(opts, type_));
+    }
+    (void)dict;
+  }
+  size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override {
+    return compressors_.back()->GetMaxSampleSizeIfWantDict(block_type);
+  }
+
+  Slice GetSerializedDict() const override {
+    return compressors_.back()->GetSerializedDict();
+  }
+
+  CompressionType GetPreferredCompressionType() const override { return kZSTD; }
+
+  ManagedWorkingArea ObtainWorkingArea() override {
+    return compressors_.back()->ObtainWorkingArea();
+  }
+
+ protected:
+  std::vector<std::unique_ptr<Compressor>> compressors_;
+
+ private:
+  mutable std::mutex mutex_;  // Protects access to current_index_
+};
+struct SimpleMixedCompressor : public MultiCompressorWrapper {
+  using MultiCompressorWrapper::MultiCompressorWrapper;
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
-                       ManagedWorkingArea* wa, bool forced) override {
+                       ManagedWorkingArea* wa) override {
     const auto& compressions = GetSupportedCompressions();
-    // select compression algo in random
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(
         1, (int)compressions.size() - 2);  // avoiding no compression and zstd
     auto selected = dis(gen);
-    auto type = compressions[selected];
-    // fprintf(stdout,
-    //         "[CompressorWrapper] selected compression algo: %s typeint:
-    //         %d\n", std::to_string(type).c_str(), type);
-    *out_compression_type = type;
-    forced = true;
-    return wrapped_->CompressBlock(uncompressed_data, compressed_output,
-                                   out_compression_type, wa, forced);
+    auto& compressor = compressors_[selected % compressors_.size()];
+    // fprintf(stdout, "[MultiCompressorWrapper] selected compressor
+    // typeint:%d\n",
+    //         selected);
+    Status status = compressor->CompressBlock(
+        uncompressed_data, compressed_output, out_compression_type, wa);
+    return status;
   }
 };
 
@@ -46,30 +81,27 @@ class SimpleMixedCompressionManager : public CompressionManagerWrapper {
       const FilterBuildingContext& context, const CompressionOptions& opts,
       CompressionType preferred) override {
     assert(preferred == kZSTD);
-    return std::make_unique<SimpleMixedCompressor>(
-        wrapped_->GetCompressorForSST(context, opts, preferred));
+    (void)context;
+    return std::make_unique<SimpleMixedCompressor>(opts, preferred);
   }
 };
 
-struct RoundRobinCompressor : public CompressorWrapper {
-  // Modify the constructor to accept the necessary parameters
-  explicit RoundRobinCompressor(std::unique_ptr<Compressor> wrapped)
-      : CompressorWrapper(std::move(wrapped)) {}
-  // : CompressorWrapper(std::move(wrapped)), g_hack_mixed_compression(0) {}
+struct RoundRobinCompressor : public MultiCompressorWrapper {
+  using MultiCompressorWrapper::MultiCompressorWrapper;
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
-                       ManagedWorkingArea* wa, bool forced) override {
+                       ManagedWorkingArea* wa) override {
     const auto& compressions = GetSupportedCompressions();
     auto counter = block_counter.FetchAddRelaxed(1);
-    auto sel_idx = counter % (compressions.size() - 1) + 1;
+    auto sel_idx = counter % (compressions.size() - 1);
     auto type = compressions[sel_idx];
     *out_compression_type = type;
-    fprintf(stdout,
-            "[CompressorWrapper] selected compression algo: %s typeint:%d\n",
-            std::to_string(type).c_str(), type);
-    forced = true;
-    return wrapped_->CompressBlock(uncompressed_data, compressed_output,
-                                   out_compression_type, wa, forced);
+    auto& compressor = compressors_[sel_idx];
+    // fprintf(stdout,
+    //         "[CompressorWrapper] selected compression algo: %s typeint:%d\n",
+    //         std::to_string(type).c_str(), type);
+    return compressor->CompressBlock(uncompressed_data, compressed_output,
+                                     out_compression_type, wa);
   }
   static RelaxedAtomic<uint64_t> block_counter;
 };
@@ -82,9 +114,11 @@ class RoundRobinManager : public CompressionManagerWrapper {
       const FilterBuildingContext& context, const CompressionOptions& opts,
       CompressionType preferred) override {
     assert(preferred == kZSTD);
-    // Ask::Possibly add round robin between different compression types?
-    return std::make_unique<RoundRobinCompressor>(
-        wrapped_->GetCompressorForSST(context, opts, preferred));
+    (void)context;
+    // fprintf(stdout,
+    //         "[CompressorWrapper] selected compression algo: %s typeint:%d\n",
+    // void)context;
+    return std::make_unique<RoundRobinCompressor>(opts, preferred);
   }
 };
 
