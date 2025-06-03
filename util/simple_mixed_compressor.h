@@ -32,6 +32,7 @@ class MultiCompressorWrapper : public Compressor {
       compressors_.push_back(builtInManager->GetCompressor(opts, type_));
     }
     (void)dict;
+    (void)type;
   }
   size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override {
     return compressors_.back()->GetMaxSampleSizeIfWantDict(block_type);
