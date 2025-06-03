@@ -1976,11 +1976,7 @@ class RandomGenerator {
     std::uniform_real_distribution<> dis(0.0, 1.0);
     auto prob = dis(gen);
     if (prob < FLAGS_same_value_rate) {
-      if (pos_ + len > data_.size()) {
-        pos_ = 0;
-      }
-      pos_ += len;
-      return Slice(data_.data() + pos_ - len, len);
+      return Slice(data_.data(), len);
     } else {
       if (pos_ + len > data_.size()) {
         pos_ = 0;
