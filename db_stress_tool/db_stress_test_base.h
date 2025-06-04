@@ -416,6 +416,8 @@ class StressTest {
 
   DB* secondary_db_;
   std::vector<ColumnFamilyHandle*> secondary_cfhs_;
+  std::unique_ptr<DB> follower_db_;
+  std::vector<ColumnFamilyHandle*> follower_cfhs_;
   bool is_db_stopped_;
 };
 
