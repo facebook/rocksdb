@@ -2649,9 +2649,6 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
         return Status::ShutdownInProgress();
       }
 
-      // FIXME: Some callers like file ingestion expects Flush() result to be
-      // available in SuperVersion, which may happen after cfd->imm() is
-      // updated.
       uint64_t earliest_memtable_id =
           std::min(cfd->mem()->GetID(), cfd->imm()->GetEarliestMemTableID());
       if (earliest_memtable_id > orig_active_memtable_id) {
