@@ -5018,7 +5018,6 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
   assert(column_family);
   auto* cfd =
       static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
-  auto* sv = GetAndRefSuperVersion(cfd);
   {
     // Without mutex, Version::GetColumnFamilyMetaData will have data race
     // with Compaction::MarkFilesBeingCompacted. One solution is to use mutex,
@@ -5030,9 +5029,8 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
     // DB::GetColumnFamilyMetaData is not called frequently, the regression
     // should not be big. We still need to keep an eye on it.
     InstrumentedMutexLock l(&mutex_);
-    sv->current->GetColumnFamilyMetaData(cf_meta);
+    cfd->current()->GetColumnFamilyMetaData(cf_meta);
   }
-  ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
 void DBImpl::GetAllColumnFamilyMetaData(
