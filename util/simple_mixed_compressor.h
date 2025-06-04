@@ -101,7 +101,6 @@ struct RoundRobinCompressor : public MultiCompressorWrapper {
     auto counter = block_counter.FetchAddRelaxed(1);
     auto sel_idx = counter % (compressions.size() - 1);
     auto type = compressions[sel_idx];
-    *out_compression_type = type;
     auto& compressor = compressors_[sel_idx];
     // fprintf(stdout,
     //         "[CompressorWrapper] selected compression algo: %s typeint:%d\n",
