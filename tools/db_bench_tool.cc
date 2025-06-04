@@ -1814,9 +1814,9 @@ DEFINE_bool(track_and_verify_wals_in_manifest, false,
 
 DEFINE_bool(track_and_verify_wals, false, "See Options.track_and_verify_wals");
 
-DEFINE_double(
-    same_value_rate, 0.0,
-    "Amount of time value will be same i.e good for compression of the block");
+DEFINE_int32(same_value_percentage, 0,
+             "Percentage of time value will be same i.e good for compression "
+             "of the block");
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -1972,11 +1972,8 @@ class RandomGenerator {
 
   Slice Generate(unsigned int len) {
     assert(len <= data_.size());
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<> dis(0.0, 1.0);
-    auto prob = dis(gen);
-    if (prob < FLAGS_same_value_rate) {
+    auto rnd = Random(301);
+    if (rnd.PercentTrue(FLAGS_same_value_percentage)) {
       return Slice(data_.data(), len);
     } else {
       if (pos_ + len > data_.size()) {
@@ -2902,8 +2899,10 @@ class Benchmark {
     // mixed compression expect to be zstd
     auto compression = std::string("zstd");
     if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
-      fprintf(stdout, "Compression: mixed\n");
+      fprintf(stdout, "Compression manager: mixed\n");
+      fprintf(stdout, "Compression: zstd\n");
     } else {
+      fprintf(stdout, "Compression manager: none\n");
       compression = CompressionTypeToString(FLAGS_compression_type_e);
       fprintf(stdout, "Compression: %s\n", compression.c_str());
     }
@@ -4631,6 +4630,11 @@ class Benchmark {
     options.level0_slowdown_writes_trigger =
         FLAGS_level0_slowdown_writes_trigger;
     if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+      // Need to list zstd in the compression_name table property if it's
+      // potentially used by being in the mix (i.e., potentially at least one
+      // data block in the table is compressed by zstd). This ensures proper
+      // context and dictionary handling, and prevents crashes in older RocksDB
+      // versions.
       options.compression = kZSTD;
       options.bottommost_compression = kZSTD;
       auto mgr = std::make_shared<RoundRobinManager>(
