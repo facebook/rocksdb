@@ -596,6 +596,9 @@ static enum ROCKSDB_NAMESPACE::CompressionType
     FLAGS_compressed_secondary_cache_compression_type_e =
         ROCKSDB_NAMESPACE::kLZ4Compression;
 
+DEFINE_string(compression_manager, "none",
+              "Set the compression manager type to mixed(roundrobin) or other "
+              "type. None for BuilInCompressor");
 DEFINE_int32(compressed_secondary_cache_compression_level,
              ROCKSDB_NAMESPACE::CompressionOptions().level,
              "Compression level. The meaning of this value is library-"
@@ -1306,8 +1309,6 @@ static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
   } else if (!strcasecmp(ctype, "xpress")) {
     return ROCKSDB_NAMESPACE::kXpressCompression;
   } else if (!strcasecmp(ctype, "zstd")) {
-    return ROCKSDB_NAMESPACE::kZSTD;
-  } else if (!strcasecmp(ctype, "mixed")) {
     return ROCKSDB_NAMESPACE::kZSTD;
   } else {
     fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
@@ -2898,8 +2899,9 @@ class Benchmark {
       }
 #endif
     }
-    auto compression = std::string("mixed");
-    if (!strcasecmp(FLAGS_compression_type.c_str(), "mixed")) {
+    // mixed compression expect to be zstd
+    auto compression = std::string("zstd");
+    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
       fprintf(stdout, "Compression: mixed\n");
     } else {
       compression = CompressionTypeToString(FLAGS_compression_type_e);
@@ -4628,7 +4630,7 @@ class Benchmark {
         FLAGS_level0_file_num_compaction_trigger;
     options.level0_slowdown_writes_trigger =
         FLAGS_level0_slowdown_writes_trigger;
-    if (!strcasecmp(FLAGS_compression_type.c_str(), "mixed")) {
+    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
       options.compression = kZSTD;
       options.bottommost_compression = kZSTD;
       auto mgr = std::make_shared<RoundRobinManager>(
