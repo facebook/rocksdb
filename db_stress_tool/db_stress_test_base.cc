@@ -3427,6 +3427,12 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     auto mgr = std::make_shared<RoundRobinManager>(
         GetDefaultBuiltinCompressionManager());
     options_.compression_manager = mgr;
+  } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
+    // Nothing to do using default compression manager
+  } else {
+    fprintf(stderr, "Unknown compression manager: %s\n",
+            FLAGS_compression_manager.c_str());
+    exit(1);
   }
   if (FLAGS_prefix_size == 0 && FLAGS_rep_factory == kHashSkipList) {
     fprintf(stderr,
@@ -4069,11 +4075,7 @@ void InitializeOptionsFromFlags(
   block_based_options.index_shortening =
       static_cast<BlockBasedTableOptions::IndexShorteningMode>(
           FLAGS_index_shortening);
-  if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
-    block_based_options.block_align = false;
-  } else {
-    block_based_options.block_align = FLAGS_block_align;
-  }
+  block_based_options.block_align = FLAGS_block_align;
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
   options.db_write_buffer_size = FLAGS_db_write_buffer_size;
   options.write_buffer_size = FLAGS_write_buffer_size;

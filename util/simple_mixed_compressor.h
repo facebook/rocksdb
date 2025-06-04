@@ -23,7 +23,7 @@ class MultiCompressorWrapper : public Compressor {
                                   CompressionDict&& dict = {}) {
     assert(type != kNoCompression);
     assert(type == kZSTD);
-    static auto builtInManager = GetDefaultBuiltinCompressionManager();
+    auto builtInManager = GetDefaultBuiltinCompressionManager();
     const auto& compressions = GetSupportedCompressions();
     for (auto type_ : compressions) {
       if (type_ == kNoCompression) {  // Avoid no compression
@@ -100,9 +100,8 @@ struct RoundRobinCompressor : public MultiCompressorWrapper {
     const auto& compressions = GetSupportedCompressions();
     auto counter = block_counter.FetchAddRelaxed(1);
     auto sel_idx = counter % (compressions.size() - 1);
-    auto type = compressions[sel_idx];
-    *out_compression_type = type;
     auto& compressor = compressors_[sel_idx];
+    // auto type = compressions[sel_idx];
     // fprintf(stdout,
     //         "[CompressorWrapper] selected compression algo: %s typeint:%d\n",
     //         std::to_string(type).c_str(), type);

@@ -871,7 +871,7 @@ bool LDBCommand::ParseCompressionTypeOption(
       options_.compression = kZSTD;
       options_.bottommost_compression = kZSTD;
       auto mgr = std::make_shared<RoundRobinManager>(
-          std::move(GetDefaultBuiltinCompressionManager()));
+          GetDefaultBuiltinCompressionManager());
       options_.compression_manager = mgr;
 
       // Need to list zstd in the compression_name table property if it's
