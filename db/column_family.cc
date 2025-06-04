@@ -244,9 +244,6 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
   if (result.disallow_memtable_writes) {
     // A simple memtable that enforces MarkReadOnly (unlike skip list)
     result.memtable_factory = std::make_shared<VectorRepFactory>();
-    // Memtable will be empty, so should be safe to silently ignore
-    // paranoid_memory_checks
-    result.paranoid_memory_checks = false;
   }
 
   if (result.num_levels < 1) {
