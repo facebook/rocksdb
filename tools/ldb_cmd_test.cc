@@ -6,6 +6,7 @@
 #include "rocksdb/utilities/ldb_cmd.h"
 
 #include <cinttypes>
+#include <iomanip>
 
 #include "db/db_test_util.h"
 #include "db/version_edit.h"
