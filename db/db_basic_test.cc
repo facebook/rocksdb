@@ -5086,6 +5086,7 @@ TEST_F(DBBasicTest, DisallowMemtableWrite) {
   options_allow.create_if_missing = true;
   Options options_disallow = options_allow;
   options_disallow.disallow_memtable_writes = true;
+  options_disallow.paranoid_memory_checks = true;
 
   DestroyAndReopen(options_allow);
   // CFs allowing and disallowing memtable write
@@ -5125,6 +5126,11 @@ TEST_F(DBBasicTest, DisallowMemtableWrite) {
   EXPECT_EQ(Get(2, "b2"), "2");
   EXPECT_EQ(Get(3, "b3"), "NOT_FOUND");
 
+  std::unique_ptr<Iterator> iter(
+      dbfull()->NewIterator(ReadOptions(), handles_[3]));
+  iter->Seek("a3");
+  ASSERT_OK(iter->status());
+  iter.reset();
   // When the DB is re-opened with WAL entries for a CF that is newly setting
   // disallow_memtable_writes, we detect that and fail the open gracefully.
   ASSERT_EQ(TryReopenWithColumnFamilies(
