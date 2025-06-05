@@ -59,7 +59,8 @@ std::unique_ptr<Compressor> MultiCompressorWrapper::MaybeCloneSpecialized(
 Status SimpleMixedCompressor::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
-  auto selected = Random::GetTLSInstance()->Uniform(compressors_.size());
+  auto selected =
+      Random::GetTLSInstance()->Uniform(static_cast<int>(compressors_.size()));
   auto& compressor = compressors_[selected];
   return compressor->CompressBlock(uncompressed_data, compressed_output,
                                    out_compression_type, wa);
