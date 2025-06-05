@@ -31,9 +31,6 @@ class MultiCompressorWrapper : public Compressor {
 
  protected:
   std::vector<std::unique_ptr<Compressor>> compressors_;
-
- private:
-  mutable std::mutex mutex_;
 };
 
 struct SimpleMixedCompressor : public MultiCompressorWrapper {
