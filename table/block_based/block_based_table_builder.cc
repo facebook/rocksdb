@@ -971,8 +971,7 @@ struct BlockBasedTableBuilder::Rep {
   Rep& operator=(const Rep&) = delete;
 
   void PrePopulateCompressionProperties(UnownedPtr<CompressionManager> mgr) {
-    if (FormatVersionUsesCompressionManagerName(table_options.format_version) &&
-        uses_explicit_compression_manager) {
+    if (FormatVersionUsesCompressionManagerName(table_options.format_version)) {
       assert(mgr);
       // Use newer compression_name property
       props.compression_name.reserve(32);
@@ -1011,8 +1010,7 @@ struct BlockBasedTableBuilder::Rep {
     }
 
     std::string& compression_name = props.compression_name;
-    if (FormatVersionUsesCompressionManagerName(table_options.format_version) &&
-        uses_explicit_compression_manager) {
+    if (FormatVersionUsesCompressionManagerName(table_options.format_version)) {
       // Fill in extended field of "compression name" property, which is the set
       // of compression types used, sorted by unsigned byte and then hex
       // encoded with two digits each (so that table properties are human
