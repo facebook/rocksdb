@@ -1,9 +1,13 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+//
 #include "simple_mixed_compressor.h"
 
 #include <options/options_helper.h>
 
-#include <random>
-
+#include "random.h"
 #include "rocksdb/advanced_compression.h"
 namespace ROCKSDB_NAMESPACE {
 
@@ -52,10 +56,7 @@ std::unique_ptr<Compressor> MultiCompressorWrapper::MaybeCloneSpecialized(
 Status SimpleMixedCompressor::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<> dis(0, (int)compressors_.size() - 1);
-  auto selected = dis(gen);
+  auto selected = Random::GetTLSInstance()->Uniform(compressors_.size());
   auto& compressor = compressors_[selected % compressors_.size()];
   return compressor->CompressBlock(uncompressed_data, compressed_output,
                                    out_compression_type, wa);
@@ -63,7 +64,7 @@ Status SimpleMixedCompressor::CompressBlock(
 
 // SimpleMixedCompressionManager implementation
 const char* SimpleMixedCompressionManager::Name() const {
-  return wrapped_->Name();
+  return "SimpleMixedCompressionManager";
 }
 
 std::unique_ptr<Compressor> SimpleMixedCompressionManager::GetCompressorForSST(
@@ -88,7 +89,7 @@ Status RoundRobinCompressor::CompressBlock(
 RelaxedAtomic<uint64_t> RoundRobinCompressor::block_counter{0};
 
 // RoundRobinManager implementation
-const char* RoundRobinManager::Name() const { return wrapped_->Name(); }
+const char* RoundRobinManager::Name() const { return "RoundRobinManager"; }
 
 std::unique_ptr<Compressor> RoundRobinManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,

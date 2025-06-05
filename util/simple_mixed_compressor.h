@@ -3,10 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
-//
+// Header file to be used to inject custom mixed compression algorithm. Used for
+// the testing purpose.
 #pragma once
 #include <memory>
 #include <mutex>
@@ -32,9 +30,6 @@ class MultiCompressorWrapper : public Compressor {
 
  protected:
   std::vector<std::unique_ptr<Compressor>> compressors_;
-
- private:
-  mutable std::mutex mutex_;
 };
 
 struct SimpleMixedCompressor : public MultiCompressorWrapper {
