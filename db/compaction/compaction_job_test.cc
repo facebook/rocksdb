@@ -458,9 +458,10 @@ class CompactionJobTestBase : public testing::Test {
       ReadOptions read_opts;
       Status s = cf_options_.table_factory->NewTableReader(
           read_opts,
-          TableReaderOptions(cfd->ioptions(), nullptr, FileOptions(),
+          TableReaderOptions(cfd->ioptions(), /*prefix_extractor=*/nullptr,
+                             /*compression_manager=*/nullptr, FileOptions(),
                              cfd_->internal_comparator(),
-                             0 /* block_protection_bytes_per_key */),
+                             /*block_protection_bytes_per_key=*/0),
           std::move(freader), file_size, &table_reader, false);
       ASSERT_OK(s);
       assert(table_reader);

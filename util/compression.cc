@@ -132,8 +132,8 @@ Status Decompressor::ExtractUncompressedSize(Args& args) {
   // payload. (RocksDB compress_format_version=2 except Snappy)
   //
   // This is historically a varint32, but it is preliminarily generalized
-  // to varint64. (TODO: support that on the write side, at least for some
-  // codecs, in BBT format_version=7)
+  // to varint64, in case that is supported on the write side for some
+  // algorithms.
   if (LIKELY(GetVarint64(&args.compressed_data, &args.uncompressed_size))) {
     if (LIKELY(args.uncompressed_size <= SIZE_MAX)) {
       return Status::OK();
@@ -155,6 +155,8 @@ namespace {
 
 class BuiltinCompressorV1 : public Compressor {
  public:
+  const char* Name() const override { return "BuiltinCompressorV1"; }
+
   explicit BuiltinCompressorV1(const CompressionOptions& opts,
                                CompressionType type)
       : opts_(opts), type_(type) {
@@ -192,6 +194,8 @@ class BuiltinCompressorV1 : public Compressor {
 
 class BuiltinCompressorV2 : public Compressor {
  public:
+  const char* Name() const override { return "BuiltinCompressorV2"; }
+
   explicit BuiltinCompressorV2(const CompressionOptions& opts,
                                CompressionType type,
                                CompressionDict&& dict = {})
@@ -361,6 +365,10 @@ class BuiltinCompressionManagerV1 : public CompressionManager {
 
   std::shared_ptr<Decompressor> GetDecompressor() override {
     return std::shared_ptr<Decompressor>(shared_from_this(), &decompressor_);
+  }
+
+  bool SupportsCompressionType(CompressionType type) const override {
+    return CompressionTypeSupported(type);
   }
 
  protected:
@@ -851,11 +859,17 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
   std::shared_ptr<Decompressor> GetDecompressorForTypes(
       const CompressionType* types_begin,
       const CompressionType* types_end) override {
-    if (std::find(types_begin, types_end, kZSTD)) {
+    if (types_begin == types_end) {
+      return nullptr;
+    } else if (std::find(types_begin, types_end, kZSTD)) {
       return GetZstdDecompressor();
     } else {
       return GetGeneralDecompressor();
     }
+  }
+
+  bool SupportsCompressionType(CompressionType type) const override {
+    return CompressionTypeSupported(type);
   }
 
  protected:
@@ -903,14 +917,19 @@ Status CompressionManager::CreateFromString(
   }
 }
 
-Status CompressionManager::FindCompatibleCompressionManager(
-    Slice compatibility_name, std::shared_ptr<CompressionManager>* out) {
+std::shared_ptr<CompressionManager>
+CompressionManager::FindCompatibleCompressionManager(Slice compatibility_name) {
   if (compatibility_name.compare(CompatibilityName()) == 0) {
-    *out = shared_from_this();
-    return Status::OK();
+    return shared_from_this();
   } else {
-    return CreateFromString(ConfigOptions(), compatibility_name.ToString(),
-                            out);
+    std::shared_ptr<CompressionManager> out;
+    Status s =
+        CreateFromString(ConfigOptions(), compatibility_name.ToString(), &out);
+    if (s.ok()) {
+      return out;
+    } else {
+      return nullptr;
+    }
   }
 }
 

@@ -62,7 +62,8 @@ Status SstFileReader::Open(const std::string& file_path) {
   }
   if (s.ok()) {
     TableReaderOptions t_opt(
-        r->ioptions, r->moptions.prefix_extractor, r->soptions,
+        r->ioptions, r->moptions.prefix_extractor,
+        r->moptions.compression_manager.get(), r->soptions,
         r->ioptions.internal_comparator,
         r->moptions.block_protection_bytes_per_key,
         /*skip_filters*/ false, /*immortal*/ false,

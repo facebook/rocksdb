@@ -229,7 +229,8 @@ Status FooterBuilder::Build(uint64_t magic_number, uint32_t format_version,
                             const BlockHandle& index_handle,
                             uint32_t base_context_checksum) {
   assert(magic_number != Footer::kNullTableMagicNumber);
-  assert(IsSupportedFormatVersion(format_version));
+  assert(IsSupportedFormatVersion(format_version) ||
+         TEST_AllowUnsupportedFormatVersion());
 
   char* part2;
   char* part3;
@@ -362,7 +363,8 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset,
   } else {
     part3_ptr = magic_ptr - 4;
     format_version_ = DecodeFixed32(part3_ptr);
-    if (UNLIKELY(!IsSupportedFormatVersion(format_version_))) {
+    if (UNLIKELY(!IsSupportedFormatVersion(format_version_) &&
+                 !TEST_AllowUnsupportedFormatVersion())) {
       return Status::Corruption("Corrupt or unsupported format_version: " +
                                 std::to_string(format_version_));
     }
@@ -473,6 +475,11 @@ std::string Footer::ToString() const {
     result.append("format version: " + std::to_string(format_version_) + "\n");
   }
   return result;
+}
+
+bool& TEST_AllowUnsupportedFormatVersion() {
+  static bool allow = false;
+  return allow;
 }
 
 static Status ReadFooterFromFileInternal(const IOOptions& opts,

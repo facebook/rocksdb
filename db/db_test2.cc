@@ -2001,6 +2001,7 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
 
   struct MyCompressor : public CompressorWrapper {
     using CompressorWrapper::CompressorWrapper;
+    const char* Name() const override { return "MyCompressor"; }
 
     Status CompressBlock(Slice uncompressed_data,
                          std::string* compressed_output,
@@ -2101,6 +2102,254 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
       ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
     }
   }
+}
+
+namespace {
+template <CompressionType kCompression>
+struct CompressorCustomAlg : public CompressorWrapper {
+  CompressorCustomAlg(const CompressionOptions& opts)
+      : CompressorWrapper(GetDefaultBuiltinCompressionManager()->GetCompressor(
+            opts, kSnappyCompression)) {}
+
+  CompressorCustomAlg(std::unique_ptr<Compressor> compressor)
+      : CompressorWrapper(std::move(compressor)) {}
+
+  const char* Name() const override { return "CompressorCustomAlg"; }
+
+  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea* working_area) override {
+    Status s = wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                                       out_compression_type, working_area);
+    if (*out_compression_type != kNoCompression) {
+      assert(*out_compression_type == kSnappyCompression);
+      compressed_output->insert(/*pos=*/0, /*count=*/1,
+                                lossless_cast<char>(kCompression));
+      *out_compression_type = kCompression;
+    }
+    return s;
+  }
+
+  std::unique_ptr<Compressor> MaybeCloneSpecialized(
+      CacheEntryRole block_type, DictSampleArgs&& dict_samples) override {
+    std::unique_ptr<Compressor> rv =
+        wrapped_->MaybeCloneSpecialized(block_type, std::move(dict_samples));
+    if (rv) {
+      rv = std::make_unique<CompressorCustomAlg>(std::move(rv));
+    }
+    return rv;
+  }
+};
+
+struct DecompressorCustomAlg : public DecompressorWrapper {
+  DecompressorCustomAlg()
+      : DecompressorWrapper(
+            GetDefaultBuiltinCompressionManager()->GetDecompressor()) {}
+
+  DecompressorCustomAlg(std::shared_ptr<Decompressor> decompressor)
+      : DecompressorWrapper(std::move(decompressor)) {}
+
+  const char* Name() const override { return "DecompressorCustomAlg"; }
+
+  Status MaybeCloneForDict(const Slice& serialized_dict,
+                           std::unique_ptr<Decompressor>* out) override {
+    Status s = wrapped_->MaybeCloneForDict(serialized_dict, out);
+    if (s.ok()) {
+      *out = std::make_unique<DecompressorCustomAlg>(std::move(*out));
+    }
+    return s;
+  }
+
+  Status ExtractUncompressedSize(Args& args) override {
+    if (args.compression_type > kZSTD) {
+      assert(args.compressed_data.size() > 0);
+      assert(args.compressed_data[0] ==
+             lossless_cast<char>(args.compression_type));
+      // It's ok to modify args if we restore to original
+      SaveAndRestore<Slice> save_compressed_slice(&args.compressed_data);
+      args.compressed_data.remove_prefix(1);
+      SaveAndRestore<CompressionType> save_compression_type(
+          &args.compression_type);
+      args.compression_type = kSnappyCompression;
+      return wrapped_->ExtractUncompressedSize(args);
+    } else {
+      // Also support built-in compressions
+      return wrapped_->ExtractUncompressedSize(args);
+    }
+  }
+
+  Status DecompressBlock(const Args& args, char* uncompressed_output) override {
+    if (args.compression_type > kZSTD) {
+      assert(args.compressed_data.size() > 0);
+      assert(args.compressed_data[0] ==
+             lossless_cast<char>(args.compression_type));
+      // Or we can copy args and modify
+      Args modified_args = args;
+      modified_args.compressed_data.remove_prefix(1);
+      modified_args.compression_type = kSnappyCompression;
+      return wrapped_->DecompressBlock(modified_args, uncompressed_output);
+    } else {
+      // Also support built-in compressions
+      return wrapped_->DecompressBlock(args, uncompressed_output);
+    }
+  }
+};
+}  // anonymous namespace
+
+TEST_F(DBTest2, CompressionManagerCustomCompression) {
+  if (!Snappy_Supported()) {
+    fprintf(stderr, "snappy compression not supported, skip this test\n");
+    return;
+  }
+
+  // Test that we can use a custom CompressionManager to implement custom
+  // compression algorithms, and that there are appropriate schema guard rails
+  // to ensure data is not processed by the wrong algorithm.
+  constexpr CompressionType kCompression8A = static_cast<CompressionType>(0x8A);
+  constexpr CompressionType kCompression8B = static_cast<CompressionType>(0x8B);
+  constexpr CompressionType kCompression8C = static_cast<CompressionType>(0x8C);
+  using Compressor8A = CompressorCustomAlg<kCompression8A>;
+  using Compressor8B = CompressorCustomAlg<kCompression8B>;
+  using Compressor8C = CompressorCustomAlg<kCompression8C>;
+
+  class MyManager : public CompressionManager {
+   public:
+    MyManager(const char* compat_name) : compat_name_(compat_name) {}
+    const char* Name() const override { return name_.c_str(); }
+    const char* CompatibilityName() const override { return compat_name_; }
+
+    bool SupportsCompressionType(CompressionType type) const override {
+      return type == kCompression8A || type == kCompression8B ||
+             type == kCompression8C ||
+             GetDefaultBuiltinCompressionManager()->SupportsCompressionType(
+                 type);
+    }
+
+    std::unique_ptr<Compressor> GetCompressor(const CompressionOptions& opts,
+                                              CompressionType type) override {
+      switch (static_cast<unsigned char>(type)) {
+        case kCompression8A:
+          used_compressor8A_count_++;
+          return std::make_unique<Compressor8A>(opts);
+        case kCompression8B:
+          used_compressor8B_count_++;
+          return std::make_unique<Compressor8B>(opts);
+        case kCompression8C:
+          used_compressor8C_count_++;
+          return std::make_unique<Compressor8C>(opts);
+        // Also support built-in compression algorithms
+        default:
+          return GetDefaultBuiltinCompressionManager()->GetCompressor(opts,
+                                                                      type);
+      }
+    }
+
+    // TODO: test limited-scope decompressors
+    std::shared_ptr<Decompressor> GetDecompressor() override {
+      return std::make_shared<DecompressorCustomAlg>();
+    }
+
+    int used_compressor8A_count_ = 0;
+    int used_compressor8B_count_ = 0;
+    int used_compressor8C_count_ = 0;
+
+   private:
+    const char* compat_name_;
+    std::string name_;
+  };
+
+  // Although these compression managers are actually compatible, we must
+  // respect their distinct compatibility names and treat them as incompatible
+  // (or else risk processing data incorrectly)
+  // NOTE: these are not registered in ObjectRegistry to test what happens
+  // when the original CompressionManager might not be available.
+  auto mgr_foo = std::make_shared<MyManager>("Foo");
+  // auto mgr_bar = std::make_shared<MyManager>();
+
+  // And this one claims to be fully compatible with the built-in compression
+  // manager when it's not fully compatible (for custom CompressionTypes)
+  auto mgr_claim_compatible = std::make_shared<MyManager>("BuiltinV2");
+
+  Options options = CurrentOptions();
+  options.compression = kSnappyCompression;
+  options.level0_file_num_compaction_trigger = 5;
+  BlockBasedTableOptions bbto;
+  bbto.enable_index_compression = false;
+  bbto.format_version = 6;  // Before custom compression alg support
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  // Claims not to use custom compression (and doesn't unless setting a custom
+  // CompressionType)
+  options.compression_manager = mgr_claim_compatible;
+  DestroyAndReopen(options);
+
+  constexpr uint16_t kValueSize = 10000;
+  Random rnd(404);
+  std::string value;
+  Put("a", test::CompressibleString(&rnd, 0.1, kValueSize, &value));
+  Flush();
+
+  // That data should be readable without access to the original compression
+  // manager, because it used the built-in CompatibilityName and a built-in
+  // CompressionType
+  options.compression_manager = nullptr;
+  Reopen(options);
+  ASSERT_NE(Get("a"), "NOT_FOUND");
+
+  // Verify it was compressed
+  Range r = {"a", "a0"};
+  TablePropertiesCollection tables_properties;
+  ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r, 1,
+                                              &tables_properties));
+  ASSERT_EQ(tables_properties.size(), 1U);
+  EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
+  EXPECT_EQ(tables_properties.begin()->second->compression_name, "Snappy");
+
+  // TODO: check what happens trying to set a custom CompressionType with a
+  // built-in compatible CompressionManager
+
+  // Custom compression schema not supported before format_version=7
+  options.compression_manager = mgr_foo;
+  ASSERT_EQ(TryReopen(options).code(), Status::Code::kInvalidArgument);
+
+  // TODO: eliminate this hack when format_version=7 is published
+  SaveAndRestore guard(&TEST_AllowUnsupportedFormatVersion(), true);
+
+  bbto.format_version = 7;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+  Put("b", test::CompressibleString(&rnd, 0.1, kValueSize, &value));
+  Flush();
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+  ASSERT_NE(Get("b"), "NOT_FOUND");
+
+  // Verify it was compressed (still snappy)
+  r = {"b", "b0"};
+  tables_properties.clear();
+  ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r, 1,
+                                              &tables_properties));
+  ASSERT_EQ(tables_properties.size(), 1U);
+  EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
+  // Uses new format for "compression_name" property
+  EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;01;");
+
+  options.compression = kCompression8A;
+  Reopen(options);
+  Put("c", test::CompressibleString(&rnd, 0.1, kValueSize, &value));
+  EXPECT_EQ(mgr_foo->used_compressor8A_count_, 0);
+  Flush();
+  ASSERT_EQ(NumTableFilesAtLevel(0), 3);
+  ASSERT_NE(Get("c"), "NOT_FOUND");
+  EXPECT_EQ(mgr_foo->used_compressor8A_count_, 1);
+
+  // Verify it was compressed with custom format
+  r = {"c", "c0"};
+  tables_properties.clear();
+  ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r, 1,
+                                              &tables_properties));
+  ASSERT_EQ(tables_properties.size(), 1U);
+  EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
+  // Uses new format for "compression_name" property
+  EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;8A;");
 }
 
 class CompactionStallTestListener : public EventListener {
