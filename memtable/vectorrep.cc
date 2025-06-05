@@ -79,6 +79,10 @@ class VectorRep : public MemTableRep {
     // Advance to the first entry with a key >= target
     void Seek(const Slice& user_key, const char* memtable_key) override;
 
+    // Seek and do some memory validation
+    Status SeekAndValidate(const Slice& internal_key, const char* memtable_key,
+                           bool allow_data_in_errors) override;
+
     // Advance to the first entry with a key <= target
     void SeekForPrev(const Slice& user_key, const char* memtable_key) override;
 
@@ -219,6 +223,22 @@ void VectorRep::Iterator::Seek(const Slice& user_key,
                             return compare_(a, b) < 0;
                           })
              .first;
+}
+
+Status VectorRep::Iterator::SeekAndValidate(const Slice& /* internal_key */,
+                                            const char* /* memtable_key */,
+                                            bool /* allow_data_in_errors */) {
+  if (vrep_) {
+    WriteLock l(&vrep_->rwlock_);
+    if (bucket_->begin() == bucket_->end()) {
+      // Memtable is empty
+      return Status::OK();
+    } else {
+      return Status::NotSupported("SeekAndValidate() not implemented");
+    }
+  } else {
+    return Status::NotSupported("SeekAndValidate() not implemented");
+  }
 }
 
 // Advance to the first entry with a key <= target
