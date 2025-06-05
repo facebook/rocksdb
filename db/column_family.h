@@ -424,7 +424,8 @@ class ColumnFamilyData {
       const MutableCFOptions& mutable_options,
       const MutableDBOptions& mutable_db_options,
       const std::vector<SequenceNumber>& existing_snapshots,
-      const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer);
+      const SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
+      bool require_max_output_level = false);
 
   // Check if the passed range overlap with any running compactions.
   // REQUIRES: DB mutex held
@@ -599,6 +600,14 @@ class ColumnFamilyData {
     return (mem_->IsEmpty() ? 0 : 1) + imm_.NumNotFlushed();
   }
 
+  bool IsBottomPriCompactionIntentForwarded() const {
+    return bottom_pri_compaction_intent_forwarded_;
+  }
+
+  void SetBottomPriCompactionIntentForwarded(bool value) {
+    bottom_pri_compaction_intent_forwarded_ = value;
+  }
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(
@@ -707,6 +716,8 @@ class ColumnFamilyData {
   bool mempurge_used_;
 
   std::atomic<uint64_t> next_epoch_number_;
+
+  bool bottom_pri_compaction_intent_forwarded_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

@@ -1811,6 +1811,10 @@ DEFINE_bool(track_and_verify_wals_in_manifest, false,
 
 DEFINE_bool(track_and_verify_wals, false, "See Options.track_and_verify_wals");
 
+DEFINE_bool(universal_reduce_file_locking,
+            ROCKSDB_NAMESPACE::Options()
+                .compaction_options_universal.reduce_file_locking,
+            "See Options().compaction_options_universal.reduce_file_locking");
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -4756,6 +4760,8 @@ class Benchmark {
     options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
     options.memtable_op_scan_flush_trigger =
         FLAGS_memtable_op_scan_flush_trigger;
+    options.compaction_options_universal.reduce_file_locking =
+        FLAGS_universal_reduce_file_locking;
   }
 
   void InitializeOptionsGeneral(Options* opts, ToolHooks& hooks) {

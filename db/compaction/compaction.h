@@ -82,25 +82,28 @@ class CompactionFilter;
 // A Compaction encapsulates metadata about a compaction.
 class Compaction {
  public:
-  Compaction(VersionStorageInfo* input_version,
-             const ImmutableOptions& immutable_options,
-             const MutableCFOptions& mutable_cf_options,
-             const MutableDBOptions& mutable_db_options,
-             std::vector<CompactionInputFiles> inputs, int output_level,
-             uint64_t target_file_size, uint64_t max_compaction_bytes,
-             uint32_t output_path_id, CompressionType compression,
-             CompressionOptions compression_opts,
-             Temperature output_temperature, uint32_t max_subcompactions,
-             std::vector<FileMetaData*> grandparents,
-             std::optional<SequenceNumber> earliest_snapshot,
-             const SnapshotChecker* snapshot_checker,
-             bool manual_compaction = false, const std::string& trim_ts = "",
-             double score = -1, bool deletion_compaction = false,
-             bool l0_files_might_overlap = true,
-             CompactionReason compaction_reason = CompactionReason::kUnknown,
-             BlobGarbageCollectionPolicy blob_garbage_collection_policy =
-                 BlobGarbageCollectionPolicy::kUseDefault,
-             double blob_garbage_collection_age_cutoff = -1);
+  Compaction(
+      VersionStorageInfo* input_version,
+      const ImmutableOptions& immutable_options,
+      const MutableCFOptions& mutable_cf_options,
+      const MutableDBOptions& mutable_db_options,
+      std::vector<CompactionInputFiles> inputs, int output_level,
+      uint64_t target_file_size = 0, uint64_t max_compaction_bytes = 0,
+      uint32_t output_path_id = 0,
+      CompressionType compression = CompressionType::kNoCompression,
+      CompressionOptions compression_opts = CompressionOptions(),
+      Temperature output_temperature = Temperature::kUnknown,
+      uint32_t max_subcompactions = 0,
+      std::vector<FileMetaData*> grandparents = {},
+      std::optional<SequenceNumber> earliest_snapshot = kMaxSequenceNumber,
+      const SnapshotChecker* snapshot_checker = nullptr,
+      bool manual_compaction = false, const std::string& trim_ts = "",
+      double score = -1, bool deletion_compaction = false,
+      bool l0_files_might_overlap = true,
+      CompactionReason compaction_reason = CompactionReason::kUnknown,
+      BlobGarbageCollectionPolicy blob_garbage_collection_policy =
+          BlobGarbageCollectionPolicy::kUseDefault,
+      double blob_garbage_collection_age_cutoff = -1);
 
   // The type of the proximal level output range
   enum class ProximalOutputRangeType : int {
@@ -462,6 +465,11 @@ class Compaction {
                                    const ImmutableOptions& immutable_options,
                                    const int start_level,
                                    const int output_level);
+
+  static bool OutputToNonZeroMaxOutputLevel(int output_level,
+                                            int max_output_level) {
+    return output_level > 0 && output_level == max_output_level;
+  }
 
   // If some data cannot be safely migrated "up" the LSM tree due to a change
   // in the preclude_last_level_data_seconds setting, this indicates a sequence
