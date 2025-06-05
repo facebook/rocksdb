@@ -1,6 +1,12 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.3.3 (06/04/2025)
+### Bug Fixes
+* Fix iterator operations returning NotImplemented status if disallow_memtable_writes and paranoid_memory_checks CF options are both set.
+* Fix Windows-only XPRESS compression
+* Fix newer gtest compatibility
+
 ## 10.3.2 (05/30/2025)
 ### Behavior Changes
 * In Remote Compactions, instead of using FileSystem::GetFileSize() for each CompactionOutputFile, use the file size that is being tracked internally as part of the output file's metadata. FileSize is now part of CompactionServiceOutputFile and serialized in the CompactionServiceResult
