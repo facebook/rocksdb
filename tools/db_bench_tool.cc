@@ -1938,9 +1938,10 @@ class RandomGenerator {
   std::string data_;
   unsigned int pos_;
   std::unique_ptr<BaseDistribution> dist_;
+  Random rnd;
 
  public:
-  RandomGenerator() {
+  RandomGenerator() : rnd(301) {
     auto max_value_size = FLAGS_value_size_max;
     switch (FLAGS_value_size_distribution_type_e) {
       case kUniform:
@@ -1959,7 +1960,6 @@ class RandomGenerator {
     // We use a limited amount of data over and over again and ensure
     // that it is larger than the compression window (32KB), and also
     // large enough to serve all typical value sizes we want to write.
-    Random rnd(301);
     std::string piece;
     while (data_.size() < (unsigned)std::max(1048576, max_value_size)) {
       // Add a short fragment that is as compressible as specified
@@ -1972,7 +1972,6 @@ class RandomGenerator {
 
   Slice Generate(unsigned int len) {
     assert(len <= data_.size());
-    auto rnd = Random(301);
     if (rnd.PercentTrue(FLAGS_same_value_percentage)) {
       return Slice(data_.data(), len);
     } else {
