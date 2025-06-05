@@ -233,6 +233,14 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // different options for compression algorithms
   CompressionOptions compression_opts;
 
+  // EXPERIMENTAL
+  // Customized compression through a callback interface. When non-nullptr,
+  // supersedes the above compression options, except that the above options are
+  // still processed as they historically would be and passed to
+  // CompressionManager::GetCompressorForSST as hints or suggestions. See
+  // advanced_compression.h
+  std::shared_ptr<CompressionManager> compression_manager;
+
   // Number of files to trigger level-0 compaction. A value <0 means that
   // level-0 compaction will not be triggered by number of files at all.
   //
@@ -464,6 +472,12 @@ struct CompactionServiceJobInfo {
   std::string db_name;
   std::string db_id;
   std::string db_session_id;
+
+  // the id of the column family where the compaction happened.
+  uint32_t cf_id;
+  // the name of the column family where the compaction happened.
+  std::string cf_name;
+
   uint64_t job_id;  // job_id is only unique within the current DB and session,
                     // restart DB will reset the job_id. `db_id` and
                     // `db_session_id` could help you build unique id across
@@ -484,7 +498,8 @@ struct CompactionServiceJobInfo {
   int output_level;
 
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
-                           std::string db_session_id_, uint64_t job_id_,
+                           std::string db_session_id_, uint32_t cf_id_,
+                           std::string cf_name_, uint64_t job_id_,
                            Env::Priority priority_,
                            CompactionReason compaction_reason_,
                            bool is_full_compaction_, bool is_manual_compaction_,
@@ -493,6 +508,8 @@ struct CompactionServiceJobInfo {
       : db_name(std::move(db_name_)),
         db_id(std::move(db_id_)),
         db_session_id(std::move(db_session_id_)),
+        cf_id(cf_id_),
+        cf_name(std::move(cf_name_)),
         job_id(job_id_),
         priority(priority_),
         compaction_reason(compaction_reason_),
@@ -2052,6 +2069,19 @@ struct ReadOptions {
   Env::IOActivity io_activity = Env::IOActivity::kUnknown;
 
   // *** END options for RocksDB internal use only ***
+
+  // *** BEGIN per-request settings for internal team use only ***
+
+  // TODO: create a new struct for per-request options, potentially including
+  // timestamps in point lookups/scans
+
+  // request_id is a unique id assigned by the application. It is used to allow
+  // us to link file system metrics/logs to rocksDB and application logs. This
+  // request_id may not be unique to each RocksDB api call - it could refer to
+  // an application level request that results in multiple RocksDB api calls
+  const std::string* request_id = nullptr;
+
+  // *** END per-request settings for internal team use only ***
 
   ReadOptions() {}
   ReadOptions(bool _verify_checksums, bool _fill_cache);

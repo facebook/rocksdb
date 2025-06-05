@@ -142,27 +142,27 @@ class SubcompactionState;
 
 class CompactionJob {
  public:
-  CompactionJob(
-      int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
-      const MutableDBOptions& mutable_db_options,
-      const FileOptions& file_options, VersionSet* versions,
-      const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
-      FSDirectory* db_directory, FSDirectory* output_directory,
-      FSDirectory* blob_output_directory, Statistics* stats,
-      InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
-      std::vector<SequenceNumber> existing_snapshots,
-      SequenceNumber earliest_write_conflict_snapshot,
-      const SnapshotChecker* snapshot_checker, JobContext* job_context,
-      std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
-      bool paranoid_file_checks, bool measure_io_stats,
-      const std::string& dbname, CompactionJobStats* compaction_job_stats,
-      Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-      const std::atomic<bool>& manual_compaction_canceled,
-      const std::string& db_id = "", const std::string& db_session_id = "",
-      std::string full_history_ts_low = "", std::string trim_ts = "",
-      BlobFileCompletionCallback* blob_callback = nullptr,
-      int* bg_compaction_scheduled = nullptr,
-      int* bg_bottom_compaction_scheduled = nullptr);
+  CompactionJob(int job_id, Compaction* compaction,
+                const ImmutableDBOptions& db_options,
+                const MutableDBOptions& mutable_db_options,
+                const FileOptions& file_options, VersionSet* versions,
+                const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
+                FSDirectory* db_directory, FSDirectory* output_directory,
+                FSDirectory* blob_output_directory, Statistics* stats,
+                InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
+                JobContext* job_context, std::shared_ptr<Cache> table_cache,
+                EventLogger* event_logger, bool paranoid_file_checks,
+                bool measure_io_stats, const std::string& dbname,
+                CompactionJobStats* compaction_job_stats,
+                Env::Priority thread_pri,
+                const std::shared_ptr<IOTracer>& io_tracer,
+                const std::atomic<bool>& manual_compaction_canceled,
+                const std::string& db_id = "",
+                const std::string& db_session_id = "",
+                std::string full_history_ts_low = "", std::string trim_ts = "",
+                BlobFileCompletionCallback* blob_callback = nullptr,
+                int* bg_compaction_scheduled = nullptr,
+                int* bg_bottom_compaction_scheduled = nullptr);
 
   virtual ~CompactionJob();
 
@@ -321,21 +321,8 @@ class CompactionJob {
   FSDirectory* blob_output_directory_;
   InstrumentedMutex* db_mutex_;
   ErrorHandler* db_error_handler_;
-  // If there were two snapshots with seq numbers s1 and
-  // s2 and s1 < s2, and if we find two instances of a key k1 then lies
-  // entirely within s1 and s2, then the earlier version of k1 can be safely
-  // deleted because that version is not visible in any snapshot.
-  std::vector<SequenceNumber> existing_snapshots_;
 
   SequenceNumber earliest_snapshot_;
-
-  // This is the earliest snapshot that could be used for write-conflict
-  // checking by a transaction.  For any user-key newer than this snapshot, we
-  // should make sure not to remove evidence that a write occurred.
-  SequenceNumber earliest_write_conflict_snapshot_;
-
-  const SnapshotChecker* const snapshot_checker_;
-
   JobContext* job_context_;
 
   std::shared_ptr<Cache> table_cache_;
@@ -427,8 +414,9 @@ struct CompactionServiceInput {
 // CompactionServiceOutputFile is the metadata for the output SST file
 struct CompactionServiceOutputFile {
   std::string file_name;
-  SequenceNumber smallest_seqno;
-  SequenceNumber largest_seqno;
+  uint64_t file_size{};
+  SequenceNumber smallest_seqno{};
+  SequenceNumber largest_seqno{};
   std::string smallest_internal_key;
   std::string largest_internal_key;
   uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
@@ -436,24 +424,26 @@ struct CompactionServiceOutputFile {
   uint64_t epoch_number = kUnknownEpochNumber;
   std::string file_checksum = kUnknownFileChecksum;
   std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
-  uint64_t paranoid_hash;
+  uint64_t paranoid_hash{};
   bool marked_for_compaction;
   UniqueId64x2 unique_id{};
   TableProperties table_properties;
   bool is_proximal_level_output;
-  Temperature file_temperature;
+  Temperature file_temperature = Temperature::kUnknown;
 
   CompactionServiceOutputFile() = default;
   CompactionServiceOutputFile(
-      const std::string& name, SequenceNumber smallest, SequenceNumber largest,
-      std::string _smallest_internal_key, std::string _largest_internal_key,
-      uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
-      uint64_t _epoch_number, const std::string& _file_checksum,
+      const std::string& name, uint64_t size, SequenceNumber smallest,
+      SequenceNumber largest, std::string _smallest_internal_key,
+      std::string _largest_internal_key, uint64_t _oldest_ancester_time,
+      uint64_t _file_creation_time, uint64_t _epoch_number,
+      const std::string& _file_checksum,
       const std::string& _file_checksum_func_name, uint64_t _paranoid_hash,
       bool _marked_for_compaction, UniqueId64x2 _unique_id,
       const TableProperties& _table_properties, bool _is_proximal_level_output,
       Temperature _file_temperature)
       : file_name(name),
+        file_size(size),
         smallest_seqno(smallest),
         largest_seqno(largest),
         smallest_internal_key(std::move(_smallest_internal_key)),
@@ -521,9 +511,9 @@ class CompactionServiceCompactionJob : private CompactionJob {
       const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
       FSDirectory* output_directory, Statistics* stats,
       InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
-      std::vector<SequenceNumber> existing_snapshots,
-      std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
-      const std::string& dbname, const std::shared_ptr<IOTracer>& io_tracer,
+      JobContext* job_context, std::shared_ptr<Cache> table_cache,
+      EventLogger* event_logger, const std::string& dbname,
+      const std::shared_ptr<IOTracer>& io_tracer,
       const std::atomic<bool>& manual_compaction_canceled,
       const std::string& db_id, const std::string& db_session_id,
       std::string output_path,

@@ -254,10 +254,12 @@ struct TransactionDBOptions {
   // for more details.
   std::vector<std::shared_ptr<SecondaryIndex>> secondary_indices;
 
-  // EXPERIMENTAL, SUBJECT TO CHANGE
+  // Deprecated, this option has no effect and may be removed in the future.
+  // Use TransactionOptions::large_txn_commit_optimize_threshold instead.
+  //
   // This option is only valid for write committed. If the number of updates in
-  // a transaction exceeds this threshold, then the transaction commit will skip
-  // insertions into memtable as an optimization to reduce commit latency.
+  // a transaction is at least this threshold, then the transaction commit will
+  // skip insertions into memtable as an optimization to reduce commit latency.
   // See comment for TransactionOptions::commit_bypass_memtable for more detail.
   // Setting TransactionOptions::commit_bypass_memtable to true takes precedence
   // over this option.
@@ -364,6 +366,22 @@ struct TransactionOptions {
   // DeleteRange, SingleDelete.
   bool write_batch_track_timestamp_size = false;
 
+  // The following three options enable optimizations for large transaction
+  // commit to bypass memtable write.
+  // - If any transaction's commit should bybass memtable write,
+  //  set commit_bypass_memtable to true.
+  // - If only bypass memtable write for transactions with >= n operations,
+  //  set commit_bypass_memtable to false,
+  //  large_txn_commit_optimize_threshold to n, and
+  //  large_txn_commit_optimize_byte_threshold to 0.
+  //  Similarly for only optimize when a transaction's write batch size is >= n.
+  // - If bypass memtable write for transactions with >= n operations or >= x
+  // bytes,
+  //  set commit_bypass_memtable to false,
+  //  large_txn_commit_optimize_threshold to n, and
+  //  large_txn_commit_optimize_byte_threshold to x.
+  //
+  //
   // EXPERIMENTAL, SUBJECT TO CHANGE
   // Only supports write-committed policy. If set to true, the transaction will
   // skip memtable write and ingest into the DB directly during Commit(). This
@@ -387,6 +405,22 @@ struct TransactionOptions {
   // can cause flush/compaction to report `num_single_del_mismatch` due to
   // consecutive SingleDeletes.
   bool commit_bypass_memtable = false;
+
+  // EXPERIMENTAL, SUBJECT TO CHANGE
+  // When the number of updates in a transaction is at least this threshold,
+  // we will enable optimizations for commiting a large transaction. See
+  // comment for `commit_bypass_memtable` for more optimization detail.
+  //
+  // Default: 0 (disabled).
+  uint32_t large_txn_commit_optimize_threshold = 0;
+
+  // EXPERIMENTAL, SUBJECT TO CHANGE
+  // When the size of a transaction's write batch is at least this threshold,
+  // we will enable optimizations for commiting a large transaction. See
+  // comment for `commit_bypass_memtable` for more optimization detail.
+  //
+  // Default: 0 (disabled).
+  uint64_t large_txn_commit_optimize_byte_threshold = 0;
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB

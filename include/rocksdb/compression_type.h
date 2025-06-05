@@ -27,6 +27,8 @@ enum CompressionType : unsigned char {
   kXpressCompression = 0x6,
   kZSTD = 0x7,
 
+  // TODO: add enum values for user custom compression types
+
   // kDisableCompressionOption is used to disable some compression options.
   kDisableCompressionOption = 0xff,
 };
@@ -179,5 +181,8 @@ struct CompressionOptions {
   bool operator==(const CompressionOptions& rhs) const = default;
 #endif
 };
+
+// See advanced_compression.h
+class CompressionManager;
 
 }  // namespace ROCKSDB_NAMESPACE

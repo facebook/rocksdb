@@ -530,6 +530,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(const CompactionFilter*)},
       {offsetof(struct ColumnFamilyOptions, compaction_filter_factory),
        sizeof(std::shared_ptr<CompactionFilterFactory>)},
+      {offsetof(struct ColumnFamilyOptions, compression_manager),
+       sizeof(std::shared_ptr<CompressionManager>)},
       {offsetof(struct ColumnFamilyOptions, prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
       {offsetof(struct ColumnFamilyOptions, snap_refresh_nanos),
@@ -619,6 +621,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "strategy=7;max_dict_bytes=8;level=9;window_bits=10;max_compressed_bytes_"
       "per_kb=876;checksum=true};"
       "bottommost_compression=kDisableCompressionOption;"
+      "compression_manager=BuiltinV2;"
       "level0_stop_writes_trigger=33;"
       "num_levels=99;"
       "level0_slowdown_writes_trigger=22;"
@@ -675,7 +678,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "bottommost_file_compaction_delay=7200;"
       "uncache_aggressiveness=1234;"
       "paranoid_memory_checks=1;"
-      "memtable_op_scan_flush_trigger=123;",
+      "memtable_op_scan_flush_trigger=123;"
+      "memtable_avg_op_scan_flush_trigger=12;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);
@@ -699,6 +703,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       new_options->compaction_options_fifo.file_temperature_age_thresholds[0]
           .age,
       12345);
+  ASSERT_EQ(new_options->compression_manager,
+            GetBuiltinCompressionManager(/*compression_format_version*/ 2));
 
   ColumnFamilyOptions rnd_filled_options = *new_options;
 
@@ -718,6 +724,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::vector<int>)},
       {offsetof(struct MutableCFOptions, compaction_options_fifo),
        sizeof(struct CompactionOptionsFIFO)},
+      {offsetof(struct MutableCFOptions, compression_manager),
+       sizeof(std::shared_ptr<CompressionManager>)},
       {offsetof(struct MutableCFOptions, compression_per_level),
        sizeof(std::vector<CompressionType>)},
       {offsetof(struct MutableCFOptions, max_file_size),

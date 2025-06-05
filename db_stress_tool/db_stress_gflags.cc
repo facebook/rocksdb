@@ -467,7 +467,9 @@ DEFINE_uint64(blob_file_size,
 DEFINE_string(blob_compression_type, "none",
               "[Integrated BlobDB] The compression algorithm to use for large "
               "values stored in blob files.");
-
+DEFINE_string(compression_manager, "mixed",
+              "Ability to change compression manager specified in "
+              "simple_mixed_manager.h (mixed -> roundRobin)");
 DEFINE_bool(enable_blob_garbage_collection,
             ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                 .enable_blob_garbage_collection,
@@ -535,6 +537,9 @@ DEFINE_uint32(use_timed_put_one_in, 0,
 DEFINE_string(file_temperature_age_thresholds, "",
               "See CompactionOptionsFIFO::file_temperature_age_thresholds. "
               "empty == unset");
+
+DEFINE_bool(allow_trivial_copy_when_change_temperature, true,
+            "Allow kChangeTemperature to do trivial copy");
 
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
@@ -1479,4 +1484,8 @@ DEFINE_uint32(
     ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_op_scan_flush_trigger,
     "Sets CF option memtable_op_scan_flush_trigger.");
 
+DEFINE_uint32(
+    memtable_avg_op_scan_flush_trigger,
+    ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_avg_op_scan_flush_trigger,
+    "Sets CF option memtable_avg_op_scan_flush_trigger.");
 #endif  // GFLAGS

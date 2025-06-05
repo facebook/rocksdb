@@ -34,6 +34,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
+#include "util/simple_mixed_compressor.h"
 #include "utilities/backup/backup_engine_impl.h"
 #include "utilities/fault_injection_fs.h"
 #include "utilities/fault_injection_secondary_cache.h"
@@ -427,6 +428,11 @@ bool StressTest::BuildOptionsTable() {
         std::vector<std::string>{
             "{{temperature=kWarm;age=30}:{temperature=kCold;age=300}}",
             "{{temperature=kCold;age=100}}", "{}"});
+    options_tbl.emplace(
+        "allow_trivial_copy_when_change_temperature",
+        std::vector<std::string>{
+            FLAGS_allow_trivial_copy_when_change_temperature ? "true"
+                                                             : "false"});
   }
 
   // NOTE: allow -1 to mean starting disabled but dynamically changing
@@ -838,11 +844,21 @@ Status StressTest::NewTxn(WriteOptions& write_opts, ThreadState* thread,
         FLAGS_use_only_the_last_commit_time_batch_for_recovery;
     txn_options.lock_timeout = 600000;  // 10 min
     txn_options.deadlock_detect = true;
-    if (FLAGS_commit_bypass_memtable_one_in > 0) {
+    if (FLAGS_commit_bypass_memtable_one_in > 0 &&
+        thread->rand.OneIn(FLAGS_commit_bypass_memtable_one_in)) {
       assert(FLAGS_txn_write_policy == 0);
       assert(FLAGS_user_timestamp_size == 0);
-      txn_options.commit_bypass_memtable =
-          thread->rand.OneIn(FLAGS_commit_bypass_memtable_one_in);
+      if (thread->rand.OneIn(2)) {
+        txn_options.commit_bypass_memtable = true;
+      }
+      if (thread->rand.OneIn(2)) {
+        txn_options.large_txn_commit_optimize_threshold = 1;
+      }
+      if (thread->rand.OneIn(2) ||
+          (!txn_options.commit_bypass_memtable &&
+           txn_options.large_txn_commit_optimize_threshold != 1)) {
+        txn_options.large_txn_commit_optimize_byte_threshold = 1;
+      }
       if (commit_bypass_memtable) {
         *commit_bypass_memtable = txn_options.commit_bypass_memtable;
       }
@@ -3396,7 +3412,28 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     InitializeOptionsFromFlags(cache_, filter_policy_, options_);
   }
   InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
-
+  if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+    // Currently limited to ZSTD compression. Table property compression_name
+    // needs to set to zstd for now even when there can be more than one
+    // algorithm in the table under your compressor.
+    options_.compression = kZSTD;
+    options_.bottommost_compression = kZSTD;
+    if (!ZSTD_Supported()) {
+      fprintf(stderr,
+              "ZSTD compression not supported thus mixed compression cannot be "
+              "used\n");
+      exit(1);
+    }
+    auto mgr = std::make_shared<RoundRobinManager>(
+        GetDefaultBuiltinCompressionManager());
+    options_.compression_manager = mgr;
+  } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
+    // Nothing to do using default compression manager
+  } else {
+    fprintf(stderr, "Unknown compression manager: %s\n",
+            FLAGS_compression_manager.c_str());
+    exit(1);
+  }
   if (FLAGS_prefix_size == 0 && FLAGS_rep_factory == kHashSkipList) {
     fprintf(stderr,
             "prefeix_size cannot be zero if memtablerep == prefix_hash\n");
@@ -4216,10 +4253,14 @@ void InitializeOptionsFromFlags(
       StringToTemperature(FLAGS_default_temperature.c_str());
 
   if (!FLAGS_file_temperature_age_thresholds.empty()) {
+    const std::string allowTrivialCopyBoolStr =
+        FLAGS_allow_trivial_copy_when_change_temperature ? "true" : "false";
     Status s = GetColumnFamilyOptionsFromString(
         {}, options,
         "compaction_options_fifo={file_temperature_age_thresholds=" +
-            FLAGS_file_temperature_age_thresholds + "}",
+            FLAGS_file_temperature_age_thresholds +
+            ";allow_trivial_copy_when_change_temperature=" +
+            allowTrivialCopyBoolStr + "}",
         &options);
     if (!s.ok()) {
       fprintf(stderr, "While setting file_temperature_age_thresholds: %s\n",

@@ -55,7 +55,7 @@ void ArenaWrappedDBIter::Init(
   db_iter_ = DBIter::NewIter(
       env, read_options_, ioptions, mutable_cf_options,
       ioptions.user_comparator, /*internal_iter=*/nullptr, version, sequence,
-      read_callback, cfh, expose_blob_index, active_mem, &arena_);
+      read_callback, active_mem, cfh, expose_blob_index, &arena_);
 
   sv_number_ = version_number;
   allow_refresh_ = allow_refresh;

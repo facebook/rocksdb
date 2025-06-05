@@ -14,6 +14,7 @@
 #include "table/block_based/block_type.h"
 #include "table/format.h"
 #include "table/persistent_cache_options.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -46,7 +47,7 @@ class BlockFetcher {
                BlockContents* contents,
                const ImmutableOptions& ioptions /* ref retained */,
                bool do_uncompress, bool maybe_compressed, BlockType block_type,
-               const UncompressionDict& uncompression_dict /* ref retained */,
+               UnownedPtr<Decompressor> decompressor,
                const PersistentCacheOptions& cache_options /* ref retained */,
                MemoryAllocator* memory_allocator = nullptr,
                MemoryAllocator* memory_allocator_compressed = nullptr,
@@ -63,7 +64,7 @@ class BlockFetcher {
         block_type_(block_type),
         block_size_(static_cast<size_t>(handle_.size())),
         block_size_with_trailer_(block_size_ + footer.GetBlockTrailerSize()),
-        uncompression_dict_(uncompression_dict),
+        decompressor_(decompressor),
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
@@ -81,14 +82,17 @@ class BlockFetcher {
   IOStatus ReadBlockContents();
   IOStatus ReadAsyncBlockContents();
 
-  inline CompressionType get_compression_type() const {
-    return compression_type_;
+  inline CompressionType compression_type() const {
+    return decomp_args_.compression_type;
+  }
+  inline CompressionType& compression_type() {
+    return decomp_args_.compression_type;
   }
   inline size_t GetBlockSizeWithTrailer() const {
     return block_size_with_trailer_;
   }
   inline Slice& GetCompressedBlock() {
-    assert(compression_type_ != kNoCompression);
+    assert(compression_type() != kNoCompression);
     return slice_;
   }
 
@@ -121,7 +125,7 @@ class BlockFetcher {
   const BlockType block_type_;
   const size_t block_size_;
   const size_t block_size_with_trailer_;
-  const UncompressionDict& uncompression_dict_;
+  UnownedPtr<Decompressor> decompressor_;
   const PersistentCacheOptions& cache_options_;
   MemoryAllocator* memory_allocator_;
   MemoryAllocator* memory_allocator_compressed_;
@@ -133,11 +137,11 @@ class BlockFetcher {
   CacheAllocationPtr compressed_buf_;
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
-  CompressionType compression_type_;
   bool for_compaction_ = false;
   bool use_fs_scratch_ = false;
   bool retry_corrupt_read_ = false;
   FSAllocationPtr fs_buf_;
+  Decompressor::Args decomp_args_;
 
   // return true if found
   bool TryGetUncompressBlockFromPersistentCache();

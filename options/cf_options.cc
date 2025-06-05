@@ -301,7 +301,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
              OptionTypeInfo::Struct("file_temperature_age_thresholds",
                                     &file_temperature_age_type_info, 0,
                                     OptionVerificationType::kNormal,
-                                    OptionTypeFlags::kMutable))}};
+                                    OptionTypeFlags::kMutable))},
+        {"allow_trivial_copy_when_change_temperature",
+         {offsetof(struct CompactionOptionsFIFO,
+                   allow_trivial_copy_when_change_temperature),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"trivial_copy_buffer_size",
+         {offsetof(struct CompactionOptionsFIFO, trivial_copy_buffer_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     universal_compaction_options_type_info = {
@@ -689,6 +698,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                      name, value, addr);
                }
              })},
+        {"compression_manager",
+         OptionTypeInfo::AsCustomSharedPtr<CompressionManager>(
+             offsetof(struct MutableCFOptions, compression_manager),
+             OptionVerificationType::kByNameAllowNull,
+             (OptionTypeFlags::kMutable | OptionTypeFlags::kAllowNull))},
         // End special case properties
         {"memtable_max_range_deletions",
          {offsetof(struct MutableCFOptions, memtable_max_range_deletions),
@@ -696,6 +710,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"memtable_op_scan_flush_trigger",
          {offsetof(struct MutableCFOptions, memtable_op_scan_flush_trigger),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"memtable_avg_op_scan_flush_trigger",
+         {offsetof(struct MutableCFOptions, memtable_avg_op_scan_flush_trigger),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
 };
@@ -1181,6 +1199,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  uncache_aggressiveness);
   ROCKS_LOG_INFO(log, "             memtable_op_scan_flush_trigger: %" PRIu32,
                  memtable_op_scan_flush_trigger);
+  ROCKS_LOG_INFO(log, "         memtable_avg_op_scan_flush_trigger: %" PRIu32,
+                 memtable_avg_op_scan_flush_trigger);
 
   // Universal Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_universal.size_ratio : %d",

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdio>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -4728,13 +4729,18 @@ static void DoCompressionTest(CompressionType comp) {
   const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options, ikc, &keys, &kvmap);
+  size_t file_size = c.TEST_GetSink()->contents().size();
+  EXPECT_EQ(c.ApproximateOffsetOf("abc"), 0);
+  EXPECT_EQ(c.ApproximateOffsetOf("k01"), 0);
+  EXPECT_EQ(c.ApproximateOffsetOf("k02"), 0);
+  EXPECT_NEAR2(c.ApproximateOffsetOf("k03"), file_size / 2, file_size / 10);
+  EXPECT_NEAR2(c.ApproximateOffsetOf("k04"), file_size / 2, file_size / 10);
+  EXPECT_NEAR2(c.ApproximateOffsetOf("xyz"), file_size, file_size / 10);
 
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"), 0, 0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"), 0, 0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"), 0, 0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3555));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3555));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7110));
+  size_t data_blocks_size = c.GetTableReader()->GetTableProperties()->data_size;
+  // Near expected compressed size ~= (0.25 + 0.25) * 10000
+  EXPECT_NEAR2(data_blocks_size, 5000, 1500);
+
   c.ResetTableReader();
 }
 
@@ -5675,11 +5681,13 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
       read_options_for_helper.verify_checksums = false;
       PersistentCacheOptions cache_options;
 
-      BlockFetcher block_fetcher(
-          file, nullptr /* prefetch_buffer */, footer, read_options_for_helper,
-          handle, contents, ioptions, false /* decompress */,
-          false /*maybe_compressed*/, block_type,
-          UncompressionDict::GetEmptyDict(), cache_options);
+      auto mgr = GetBuiltinCompressionManager(
+          GetCompressFormatForVersion(footer.format_version()));
+      BlockFetcher block_fetcher(file, nullptr /* prefetch_buffer */, footer,
+                                 read_options_for_helper, handle, contents,
+                                 ioptions, false /* decompress */,
+                                 false /*maybe_compressed*/, block_type,
+                                 mgr->GetDecompressor().get(), cache_options);
 
       ASSERT_OK(block_fetcher.ReadBlockContents());
     };
@@ -5812,12 +5820,13 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
   auto metaindex_handle = footer.metaindex_handle();
   BlockContents metaindex_contents;
   PersistentCacheOptions pcache_opts;
+  auto mgr = GetBuiltinCompressionManager(
+      GetCompressFormatForVersion(footer.format_version()));
   BlockFetcher block_fetcher(
       table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
       metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
       false /*maybe_compressed*/, BlockType::kMetaIndex,
-      UncompressionDict::GetEmptyDict(), pcache_opts,
-      nullptr /*memory_allocator*/);
+      mgr->GetDecompressor().get(), pcache_opts, nullptr /*memory_allocator*/);
   ASSERT_OK(block_fetcher.ReadBlockContents());
   Block metaindex_block(std::move(metaindex_contents));
 
@@ -5894,12 +5903,13 @@ TEST_P(BlockBasedTableTest, SeekMetaBlocks) {
   auto metaindex_handle = footer.metaindex_handle();
   BlockContents metaindex_contents;
   PersistentCacheOptions pcache_opts;
+  auto mgr = GetBuiltinCompressionManager(
+      GetCompressFormatForVersion(footer.format_version()));
   BlockFetcher block_fetcher(
       table_reader.get(), nullptr /* prefetch_buffer */, footer, ReadOptions(),
       metaindex_handle, &metaindex_contents, ioptions, false /* decompress */,
       false /*maybe_compressed*/, BlockType::kMetaIndex,
-      UncompressionDict::GetEmptyDict(), pcache_opts,
-      nullptr /*memory_allocator*/);
+      mgr->GetDecompressor().get(), pcache_opts, nullptr /*memory_allocator*/);
   ASSERT_OK(block_fetcher.ReadBlockContents());
   Block metaindex_block(std::move(metaindex_contents));
 
@@ -6525,10 +6535,10 @@ TEST_F(CacheUsageOptionsOverridesTest, SanitizeAndValidateOptions) {
   Destroy(options);
 }
 
-class ExternalTableReaderTest : public DBTestBase {
+class ExternalTableTest : public DBTestBase {
  public:
-  ExternalTableReaderTest()
-      : DBTestBase("external_table_reader_test", /*env_do_fsync=*/false) {}
+  ExternalTableTest()
+      : DBTestBase("external_table_test", /*env_do_fsync=*/false) {}
 
  protected:
   class DummyExternalTableFile {
@@ -6541,6 +6551,13 @@ class ExternalTableReaderTest : public DBTestBase {
 
     Status Serialize(
         const std::vector<std::pair<std::string, std::string>>& kv_vec) {
+      // First append the property block if one exists
+      uint32_t prop_block_size = static_cast<uint32_t>(prop_block_.length());
+      buf_.append(static_cast<char*>(static_cast<void*>(&prop_block_size)),
+                  sizeof(prop_block_size));
+      if (!prop_block_.empty()) {
+        buf_.append(prop_block_);
+      }
       for (auto& kv : kv_vec) {
         SerializeOne(kv.first, kv.second);
         props_.raw_key_size += kv.first.length();
@@ -6561,6 +6578,12 @@ class ExternalTableReaderTest : public DBTestBase {
         return s;
       }
 
+      uint32_t prop_block_size = 0;
+      buf_.copy(static_cast<char*>(static_cast<void*>(&prop_block_size)),
+                sizeof(prop_block_size));
+      buf_.erase(0, sizeof(prop_block_size));
+      prop_block_.assign(buf_.substr(0, prop_block_size));
+      buf_.erase(0, prop_block_size);
       while (buf_.length() > 0) {
         std::pair<std::string, std::string> kv;
         s = DeserializeOne(kv);
@@ -6575,6 +6598,24 @@ class ExternalTableReaderTest : public DBTestBase {
       }
       props_.num_entries = kv_map.size();
       return s;
+    }
+
+    Status PutPropertiesBlock(const Slice& prop_block) {
+      prop_block_.assign(prop_block.data(), prop_block.size());
+      return Status::OK();
+    }
+
+    Status GetPropertiesBlock(std::unique_ptr<char[]>* block, uint64_t* size,
+                              uint64_t* file_offset) {
+      if (!prop_block_.empty()) {
+        *block = std::make_unique<char[]>(prop_block_.length());
+        memcpy(block->get(), prop_block_.data(), prop_block_.length());
+        *size = prop_block_.length();
+        *file_offset = sizeof(uint32_t);
+      } else {
+        *size = 0;
+      }
+      return Status::OK();
     }
 
     TableProperties GetTableProperties() const { return props_; }
@@ -6619,6 +6660,7 @@ class ExternalTableReaderTest : public DBTestBase {
     std::string buf_;
     TableProperties props_;
     uint64_t file_size_;
+    std::string prop_block_;
   };
 
   class DummyExternalTableIterator : public ExternalTableIterator {
@@ -6764,8 +6806,10 @@ class ExternalTableReaderTest : public DBTestBase {
 
   class DummyExternalTableReader : public ExternalTableReader {
    public:
-    explicit DummyExternalTableReader(const std::string& file_path)
-        : file_(file_path, /*file=*/nullptr) {
+    explicit DummyExternalTableReader(const std::string& file_path,
+                                      bool support_property_block)
+        : file_(file_path, /*file=*/nullptr),
+          support_property_block_(support_property_block) {
       Status s = file_.Deserialize(kv_map_);
       EXPECT_OK(s);
     }
@@ -6800,6 +6844,14 @@ class ExternalTableReaderTest : public DBTestBase {
       }
     }
 
+    Status GetPropertiesBlock(std::unique_ptr<char[]>* block, uint64_t* size,
+                              uint64_t* file_offset) override {
+      if (!support_property_block_) {
+        return Status::NotSupported();
+      }
+      return file_.GetPropertiesBlock(block, size, file_offset);
+    }
+
     std::shared_ptr<const TableProperties> GetTableProperties() const override {
       std::shared_ptr<TableProperties> props =
           std::make_shared<TableProperties>();
@@ -6813,13 +6865,16 @@ class ExternalTableReaderTest : public DBTestBase {
    private:
     std::map<std::string, std::string> kv_map_;
     DummyExternalTableFile file_;
+    bool support_property_block_;
   };
 
   class DummyExternalTableBuilder : public ExternalTableBuilder {
    public:
     explicit DummyExternalTableBuilder(const std::string& file_path,
-                                       FSWritableFile* file)
-        : file_(file_path, file) {}
+                                       FSWritableFile* file,
+                                       bool support_property_block)
+        : file_(file_path, file),
+          support_property_block_(support_property_block) {}
 
     void Add(const Slice& key, const Slice& value) override {
       if (!kv_vec_.empty()) {
@@ -6837,6 +6892,13 @@ class ExternalTableReaderTest : public DBTestBase {
 
     uint64_t FileSize() const override { return file_.FileSize(); }
 
+    Status PutPropertiesBlock(const Slice& block) override {
+      if (!support_property_block_) {
+        return Status::NotSupported();
+      }
+      return file_.PutPropertiesBlock(block);
+    }
+
     TableProperties GetTableProperties() const override {
       return file_.GetTableProperties();
     }
@@ -6847,31 +6909,43 @@ class ExternalTableReaderTest : public DBTestBase {
     std::vector<std::pair<std::string, std::string>> kv_vec_;
     DummyExternalTableFile file_;
     Status status_;
+    bool support_property_block_;
   };
 
   class DummyExternalTableFactory : public ExternalTableFactory {
    public:
+    explicit DummyExternalTableFactory(bool support_property_block)
+        : support_property_block_(support_property_block) {}
     const char* Name() const override { return "DummyExternalTableFactory"; }
 
     Status NewTableReader(
         const ReadOptions& /*read_options*/, const std::string& file_path,
-        const ExternalTableOptions& /*topts*/,
+        const ExternalTableOptions& topts,
         std::unique_ptr<ExternalTableReader>* table_reader) const override {
-      table_reader->reset(new DummyExternalTableReader(file_path));
+      // Sanity check some options
+      EXPECT_EQ(topts.file_options.handoff_checksum_type,
+                ChecksumType::kCRC32c);
+      table_reader->reset(
+          new DummyExternalTableReader(file_path, support_property_block_));
       return Status::OK();
     }
 
     ExternalTableBuilder* NewTableBuilder(
         const ExternalTableBuilderOptions& /*opts*/,
         const std::string& file_path, FSWritableFile* file) const override {
-      return new DummyExternalTableBuilder(file_path, file);
+      return new DummyExternalTableBuilder(file_path, file,
+                                           support_property_block_);
     }
+
+   private:
+    bool support_property_block_;
   };
 };
 
-TEST_F(ExternalTableReaderTest, BasicTest) {
+TEST_F(ExternalTableTest, BasicTest) {
   std::shared_ptr<ExternalTableFactory> factory =
-      std::make_shared<DummyExternalTableFactory>();
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/false);
 
   std::string file_path = test::PerThreadDBPath("external_table");
   {
@@ -6917,16 +6991,19 @@ TEST_F(ExternalTableReaderTest, BasicTest) {
   ASSERT_EQ(statuses[1], Status::NotFound());
 }
 
-TEST_F(ExternalTableReaderTest, SstReaderTest) {
+TEST_F(ExternalTableTest, SstReaderTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
   Options options = GetDefaultOptions();
-  std::string dbname = test::PerThreadDBPath("external_table_reader_test");
+  std::string dbname = test::PerThreadDBPath("external_table_test");
   std::string ingest_file = dbname + "test.immutabledb";
   dbname += "_db";
-  // This test doesn't work with some custom Envs, like EncryptedEnv
-  options.env = Env::Default();
 
   std::shared_ptr<ExternalTableFactory> factory =
-      std::make_shared<DummyExternalTableFactory>();
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/false);
   options.table_factory = NewExternalTableFactory(factory);
 
   std::unique_ptr<SstFileWriter> writer;
@@ -6950,17 +7027,56 @@ TEST_F(ExternalTableReaderTest, SstReaderTest) {
   ASSERT_TRUE(iter->status().ok());
 }
 
-TEST_F(ExternalTableReaderTest, DBIterTest) {
+TEST_F(ExternalTableTest, ExternalFileChecksumTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
   Options options = GetDefaultOptions();
-  std::string dbname = test::PerThreadDBPath("external_table_reader_test");
+  std::string dbname = test::PerThreadDBPath("external_table_test");
   std::string ingest_file = dbname + "test.immutable";
   dbname += "_db";
-  // This test doesn't work with some custom Envs, like EncryptedEnv
-  options.env = Env::Default();
   ASSERT_OK(DestroyDB(dbname, options));
 
   std::shared_ptr<ExternalTableFactory> factory =
-      std::make_shared<DummyExternalTableFactory>();
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true);
+  options.table_factory = NewExternalTableFactory(factory);
+
+  // Create a file
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("foo", "bar"));
+  ASSERT_OK(writer->Put("foo2", "bar2"));
+  ExternalSstFileInfo info;
+  ASSERT_OK(writer->Finish(&info));
+  writer.reset();
+
+  FileChecksumGenContext cksum_ctx;
+  FileChecksumGenCrc32c cksum_gen(cksum_ctx);
+  std::string file_data;
+  ASSERT_OK(ReadFileToString(options.env, ingest_file, &file_data));
+  cksum_gen.Update(file_data.data(), file_data.size());
+  cksum_gen.Finalize();
+  ASSERT_EQ(info.file_checksum, cksum_gen.GetChecksum());
+}
+
+TEST_F(ExternalTableTest, DBIterTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  std::string dbname = test::PerThreadDBPath("external_table_test");
+  std::string ingest_file = dbname + "test.immutable";
+  dbname += "_db";
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true);
   options.table_factory = NewExternalTableFactory(factory);
 
   // Create a file
@@ -7004,17 +7120,20 @@ TEST_F(ExternalTableReaderTest, DBIterTest) {
   ASSERT_OK(db->Close());
 }
 
-TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
+TEST_F(ExternalTableTest, DBMultiScanTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
   Options options = GetDefaultOptions();
-  std::string dbname = test::PerThreadDBPath("external_table_reader_test");
+  std::string dbname = test::PerThreadDBPath("external_table_test");
   std::string ingest_file = dbname + "test.immutable";
   dbname += "_db";
-  // This test doesn't work with some custom Envs, like EncryptedEnv
-  options.env = Env::Default();
   ASSERT_OK(DestroyDB(dbname, options));
 
   std::shared_ptr<ExternalTableFactory> factory =
-      std::make_shared<DummyExternalTableFactory>();
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true);
   options.table_factory = NewExternalTableFactory(factory);
 
   // Create a file
@@ -7154,6 +7273,111 @@ TEST_F(ExternalTableReaderTest, DBMultiScanTest) {
   iter.reset();
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
+  ASSERT_OK(db->Close());
+}
+
+TEST_F(ExternalTableTest, IngestionTest) {
+  if (encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-encrypted environment");
+    return;
+  }
+  Options options = GetDefaultOptions();
+  std::string dbname = test::PerThreadDBPath("external_table_test");
+  std::string ingest_file = dbname + "test.immutable";
+  dbname += "_db";
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  std::shared_ptr<ExternalTableFactory> factory =
+      std::make_shared<DummyExternalTableFactory>(
+          /*support_property_block=*/true);
+  options.table_factory = NewExternalTableFactory(factory);
+
+  // Create a file
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("foo", "bar"));
+  ASSERT_OK(writer->Put("foo2", "bar2"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  std::unique_ptr<DB> db;
+  options.create_if_missing = true;
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(options, "new_cf", &cfh));
+
+  IngestExternalFileOptions ifo;
+  ifo.allow_db_generated_files = false;
+  ifo.fill_cache = false;
+  s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
+  ASSERT_OK(s);
+
+  std::unique_ptr<Iterator> iter(db->NewIterator({}, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->value(), "bar");
+  iter->Next();
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->key(), "foo2");
+  ASSERT_EQ(iter->value(), "bar2");
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+  iter.reset();
+
+  // Create an overlapping file to ingest with atomic_replace_range option
+  ingest_file += "2";
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("foo", "val"));
+  ASSERT_OK(writer->Put("foo2", "val2"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  ifo.snapshot_consistency = false;
+  s = db->IngestExternalFiles({{cfh,
+                                {ingest_file},
+                                ifo,
+                                {},
+                                {},
+                                Temperature::kUnknown,
+                                {{nullptr, nullptr}}}});
+  ASSERT_OK(s);
+
+  iter.reset(db->NewIterator({}, cfh));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->value(), "val");
+  iter->Next();
+  ASSERT_TRUE(iter->Valid() && iter->status().ok());
+  ASSERT_EQ(iter->key(), "foo2");
+  ASSERT_EQ(iter->value(), "val2");
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+  iter.reset();
+
+  // Create an overlapping file to ingest without atomic_replace_range option.
+  // This should fail as we don't support ingesting an external file with
+  // non-zero assigned sequence number.
+  ingest_file += "3";
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+  ASSERT_OK(writer->Put("foo", "newval"));
+  ASSERT_OK(writer->Put("foo2", "newval2"));
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  s = db->IngestExternalFiles(
+      {{cfh, {ingest_file}, ifo, {}, {}, Temperature::kUnknown, {}}});
+  ASSERT_EQ(s, Status::NotSupported());
 
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
   ASSERT_OK(db->Close());

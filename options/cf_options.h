@@ -161,6 +161,7 @@ struct MutableCFOptions {
         bottommost_compression(options.bottommost_compression),
         compression_opts(options.compression_opts),
         bottommost_compression_opts(options.bottommost_compression_opts),
+        compression_manager(options.compression_manager),
         last_level_temperature(options.last_level_temperature),
         default_write_temperature(options.default_write_temperature),
         memtable_protection_bytes_per_key(
@@ -174,7 +175,9 @@ struct MutableCFOptions {
         bottommost_file_compaction_delay(
             options.bottommost_file_compaction_delay),
         uncache_aggressiveness(options.uncache_aggressiveness),
-        memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger) {
+        memtable_op_scan_flush_trigger(options.memtable_op_scan_flush_trigger),
+        memtable_avg_op_scan_flush_trigger(
+            options.memtable_avg_op_scan_flush_trigger) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -230,7 +233,8 @@ struct MutableCFOptions {
         memtable_max_range_deletions(0),
         bottommost_file_compaction_delay(0),
         uncache_aggressiveness(0),
-        memtable_op_scan_flush_trigger(0) {}
+        memtable_op_scan_flush_trigger(0),
+        memtable_avg_op_scan_flush_trigger(0) {}
 
   explicit MutableCFOptions(const Options& options);
 
@@ -327,6 +331,7 @@ struct MutableCFOptions {
   CompressionType bottommost_compression;
   CompressionOptions compression_opts;
   CompressionOptions bottommost_compression_opts;
+  std::shared_ptr<CompressionManager> compression_manager;
   Temperature last_level_temperature;
   Temperature default_write_temperature;
   uint32_t memtable_protection_bytes_per_key;
@@ -339,6 +344,7 @@ struct MutableCFOptions {
   uint32_t bottommost_file_compaction_delay;
   uint32_t uncache_aggressiveness;
   uint32_t memtable_op_scan_flush_trigger;
+  uint32_t memtable_avg_op_scan_flush_trigger;
 
   // Derived options
   // Per-level target file size.

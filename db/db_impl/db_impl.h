@@ -1090,10 +1090,7 @@ class DBImpl : public DB {
   void SetSnapshotChecker(SnapshotChecker* snapshot_checker);
 
   // Fill JobContext with snapshot information needed by flush and compaction.
-  void GetSnapshotContext(JobContext* job_context,
-                          std::vector<SequenceNumber>* snapshot_seqs,
-                          SequenceNumber* earliest_write_conflict_snapshot,
-                          SnapshotChecker** snapshot_checker);
+  void InitSnapshotContext(JobContext* job_context);
 
   // Not thread-safe.
   void SetRecoverableStatePreReleaseCallback(PreReleaseCallback* callback);
@@ -2051,14 +2048,13 @@ class DBImpl : public DB {
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful. Then
   // installs a new super version for the column family.
-  Status FlushMemTableToOutputFile(
-      ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-      bool* madeProgress, JobContext* job_context, FlushReason flush_reason,
-      SuperVersionContext* superversion_context,
-      std::vector<SequenceNumber>& snapshot_seqs,
-      SequenceNumber earliest_write_conflict_snapshot,
-      SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
-      Env::Priority thread_pri);
+  Status FlushMemTableToOutputFile(ColumnFamilyData* cfd,
+                                   const MutableCFOptions& mutable_cf_options,
+                                   bool* madeProgress, JobContext* job_context,
+                                   FlushReason flush_reason,
+                                   SuperVersionContext* superversion_context,
+                                   LogBuffer* log_buffer,
+                                   Env::Priority thread_pri);
 
   // Flush the memtables of (multiple) column families to multiple files on
   // persistent storage.
@@ -2577,7 +2573,7 @@ class DBImpl : public DB {
   bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
-  void UpdateDeletionCompactionStats(const std::unique_ptr<Compaction>& c);
+  void UpdateFIFOCompactionStatus(const std::unique_ptr<Compaction>& c);
 
   // May open and read table files for table property.
   // Should not be called while holding mutex_.

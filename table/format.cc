@@ -653,70 +653,81 @@ uint32_t ComputeBuiltinChecksumWithLastByte(ChecksumType type, const char* data,
   }
 }
 
-Status UncompressBlockData(const UncompressionInfo& uncompression_info,
-                           const char* data, size_t size,
-                           BlockContents* out_contents, uint32_t format_version,
+Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
+                           BlockContents* out_contents,
                            const ImmutableOptions& ioptions,
                            MemoryAllocator* allocator) {
-  Status ret = Status::OK();
-
-  assert(uncompression_info.type() != kNoCompression &&
-         "Invalid compression type");
+  assert(args.compression_type != kNoCompression && "Invalid compression type");
 
   StopWatchNano timer(ioptions.clock,
                       ShouldReportDetailedTime(ioptions.env, ioptions.stats));
-  size_t uncompressed_size = 0;
-  const char* error_msg = nullptr;
-  CacheAllocationPtr ubuf = UncompressData(
-      uncompression_info, data, size, &uncompressed_size,
-      GetCompressFormatForVersion(format_version), allocator, &error_msg);
-  if (!ubuf) {
-    if (!CompressionTypeSupported(uncompression_info.type())) {
-      ret = Status::NotSupported(
-          "Unsupported compression method for this build",
-          CompressionTypeToString(uncompression_info.type()));
-    } else {
-      std::ostringstream oss;
-      oss << "Corrupted compressed block contents";
-      if (error_msg) {
-        oss << ": " << error_msg;
-      }
-      ret = Status::Corruption(
-          oss.str(), CompressionTypeToString(uncompression_info.type()));
-    }
-    return ret;
+
+  Status s = decompressor.ExtractUncompressedSize(args);
+  if (UNLIKELY(!s.ok())) {
+    return s;
+  }
+  CacheAllocationPtr ubuf = AllocateBlock(args.uncompressed_size, allocator);
+  s = decompressor.DecompressBlock(args, ubuf.get());
+  if (UNLIKELY(!s.ok())) {
+    return s;
   }
 
-  *out_contents = BlockContents(std::move(ubuf), uncompressed_size);
+  *out_contents = BlockContents(std::move(ubuf), args.uncompressed_size);
 
   if (ShouldReportDetailedTime(ioptions.env, ioptions.stats)) {
     RecordTimeToHistogram(ioptions.stats, DECOMPRESSION_TIMES_NANOS,
                           timer.ElapsedNanos());
   }
-  RecordTick(ioptions.stats, BYTES_DECOMPRESSED_FROM, size);
+  RecordTick(ioptions.stats, BYTES_DECOMPRESSED_FROM,
+             args.compressed_data.size());
   RecordTick(ioptions.stats, BYTES_DECOMPRESSED_TO, out_contents->data.size());
   RecordTick(ioptions.stats, NUMBER_BLOCK_DECOMPRESSED);
 
-  TEST_SYNC_POINT_CALLBACK("UncompressBlockData:TamperWithReturnValue",
-                           static_cast<void*>(&ret));
-  TEST_SYNC_POINT_CALLBACK(
-      "UncompressBlockData:"
-      "TamperWithDecompressionOutput",
-      static_cast<void*>(out_contents));
+  TEST_SYNC_POINT_CALLBACK("DecompressBlockData:TamperWithReturnValue",
+                           static_cast<void*>(&s));
+  TEST_SYNC_POINT_CALLBACK("DecompressBlockData:TamperWithDecompressionOutput",
+                           static_cast<void*>(out_contents));
 
-  return ret;
+  return s;
 }
 
-Status UncompressSerializedBlock(const UncompressionInfo& uncompression_info,
-                                 const char* data, size_t size,
+Status DecompressBlockData(const char* data, size_t size, CompressionType type,
+                           Decompressor& decompressor,
+                           BlockContents* out_contents,
+                           const ImmutableOptions& ioptions,
+                           MemoryAllocator* allocator,
+                           Decompressor::ManagedWorkingArea* working_area) {
+  Decompressor::Args args;
+  args.compressed_data = Slice(data, size);
+  args.compression_type = type;
+  args.working_area = working_area;
+  return DecompressBlockData(args, decompressor, out_contents, ioptions,
+                             allocator);
+}
+
+Status DecompressSerializedBlock(const char* data, size_t size,
+                                 CompressionType type,
+                                 Decompressor& decompressor,
                                  BlockContents* out_contents,
-                                 uint32_t format_version,
                                  const ImmutableOptions& ioptions,
                                  MemoryAllocator* allocator) {
   assert(data[size] != kNoCompression);
-  assert(data[size] == static_cast<char>(uncompression_info.type()));
-  return UncompressBlockData(uncompression_info, data, size, out_contents,
-                             format_version, ioptions, allocator);
+  assert(data[size] == static_cast<char>(type));
+  return DecompressBlockData(data, size, type, decompressor, out_contents,
+                             ioptions, allocator);
+}
+
+Status DecompressSerializedBlock(Decompressor::Args& args,
+                                 Decompressor& decompressor,
+                                 BlockContents* out_contents,
+                                 const ImmutableOptions& ioptions,
+                                 MemoryAllocator* allocator) {
+  assert(args.compressed_data.data()[args.compressed_data.size()] !=
+         kNoCompression);
+  assert(args.compressed_data.data()[args.compressed_data.size()] ==
+         static_cast<char>(args.compression_type));
+  return DecompressBlockData(args, decompressor, out_contents, ioptions,
+                             allocator);
 }
 
 // Replace the contents of db_host_id with the actual hostname, if db_host_id

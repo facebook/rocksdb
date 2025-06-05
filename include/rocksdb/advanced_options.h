@@ -115,6 +115,21 @@ struct CompactionOptionsFIFO {
   // Default: empty
   std::vector<FileTemperatureAge> file_temperature_age_thresholds{};
 
+  // EXPERIMENTAL
+  // If true, when compaction is picked for kChangeTemperature reason,
+  // allow the trivia copy of the sst file from source FileSystem to
+  // destination FileSystem. If false, the changeTemperature will be
+  // the non-trivial copy by iterating/appending blocks by blocks of the
+  // sst file.
+  bool allow_trivial_copy_when_change_temperature = false;
+
+  // EXPERIMENTAL
+  // If 'allow_trivia_copy_op_when_change_temperature=true', the tmp buffer size
+  // to copy the file from the source FileSystem to the destnation FileSystem.
+  // If 'allow_trivia_copy_op_when_change_temperature=false', this field will
+  // not be used. The minmum buffer size must be at least 4KiB
+  uint64_t trivial_copy_buffer_size = 4096;
+
   CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
   CompactionOptionsFIFO(uint64_t _max_table_files_size, bool _allow_compaction)
       : max_table_files_size(_max_table_files_size),
@@ -848,7 +863,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (disable the feature)
   //
-  // Not dynamically changeable, change it requires db restart.
+  // Dynamically changeable through the SetOptions() API
   uint64_t preclude_last_level_data_seconds = 0;
 
   // EXPERIMENTAL
@@ -871,7 +886,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 0 (disable the feature)
   //
-  // Not dynamically changeable, change it requires db restart.
+  // Dynamically changeable through the SetOptions() API
   uint64_t preserve_internal_time_seconds = 0;
 
   // When set, large values (blobs) are written to separate blob files, and
@@ -1106,9 +1121,30 @@ struct AdvancedColumnFamilyOptions {
   // CompactOnDeletionCollectorFactory) together with this option to compact
   // away tombstones after the memtable is flushed.
   //
+  // Note that this option has no effect on tailing iterators yet.
+  //
   // Default: 0 (disabled)
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_op_scan_flush_trigger = 0;
+
+  // Similar to `memtable_op_scan_flush_trigger`, but this option applies to
+  // Next() calls between Seeks or until iterator destruction. If the average
+  // of the number of invisible entries scanned from the active memtable, the
+  // memtable will be marked for flush.
+  // Note that to avoid the case where the window between Seeks is too small,
+  // the option only takes effect if the total number of hidden entries scanned
+  // within a window is at least `memtable_op_scan_flush_trigger`. So this
+  // option is only effective when `memtable_op_scan_flush_trigger` is set.
+  //
+  // This option should be set to a lower value than
+  // `memtable_op_scan_flush_trigger`. It covers the case where an iterator
+  // scans through an expensive key range with many invisible entries from the
+  // active memtable, but the number of invisible entries per operation does not
+  // exceed `memtable_op_scan_flush_trigger`.
+  //
+  // Default: 0 (disabled)
+  // Dynamically changeable through the SetOptions() API.
+  uint32_t memtable_avg_op_scan_flush_trigger = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

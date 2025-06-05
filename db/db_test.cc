@@ -144,6 +144,103 @@ TEST_F(DBTest, MockEnvTest) {
   delete db;
 }
 
+TEST_F(DBTest, RequestIdPlumbingTest) {
+  // test that request_id is passed to the filesystem, from
+  // ReadOptions to IODebugContext
+  Options options = CurrentOptions();
+  options.env = env_;
+
+  // Create a mock environment to capture IODebugContext during reads
+  const std::string* captured_request_id_dbg;
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::Read:IODebugContext", [&](void* arg) {
+        IODebugContext* dbg = static_cast<IODebugContext*>(arg);
+        if (dbg == nullptr) {
+          captured_request_id_dbg = nullptr;
+        } else {
+          captured_request_id_dbg = dbg->request_id;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Flush());
+
+  // test request_id plumbing during a get
+  {
+    const std::string test_request_id = "test_request_id_123";
+    ReadOptions read_opts;
+    read_opts.request_id = &test_request_id;
+    std::string value;
+    ASSERT_OK(db_->Get(read_opts, "k1", &value));
+
+    // Verify the request_id was propagated to the file system
+    ASSERT_NE(captured_request_id_dbg, nullptr);
+    ASSERT_EQ(*captured_request_id_dbg, test_request_id);
+  }
+
+  captured_request_id_dbg = nullptr;
+
+  // test request_id plumbing during iterator seek
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+  {
+    ReadOptions read_opts;
+    const std::string request_id = "test_request_id_456";
+    read_opts.request_id = &request_id;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    iter->Seek("k2");
+    ASSERT_TRUE(iter->Valid());
+
+    // Verify the request_id was propagated to the file system
+    ASSERT_NE(captured_request_id_dbg, nullptr);
+    ASSERT_EQ(*captured_request_id_dbg, request_id);
+  }
+
+  // test request_id plumbing during multiget
+  captured_request_id_dbg = nullptr;
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "RandomAccessFileReader::MultiRead:IODebugContext", [&](void* arg) {
+        IODebugContext* dbg = static_cast<IODebugContext*>(arg);
+        if (dbg == nullptr) {
+          captured_request_id_dbg = nullptr;
+        } else {
+          captured_request_id_dbg = dbg->request_id;
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("k3", "v3"));
+  ASSERT_OK(Put("k4", "v4"));
+  ASSERT_OK(Flush());
+
+  {
+    ReadOptions read_opts;
+    const std::string multiget_request_id = "test_request_id_789";
+    read_opts.request_id = &multiget_request_id;
+
+    std::vector<std::string> values;
+    std::vector<Slice> keys = {Slice("k3"), Slice("k4")};
+
+    values.resize(keys.size());
+
+    std::vector<ColumnFamilyHandle*> cfhs(keys.size(),
+                                          db_->DefaultColumnFamily());
+    db_->MultiGet(read_opts, cfhs, keys, &values);
+
+    ASSERT_NE(captured_request_id_dbg, nullptr);
+    ASSERT_EQ(*captured_request_id_dbg, multiget_request_id);
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(DBTest, MemEnvTest) {
   std::unique_ptr<Env> env{NewMemEnv(Env::Default())};
   Options options;

@@ -52,6 +52,14 @@ jobs:
       run: make check-buck-targets
     - name: Simple source code checks
       run: make check-sources
+    - name: Sanity check check_format_compatible.sh
+      run: |-
+        export TEST_TMPDIR=/dev/shm/rocksdb
+        rm -rf /dev/shm/rocksdb
+        mkdir /dev/shm/rocksdb
+        git reset --hard
+        git config --global --add safe.directory /__w/rocksdb/rocksdb
+        SANITY_CHECK=1 LONG_TEST=1 tools/check_format_compatible.sh
   # ========================= Linux With Tests ======================== #
   build-linux:
     if: ${{ github.repository_owner == 'facebook' }}
