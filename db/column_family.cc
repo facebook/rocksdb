@@ -1713,6 +1713,7 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const std::string& db_id,
                                  const std::string& db_session_id)
     : max_column_family_(0),
+      num_cf_may_buffer_mem_writes_(0),
       file_options_(file_options),
       dummy_cfd_(new ColumnFamilyData(
           ColumnFamilyData::kDummyColumnFamilyDataId, "", nullptr, nullptr,
@@ -1815,6 +1816,8 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   if (id == 0) {
     default_cfd_cache_ = new_cfd;
   }
+  // Both are immutable options
+  num_cf_may_buffer_mem_writes_ += options.memtable_factory->MayBufferWrites();
   return new_cfd;
 }
 
@@ -1827,6 +1830,8 @@ void ColumnFamilySet::RemoveColumnFamily(ColumnFamilyData* cfd) {
   column_families_.erase(cfd->GetName());
   running_ts_sz_.erase(cf_id);
   ts_sz_for_record_.erase(cf_id);
+  num_cf_may_buffer_mem_writes_ -=
+      cfd->ioptions().memtable_factory->MayBufferWrites();
 }
 
 // under a DB mutex OR from a write thread

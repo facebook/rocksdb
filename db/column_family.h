@@ -792,6 +792,11 @@ class ColumnFamilySet {
 
   WriteController* write_controller() { return write_controller_; }
 
+  // REQUIRES: under a DB mutex OR from a write thread
+  bool CFMayBufferMemtableWrite() const {
+    return num_cf_may_buffer_mem_writes_;
+  }
+
  private:
   friend class ColumnFamilyData;
   // helper function that gets called from cfd destructor
@@ -818,6 +823,7 @@ class ColumnFamilySet {
   UnorderedMap<uint32_t, size_t> ts_sz_for_record_;
 
   uint32_t max_column_family_;
+  uint32_t num_cf_may_buffer_mem_writes_;
   const FileOptions file_options_;
 
   ColumnFamilyData* dummy_cfd_;
@@ -923,6 +929,15 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
   ColumnFamilyData* current() override { return current_; }
+
+  // REQUIRES: under a DB mutex OR from a write thread
+  void WriteOutBufferedMemTableEntries() override {
+    if (column_family_set_->CFMayBufferMemtableWrite()) {
+      for (auto* cfd : *column_family_set_) {
+        cfd->mem()->WriteOutBufferedEntries();
+      }
+    }
+  }
 
  private:
   ColumnFamilySet* column_family_set_;

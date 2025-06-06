@@ -30,6 +30,31 @@ class VectorRep : public MemTableRep {
   // collection.
   void Insert(KeyHandle handle) override;
 
+  void WriteOutBufferedEntries() override {
+    auto v = static_cast<std::vector<const char*>*>(tl_bufferred_writes_.Get());
+    if (v) {
+      {
+        WriteLock l(&rwlock_);
+        assert(!immutable_);
+        for (auto& key : *v) {
+          bucket_->push_back(key);
+        }
+      }
+      v->clear();
+      v->shrink_to_fit();
+    }
+  }
+
+  void InsertConcurrently(KeyHandle handle) override {
+    void* v = tl_bufferred_writes_.Get();
+    if (!v) {
+      v = new std::vector<const char*>();
+      tl_bufferred_writes_.Reset(v);
+    }
+    static_cast<std::vector<const char*>*>(v)->push_back(
+        static_cast<char*>(handle));
+  };
+
   // Returns true iff an entry that compares equal to key is in the collection.
   bool Contains(const char* key) const override;
 
@@ -106,6 +131,8 @@ class VectorRep : public MemTableRep {
   bool immutable_;
   bool sorted_;
   const KeyComparator& compare_;
+  // Thread-local vector to buffer concurrent writes.
+  ThreadLocalPtr tl_bufferred_writes_;
 };
 
 void VectorRep::Insert(KeyHandle handle) {
@@ -133,13 +160,19 @@ size_t VectorRep::ApproximateMemoryUsage() {
                  std::remove_reference<decltype(*bucket_)>::type::value_type);
 }
 
+void delete_vector(void* ptr) {
+  std::vector<const char*>* v = static_cast<std::vector<const char*>*>(ptr);
+  delete v;
+}
+
 VectorRep::VectorRep(const KeyComparator& compare, Allocator* allocator,
                      size_t count)
     : MemTableRep(allocator),
       bucket_(new Bucket()),
       immutable_(false),
       sorted_(false),
-      compare_(compare) {
+      compare_(compare),
+      tl_bufferred_writes_(delete_vector) {
   bucket_.get()->reserve(count);
 }
 

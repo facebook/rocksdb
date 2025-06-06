@@ -3240,6 +3240,7 @@ Status WriteBatchInternal::InsertInto(
     assert(!seq_per_batch || w->batch_cnt != 0);
     assert(!seq_per_batch || inserter.sequence() - w->sequence == w->batch_cnt);
   }
+  memtables->WriteOutBufferedMemTableEntries();
   return Status::OK();
 }
 
@@ -3264,6 +3265,7 @@ Status WriteBatchInternal::InsertInto(
   inserter.set_log_number_ref(writer->log_ref);
   inserter.set_prot_info(writer->batch->prot_info_.get());
   Status s = writer->batch->Iterate(&inserter);
+  memtables->WriteOutBufferedMemTableEntries();
   assert(!seq_per_batch || batch_cnt != 0);
   assert(!seq_per_batch || inserter.sequence() - sequence == batch_cnt);
   if (concurrent_memtable_writes) {
@@ -3285,6 +3287,7 @@ Status WriteBatchInternal::InsertInto(
                             concurrent_memtable_writes, batch->prot_info_.get(),
                             has_valid_writes, seq_per_batch, batch_per_txn);
   Status s = batch->Iterate(&inserter);
+  memtables->WriteOutBufferedMemTableEntries();
   if (next_seq != nullptr) {
     *next_seq = inserter.sequence();
   }

@@ -561,6 +561,8 @@ class MemTable final : public ReadOnlyMemTable {
 
   ~MemTable() override;
 
+  void WriteOutBufferedEntries() { table_->WriteOutBufferedEntries(); }
+
   const char* Name() const override { return "MemTable"; }
 
   size_t ApproximateMemoryUsage() override;
