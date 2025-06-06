@@ -1056,6 +1056,11 @@ IOStatus PosixMmapReadableFile::InvalidateCache(size_t offset, size_t length) {
 #endif
 }
 
+IOStatus PosixMmapReadableFile::GetFileSize(uint64_t* result) {
+  *result = length_;
+  return IOStatus::OK();
+}
+
 /*
  * PosixMmapFile
  *

@@ -909,6 +909,13 @@ class FSRandomAccessFile {
     return IOStatus::NotSupported("Prefetch");
   }
 
+  // Get the file size. The default implementation is not supported, as some of
+  // the file systems are not defined in this repo. Sub classes which use this
+  // function are suppose to override it.
+  virtual IOStatus GetFileSize(uint64_t* /*result*/) {
+    return IOStatus::NotSupported("GetFileSize");
+  }
+
   // Read a bunch of blocks as described by reqs. The blocks can
   // optionally be read in parallel. This is a synchronous call, i.e it
   // should return after all reads have completed. The reads will be
