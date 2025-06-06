@@ -14,10 +14,53 @@
 #include "rocksdb/advanced_compression.h"
 namespace ROCKSDB_NAMESPACE {
 
+bool ModelRejectionRatio::Record(std::string* compressed_output,
+                                 CompressionType* out_compression_type) {
+  if (*out_compression_type == kNoCompression && compressed_output->empty()) {
+    rejected_count_++;
+  } else if (*out_compression_type == kNoCompression) {
+    compressed_count_++;
+  } else {
+    bypassed_count_++;
+  }
+  return true;
+}
+
+// WindowRejectionModel Implementation
+// WindowRejectionModel::WindowRejectionModel(int window_size)
+// : window_size_(window_size) {}
+
+int WindowRejectionModel::Predict() const {
+  // Implement window-based prediction logic
+  return ModelRejectionRatio::Predict();
+}
+
+// void WindowRejectionModel::SetPrediction(
+//     int pred_rejection) {  // Implement window-based prediction setting logic
+//   ModelRejectionRatio::SetPrediction(pred_rejection);
+// }
+
+bool WindowRejectionModel::Record(std::string* compressed_output,
+                                  CompressionType* out_compression_type) {
+  // Implement window-based recording logic
+  auto status =
+      ModelRejectionRatio::Record(compressed_output, out_compression_type);
+  attempted_compression_count_++;
+  if (attempted_compression_count_ >= window_size_) {
+    pred_rejection_percentage_ =
+        rejected_count_ * 100 / attempted_compression_count_;
+    attempted_compression_count_ = 0;
+    compressed_count_ = 0;
+    rejected_count_ = 0;
+    bypassed_count_ = 0;
+  }
+  return status;
+}
+
 AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
     const CompressionOptions& opts, CompressionType type,
     CompressionDict&& dict)
-    : rejected_count_(0), compressed_count_(0), bypassed_count_(0), rnd_(331) {
+    : rnd_(331), model_(std::make_shared<WindowRejectionModel>(100)) {
   assert(type != kNoCompression);
   auto builtInManager = GetDefaultBuiltinCompressionManager();
   const auto& compressions = GetSupportedCompressions();
@@ -69,21 +112,22 @@ Status AutoSkipCompressorWrapper::CompressBlock(
         uncompressed_data, compressed_output, out_compression_type, wa);
     // check the value of the out_compression_type and compressed_output to
     // determine if it was rejected or compressed
-    RecordUpdatePred(compressed_output, out_compression_type);
+    model_->Record(compressed_output, out_compression_type);
     return status;
   } else {
+    auto prediction = model_->Predict();
     fprintf(stdout,
             "[AutoSkipCompressorWrapper::CompressBlock] selected: exploit "
             "pred_rejection: %d\n",
-            pred_rejection_percentage_);
-    if (pred_rejection_percentage_ >= 50) {
+            prediction);
+    if (prediction >= 50) {
       // decide to compress
       // check the value of the out_compression_type and compressed_output to
       auto& compressor = compressors_[selected];
       Status status = compressor->CompressBlock(
           uncompressed_data, compressed_output, out_compression_type, wa);
       // determine if it was rejected or compressed
-      RecordUpdatePred(compressed_output, out_compression_type);
+      model_->Record(compressed_output, out_compression_type);
       return status;
     } else {
       // bypassed compression
@@ -92,44 +136,7 @@ Status AutoSkipCompressorWrapper::CompressBlock(
       return Status::OK();
     }
   }
-}
-
-bool AutoSkipCompressorWrapper::RecordUpdatePred(
-    std::string* compressed_output, CompressionType* out_compression_type) {
-  if (attempted_compression_count_ >= 100) {
-    // make prediction
-    pred_rejection_percentage_ =
-        rejected_count_ * 100 / attempted_compression_count_;
-    attempted_compression_count_ = 0;
-    compressed_count_ = 0;
-    rejected_count_ = 0;
-    bypassed_count_ = 0;
-  }
-  if (*out_compression_type == kNoCompression && compressed_output->empty()) {
-    rejected_count_++;
-  } else if (*out_compression_type == kNoCompression) {
-    compressed_count_++;
-  } else {
-    bypassed_count_++;
-  }
-  attempted_compression_count_++;
-  return true;
-}
-size_t AutoSkipCompressorWrapper::GetRejectedCount() const {
-  return rejected_count_;
-}
-
-size_t AutoSkipCompressorWrapper::GetCompressedCount() const {
-  return compressed_count_;
-}
-
-size_t AutoSkipCompressorWrapper::GetBypassedCount() const {
-  return bypassed_count_;
-}
-
-double AutoSkipCompressorWrapper::GetPredRejectionRatio() const {
-  return static_cast<double>(rejected_count_) /
-         (rejected_count_ + compressed_count_ + bypassed_count_);
+  return Status::OK();
 }
 
 const char* AutoSkipCompressorManager::Name() const {

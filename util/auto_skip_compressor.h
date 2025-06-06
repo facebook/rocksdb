@@ -16,7 +16,40 @@
 #include "rocksdb/advanced_compression.h"
 
 namespace ROCKSDB_NAMESPACE {
+// Predicts Rejection Ratio for a window size algorithm
+class ModelRejectionRatio {
+ public:
+  ModelRejectionRatio()
+      : pred_rejection_percentage_(0),
+        rejected_count_(0),
+        compressed_count_(0),
+        bypassed_count_(0){};
+  virtual ~ModelRejectionRatio() = default;
+  virtual int Predict() const { return pred_rejection_percentage_; };
+  inline void SetPrediction(int pred_rejection) {
+    pred_rejection_percentage_ = pred_rejection;
+  };
+  virtual bool Record(std::string* compressed_output,
+                      CompressionType* out_compression_type);
 
+ protected:
+  int pred_rejection_percentage_;
+  size_t rejected_count_;
+  size_t compressed_count_;
+  size_t bypassed_count_;
+};
+class WindowRejectionModel : public ModelRejectionRatio {
+ public:
+  WindowRejectionModel(int window_size)
+      : ModelRejectionRatio::ModelRejectionRatio(), window_size_(window_size){};
+  virtual int Predict() const override;
+  virtual bool Record(std::string* compressed_output,
+                      CompressionType* out_compression_type) override;
+
+ protected:
+  const size_t window_size_;
+  size_t attempted_compression_count_;
+};
 class AutoSkipCompressorWrapper : public Compressor {
  public:
   explicit AutoSkipCompressorWrapper(const CompressionOptions& opts,
@@ -44,14 +77,10 @@ class AutoSkipCompressorWrapper : public Compressor {
 
  private:
   std::vector<std::unique_ptr<Compressor>> compressors_;
-  int pred_rejection_percentage_;
   int min_exploration_percentage_;
-  size_t attempted_compression_count_;
-  size_t rejected_count_;
-  size_t compressed_count_;
-  size_t bypassed_count_;
   mutable std::mutex mutex_;
   Random rnd_;
+  std::shared_ptr<ModelRejectionRatio> model_;
 };
 
 class AutoSkipCompressorManager : public CompressionManagerWrapper {
