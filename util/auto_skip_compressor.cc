@@ -16,12 +16,14 @@ namespace ROCKSDB_NAMESPACE {
 
 bool ModelRejectionRatio::Record(std::string* compressed_output,
                                  CompressionType* out_compression_type) {
-  if (*out_compression_type == kNoCompression && compressed_output->empty()) {
+  // block_nased_table_builder line no 1379
+  auto compression_attempted = !compressed_output->empty();
+  if (*out_compression_type == kNoCompression && compression_attempted) {
     rejected_count_++;
   } else if (*out_compression_type == kNoCompression) {
-    compressed_count_++;
-  } else {
     bypassed_count_++;
+  } else {
+    compressed_count_++;
   }
   return true;
 }
@@ -47,8 +49,11 @@ bool WindowRejectionModel::Record(std::string* compressed_output,
       ModelRejectionRatio::Record(compressed_output, out_compression_type);
   attempted_compression_count_++;
   if (attempted_compression_count_ >= window_size_) {
-    pred_rejection_percentage_ =
-        rejected_count_ * 100 / attempted_compression_count_;
+    pred_rejection_percentage_ = static_cast<int>(
+        rejected_count_ * 100 / (compressed_count_ + rejected_count_));
+    // fprintf(stdout,
+    //         "[WindowRejectionModel::Record] pred_rejection_percentage_:
+    //         %d\n", pred_rejection_percentage_);
     attempted_compression_count_ = 0;
     compressed_count_ = 0;
     rejected_count_ = 0;

@@ -72,8 +72,6 @@ class AutoSkipCompressorWrapper : public Compressor {
   size_t GetCompressedCount() const;
   size_t GetBypassedCount() const;
   double GetPredRejectionRatio() const;
-  bool RecordUpdatePred(std::string* compressed_output,
-                        CompressionType* out_compression_type);
 
  private:
   std::vector<std::unique_ptr<Compressor>> compressors_;

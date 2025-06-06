@@ -79,6 +79,88 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManagerAliveTest) {
     ASSERT_NE(Get(Key(i)), "NOT_FOUND");
     ASSERT_EQ(Get(Key(i)), values[i]);
   }
+
+  // Write test code to
+}
+// test case just to make sure auto compression manager is working
+TEST_F(DBAutoSkip, AutoSkipCompressionManagerEnablesCompression) {
+  // Start with prediction of 0
+  Random rnd(301);
+  std::vector<std::string> values;
+  std::string value;
+  test::CompressibleString(&rnd, 0.1, 20000, &value);
+  constexpr int kCount = 100;
+  for (int i = 0; i < kCount; ++i) {
+    values.push_back(value);
+    ASSERT_OK(Put(Key(i), value));
+    ASSERT_EQ(Get(Key(i)), value);
+  }
+  ASSERT_OK(Flush());
+  // Ensure well-formed for reads
+}
+// test case just to make sure auto compression manager is working
+TEST_F(DBAutoSkip, AutoSkipCompressionManagerDisablesCompression) {
+  // Start with prediction of 1
+  Random rnd(301);
+  std::vector<std::string> values;
+  constexpr int kCount = 100;
+  for (int i = 0; i < kCount; ++i) {
+    std::string value;
+    ASSERT_OK(Put(Key(i), value));
+    ASSERT_EQ(Get(Key(i)), value);
+  }
+  ASSERT_OK(Flush());
+  // Test the compression is disabled
+}
+TEST(WindowRejectionModelTest, CorrectPrediction) {
+  WindowRejectionModel model_(10);
+  // Test ability to cold start
+  model_.SetPrediction(20);
+  auto prediction = model_.Predict();
+  EXPECT_EQ(prediction, 20);
+  // set window 10, 5 rejection , 5 compression -> should get predicted
+  // 5 bypass
+  for (auto i = 0; i < 5; i++) {
+    std::string compressed_string("blah");
+    CompressionType type_ = kZSTD;
+    model_.Record(&compressed_string, &type_);
+  }
+  // rejection of 0.5 after 5 rejection
+  for (auto i = 0; i < 5; i++) {
+    std::string compressed_string("blah");
+    CompressionType type_ = kNoCompression;
+    model_.Record(&compressed_string, &type_);
+  }
+  prediction = model_.Predict();
+  EXPECT_EQ(prediction, 50);
+  // 8 compressed
+  for (auto i = 0; i < 8; i++) {
+    std::string compressed_string("blah");
+    CompressionType type_ = kZSTD;
+    model_.Record(&compressed_string, &type_);
+  }
+  // 2 rejection
+  for (auto i = 0; i < 2; i++) {
+    std::string compressed_string("blah");
+    CompressionType type_ = kNoCompression;
+    model_.Record(&compressed_string, &type_);
+  }
+  prediction = model_.Predict();
+  EXPECT_EQ(prediction, 20);
+  // 2 compressed
+  for (auto i = 0; i < 2; i++) {
+    std::string compressed_string("blah");
+    CompressionType type_ = kZSTD;
+    model_.Record(&compressed_string, &type_);
+  }
+  // 8 rejection
+  for (auto i = 0; i < 8; i++) {
+    std::string compressed_string("blah");
+    CompressionType type_ = kNoCompression;
+    model_.Record(&compressed_string, &type_);
+  }
+  prediction = model_.Predict();
+  EXPECT_EQ(prediction, 80);
 }
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
