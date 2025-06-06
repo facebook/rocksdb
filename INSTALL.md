@@ -123,7 +123,7 @@ most processors made since roughly 2013.
 
 * **OS X**:
     * Install latest C++ compiler that supports C++ 17:
-        * Update XCode:  run `xcode-select --install` (or install it from XCode App's settting).
+        * Update XCode:  run `xcode-select --install` (or install it from XCode App's setting).
         * Install via [homebrew](http://brew.sh/).
             * If you're first time developer in MacOS, you still need to run: `xcode-select --install` in your command line.
     * run `brew install rocksdb`
