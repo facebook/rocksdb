@@ -4637,7 +4637,7 @@ class Benchmark {
       options.compression = kZSTD;
       options.bottommost_compression = kZSTD;
       auto mgr = std::make_shared<RoundRobinManager>(
-          std::move(GetDefaultBuiltinCompressionManager()));
+          GetDefaultBuiltinCompressionManager());
       options.compression_manager = mgr;
     } else {
       options.compression = FLAGS_compression_type_e;
