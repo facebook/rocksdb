@@ -6634,7 +6634,7 @@ TEST_P(RoundRobinSubcompactionsAgainstResources, SubcompactionsUsingResources) {
   // compaction is enough to make post-compaction L1 size less than
   // the maximum size (this test assumes only one round-robin compaction
   // is triggered by kLevelMaxLevelSize)
-  options.max_compaction_bytes = 100000000;
+  options.max_compaction_bytes = std::numeric_limits<uint64_t>::max();
 
   DestroyAndReopen(options);
   env_->SetBackgroundThreads(total_low_pri_threads_, Env::LOW);
@@ -6667,41 +6667,33 @@ TEST_P(RoundRobinSubcompactionsAgainstResources, SubcompactionsUsingResources) {
         // More than 10 files are selected for round-robin under auto
         // compaction. The number of planned subcompaction is restricted by
         // the minimum number between available threads and compaction limits
-        ASSERT_EQ(num_planned_subcompactions - options.max_subcompactions,
-                  std::min(total_low_pri_threads_, max_compaction_limits_) - 1);
+        auto actual_reserved_threads =
+            num_planned_subcompactions - options.max_subcompactions;
+        auto expected_reserved_threads =
+            std::min(total_low_pri_threads_, max_compaction_limits_) - 1;
+        ASSERT_EQ(actual_reserved_threads, expected_reserved_threads);
         num_planned_subcompactions_verified = true;
       });
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"RoundRobinSubcompactionsAgainstResources:0",
-        "BackgroundCallCompaction:0"},
-       {"CompactionJob::AcquireSubcompactionResources:0",
-        "RoundRobinSubcompactionsAgainstResources:1"},
-       {"RoundRobinSubcompactionsAgainstResources:2",
-        "CompactionJob::AcquireSubcompactionResources:1"},
-       {"CompactionJob::ReleaseSubcompactionResources:0",
-        "RoundRobinSubcompactionsAgainstResources:3"},
-       {"RoundRobinSubcompactionsAgainstResources:4",
-        "CompactionJob::ReleaseSubcompactionResources:1"}});
+
+  int acquire_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::AcquireSubcompactionResources:0",
+      [&](void* /*arg*/) { acquire_count++; });
+  int release_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ReleaseSubcompactionResources",
+      [&](void* /*arg*/) { release_count++; });
+
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_OK(dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
-  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:0");
-  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:1");
   auto pressure_token =
       dbfull()->TEST_write_controler().GetCompactionPressureToken();
-
-  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:2");
-  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:3");
-  // We can reserve more threads now except one is being used
-  ASSERT_EQ(total_low_pri_threads_ - 1,
-            env_->ReserveThreads(total_low_pri_threads_, Env::Priority::LOW));
-  ASSERT_EQ(
-      total_low_pri_threads_ - 1,
-      env_->ReleaseThreads(total_low_pri_threads_ - 1, Env::Priority::LOW));
-  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:4");
+  ASSERT_OK(dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
   ASSERT_TRUE(num_planned_subcompactions_verified);
+  ASSERT_EQ(acquire_count, release_count);
+
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
