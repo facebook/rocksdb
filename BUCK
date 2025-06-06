@@ -4476,6 +4476,12 @@ cpp_unittest_wrapper(name="auto_roll_logger_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="auto_skip_compressor_test",
+            srcs=["test_util/auto_skip_compressor_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="autovector_test",
             srcs=["util/autovector_test.cc"],
             deps=[":rocksdb_test_lib"],

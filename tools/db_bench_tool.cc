@@ -76,6 +76,7 @@
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
 #include "tools/simulated_hybrid_file_system.h"
+#include "util/auto_skip_compressor.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -2897,14 +2898,13 @@ class Benchmark {
     }
     // mixed compression expect to be zstd
     auto compression = std::string("zstd");
-    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
-      fprintf(stdout, "Compression manager: mixed\n");
-      fprintf(stdout, "Compression: zstd\n");
-    } else {
-      fprintf(stdout, "Compression manager: none\n");
+    if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
       compression = CompressionTypeToString(FLAGS_compression_type_e);
-      fprintf(stdout, "Compression: %s\n", compression.c_str());
+    } else {
+      fprintf(stdout, "Compression manager: %s\n",
+              FLAGS_compression_manager.c_str());
     }
+    fprintf(stdout, "Compression: %s\n", compression.c_str());
     fprintf(stdout, "Compression sampling rate: %" PRId64 "\n",
             FLAGS_sample_for_compression);
     if (options.memtable_factory != nullptr) {
@@ -4628,7 +4628,9 @@ class Benchmark {
         FLAGS_level0_file_num_compaction_trigger;
     options.level0_slowdown_writes_trigger =
         FLAGS_level0_slowdown_writes_trigger;
-    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+    if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
+      options.compression = FLAGS_compression_type_e;
+    } else {
       // Need to list zstd in the compression_name table property if it's
       // potentially used by being in the mix (i.e., potentially at least one
       // data block in the table is compressed by zstd). This ensures proper
@@ -4636,11 +4638,19 @@ class Benchmark {
       // versions.
       options.compression = kZSTD;
       options.bottommost_compression = kZSTD;
-      auto mgr = std::make_shared<RoundRobinManager>(
-          std::move(GetDefaultBuiltinCompressionManager()));
+      std::shared_ptr<CompressionManagerWrapper> mgr;
+      if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+        mgr = std::make_shared<RoundRobinManager>(
+            GetDefaultBuiltinCompressionManager());
+      } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
+        mgr = std::make_shared<AutoSkipCompressorManager>(
+            std::move(GetDefaultBuiltinCompressionManager()));
+      } else {
+        // not defined -> exite with error
+        fprintf(stderr, "Requested compression manager not supported");
+        ErrorExit();
+      }
       options.compression_manager = mgr;
-    } else {
-      options.compression = FLAGS_compression_type_e;
     }
 
     if (FLAGS_simulate_hybrid_fs_file != "") {
