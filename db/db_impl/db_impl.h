@@ -804,10 +804,6 @@ class DBImpl : public DB {
   // being detected.
   const Snapshot* GetSnapshotForWriteConflictBoundary();
 
-  // checks if all live files exist on file system and that their file sizes
-  // match to our in-memory records
-  virtual Status CheckConsistency();
-
   // max_file_num_to_ignore allows bottom level compaction to filter out newly
   // compacted SST files. Setting max_file_num_to_ignore to kMaxUint64 will
   // disable the filtering

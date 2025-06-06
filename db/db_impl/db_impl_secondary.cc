@@ -49,9 +49,6 @@ Status DBImplSecondary::Recover(
     }
     return s;
   }
-  if (immutable_db_options_.paranoid_checks && s.ok()) {
-    s = CheckConsistency();
-  }
   // Initial max_total_in_memory_state_ before recovery logs.
   max_total_in_memory_state_ = 0;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -651,49 +648,6 @@ Status DBImplSecondary::NewIterators(
     }
   }
   return Status::OK();
-}
-
-Status DBImplSecondary::CheckConsistency() {
-  mutex_.AssertHeld();
-  Status s = DBImpl::CheckConsistency();
-  // If DBImpl::CheckConsistency() which is stricter returns success, then we
-  // do not need to give a second chance.
-  if (s.ok()) {
-    return s;
-  }
-  // It's possible that DBImpl::CheckConssitency() can fail because the primary
-  // may have removed certain files, causing the GetFileSize(name) call to
-  // fail and returning a PathNotFound. In this case, we take a best-effort
-  // approach and just proceed.
-  TEST_SYNC_POINT_CALLBACK(
-      "DBImplSecondary::CheckConsistency:AfterFirstAttempt", &s);
-
-  if (immutable_db_options_.skip_checking_sst_file_sizes_on_db_open) {
-    return Status::OK();
-  }
-
-  std::vector<LiveFileMetaData> metadata;
-  versions_->GetLiveFilesMetaData(&metadata);
-
-  std::string corruption_messages;
-  for (const auto& md : metadata) {
-    // md.name has a leading "/".
-    std::string file_path = md.db_path + md.name;
-
-    uint64_t fsize = 0;
-    s = env_->GetFileSize(file_path, &fsize);
-    if (!s.ok() &&
-        (env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok() ||
-         s.IsPathNotFound())) {
-      s = Status::OK();
-    }
-    if (!s.ok()) {
-      corruption_messages +=
-          "Can't access " + md.name + ": " + s.ToString() + "\n";
-    }
-  }
-  return corruption_messages.empty() ? Status::OK()
-                                     : Status::Corruption(corruption_messages);
 }
 
 Status DBImplSecondary::TryCatchUpWithPrimary() {
