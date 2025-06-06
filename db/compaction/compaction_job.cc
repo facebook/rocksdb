@@ -839,8 +839,7 @@ Status CompactionJob::Run() {
   }
 
   ReleaseSubcompactionResources();
-  TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources:0");
-  TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources:1");
+  TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources");
 
   for (const auto& state : compact_->sub_compact_states) {
     for (const auto& output : state.GetOutputs()) {
