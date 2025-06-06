@@ -98,6 +98,12 @@ class MemTableRep {
   // collection, and no concurrent modifications to the table in progress
   virtual void Insert(KeyHandle handle) = 0;
 
+  // Write out any buffered writes to the memtable rep. Currently VectorRep
+  // buffers updates from InsertConcurrently.
+  //
+  // Thread-safe.
+  virtual void WriteOutBufferedEntries() {}
+
   // Same as ::Insert
   // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
   // the <key, seq> already exists.
@@ -359,6 +365,8 @@ class MemTableRepFactory : public Customizable {
   // false when if the <key,seq> already exists.
   // Default: false
   virtual bool CanHandleDuplicatedKey() const { return false; }
+
+  virtual bool MayBufferWrites() const { return false; }
 };
 
 // This uses a skip list to store keys. It is the default.
@@ -412,6 +420,9 @@ class VectorRepFactory : public MemTableRepFactory {
   static const char* kNickName() { return "vector"; }
   const char* Name() const override { return kClassName(); }
   const char* NickName() const override { return kNickName(); }
+
+  bool IsInsertConcurrentlySupported() const override { return true; }
+  bool MayBufferWrites() const override { return true; }
 
   // Methods for MemTableRepFactory class overrides
   using MemTableRepFactory::CreateMemTableRep;

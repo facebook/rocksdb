@@ -39,6 +39,7 @@ class ColumnFamilyMemTables {
   virtual MemTable* GetMemTable() const = 0;
   virtual ColumnFamilyHandle* GetColumnFamilyHandle() = 0;
   virtual ColumnFamilyData* current() { return nullptr; }
+  virtual void WriteOutBufferedMemTableEntries() {};
 };
 
 class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
