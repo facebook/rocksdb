@@ -41,20 +41,22 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBAutoSkip : public DBTestBase {
  public:
-  DBAutoSkip() : DBTestBase("db_auto_skip", /*env_do_fsync=*/true) {}
+  DBAutoSkip() : DBTestBase("db_auto_skip", /*env_do_fsync=*/true) {
+    Options options = CurrentOptions();
+    options.compression = kZSTD;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+    BlockBasedTableOptions bbto;
+    bbto.enable_index_compression = false;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    auto mgr = std::make_shared<AutoSkipCompressorManager>(
+        GetDefaultBuiltinCompressionManager());
+    options.compression_manager = mgr;
+    DestroyAndReopen(options);
+  }
 };
-TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
-  Options options = CurrentOptions();
-  options.compression = kZSTD;
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
-  BlockBasedTableOptions bbto;
-  bbto.enable_index_compression = false;
-  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  auto mgr = std::make_shared<AutoSkipCompressorManager>(
-      GetDefaultBuiltinCompressionManager());
-  options.compression_manager = mgr;
-  DestroyAndReopen(options);
+// test case just to make sure auto compression manager is working
+TEST_F(DBAutoSkip, AutoSkipCompressionManagerAliveTest) {
   Random rnd(301);
   std::vector<std::string> values;
   constexpr int kCount = 13;

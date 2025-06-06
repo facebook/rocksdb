@@ -133,7 +133,9 @@ double AutoSkipCompressorWrapper::GetPredRejectionRatio() const {
 }
 
 const char* AutoSkipCompressorManager::Name() const {
-  return "AutoSkipCompressorManager";
+  // should have returned "AutoSkipCompressorManager" but we currently have an
+  // error so return return "AutoSkipCompressorManager";
+  return wrapped_->Name();
 }
 
 std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
