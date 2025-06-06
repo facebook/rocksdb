@@ -1297,12 +1297,10 @@ struct DBOptions {
   // Default: false
   bool skip_stats_update_on_db_open = false;
 
-  // If true, then DB::Open() will not fetch and check sizes of all sst files.
-  // This may significantly speed up startup if there are many sst files,
-  // especially when using non-default Env with expensive GetFileSize().
-  // We'll still check that all required sst files exist.
-  // If paranoid_checks is false, this option is ignored, and sst files are
-  // not checked at all.
+  // This option is deprecated and marked as no-op. Kept for backward
+  // compatibility until usage is fully removed.
+  // File size check will always be performed during DB Open through a thread
+  // pool. So the concern of DB Open slowness is eliminated.
   //
   // Default: false
   bool skip_checking_sst_file_sizes_on_db_open = false;

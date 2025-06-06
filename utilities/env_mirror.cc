@@ -94,6 +94,16 @@ class RandomAccessFileMirror : public RandomAccessFile {
     // NOTE: not verified
     return a_->GetUniqueId(id, max_size);
   }
+
+  Status GetFileSize(uint64_t* file_size) override {
+    uint64_t asize = 0, bsize = 0;
+    Status as = a_->GetFileSize(&asize);
+    Status bs = b_->GetFileSize(&bsize);
+    assert(as == bs);
+    assert(asize == bsize);
+    *file_size = asize;
+    return as;
+  }
 };
 
 class WritableFileMirror : public WritableFile {

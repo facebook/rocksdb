@@ -243,7 +243,7 @@ class PosixFileSystem : public FileSystem {
       // Use mmap when virtual address-space is plentiful.
       uint64_t size;
       IOOptions opts;
-      s = GetFileSize(fname, opts, &size, nullptr);
+      s = GetFileSizeOnOpenedFile(fd, fname, &size);
       if (s.ok()) {
         void* base = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
         if (base != MAP_FAILED) {
@@ -324,7 +324,7 @@ class PosixFileSystem : public FileSystem {
     }
     uint64_t initial_file_size = 0;
     if (reopen) {
-      s = GetFileSize(fname, IOOptions(), &initial_file_size, nullptr);
+      s = GetFileSizeOnOpenedFile(fd, fname, &initial_file_size);
       if (!s.ok()) {
         close(fd);
         return s;
@@ -509,7 +509,7 @@ class PosixFileSystem : public FileSystem {
     uint64_t size;
     if (status.ok()) {
       IOOptions opts;
-      status = GetFileSize(fname, opts, &size, nullptr);
+      status = GetFileSizeOnOpenedFile(fd, fname, &size);
     }
     void* base = nullptr;
     if (status.ok()) {
@@ -974,6 +974,25 @@ class PosixFileSystem : public FileSystem {
 #endif
  private:
   bool forceMmapOff_ = false;  // do we override Env options?
+
+  // This is a faster API comparing to the public method that uses stat to get
+  // file size. However this API only works on opened file.
+  IOStatus GetFileSizeOnOpenedFile(const int fd, const std::string& name,
+                                   uint64_t* size) {
+    struct stat sb;
+    // Get file information using fstat
+    if (fstat(fd, &sb) == -1) {
+      *size = 0;
+      constexpr int MAX_ERR_MSG_LEN = 128;
+      char err_msg[MAX_ERR_MSG_LEN];
+      snprintf(err_msg, MAX_ERR_MSG_LEN,
+               "while fstat a file for size with fd %d", fd);
+
+      return IOError(err_msg, name, errno);
+    }
+    *size = sb.st_size;
+    return IOStatus::OK();
+  }
 
 #ifdef OS_LINUX
   // Get the minimum "linux system limit" (i.e, the largest I/O size that the OS
