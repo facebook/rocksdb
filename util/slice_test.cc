@@ -177,18 +177,23 @@ class SmallEnumSetTest : public testing::Test {
 TEST_F(SmallEnumSetTest, SmallEnumSetTest1) {
   FileTypeSet fs;  // based on a legacy enum type
   ASSERT_TRUE(fs.empty());
+  ASSERT_EQ(fs.count(), 0U);
   ASSERT_TRUE(fs.Add(FileType::kIdentityFile));
   ASSERT_FALSE(fs.empty());
+  ASSERT_EQ(fs.count(), 1U);
   ASSERT_FALSE(fs.Add(FileType::kIdentityFile));
   ASSERT_TRUE(fs.Add(FileType::kInfoLogFile));
   ASSERT_TRUE(fs.Contains(FileType::kIdentityFile));
   ASSERT_FALSE(fs.Contains(FileType::kDBLockFile));
   ASSERT_FALSE(fs.empty());
+  ASSERT_EQ(fs.count(), 2U);
   ASSERT_FALSE(fs.Remove(FileType::kDBLockFile));
   ASSERT_TRUE(fs.Remove(FileType::kIdentityFile));
   ASSERT_FALSE(fs.empty());
+  ASSERT_EQ(fs.count(), 1U);
   ASSERT_TRUE(fs.Remove(FileType::kInfoLogFile));
   ASSERT_TRUE(fs.empty());
+  ASSERT_EQ(fs.count(), 0U);
 }
 
 namespace {
@@ -224,12 +229,16 @@ TEST_F(SmallEnumSetTest, SmallEnumSetTest2) {
   ASSERT_NE(cs, MyEnumClassSet{MyEnumClass::B});
   ASSERT_NE(cs, MyEnumClassSet::All());
 
+  ASSERT_EQ(MyEnumClassSet{}.count(), 0U);
+  ASSERT_EQ(MyEnumClassSet::All().count(), 3U);
+
   int count = 0;
   for (MyEnumClass e : cs) {
     ASSERT_EQ(e, MyEnumClass::A);
     ++count;
   }
   ASSERT_EQ(count, 1);
+  ASSERT_EQ(cs.count(), 1U);
 
   count = 0;
   for (MyEnumClass e : MyEnumClassSet::All().Without(MyEnumClass::B)) {
@@ -242,6 +251,68 @@ TEST_F(SmallEnumSetTest, SmallEnumSetTest2) {
     (void)e;
     assert(false);
   }
+}
+
+template <typename ENUM_TYPE, ENUM_TYPE MAX_ENUMERATOR>
+void TestBiggerEnumSet() {
+  using MySet = SmallEnumSet<ENUM_TYPE, MAX_ENUMERATOR>;
+  constexpr int kMaxValue = static_cast<int>(MAX_ENUMERATOR);
+  SCOPED_TRACE("kMaxValue = " + std::to_string(kMaxValue));
+
+  ASSERT_EQ(sizeof(MySet), (kMaxValue + 1 + 63) / 64 * 8);
+
+  MySet s;
+  ASSERT_TRUE(s.empty());
+  ASSERT_EQ(s.count(), 0U);
+  ASSERT_TRUE(s.Add(ENUM_TYPE(0)));
+  ASSERT_FALSE(s.empty());
+  ASSERT_EQ(s.count(), 1U);
+  ASSERT_TRUE(s.Add(ENUM_TYPE(kMaxValue - 1)));
+  ASSERT_FALSE(s.empty());
+  ASSERT_EQ(s.count(), 2U);
+  ASSERT_TRUE(s.Add(ENUM_TYPE(kMaxValue)));
+  ASSERT_FALSE(s.empty());
+  ASSERT_EQ(s.count(), 3U);
+
+  int count = 0;
+  for (ENUM_TYPE e : s) {
+    ASSERT_TRUE(e == ENUM_TYPE(0) || e == ENUM_TYPE(kMaxValue - 1) ||
+                e == ENUM_TYPE(kMaxValue));
+    ++count;
+  }
+  ASSERT_EQ(count, 3);
+
+  ASSERT_TRUE(s.Remove(ENUM_TYPE(0)));
+  ASSERT_TRUE(s.Remove(ENUM_TYPE(kMaxValue)));
+  ASSERT_FALSE(s.empty());
+  ASSERT_EQ(s.count(), 1U);
+
+  count = 0;
+  for (ENUM_TYPE e : s) {
+    ASSERT_EQ(e, ENUM_TYPE(kMaxValue - 1));
+    ++count;
+  }
+  ASSERT_EQ(count, 1);
+}
+
+TEST_F(SmallEnumSetTest, BiggerEnumClasses) {
+  enum class BiggerEnumClass63 { A, B, C = 63 };
+  enum class BiggerEnumClass64 { A, B, C = 64 };
+  enum class BiggerEnumClass65 { A, B, C = 65 };
+  enum class BiggerEnumClass127 { A, B, C = 127 };
+  enum class BiggerEnumClass128 { A, B, C = 128 };
+  enum class BiggerEnumClass129 { A, B, C = 129 };
+  enum class BiggerEnumClass150 { A, B, C = 150 };
+  enum class BiggerEnumClass255 { A, B, C = 255 };
+
+  TestBiggerEnumSet<BiggerEnumClass63, BiggerEnumClass63::C>();
+  TestBiggerEnumSet<BiggerEnumClass64, BiggerEnumClass64::C>();
+  TestBiggerEnumSet<BiggerEnumClass65, BiggerEnumClass65::C>();
+  TestBiggerEnumSet<BiggerEnumClass127, BiggerEnumClass127::C>();
+  TestBiggerEnumSet<BiggerEnumClass128, BiggerEnumClass128::C>();
+  TestBiggerEnumSet<BiggerEnumClass129, BiggerEnumClass129::C>();
+  TestBiggerEnumSet<BiggerEnumClass150, BiggerEnumClass150::C>();
+  TestBiggerEnumSet<BiggerEnumClass255, BiggerEnumClass255::C>();
 }
 
 // ***************************************************************** //

@@ -118,6 +118,9 @@ fi
 # fi
 set -e
 
+# Exclude third-party from formatting
+EXCLUDE=':!third-party/'
+
 uncommitted_code=`git diff HEAD`
 
 # If there's no uncommitted changes, we assume user are doing post-commit
@@ -137,11 +140,11 @@ then
   # should be relevant for formatting fixes.
   FORMAT_UPSTREAM_MERGE_BASE="$(git merge-base "$FORMAT_UPSTREAM" HEAD)"
   # Get the differences
-  diffs=$(git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" | $CLANG_FORMAT_DIFF -p 1) || true
+  diffs=$(git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" -- $EXCLUDE | $CLANG_FORMAT_DIFF -p 1) || true
   echo "Checking format of changes not yet in $FORMAT_UPSTREAM..."
 else
   # Check the format of uncommitted lines,
-  diffs=$(git diff -U0 HEAD | $CLANG_FORMAT_DIFF -p 1) || true
+  diffs=$(git diff -U0 HEAD -- $EXCLUDE | $CLANG_FORMAT_DIFF -p 1) || true
   echo "Checking format of uncommitted changes..."
 fi
 
@@ -187,9 +190,9 @@ fi
 # Do in-place format adjustment.
 if [ -z "$uncommitted_code" ]
 then
-  git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" | $CLANG_FORMAT_DIFF -i -p 1
+  git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" -- $EXCLUDE | $CLANG_FORMAT_DIFF -i -p 1
 else
-  git diff -U0 HEAD | $CLANG_FORMAT_DIFF -i -p 1
+  git diff -U0 HEAD -- $EXCLUDE | $CLANG_FORMAT_DIFF -i -p 1
 fi
 echo "Files reformatted!"
 

@@ -2699,6 +2699,10 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
 // Finish waiting when ALL column families finish flushing memtables.
 // resuming_from_bg_err indicates whether the caller is trying to resume from
 // background error or in normal processing.
+// Note that the wait finishes when the flush result is installed to column
+// families' Versions and persisted in MANIFEST. It doesn't wait until
+// SuperVersion to reflect the flush result, except for the case when
+// flush_reason is `kExternalFileIngestion`.
 Status DBImpl::WaitForFlushMemTables(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const uint64_t*>& flush_memtable_ids,

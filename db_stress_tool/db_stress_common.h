@@ -398,6 +398,7 @@ DECLARE_bool(use_adaptive_mutex_lru);
 DECLARE_uint32(compress_format_version);
 DECLARE_uint64(manifest_preallocation_size);
 DECLARE_bool(enable_checksum_handoff);
+DECLARE_string(compression_manager);
 DECLARE_uint64(max_total_wal_size);
 DECLARE_double(high_pri_pool_ratio);
 DECLARE_double(low_pri_pool_ratio);
