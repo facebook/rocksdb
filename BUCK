@@ -249,6 +249,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "trace_replay/trace_record_result.cc",
         "trace_replay/trace_replay.cc",
         "util/async_file_reader.cc",
+        "util/auto_skip_compression.cc",
         "util/build_version.cc",
         "util/cleanable.cc",
         "util/coding.cc",
