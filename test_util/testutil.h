@@ -766,17 +766,26 @@ struct CompressorCustomAlg : public CompressorWrapper {
     return kCompression;
   }
 
-  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* working_area) override {
+    size_t allowed_output_size = *compressed_output_size;
     Status s = wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                                       compressed_output_size,
                                        out_compression_type, working_area);
     if (s.ok() && *out_compression_type != kNoCompression) {
       assert(*out_compression_type == kLZ4Compression);
-      std::string header(/*size=*/5, 0);
-      header[0] = lossless_cast<char>(kCompression);
-      EncodeFixed32(&header[1], dictionary_hash_);
-      compressed_output->insert(0, header);
+      if (*compressed_output_size + 5 > allowed_output_size) {
+        *out_compression_type = kNoCompression;
+        return Status::OK();
+      }
+      // Generate & insert header
+      std::memmove(compressed_output + 5, compressed_output,
+                   *compressed_output_size);
+      compressed_output[0] = lossless_cast<char>(kCompression);
+      EncodeFixed32(&compressed_output[1], dictionary_hash_);
+      *compressed_output_size += 5;
       *out_compression_type = kCompression;
     }
     return s;

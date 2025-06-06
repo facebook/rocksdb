@@ -197,39 +197,40 @@ Status CompressedSecondaryCache::InsertInternal(
     return s;
   }
 
-  std::string data_compressed;
+  std::unique_ptr<char[]> tagged_compressed_data;
   CompressionType to_type = kNoCompression;
   if (compressor_ && from_type == kNoCompression &&
       !cache_options_.do_not_compress_roles.Contains(helper->role)) {
     assert(source == CacheTier::kVolatileCompressedTier);
+
+    // TODO: consider malloc sizes for max acceptable compressed size
+    // Or maybe max_compressed_bytes_per_kb
+    size_t data_size_compressed = data_size_original - 1;
+    tagged_compressed_data =
+        std::make_unique<char[]>(data_size_compressed + kTagSize);
     s = compressor_->CompressBlock(Slice(data_ptr, data_size_original),
-                                   &data_compressed, &to_type,
+                                   tagged_compressed_data.get() + kTagSize,
+                                   &data_size_compressed, &to_type,
                                    nullptr /*working_area*/);
     if (!s.ok()) {
       return s;
     }
     PERF_COUNTER_ADD(compressed_sec_cache_uncompressed_bytes,
                      data_size_original);
-    // TOOD: improve compression sufficiency check
-    if (to_type == kNoCompression ||
-        data_compressed.size() >= data_size_original) {
-      // Compression rejected
+    if (to_type == kNoCompression) {
+      // Compression rejected or otherwise aborted/failed
       to_type = kNoCompression;
-      data_compressed.clear();
+      tagged_compressed_data.reset();
       // TODO: consider separate counters for rejected compressions
       PERF_COUNTER_ADD(compressed_sec_cache_compressed_bytes,
                        data_size_original);
     } else {
-      size_t data_size_compressed = data_compressed.size();
       PERF_COUNTER_ADD(compressed_sec_cache_compressed_bytes,
                        data_size_compressed);
       if (enable_split_merge) {
-        // Only need tagged_data for copying into CacheValueChunks. Insert
-        // space for tag.
-        // TODO: improve efficiency of this case (will be fixed with update to
-        // CompressBlock API)
-        data_compressed.insert(/*pos=*/0, /*n=*/kTagSize, char{});
-        tagged_data = data_compressed;
+        // Only need tagged_data for copying into CacheValueChunks.
+        tagged_data = Slice(tagged_compressed_data.get(),
+                            data_size_compressed + kTagSize);
         allocation.reset();
       } else {
         // Replace allocation with compressed version, copied from string
@@ -237,7 +238,10 @@ Status CompressedSecondaryCache::InsertInternal(
         allocation = AllocateBlock(header_size + data_size_compressed,
                                    cache_options_.memory_allocator.get());
         data_ptr = allocation.get() + header_size;
-        std::memcpy(data_ptr, data_compressed.data(), data_size_compressed);
+        // Ignore unpopulated tag on tagged_compressed_data; will only be
+        // populated on the new allocation.
+        std::memcpy(data_ptr, tagged_compressed_data.get() + kTagSize,
+                    data_size_compressed);
         tagged_data =
             Slice(data_ptr - kTagSize, data_size_compressed + kTagSize);
         assert(tagged_data.data() >= allocation.get());
