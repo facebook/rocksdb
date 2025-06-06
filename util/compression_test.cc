@@ -1102,8 +1102,8 @@ TEST_F(DBCompressionTest, CompressionManagerWrapper) {
     using CompressorWrapper::CompressorWrapper;
     const char* Name() const override { return "MyCompressor"; }
 
-    Status CompressBlock(Slice uncompressed_data,
-                         std::string* compressed_output,
+    Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                         size_t* compressed_output_size,
                          CompressionType* out_compression_type,
                          ManagedWorkingArea* working_area) override {
       auto begin = uncompressed_data.data();
@@ -1111,16 +1111,18 @@ TEST_F(DBCompressionTest, CompressionManagerWrapper) {
       if (std::search(begin, end, kDoNotCompress.begin(),
                       kDoNotCompress.end()) != end) {
         // Do not attempt compression
+        *compressed_output_size = 0;
         EXPECT_EQ(*out_compression_type, kNoCompression);
         return Status::OK();
       } else if (std::search(begin, end, kRejectCompression.begin(),
                              kRejectCompression.end()) != end) {
         // Simulate attempted & rejected compression
-        *compressed_output = "blah";
+        *compressed_output_size = 1;
         EXPECT_EQ(*out_compression_type, kNoCompression);
         return Status::OK();
       } else {
         return wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                                       compressed_output_size,
                                        out_compression_type, working_area);
       }
     }
