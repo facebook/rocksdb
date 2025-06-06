@@ -186,6 +186,10 @@ class LegacyRandomAccessFileWrapper : public FSRandomAccessFile {
   IOStatus InvalidateCache(size_t offset, size_t length) override {
     return status_to_io_status(target_->InvalidateCache(offset, length));
   }
+  IOStatus GetFileSize(uint64_t* result) override {
+    auto status = target_->GetFileSize(result);
+    return status_to_io_status(std::move(status));
+  }
 
  private:
   std::unique_ptr<RandomAccessFile> target_;

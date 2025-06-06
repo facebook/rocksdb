@@ -866,6 +866,13 @@ class RandomAccessFile {
         "RandomAccessFile::InvalidateCache not supported.");
   }
 
+  // The default implementation returns "not supported" so that user
+  // implementations of FSRandomAccessFile do not need to immediately implement
+  // this function.
+  virtual Status GetFileSize(uint64_t* /*result*/) {
+    return Status::NotSupported("RandomAccessFile::GetFileSize not supported.");
+  }
+
   // If you're adding methods here, remember to add them to
   // RandomAccessFileWrapper too.
 };
@@ -1749,6 +1756,9 @@ class RandomAccessFileWrapper : public RandomAccessFile {
   }
   Status InvalidateCache(size_t offset, size_t length) override {
     return target_->InvalidateCache(offset, length);
+  }
+  Status GetFileSize(uint64_t* file_size) override {
+    return target_->GetFileSize(file_size);
   }
 
  private:

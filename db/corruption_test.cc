@@ -579,9 +579,9 @@ TEST_F(CorruptionTest, TableFileWrongSize) {
   // DB actually accepts this without paranoid checks, relying on size
   // recorded in manifest to locate the SST footer.
   options_.paranoid_checks = false;
-  options_.skip_checking_sst_file_sizes_on_db_open = false;
   Reopen();
-  Check(100, 100);
+  // As footer could not be extraced, file is completely unreadable
+  Check(0, 0);
 
   // But reports the issue with paranoid checks
   options_.paranoid_checks = true;
