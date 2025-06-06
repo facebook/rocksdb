@@ -61,6 +61,9 @@ Status AutoSkipCompressorWrapper::CompressBlock(
   auto selected = kZSTD - 1;
   // exploration with pred_rejection_percentage
   if (rnd_.PercentTrue(min_exploration_percentage_)) {
+    fprintf(
+        stdout,
+        "[AutoSkipCompressorWrapper::CompressBlock] selected: exploration\n");
     auto& compressor = compressors_[selected];
     Status status = compressor->CompressBlock(
         uncompressed_data, compressed_output, out_compression_type, wa);
@@ -69,6 +72,10 @@ Status AutoSkipCompressorWrapper::CompressBlock(
     RecordUpdatePred(compressed_output, out_compression_type);
     return status;
   } else {
+    fprintf(stdout,
+            "[AutoSkipCompressorWrapper::CompressBlock] selected: exploit "
+            "pred_rejection: %d\n",
+            pred_rejection_percentage_);
     if (pred_rejection_percentage_ >= 50) {
       // decide to compress
       // check the value of the out_compression_type and compressed_output to
