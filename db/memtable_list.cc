@@ -399,7 +399,7 @@ bool MemTableList::IsFlushPending() const {
 }
 
 bool MemTableList::IsFlushPendingOrRunning() const {
-  if (current_->memlist_.size() - num_flush_not_started_ > 0) {
+  if (static_cast<int64_t>(current_->memlist_.size()) - static_cast<int64_t>(num_flush_not_started_) > 0) {
     // Flush is already running on at least one memtable
     return true;
   }
