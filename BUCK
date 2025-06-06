@@ -249,7 +249,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "trace_replay/trace_record_result.cc",
         "trace_replay/trace_replay.cc",
         "util/async_file_reader.cc",
-        "util/auto_skip_compression.cc",
+        "util/auto_skip_compressor.cc",
         "util/build_version.cc",
         "util/cleanable.cc",
         "util/coding.cc",
@@ -4478,7 +4478,7 @@ cpp_unittest_wrapper(name="auto_roll_logger_test",
 
 
 cpp_unittest_wrapper(name="auto_skip_compressor_test",
-            srcs=["test_util/auto_skip_compressor_test.cc"],
+            srcs=["util/auto_skip_compressor_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
