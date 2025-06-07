@@ -1491,6 +1491,9 @@ db_test: $(OBJ_DIR)/db/db_test.o $(TEST_LIBRARY) $(LIBRARY)
 db_test2: $(OBJ_DIR)/db/db_test2.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+auto_skip_compressor_test: $(OBJ_DIR)/util/auto_skip_compressor_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 db_logical_block_size_cache_test: $(OBJ_DIR)/db/db_logical_block_size_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

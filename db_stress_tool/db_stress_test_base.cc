@@ -33,6 +33,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "test_util/testutil.h"
+#include "util/auto_skip_compressor.h"
 #include "util/cast_util.h"
 #include "util/simple_mixed_compressor.h"
 #include "utilities/backup/backup_engine_impl.h"
@@ -3412,7 +3413,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     InitializeOptionsFromFlags(cache_, filter_policy_, options_);
   }
   InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
-  if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+  if (strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
     // Currently limited to ZSTD compression. Table property compression_name
     // needs to set to zstd for now even when there can be more than one
     // algorithm in the table under your compressor.
@@ -3424,9 +3425,16 @@ void StressTest::Open(SharedState* shared, bool reopen) {
               "used\n");
       exit(1);
     }
-    auto mgr = std::make_shared<RoundRobinManager>(
-        GetDefaultBuiltinCompressionManager());
-    options_.compression_manager = mgr;
+    if (strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+      auto mgr = std::make_shared<RoundRobinManager>(
+          GetDefaultBuiltinCompressionManager());
+      options_.compression_manager = mgr;
+    } else if (strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
+      auto mgr = std::make_shared<AutoSkipCompressorManager>(
+          GetDefaultBuiltinCompressionManager());
+      options_.compression_manager = mgr;
+    }
+
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
     // Nothing to do using default compression manager
   } else {

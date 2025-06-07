@@ -28,6 +28,7 @@
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/testutil.h"
+#include "util/auto_skip_compressor.h"
 #include "util/defer.h"
 #include "util/random.h"
 #include "util/simple_mixed_compressor.h"
