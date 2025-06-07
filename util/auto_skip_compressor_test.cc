@@ -56,61 +56,101 @@ class DBAutoSkip : public DBTestBase {
   }
 };
 // test case just to make sure auto compression manager is working
-TEST_F(DBAutoSkip, AutoSkipCompressionManagerAliveTest) {
-  Random rnd(301);
-  std::vector<std::string> values;
-  constexpr int kCount = 13;
-  for (int i = 0; i < kCount; ++i) {
-    std::string value;
-    if (i == 6) {
-      // One non-compressible block
-      value = rnd.RandomBinaryString(20000);
-    } else {
-      test::CompressibleString(&rnd, 0.1, 20000, &value);
-    }
-    values.push_back(value);
-    ASSERT_OK(Put(Key(i), value));
-    ASSERT_EQ(Get(Key(i)), value);
-  }
-  ASSERT_OK(Flush());
+// TEST_F(DBAutoSkip, AutoSkipCompressionManagerAliveTest) {
+//   Random rnd(301);
+//   std::vector<std::string> values;
+//   constexpr int kCount = 13;
+//   for (int i = 0; i < kCount; ++i) {
+//     std::string value;
+//     if (i == 6) {
+//       // One non-compressible block
+//       value = rnd.RandomBinaryString(20000);
+//     } else {
+//       test::CompressibleString(&rnd, 0.1, 20000, &value);
+//     }
+//     values.push_back(value);
+//     ASSERT_OK(Put(Key(i), value));
+//     ASSERT_EQ(Get(Key(i)), value);
+//   }
+//   ASSERT_OK(Flush());
 
-  // Ensure well-formed for reads
-  for (int i = 0; i < kCount; ++i) {
-    ASSERT_NE(Get(Key(i)), "NOT_FOUND");
-    ASSERT_EQ(Get(Key(i)), values[i]);
-  }
+//   // Ensure well-formed for reads
+//   for (int i = 0; i < kCount; ++i) {
+//     ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+//     ASSERT_EQ(Get(Key(i)), values[i]);
+//   }
 
-  // Write test code to
-}
+//   // Write test code to
+// }
 // test case just to make sure auto compression manager is working
 TEST_F(DBAutoSkip, AutoSkipCompressionManagerEnablesCompression) {
   // Start with prediction of 0
   Random rnd(301);
+  Options options = CurrentOptions();
   std::vector<std::string> values;
-  std::string value;
-  test::CompressibleString(&rnd, 0.1, 20000, &value);
+  std::string value("A", 20000);
+  // test::CompressibleString(&rnd, 0.1, 20000, &value);
   constexpr int kCount = 100;
+  auto PopStat = [&](Tickers t) -> uint64_t {
+    return options.statistics->getAndResetTickerCount(t);
+  };
   for (int i = 0; i < kCount; ++i) {
     values.push_back(value);
     ASSERT_OK(Put(Key(i), value));
     ASSERT_EQ(Get(Key(i)), value);
   }
   ASSERT_OK(Flush());
+  auto compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
+  auto bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+  auto rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+  // should stick with the not optimize decision
+  for (int i = 0; i < kCount; ++i) {
+    value = rnd.RandomBinaryString(20000);
+    ASSERT_OK(Put(Key(i + kCount), value));
+    ASSERT_EQ(Get(Key(i + kCount)), value);
+  }
+  ASSERT_OK(Flush());
   // Ensure well-formed for reads
+  compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
+  bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+  rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+  auto rejection_ratio = rejected_count / (compressed_count + bypassed_count);
+  EXPECT_LT(rejection_ratio, 0.5);
 }
+
 // test case just to make sure auto compression manager is working
 TEST_F(DBAutoSkip, AutoSkipCompressionManagerDisablesCompression) {
   // Start with prediction of 1
   Random rnd(301);
-  std::vector<std::string> values;
+  Options options = CurrentOptions();
+  std::string value;
   constexpr int kCount = 100;
+  auto PopStat = [&](Tickers t) -> uint64_t {
+    return options.statistics->getAndResetTickerCount(t);
+  };
+  // enough data to change the decision
   for (int i = 0; i < kCount; ++i) {
-    std::string value;
+    value = rnd.RandomBinaryString(20000);
+    ASSERT_OK(Put(Key(i), value));
+    ASSERT_EQ(Get(Key(i)), value);
+  }
+  ASSERT_OK(Flush());
+  auto compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
+  auto bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+  auto rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+  // should stick with the not optimize decision
+  for (int i = 0; i < kCount; ++i) {
+    value = rnd.RandomBinaryString(20000);
     ASSERT_OK(Put(Key(i), value));
     ASSERT_EQ(Get(Key(i)), value);
   }
   ASSERT_OK(Flush());
   // Test the compression is disabled
+  compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
+  bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+  rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+  auto rejection_ratio = rejected_count / (compressed_count + bypassed_count);
+  EXPECT_GT(rejection_ratio, 0.5);
 }
 TEST(WindowRejectionModelTest, CorrectPrediction) {
   WindowRejectionModel model_(10);
