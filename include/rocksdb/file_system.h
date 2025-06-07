@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+#include <any>
 #include <chrono>
 #include <cstdarg>
 #include <functional>
@@ -249,6 +250,9 @@ struct IODebugContext {
     kRequestID = 0,
   };
   uint64_t trace_data = 0;
+
+  // Arbitrary structure containing cost information about the IO request
+  std::any cost_info;
 
   IODebugContext() {}
 
