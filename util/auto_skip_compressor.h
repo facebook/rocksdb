@@ -17,14 +17,14 @@
 
 namespace ROCKSDB_NAMESPACE {
 // Predicts Rejection Ratio for a window size algorithm
-class ModelRejectionRatio {
+class RejectionRatioPredictor {
  public:
-  ModelRejectionRatio()
+  RejectionRatioPredictor()
       : pred_rejection_percentage_(0),
         rejected_count_(0),
         compressed_count_(0),
         bypassed_count_(0){};
-  virtual ~ModelRejectionRatio() = default;
+  virtual ~RejectionRatioPredictor() = default;
   virtual int Predict() const { return pred_rejection_percentage_; };
   inline void SetPrediction(int pred_rejection) {
     pred_rejection_percentage_ = pred_rejection;
@@ -38,10 +38,11 @@ class ModelRejectionRatio {
   size_t compressed_count_;
   size_t bypassed_count_;
 };
-class WindowRejectionModel : public ModelRejectionRatio {
+class WindowBasedRejectionPredictor : public RejectionRatioPredictor {
  public:
-  WindowRejectionModel(int window_size)
-      : ModelRejectionRatio::ModelRejectionRatio(), window_size_(window_size){};
+  WindowBasedRejectionPredictor(int window_size)
+      : RejectionRatioPredictor::RejectionRatioPredictor(),
+        window_size_(window_size){};
   virtual int Predict() const override;
   virtual bool Record(std::string* compressed_output,
                       CompressionType* out_compression_type) override;
@@ -78,7 +79,7 @@ class AutoSkipCompressorWrapper : public Compressor {
   int min_exploration_percentage_;
   mutable std::mutex mutex_;
   Random rnd_;
-  std::shared_ptr<ModelRejectionRatio> model_;
+  std::shared_ptr<RejectionRatioPredictor> model_;
 };
 
 class AutoSkipCompressorManager : public CompressionManagerWrapper {

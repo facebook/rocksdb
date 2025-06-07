@@ -152,8 +152,8 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManagerDisablesCompression) {
   auto rejection_ratio = rejected_count / (compressed_count + bypassed_count);
   EXPECT_GT(rejection_ratio, 0.5);
 }
-TEST(WindowRejectionModelTest, CorrectPrediction) {
-  WindowRejectionModel model_(10);
+TEST(WindowBasedRejectionPredictorTest, CorrectPrediction) {
+  WindowBasedRejectionPredictor model_(10);
   // Test ability to cold start
   model_.SetPrediction(20);
   auto prediction = model_.Predict();

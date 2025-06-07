@@ -14,8 +14,8 @@
 #include "rocksdb/advanced_compression.h"
 namespace ROCKSDB_NAMESPACE {
 
-bool ModelRejectionRatio::Record(std::string* compressed_output,
-                                 CompressionType* out_compression_type) {
+bool RejectionRatioPredictor::Record(std::string* compressed_output,
+                                     CompressionType* out_compression_type) {
   // block_nased_table_builder line no 1379
   auto compression_attempted = !compressed_output->empty();
   if (*out_compression_type == kNoCompression && compression_attempted) {
@@ -28,32 +28,32 @@ bool ModelRejectionRatio::Record(std::string* compressed_output,
   return true;
 }
 
-// WindowRejectionModel Implementation
-// WindowRejectionModel::WindowRejectionModel(int window_size)
+// WindowBasedRejectionPredictor Implementation
+// WindowBasedRejectionPredictor::WindowBasedRejectionPredictor(int window_size)
 // : window_size_(window_size) {}
 
-int WindowRejectionModel::Predict() const {
+int WindowBasedRejectionPredictor::Predict() const {
   // Implement window-based prediction logic
-  return ModelRejectionRatio::Predict();
+  return RejectionRatioPredictor::Predict();
 }
 
-// void WindowRejectionModel::SetPrediction(
+// void WindowBasedRejectionPredictor::SetPrediction(
 //     int pred_rejection) {  // Implement window-based prediction setting logic
-//   ModelRejectionRatio::SetPrediction(pred_rejection);
+//   RejectionRatioPredictor::SetPrediction(pred_rejection);
 // }
 
-bool WindowRejectionModel::Record(std::string* compressed_output,
-                                  CompressionType* out_compression_type) {
+bool WindowBasedRejectionPredictor::Record(
+    std::string* compressed_output, CompressionType* out_compression_type) {
   // Implement window-based recording logic
   auto status =
-      ModelRejectionRatio::Record(compressed_output, out_compression_type);
+      RejectionRatioPredictor::Record(compressed_output, out_compression_type);
   attempted_compression_count_++;
   if (attempted_compression_count_ >= window_size_) {
     pred_rejection_percentage_ = static_cast<int>(
         rejected_count_ * 100 / (compressed_count_ + rejected_count_));
     // fprintf(stdout,
-    //         "[WindowRejectionModel::Record] pred_rejection_percentage_:
-    //         %d\n", pred_rejection_percentage_);
+    //         "[WindowBasedRejectionPredictor::Record]
+    //         pred_rejection_percentage_: %d\n", pred_rejection_percentage_);
     attempted_compression_count_ = 0;
     compressed_count_ = 0;
     rejected_count_ = 0;
@@ -65,7 +65,7 @@ bool WindowRejectionModel::Record(std::string* compressed_output,
 AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
     const CompressionOptions& opts, CompressionType type,
     CompressionDict&& dict)
-    : rnd_(331), model_(std::make_shared<WindowRejectionModel>(100)) {
+    : rnd_(331), model_(std::make_shared<WindowBasedRejectionPredictor>(100)) {
   assert(type != kNoCompression);
   auto builtInManager = GetDefaultBuiltinCompressionManager();
   const auto& compressions = GetSupportedCompressions();
