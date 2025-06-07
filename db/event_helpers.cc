@@ -77,7 +77,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
     TableFileCreationReason reason, const Status& s,
     const std::string& file_checksum,
     const std::string& file_checksum_func_name) {
-  if (s.ok() && event_logger) {
+  if (event_logger) {
     JSONWriter jwriter;
     AppendCurrentTime(&jwriter);
     jwriter << "cf_name" << cf_name << "job" << job_id << "event"
@@ -165,6 +165,8 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
       jwriter << "oldest_blob_file_number" << oldest_blob_file_number;
     }
 
+    jwriter << "status" << s.ToString();
+
     jwriter.EndObject();
 
     event_logger->Log(jwriter);
@@ -195,18 +197,18 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
     const std::string& file_path, const Status& status,
     const std::string& dbname,
     const std::vector<std::shared_ptr<EventListener>>& listeners) {
-  JSONWriter jwriter;
-  AppendCurrentTime(&jwriter);
+  if (event_logger) {
+    JSONWriter jwriter;
+    AppendCurrentTime(&jwriter);
 
-  jwriter << "job" << job_id << "event" << "table_file_deletion"
-          << "file_number" << file_number;
-  if (!status.ok()) {
-    jwriter << "status" << status.ToString();
+    jwriter << "job" << job_id << "event"
+            << "table_file_deletion"
+            << "file_number" << file_number << "status" << status.ToString();
+
+    jwriter.EndObject();
+
+    event_logger->Log(jwriter);
   }
-
-  jwriter.EndObject();
-
-  event_logger->Log(jwriter);
 
   if (listeners.empty()) {
     return;
@@ -274,15 +276,15 @@ void EventHelpers::LogAndNotifyBlobFileCreationFinished(
     const std::string& file_checksum,
     const std::string& file_checksum_func_name, uint64_t total_blob_count,
     uint64_t total_blob_bytes) {
-  if (s.ok() && event_logger) {
+  if (event_logger) {
     JSONWriter jwriter;
     AppendCurrentTime(&jwriter);
     jwriter << "cf_name" << cf_name << "job" << job_id << "event"
-            << "blob_file_creation" << "file_number" << file_number
-            << "total_blob_count" << total_blob_count << "total_blob_bytes"
-            << total_blob_bytes << "file_checksum" << file_checksum
-            << "file_checksum_func_name" << file_checksum_func_name << "status"
-            << s.ToString();
+            << "blob_file_creation"
+            << "file_number" << file_number << "total_blob_count"
+            << total_blob_count << "total_blob_bytes" << total_blob_bytes
+            << "file_checksum" << file_checksum << "file_checksum_func_name"
+            << file_checksum_func_name << "status" << s.ToString();
 
     jwriter.EndObject();
     event_logger->Log(jwriter);
@@ -309,11 +311,9 @@ void EventHelpers::LogAndNotifyBlobFileDeletion(
     JSONWriter jwriter;
     AppendCurrentTime(&jwriter);
 
-    jwriter << "job" << job_id << "event" << "blob_file_deletion"
-            << "file_number" << file_number;
-    if (!status.ok()) {
-      jwriter << "status" << status.ToString();
-    }
+    jwriter << "job" << job_id << "event"
+            << "blob_file_deletion"
+            << "file_number" << file_number << "status" << status.ToString();
 
     jwriter.EndObject();
     event_logger->Log(jwriter);
