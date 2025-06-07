@@ -106,7 +106,11 @@ class SubcompactionState {
     subcompaction_job_info.subcompaction_job_id = static_cast<int>(sub_job_id);
     subcompaction_job_info.base_input_level = c->start_level();
     subcompaction_job_info.output_level = c->output_level();
+    subcompaction_job_info.compaction_reason = c->compaction_reason();
+    subcompaction_job_info.compression = c->output_compression();
     subcompaction_job_info.stats = compaction_job_stats;
+    subcompaction_job_info.blob_compression_type =
+        c->mutable_cf_options().blob_compression_type;
   }
 
   SubcompactionState() = delete;
