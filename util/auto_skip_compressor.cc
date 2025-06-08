@@ -58,11 +58,11 @@ AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
     : MultiCompressorWrapper(opts, type),
       min_exploration_percentage_(10),
       opts_(opts),
-      type_(type),
+      // type_(type),
       rnd_(331),
       predictor_(std::make_shared<WindowBasedRejectionPredictor>(100)) {
   (void)dict;
-  (void)type_;
+  // (void)type_;
 }
 
 Status AutoSkipCompressorWrapper::CompressBlock(

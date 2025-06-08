@@ -70,7 +70,7 @@ class AutoSkipCompressorWrapper : public MultiCompressorWrapper {
  private:
   int min_exploration_percentage_;
   const CompressionOptions& opts_;
-  CompressionType type_;
+  // CompressionType type_;
   Random rnd_;
   mutable std::mutex mutex_;
 
