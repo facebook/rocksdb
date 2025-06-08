@@ -15,11 +15,9 @@
 #include <memory>
 
 #include "db/db_test_util.h"
-#include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
-#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -42,7 +40,7 @@ class DBAutoSkip : public DBTestBase {
   }
   uint64_t PopStat(Tickers t) {
     return options.statistics->getAndResetTickerCount(t);
-  };
+  }
 };
 
 // test case just to make sure auto compression manager is working
@@ -168,7 +166,7 @@ TEST(AutoSkipCompressor, ExplorationRate) {
   compressor.predictor_ = std::make_unique<CustomPredictor>();
 
   // Run the compress 100 times
-  std::string value = std::string("A", 1000);
+  std::string value(1000, 'A');
   auto compression_count_ = 0;
   auto bypass_count_ = 0;
   auto rejection_count_ = 0;

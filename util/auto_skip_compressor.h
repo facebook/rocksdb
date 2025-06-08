@@ -25,7 +25,7 @@ class RejectionRatioPredictor {
         rejected_count_(0),
         compressed_count_(0) {}
   virtual ~RejectionRatioPredictor() = default;
-  virtual int Predict() const { return pred_rejection_percentage_; };
+  virtual int Predict() const { return pred_rejection_percentage_; }
   inline void SetPrediction(int pred_rejection) {
     pred_rejection_percentage_ = pred_rejection;
   }
@@ -40,7 +40,7 @@ class RejectionRatioPredictor {
 };
 class WindowBasedRejectionPredictor : public RejectionRatioPredictor {
  public:
-  WindowBasedRejectionPredictor(int window_size)
+  explicit WindowBasedRejectionPredictor(int window_size)
       : RejectionRatioPredictor::RejectionRatioPredictor(),
         window_size_(window_size),
         attempted_compression_count_(0) {}
