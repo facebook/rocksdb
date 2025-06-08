@@ -22,34 +22,35 @@ class RejectionRatioPredictor {
   RejectionRatioPredictor()
       : pred_rejection_percentage_(0),
         rejected_count_(0),
-        compressed_count_(0),
-        bypassed_count_(0){};
+        compressed_count_(0){};
   virtual ~RejectionRatioPredictor() = default;
   virtual int Predict() const { return pred_rejection_percentage_; };
   inline void SetPrediction(int pred_rejection) {
     pred_rejection_percentage_ = pred_rejection;
   };
-  virtual bool Record(std::string* compressed_output,
-                      CompressionType* out_compression_type);
+  virtual bool Record(Slice uncompressed_block_data,
+                      std::string* compressed_output,
+                      const CompressionOptions& opts);
 
  protected:
-  int pred_rejection_percentage_;
-  size_t rejected_count_;
-  size_t compressed_count_;
-  size_t bypassed_count_;
+  int pred_rejection_percentage_ = 0;
+  size_t rejected_count_ = 0;
+  size_t compressed_count_ = 0;
 };
 class WindowBasedRejectionPredictor : public RejectionRatioPredictor {
  public:
   WindowBasedRejectionPredictor(int window_size)
       : RejectionRatioPredictor::RejectionRatioPredictor(),
-        window_size_(window_size){};
+        window_size_(window_size),
+        attempted_compression_count_(0) {}
   virtual int Predict() const override;
-  virtual bool Record(std::string* compressed_output,
-                      CompressionType* out_compression_type) override;
+  virtual bool Record(Slice uncompressed_block_data,
+                      std::string* compressed_output,
+                      const CompressionOptions& opts) override;
 
  protected:
   const size_t window_size_;
-  size_t attempted_compression_count_;
+  size_t attempted_compression_count_ = 0;
 };
 class AutoSkipCompressorWrapper : public Compressor {
  public:
@@ -73,12 +74,18 @@ class AutoSkipCompressorWrapper : public Compressor {
   size_t GetCompressedCount() const;
   size_t GetBypassedCount() const;
   double GetPredRejectionRatio() const;
+  void SetMinExplorationPercentage(int min_exploration_percentage);
+  int GetMinExplorationPercentage() const;
 
  private:
-  std::vector<std::unique_ptr<Compressor>> compressors_;
   int min_exploration_percentage_;
-  mutable std::mutex mutex_;
+  std::vector<std::unique_ptr<Compressor>> compressors_;
+  const CompressionOptions& opts_;
+  CompressionType type_;
   Random rnd_;
+  mutable std::mutex mutex_;
+
+ public:
   std::shared_ptr<RejectionRatioPredictor> model_;
 };
 
