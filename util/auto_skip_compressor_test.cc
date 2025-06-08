@@ -27,16 +27,18 @@ class DBAutoSkip : public DBTestBase {
   DBAutoSkip()
       : DBTestBase("db_auto_skip", /*env_do_fsync=*/true),
         options(CurrentOptions()) {
-    options.compression = kZSTD;
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
-    BlockBasedTableOptions bbto;
-    bbto.enable_index_compression = false;
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    auto mgr = std::make_shared<AutoSkipCompressorManager>(
-        GetDefaultBuiltinCompressionManager());
-    options.compression_manager = mgr;
-    DestroyAndReopen(options);
+    if (ZSTD_Supported()) {
+      options.compression = kZSTD;
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+      BlockBasedTableOptions bbto;
+      bbto.enable_index_compression = false;
+      options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+      auto mgr = std::make_shared<AutoSkipCompressorManager>(
+          GetDefaultBuiltinCompressionManager());
+      options.compression_manager = mgr;
+      DestroyAndReopen(options);
+    }
   }
   uint64_t PopStat(Tickers t) {
     return options.statistics->getAndResetTickerCount(t);
@@ -156,67 +158,69 @@ TEST(WindowBasedRejectionPredictorTest, CorrectPrediction) {
   EXPECT_EQ(prediction, 80);
 }
 TEST(AutoSkipCompressor, ExplorationRate) {
-  // Create AutoSkipCompressor object
-  CompressionOptions opts;
-  opts.max_compressed_bytes_per_kb = 1000;
-  AutoSkipCompressorWrapper compressor(opts, kZSTD);
-  compressor.SetMinExplorationPercentage(10);
+  if (ZSTD_Supported()) {
+    // Create AutoSkipCompressor object
+    CompressionOptions opts;
+    opts.max_compressed_bytes_per_kb = 1000;
+    AutoSkipCompressorWrapper compressor(opts, kZSTD);
+    compressor.SetMinExplorationPercentage(10);
 
-  // Create a new Predictor object with Predict function always returning 100
-  class CustomPredictor : public RejectionRatioPredictor {
-   public:
-    int Predict() const override { return 100; }
-  };
-  compressor.predictor_ = std::make_unique<CustomPredictor>();
+    // Create a new Predictor object with Predict function always returning 100
+    class CustomPredictor : public RejectionRatioPredictor {
+     public:
+      int Predict() const override { return 100; }
+    };
+    compressor.predictor_ = std::make_unique<CustomPredictor>();
 
-  // Run the compress 100 times
-  std::string value(1000, 'A');
-  auto compression_count_ = 0;
-  auto bypass_count_ = 0;
-  auto rejection_count_ = 0;
-  for (int i = 0; i < 100; ++i) {
-    std::string compressed_output;
-    CompressionType out_compression_type;
-    Compressor::ManagedWorkingArea wa;
-    Status status = compressor.CompressBlock(Slice(value), &compressed_output,
-                                             &out_compression_type, &wa);
-    ASSERT_OK(status);
-    if (out_compression_type == kNoCompression) {
-      if (compressed_output.empty()) {
-        bypass_count_++;
+    // Run the compress 100 times
+    std::string value(1000, 'A');
+    auto compression_count_ = 0;
+    auto bypass_count_ = 0;
+    auto rejection_count_ = 0;
+    for (int i = 0; i < 100; ++i) {
+      std::string compressed_output;
+      CompressionType out_compression_type;
+      Compressor::ManagedWorkingArea wa;
+      Status status = compressor.CompressBlock(Slice(value), &compressed_output,
+                                               &out_compression_type, &wa);
+      ASSERT_OK(status);
+      if (out_compression_type == kNoCompression) {
+        if (compressed_output.empty()) {
+          bypass_count_++;
+        } else {
+          rejection_count_++;
+        }
       } else {
-        rejection_count_++;
+        compression_count_++;
       }
-    } else {
-      compression_count_++;
     }
-  }
 
-  EXPECT_GE(bypass_count_, 80);
-  EXPECT_LE(compression_count_, 20);
-  EXPECT_EQ(rejection_count_, 0);
-  compressor.SetMinExplorationPercentage(0);
-  compression_count_ = 0;
-  bypass_count_ = 0;
-  rejection_count_ = 0;
-  for (int i = 0; i < 100; ++i) {
-    std::string compressed_output;
-    CompressionType out_compression_type;
-    Compressor::ManagedWorkingArea wa;
-    Status status = compressor.CompressBlock(Slice(value), &compressed_output,
-                                             &out_compression_type, &wa);
-    ASSERT_OK(status);
-    if (out_compression_type == kNoCompression) {
-      if (compressed_output.empty()) {
-        bypass_count_++;
+    EXPECT_GE(bypass_count_, 80);
+    EXPECT_LE(compression_count_, 20);
+    EXPECT_EQ(rejection_count_, 0);
+    compressor.SetMinExplorationPercentage(0);
+    compression_count_ = 0;
+    bypass_count_ = 0;
+    rejection_count_ = 0;
+    for (int i = 0; i < 100; ++i) {
+      std::string compressed_output;
+      CompressionType out_compression_type;
+      Compressor::ManagedWorkingArea wa;
+      Status status = compressor.CompressBlock(Slice(value), &compressed_output,
+                                               &out_compression_type, &wa);
+      ASSERT_OK(status);
+      if (out_compression_type == kNoCompression) {
+        if (compressed_output.empty()) {
+          bypass_count_++;
+        } else {
+          rejection_count_++;
+        }
       } else {
-        rejection_count_++;
+        compression_count_++;
       }
-    } else {
-      compression_count_++;
     }
+    EXPECT_GE(bypass_count_, 95);
   }
-  EXPECT_GE(bypass_count_, 95);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
