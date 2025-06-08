@@ -112,9 +112,9 @@ TEST(WindowBasedRejectionPredictorTest, CorrectPrediction) {
   WindowBasedRejectionPredictor model_(10);
   CompressionOptions opts;
   opts.max_compressed_bytes_per_kb = 1000;
-  std::string uncompressed_data("A", 10000);
+  std::string uncompressed_data(10000, 'A');
   Slice block_data(uncompressed_data);
-  std::string compressed_data("A", 500);
+  std::string compressed_data(500, 'A');
   // Test ability to cold start
   model_.SetPrediction(20);
   auto prediction = model_.Predict();
