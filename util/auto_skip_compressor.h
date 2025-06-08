@@ -75,7 +75,7 @@ class AutoSkipCompressorWrapper : public MultiCompressorWrapper {
   mutable std::mutex mutex_;
 
  public:
-  std::shared_ptr<RejectionRatioPredictor> model_;
+  std::shared_ptr<RejectionRatioPredictor> predictor_;
 };
 
 class AutoSkipCompressorManager : public CompressionManagerWrapper {

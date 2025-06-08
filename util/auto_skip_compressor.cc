@@ -60,7 +60,7 @@ AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
       opts_(opts),
       type_(type),
       rnd_(331),
-      model_(std::make_shared<WindowBasedRejectionPredictor>(100)) {
+      predictor_(std::make_shared<WindowBasedRejectionPredictor>(100)) {
   (void)dict;
 }
 
@@ -78,10 +78,10 @@ Status AutoSkipCompressorWrapper::CompressBlock(
         uncompressed_data, compressed_output, out_compression_type, wa);
     // check the value of the out_compression_type and compressed_output to
     // determine if it was rejected or compressed
-    model_->Record(uncompressed_data, compressed_output, opts_);
+    predictor_->Record(uncompressed_data, compressed_output, opts_);
     return status;
   } else {
-    auto prediction = model_->Predict();
+    auto prediction = predictor_->Predict();
     // fprintf(stdout,
     //         "[AutoSkipCompressorWrapper::CompressBlock] selected: exploit "
     //         "pred_rejection: %d\n",
@@ -91,7 +91,7 @@ Status AutoSkipCompressorWrapper::CompressBlock(
       Status status = compressor->CompressBlock(
           uncompressed_data, compressed_output, out_compression_type, wa);
       // determine if it was rejected or compressed
-      model_->Record(uncompressed_data, compressed_output, opts_);
+      predictor_->Record(uncompressed_data, compressed_output, opts_);
       return status;
     } else {
       // bypassed compression

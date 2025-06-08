@@ -165,7 +165,7 @@ TEST(AutoSkipCompressor, ExplorationRate) {
    public:
     int Predict() const override { return 100; }
   };
-  compressor.model_ = std::make_unique<CustomPredictor>();
+  compressor.predictor_ = std::make_unique<CustomPredictor>();
 
   // Run the compress 100 times
   std::string value = std::string("A", 1000);
