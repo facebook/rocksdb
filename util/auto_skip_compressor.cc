@@ -62,6 +62,7 @@ AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
       rnd_(331),
       predictor_(std::make_shared<WindowBasedRejectionPredictor>(100)) {
   (void)dict;
+  (void)type_;
 }
 
 Status AutoSkipCompressorWrapper::CompressBlock(
