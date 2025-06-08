@@ -84,7 +84,7 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManagerEnablesDisablesCompression) {
   count = count + kCount;
 
   // Test the compression is enabled when passing highly compressible data
-  value = std::string("A", 20000);
+  value = std::string(20000, 'A');
   for (int i = 0; i < kCount; ++i) {
     ASSERT_OK(Put(Key(count + i), value));
     ASSERT_EQ(Get(Key(count + i)), value);
