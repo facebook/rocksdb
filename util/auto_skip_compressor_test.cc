@@ -207,7 +207,7 @@ TEST(AutoSkipCompressor, ExplorationRate) {
 
   EXPECT_GE(bypass_count_, 80);
   EXPECT_LE(compression_count_, 20);
-
+  EXPECT_EQ(rejection_count_, 0);
   compressor.SetMinExplorationPercentage(0);
   compression_count_ = 0;
   bypass_count_ = 0;
