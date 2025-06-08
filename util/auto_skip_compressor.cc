@@ -174,7 +174,7 @@ Status AutoSkipCompressorWrapper::CompressBlock(
       return status;
     } else {
       // bypassed compression
-      *compressed_output = "";
+      // *compressed_output = "";
       *out_compression_type = kNoCompression;
       return Status::OK();
     }

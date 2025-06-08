@@ -68,57 +68,62 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManagerEnablesDisablesCompression) {
   std::string value;
   constexpr int kCount = 1000;  // high enough to get window size of compression
   // enough data to change the decision
+  auto count = 0;
   for (int i = 0; i < kCount; ++i) {
     value = rnd.RandomBinaryString(20000);
-    ASSERT_OK(Put(Key(i), value));
-    ASSERT_EQ(Get(Key(i)), value);
+    ASSERT_OK(Put(Key(count + i), value));
+    ASSERT_EQ(Get(Key(count + i)), value);
   }
   ASSERT_OK(Flush());
   auto compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
   auto bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
   auto rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-
+  count = count + kCount;
   // should stick with the not optimize decision
   for (int i = 0; i < kCount; ++i) {
     value = rnd.RandomBinaryString(20000);
-    ASSERT_OK(Put(Key(i), value));
-    ASSERT_EQ(Get(Key(i)), value);
+    ASSERT_OK(Put(Key(count + i), value));
+    ASSERT_EQ(Get(Key(count + i)), value);
   }
   ASSERT_OK(Flush());
   // Test the compression is disabled
+  // Make sure that Compressor output is properly calculated as bypassed
   compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
   bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
   rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-  auto rejection_ratio = rejected_count / (compressed_count + rejected_count);
-  EXPECT_GT(rejection_ratio, 0.5);
-  auto bypassed_rate =
-      bypassed_count / (compressed_count + rejected_count + bypassed_count);
-  EXPECT_GT(bypassed_rate, 0.5);
+  auto rejection_ratio =
+      rejected_count * 100 / (compressed_count + rejected_count);
+  EXPECT_GT(rejection_ratio, 50);
+  auto bypassed_rate = bypassed_count * 100 /
+                       (compressed_count + rejected_count + bypassed_count);
+  EXPECT_GT(bypassed_rate, 50);
+  count = count + kCount;
+
   value = std::string("A", 20000);
   for (int i = 0; i < kCount; ++i) {
-    ASSERT_OK(Put(Key(i), value));
-    ASSERT_EQ(Get(Key(i)), value);
+    ASSERT_OK(Put(Key(count + i), value));
+    ASSERT_EQ(Get(Key(count + i)), value);
   }
   ASSERT_OK(Flush());
   compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
   bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
   rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-
+  count = count + kCount;
   // should stick with the not optimize decision
   for (int i = 0; i < kCount; ++i) {
-    ASSERT_OK(Put(Key(i), value));
-    ASSERT_EQ(Get(Key(i)), value);
+    ASSERT_OK(Put(Key(count + i), value));
+    ASSERT_EQ(Get(Key(count + i)), value);
   }
   ASSERT_OK(Flush());
   // Test the compression is disabled
   compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
   bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
   rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-  rejection_ratio = rejected_count / (compressed_count + rejected_count);
-  EXPECT_LT(rejection_ratio, 0.5);
-  bypassed_rate =
-      bypassed_count / (compressed_count + rejected_count + bypassed_count);
-  EXPECT_LT(bypassed_rate, 0.5);
+  rejection_ratio = rejected_count * 100 / (compressed_count + rejected_count);
+  EXPECT_LT(rejection_ratio, 50);
+  bypassed_rate = bypassed_count * 100 /
+                  (compressed_count + rejected_count + bypassed_count);
+  EXPECT_LT(bypassed_rate, 50);
 }
 TEST(WindowBasedRejectionPredictorTest, CorrectPrediction) {
   WindowBasedRejectionPredictor model_(10);
@@ -190,7 +195,7 @@ TEST(AutoSkipCompressor, ExplorationRate) {
                                              &out_compression_type, &wa);
     ASSERT_OK(status);
     if (out_compression_type == kNoCompression) {
-if (compressed_output.empty()) {
+      if (compressed_output.empty()) {
         bypass_count_++;
       } else {
         rejection_count_++;
