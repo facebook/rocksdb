@@ -11,30 +11,14 @@
 
 #include "util/auto_skip_compressor.h"
 
-#include <atomic>
 #include <cstdlib>
-#include <functional>
-#include <iostream>
 #include <memory>
 
 #include "db/db_test_util.h"
-#include "db/read_callback.h"
-#include "db/version_edit.h"
-#include "env/fs_readonly.h"
 #include "options/options_helper.h"
-#include "port/port.h"
 #include "port/stack_trace.h"
-#include "rocksdb/experimental.h"
-#include "rocksdb/iostats_context.h"
-#include "rocksdb/persistent_cache.h"
-#include "rocksdb/trace_record.h"
-#include "rocksdb/trace_record_result.h"
-#include "rocksdb/utilities/replayer.h"
-#include "rocksdb/wal_filter.h"
 #include "test_util/testutil.h"
-#include "util/defer.h"
 #include "util/random.h"
-#include "util/simple_mixed_compressor.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {

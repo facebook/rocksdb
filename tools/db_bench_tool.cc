@@ -4644,9 +4644,9 @@ class Benchmark {
             GetDefaultBuiltinCompressionManager());
       } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
         mgr = std::make_shared<AutoSkipCompressorManager>(
-            std::move(GetDefaultBuiltinCompressionManager()));
+            GetDefaultBuiltinCompressionManager());
       } else {
-        // not defined -> exite with error
+        // not defined -> exit with error
         fprintf(stderr, "Requested compression manager not supported");
         ErrorExit();
       }

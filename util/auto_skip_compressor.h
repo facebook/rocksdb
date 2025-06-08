@@ -3,17 +3,18 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-// Creates mixed compressor wrapper which uses multiple compression algorithm
-// within same SST file.
+// Creates auto skip compressor wrapper which uses multiple compression
+// algorithm within same SST file.
 
 #pragma once
 #include <memory>
 #include <mutex>
 #include <vector>
 
-#include "compression.h"
-#include "random.h"
 #include "rocksdb/advanced_compression.h"
+#include "util/compression.h"
+#include "util/random.h"
+#include "util/simple_mixed_compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Predicts Rejection Ratio for a window size algorithm
@@ -22,12 +23,12 @@ class RejectionRatioPredictor {
   RejectionRatioPredictor()
       : pred_rejection_percentage_(0),
         rejected_count_(0),
-        compressed_count_(0){};
+        compressed_count_(0) {}
   virtual ~RejectionRatioPredictor() = default;
   virtual int Predict() const { return pred_rejection_percentage_; };
   inline void SetPrediction(int pred_rejection) {
     pred_rejection_percentage_ = pred_rejection;
-  };
+  }
   virtual bool Record(Slice uncompressed_block_data,
                       std::string* compressed_output,
                       const CompressionOptions& opts);
@@ -52,34 +53,22 @@ class WindowBasedRejectionPredictor : public RejectionRatioPredictor {
   const size_t window_size_;
   size_t attempted_compression_count_ = 0;
 };
-class AutoSkipCompressorWrapper : public Compressor {
+class AutoSkipCompressorWrapper : public MultiCompressorWrapper {
  public:
   explicit AutoSkipCompressorWrapper(const CompressionOptions& opts,
                                      CompressionType type,
                                      CompressionDict&& dict = {});
-
-  size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
-  Slice GetSerializedDict() const override;
-  CompressionType GetPreferredCompressionType() const override;
-  ManagedWorkingArea ObtainWorkingArea() override;
-  std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) override;
 
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
 
   // Tracking methods
-  size_t GetRejectedCount() const;
-  size_t GetCompressedCount() const;
-  size_t GetBypassedCount() const;
-  double GetPredRejectionRatio() const;
   void SetMinExplorationPercentage(int min_exploration_percentage);
   int GetMinExplorationPercentage() const;
 
  private:
   int min_exploration_percentage_;
-  std::vector<std::unique_ptr<Compressor>> compressors_;
   const CompressionOptions& opts_;
   CompressionType type_;
   Random rnd_;
