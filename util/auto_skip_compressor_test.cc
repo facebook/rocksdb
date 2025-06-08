@@ -99,6 +99,7 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManagerEnablesDisablesCompression) {
   EXPECT_GT(bypassed_rate, 50);
   count = count + kCount;
 
+  // Test the compression is enabled when passing highly compressible data
   value = std::string("A", 20000);
   for (int i = 0; i < kCount; ++i) {
     ASSERT_OK(Put(Key(count + i), value));
@@ -109,7 +110,7 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManagerEnablesDisablesCompression) {
   bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
   rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
   count = count + kCount;
-  // should stick with the not optimize decision
+  // should stick with the compression decision
   for (int i = 0; i < kCount; ++i) {
     ASSERT_OK(Put(Key(count + i), value));
     ASSERT_EQ(Get(Key(count + i)), value);
