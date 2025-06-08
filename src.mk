@@ -256,6 +256,7 @@ LIB_SOURCES =                                                   \
   util/ribbon_config.cc                                         \
   util/slice.cc                                                 \
   util/file_checksum_helper.cc                                  \
+  util/simple_mixed_compressor.cc                               \
   util/status.cc                                                \
   util/stderr_logger.cc                                         \
   util/string_util.cc                                           \
