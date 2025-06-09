@@ -61,9 +61,12 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManagerEnablesDisablesCompression) {
       ASSERT_EQ(Get(Key(count + i)), value);
     }
     ASSERT_OK(Flush());
-    auto compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
-    auto bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-    auto rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+    // auto compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
+    // auto bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+    // auto rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+    PopStat(NUMBER_BLOCK_COMPRESSED);
+    PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+    PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
     count = count + kCount;
     // should stick with the not optimize decision
     for (int i = 0; i < kCount; ++i) {
@@ -74,9 +77,9 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManagerEnablesDisablesCompression) {
     ASSERT_OK(Flush());
     // Test the compression is disabled
     // Make sure that Compressor output is properly calculated as bypassed
-    compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
-    bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-    rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+    auto compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
+    auto bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+    auto rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
     auto rejection_ratio =
         rejected_count * 100 / (compressed_count + rejected_count);
     EXPECT_GT(rejection_ratio, 50);
@@ -92,9 +95,12 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManagerEnablesDisablesCompression) {
       ASSERT_EQ(Get(Key(count + i)), value);
     }
     ASSERT_OK(Flush());
-    compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
-    bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-    rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+    // compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
+    // bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+    // rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+    PopStat(NUMBER_BLOCK_COMPRESSED);
+    PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+    PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
     count = count + kCount;
     // should stick with the compression decision
     for (int i = 0; i < kCount; ++i) {
