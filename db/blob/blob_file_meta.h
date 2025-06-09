@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <cassert>
 #include <cstdint>
 #include <iosfwd>
