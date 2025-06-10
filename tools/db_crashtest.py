@@ -347,7 +347,7 @@ default_params = {
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
-    "compression_manager": lambda: random.choice(["mixed", "none", "autoskip"]),
+    "compression_manager": lambda: random.choice(["mixed", "none", "autoskip", "randommixed"]),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
