@@ -24,9 +24,12 @@ namespace ROCKSDB_NAMESPACE {
 class DBAutoSkip : public DBTestBase {
  public:
   Options options;
+  Random rnd_;
+  int key_cursor_ = 0;
   DBAutoSkip()
       : DBTestBase("db_auto_skip", /*env_do_fsync=*/true),
-        options(CurrentOptions()) {
+        options(CurrentOptions()),
+        rnd_(231) {
     if (ZSTD_Supported()) {
       options.compression = kZSTD;
       options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -43,6 +46,22 @@ class DBAutoSkip : public DBTestBase {
   uint64_t PopStat(Tickers t) {
     return options.statistics->getAndResetTickerCount(t);
   }
+  bool CompressionFriendlyPut(const int no_of_kvs, const int size_of_value) {
+    auto value = std::string(size_of_value, 'A');
+    for (int i = 0; i < no_of_kvs; ++i) {
+      Put(Key(key_cursor_), value);
+      key_cursor_++;
+    }
+    return true;
+  }
+  bool CompressionUnfriendlyPut(const int no_of_kvs, const int size_of_value) {
+    auto value = rnd_.RandomBinaryString(size_of_value);
+    for (int i = 0; i < no_of_kvs; ++i) {
+      Put(Key(key_cursor_), value);
+      key_cursor_++;
+    }
+    return true;
+  }
 };
 
 // test case just to make sure auto compression manager is working
@@ -50,29 +69,18 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
   if (ZSTD_Supported()) {
     // AutoSkipCompressionManager starts with rejection ratio 0 i.e. compression
     // enabled
-    Random rnd(301);
-    std::string value;
     constexpr int kCount =
-        1000;  // high enough for compression manager to register the changes
+        5000;  // high enough for compression manager to register the changes
     // enough data to change the decision
-    auto count = 0;
-    for (auto i = 0; i < kCount; ++i) {
-      value = rnd.RandomBinaryString(20000);
-      ASSERT_OK(Put(Key(count), value));
-      ASSERT_EQ(Get(Key(count)), value);
-      count++;
-    }
+    const int kValueSize = 20000;
+    CompressionUnfriendlyPut(kCount, kValueSize);
     ASSERT_OK(Flush());
+    // reset the following stats to zero
     PopStat(NUMBER_BLOCK_COMPRESSED);
     PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
     PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
     // should stick with the not compressing decision
-    for (auto i = 0; i < kCount; ++i) {
-      value = rnd.RandomBinaryString(20000);
-      ASSERT_OK(Put(Key(count), value));
-      ASSERT_EQ(Get(Key(count)), value);
-      count++;
-    }
+    CompressionUnfriendlyPut(kCount, kValueSize);
     ASSERT_OK(Flush());
     // Test the compression is disabled
     // Make sure that Compressor output is properly calculated as bypassed
@@ -87,22 +95,13 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
     EXPECT_GT(bypassed_rate, 50);
 
     // Test the compression is enabled when passing highly compressible data
-    value = std::string(20000, 'A');
-    for (int i = 0; i < kCount; ++i) {
-      ASSERT_OK(Put(Key(count), value));
-      ASSERT_EQ(Get(Key(count)), value);
-      count++;
-    }
+    CompressionFriendlyPut(kCount, kValueSize);
     ASSERT_OK(Flush());
     PopStat(NUMBER_BLOCK_COMPRESSED);
     PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
     PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
     // should stick with the compression decision
-    for (auto i = 0; i < kCount; ++i) {
-      ASSERT_OK(Put(Key(count), value));
-      ASSERT_EQ(Get(Key(count)), value);
-      count++;
-    }
+    CompressionFriendlyPut(kCount, kValueSize);
     ASSERT_OK(Flush());
     // Test the compression is disabled
     compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
