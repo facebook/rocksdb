@@ -9,73 +9,54 @@
 #pragma once
 #include <memory>
 #include <mutex>
-#include <vector>
 
 #include "rocksdb/advanced_compression.h"
 #include "util/compression.h"
 #include "util/random.h"
-#include "util/simple_mixed_compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Predicts Rejection Ratio for a window size algorithm
-class RejectionRatioPredictor {
+class CompressionRejectionProbabilityPredictor {
  public:
-  RejectionRatioPredictor()
+  CompressionRejectionProbabilityPredictor(int window_size)
       : pred_rejection_percentage_(0),
         rejected_count_(0),
-        compressed_count_(0) {}
-  virtual ~RejectionRatioPredictor() = default;
-  virtual int Predict() const { return pred_rejection_percentage_; }
-  inline void SetPrediction(int pred_rejection) {
+        compressed_count_(0),
+        window_size_(window_size),
+        attempted_compression_count_(0) {}
+  int Predict() const { return pred_rejection_percentage_; }
+  inline void TEST_SetPrediction(int pred_rejection) {
     pred_rejection_percentage_ = pred_rejection;
   }
-  virtual bool Record(Slice uncompressed_block_data,
-                      std::string* compressed_output,
-                      const CompressionOptions& opts);
+  bool Record(Slice uncompressed_block_data, std::string* compressed_output,
+              const CompressionOptions& opts);
 
  protected:
   int pred_rejection_percentage_ = 0;
   size_t rejected_count_ = 0;
   size_t compressed_count_ = 0;
-};
-class WindowBasedRejectionPredictor : public RejectionRatioPredictor {
- public:
-  explicit WindowBasedRejectionPredictor(int window_size)
-      : RejectionRatioPredictor::RejectionRatioPredictor(),
-        window_size_(window_size),
-        attempted_compression_count_(0) {}
-  virtual int Predict() const override;
-  virtual bool Record(Slice uncompressed_block_data,
-                      std::string* compressed_output,
-                      const CompressionOptions& opts) override;
-
- protected:
   const size_t window_size_;
   size_t attempted_compression_count_ = 0;
 };
-class AutoSkipCompressorWrapper : public MultiCompressorWrapper {
+class AutoSkipCompressorWrapper : public CompressorWrapper {
  public:
-  explicit AutoSkipCompressorWrapper(const CompressionOptions& opts,
-                                     CompressionType type,
-                                     CompressionDict&& dict = {});
+  explicit AutoSkipCompressorWrapper(std::unique_ptr<Compressor> compressor,
+                                     const CompressionOptions& opts);
 
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
 
   // Tracking methods
-  void SetMinExplorationPercentage(int min_exploration_percentage);
-  int GetMinExplorationPercentage() const;
+  void TEST_SetMinExplorationPercentage(int min_exploration_percentage);
+  int TEST_GetMinExplorationPercentage() const;
 
  private:
   int min_exploration_percentage_;
   const CompressionOptions& opts_;
-  // CompressionType type_;
   Random rnd_;
   mutable std::mutex mutex_;
-
- public:
-  std::shared_ptr<RejectionRatioPredictor> predictor_;
+  std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor_;
 };
 
 class AutoSkipCompressorManager : public CompressionManagerWrapper {

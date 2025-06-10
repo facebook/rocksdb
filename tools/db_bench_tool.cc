@@ -2896,7 +2896,8 @@ class Benchmark {
       }
 #endif
     }
-    // mixed compression expect to be zstd
+    // mixed compression  manager expect compression type to be expliciltiy
+    // configured through Options to be zstd
     auto compression = std::string("zstd");
     if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
       compression = CompressionTypeToString(FLAGS_compression_type_e);

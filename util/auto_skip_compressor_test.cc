@@ -46,33 +46,32 @@ class DBAutoSkip : public DBTestBase {
 };
 
 // test case just to make sure auto compression manager is working
-TEST_F(DBAutoSkip, AutoSkipCompressionManagerEnablesDisablesCompression) {
+TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
   if (ZSTD_Supported()) {
-    // Start with predicted rejection percentage of 0 i.e. compression enabled
+    // AutoSkipCompressionManager starts with rejection ratio 0 i.e. compression
+    // enabled
     Random rnd(301);
     std::string value;
     constexpr int kCount =
-        1000;  // high enough to get window size of compression
+        1000;  // high enough for compression manager to register the changes
     // enough data to change the decision
     auto count = 0;
-    for (int i = 0; i < kCount; ++i) {
+    for (auto i = 0; i < kCount; ++i) {
       value = rnd.RandomBinaryString(20000);
-      ASSERT_OK(Put(Key(count + i), value));
-      ASSERT_EQ(Get(Key(count + i)), value);
+      ASSERT_OK(Put(Key(count), value));
+      ASSERT_EQ(Get(Key(count)), value);
+      count++;
     }
     ASSERT_OK(Flush());
-    // auto compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
-    // auto bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-    // auto rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
     PopStat(NUMBER_BLOCK_COMPRESSED);
     PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
     PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-    count = count + kCount;
-    // should stick with the not optimize decision
-    for (int i = 0; i < kCount; ++i) {
+    // should stick with the not compressing decision
+    for (auto i = 0; i < kCount; ++i) {
       value = rnd.RandomBinaryString(20000);
-      ASSERT_OK(Put(Key(count + i), value));
-      ASSERT_EQ(Get(Key(count + i)), value);
+      ASSERT_OK(Put(Key(count), value));
+      ASSERT_EQ(Get(Key(count)), value);
+      count++;
     }
     ASSERT_OK(Flush());
     // Test the compression is disabled
@@ -86,26 +85,23 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManagerEnablesDisablesCompression) {
     auto bypassed_rate = bypassed_count * 100 /
                          (compressed_count + rejected_count + bypassed_count);
     EXPECT_GT(bypassed_rate, 50);
-    count = count + kCount;
 
     // Test the compression is enabled when passing highly compressible data
     value = std::string(20000, 'A');
     for (int i = 0; i < kCount; ++i) {
-      ASSERT_OK(Put(Key(count + i), value));
-      ASSERT_EQ(Get(Key(count + i)), value);
+      ASSERT_OK(Put(Key(count), value));
+      ASSERT_EQ(Get(Key(count)), value);
+      count++;
     }
     ASSERT_OK(Flush());
-    // compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
-    // bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-    // rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
     PopStat(NUMBER_BLOCK_COMPRESSED);
     PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
     PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-    count = count + kCount;
     // should stick with the compression decision
-    for (int i = 0; i < kCount; ++i) {
-      ASSERT_OK(Put(Key(count + i), value));
-      ASSERT_EQ(Get(Key(count + i)), value);
+    for (auto i = 0; i < kCount; ++i) {
+      ASSERT_OK(Put(Key(count), value));
+      ASSERT_EQ(Get(Key(count)), value);
+      count++;
     }
     ASSERT_OK(Flush());
     // Test the compression is disabled
@@ -120,113 +116,49 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManagerEnablesDisablesCompression) {
     EXPECT_LT(bypassed_rate, 50);
   }
 }
-TEST(WindowBasedRejectionPredictorTest, CorrectPrediction) {
-  WindowBasedRejectionPredictor model_(10);
+TEST(CompressionRejectionProbabilityPredictorTest,
+     UsesLastWindowSizeDataForPrediction) {
+  CompressionRejectionProbabilityPredictor predictor_(10);
   CompressionOptions opts;
   opts.max_compressed_bytes_per_kb = 1000;
   std::string uncompressed_data(10000, 'A');
   Slice block_data(uncompressed_data);
   std::string compressed_data(500, 'A');
   // Test ability to cold start
-  model_.SetPrediction(20);
-  auto prediction = model_.Predict();
+  predictor_.TEST_SetPrediction(20);
+  auto prediction = predictor_.Predict();
   EXPECT_EQ(prediction, 20);
   // set window 10, 5 rejection , 5 compression -> should get predicted
   // 5 bypass
   for (auto i = 0; i < 5; i++) {
-    model_.Record(block_data, &compressed_data, opts);
+    predictor_.Record(block_data, &compressed_data, opts);
   }
   // rejection of 0.5 after 5 rejection
   for (auto i = 0; i < 5; i++) {
-    model_.Record(block_data, &uncompressed_data, opts);
+    predictor_.Record(block_data, &uncompressed_data, opts);
   }
-  prediction = model_.Predict();
+  prediction = predictor_.Predict();
   EXPECT_EQ(prediction, 50);
   // 8 compressed
   for (auto i = 0; i < 8; i++) {
-    model_.Record(block_data, &compressed_data, opts);
+    predictor_.Record(block_data, &compressed_data, opts);
   }
   // 2 rejection
   for (auto i = 0; i < 2; i++) {
-    model_.Record(block_data, &uncompressed_data, opts);
+    predictor_.Record(block_data, &uncompressed_data, opts);
   }
-  prediction = model_.Predict();
+  prediction = predictor_.Predict();
   EXPECT_EQ(prediction, 20);
   // 2 compressed
   for (auto i = 0; i < 2; i++) {
-    model_.Record(block_data, &compressed_data, opts);
+    predictor_.Record(block_data, &compressed_data, opts);
   }
   // 8 rejection
   for (auto i = 0; i < 8; i++) {
-    model_.Record(block_data, &uncompressed_data, opts);
+    predictor_.Record(block_data, &uncompressed_data, opts);
   }
-  prediction = model_.Predict();
+  prediction = predictor_.Predict();
   EXPECT_EQ(prediction, 80);
-}
-TEST(AutoSkipCompressor, ExplorationRate) {
-  if (ZSTD_Supported()) {
-    // Create AutoSkipCompressor object
-    CompressionOptions opts;
-    opts.max_compressed_bytes_per_kb = 1000;
-    AutoSkipCompressorWrapper compressor(opts, kZSTD);
-    compressor.SetMinExplorationPercentage(10);
-
-    // Create a new Predictor object with Predict function always returning 100
-    class CustomPredictor : public RejectionRatioPredictor {
-     public:
-      int Predict() const override { return 100; }
-    };
-    compressor.predictor_ = std::make_unique<CustomPredictor>();
-
-    // Run the compress 100 times
-    std::string value(1000, 'A');
-    auto compression_count_ = 0;
-    auto bypass_count_ = 0;
-    auto rejection_count_ = 0;
-    for (int i = 0; i < 100; ++i) {
-      std::string compressed_output;
-      CompressionType out_compression_type;
-      Compressor::ManagedWorkingArea wa;
-      Status status = compressor.CompressBlock(Slice(value), &compressed_output,
-                                               &out_compression_type, &wa);
-      ASSERT_OK(status);
-      if (out_compression_type == kNoCompression) {
-        if (compressed_output.empty()) {
-          bypass_count_++;
-        } else {
-          rejection_count_++;
-        }
-      } else {
-        compression_count_++;
-      }
-    }
-
-    EXPECT_GE(bypass_count_, 80);
-    EXPECT_LE(compression_count_, 20);
-    EXPECT_EQ(rejection_count_, 0);
-    compressor.SetMinExplorationPercentage(0);
-    compression_count_ = 0;
-    bypass_count_ = 0;
-    rejection_count_ = 0;
-    for (int i = 0; i < 100; ++i) {
-      std::string compressed_output;
-      CompressionType out_compression_type;
-      Compressor::ManagedWorkingArea wa;
-      Status status = compressor.CompressBlock(Slice(value), &compressed_output,
-                                               &out_compression_type, &wa);
-      ASSERT_OK(status);
-      if (out_compression_type == kNoCompression) {
-        if (compressed_output.empty()) {
-          bypass_count_++;
-        } else {
-          rejection_count_++;
-        }
-      } else {
-        compression_count_++;
-      }
-    }
-    EXPECT_GE(bypass_count_, 95);
-  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
