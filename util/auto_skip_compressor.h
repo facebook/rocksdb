@@ -22,7 +22,7 @@ class CompressionRejectionProbabilityPredictor {
       : pred_rejection_percentage_(0),
         rejected_count_(0),
         compressed_count_(0),
-        window_size_(window_size),
+        kWindowSize(window_size),
         attempted_compression_count_(0) {}
   int Predict() const { return pred_rejection_percentage_; }
   inline void TEST_SetPrediction(int pred_rejection) {
@@ -35,7 +35,7 @@ class CompressionRejectionProbabilityPredictor {
   int pred_rejection_percentage_ = 0;
   size_t rejected_count_ = 0;
   size_t compressed_count_ = 0;
-  const size_t window_size_;
+  const size_t kWindowSize;
   size_t attempted_compression_count_ = 0;
 };
 class AutoSkipCompressorWrapper : public CompressorWrapper {
@@ -52,7 +52,7 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
   int TEST_GetMinExplorationPercentage() const;
 
  private:
-  int min_exploration_percentage_;
+  int kExplorationPercentage = 10;
   const CompressionOptions& opts_;
   Random rnd_;
   mutable std::mutex mutex_;

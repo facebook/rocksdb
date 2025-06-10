@@ -27,7 +27,7 @@ bool CompressionRejectionProbabilityPredictor::Record(
     compressed_count_++;
   }
   attempted_compression_count_++;
-  if (attempted_compression_count_ >= window_size_) {
+  if (attempted_compression_count_ >= kWindowSize) {
     pred_rejection_percentage_ = static_cast<int>(
         rejected_count_ * 100 / (compressed_count_ + rejected_count_));
     // fprintf(stdout,
@@ -43,7 +43,7 @@ bool CompressionRejectionProbabilityPredictor::Record(
 AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
     std::unique_ptr<Compressor> compressor, const CompressionOptions& opts)
     : CompressorWrapper::CompressorWrapper(std::move(compressor)),
-      min_exploration_percentage_(10),
+      kExplorationPercentage(10),
       opts_(opts),
       rnd_(331),
       predictor_(
@@ -52,8 +52,9 @@ AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
 Status AutoSkipCompressorWrapper::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
+  const int kProbabilityCutOff = 50;
   std::lock_guard<std::mutex> lock(mutex_);
-  if (rnd_.PercentTrue(min_exploration_percentage_)) {
+  if (rnd_.PercentTrue(kExplorationPercentage)) {
     // fprintf(
     //     stdout,
     //     "[AutoSkipCompressorWrapper::CompressBlock] selected:
@@ -70,7 +71,7 @@ Status AutoSkipCompressorWrapper::CompressBlock(
     //         "[AutoSkipCompressorWrapper::CompressBlock] selected: exploit "
     //         "pred_rejection: %d\n",
     //         prediction);
-    if (prediction < 50) {
+    if (prediction < kProbabilityCutOff) {
       // decide to compress
       Status status = wrapped_->CompressBlock(
           uncompressed_data, compressed_output, out_compression_type, wa);
@@ -102,10 +103,10 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
 }
 
 void AutoSkipCompressorWrapper::TEST_SetMinExplorationPercentage(
-    int min_exploration_percentage) {
-  min_exploration_percentage_ = min_exploration_percentage;
+    int exploration_percentage) {
+  kExplorationPercentage = exploration_percentage;
 }
 int AutoSkipCompressorWrapper::TEST_GetMinExplorationPercentage() const {
-  return min_exploration_percentage_;
+  return kExplorationPercentage;
 }
 }  // namespace ROCKSDB_NAMESPACE
