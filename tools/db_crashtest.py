@@ -347,7 +347,7 @@ default_params = {
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
-    "compression_manager": lambda: random.choice(["mixed", "none"]),
+    "compression_manager": lambda: random.choice(["mixed", "none", "autoskip"]),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -998,11 +998,11 @@ def finalize_and_sanitize(src_params):
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
     # Disabling block align if mixed manager is neing used
-    if dest_params.get("compression_manager") == "mixed":
+    if dest_params.get("compression_manager") != "none":
         if dest_params.get("block_align") == 1:
             dest_params["block_align"] = 0
         dest_params["compression_type"] = "zstd"
-        dest_params["bottommost_compression_type"] = "none"
+        dest_params["bottommost_compression_type"] = "zstd"
     else:
         # Enabling block_align with compression is not supported
         if dest_params.get("block_align") == 1:
