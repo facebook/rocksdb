@@ -83,6 +83,7 @@
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/simple_mixed_compressor.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
@@ -92,7 +93,6 @@
 #include "utilities/merge_operators/bytesxor.h"
 #include "utilities/merge_operators/sortlist.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
-
 #ifdef MEMKIND
 #include "memory/memkind_kmem_allocator.h"
 #endif
@@ -596,6 +596,9 @@ static enum ROCKSDB_NAMESPACE::CompressionType
     FLAGS_compressed_secondary_cache_compression_type_e =
         ROCKSDB_NAMESPACE::kLZ4Compression;
 
+DEFINE_string(compression_manager, "none",
+              "Set the compression manager type to mixed(roundrobin) or other "
+              "type. None for BuilInCompressor");
 DEFINE_int32(compressed_secondary_cache_compression_level,
              ROCKSDB_NAMESPACE::CompressionOptions().level,
              "Compression level. The meaning of this value is library-"
@@ -1811,6 +1814,10 @@ DEFINE_bool(track_and_verify_wals_in_manifest, false,
 
 DEFINE_bool(track_and_verify_wals, false, "See Options.track_and_verify_wals");
 
+DEFINE_int32(same_value_percentage, 0,
+             "Percentage of time value will be same i.e good for compression "
+             "of the block");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -1931,9 +1938,10 @@ class RandomGenerator {
   std::string data_;
   unsigned int pos_;
   std::unique_ptr<BaseDistribution> dist_;
+  Random rnd;
 
  public:
-  RandomGenerator() {
+  RandomGenerator() : rnd(301) {
     auto max_value_size = FLAGS_value_size_max;
     switch (FLAGS_value_size_distribution_type_e) {
       case kUniform:
@@ -1952,7 +1960,6 @@ class RandomGenerator {
     // We use a limited amount of data over and over again and ensure
     // that it is larger than the compression window (32KB), and also
     // large enough to serve all typical value sizes we want to write.
-    Random rnd(301);
     std::string piece;
     while (data_.size() < (unsigned)std::max(1048576, max_value_size)) {
       // Add a short fragment that is as compressible as specified
@@ -1965,11 +1972,15 @@ class RandomGenerator {
 
   Slice Generate(unsigned int len) {
     assert(len <= data_.size());
-    if (pos_ + len > data_.size()) {
-      pos_ = 0;
+    if (rnd.PercentTrue(FLAGS_same_value_percentage)) {
+      return Slice(data_.data(), len);
+    } else {
+      if (pos_ + len > data_.size()) {
+        pos_ = 0;
+      }
+      pos_ += len;
+      return Slice(data_.data() + pos_ - len, len);
     }
-    pos_ += len;
-    return Slice(data_.data() + pos_ - len, len);
   }
 
   Slice Generate() {
@@ -2884,9 +2895,17 @@ class Benchmark {
       }
 #endif
     }
-
-    auto compression = CompressionTypeToString(FLAGS_compression_type_e);
-    fprintf(stdout, "Compression: %s\n", compression.c_str());
+    // mixed compression  manager expect compression type to be expliciltiy
+    // configured through Options to be zstd
+    auto compression = std::string("zstd");
+    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+      fprintf(stdout, "Compression manager: mixed\n");
+      fprintf(stdout, "Compression: zstd\n");
+    } else {
+      fprintf(stdout, "Compression manager: none\n");
+      compression = CompressionTypeToString(FLAGS_compression_type_e);
+      fprintf(stdout, "Compression: %s\n", compression.c_str());
+    }
     fprintf(stdout, "Compression sampling rate: %" PRId64 "\n",
             FLAGS_sample_for_compression);
     if (options.memtable_factory != nullptr) {
@@ -4610,7 +4629,21 @@ class Benchmark {
         FLAGS_level0_file_num_compaction_trigger;
     options.level0_slowdown_writes_trigger =
         FLAGS_level0_slowdown_writes_trigger;
-    options.compression = FLAGS_compression_type_e;
+    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+      // Need to list zstd in the compression_name table property if it's
+      // potentially used by being in the mix (i.e., potentially at least one
+      // data block in the table is compressed by zstd). This ensures proper
+      // context and dictionary handling, and prevents crashes in older RocksDB
+      // versions.
+      options.compression = kZSTD;
+      options.bottommost_compression = kZSTD;
+      auto mgr = std::make_shared<RoundRobinManager>(
+          GetDefaultBuiltinCompressionManager());
+      options.compression_manager = mgr;
+    } else {
+      options.compression = FLAGS_compression_type_e;
+    }
+
     if (FLAGS_simulate_hybrid_fs_file != "") {
       options.last_level_temperature = Temperature::kWarm;
     }
