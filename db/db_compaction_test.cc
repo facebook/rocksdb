@@ -2890,11 +2890,11 @@ TEST_F(DBCompactionTest, L0_CompactionBug_Issue44_b) {
 }
 
 TEST_F(DBCompactionTest, ManualAutoRace) {
-  // Verify that auto compaction is retried after exclusive manual compaction
-  // finishes for:
+  const int kNumL0FilesTrigger = 4;
+  // Verify that the auto compaction is retried after the conflicting exclusive
+  // manual compaction finishes for:
   // 1. Non-bottom-priority compactions (tested with level compaction)
-  // 2. Bottom-priority compactions with and without file lock reduction (tested
-  // with universal compaction)
+  // 2. Bottom-priority compactions (tested with universal compaction)
   for (auto compaction_style :
        {kCompactionStyleLevel, kCompactionStyleUniversal}) {
     Env::Default()->SetBackgroundThreads(
@@ -2908,6 +2908,7 @@ TEST_F(DBCompactionTest, ManualAutoRace) {
 
       Options options = CurrentOptions();
       options.num_levels = 3;
+      options.level0_file_num_compaction_trigger = kNumL0FilesTrigger;
       options.compaction_style = compaction_style;
       options.compaction_options_universal.reduce_file_locking =
           universal_reduce_file_locking;
@@ -2915,44 +2916,31 @@ TEST_F(DBCompactionTest, ManualAutoRace) {
       DestroyAndReopen(options);
       CreateAndReopenWithCF({"exclusive_manual_compaction_cf"}, options);
 
-      // Set up sync points to ensure that running auto compaction encounters a
-      // conflict from exclusive manual compaction, triggering a retry later.
+      // Set up sync points to ensure that the auto compaction
+      // encounters a conflict from exclusive manual compaction before the auto
+      // compaction gets to pick files, This will trigger a retry later.
       //
-      // The sync points are set up differently based on the compaction style
-      // and whether universal reduce file locking is enabled.
+      // Specifically, the sync points are set up as following:
+      // 1. Wait until background low-pri scheduled (not picking files yet) or
+      // bottom-pri scheduled (not repicking files yet) for
+      // `universal_reduce_file_locking = true` before triggering
+      // CompactRange()
+      //
+      // 2. Wait until the triggered CompactRange()
+      // registers its compaction and creates conflict before the auto
+      // compaction picks or repicks files for the background compaction.
       if (compaction_style == kCompactionStyleLevel ||
           !universal_reduce_file_locking) {
-        // For level compaction or universal compaction without reduce file
-        // locking:
-        // 1. Wait until background low-pri or bottom-pri compaction is
-        // scheduled before triggering CompactRange()
-        // 2. Wait until CompactionRange()
-        // registers its compaction and creates conflict before running the
-        // background compaction.
         ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
             {{"DBImpl::BGWorkCompaction", "DBCompactionTest::ManualAutoRace:1"},
              {"DBImpl::RunManualCompaction:WaitScheduled",
               "BackgroundCallCompaction:0"}});
       } else {
-        // For universal compaction with reduce file locking:
-        // 1. Wait until background bottom-pri compaction is forwarded before
-        // triggering CompactRange().
-        // 2. Wait until CompactionRange() registers its compaction and creates
-        // conflict before running this background bottom-pri compaction and
-        // proceed to repick.
-        // 3. Wait until after background bottom-pri compaction is prepicked
-        // again and it proceeds to repick files to finish waiting. This ensures
-        // that TEST_WaitForCompact() does not return prematurely after manual
-        // compaction completes, but before the bottom-pri compaction is
-        // repicked.
         ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
             {{"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
               "DBCompactionTest::ManualAutoRace:1"},
              {"DBImpl::RunManualCompaction:WaitScheduled",
-              "BackgroundCallCompaction:0::BottomPri"},
-             {"DBImpl::BackgroundCompaction():"
-              "AfterPickCompactionBottomPri",
-              "BeforeWaitForCompaction"}});
+              "BackgroundCallCompaction:0:BottomPri"}});
       }
 
       bool encounter_conflict = false;
@@ -2967,19 +2955,12 @@ TEST_F(DBCompactionTest, ManualAutoRace) {
       ASSERT_OK(Flush(1));
       ASSERT_OK(Put(1, "foo", ""));
       ASSERT_OK(Put(1, "bar", ""));
-      // Generate 4 files in CF0 to trigger full compaction
-      ASSERT_OK(Put("foo", ""));
-      ASSERT_OK(Put("bar", ""));
-      ASSERT_OK(Flush());
-      ASSERT_OK(Put("foo", ""));
-      ASSERT_OK(Put("bar", ""));
-      ASSERT_OK(Flush());
-      ASSERT_OK(Put("foo", ""));
-      ASSERT_OK(Put("bar", ""));
-      ASSERT_OK(Flush());
-      ASSERT_OK(Put("foo", ""));
-      ASSERT_OK(Put("bar", ""));
-      ASSERT_OK(Flush());
+      // Generate files in CF0 to trigger full compaction
+      for (int i = 0; i < kNumL0FilesTrigger; ++i) {
+        ASSERT_OK(Put("foo", ""));
+        ASSERT_OK(Put("bar", ""));
+        ASSERT_OK(Flush());
+      }
 
       TEST_SYNC_POINT("DBCompactionTest::ManualAutoRace:1");
       CompactRangeOptions cro;
@@ -2988,10 +2969,6 @@ TEST_F(DBCompactionTest, ManualAutoRace) {
       ASSERT_EQ(compaction_style == kCompactionStyleLevel ? "0,1" : "0,0,1",
                 FilesPerLevel(1));
 
-      if (compaction_style == kCompactionStyleUniversal &&
-          universal_reduce_file_locking) {
-        TEST_SYNC_POINT("BeforeWaitForCompaction");
-      }
       ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
       ASSERT_TRUE(encounter_conflict);

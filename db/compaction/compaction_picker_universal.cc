@@ -164,42 +164,48 @@ class UniversalCompactionBuilder {
     }
   }
 
-  void MaybePickPeriodicCompaction(Compaction*& c) {
-    if (c != nullptr || vstorage_->FilesMarkedForPeriodicCompaction().empty()) {
-      return;
+  Compaction* MaybePickPeriodicCompaction(Compaction* const prev_picked_c) {
+    if (prev_picked_c != nullptr ||
+        vstorage_->FilesMarkedForPeriodicCompaction().empty()) {
+      return prev_picked_c;
     }
     // Always need to do a full compaction for periodic compaction.
-    c = PickPeriodicCompaction();
+    Compaction* c = PickPeriodicCompaction();
     TEST_SYNC_POINT_CALLBACK("PostPickPeriodicCompaction", c);
     if (c != nullptr) {
       ROCKS_LOG_BUFFER(log_buffer_,
                        "[%s] Universal: picked for periodic compaction\n",
                        cf_name_.c_str());
     }
+    return c;
   }
 
-  void MaybePickSizeAmpCompaction(Compaction*& c,
-                                  int file_num_compaction_trigger) {
-    if (c != nullptr || sorted_runs_.size() <
-                            static_cast<size_t>(file_num_compaction_trigger)) {
-      return;
+  Compaction* MaybePickSizeAmpCompaction(Compaction* const prev_picked_c,
+                                         int file_num_compaction_trigger) {
+    if (prev_picked_c != nullptr ||
+        sorted_runs_.size() <
+            static_cast<size_t>(file_num_compaction_trigger)) {
+      return prev_picked_c;
     }
-    c = PickCompactionToReduceSizeAmp();
+    Compaction* c = PickCompactionToReduceSizeAmp();
     if (c != nullptr) {
       TEST_SYNC_POINT("PickCompactionToReduceSizeAmpReturnNonnullptr");
       ROCKS_LOG_BUFFER(log_buffer_,
                        "[%s] Universal: picked for size amp compaction \n",
                        cf_name_.c_str());
     }
+    return c;
   }
 
-  void MaybePickCompactionToReduceSortedRunsBasedFileRatio(
-      Compaction*& c, int file_num_compaction_trigger, unsigned int ratio) {
-    if (c != nullptr || sorted_runs_.size() <
-                            static_cast<size_t>(file_num_compaction_trigger)) {
-      return;
+  Compaction* MaybePickCompactionToReduceSortedRunsBasedFileRatio(
+      Compaction* const prev_picked_c, int file_num_compaction_trigger,
+      unsigned int ratio) {
+    if (prev_picked_c != nullptr ||
+        sorted_runs_.size() <
+            static_cast<size_t>(file_num_compaction_trigger)) {
+      return prev_picked_c;
     }
-    c = PickCompactionToReduceSortedRuns(ratio, UINT_MAX);
+    Compaction* c = PickCompactionToReduceSortedRuns(ratio, UINT_MAX);
     if (c != nullptr) {
       TEST_SYNC_POINT("PickCompactionToReduceSortedRunsReturnNonnullptr");
       ROCKS_LOG_BUFFER(log_buffer_,
@@ -207,14 +213,16 @@ class UniversalCompactionBuilder {
                        "reduce sorted run\n",
                        cf_name_.c_str());
     }
+    return c;
   }
 
-  void MaybePickCompactionToReduceSortedRuns(Compaction*& c,
-                                             int file_num_compaction_trigger,
-                                             unsigned int ratio) {
-    if (c != nullptr || sorted_runs_.size() <
-                            static_cast<size_t>(file_num_compaction_trigger)) {
-      return;
+  Compaction* MaybePickCompactionToReduceSortedRuns(
+      Compaction* const prev_picked_c, int file_num_compaction_trigger,
+      unsigned int ratio) {
+    if (prev_picked_c != nullptr ||
+        sorted_runs_.size() <
+            static_cast<size_t>(file_num_compaction_trigger)) {
+      return prev_picked_c;
     }
 
     int num_sr_not_compacted = 0;
@@ -231,10 +239,11 @@ class UniversalCompactionBuilder {
           "being compacted -- %u, max num runs allowed -- %d, max_run_size "
           "-- %" PRIu64 "\n",
           cf_name_.c_str(), num_sr_not_compacted, max_num_runs, max_run_size_);
-      return;
+      return nullptr;
     }
 
-    c = PickCompactionToReduceSortedRuns(UINT_MAX, max_num_files_to_compact);
+    Compaction* c =
+        PickCompactionToReduceSortedRuns(UINT_MAX, max_num_files_to_compact);
     if (c != nullptr) {
       ROCKS_LOG_BUFFER(log_buffer_,
                        "[%s] Universal: picked for sorted run num compaction "
@@ -244,13 +253,15 @@ class UniversalCompactionBuilder {
                        cf_name_.c_str(), max_num_files_to_compact, max_num_runs,
                        max_run_size_);
     }
+    return c;
   }
 
-  void MaybePickDeleteTriggeredCompaction(Compaction*& c) {
-    if (c != nullptr) {
-      return;
+  Compaction* MaybePickDeleteTriggeredCompaction(
+      Compaction* const prev_picked_c) {
+    if (prev_picked_c != nullptr) {
+      return prev_picked_c;
     }
-    c = PickDeleteTriggeredCompaction();
+    Compaction* c = PickDeleteTriggeredCompaction();
     if (c != nullptr) {
       TEST_SYNC_POINT("PickDeleteTriggeredCompactionReturnNonnullptr");
       ROCKS_LOG_BUFFER(
@@ -258,6 +269,7 @@ class UniversalCompactionBuilder {
           "[%s] Universal: picked for delete triggered compaction\n",
           cf_name_.c_str());
     }
+    return c;
   }
 
   // Pick Universal compaction to limit read amplification
@@ -756,12 +768,13 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
 
   Compaction* c = nullptr;
 
-  MaybePickPeriodicCompaction(c);
-  MaybePickSizeAmpCompaction(c, file_num_compaction_trigger);
-  MaybePickCompactionToReduceSortedRunsBasedFileRatio(
+  c = MaybePickPeriodicCompaction(c);
+  c = MaybePickSizeAmpCompaction(c, file_num_compaction_trigger);
+  c = MaybePickCompactionToReduceSortedRunsBasedFileRatio(
       c, file_num_compaction_trigger, ratio);
-  MaybePickCompactionToReduceSortedRuns(c, file_num_compaction_trigger, ratio);
-  MaybePickDeleteTriggeredCompaction(c);
+  c = MaybePickCompactionToReduceSortedRuns(c, file_num_compaction_trigger,
+                                            ratio);
+  c = MaybePickDeleteTriggeredCompaction(c);
 
   if (c == nullptr) {
     TEST_SYNC_POINT_CALLBACK(
@@ -770,6 +783,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   }
   assert(c->output_level() <=
          vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind));
+  assert(MeetsOutputLevelRequirements(c->output_level()));
 
   if (mutable_cf_options_.compaction_options_universal.allow_trivial_move ==
           true &&

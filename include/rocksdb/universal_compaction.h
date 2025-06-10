@@ -114,9 +114,11 @@ class CompactionOptionsUniversal {
   // EXPERIMENTAL
   //
   // If true, auto universal compaction picking will adjust to minimize locking
-  // of input files when bottom priority compactions are waiting to run. It may
-  // increase the overrall write amplification and compaction load on low
-  // priority threads.
+  // of input files when bottom priority compactions are waiting to run. This
+  // can increase the likelihood of existing L0s being selected for compaction,
+  // thereby improving write stall and reducing read regression. It may increase
+  // the overrall write amplification and compaction load on low priority
+  // threads.
   //
   // Default: false (disabled)
   //

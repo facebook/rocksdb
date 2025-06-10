@@ -600,14 +600,6 @@ class ColumnFamilyData {
     return (mem_->IsEmpty() ? 0 : 1) + imm_.NumNotFlushed();
   }
 
-  bool IsBottomPriCompactionIntentForwarded() const {
-    return bottom_pri_compaction_intent_forwarded_;
-  }
-
-  void SetBottomPriCompactionIntentForwarded(bool value) {
-    bottom_pri_compaction_intent_forwarded_ = value;
-  }
-
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(
@@ -716,8 +708,6 @@ class ColumnFamilyData {
   bool mempurge_used_;
 
   std::atomic<uint64_t> next_epoch_number_;
-
-  bool bottom_pri_compaction_intent_forwarded_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

@@ -3398,7 +3398,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
   JobContext job_context(next_job_id_.fetch_add(1), true);
   TEST_SYNC_POINT("BackgroundCallCompaction:0");
   if (bg_thread_pri == Env::Priority::BOTTOM) {
-    TEST_SYNC_POINT("BackgroundCallCompaction:0::BottomPri");
+    TEST_SYNC_POINT("BackgroundCallCompaction:0:BottomPri");
   }
 
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
@@ -3639,29 +3639,23 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   } else if (ShouldPickCompaction(is_prepicked, prepicked_compaction)) {
     bool need_repick = is_prepicked && prepicked_compaction->need_repick;
     if (HasExclusiveManualCompaction()) {
-      // Can't compact right now, but try again later
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction()::Conflict");
 
-      if (need_repick) {
-        auto cfd = c->column_family_data();
-        ResetBottomPriCompactionIntent(cfd, c);
-        assert(c == nullptr);
-        EnqueuePendingCompaction(cfd);
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s]Pre-picked compaction cannot repick files due to "
-                         "ongoing exclusive "
-                         "manual compactions. Aborting this pre-picked "
-                         "compaction. Will retry prepicking later."
-                         "\n",
-                         cfd->GetName().c_str());
-      } else {
-        // Increase `unscheduled_compactions_` directly so we don't need to
+      // TODO(hx235): Resolve conflict between intended
+      // bottom-priority compaction (requiring repick, i.e., need_repick = true)
+      // and exclusive manual compaction by releasing the intended
+      // bottom-priority compaction.
+      if (!need_repick) {
+        // Can't compact right now, but try again later
+        //
+        // Increase `unscheduled_compactions_` directly so we
+        // don't need to
         // dequeue and enqueue the CFD again in the compaction queue and thus
         // keep the CFD's position in the queue
         unscheduled_compactions_++;
-      }
 
-      return Status::OK();
+        return Status::OK();
+      }
     }
 
     ColumnFamilyData* cfd = nullptr;
@@ -4147,7 +4141,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ThreadStatusUtil::ResetThreadStatus();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
                              c->column_family_data());
-  } else if (thread_pri == Env::Priority::LOW && !is_prepicked &&
+  } else if (!is_prepicked &&
              Compaction::OutputToNonZeroMaxOutputLevel(
                  c->output_level(),
                  c->column_family_data()
@@ -4156,6 +4150,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                      ->MaxOutputLevel(
                          immutable_db_options_.allow_ingest_behind)) &&
              env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
+    assert(thread_pri == Env::Priority::LOW);
     // Forward compactions involving last level to the bottom pool if it exists,
     // such that compactions unlikely to contribute to write stalls can be
     // delayed or deprioritized.
@@ -4177,8 +4172,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           CreateIntendedCompactionForwardedToBottomPriorityPool(c.get());
       c.reset();
       ca->prepicked_compaction->need_repick = true;
-      ca->prepicked_compaction->compaction->column_family_data()
-          ->SetBottomPriCompactionIntentForwarded(true);
     } else {
       ca->prepicked_compaction->compaction = c.release();
       ca->prepicked_compaction->need_repick = false;
@@ -4391,7 +4384,6 @@ Compaction* DBImpl::CreateIntendedCompactionForwardedToBottomPriorityPool(
   const auto& io = c->immutable_options();
   const auto& mo = c->mutable_cf_options();
   auto* vstorage = c->input_version()->storage_info();
-  const int output_level = c->output_level();
 
   std::vector<CompactionInputFiles> inputs(1);
 
@@ -4425,7 +4417,12 @@ Compaction* DBImpl::CreateIntendedCompactionForwardedToBottomPriorityPool(
   c->ReleaseCompactionFiles(Status::OK());
 
   Compaction* intended_compaction = new Compaction(
-      vstorage, io, mo, mutable_db_options_, std::move(inputs), output_level);
+      vstorage, io, mo, mutable_db_options_, std::move(inputs),
+      c->output_level(), c->target_output_file_size(),
+      c->max_compaction_bytes(), c->output_path_id(), c->output_compression(),
+      c->output_compression_opts(), c->output_temperature(),
+      c->max_subcompactions(), c->grandparents(),
+      std::nullopt /* earliest_snapshot */, nullptr /* snapshot_checker */);
 
   cfd->compaction_picker()->RegisterCompaction(intended_compaction);
   vstorage->ComputeCompactionScore(io, mo);
@@ -4802,7 +4799,6 @@ void DBImpl::ResetBottomPriCompactionIntent(ColumnFamilyData* cfd,
   cfd->current()->storage_info()->ComputeCompactionScore(
       c->immutable_options(), c->mutable_cf_options());
   c.reset();
-  cfd->SetBottomPriCompactionIntentForwarded(false);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
