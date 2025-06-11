@@ -2285,8 +2285,8 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
   constexpr uint16_t kValueSize = 10000;
   Random rnd(404);
   std::string value;
-  Put("a", test::CompressibleString(&rnd, 0.1, kValueSize, &value));
-  Flush();
+  ASSERT_OK(Put("a", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
+  ASSERT_OK(Flush());
 
   // That data should be readable without access to the original compression
   // manager, because it used the built-in CompatibilityName and a built-in
@@ -2317,8 +2317,8 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
   bbto.format_version = 7;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   Reopen(options);
-  Put("b", test::CompressibleString(&rnd, 0.1, kValueSize, &value));
-  Flush();
+  ASSERT_OK(Put("b", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
+  ASSERT_OK(Flush());
   ASSERT_EQ(NumTableFilesAtLevel(0), 2);
   ASSERT_NE(Get("b"), "NOT_FOUND");
 
@@ -2334,9 +2334,9 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
 
   options.compression = kCompression8A;
   Reopen(options);
-  Put("c", test::CompressibleString(&rnd, 0.1, kValueSize, &value));
+  ASSERT_OK(Put("c", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
   EXPECT_EQ(mgr_foo->used_compressor8A_count_, 0);
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_EQ(NumTableFilesAtLevel(0), 3);
   ASSERT_NE(Get("c"), "NOT_FOUND");
   EXPECT_EQ(mgr_foo->used_compressor8A_count_, 1);
