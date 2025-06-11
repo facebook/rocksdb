@@ -214,6 +214,10 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   CompressionType compression;
+  // [Experimental]
+  // Auto detect whether compression should be enabled or disabled
+  // Will also look at the IO and CPU usage in the future
+  bool auto_tune = true;
 
   // Compression algorithm that will be used for the bottommost level that
   // contain files. The behavior for num_levels = 1 is not well defined.

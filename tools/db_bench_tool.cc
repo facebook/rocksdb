@@ -4644,8 +4644,10 @@ class Benchmark {
         mgr = std::make_shared<RoundRobinManager>(
             GetDefaultBuiltinCompressionManager());
       } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
-        mgr = std::make_shared<AutoSkipCompressorManager>(
-            GetDefaultBuiltinCompressionManager());
+        options.auto_tune = true;
+        options.compression = FLAGS_compression_type_e;
+        // mgr = std::make_shared<AutoSkipCompressorManager>(
+        // GetDefaultBuiltinCompressionManager());
       } else {
         // not defined -> exit with error
         fprintf(stderr, "Requested compression manager not supported");

@@ -37,6 +37,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/table.h"
 #include "table/merging_iterator.h"
+#include "util/auto_skip_compressor.h"
 #include "util/autovector.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
@@ -463,7 +464,13 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
       result.memtable_avg_op_scan_flush_trigger = 0;
     }
   }
-
+  // Use Auto Skip Compression manager when auto tune is enabled
+  if (result.auto_tune == true) {
+    result.compression_manager = std::make_shared<AutoSkipCompressorManager>(
+        GetDefaultBuiltinCompressionManager());
+    // result.bottommost_compression = kZSTD;
+    // result.compression = kZSTD;
+  }
   return result;
 }
 
