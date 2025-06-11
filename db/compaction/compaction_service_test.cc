@@ -1230,7 +1230,8 @@ TEST_F(CompactionServiceTest, MergeOperator) {
   GenerateTestData();
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   for (int i = 0; i < 200; i++) {
-    db_->Merge(WriteOptions(), Key(i), "merge_op_append_" + std::to_string(i));
+    ASSERT_OK(db_->Merge(WriteOptions(), Key(i),
+                         "merge_op_append_" + std::to_string(i)));
   }
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   // verify result
