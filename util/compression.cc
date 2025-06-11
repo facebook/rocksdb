@@ -940,7 +940,7 @@ const std::shared_ptr<BuiltinCompressionManagerV2>
 }  // namespace
 
 Status CompressionManager::CreateFromString(
-    const ConfigOptions& /*config_options*/, const std::string& id,
+    const ConfigOptions& config_options, const std::string& id,
     std::shared_ptr<CompressionManager>* result) {
   if (id == kNullptrString || id.empty()) {
     result->reset();
@@ -954,6 +954,8 @@ Status CompressionManager::CreateFromString(
                  0 ||
              id.compare(kBuiltinCompressionManagerV2->Name()) == 0) {
     *result = kBuiltinCompressionManagerV2;
+    return Status::OK();
+  } else if (config_options.ignore_unsupported_options) {
     return Status::OK();
   } else {
     return Status::NotFound("Compatible compression manager for \"" + id +

@@ -2028,7 +2028,7 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
   };
   struct MyManager : public CompressionManagerWrapper {
     using CompressionManagerWrapper::CompressionManagerWrapper;
-    const char* Name() const override { return wrapped_->Name(); }
+    const char* Name() const override { return "MyManager"; }
     std::unique_ptr<Compressor> GetCompressorForSST(
         const FilterBuildingContext& context, const CompressionOptions& opts,
         CompressionType preferred) override {
