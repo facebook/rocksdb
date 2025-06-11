@@ -56,9 +56,9 @@ Status AutoSkipCompressorWrapper::CompressBlock(
   bool exploration = rnd_.PercentTrue(kExplorationPercentage);
   // auto setExploration = [&exploration]() { exploration = true; };
   // (void*)&setExploration;
-  // TEST_SYNC_POINT_CALLBACK(
-  // "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
-  // setExploration);
+  TEST_SYNC_POINT_CALLBACK(
+      "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
+      &exploration);
   if (exploration) {
     // fprintf(
     //     stdout,
@@ -66,7 +66,6 @@ Status AutoSkipCompressorWrapper::CompressBlock(
     //     exploration\n");
     Status status = wrapped_->CompressBlock(
         uncompressed_data, compressed_output, out_compression_type, wa);
-    // check the value of the out_compression_type and compressed_output to
     // determine if it was rejected or compressed
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -107,6 +106,8 @@ const char* AutoSkipCompressorManager::Name() const {
 std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,
     CompressionType preferred) {
+  assert(!GetSupportedCompressions().empty());
+  assert(preferred != kNoCompression);
   return std::make_unique<AutoSkipCompressorWrapper>(
       wrapped_->GetCompressorForSST(context, opts, preferred), opts);
 }
