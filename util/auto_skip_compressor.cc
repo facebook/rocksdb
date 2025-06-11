@@ -96,8 +96,6 @@ const char* AutoSkipCompressorManager::Name() const {
 std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,
     CompressionType preferred) {
-  assert(preferred == kZSTD);
-  (void)context;
   return std::make_unique<AutoSkipCompressorWrapper>(
       wrapped_->GetCompressorForSST(context, opts, preferred), opts);
 }

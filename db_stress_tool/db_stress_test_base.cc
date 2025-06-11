@@ -3417,8 +3417,6 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     // Currently limited to ZSTD compression. Table property compression_name
     // needs to set to zstd for now even when there can be more than one
     // algorithm in the table under your compressor.
-    options_.compression = kZSTD;
-    options_.bottommost_compression = kZSTD;
     if (!ZSTD_Supported()) {
       fprintf(stderr,
               "ZSTD compression not supported thus mixed compression cannot be "
@@ -3429,10 +3427,10 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       auto mgr = std::make_shared<RoundRobinManager>(
           GetDefaultBuiltinCompressionManager());
       options_.compression_manager = mgr;
+      options_.compression = kZSTD;
+      options_.bottommost_compression = kZSTD;
     } else if (strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
-      auto mgr = std::make_shared<AutoSkipCompressorManager>(
-          GetDefaultBuiltinCompressionManager());
-      options_.compression_manager = mgr;
+      options_.auto_tune = true;
     }
 
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {

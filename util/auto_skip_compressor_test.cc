@@ -30,19 +30,14 @@ class DBAutoSkip : public DBTestBase {
       : DBTestBase("db_auto_skip", /*env_do_fsync=*/true),
         options(CurrentOptions()),
         rnd_(231) {
-    if (ZSTD_Supported()) {
-      options.auto_tune = true;
-      // options.compression = kZSTD;
-      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-      options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
-      BlockBasedTableOptions bbto;
-      bbto.enable_index_compression = false;
-      options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-      // auto mgr = std::make_shared<AutoSkipCompressorManager>(
-      // GetDefaultBuiltinCompressionManager());
-      // options.compression_manager = mgr;
-      DestroyAndReopen(options);
-    }
+    options.auto_tune = true;
+    // options.compression = kZSTD;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+    BlockBasedTableOptions bbto;
+    bbto.enable_index_compression = false;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    DestroyAndReopen(options);
   }
   uint64_t PopStat(Tickers t) {
     return options.statistics->getAndResetTickerCount(t);
@@ -67,54 +62,51 @@ class DBAutoSkip : public DBTestBase {
 
 // test case just to make sure auto compression manager is working
 TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
-  if (ZSTD_Supported()) {
-    // AutoSkipCompressionManager starts with rejection ratio 0 i.e. compression
-    // enabled
-    constexpr int kCount =
-        5000;  // high enough for compression manager to register the changes
-    // enough data to change the decision
-    const int kValueSize = 20000;
-    CompressionUnfriendlyPut(kCount, kValueSize);
-    ASSERT_OK(Flush());
-    // reset the following stats to zero
-    PopStat(NUMBER_BLOCK_COMPRESSED);
-    PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-    PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-    // should stick with the not compressing decision
-    CompressionUnfriendlyPut(kCount, kValueSize);
-    ASSERT_OK(Flush());
-    // Test the compression is disabled
-    // Make sure that Compressor output is properly calculated as bypassed
-    auto compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
-    auto bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-    auto rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-    auto rejection_ratio =
-        rejected_count * 100 / (compressed_count + rejected_count);
-    EXPECT_GT(rejection_ratio, 50);
-    auto bypassed_rate = bypassed_count * 100 /
-                         (compressed_count + rejected_count + bypassed_count);
-    EXPECT_GT(bypassed_rate, 50);
+  // AutoSkipCompressionManager starts with rejection ratio 0 i.e. compression
+  // enabled
+  constexpr int kCount =
+      5000;  // high enough for compression manager to register the changes
+  // enough data to change the decision
+  const int kValueSize = 20000;
+  CompressionUnfriendlyPut(kCount, kValueSize);
+  ASSERT_OK(Flush());
+  // reset the following stats to zero
+  PopStat(NUMBER_BLOCK_COMPRESSED);
+  PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+  PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+  // should stick with the not compressing decision
+  CompressionUnfriendlyPut(kCount, kValueSize);
+  ASSERT_OK(Flush());
+  // Test the compression is disabled
+  // Make sure that Compressor output is properly calculated as bypassed
+  auto compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
+  auto bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+  auto rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+  auto rejection_ratio =
+      rejected_count * 100 / (compressed_count + rejected_count);
+  EXPECT_GT(rejection_ratio, 50);
+  auto bypassed_rate = bypassed_count * 100 /
+                       (compressed_count + rejected_count + bypassed_count);
+  EXPECT_GT(bypassed_rate, 50);
 
-    // Test the compression is enabled when passing highly compressible data
-    CompressionFriendlyPut(kCount, kValueSize);
-    ASSERT_OK(Flush());
-    PopStat(NUMBER_BLOCK_COMPRESSED);
-    PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-    PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-    // should stick with the compression decision
-    CompressionFriendlyPut(kCount, kValueSize);
-    ASSERT_OK(Flush());
-    // Test the compression is disabled
-    compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
-    bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-    rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-    rejection_ratio =
-        rejected_count * 100 / (compressed_count + rejected_count);
-    EXPECT_LT(rejection_ratio, 50);
-    bypassed_rate = bypassed_count * 100 /
-                    (compressed_count + rejected_count + bypassed_count);
-    EXPECT_LT(bypassed_rate, 50);
-  }
+  // Test the compression is enabled when passing highly compressible data
+  CompressionFriendlyPut(kCount, kValueSize);
+  ASSERT_OK(Flush());
+  PopStat(NUMBER_BLOCK_COMPRESSED);
+  PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+  PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+  // should stick with the compression decision
+  CompressionFriendlyPut(kCount, kValueSize);
+  ASSERT_OK(Flush());
+  // Test the compression is disabled
+  compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
+  bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+  rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
+  rejection_ratio = rejected_count * 100 / (compressed_count + rejected_count);
+  EXPECT_LT(rejection_ratio, 50);
+  bypassed_rate = bypassed_count * 100 /
+                  (compressed_count + rejected_count + bypassed_count);
+  EXPECT_LT(bypassed_rate, 50);
 }
 TEST(CompressionRejectionProbabilityPredictorTest,
      UsesLastWindowSizeDataForPrediction) {

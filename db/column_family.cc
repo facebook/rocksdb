@@ -468,8 +468,6 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
   if (result.auto_tune == true) {
     result.compression_manager = std::make_shared<AutoSkipCompressorManager>(
         GetDefaultBuiltinCompressionManager());
-    result.bottommost_compression = kZSTD;
-    result.compression = kZSTD;
   }
   return result;
 }
