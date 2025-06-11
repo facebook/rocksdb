@@ -62,13 +62,19 @@ class DBAutoSkip : public DBTestBase {
 
 // test case just to make sure auto compression manager is working
 TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
-  if (!GetSupportedCompressions().empty()) {
+  if (GetSupportedCompressions().size() > 1) {
     // AutoSkipCompressionManager starts with rejection ratio 0 i.e. compression
     // enabled
     constexpr int kCount =
         5000;  // high enough for compression manager to register the changes
     // enough data to change the decision
     const int kValueSize = 20000;
+    auto set_exploration = [&](void* arg) {
+      bool* exploration = static_cast<bool*>(arg);
+      *exploration = true;
+      fprintf(stdout, "Forcing exploration\n");
+    };
+    SyncPoint::GetInstance()->SetCallBack("", set_exploration);
     CompressionUnfriendlyPut(kCount, kValueSize);
     ASSERT_OK(Flush());
     // reset the following stats to zero

@@ -106,7 +106,7 @@ const char* AutoSkipCompressorManager::Name() const {
 std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,
     CompressionType preferred) {
-  assert(!GetSupportedCompressions().empty());
+  assert(GetSupportedCompressions().size() > 1);
   assert(preferred != kNoCompression);
   return std::make_unique<AutoSkipCompressorWrapper>(
       wrapped_->GetCompressorForSST(context, opts, preferred), opts);
