@@ -45,7 +45,8 @@ class DBAutoSkip : public DBTestBase {
   bool CompressionFriendlyPut(const int no_of_kvs, const int size_of_value) {
     auto value = std::string(size_of_value, 'A');
     for (int i = 0; i < no_of_kvs; ++i) {
-      Put(Key(key_cursor_), value);
+      auto status = Put(Key(key_cursor_), value);
+      EXPECT_EQ(status.ok(), true);
       key_cursor_++;
     }
     return true;
@@ -53,7 +54,8 @@ class DBAutoSkip : public DBTestBase {
   bool CompressionUnfriendlyPut(const int no_of_kvs, const int size_of_value) {
     auto value = rnd_.RandomBinaryString(size_of_value);
     for (int i = 0; i < no_of_kvs; ++i) {
-      Put(Key(key_cursor_), value);
+      auto status = Put(Key(key_cursor_), value);
+      EXPECT_EQ(status.ok(), true);
       key_cursor_++;
     }
     return true;
@@ -72,11 +74,16 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
     auto set_exploration = [&](void* arg) {
       bool* exploration = static_cast<bool*>(arg);
       *exploration = true;
-      fprintf(stdout, "Forcing exploration\n");
     };
-    SyncPoint::GetInstance()->SetCallBack("", set_exploration);
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->SetCallBack(
+        "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
+        set_exploration);
+    SyncPoint::GetInstance()->EnableProcessing();
     CompressionUnfriendlyPut(kCount, kValueSize);
     ASSERT_OK(Flush());
+    SyncPoint::GetInstance()->DisableProcessing();
     // reset the following stats to zero
     PopStat(NUMBER_BLOCK_COMPRESSED);
     PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
@@ -96,6 +103,7 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
                          (compressed_count + rejected_count + bypassed_count);
     EXPECT_GT(bypassed_rate, 50);
 
+    SyncPoint::GetInstance()->EnableProcessing();
     // Test the compression is enabled when passing highly compressible data
     CompressionFriendlyPut(kCount, kValueSize);
     ASSERT_OK(Flush());
@@ -105,6 +113,7 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
     // should stick with the compression decision
     CompressionFriendlyPut(kCount, kValueSize);
     ASSERT_OK(Flush());
+    SyncPoint::GetInstance()->DisableProcessing();
     // Test the compression is disabled
     compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
     bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
