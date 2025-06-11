@@ -214,11 +214,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   CompressionType compression;
-  // [Experimental]
-  // Auto detect whether compression should be enabled or disabled
-  // Will also look at the IO and CPU usage in the future
-  bool auto_tune = false;
-
   // Compression algorithm that will be used for the bottommost level that
   // contain files. The behavior for num_levels = 1 is not well defined.
   // Right now, with num_levels = 1,  all compaction outputs will use
@@ -244,6 +239,10 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // CompressionManager::GetCompressorForSST as hints or suggestions. See
   // advanced_compression.h
   std::shared_ptr<CompressionManager> compression_manager;
+  // EXPERIMENTAL
+  // Auto detect whether compression should be enabled or disabled
+  // Will also look at the IO and CPU usage in the future
+  bool auto_tune = false;
 
   // Number of files to trigger level-0 compaction. A value <0 means that
   // level-0 compaction will not be triggered by number of files at all.

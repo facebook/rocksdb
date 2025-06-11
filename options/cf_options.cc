@@ -703,6 +703,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offsetof(struct MutableCFOptions, compression_manager),
              OptionVerificationType::kByNameAllowNull,
              (OptionTypeFlags::kMutable | OptionTypeFlags::kAllowNull))},
+        {"auto_tune",
+         {offsetof(struct MutableCFOptions, auto_tune), OptionType::kBoolean,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
         // End special case properties
         {"memtable_max_range_deletions",
          {offsetof(struct MutableCFOptions, memtable_max_range_deletions),
