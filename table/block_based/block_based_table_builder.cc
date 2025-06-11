@@ -783,7 +783,8 @@ struct BlockBasedTableBuilder::Rep {
     if (mgr == nullptr) {
       uses_explicit_compression_manager = false;
       mgr = GetBuiltinCompressionManager(
-                GetCompressFormatForVersion(table_opt.format_version))
+                GetCompressFormatForVersion(
+                    static_cast<uint32_t>(table_opt.format_version)))
                 .get();
     } else {
       uses_explicit_compression_manager = true;
@@ -984,7 +985,8 @@ struct BlockBasedTableBuilder::Rep {
       // algorithms / compression types.
       assert(Slice(mgr->CompatibilityName())
                  .compare(GetBuiltinCompressionManager(
-                              GetCompressFormatForVersion(props.format_version))
+                              GetCompressFormatForVersion(
+                                  static_cast<uint32_t>(props.format_version)))
                               ->CompatibilityName()) == 0);
     }
   }
