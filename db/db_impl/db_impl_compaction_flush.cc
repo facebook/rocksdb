@@ -1437,15 +1437,12 @@ Status DBImpl::CompactFilesImpl(
   if (shutting_down_.load(std::memory_order_acquire)) {
     return Status::ShutdownInProgress();
   }
-  if (manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
-    return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
-  }
 
-  // TODO: VIRAJ INSERT HERE
-
-  if (compact_options.canceled &&
-      compact_options.canceled->load(std::memory_order_acquire)) {
-    std::cout << "Canceling as per the deleted flag";
+  // triggered by DisableManualCompactions or by user-set canceled flag in
+  // CompactionOptions
+  if (manual_compaction_paused_.load(std::memory_order_acquire) > 0 ||
+      (compact_options.canceled &&
+       compact_options.canceled->load(std::memory_order_acquire))) {
     return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
 

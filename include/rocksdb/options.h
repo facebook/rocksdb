@@ -2222,24 +2222,14 @@ struct CompactionOptions {
   // If > 0, it will replace the option in the DBOptions for this compaction.
   uint32_t max_subcompactions;
 
-  // TODO: update comments
   // Allows cancellation of an in-progress manual compaction.
   //
   // Cancellation can be delayed waiting on automatic compactions when used
   // together with `exclusive_manual_compaction == true`.
   std::atomic<bool>* canceled;
-  // NOTE: Calling DisableManualCompaction() overwrites the user-provided
-  // canceled variable in CompactRangeOptions.
-  // Typically, when CompactRange is being called in one thread (t1) with
-  // canceled = false, and DisableManualCompaction is being called in the
-  // other thread (t2), manual compaction is disabled normally, even if the
-  // compaction iterator may still scan a few items before *canceled is
-  // set to true
-
-  // If set to kForce, RocksDB will override enable_blob_file_garbage_collection
-  // to true; if set to kDisable, RocksDB will override it to false, and
-  // kUseDefault leaves the setting in effect. This enables customers to both
-  // force-enable and force-disable GC when calling CompactRange.
+  // NOTE: Calling DisableManualCompaction() will not override the
+  // canceled variable in CompactionOptions, as it does for CompactRangeOptions
+  // - this is because ManualCompactionState is not used
 
   CompactionOptions()
       : compression(kDisableCompressionOption),
