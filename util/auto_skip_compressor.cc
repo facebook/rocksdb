@@ -30,10 +30,6 @@ bool CompressionRejectionProbabilityPredictor::Record(
   if (attempted_compression_count_ >= kWindowSize) {
     pred_rejection_percentage_ = static_cast<int>(
         rejected_count_ * 100 / (compressed_count_ + rejected_count_));
-    // fprintf(stdout,
-    //         "[CompressionRejectionProbabilityPredictor::Record] changed "
-    //         "pred_rejection_percentage_: %d\n",
-    //         pred_rejection_percentage_);
     attempted_compression_count_ = 0;
     compressed_count_ = 0;
     rejected_count_ = 0;
@@ -52,41 +48,18 @@ Status AutoSkipCompressorWrapper::CompressBlock(
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
   bool exploration =
       Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
-  // bool exploration = rnd_.PercentTrue(kExplorationPercentage);
-  // auto setExploration = [&exploration]() { exploration = true; };
-  // (void*)&setExploration;
   TEST_SYNC_POINT_CALLBACK(
       "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
       &exploration);
   if (exploration) {
-    // fprintf(
-    //     stdout,
-    //     "[AutoSkipCompressorWrapper::CompressBlock] selected:
-    //     exploration\n");
-    Status status = wrapped_->CompressBlock(
-        uncompressed_data, compressed_output, out_compression_type, wa);
-    // determine if it was rejected or compressed
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      predictor_->Record(uncompressed_data, compressed_output, opts_);
-    }
-    return status;
+    return CompressBlockAndRecord(uncompressed_data, compressed_output,
+                                  out_compression_type, wa);
   } else {
     auto prediction = predictor_->Predict();
-    // fprintf(stdout,
-    //         "[AutoSkipCompressorWrapper::CompressBlock] selected: exploit "
-    //         "pred_rejection: %d\n",
-    //         prediction);
     if (prediction < kProbabilityCutOff) {
       // decide to compress
-      Status status = wrapped_->CompressBlock(
-          uncompressed_data, compressed_output, out_compression_type, wa);
-      // determine if it was rejected or compressed
-      {
-        std::lock_guard<std::mutex> lock(mutex_);
-        predictor_->Record(uncompressed_data, compressed_output, opts_);
-      }
-      return status;
+      return CompressBlockAndRecord(uncompressed_data, compressed_output,
+                                    out_compression_type, wa);
     } else {
       // bypassed compression
       *out_compression_type = kNoCompression;
@@ -94,6 +67,18 @@ Status AutoSkipCompressorWrapper::CompressBlock(
     }
   }
   return Status::OK();
+}
+Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
+    Slice uncompressed_data, std::string* compressed_output,
+    CompressionType* out_compression_type, ManagedWorkingArea* wa) {
+  Status status = wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                                          out_compression_type, wa);
+  // determine if it was rejected or compressed
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    predictor_->Record(uncompressed_data, compressed_output, opts_);
+  }
+  return status;
 }
 
 const char* AutoSkipCompressorManager::Name() const {

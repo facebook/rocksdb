@@ -48,6 +48,10 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
                        ManagedWorkingArea* wa) override;
 
  private:
+  Status CompressBlockAndRecord(Slice uncompressed_data,
+                                std::string* compressed_output,
+                                CompressionType* out_compression_type,
+                                ManagedWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   const CompressionOptions& opts_;
