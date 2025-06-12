@@ -874,7 +874,9 @@ class VersionBuilder::Rep {
           << level << " since it is ";
       if (current_level ==
           VersionStorageInfo::FileLocation::Invalid().GetLevel()) {
-        oss << "not in the LSM tree";
+        oss << "not in the LSM tree. Set ColumnFamilyOptions::"
+               "allow_deleting_missing_file_during_recovery to true "
+               "to skip this error";
       } else {
         oss << "on level " << current_level;
       }

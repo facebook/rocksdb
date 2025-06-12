@@ -636,7 +636,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "check_flush_compaction_key_order=false;"
       "paranoid_file_checks=true;"
       "force_consistency_checks=true;"
-      "allow_deleting_missing_file_in_recovery=false;"
+      "allow_deleting_missing_file_during_recovery=false;"
       "inplace_update_num_locks=7429;"
       "experimental_mempurge_threshold=0.0001;"
       "optimize_filters_for_hits=false;"
