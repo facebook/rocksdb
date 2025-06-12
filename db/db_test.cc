@@ -151,6 +151,7 @@ TEST_F(DBTest, RequestIdPlumbingTest) {
   options.env = env_;
 
   // Create a mock environment to capture IODebugContext during reads
+  IODebugContext dbgCopy;
   const std::string* captured_request_id_dbg;
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -160,6 +161,8 @@ TEST_F(DBTest, RequestIdPlumbingTest) {
           captured_request_id_dbg = nullptr;
         } else {
           captured_request_id_dbg = dbg->request_id;
+          // Test IODebugContext assignment operator
+          dbgCopy = *dbg;
         }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -178,6 +181,10 @@ TEST_F(DBTest, RequestIdPlumbingTest) {
     // Verify the request_id was propagated to the file system
     ASSERT_NE(captured_request_id_dbg, nullptr);
     ASSERT_EQ(*captured_request_id_dbg, test_request_id);
+
+    ASSERT_NE(dbgCopy.request_id, nullptr);
+    ASSERT_NE(dbgCopy.request_id, captured_request_id_dbg);
+    ASSERT_EQ(*dbgCopy.request_id, test_request_id);
   }
 
   captured_request_id_dbg = nullptr;
@@ -197,6 +204,17 @@ TEST_F(DBTest, RequestIdPlumbingTest) {
     // Verify the request_id was propagated to the file system
     ASSERT_NE(captured_request_id_dbg, nullptr);
     ASSERT_EQ(*captured_request_id_dbg, request_id);
+
+    ASSERT_NE(dbgCopy.request_id, nullptr);
+    ASSERT_NE(dbgCopy.request_id, captured_request_id_dbg);
+    ASSERT_EQ(*dbgCopy.request_id, request_id);
+
+    // Test IODebugContext copy constructor
+    IODebugContext dbgCopy2(dbgCopy);
+    ASSERT_NE(dbgCopy2.request_id, nullptr);
+    ASSERT_NE(dbgCopy2.request_id, captured_request_id_dbg);
+    ASSERT_NE(dbgCopy2.request_id, dbgCopy.request_id);
+    ASSERT_EQ(*dbgCopy2.request_id, request_id);
   }
 
   // test request_id plumbing during multiget
