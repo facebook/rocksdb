@@ -5688,7 +5688,7 @@ TEST_F(DBTest2, TestCancelCompactFiles) {
                   .IsManualCompactionPaused());
   ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
 
-  // Test cancelation before the check to cancel compaction happens -
+  // Test cancellation before the check to cancel compaction happens -
   // compaction should not occur
   bool disable_compaction = false;
   compaction_options.canceled->store(false, std::memory_order_release);
