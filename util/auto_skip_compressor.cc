@@ -111,7 +111,7 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
       wrapped_->GetCompressorForSST(context, opts, preferred), opts);
 }
 
-std::shared_ptr<CompressionManager> CreateAutoSkipCompressionManager(
+std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
     std::shared_ptr<CompressionManager> wrapped) {
   return std::make_shared<AutoSkipCompressorManager>(
       wrapped == nullptr ? GetDefaultBuiltinCompressionManager() : wrapped);

@@ -532,7 +532,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<CompactionFilterFactory>)},
       {offsetof(struct ColumnFamilyOptions, compression_manager),
        sizeof(std::shared_ptr<CompressionManager>)},
-      {offsetof(struct ColumnFamilyOptions, auto_tune), sizeof(bool)},
       {offsetof(struct ColumnFamilyOptions, prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
       {offsetof(struct ColumnFamilyOptions, snap_refresh_nanos),
@@ -623,7 +622,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "per_kb=876;checksum=true};"
       "bottommost_compression=kDisableCompressionOption;"
       "compression_manager=BuiltinV2;"
-      "auto_tune=false;"
       "level0_stop_writes_trigger=33;"
       "num_levels=99;"
       "level0_slowdown_writes_trigger=22;"
@@ -707,7 +705,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       12345);
   ASSERT_EQ(new_options->compression_manager,
             GetBuiltinCompressionManager(/*compression_format_version*/ 2));
-  ASSERT_EQ(new_options->auto_tune, false);
   ColumnFamilyOptions rnd_filled_options = *new_options;
 
   options->~ColumnFamilyOptions();
@@ -728,7 +725,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(struct CompactionOptionsFIFO)},
       {offsetof(struct MutableCFOptions, compression_manager),
        sizeof(std::shared_ptr<CompressionManager>)},
-      {offsetof(struct MutableCFOptions, auto_tune), sizeof(bool)},
       {offsetof(struct MutableCFOptions, compression_per_level),
        sizeof(std::vector<CompressionType>)},
       {offsetof(struct MutableCFOptions, max_file_size),

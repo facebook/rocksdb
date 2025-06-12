@@ -76,7 +76,6 @@
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
 #include "tools/simulated_hybrid_file_system.h"
-#include "util/auto_skip_compressor.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -4644,7 +4643,8 @@ class Benchmark {
         mgr = std::make_shared<RoundRobinManager>(
             GetDefaultBuiltinCompressionManager());
       } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
-        options.auto_tune = true;
+        mgr = CreateAutoSkipCompressionManager(
+            GetDefaultBuiltinCompressionManager());
       } else {
         // not defined -> exit with error
         fprintf(stderr, "Requested compression manager not supported");

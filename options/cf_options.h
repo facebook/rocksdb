@@ -162,7 +162,6 @@ struct MutableCFOptions {
         compression_opts(options.compression_opts),
         bottommost_compression_opts(options.bottommost_compression_opts),
         compression_manager(options.compression_manager),
-        auto_tune(options.auto_tune),
         last_level_temperature(options.last_level_temperature),
         default_write_temperature(options.default_write_temperature),
         memtable_protection_bytes_per_key(
@@ -333,7 +332,6 @@ struct MutableCFOptions {
   CompressionOptions compression_opts;
   CompressionOptions bottommost_compression_opts;
   std::shared_ptr<CompressionManager> compression_manager;
-  bool auto_tune;
   Temperature last_level_temperature;
   Temperature default_write_temperature;
   uint32_t memtable_protection_bytes_per_key;

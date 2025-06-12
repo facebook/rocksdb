@@ -9,14 +9,13 @@
 // EXPERIMENTAL - subject to change while under development
 // ***********************************************************************
 
-#include "util/auto_skip_compressor.h"
-
 #include <cstdlib>
 #include <memory>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/testutil.h"
+#include "util/auto_skip_compressor.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -30,8 +29,9 @@ class DBAutoSkip : public DBTestBase {
       : DBTestBase("db_auto_skip", /*env_do_fsync=*/true),
         options(CurrentOptions()),
         rnd_(231) {
-    options.auto_tune = true;
     // options.compression = kZSTD;
+    options.compression_manager =
+        CreateAutoSkipCompressionManager(GetDefaultBuiltinCompressionManager());
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
     BlockBasedTableOptions bbto;

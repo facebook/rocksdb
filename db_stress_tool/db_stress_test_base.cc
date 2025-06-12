@@ -3430,7 +3430,8 @@ void StressTest::Open(SharedState* shared, bool reopen) {
       options_.compression = kZSTD;
       options_.bottommost_compression = kZSTD;
     } else if (strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
-      options_.auto_tune = true;
+      options_.compression_manager = CreateAutoSkipCompressionManager(
+          GetDefaultBuiltinCompressionManager());
     }
 
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
