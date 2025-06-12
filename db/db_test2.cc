@@ -10,7 +10,6 @@
 #include <atomic>
 #include <cstdlib>
 #include <functional>
-#include <iostream>
 #include <memory>
 
 #include "db/db_test_util.h"
@@ -5694,13 +5693,14 @@ TEST_F(DBTest2, TestCancelCompactFiles) {
   bool disable_compaction = false;
   compaction_options.canceled->store(false, std::memory_order_release);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "TestCancelCompactFiles:SuccessfulCompaction", [&](void* /*arg*/) {
+      "TestCancelCompactFiles:SuccessfulCompaction", [&](void* arg) {
+        auto paused = static_cast<std::atomic<int>*>(arg);
         if (disable_compaction) {
-          std::cout << "Disabling" << std::endl;
           db_->DisableManualCompaction();
+          ASSERT_EQ(1, paused->load(std::memory_order_acquire));
         } else {
-          std::cout << "Canceling" << std::endl;
           compaction_options.canceled->store(true, std::memory_order_release);
+          ASSERT_EQ(0, paused->load(std::memory_order_acquire));
         }
       });
 
@@ -5708,7 +5708,7 @@ TEST_F(DBTest2, TestCancelCompactFiles) {
                   .IsManualCompactionPaused());
   ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
 
-  // disabling manual compactions should successfully cancel compaction
+  // DisableManualCompaction() should successfully cancel compaction
   disable_compaction = true;
   compaction_options.canceled->store(false, std::memory_order_release);
   ASSERT_TRUE(db_->CompactFiles(compaction_options, handle, files, 1)
@@ -5718,16 +5718,6 @@ TEST_F(DBTest2, TestCancelCompactFiles) {
   // unaffected by calling DisableManualCompactions()
   ASSERT_FALSE(compaction_options.canceled->load());
 
-  // Print remaining levels for information only
-  // for (int level = 0; level < db_->NumberLevels(); ++level) {
-  //   std::vector<FileMetaData*> level_files = GetLevelFileMetadatas(level);
-  //   std::cout << "Level " << level << " has " << level_files.size()
-  //             << " files:" << std::endl;
-  //   for (const auto& file : level_files) {
-  //     std::cout << "  File number: " << file->fd.GetNumber()
-  //               << ", size: " << file->fd.GetFileSize() << std::endl;
-  //   }
-  // }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   db_->EnableManualCompaction();
 
@@ -5741,17 +5731,6 @@ TEST_F(DBTest2, TestCancelCompactFiles) {
   compaction_options.canceled->store(false, std::memory_order_release);
   ASSERT_OK(db_->CompactFiles(compaction_options, handle, files, 1));
   ASSERT_EQ(NumTableFilesAtLevel(1, 0), 1);
-
-  // Print remaining levels for information only
-  // for (int level = 0; level < db_->NumberLevels(); ++level) {
-  //   std::vector<FileMetaData*> level_files = GetLevelFileMetadatas(level);
-  //   std::cout << "Level " << level << " has " << level_files.size()
-  //             << " files:" << std::endl;
-  //   for (const auto& file : level_files) {
-  //     std::cout << "  File number: " << file->fd.GetNumber()
-  //               << ", size: " << file->fd.GetFileSize() << std::endl;
-  //   }
-  // }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
