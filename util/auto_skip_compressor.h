@@ -23,18 +23,18 @@ class CompressionRejectionProbabilityPredictor {
         rejected_count_(0),
         compressed_count_(0),
         kWindowSize(window_size),
-        attempted_compression_count_(0) {}
-  int Predict() const { return pred_rejection_percentage_; }
-  inline void TEST_SetPrediction(int pred_rejection) {
-    pred_rejection_percentage_ = pred_rejection;
+        attempted_compression_count_(0) {
+    fprintf(stdout, "CompressionRejectionProbabilityPredictor Created\n");
   }
+  int Predict() const;
+  void TEST_SetPrediction(int pred_rejection);
   bool Record(Slice uncompressed_block_data, std::string* compressed_output,
               const CompressionOptions& opts);
 
  protected:
-  int pred_rejection_percentage_ = 0;
-  size_t rejected_count_ = 0;
-  size_t compressed_count_ = 0;
+  int pred_rejection_percentage_;
+  size_t rejected_count_;
+  size_t compressed_count_;
   const size_t kWindowSize;
   size_t attempted_compression_count_ = 0;
 };

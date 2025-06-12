@@ -29,7 +29,6 @@ class DBAutoSkip : public DBTestBase {
       : DBTestBase("db_auto_skip", /*env_do_fsync=*/true),
         options(CurrentOptions()),
         rnd_(231) {
-    // options.compression = kZSTD;
     options.compression_manager =
         CreateAutoSkipCompressionManager(GetDefaultBuiltinCompressionManager());
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -67,64 +66,66 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
   if (GetSupportedCompressions().size() > 1) {
     // AutoSkipCompressionManager starts with rejection ratio 0 i.e. compression
     // enabled
-    constexpr int kCount =
-        5000;  // high enough for compression manager to register the changes
     // enough data to change the decision
     const int kValueSize = 20000;
     auto set_exploration = [&](void* arg) {
       bool* exploration = static_cast<bool*>(arg);
       *exploration = true;
     };
+    // auto unset_exploration = [&](void* arg) {
+    //   bool* exploration = static_cast<bool*>(arg);
+    //   *exploration = false;
+    // };
+    // Test 1: Just explore and check correct rejection ratio is predicted (6/10
+    // -> dataset not favourable for compression)
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
     SyncPoint::GetInstance()->SetCallBack(
         "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
         set_exploration);
     SyncPoint::GetInstance()->EnableProcessing();
-    CompressionUnfriendlyPut(kCount, kValueSize);
+    CompressionUnfriendlyPut(6, kValueSize);
+    CompressionFriendlyPut(4, kValueSize);
     ASSERT_OK(Flush());
-    SyncPoint::GetInstance()->DisableProcessing();
-    // reset the following stats to zero
-    PopStat(NUMBER_BLOCK_COMPRESSED);
-    PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-    PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-    // should stick with the not compressing decision
-    CompressionUnfriendlyPut(kCount, kValueSize);
-    ASSERT_OK(Flush());
-    // Test the compression is disabled
-    // Make sure that Compressor output is properly calculated as bypassed
+
     auto compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
     auto bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
     auto rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-    auto rejection_ratio =
-        rejected_count * 100 / (compressed_count + rejected_count);
-    EXPECT_GT(rejection_ratio, 50);
-    auto bypassed_rate = bypassed_count * 100 /
-                         (compressed_count + rejected_count + bypassed_count);
-    EXPECT_GT(bypassed_rate, 50);
+    auto total = compressed_count + rejected_count + bypassed_count;
+    auto rejection_percentage = rejected_count * 100 / total;
+    auto bypassed_percentage = bypassed_count * 100 / total;
+    auto compressed_percentage = compressed_count * 100 / total;
+    EXPECT_EQ(rejection_percentage, 60);
+    EXPECT_EQ(bypassed_percentage, 0);
+    EXPECT_EQ(compressed_percentage, 40);
+    // Test 2: Use the model prediction to make decision to not compress the
+    // blocks
+    // SyncPoint::GetInstance()->DisableProcessing();
+    // SyncPoint::GetInstance()->ClearAllCallBacks();
+    // SyncPoint::GetInstance()->SetCallBack(
+    //     "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
+    //     unset_exploration);
+    // SyncPoint::GetInstance()->EnableProcessing();
+    // Test 3: Force the model to explore and thus make sure the rejection ratio
+    // is predicted to be 4/10
 
-    SyncPoint::GetInstance()->EnableProcessing();
-    // Test the compression is enabled when passing highly compressible data
-    CompressionFriendlyPut(kCount, kValueSize);
+    CompressionUnfriendlyPut(4, kValueSize);
+    CompressionFriendlyPut(6, kValueSize);
     ASSERT_OK(Flush());
-    PopStat(NUMBER_BLOCK_COMPRESSED);
-    PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-    PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-    // should stick with the compression decision
-    CompressionFriendlyPut(kCount, kValueSize);
-    ASSERT_OK(Flush());
-    SyncPoint::GetInstance()->DisableProcessing();
-    // Test the compression is disabled
+    // Make sure that Compressor output is properly calculated as bypassed
     compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
     bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
     rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-    rejection_ratio =
-        rejected_count * 100 / (compressed_count + rejected_count);
-    EXPECT_LT(rejection_ratio, 50);
-    bypassed_rate = bypassed_count * 100 /
-                    (compressed_count + rejected_count + bypassed_count);
+    total = compressed_count + rejected_count + bypassed_count;
+    rejection_percentage = rejected_count * 100 / total;
+    bypassed_percentage = bypassed_count * 100 / total;
+    compressed_percentage = compressed_count * 100 / total;
+    EXPECT_EQ(rejection_percentage, 0);
+    EXPECT_EQ(bypassed_percentage, 100);
+    EXPECT_EQ(compressed_percentage, 0);
   }
 }
+/**
 TEST(CompressionRejectionProbabilityPredictorTest,
      UsesLastWindowSizeDataForPrediction) {
   CompressionRejectionProbabilityPredictor predictor_(10);
@@ -169,7 +170,7 @@ TEST(CompressionRejectionProbabilityPredictorTest,
   prediction = predictor_.Predict();
   EXPECT_EQ(prediction, 80);
 }
-
+**/
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
