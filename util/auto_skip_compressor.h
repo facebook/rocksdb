@@ -52,7 +52,7 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
   int TEST_GetMinExplorationPercentage() const;
 
  private:
-  int kExplorationPercentage = 10;
+  int exploration_percentage_ = 10;
   const CompressionOptions& opts_;
   Random rnd_;
   mutable std::mutex mutex_;
