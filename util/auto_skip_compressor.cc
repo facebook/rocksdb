@@ -43,17 +43,16 @@ bool CompressionRejectionProbabilityPredictor::Record(
 AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
     std::unique_ptr<Compressor> compressor, const CompressionOptions& opts)
     : CompressorWrapper::CompressorWrapper(std::move(compressor)),
-      exploration_percentage_(10),
       opts_(opts),
-      rnd_(331),
       predictor_(
           std::make_shared<CompressionRejectionProbabilityPredictor>(100)) {}
 
 Status AutoSkipCompressorWrapper::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
-  const int kProbabilityCutOff = 50;
-  bool exploration = rnd_.PercentTrue(exploration_percentage_);
+  bool exploration =
+      Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
+  // bool exploration = rnd_.PercentTrue(kExplorationPercentage);
   // auto setExploration = [&exploration]() { exploration = true; };
   // (void*)&setExploration;
   TEST_SYNC_POINT_CALLBACK(
@@ -112,11 +111,9 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
       wrapped_->GetCompressorForSST(context, opts, preferred), opts);
 }
 
-void AutoSkipCompressorWrapper::TEST_SetMinExplorationPercentage(
-    int exploration_percentage) {
-  exploration_percentage_ = exploration_percentage;
-}
-int AutoSkipCompressorWrapper::TEST_GetMinExplorationPercentage() const {
-  return exploration_percentage_;
+std::shared_ptr<CompressionManager> CreateAutoSkipCompressionManager(
+    std::shared_ptr<CompressionManager> wrapped) {
+  return std::make_shared<AutoSkipCompressorManager>(
+      wrapped == nullptr ? GetDefaultBuiltinCompressionManager() : wrapped);
 }
 }  // namespace ROCKSDB_NAMESPACE

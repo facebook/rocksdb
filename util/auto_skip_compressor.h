@@ -47,14 +47,10 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
 
-  // Tracking methods
-  void TEST_SetMinExplorationPercentage(int min_exploration_percentage);
-  int TEST_GetMinExplorationPercentage() const;
-
  private:
-  int exploration_percentage_ = 10;
+  static constexpr int kExplorationPercentage = 10;
+  static constexpr int kProbabilityCutOff = 50;
   const CompressionOptions& opts_;
-  Random rnd_;
   mutable std::mutex mutex_;
   std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor_;
 };
