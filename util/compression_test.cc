@@ -17,16 +17,15 @@
 #include "rocksdb/flush_block_policy.h"
 #include "table/block_based/block_builder.h"
 #include "test_util/testutil.h"
-#include "util/auto_skip_compressor.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-class MyFlushBlockPolicy : public FlushBlockPolicy {
+class AutoSkipTestFlushBlockPolicy : public FlushBlockPolicy {
  public:
-  explicit MyFlushBlockPolicy(const int window,
-                              const BlockBuilder& data_block_builder,
-                              std::shared_ptr<Statistics> statistics)
+  explicit AutoSkipTestFlushBlockPolicy(const int window,
+                                        const BlockBuilder& data_block_builder,
+                                        std::shared_ptr<Statistics> statistics)
       : window_(window),
         num_keys_(0),
         data_block_builder_(data_block_builder),
@@ -38,9 +37,8 @@ class MyFlushBlockPolicy : public FlushBlockPolicy {
       // First key in this block
       return false;
     }
-    // Check every 10 keys
+    // Check every window
     if (num_keys_ % window_ == 0) {
-      // get stats
       auto set_exploration = [&](void* arg) {
         bool* exploration = static_cast<bool*>(arg);
         *exploration = true;
@@ -49,9 +47,6 @@ class MyFlushBlockPolicy : public FlushBlockPolicy {
         bool* exploration = static_cast<bool*>(arg);
         *exploration = false;
       };
-      // Test 1: Just explore and check correct rejection ratio is predicted
-      // (6/10
-      // -> dataset not favourable for compression)
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
       if (multiple_of_10 % 2 == 0) {
@@ -111,21 +106,22 @@ class MyFlushBlockPolicy : public FlushBlockPolicy {
   std::shared_ptr<Statistics> statistics_;
 };
 
-class MyFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+class AutoSkipTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
-  explicit MyFlushBlockPolicyFactory(const int window,
-                                     std::shared_ptr<Statistics> statistics)
+  explicit AutoSkipTestFlushBlockPolicyFactory(
+      const int window, std::shared_ptr<Statistics> statistics)
       : window_(window), statistics_(statistics) {}
 
   virtual const char* Name() const override {
-    return "MyFlushBlockPolicyFactory";
+    return "AutoSkipTestFlushBlockPolicyFactory";
   }
 
   virtual FlushBlockPolicy* NewFlushBlockPolicy(
       const BlockBasedTableOptions& /*table_options*/,
       const BlockBuilder& data_block_builder) const override {
     (void)data_block_builder;
-    return new MyFlushBlockPolicy(window_, data_block_builder, statistics_);
+    return new AutoSkipTestFlushBlockPolicy(window_, data_block_builder,
+                                            statistics_);
   }
 
  private:
@@ -149,13 +145,11 @@ class DBAutoSkip : public DBTestBase {
     BlockBasedTableOptions bbto;
     bbto.enable_index_compression = false;
     bbto.flush_block_policy_factory.reset(
-        new MyFlushBlockPolicyFactory(10, options.statistics));
+        new AutoSkipTestFlushBlockPolicyFactory(10, options.statistics));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
     DestroyAndReopen(options);
   }
-  uint64_t PopStat(Tickers t) {
-    return options.statistics->getAndResetTickerCount(t);
-  }
+
   bool CompressionFriendlyPut(const int no_of_kvs, const int size_of_value) {
     auto value = std::string(size_of_value, 'A');
     for (int i = 0; i < no_of_kvs; ++i) {
