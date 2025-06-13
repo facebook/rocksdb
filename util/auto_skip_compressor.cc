@@ -9,7 +9,6 @@
 #include "util/auto_skip_compressor.h"
 
 #include <options/options_helper.h>
-#include <stdio.h>
 
 #include "rocksdb/advanced_compression.h"
 #include "util/random.h"
@@ -18,10 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 int CompressionRejectionProbabilityPredictor::Predict() const {
   return pred_rejection_percentage_;
 }
-void CompressionRejectionProbabilityPredictor::TEST_SetPrediction(
-    int pred_rejection) {
-  pred_rejection_percentage_ = pred_rejection;
-}
+
 bool CompressionRejectionProbabilityPredictor::Record(
     Slice uncompressed_block_data, std::string* compressed_output,
     const CompressionOptions& opts) {

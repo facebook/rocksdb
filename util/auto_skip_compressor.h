@@ -3,16 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-// Creates auto skip compressor wrapper which uses multiple compression
-// algorithm within same SST file.
+// Creates auto skip compressor wrapper which intelligently decides bypassing
+// compression based on past data
 
 #pragma once
 #include <memory>
-#include <mutex>
 
 #include "rocksdb/advanced_compression.h"
 #include "util/compression.h"
-#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Predicts Rejection Ratio for a window size algorithm
@@ -25,7 +23,6 @@ class CompressionRejectionProbabilityPredictor {
         kWindowSize(window_size),
         attempted_compression_count_(0) {}
   int Predict() const;
-  void TEST_SetPrediction(int pred_rejection);
   bool Record(Slice uncompressed_block_data, std::string* compressed_output,
               const CompressionOptions& opts);
 
@@ -34,7 +31,7 @@ class CompressionRejectionProbabilityPredictor {
   size_t rejected_count_;
   size_t compressed_count_;
   const size_t kWindowSize;
-  size_t attempted_compression_count_ = 0;
+  size_t attempted_compression_count_;
 };
 
 class AutoSkipCompressionContext : public CompressionContext {
