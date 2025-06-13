@@ -510,6 +510,9 @@ TEST_F(DBMemTableTest, VectorConcurrentInsert) {
     ASSERT_FALSE(iter1->Valid());
     ASSERT_OK(iter1->status());
   }
+
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
 }
 }  // namespace ROCKSDB_NAMESPACE
 
