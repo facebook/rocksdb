@@ -33,7 +33,6 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "test_util/testutil.h"
-#include "util/auto_skip_compressor.h"
 #include "util/cast_util.h"
 #include "util/simple_mixed_compressor.h"
 #include "utilities/backup/backup_engine_impl.h"
@@ -3414,27 +3413,26 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   }
   InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
   if (strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
-    // Currently limited to ZSTD compression. Table property compression_name
-    // needs to set to zstd for now even when there can be more than one
-    // algorithm in the table under your compressor.
-    options_.compression = kZSTD;
-    options_.bottommost_compression = kZSTD;
-    if (!ZSTD_Supported()) {
-      fprintf(stderr,
-              "ZSTD compression not supported thus mixed compression cannot be "
-              "used\n");
-      exit(1);
-    }
     if (strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+      // Currently limited to ZSTD compression. Table property compression_name
+      // needs to set to zstd for now even when there can be more than one
+      // algorithm in the table under your compressor.
+      if (!ZSTD_Supported()) {
+        fprintf(
+            stderr,
+            "ZSTD compression not supported thus mixed compression cannot be "
+            "used\n");
+        exit(1);
+      }
       auto mgr = std::make_shared<RoundRobinManager>(
           GetDefaultBuiltinCompressionManager());
       options_.compression_manager = mgr;
+      options_.compression = kZSTD;
+      options_.bottommost_compression = kZSTD;
     } else if (strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
-      auto mgr = std::make_shared<AutoSkipCompressorManager>(
+      options_.compression_manager = CreateAutoSkipCompressionManager(
           GetDefaultBuiltinCompressionManager());
-      options_.compression_manager = mgr;
     }
-
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
     // Nothing to do using default compression manager
   } else {
@@ -4367,6 +4365,8 @@ void InitializeOptionsFromFlags(
   }
 
   options.memtable_op_scan_flush_trigger = FLAGS_memtable_op_scan_flush_trigger;
+  options.compaction_options_universal.reduce_file_locking =
+      FLAGS_universal_reduce_file_locking;
 }
 
 void InitializeOptionsGeneral(

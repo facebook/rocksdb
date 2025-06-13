@@ -14,9 +14,13 @@
 #include "util/random.h"
 namespace ROCKSDB_NAMESPACE {
 
-bool RejectionRatioPredictor::Record(Slice uncompressed_block_data,
-                                     std::string* compressed_output,
-                                     const CompressionOptions& opts) {
+int CompressionRejectionProbabilityPredictor::Predict() const {
+  return pred_rejection_percentage_;
+}
+
+bool CompressionRejectionProbabilityPredictor::Record(
+    Slice uncompressed_block_data, std::string* compressed_output,
+    const CompressionOptions& opts) {
   if (compressed_output->size() >
       (static_cast<uint64_t>(opts.max_compressed_bytes_per_kb) *
        uncompressed_block_data.size()) >>
@@ -25,75 +29,42 @@ bool RejectionRatioPredictor::Record(Slice uncompressed_block_data,
   } else {
     compressed_count_++;
   }
-  return true;
-}
-
-int WindowBasedRejectionPredictor::Predict() const {
-  // Implement window-based prediction logic
-  return RejectionRatioPredictor::Predict();
-}
-
-bool WindowBasedRejectionPredictor::Record(Slice uncompressed_block_data,
-                                           std::string* compressed_output,
-                                           const CompressionOptions& opts) {
-  auto status = RejectionRatioPredictor::Record(uncompressed_block_data,
-                                                compressed_output, opts);
   attempted_compression_count_++;
-  if (attempted_compression_count_ >= window_size_) {
+  if (attempted_compression_count_ >= kWindowSize) {
     pred_rejection_percentage_ = static_cast<int>(
         rejected_count_ * 100 / (compressed_count_ + rejected_count_));
-    // fprintf(stdout,
-    //         "[WindowBasedRejectionPredictor::Record] changed "
-    //         "pred_rejection_percentage_: %d\n",
-    //         pred_rejection_percentage_);
     attempted_compression_count_ = 0;
     compressed_count_ = 0;
     rejected_count_ = 0;
   }
-  return status;
+  return true;
 }
 AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
-    const CompressionOptions& opts, CompressionType type,
-    CompressionDict&& dict)
-    : MultiCompressorWrapper(opts, type),
-      min_exploration_percentage_(10),
+    std::unique_ptr<Compressor> compressor, const CompressionOptions& opts,
+    const CompressionType& type)
+    : CompressorWrapper::CompressorWrapper(std::move(compressor)),
       opts_(opts),
-      // type_(type),
-      rnd_(331),
-      predictor_(std::make_shared<WindowBasedRejectionPredictor>(100)) {
-  (void)dict;
-  // (void)type_;
-}
+      type_(type) {}
 
 Status AutoSkipCompressorWrapper::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  auto& compressor = compressors_.back();
-  if (rnd_.PercentTrue(min_exploration_percentage_)) {
-    // fprintf(
-    //     stdout,
-    //     "[AutoSkipCompressorWrapper::CompressBlock] selected:
-    //     exploration\n");
-    Status status = compressor->CompressBlock(
-        uncompressed_data, compressed_output, out_compression_type, wa);
-    // check the value of the out_compression_type and compressed_output to
-    // determine if it was rejected or compressed
-    predictor_->Record(uncompressed_data, compressed_output, opts_);
-    return status;
+  bool exploration =
+      Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
+  TEST_SYNC_POINT_CALLBACK(
+      "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
+      &exploration);
+  if (exploration) {
+    return CompressBlockAndRecord(uncompressed_data, compressed_output,
+                                  out_compression_type, wa);
   } else {
-    auto prediction = predictor_->Predict();
-    // fprintf(stdout,
-    //         "[AutoSkipCompressorWrapper::CompressBlock] selected: exploit "
-    //         "pred_rejection: %d\n",
-    //         prediction);
-    if (prediction < 50) {
+    auto predictor_ptr =
+        static_cast<AutoSkipCompressionContext*>(wa->get())->predictor_;
+    auto prediction = predictor_ptr->Predict();
+    if (prediction <= kProbabilityCutOff) {
       // decide to compress
-      Status status = compressor->CompressBlock(
-          uncompressed_data, compressed_output, out_compression_type, wa);
-      // determine if it was rejected or compressed
-      predictor_->Record(uncompressed_data, compressed_output, opts_);
-      return status;
+      return CompressBlockAndRecord(uncompressed_data, compressed_output,
+                                    out_compression_type, wa);
     } else {
       // bypassed compression
       *out_compression_type = kNoCompression;
@@ -101,6 +72,27 @@ Status AutoSkipCompressorWrapper::CompressBlock(
     }
   }
   return Status::OK();
+}
+
+Compressor::ManagedWorkingArea AutoSkipCompressorWrapper::ObtainWorkingArea() {
+  return ManagedWorkingArea(
+      static_cast<WorkingArea*>(new AutoSkipCompressionContext(type_, opts_)),
+      this);
+}
+void AutoSkipCompressorWrapper::ReleaseWorkingArea(WorkingArea* wa) {
+  delete static_cast<AutoSkipCompressionContext*>(wa);
+}
+
+Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
+    Slice uncompressed_data, std::string* compressed_output,
+    CompressionType* out_compression_type, ManagedWorkingArea* wa) {
+  Status status = wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                                          out_compression_type, wa);
+  // determine if it was rejected or compressed
+  auto predictor_ptr =
+      static_cast<AutoSkipCompressionContext*>(wa->get())->predictor_;
+  predictor_ptr->Record(uncompressed_data, compressed_output, opts_);
+  return status;
 }
 
 const char* AutoSkipCompressorManager::Name() const {
@@ -112,16 +104,15 @@ const char* AutoSkipCompressorManager::Name() const {
 std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,
     CompressionType preferred) {
-  assert(preferred == kZSTD);
-  (void)context;
-  return std::make_unique<AutoSkipCompressorWrapper>(opts, preferred);
+  assert(GetSupportedCompressions().size() > 1);
+  assert(preferred != kNoCompression);
+  return std::make_unique<AutoSkipCompressorWrapper>(
+      wrapped_->GetCompressorForSST(context, opts, preferred), opts, preferred);
 }
 
-void AutoSkipCompressorWrapper::SetMinExplorationPercentage(
-    int min_exploration_percentage) {
-  min_exploration_percentage_ = min_exploration_percentage;
-}
-int AutoSkipCompressorWrapper::GetMinExplorationPercentage() const {
-  return min_exploration_percentage_;
+std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
+    std::shared_ptr<CompressionManager> wrapped) {
+  return std::make_shared<AutoSkipCompressorManager>(
+      wrapped == nullptr ? GetDefaultBuiltinCompressionManager() : wrapped);
 }
 }  // namespace ROCKSDB_NAMESPACE

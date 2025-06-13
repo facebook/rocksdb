@@ -568,7 +568,6 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       return SerializeEnum<CompressionType>(
           compression_type_string_map,
           *(static_cast<const CompressionType*>(opt_address)), value);
-      break;
     case OptionType::kChecksumType:
       return SerializeEnum<ChecksumType>(
           checksum_type_string_map,

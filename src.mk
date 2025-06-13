@@ -593,7 +593,7 @@ TEST_MAIN_SOURCES =                                                     \
   table/table_test.cc                                                   \
   table/block_fetcher_test.cc                                           \
   test_util/testutil_test.cc                                            \
-  util/auto_skip_compressor_test.cc                                            \
+  util/compression_test.cc                                            \
   tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc         \
   tools/io_tracer_parser_test.cc                                        \
   tools/ldb_cmd_test.cc                                                 \
@@ -624,7 +624,6 @@ TEST_MAIN_SOURCES =                                                     \
   util/thread_local_test.cc                                             \
   util/udt_util_test.cc                                                 \
   util/work_queue_test.cc                                               \
-  util/auto_skip_compressor_test.cc                                     \
   utilities/agg_merge/agg_merge_test.cc                                 \
   utilities/backup/backup_engine_test.cc                                \
   utilities/blob_db/blob_db_test.cc                                     \
