@@ -76,7 +76,7 @@ Status AutoSkipCompressorWrapper::CompressBlock(
       return CompressBlockAndRecord(uncompressed_data, compressed_output,
                                     out_compression_type, wa);
     } else {
-      fprintf(stdout, "[AutoSkipCompressor] bypassed compression");
+      fprintf(stdout, "[AutoSkipCompressor] bypassed compression\n");
       // bypassed compression
       *out_compression_type = kNoCompression;
       return Status::OK();
