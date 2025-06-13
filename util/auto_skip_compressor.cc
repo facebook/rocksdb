@@ -79,6 +79,9 @@ Compressor::ManagedWorkingArea AutoSkipCompressorWrapper::ObtainWorkingArea() {
       static_cast<WorkingArea*>(new AutoSkipCompressionContext(type_, opts_)),
       this);
 }
+void AutoSkipCompressorWrapper::ReleaseWorkingArea(WorkingArea* wa) {
+  delete static_cast<AutoSkipCompressionContext*>(wa);
+}
 
 Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
     Slice uncompressed_data, std::string* compressed_output,

@@ -58,6 +58,7 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
   ManagedWorkingArea ObtainWorkingArea() override;
+  void ReleaseWorkingArea(WorkingArea* wa) override;
 
  private:
   Status CompressBlockAndRecord(Slice uncompressed_data,
