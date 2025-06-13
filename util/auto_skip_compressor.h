@@ -23,9 +23,7 @@ class CompressionRejectionProbabilityPredictor {
         rejected_count_(0),
         compressed_count_(0),
         kWindowSize(window_size),
-        attempted_compression_count_(0) {
-    fprintf(stdout, "CompressionRejectionProbabilityPredictor Created\n");
-  }
+        attempted_compression_count_(0) {}
   int Predict() const;
   void TEST_SetPrediction(int pred_rejection);
   bool Record(Slice uncompressed_block_data, std::string* compressed_output,
@@ -43,11 +41,14 @@ class AutoSkipCompressionContext : public CompressionContext {
  public:
   explicit AutoSkipCompressionContext(CompressionType type,
                                       const CompressionOptions& options)
-      : CompressionContext::CompressionContext(type, options) {}
+      : CompressionContext::CompressionContext(type, options),
+        predictor_(
+            std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
   ~AutoSkipCompressionContext() {}
   AutoSkipCompressionContext(const AutoSkipCompressionContext&) = delete;
   AutoSkipCompressionContext& operator=(const AutoSkipCompressionContext&) =
       delete;
+  std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor_;
 };
 
 class AutoSkipCompressorWrapper : public CompressorWrapper {
@@ -70,8 +71,6 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
   static constexpr int kProbabilityCutOff = 50;
   const CompressionOptions& opts_;
   const CompressionType& type_;
-  mutable std::mutex mutex_;
-  std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor_;
 };
 
 class AutoSkipCompressorManager : public CompressionManagerWrapper {

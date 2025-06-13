@@ -58,12 +58,10 @@ class MyFlushBlockPolicy : public FlushBlockPolicy {
         SyncPoint::GetInstance()->SetCallBack(
             "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
             set_exploration);
-        fprintf(stdout, "exploration turned on\n");
       } else {
         SyncPoint::GetInstance()->SetCallBack(
             "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
             unset_exploration);
-        fprintf(stdout, "exploitation turned on\n");
       }
       SyncPoint::GetInstance()->EnableProcessing();
 
