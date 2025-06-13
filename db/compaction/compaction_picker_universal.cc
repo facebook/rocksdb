@@ -38,7 +38,8 @@ class UniversalCompactionBuilder {
       const MutableDBOptions& mutable_db_options,
       const std::vector<SequenceNumber>& existing_snapshots,
       const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
-      UniversalCompactionPicker* picker, LogBuffer* log_buffer)
+      UniversalCompactionPicker* picker, LogBuffer* log_buffer,
+      bool require_max_output_level)
       : ioptions_(ioptions),
         icmp_(icmp),
         cf_name_(cf_name),
@@ -46,7 +47,8 @@ class UniversalCompactionBuilder {
         mutable_db_options_(mutable_db_options),
         vstorage_(vstorage),
         picker_(picker),
-        log_buffer_(log_buffer) {
+        log_buffer_(log_buffer),
+        require_max_output_level_(require_max_output_level) {
     assert(icmp_);
     const auto* ucmp = icmp_->user_comparator();
     assert(ucmp);
@@ -101,6 +103,174 @@ class UniversalCompactionBuilder {
     // triggered compaction pick this type of file.
     bool level_has_marked_standalone_rangedel;
   };
+
+  unsigned int GetMaxNumFilesToCompactBasedOnMaxReadAmp(
+      const int file_num_compaction_trigger, const unsigned int ratio,
+      int* num_sr_not_compacted_output, int* max_num_runs_output) const {
+    assert(num_sr_not_compacted_output);
+    assert(max_num_runs_output);
+    int max_num_runs =
+        mutable_cf_options_.compaction_options_universal.max_read_amp;
+    if (max_num_runs < 0) {
+      // any value < -1 is not valid
+      assert(max_num_runs == -1);
+      // By default, fall back to `level0_file_num_compaction_trigger`
+      max_num_runs = file_num_compaction_trigger;
+    } else if (max_num_runs == 0) {
+      if (mutable_cf_options_.compaction_options_universal.stop_style ==
+          kCompactionStopStyleTotalSize) {
+        // 0 means auto-tuning by RocksDB. We estimate max num run based on
+        // max_run_size, size_ratio and write buffer size:
+        // Assume the size of the lowest level size is equal to
+        // write_buffer_size. Each subsequent level is the max size without
+        // triggering size_ratio compaction. `max_num_runs` is the minimum
+        // number of levels required such that the target size of the
+        // largest level is at least `max_run_size_`.
+        max_num_runs = 1;
+        double cur_level_max_size =
+            static_cast<double>(mutable_cf_options_.write_buffer_size);
+        double total_run_size = 0;
+        while (cur_level_max_size < static_cast<double>(max_run_size_)) {
+          // This loop should not take too many iterations since
+          // cur_level_max_size at least doubles each iteration.
+          total_run_size += cur_level_max_size;
+          cur_level_max_size = (100.0 + ratio) / 100.0 * total_run_size;
+          ++max_num_runs;
+        }
+      } else {
+        // TODO: implement the auto-tune logic for this stop style
+        max_num_runs = file_num_compaction_trigger;
+      }
+    } else {
+      // max_num_runs > 0, it's the limit on the number of sorted run
+    }
+
+    // Get the total number of sorted runs that are not being compacted
+    int num_sr_not_compacted = 0;
+    for (size_t i = 0; i < sorted_runs_.size(); i++) {
+      if (sorted_runs_[i].being_compacted == false &&
+          !sorted_runs_[i].level_has_marked_standalone_rangedel) {
+        num_sr_not_compacted++;
+      }
+    }
+
+    *num_sr_not_compacted_output = num_sr_not_compacted;
+    *max_num_runs_output = max_num_runs;
+
+    if (num_sr_not_compacted > max_num_runs) {
+      return num_sr_not_compacted - max_num_runs + 1;
+    } else {
+      return 0;
+    }
+  }
+
+  Compaction* MaybePickPeriodicCompaction(Compaction* const prev_picked_c) {
+    if (prev_picked_c != nullptr ||
+        vstorage_->FilesMarkedForPeriodicCompaction().empty()) {
+      return prev_picked_c;
+    }
+    // Always need to do a full compaction for periodic compaction.
+    Compaction* c = PickPeriodicCompaction();
+    TEST_SYNC_POINT_CALLBACK("PostPickPeriodicCompaction", c);
+    if (c != nullptr) {
+      ROCKS_LOG_BUFFER(log_buffer_,
+                       "[%s] Universal: picked for periodic compaction\n",
+                       cf_name_.c_str());
+    }
+    return c;
+  }
+
+  Compaction* MaybePickSizeAmpCompaction(Compaction* const prev_picked_c,
+                                         int file_num_compaction_trigger) {
+    if (prev_picked_c != nullptr ||
+        sorted_runs_.size() <
+            static_cast<size_t>(file_num_compaction_trigger)) {
+      return prev_picked_c;
+    }
+    Compaction* c = PickCompactionToReduceSizeAmp();
+    if (c != nullptr) {
+      TEST_SYNC_POINT("PickCompactionToReduceSizeAmpReturnNonnullptr");
+      ROCKS_LOG_BUFFER(log_buffer_,
+                       "[%s] Universal: picked for size amp compaction \n",
+                       cf_name_.c_str());
+    }
+    return c;
+  }
+
+  Compaction* MaybePickCompactionToReduceSortedRunsBasedFileRatio(
+      Compaction* const prev_picked_c, int file_num_compaction_trigger,
+      unsigned int ratio) {
+    if (prev_picked_c != nullptr ||
+        sorted_runs_.size() <
+            static_cast<size_t>(file_num_compaction_trigger)) {
+      return prev_picked_c;
+    }
+    Compaction* c = PickCompactionToReduceSortedRuns(ratio, UINT_MAX);
+    if (c != nullptr) {
+      TEST_SYNC_POINT("PickCompactionToReduceSortedRunsReturnNonnullptr");
+      ROCKS_LOG_BUFFER(log_buffer_,
+                       "[%s] Universal: picked for size ratio compaction to "
+                       "reduce sorted run\n",
+                       cf_name_.c_str());
+    }
+    return c;
+  }
+
+  Compaction* MaybePickCompactionToReduceSortedRuns(
+      Compaction* const prev_picked_c, int file_num_compaction_trigger,
+      unsigned int ratio) {
+    if (prev_picked_c != nullptr ||
+        sorted_runs_.size() <
+            static_cast<size_t>(file_num_compaction_trigger)) {
+      return prev_picked_c;
+    }
+
+    int num_sr_not_compacted = 0;
+    int max_num_runs = 0;
+    const unsigned int max_num_files_to_compact =
+        GetMaxNumFilesToCompactBasedOnMaxReadAmp(file_num_compaction_trigger,
+                                                 ratio, &num_sr_not_compacted,
+                                                 &max_num_runs);
+    if (max_num_files_to_compact == 0) {
+      ROCKS_LOG_BUFFER(
+          log_buffer_,
+          "[%s] Universal: skipping compaction to reduce sorted run, num "
+          "sorted runs not "
+          "being compacted -- %u, max num runs allowed -- %d, max_run_size "
+          "-- %" PRIu64 "\n",
+          cf_name_.c_str(), num_sr_not_compacted, max_num_runs, max_run_size_);
+      return nullptr;
+    }
+
+    Compaction* c =
+        PickCompactionToReduceSortedRuns(UINT_MAX, max_num_files_to_compact);
+    if (c != nullptr) {
+      ROCKS_LOG_BUFFER(log_buffer_,
+                       "[%s] Universal: picked for sorted run num compaction "
+                       "to reduce sorted run, to "
+                       "compact file num -- %u, max num runs allowed"
+                       "-- %d, max_run_size -- %" PRIu64 "\n",
+                       cf_name_.c_str(), max_num_files_to_compact, max_num_runs,
+                       max_run_size_);
+    }
+    return c;
+  }
+
+  Compaction* MaybePickDeleteTriggeredCompaction(
+      Compaction* const prev_picked_c) {
+    if (prev_picked_c != nullptr) {
+      return prev_picked_c;
+    }
+    Compaction* c = PickDeleteTriggeredCompaction();
+    if (c != nullptr) {
+      TEST_SYNC_POINT("PickDeleteTriggeredCompactionReturnNonnullptr");
+      ROCKS_LOG_BUFFER(
+          log_buffer_,
+          "[%s] Universal: picked for delete triggered compaction\n",
+          cf_name_.c_str());
+    }
+    return c;
+  }
 
   // Pick Universal compaction to limit read amplification
   Compaction* PickCompactionToReduceSortedRuns(
@@ -249,6 +419,13 @@ class UniversalCompactionBuilder {
     return num_l0_to_exclude;
   }
 
+  bool MeetsOutputLevelRequirements(int output_level) const {
+    return !require_max_output_level_ ||
+           Compaction::OutputToNonZeroMaxOutputLevel(
+               output_level,
+               vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind));
+  }
+
   const ImmutableOptions& ioptions_;
   const InternalKeyComparator* icmp_;
   double score_;
@@ -260,6 +437,7 @@ class UniversalCompactionBuilder {
   VersionStorageInfo* vstorage_;
   UniversalCompactionPicker* picker_;
   LogBuffer* log_buffer_;
+  bool require_max_output_level_;
   // Optional earliest snapshot at time of compaction picking. This is only
   // provided if the column family doesn't enable user-defined timestamps.
   // And this information is only passed to `Compaction` picked by deletion
@@ -420,10 +598,11 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     const MutableDBOptions& mutable_db_options,
     const std::vector<SequenceNumber>& existing_snapshots,
     const SnapshotChecker* snapshot_checker, VersionStorageInfo* vstorage,
-    LogBuffer* log_buffer) {
+    LogBuffer* log_buffer, bool require_max_output_level) {
   UniversalCompactionBuilder builder(
       ioptions_, icmp_, cf_name, mutable_cf_options, mutable_db_options,
-      existing_snapshots, snapshot_checker, vstorage, this, log_buffer);
+      existing_snapshots, snapshot_checker, vstorage, this, log_buffer,
+      require_max_output_level);
   return builder.PickCompaction();
 }
 
@@ -554,13 +733,21 @@ bool UniversalCompactionBuilder::ShouldSkipMarkedFile(
 Compaction* UniversalCompactionBuilder::PickCompaction() {
   const int kLevel0 = 0;
   score_ = vstorage_->CompactionScore(kLevel0);
-  int max_output_level =
+  const int max_output_level =
       vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind);
+  const int file_num_compaction_trigger =
+      mutable_cf_options_.level0_file_num_compaction_trigger;
+  const unsigned int ratio =
+      mutable_cf_options_.compaction_options_universal.size_ratio;
+
+  if (max_output_level == 0 &&
+      !MeetsOutputLevelRequirements(0 /* output_level */)) {
+    return nullptr;
+  }
+
   max_run_size_ = 0;
   sorted_runs_ =
       CalculateSortedRuns(*vstorage_, max_output_level, &max_run_size_);
-  int file_num_compaction_trigger =
-      mutable_cf_options_.level0_file_num_compaction_trigger;
 
   if (sorted_runs_.size() == 0 ||
       (vstorage_->FilesMarkedForPeriodicCompaction().empty() &&
@@ -572,6 +759,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
         "UniversalCompactionBuilder::PickCompaction:Return", nullptr);
     return nullptr;
   }
+
   VersionStorageInfo::LevelSummaryStorage tmp;
   ROCKS_LOG_BUFFER_MAX_SZ(
       log_buffer_, 3072,
@@ -579,119 +767,14 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
       cf_name_.c_str(), sorted_runs_.size(), vstorage_->LevelSummary(&tmp));
 
   Compaction* c = nullptr;
-  // Periodic compaction has higher priority than other type of compaction
-  // because it's a hard requirement.
-  if (!vstorage_->FilesMarkedForPeriodicCompaction().empty()) {
-    // Always need to do a full compaction for periodic compaction.
-    c = PickPeriodicCompaction();
-    TEST_SYNC_POINT_CALLBACK("PostPickPeriodicCompaction", c);
-  }
 
-  if (c == nullptr &&
-      sorted_runs_.size() >= static_cast<size_t>(file_num_compaction_trigger)) {
-    // Check for size amplification.
-    if ((c = PickCompactionToReduceSizeAmp()) != nullptr) {
-      TEST_SYNC_POINT("PickCompactionToReduceSizeAmpReturnNonnullptr");
-      ROCKS_LOG_BUFFER(log_buffer_, "[%s] Universal: compacting for size amp\n",
-                       cf_name_.c_str());
-    } else {
-      // Size amplification is within limits. Try reducing read
-      // amplification while maintaining file size ratios.
-      unsigned int ratio =
-          mutable_cf_options_.compaction_options_universal.size_ratio;
-
-      if ((c = PickCompactionToReduceSortedRuns(ratio, UINT_MAX)) != nullptr) {
-        TEST_SYNC_POINT("PickCompactionToReduceSortedRunsReturnNonnullptr");
-        ROCKS_LOG_BUFFER(log_buffer_,
-                         "[%s] Universal: compacting for size ratio\n",
-                         cf_name_.c_str());
-      } else {
-        // Size amplification and file size ratios are within configured limits.
-        // If max read amplification exceeds configured limits, then force
-        // compaction to reduce the number sorted runs without looking at file
-        // size ratios.
-
-        // This is guaranteed by NeedsCompaction()
-        assert(sorted_runs_.size() >=
-               static_cast<size_t>(file_num_compaction_trigger));
-        int max_num_runs =
-            mutable_cf_options_.compaction_options_universal.max_read_amp;
-        if (max_num_runs < 0) {
-          // any value < -1 is not valid
-          assert(max_num_runs == -1);
-          // By default, fall back to `level0_file_num_compaction_trigger`
-          max_num_runs = file_num_compaction_trigger;
-        } else if (max_num_runs == 0) {
-          if (mutable_cf_options_.compaction_options_universal.stop_style ==
-              kCompactionStopStyleTotalSize) {
-            // 0 means auto-tuning by RocksDB. We estimate max num run based on
-            // max_run_size, size_ratio and write buffer size:
-            // Assume the size of the lowest level size is equal to
-            // write_buffer_size. Each subsequent level is the max size without
-            // triggering size_ratio compaction. `max_num_runs` is the minimum
-            // number of levels required such that the target size of the
-            // largest level is at least `max_run_size_`.
-            max_num_runs = 1;
-            double cur_level_max_size =
-                static_cast<double>(mutable_cf_options_.write_buffer_size);
-            double total_run_size = 0;
-            while (cur_level_max_size < static_cast<double>(max_run_size_)) {
-              // This loop should not take too many iterations since
-              // cur_level_max_size at least doubles each iteration.
-              total_run_size += cur_level_max_size;
-              cur_level_max_size = (100.0 + ratio) / 100.0 * total_run_size;
-              ++max_num_runs;
-            }
-          } else {
-            // TODO: implement the auto-tune logic for this stop style
-            max_num_runs = file_num_compaction_trigger;
-          }
-        } else {
-          // max_num_runs > 0, it's the limit on the number of sorted run
-        }
-        // Get the total number of sorted runs that are not being compacted
-        int num_sr_not_compacted = 0;
-        for (size_t i = 0; i < sorted_runs_.size(); i++) {
-          if (sorted_runs_[i].being_compacted == false &&
-              !sorted_runs_[i].level_has_marked_standalone_rangedel) {
-            num_sr_not_compacted++;
-          }
-        }
-
-        // The number of sorted runs that are not being compacted is greater
-        // than the maximum allowed number of sorted runs
-        if (num_sr_not_compacted > max_num_runs) {
-          unsigned int num_files = num_sr_not_compacted - max_num_runs + 1;
-          if ((c = PickCompactionToReduceSortedRuns(UINT_MAX, num_files)) !=
-              nullptr) {
-            ROCKS_LOG_BUFFER(log_buffer_,
-                             "[%s] Universal: compacting for file num, to "
-                             "compact file num -- %u, max num runs allowed"
-                             "-- %d, max_run_size -- %" PRIu64 "\n",
-                             cf_name_.c_str(), num_files, max_num_runs,
-                             max_run_size_);
-          }
-        } else {
-          ROCKS_LOG_BUFFER(
-              log_buffer_,
-              "[%s] Universal: skipping compaction for file num, num runs not "
-              "being compacted -- %u, max num runs allowed -- %d, max_run_size "
-              "-- %" PRIu64 "\n",
-              cf_name_.c_str(), num_sr_not_compacted, max_num_runs,
-              max_run_size_);
-        }
-      }
-    }
-  }
-
-  if (c == nullptr) {
-    if ((c = PickDeleteTriggeredCompaction()) != nullptr) {
-      TEST_SYNC_POINT("PickDeleteTriggeredCompactionReturnNonnullptr");
-      ROCKS_LOG_BUFFER(log_buffer_,
-                       "[%s] Universal: delete triggered compaction\n",
-                       cf_name_.c_str());
-    }
-  }
+  c = MaybePickPeriodicCompaction(c);
+  c = MaybePickSizeAmpCompaction(c, file_num_compaction_trigger);
+  c = MaybePickCompactionToReduceSortedRunsBasedFileRatio(
+      c, file_num_compaction_trigger, ratio);
+  c = MaybePickCompactionToReduceSortedRuns(c, file_num_compaction_trigger,
+                                            ratio);
+  c = MaybePickDeleteTriggeredCompaction(c);
 
   if (c == nullptr) {
     TEST_SYNC_POINT_CALLBACK(
@@ -700,6 +783,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   }
   assert(c->output_level() <=
          vstorage_->MaxOutputLevel(ioptions_.allow_ingest_behind));
+  assert(MeetsOutputLevelRequirements(c->output_level()));
 
   if (mutable_cf_options_.compaction_options_universal.allow_trivial_move ==
           true &&
@@ -825,14 +909,16 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
       if (sr->being_compacted) {
         ROCKS_LOG_BUFFER(log_buffer_,
                          "[%s] Universal: %s"
-                         "[%d] being compacted, skipping",
+                         "[%d] being compacted, skipping for compaction to "
+                         "reduce sorted runs",
                          cf_name_.c_str(), file_num_buf, loop);
       } else if (sr->level_has_marked_standalone_rangedel) {
-        ROCKS_LOG_BUFFER(log_buffer_,
-                         "[%s] Universal: %s"
-                         "[%d] has standalone range tombstone files marked for "
-                         "compaction, skipping",
-                         cf_name_.c_str(), file_num_buf, loop);
+        ROCKS_LOG_BUFFER(
+            log_buffer_,
+            "[%s] Universal: %s"
+            "[%d] has standalone range tombstone files marked for "
+            "compaction, skipping for compaction to reduce sorted runs",
+            cf_name_.c_str(), file_num_buf, loop);
       }
 
       sr = nullptr;
@@ -845,7 +931,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
       char file_num_buf[kFormatFileNumberBufSize];
       sr->Dump(file_num_buf, sizeof(file_num_buf), true);
       ROCKS_LOG_BUFFER(log_buffer_,
-                       "[%s] Universal: Possible candidate %s[%d].",
+                       "[%s] Universal: Possible candidate for compaction to "
+                       "reduce sorted runs %s[%d].",
                        cf_name_.c_str(), file_num_buf, loop);
     }
 
@@ -947,6 +1034,10 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
     output_level = sorted_runs_[first_index_after].level - 1;
   }
 
+  if (!MeetsOutputLevelRequirements(output_level)) {
+    return nullptr;
+  }
+
   std::vector<CompactionInputFiles> inputs(max_output_level + 1);
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i].level = start_level + static_cast<int>(i);
@@ -1039,18 +1130,19 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
       char file_num_buf[kFormatFileNumberBufSize];
       sr->Dump(file_num_buf, sizeof(file_num_buf), true);
       if (sr->being_compacted) {
-        ROCKS_LOG_BUFFER(
-            log_buffer_,
-            "[%s] Universal: stopping at sorted run undergoing compaction: "
-            "%s[%" ROCKSDB_PRIszt "]",
-            cf_name_.c_str(), file_num_buf, start_index - 1);
+        ROCKS_LOG_BUFFER(log_buffer_,
+                         "[%s] Universal: stopping for size amp compaction at "
+                         "sorted run undergoing compaction: "
+                         "%s[%" ROCKSDB_PRIszt "]",
+                         cf_name_.c_str(), file_num_buf, start_index - 1);
       } else if (sr->level_has_marked_standalone_rangedel) {
-        ROCKS_LOG_BUFFER(
-            log_buffer_,
-            "[%s] Universal: stopping at sorted run that has standalone range "
-            "tombstone files marked for compaction: "
-            "%s[%" ROCKSDB_PRIszt "]",
-            cf_name_.c_str(), file_num_buf, start_index - 1);
+        ROCKS_LOG_BUFFER(log_buffer_,
+                         "[%s] Universal: stopping for size amp compaction at "
+                         "sorted run that has "
+                         "standalone range "
+                         "tombstone files marked for compaction: "
+                         "%s[%" ROCKSDB_PRIszt "]",
+                         cf_name_.c_str(), file_num_buf, start_index - 1);
       }
       break;
     }
@@ -1066,11 +1158,12 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   {
     const size_t num_l0_to_exclude = MightExcludeNewL0sToReduceWriteStop(
         num_l0_files, end_index, start_index, candidate_size);
-    ROCKS_LOG_BUFFER(log_buffer_,
-                     "[%s] Universal: Excluding %" ROCKSDB_PRIszt
-                     " latest L0 files to reduce potential write stop "
-                     "triggered by `level0_stop_writes_trigger`",
-                     cf_name_.c_str(), num_l0_to_exclude);
+    ROCKS_LOG_BUFFER(
+        log_buffer_,
+        "[%s] Universal: Excluding for size amp compaction %" ROCKSDB_PRIszt
+        " latest L0 files to reduce potential write stop "
+        "triggered by `level0_stop_writes_trigger`",
+        cf_name_.c_str(), num_l0_to_exclude);
   }
 
   {
@@ -1088,18 +1181,18 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
 
   // size amplification = percentage of additional size
   if (candidate_size * 100 < ratio * base_sr_size) {
-    ROCKS_LOG_BUFFER(
-        log_buffer_,
-        "[%s] Universal: size amp not needed. newer-files-total-size %" PRIu64
-        " earliest-file-size %" PRIu64,
-        cf_name_.c_str(), candidate_size, base_sr_size);
+    ROCKS_LOG_BUFFER(log_buffer_,
+                     "[%s] Universal: size amp compction not needed. "
+                     "newer-files-total-size %" PRIu64
+                     " earliest-file-size %" PRIu64,
+                     cf_name_.c_str(), candidate_size, base_sr_size);
     return nullptr;
   } else {
-    ROCKS_LOG_BUFFER(
-        log_buffer_,
-        "[%s] Universal: size amp needed. newer-files-total-size %" PRIu64
-        " earliest-file-size %" PRIu64,
-        cf_name_.c_str(), candidate_size, base_sr_size);
+    ROCKS_LOG_BUFFER(log_buffer_,
+                     "[%s] Universal: size amp compaction needed. "
+                     "newer-files-total-size %" PRIu64
+                     " earliest-file-size %" PRIu64,
+                     cf_name_.c_str(), candidate_size, base_sr_size);
   }
   // Since incremental compaction can't include more than second last
   // level, it can introduce penalty, compared to full compaction. We
@@ -1450,6 +1543,10 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
     }
     assert(output_level <= max_output_level);
 
+    if (!MeetsOutputLevelRequirements(output_level)) {
+      return nullptr;
+    }
+
     if (output_level != 0) {
       if (start_level == 0) {
         if (!picker_->GetOverlappingL0Files(vstorage_, &start_level_inputs,
@@ -1572,6 +1669,10 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
     // if it's not including all sorted_runs, it can only output to the level
     // above the `end_index + 1` sorted_run.
     output_level = sorted_runs_[end_index + 1].level - 1;
+  }
+
+  if (!MeetsOutputLevelRequirements(output_level)) {
+    return nullptr;
   }
 
   // intra L0 compactions outputs could have overlap

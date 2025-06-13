@@ -4359,6 +4359,8 @@ void InitializeOptionsFromFlags(
   }
 
   options.memtable_op_scan_flush_trigger = FLAGS_memtable_op_scan_flush_trigger;
+  options.compaction_options_universal.reduce_file_locking =
+      FLAGS_universal_reduce_file_locking;
 }
 
 void InitializeOptionsGeneral(
