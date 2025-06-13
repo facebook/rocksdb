@@ -21,6 +21,7 @@
 
 #include "port/port.h"
 #include "rocksdb/slice.h"
+#include "util/cast_util.h"
 #include "util/coding_lean.h"
 
 // Some processors does not allow unaligned access to memory
@@ -105,7 +106,7 @@ const char* GetVarint32PtrFallback(const char* p, const char* limit,
 inline const char* GetVarint32Ptr(const char* p, const char* limit,
                                   uint32_t* value) {
   if (p < limit) {
-    uint32_t result = *(reinterpret_cast<const unsigned char*>(p));
+    uint32_t result = *(lossless_cast<const unsigned char*>(p));
     if ((result & 128) == 0) {
       *value = result;
       return p + 1;
@@ -172,13 +173,13 @@ inline void PutVarint32Varint32Varint32(std::string* dst, uint32_t v1,
 
 inline char* EncodeVarint64(char* dst, uint64_t v) {
   static const unsigned int B = 128;
-  unsigned char* ptr = reinterpret_cast<unsigned char*>(dst);
+  unsigned char* ptr = lossless_cast<unsigned char*>(dst);
   while (v >= B) {
     *(ptr++) = (v & (B - 1)) | B;
     v >>= 7;
   }
   *(ptr++) = static_cast<unsigned char>(v);
-  return reinterpret_cast<char*>(ptr);
+  return lossless_cast<char*>(ptr);
 }
 
 inline void PutVarint64(std::string* dst, uint64_t v) {
