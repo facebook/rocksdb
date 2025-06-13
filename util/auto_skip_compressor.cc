@@ -41,7 +41,7 @@ bool CompressionRejectionProbabilityPredictor::Record(
 }
 AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
     std::unique_ptr<Compressor> compressor, const CompressionOptions& opts,
-    const CompressionType& type)
+    const CompressionType type)
     : CompressorWrapper::CompressorWrapper(std::move(compressor)),
       opts_(opts),
       type_(type) {}

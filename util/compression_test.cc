@@ -140,12 +140,13 @@ class DBAutoSkip : public DBTestBase {
         rnd_(231) {
     options.compression_manager =
         CreateAutoSkipCompressionManager(GetDefaultBuiltinCompressionManager());
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    options.statistics = statistics;
     options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
     BlockBasedTableOptions bbto;
     bbto.enable_index_compression = false;
     bbto.flush_block_policy_factory.reset(
-        new AutoSkipTestFlushBlockPolicyFactory(10, options.statistics));
+        new AutoSkipTestFlushBlockPolicyFactory(10, statistics));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
     DestroyAndReopen(options);
   }
@@ -170,11 +171,8 @@ class DBAutoSkip : public DBTestBase {
   }
 };
 
-// test case just to make sure auto compression manager is working
 TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
   if (GetSupportedCompressions().size() > 1) {
-    // AutoSkipCompressionManager starts with rejection ratio 0 i.e.
-    // compression enabled enough data to change the decision
     const int kValueSize = 20000;
     // Set the rejection ratio to 60%
     CompressionUnfriendlyPut(6, kValueSize);

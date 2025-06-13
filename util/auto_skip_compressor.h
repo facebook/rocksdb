@@ -36,7 +36,7 @@ class CompressionRejectionProbabilityPredictor {
 
 class AutoSkipCompressionContext : public CompressionContext {
  public:
-  explicit AutoSkipCompressionContext(CompressionType type,
+  explicit AutoSkipCompressionContext(const CompressionType& type,
                                       const CompressionOptions& options)
       : CompressionContext::CompressionContext(type, options),
         predictor_(
@@ -52,7 +52,7 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
  public:
   explicit AutoSkipCompressorWrapper(std::unique_ptr<Compressor> compressor,
                                      const CompressionOptions& opts,
-                                     const CompressionType& type);
+                                     const CompressionType type);
 
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
@@ -68,7 +68,7 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   const CompressionOptions& opts_;
-  const CompressionType& type_;
+  const CompressionType type_;
 };
 
 class AutoSkipCompressorManager : public CompressionManagerWrapper {
