@@ -7,6 +7,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/options_util.h"
 #include "table/unique_id_impl.h"
+#include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1216,6 +1217,32 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
       ASSERT_EQ(result, "value" + std::to_string(i));
     } else {
       ASSERT_EQ(result, "value_new" + std::to_string(i));
+    }
+  }
+  auto my_cs = GetCompactionService();
+  ASSERT_GE(my_cs->GetCompactionNum(), 1);
+}
+
+TEST_F(CompactionServiceTest, MergeOperator) {
+  Options options = CurrentOptions();
+  options.merge_operator.reset(new StringAppendOperator(','));
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  for (int i = 0; i < 200; i++) {
+    ASSERT_OK(db_->Merge(WriteOptions(), Key(i),
+                         "merge_op_append_" + std::to_string(i)));
+  }
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  // verify result
+  for (int i = 0; i < 200; i++) {
+    auto result = Get(Key(i));
+    if (i % 2) {
+      ASSERT_EQ(result, "value" + std::to_string(i) + ",merge_op_append_" +
+                            std::to_string(i));
+    } else {
+      ASSERT_EQ(result, "value_new" + std::to_string(i) + ",merge_op_append_" +
+                            std::to_string(i));
     }
   }
   auto my_cs = GetCompactionService();

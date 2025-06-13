@@ -398,6 +398,7 @@ DECLARE_bool(use_adaptive_mutex_lru);
 DECLARE_uint32(compress_format_version);
 DECLARE_uint64(manifest_preallocation_size);
 DECLARE_bool(enable_checksum_handoff);
+DECLARE_string(compression_manager);
 DECLARE_uint64(max_total_wal_size);
 DECLARE_double(high_pri_pool_ratio);
 DECLARE_double(low_pri_pool_ratio);
@@ -426,6 +427,7 @@ DECLARE_bool(auto_refresh_iterator_with_snapshot);
 DECLARE_uint32(memtable_op_scan_flush_trigger);
 DECLARE_uint32(memtable_avg_op_scan_flush_trigger);
 DECLARE_uint32(ingest_wbwi_one_in);
+DECLARE_bool(universal_reduce_file_locking);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

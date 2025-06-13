@@ -1135,6 +1135,15 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
     // Print out DebugStrings. Can include non-terminating null characters.
     fwrite(cfd->current()->DebugString(hex_).data(), sizeof(char),
            cfd->current()->DebugString(hex_).size(), stdout);
+
+    fprintf(stdout,
+            "By default, manifest file dump prints LSM trees as if %d levels "
+            "were configured, "
+            "which is not necessarily true for the column family (CF) this "
+            "manifest is associated with. "
+            "Please consult other DB files, such as the OPTIONS file, to "
+            "confirm.\n",
+            cfd->ioptions().num_levels);
   }
   fprintf(stdout,
           "next_file_number %" PRIu64 " last_sequence %" PRIu64

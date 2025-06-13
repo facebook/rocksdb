@@ -467,7 +467,9 @@ DEFINE_uint64(blob_file_size,
 DEFINE_string(blob_compression_type, "none",
               "[Integrated BlobDB] The compression algorithm to use for large "
               "values stored in blob files.");
-
+DEFINE_string(compression_manager, "mixed",
+              "Ability to change compression manager specified in "
+              "simple_mixed_manager.h (mixed -> roundRobin)");
 DEFINE_bool(enable_blob_garbage_collection,
             ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                 .enable_blob_garbage_collection,
@@ -1486,4 +1488,11 @@ DEFINE_uint32(
     memtable_avg_op_scan_flush_trigger,
     ROCKSDB_NAMESPACE::ColumnFamilyOptions().memtable_avg_op_scan_flush_trigger,
     "Sets CF option memtable_avg_op_scan_flush_trigger.");
+
+DEFINE_bool(
+    universal_reduce_file_locking,
+    ROCKSDB_NAMESPACE::ColumnFamilyOptions()
+        .compaction_options_universal.reduce_file_locking,
+    "Sets "
+    "ColumnFamilyOptions().compaciton_options_universal.reduce_file_locking.");
 #endif  // GFLAGS

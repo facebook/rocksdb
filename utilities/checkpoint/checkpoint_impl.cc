@@ -340,6 +340,7 @@ Status CheckpointImpl::ExportColumnFamily(
   s = db_->GetEnv()->CreateDir(tmp_export_dir);
 
   if (s.ok()) {
+    // FIXME: should respect atomic_flush and flush all CFs if needed.
     s = db_->Flush(ROCKSDB_NAMESPACE::FlushOptions(), handle);
   }
 

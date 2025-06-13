@@ -350,6 +350,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"allow_trivial_move",
          {offsetof(class CompactionOptionsUniversal, allow_trivial_move),
           OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"reduce_file_locking",
+         {offsetof(class CompactionOptionsUniversal, reduce_file_locking),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -1201,7 +1205,6 @@ void MutableCFOptions::Dump(Logger* log) const {
                  memtable_op_scan_flush_trigger);
   ROCKS_LOG_INFO(log, "         memtable_avg_op_scan_flush_trigger: %" PRIu32,
                  memtable_avg_op_scan_flush_trigger);
-
   // Universal Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_universal.size_ratio : %d",
                  compaction_options_universal.size_ratio);
@@ -1224,6 +1227,8 @@ void MutableCFOptions::Dump(Logger* log) const {
       static_cast<int>(compaction_options_universal.allow_trivial_move));
   ROCKS_LOG_INFO(log, "compaction_options_universal.incremental        : %d",
                  static_cast<int>(compaction_options_universal.incremental));
+  ROCKS_LOG_INFO(log, "compaction_options_universal.reduce_file_locking : %d",
+                 compaction_options_universal.reduce_file_locking);
 
   // FIFO Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_fifo.max_table_files_size : %" PRIu64,

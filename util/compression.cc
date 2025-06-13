@@ -254,7 +254,6 @@ class BuiltinCompressorV2 : public Compressor {
   void ReleaseWorkingArea(WorkingArea* wa) override {
     delete static_cast<CompressionContext*>(wa);
   }
-
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override {
@@ -264,17 +263,6 @@ class BuiltinCompressorV2 : public Compressor {
       ctx = static_cast<CompressionContext*>(wa->get());
     }
     CompressionType type = type_;
-#ifndef NDEBUG
-    if (type != kNoCompression && g_hack_mixed_compression.LoadRelaxed() > 0U) {
-      // To assert that if zstd is in the mix, the compression_name table
-      // property (which comes from `type_`) needs to be set to kZSTD, for
-      // proper handling of context and dictionaries.
-      assert(!ZSTD_Supported() || type == kZSTD);
-      const auto& compressions = GetSupportedCompressions();
-      auto counter = g_hack_mixed_compression.FetchAddRelaxed(1);
-      type = compressions[counter % compressions.size()];
-    }
-#endif  // !NDEBUG
     if (ctx == nullptr) {
       tmp_ctx.emplace(type, opts_);
       ctx = &*tmp_ctx;
@@ -821,7 +809,6 @@ Status BuiltinDecompressorV2OptimizeZstd::MaybeCloneForDict(
       serialized_dict);
   return Status::OK();
 }
-
 class BuiltinCompressionManagerV2 : public CompressionManager {
  public:
   BuiltinCompressionManagerV2() = default;
@@ -954,7 +941,4 @@ GetDefaultBuiltinCompressionManager() {
 // END built-in implementation of customization interface
 // ***********************************************************************
 
-#ifndef NDEBUG
-RelaxedAtomic<uint64_t> g_hack_mixed_compression{0};
-#endif  // !NDEBUG
 }  // namespace ROCKSDB_NAMESPACE
