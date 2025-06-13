@@ -37,12 +37,6 @@ bool CompressionRejectionProbabilityPredictor::Record(
   if (attempted_compression_count_ >= kWindowSize) {
     pred_rejection_percentage_ = static_cast<int>(
         rejected_count_ * 100 / (compressed_count_ + rejected_count_));
-    fprintf(
-        stdout,
-        "[Predictor] attempted_compression_count_=%lu, compressed_count_=%lu "
-        "pred_rejection_precentage=%d predict=%d\n",
-        attempted_compression_count_, compressed_count_,
-        pred_rejection_percentage_, Predict());
     attempted_compression_count_ = 0;
     compressed_count_ = 0;
     rejected_count_ = 0;
@@ -65,18 +59,15 @@ Status AutoSkipCompressorWrapper::CompressBlock(
       "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
       &exploration);
   if (exploration) {
-    fprintf(stdout, "[AutoSkipCompressor] explored\n");
     return CompressBlockAndRecord(uncompressed_data, compressed_output,
                                   out_compression_type, wa);
   } else {
     auto prediction = predictor_->Predict();
     if (prediction <= kProbabilityCutOff) {
-      fprintf(stdout, "[AutoSkipCompressor] tried compression\n");
       // decide to compress
       return CompressBlockAndRecord(uncompressed_data, compressed_output,
                                     out_compression_type, wa);
     } else {
-      fprintf(stdout, "[AutoSkipCompressor] bypassed compression\n");
       // bypassed compression
       *out_compression_type = kNoCompression;
       return Status::OK();
@@ -108,9 +99,6 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
     CompressionType preferred) {
   assert(GetSupportedCompressions().size() > 1);
   assert(preferred != kNoCompression);
-  fprintf(stdout,
-          "[AutoSkipCompressorManager] GetCompressorForSST called new SST "
-          "called\n");
   return std::make_unique<AutoSkipCompressorWrapper>(
       wrapped_->GetCompressorForSST(context, opts, preferred), opts);
 }

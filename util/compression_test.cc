@@ -106,7 +106,7 @@ class MyFlushBlockPolicy : public FlushBlockPolicy {
   uint64_t PopStat(Tickers t) { return statistics_->getAndResetTickerCount(t); }
 
  private:
-  const int window_;
+  int window_;
   int num_keys_;
   const BlockBuilder& data_block_builder_;
   std::shared_ptr<Statistics> statistics_;
@@ -130,7 +130,7 @@ class MyFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
   }
 
  private:
-  const int window_;
+  int window_;
   std::shared_ptr<Statistics> statistics_;
 };
 
@@ -201,52 +201,6 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
     ASSERT_OK(Flush());
   }
 }
-/**
-TEST(CompressionRejectionProbabilityPredictorTest,
-     UsesLastWindowSizeDataForPrediction) {
-  CompressionRejectionProbabilityPredictor predictor_(10);
-  CompressionOptions opts;
-  opts.max_compressed_bytes_per_kb = 1000;
-  std::string uncompressed_data(10000, 'A');
-  Slice block_data(uncompressed_data);
-  std::string compressed_data(500, 'A');
-  // Test ability to cold start
-  predictor_.TEST_SetPrediction(20);
-  auto prediction = predictor_.Predict();
-  EXPECT_EQ(prediction, 20);
-  // set window 10, 5 rejection , 5 compression -> should get predicted
-  // 5 bypass
-  for (auto i = 0; i < 5; i++) {
-    predictor_.Record(block_data, &compressed_data, opts);
-  }
-  // rejection of 0.5 after 5 rejection
-  for (auto i = 0; i < 5; i++) {
-    predictor_.Record(block_data, &uncompressed_data, opts);
-  }
-  prediction = predictor_.Predict();
-  EXPECT_EQ(prediction, 50);
-  // 8 compressed
-  for (auto i = 0; i < 8; i++) {
-    predictor_.Record(block_data, &compressed_data, opts);
-  }
-  // 2 rejection
-  for (auto i = 0; i < 2; i++) {
-    predictor_.Record(block_data, &uncompressed_data, opts);
-  }
-  prediction = predictor_.Predict();
-  EXPECT_EQ(prediction, 20);
-  // 2 compressed
-  for (auto i = 0; i < 2; i++) {
-    predictor_.Record(block_data, &compressed_data, opts);
-  }
-  // 8 rejection
-  for (auto i = 0; i < 8; i++) {
-    predictor_.Record(block_data, &uncompressed_data, opts);
-  }
-  prediction = predictor_.Predict();
-  EXPECT_EQ(prediction, 80);
-}
-**/
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
