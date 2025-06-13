@@ -699,7 +699,10 @@ class MemTable final : public ReadOnlyMemTable {
     if (update_counters.num_range_deletes > 0) {
       num_range_deletes_.fetch_add(update_counters.num_range_deletes,
                                    std::memory_order_relaxed);
-      range_del_table_->BatchPostProcess();
+      // noop for skip-list memtable
+      // Besides correctness test in stress test, memtable flush record count
+      // check will catch this if it were not noop.
+      // range_del_table_->BatchPostProcess();
     }
     UpdateFlushState();
   }
