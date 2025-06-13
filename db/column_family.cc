@@ -37,7 +37,6 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/table.h"
 #include "table/merging_iterator.h"
-#include "util/auto_skip_compressor.h"
 #include "util/autovector.h"
 #include "util/cast_util.h"
 #include "util/compression.h"

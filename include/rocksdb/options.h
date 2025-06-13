@@ -214,6 +214,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   CompressionType compression;
+
   // Compression algorithm that will be used for the bottommost level that
   // contain files. The behavior for num_levels = 1 is not well defined.
   // Right now, with num_levels = 1,  all compaction outputs will use
