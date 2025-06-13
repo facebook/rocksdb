@@ -4711,8 +4711,8 @@ cpp_unittest_wrapper(name="compressed_secondary_cache_test",
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="compressor_test",
-            srcs=["util/compressor_test.cc"],
+cpp_unittest_wrapper(name="compression_test",
+            srcs=["util/compression_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
