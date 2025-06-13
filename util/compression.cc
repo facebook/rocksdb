@@ -905,6 +905,20 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
       return GetGeneralDecompressor();
     }
   }
+  std::shared_ptr<Decompressor> GetDecompressorForCompressor(
+      const Compressor& compressor) override {
+#ifdef ROCKSDB_USE_RTTI
+    // To be extra safe, only optimize here if we are certain we are not
+    // looking at a wrapped compressor, so that we are sure it only uses that
+    // one compression type.
+    if (dynamic_cast<const BuiltinCompressorV2*>(&compressor)) {
+      CompressionType type = compressor.GetPreferredCompressionType();
+      return GetDecompressorForTypes(&type, &type + 1);
+    }
+#endif
+    // Fallback
+    return CompressionManager::GetDecompressorForCompressor(compressor);
+  }
 
   bool SupportsCompressionType(CompressionType type) const override {
     return CompressionTypeSupported(type);

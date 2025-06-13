@@ -575,10 +575,13 @@ Status GetDecompressor(const std::string& compression_name,
     *out_decompressor = mgr_to_use->GetDecompressor();
     return Status::OK();
   }
-  constexpr char kFieldSep = ';';
-  size_t separator_pos = compression_name.find_first_of(kFieldSep);
-  if (FormatVersionUsesCompressionManagerName(table_format_version) &&
-      separator_pos != std::string::npos) {
+  if (FormatVersionUsesCompressionManagerName(table_format_version)) {
+    constexpr char kFieldSep = ';';
+    size_t separator_pos = compression_name.find_first_of(kFieldSep);
+    if (separator_pos == std::string::npos) {
+      return Status::Corruption(
+          "Missing separator in compression_name property");
+    }
     // Built with explicit CompressionManager and schema support for
     // identifying its compatibility name, which is the first field here.
     Slice compatibility_name(compression_name.data(), separator_pos);

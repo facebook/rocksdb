@@ -826,8 +826,7 @@ struct BlockBasedTableBuilder::Rep {
               data_block_compressor->ObtainWorkingArea();
         }
       }
-      basic_decompressor =
-          mgr->GetDecompressorOptimizeFor(tbo.compression_type);
+      basic_decompressor = mgr->GetDecompressorForCompressor(*basic_compressor);
       create_context.decompressor = basic_decompressor.get();
 
       if (table_options.verify_compression) {

@@ -2107,11 +2107,11 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
 namespace {
 template <CompressionType kCompression>
 struct CompressorCustomAlg : public CompressorWrapper {
-  CompressorCustomAlg(const CompressionOptions& opts)
+  explicit CompressorCustomAlg(const CompressionOptions& opts)
       : CompressorWrapper(GetDefaultBuiltinCompressionManager()->GetCompressor(
             opts, kSnappyCompression)) {}
 
-  CompressorCustomAlg(std::unique_ptr<Compressor> compressor)
+  explicit CompressorCustomAlg(std::unique_ptr<Compressor> compressor)
       : CompressorWrapper(std::move(compressor)) {}
 
   const char* Name() const override { return "CompressorCustomAlg"; }
@@ -2146,7 +2146,7 @@ struct DecompressorCustomAlg : public DecompressorWrapper {
       : DecompressorWrapper(
             GetDefaultBuiltinCompressionManager()->GetDecompressor()) {}
 
-  DecompressorCustomAlg(std::shared_ptr<Decompressor> decompressor)
+  explicit DecompressorCustomAlg(std::shared_ptr<Decompressor> decompressor)
       : DecompressorWrapper(std::move(decompressor)) {}
 
   const char* Name() const override { return "DecompressorCustomAlg"; }
@@ -2214,7 +2214,7 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
 
   class MyManager : public CompressionManager {
    public:
-    MyManager(const char* compat_name) : compat_name_(compat_name) {}
+    explicit MyManager(const char* compat_name) : compat_name_(compat_name) {}
     const char* Name() const override { return name_.c_str(); }
     const char* CompatibilityName() const override { return compat_name_; }
 

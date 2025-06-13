@@ -425,6 +425,14 @@ class CompressionManager
     // Safe default implementation
     return GetDecompressor();
   }
+
+  // Get a decompressor that is allowed to have support only for the
+  // CompressionTypes used by the given Compressor.
+  virtual std::shared_ptr<Decompressor> GetDecompressorForCompressor(
+      const Compressor& compressor) {
+    // Reasonable default implementation
+    return GetDecompressorOptimizeFor(compressor.GetPreferredCompressionType());
+  }
 };
 
 // ************************* Utility wrappers etc. *********************** //
@@ -558,6 +566,11 @@ class CompressionManagerWrapper : public CompressionManager {
       const CompressionType* types_begin,
       const CompressionType* types_end) override {
     return wrapped_->GetDecompressorForTypes(types_begin, types_end);
+  }
+
+  std::shared_ptr<Decompressor> GetDecompressorForCompressor(
+      const Compressor& compressor) override {
+    return wrapped_->GetDecompressorForCompressor(compressor);
   }
 
  protected:
