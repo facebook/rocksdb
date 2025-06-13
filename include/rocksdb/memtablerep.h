@@ -162,6 +162,12 @@ class MemTableRep {
     return true;
   }
 
+  // Only used after concurrent memtable inserts.
+  // This function will be called by each writer after all writes are done
+  // through InsertConcurrently().
+  // This is used by VectorRep to do batched writes for concurrent inserts.
+  virtual void BatchPostProcess() {}
+
   // Returns true iff an entry that compares equal to key is in the collection.
   virtual bool Contains(const char* key) const = 0;
 
@@ -397,6 +403,11 @@ class SkipListFactory : public MemTableRepFactory {
 // the vector is sorted. This is useful for workloads where iteration is very
 // rare and writes are generally not issued after reads begin.
 //
+// Concurrent inserts are supported by buffering writes at thread local vectors
+// for each write batch. Reusing write threads, doing batched writes and
+// enable unordered_write (see option comment for effects on read consistency)
+// are recommended when enabling concurrent inserts.
+//
 // Parameters:
 //   count: Passed to the constructor of the underlying std::vector of each
 //     VectorRep. On initialization, the underlying array will be at least count
@@ -418,6 +429,8 @@ class VectorRepFactory : public MemTableRepFactory {
   MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&, Allocator*,
                                  const SliceTransform*,
                                  Logger* logger) override;
+
+  bool IsInsertConcurrentlySupported() const override { return true; }
 };
 
 // This class contains a fixed array of buckets, each

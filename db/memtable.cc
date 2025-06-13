@@ -196,10 +196,11 @@ bool MemTable::ShouldFlushNow() {
   // allocate one more block.
   const double kAllowOverAllocationRatio = 0.6;
 
+  // range deletion use skip list which allocates all memeory through `arena_`
+  assert(range_del_table_->ApproximateMemoryUsage() == 0);
   // If arena still have room for new block allocation, we can safely say it
   // shouldn't flush.
   auto allocated_memory = table_->ApproximateMemoryUsage() +
-                          range_del_table_->ApproximateMemoryUsage() +
                           arena_.MemoryAllocatedBytes();
 
   approximate_memory_usage_.store(allocated_memory, std::memory_order_relaxed);

@@ -688,6 +688,7 @@ class MemTable final : public ReadOnlyMemTable {
   // Update counters and flush status after inserting a whole write batch
   // Used in concurrent memtable inserts.
   void BatchPostProcess(const MemTablePostProcessInfo& update_counters) {
+    table_->BatchPostProcess();
     num_entries_.fetch_add(update_counters.num_entries,
                            std::memory_order_relaxed);
     data_size_.fetch_add(update_counters.data_size, std::memory_order_relaxed);
@@ -698,6 +699,7 @@ class MemTable final : public ReadOnlyMemTable {
     if (update_counters.num_range_deletes > 0) {
       num_range_deletes_.fetch_add(update_counters.num_range_deletes,
                                    std::memory_order_relaxed);
+      range_del_table_->BatchPostProcess();
     }
     UpdateFlushState();
   }
