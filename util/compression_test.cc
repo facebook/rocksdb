@@ -140,12 +140,13 @@ class DBAutoSkip : public DBTestBase {
         rnd_(231) {
     options.compression_manager =
         CreateAutoSkipCompressionManager(GetDefaultBuiltinCompressionManager());
-    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    options.statistics = statistics;
     options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
     BlockBasedTableOptions bbto;
     bbto.enable_index_compression = false;
     bbto.flush_block_policy_factory.reset(
-        new AutoSkipTestFlushBlockPolicyFactory(10, options.statistics));
+        new AutoSkipTestFlushBlockPolicyFactory(10, statistics));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
     DestroyAndReopen(options);
   }
