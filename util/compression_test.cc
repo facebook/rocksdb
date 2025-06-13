@@ -171,11 +171,8 @@ class DBAutoSkip : public DBTestBase {
   }
 };
 
-// test case just to make sure auto compression manager is working
 TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
   if (GetSupportedCompressions().size() > 1) {
-    // AutoSkipCompressionManager starts with rejection ratio 0 i.e.
-    // compression enabled enough data to change the decision
     const int kValueSize = 20000;
     // Set the rejection ratio to 60%
     CompressionUnfriendlyPut(6, kValueSize);
