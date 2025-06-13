@@ -705,6 +705,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       12345);
   ASSERT_EQ(new_options->compression_manager,
             GetBuiltinCompressionManager(/*compression_format_version*/ 2));
+
   ColumnFamilyOptions rnd_filled_options = *new_options;
 
   options->~ColumnFamilyOptions();
