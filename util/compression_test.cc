@@ -73,9 +73,10 @@ class MyFlushBlockPolicy : public FlushBlockPolicy {
       auto total = compressed_count + rejected_count + bypassed_count;
       int rejection_percentage, bypassed_percentage, compressed_percentage;
       if (total != 0) {
-        rejection_percentage = rejected_count * 100 / total;
-        bypassed_percentage = bypassed_count * 100 / total;
-        compressed_percentage = compressed_count * 100 / total;
+        rejection_percentage = static_cast<int>(rejected_count * 100 / total);
+        bypassed_percentage = static_cast<int>(bypassed_count * 100 / total);
+        compressed_percentage =
+            static_cast<int>(compressed_count * 100 / total);
       }
       // use mulitple of 10 to get correct assertion
       switch (multiple_of_10) {
