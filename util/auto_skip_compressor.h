@@ -38,14 +38,28 @@ class CompressionRejectionProbabilityPredictor {
   const size_t kWindowSize;
   size_t attempted_compression_count_ = 0;
 };
+
+class AutoSkipCompressionContext : public CompressionContext {
+ public:
+  explicit AutoSkipCompressionContext(CompressionType type,
+                                      const CompressionOptions& options)
+      : CompressionContext::CompressionContext(type, options) {}
+  ~AutoSkipCompressionContext() {}
+  AutoSkipCompressionContext(const AutoSkipCompressionContext&) = delete;
+  AutoSkipCompressionContext& operator=(const AutoSkipCompressionContext&) =
+      delete;
+};
+
 class AutoSkipCompressorWrapper : public CompressorWrapper {
  public:
   explicit AutoSkipCompressorWrapper(std::unique_ptr<Compressor> compressor,
-                                     const CompressionOptions& opts);
+                                     const CompressionOptions& opts,
+                                     const CompressionType& type);
 
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
+  ManagedWorkingArea ObtainWorkingArea() override;
 
  private:
   Status CompressBlockAndRecord(Slice uncompressed_data,
@@ -55,6 +69,7 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   const CompressionOptions& opts_;
+  const CompressionType& type_;
   mutable std::mutex mutex_;
   std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor_;
 };
