@@ -1017,6 +1017,7 @@ def finalize_and_sanitize(src_params):
             dest_params["bottommost_compression_type"] = random.choice(
                 ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
             )
+        dest_params["block_align"] = 0
     else:
         # Enabling block_align with compression is not supported
         if dest_params.get("block_align") == 1:
