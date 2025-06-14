@@ -480,4 +480,11 @@ std::shared_ptr<TableFactory> NewExternalTableFactory(
   return res;
 }
 
+std::unique_ptr<TableFactory> NewExternalTableFactoryAsUniquePtr(
+    std::shared_ptr<ExternalTableFactory> inner_factory) {
+  std::unique_ptr<TableFactory> res;
+  res = std::make_unique<ExternalTableFactoryAdapter>(std::move(inner_factory));
+  return res;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
