@@ -3440,7 +3440,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             "used\n");
         exit(1);
       }
-      auto mgr = std::make_shared<RandomMixedCompressor>(
+      auto mgr = std::make_shared<RandomMixedCompressionManager>(
           GetDefaultBuiltinCompressionManager());
       options_.compression_manager = mgr;
       options_.compression = kZSTD;

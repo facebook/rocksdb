@@ -4660,7 +4660,7 @@ class Benchmark {
             GetDefaultBuiltinCompressionManager());
       } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                              "randommixed")) {
-        mgr = std::make_shared<SimpleMixedCompressionManager>(
+        mgr = std::make_shared<RandomMixedCompressionManager>(
             GetDefaultBuiltinCompressionManager());
       } else {
         // not defined -> exit with error
