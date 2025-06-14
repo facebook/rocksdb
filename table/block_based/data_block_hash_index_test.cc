@@ -582,7 +582,8 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   const bool kSkipFilters = true;
   const bool kImmortal = true;
   ASSERT_OK(moptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
+      TableReaderOptions(ioptions, moptions.prefix_extractor,
+                         nullptr /* compression_manager */, soptions,
                          internal_comparator,
                          0 /* block_protection_bytes_per_key */, !kSkipFilters,
                          !kImmortal, level_),

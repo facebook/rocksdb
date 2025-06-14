@@ -93,9 +93,10 @@ Status VerifySstFileChecksumInternal(const Options& options,
           nullptr /* file_read_hist */, ioptions.rate_limiter.get()));
   const bool kImmortal = true;
   auto reader_options = TableReaderOptions(
-      ioptions, options.prefix_extractor, env_options, internal_comparator,
-      options.block_protection_bytes_per_key, false /* skip_filters */,
-      !kImmortal, false /* force_direct_prefetch */, -1 /* level */);
+      ioptions, options.prefix_extractor, options.compression_manager.get(),
+      env_options, internal_comparator, options.block_protection_bytes_per_key,
+      false /* skip_filters */, !kImmortal, false /* force_direct_prefetch */,
+      -1 /* level */);
   reader_options.largest_seqno = largest_seqno;
   s = options.table_factory->NewTableReader(
       read_options, reader_options, std::move(file_reader), file_size,

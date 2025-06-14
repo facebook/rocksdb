@@ -24,6 +24,7 @@
 #include "rocksdb/table_properties.h"
 #include "table/unique_id_impl.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -35,6 +36,7 @@ struct TableReaderOptions {
   TableReaderOptions(
       const ImmutableOptions& _ioptions,
       const std::shared_ptr<const SliceTransform>& _prefix_extractor,
+      UnownedPtr<CompressionManager> _compression_manager,
       const EnvOptions& _env_options,
       const InternalKeyComparator& _internal_comparator,
       uint8_t _block_protection_bytes_per_key, bool _skip_filters = false,
@@ -46,6 +48,7 @@ struct TableReaderOptions {
       uint64_t _tail_size = 0, bool _user_defined_timestamps_persisted = true)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
+        compression_manager(_compression_manager),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
         skip_filters(_skip_filters),
@@ -64,6 +67,9 @@ struct TableReaderOptions {
 
   const ImmutableOptions& ioptions;
   const std::shared_ptr<const SliceTransform>& prefix_extractor;
+  // NOTE: the compression manager is not saved, just potentially a decompressor
+  // from it, so we don't need a shared_ptr copy
+  UnownedPtr<CompressionManager> compression_manager;
   const EnvOptions& env_options;
   const InternalKeyComparator& internal_comparator;
   // This is only used for BlockBasedTable (reader)

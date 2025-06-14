@@ -110,11 +110,19 @@ void GetInternalTblPropCollFactory(
   }
 }
 
+bool CompressionSupportedWithManager(CompressionType type,
+                                     UnownedPtr<CompressionManager> mgr) {
+  return mgr ? mgr->SupportsCompressionType(type)
+             : CompressionTypeSupported(type);
+}
+
 Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
   if (!cf_options.compression_per_level.empty()) {
     for (size_t level = 0; level < cf_options.compression_per_level.size();
          ++level) {
-      if (!CompressionTypeSupported(cf_options.compression_per_level[level])) {
+      if (!CompressionSupportedWithManager(
+              cf_options.compression_per_level[level],
+              cf_options.compression_manager.get())) {
         return Status::InvalidArgument(
             "Compression type " +
             CompressionTypeToString(cf_options.compression_per_level[level]) +
@@ -122,7 +130,8 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
       }
     }
   } else {
-    if (!CompressionTypeSupported(cf_options.compression)) {
+    if (!CompressionSupportedWithManager(
+            cf_options.compression, cf_options.compression_manager.get())) {
       return Status::InvalidArgument(
           "Compression type " +
           CompressionTypeToString(cf_options.compression) +

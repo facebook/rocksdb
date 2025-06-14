@@ -324,7 +324,8 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   status = sv->mutable_cf_options.table_factory->NewTableReader(
       TableReaderOptions(
           cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
-          env_options_, cfd_->internal_comparator(),
+          sv->mutable_cf_options.compression_manager.get(), env_options_,
+          cfd_->internal_comparator(),
           sv->mutable_cf_options.block_protection_bytes_per_key,
           /*skip_filters*/ false, /*immortal*/ false,
           /*force_direct_prefetch*/ false, /*level*/ -1,

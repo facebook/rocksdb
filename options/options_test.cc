@@ -2031,7 +2031,7 @@ TEST_F(OptionsTest, GetStringFromCompressionType) {
   ASSERT_EQ(res, "kZlibCompression");
 
   ASSERT_NOK(
-      GetStringFromCompressionType(&res, static_cast<CompressionType>(-10)));
+      GetStringFromCompressionType(&res, static_cast<CompressionType>(0x7F)));
 }
 
 TEST_F(OptionsTest, OnlyMutableDBOptions) {
