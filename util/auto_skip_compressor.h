@@ -13,8 +13,8 @@
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
-// Predicts Rejection Probability using previous using past data of certain
-// window size
+// Predict rejection probability using a moving window approach
+// This class is not thread safe
 class CompressionRejectionProbabilityPredictor {
  public:
   CompressionRejectionProbabilityPredictor(int window_size)

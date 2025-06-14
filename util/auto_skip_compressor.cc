@@ -67,7 +67,7 @@ Status AutoSkipCompressorWrapper::CompressBlock(
       return CompressBlockAndRecord(uncompressed_data, compressed_output,
                                     out_compression_type, wa);
     } else {
-      // bypassed compression
+      // decide to bypass compression
       *out_compression_type = kNoCompression;
       return Status::OK();
     }
