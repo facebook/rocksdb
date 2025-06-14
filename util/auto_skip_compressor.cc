@@ -3,19 +3,21 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-// Creates mixed compressor wrapper which uses multiple compression algorithm
-// within same SST file.
 
 #include "util/auto_skip_compressor.h"
 
-#include <options/options_helper.h>
-
+#include "options/options_helper.h"
 #include "rocksdb/advanced_compression.h"
 #include "util/random.h"
 namespace ROCKSDB_NAMESPACE {
 
 int CompressionRejectionProbabilityPredictor::Predict() const {
-  return pred_rejection_percentage_;
+  return pred_rejection_prob_percentage_;
+}
+
+size_t CompressionRejectionProbabilityPredictor::attempted_compression_count()
+    const {
+  return rejected_count_ + compressed_count_;
 }
 
 bool CompressionRejectionProbabilityPredictor::Record(
@@ -29,13 +31,12 @@ bool CompressionRejectionProbabilityPredictor::Record(
   } else {
     compressed_count_++;
   }
-  attempted_compression_count_++;
-  if (attempted_compression_count_ >= kWindowSize) {
-    pred_rejection_percentage_ = static_cast<int>(
+  if (attempted_compression_count() >= window_size_) {
+    pred_rejection_prob_percentage_ = static_cast<int>(
         rejected_count_ * 100 / (compressed_count_ + rejected_count_));
-    attempted_compression_count_ = 0;
     compressed_count_ = 0;
     rejected_count_ = 0;
+    assert(attempted_compression_count() == 0);
   }
   return true;
 }
@@ -97,7 +98,7 @@ Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
 
 const char* AutoSkipCompressorManager::Name() const {
   // should have returned "AutoSkipCompressorManager" but we currently have an
-  // error so return return "AutoSkipCompressorManager";
+  // error so for now returning name of the wrapped container
   return wrapped_->Name();
 }
 

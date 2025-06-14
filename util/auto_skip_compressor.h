@@ -13,25 +13,25 @@
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
-// Predicts Rejection Ratio for a window size algorithm
+// Predicts Rejection Probability using previous using past data of certain
+// window size
 class CompressionRejectionProbabilityPredictor {
  public:
   CompressionRejectionProbabilityPredictor(int window_size)
-      : pred_rejection_percentage_(0),
+      : pred_rejection_prob_percentage_(0),
         rejected_count_(0),
         compressed_count_(0),
-        kWindowSize(window_size),
-        attempted_compression_count_(0) {}
+        window_size_(window_size) {}
   int Predict() const;
   bool Record(Slice uncompressed_block_data, std::string* compressed_output,
               const CompressionOptions& opts);
+  size_t attempted_compression_count() const;
 
  protected:
-  int pred_rejection_percentage_;
+  int pred_rejection_prob_percentage_;
   size_t rejected_count_;
   size_t compressed_count_;
-  const size_t kWindowSize;
-  size_t attempted_compression_count_;
+  size_t window_size_;
 };
 
 class AutoSkipCompressionContext : public CompressionContext {

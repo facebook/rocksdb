@@ -49,6 +49,8 @@ class AutoSkipTestFlushBlockPolicy : public FlushBlockPolicy {
       };
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
+      // We force exploration to set the predicted rejection ratio and then test
+      // that the prediction is exploited
       if (multiple_of_10 % 2 == 0) {
         SyncPoint::GetInstance()->SetCallBack(
             "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
@@ -74,21 +76,29 @@ class AutoSkipTestFlushBlockPolicy : public FlushBlockPolicy {
       // use mulitple of 10 to get correct assertion
       switch (multiple_of_10) {
         case 1:
+          // This is exploration stage in which we set the rejection ratio to
+          // 0.6
           EXPECT_EQ(rejection_percentage, 60);
           EXPECT_EQ(bypassed_percentage, 0);
           EXPECT_EQ(compressed_percentage, 40);
           break;
         case 2:
+          // With the rejection ratio set to 0.6 all the blocks should be
+          // bypassed in next window
           EXPECT_EQ(rejection_percentage, 0);
           EXPECT_EQ(bypassed_percentage, 100);
           EXPECT_EQ(compressed_percentage, 0);
           break;
         case 3:
+          // This is exploration stage in which we set the rejection ratio to
+          // 0.4
           EXPECT_EQ(rejection_percentage, 40);
           EXPECT_EQ(bypassed_percentage, 0);
           EXPECT_EQ(compressed_percentage, 60);
           break;
         case 4:
+          // With the rejection ratio set to 0.4 all the blocks should be
+          // attempted to be compressed
           EXPECT_EQ(rejection_percentage, 60);
           EXPECT_EQ(bypassed_percentage, 0);
           EXPECT_EQ(compressed_percentage, 40);
@@ -133,11 +143,12 @@ class DBAutoSkip : public DBTestBase {
  public:
   Options options;
   Random rnd_;
-  int key_cursor_ = 0;
+  int key_index_;
   DBAutoSkip()
       : DBTestBase("db_auto_skip", /*env_do_fsync=*/true),
         options(CurrentOptions()),
-        rnd_(231) {
+        rnd_(231),
+        key_index_(0) {
     options.compression_manager =
         CreateAutoSkipCompressionManager(GetDefaultBuiltinCompressionManager());
     auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -154,18 +165,18 @@ class DBAutoSkip : public DBTestBase {
   bool CompressionFriendlyPut(const int no_of_kvs, const int size_of_value) {
     auto value = std::string(size_of_value, 'A');
     for (int i = 0; i < no_of_kvs; ++i) {
-      auto status = Put(Key(key_cursor_), value);
+      auto status = Put(Key(key_index_), value);
       EXPECT_EQ(status.ok(), true);
-      key_cursor_++;
+      key_index_++;
     }
     return true;
   }
   bool CompressionUnfriendlyPut(const int no_of_kvs, const int size_of_value) {
     auto value = rnd_.RandomBinaryString(size_of_value);
     for (int i = 0; i < no_of_kvs; ++i) {
-      auto status = Put(Key(key_cursor_), value);
+      auto status = Put(Key(key_index_), value);
       EXPECT_EQ(status.ok(), true);
-      key_cursor_++;
+      key_index_++;
     }
     return true;
   }
@@ -174,16 +185,20 @@ class DBAutoSkip : public DBTestBase {
 TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
   if (GetSupportedCompressions().size() > 1) {
     const int kValueSize = 20000;
-    // Set the rejection ratio to 60%
+    // This will set the rejection ratio to 60%
     CompressionUnfriendlyPut(6, kValueSize);
     CompressionFriendlyPut(4, kValueSize);
-    // All the keys should be bypassed
+    // This will verify all the data block compressions are bypassed based on
+    // previous prediction
     CompressionUnfriendlyPut(6, kValueSize);
     CompressionFriendlyPut(4, kValueSize);
-    // Set rejection ratio to 40%
+    // This will set the rejection ratio to 40%
     CompressionUnfriendlyPut(4, kValueSize);
     CompressionFriendlyPut(6, kValueSize);
-    // Compression attempted 6 rejected 4 accepted
+    // This will verify all the data block compression are attempted based on
+    // previous prediction
+    // Compression will be rejected for 6 compression unfriendly blocks
+    // Compression will be accepted for 4 compression friendly blocks
     CompressionUnfriendlyPut(6, kValueSize);
     CompressionFriendlyPut(4, kValueSize);
     // Extra block write to ensure that the all above cases are checked

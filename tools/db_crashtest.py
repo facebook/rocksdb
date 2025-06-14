@@ -1000,7 +1000,7 @@ def finalize_and_sanitize(src_params):
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
     # Disabling block align if mixed manager is neing used
-    if dest_params.get("compression_manager") != "none":
+    if dest_params.get("compression_manager") == "mixed":
         if dest_params.get("block_align") == 1:
             dest_params["block_align"] = 0
         dest_params["compression_type"] = "zstd"
