@@ -2903,14 +2903,13 @@ class Benchmark {
     // mixed compression  manager expect compression type to be expliciltiy
     // configured through Options to be zstd
     auto compression = std::string("zstd");
-    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
-      fprintf(stdout, "Compression manager: mixed\n");
-      fprintf(stdout, "Compression: zstd\n");
-    } else {
-      fprintf(stdout, "Compression manager: none\n");
+    if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
       compression = CompressionTypeToString(FLAGS_compression_type_e);
-      fprintf(stdout, "Compression: %s\n", compression.c_str());
+    } else {
+      fprintf(stdout, "Compression manager: %s\n",
+              FLAGS_compression_manager.c_str());
     }
+    fprintf(stdout, "Compression: %s\n", compression.c_str());
     fprintf(stdout, "Compression sampling rate: %" PRId64 "\n",
             FLAGS_sample_for_compression);
     if (options.memtable_factory != nullptr) {
@@ -4634,19 +4633,37 @@ class Benchmark {
         FLAGS_level0_file_num_compaction_trigger;
     options.level0_slowdown_writes_trigger =
         FLAGS_level0_slowdown_writes_trigger;
-    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
-      // Need to list zstd in the compression_name table property if it's
-      // potentially used by being in the mix (i.e., potentially at least one
-      // data block in the table is compressed by zstd). This ensures proper
-      // context and dictionary handling, and prevents crashes in older RocksDB
-      // versions.
-      options.compression = kZSTD;
-      options.bottommost_compression = kZSTD;
-      auto mgr = std::make_shared<RoundRobinManager>(
-          GetDefaultBuiltinCompressionManager());
-      options.compression_manager = mgr;
-    } else {
+    if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
       options.compression = FLAGS_compression_type_e;
+    } else {
+      std::shared_ptr<CompressionManagerWrapper> mgr;
+      if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+        // Need to list zstd in the compression_name table property if it's
+        // potentially used by being in the mix (i.e., potentially at least one
+        // data block in the table is compressed by zstd). This ensures proper
+        // context and dictionary handling, and prevents crashes in older
+        // RocksDB versions.
+        options.compression = kZSTD;
+        options.bottommost_compression = kZSTD;
+
+        mgr = std::make_shared<RoundRobinManager>(
+            GetDefaultBuiltinCompressionManager());
+      } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
+        options.compression = FLAGS_compression_type_e;
+        if (FLAGS_compression_type_e == kNoCompression) {
+          fprintf(stderr,
+                  "Compression type must not be no Compression when using "
+                  "autoskip");
+          ErrorExit();
+        }
+        mgr = CreateAutoSkipCompressionManager(
+            GetDefaultBuiltinCompressionManager());
+      } else {
+        // not defined -> exit with error
+        fprintf(stderr, "Requested compression manager not supported");
+        ErrorExit();
+      }
+      options.compression_manager = mgr;
     }
 
     if (FLAGS_simulate_hybrid_fs_file != "") {
