@@ -55,8 +55,7 @@ std::unique_ptr<Compressor> MultiCompressorWrapper::MaybeCloneSpecialized(
                                                     std::move(dict_samples));
 }
 
-// SimpleMixedCompressor implementation
-Status SimpleMixedCompressor::CompressBlock(
+Status RandomMixedCompressor::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
   auto selected =
@@ -66,18 +65,17 @@ Status SimpleMixedCompressor::CompressBlock(
                                    out_compression_type, wa);
 }
 
-// SimpleMixedCompressionManager implementation
-const char* SimpleMixedCompressionManager::Name() const {
+const char* RandomMixedCompressionManager::Name() const {
   return wrapped_->Name();
-  // return "SimpleMixedCompressionManager";
+  // return "RandomMixedCompressionManager";
 }
 
-std::unique_ptr<Compressor> SimpleMixedCompressionManager::GetCompressorForSST(
+std::unique_ptr<Compressor> RandomMixedCompressionManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,
     CompressionType preferred) {
   assert(preferred == kZSTD);
   (void)context;
-  return std::make_unique<SimpleMixedCompressor>(opts, preferred);
+  return std::make_unique<RandomMixedCompressor>(opts, preferred);
 }
 
 // RoundRobinCompressor implementation
