@@ -47,7 +47,10 @@ AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
       opts_(opts),
       type_(type),
       predictor_(
-          std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
+          std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {
+  (void)type_;
+  (void)opts_;
+}
 
 Status AutoSkipCompressorWrapper::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
