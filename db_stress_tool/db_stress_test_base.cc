@@ -3440,13 +3440,13 @@ void StressTest::Open(SharedState* shared, bool reopen) {
             "used\n");
         exit(1);
       }
-      auto mgr = std::make_shared<SimpleMixedCompressionManager>(
+      auto mgr = std::make_shared<RandomMixedCompressor>(
           GetDefaultBuiltinCompressionManager());
       options_.compression_manager = mgr;
       options_.compression = kZSTD;
       options_.bottommost_compression = kZSTD;
 
-    } else if (strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
+    } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       options_.compression_manager = CreateAutoSkipCompressionManager(
           GetDefaultBuiltinCompressionManager());
     }

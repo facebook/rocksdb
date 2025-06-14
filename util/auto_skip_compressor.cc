@@ -3,19 +3,21 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-// Creates mixed compressor wrapper which uses multiple compression algorithm
-// within same SST file.
 
 #include "util/auto_skip_compressor.h"
 
-#include <options/options_helper.h>
-
+#include "options/options_helper.h"
 #include "rocksdb/advanced_compression.h"
 #include "util/random.h"
 namespace ROCKSDB_NAMESPACE {
 
 int CompressionRejectionProbabilityPredictor::Predict() const {
-  return pred_rejection_percentage_;
+  return pred_rejection_prob_percentage_;
+}
+
+size_t CompressionRejectionProbabilityPredictor::attempted_compression_count()
+    const {
+  return rejected_count_ + compressed_count_;
 }
 
 bool CompressionRejectionProbabilityPredictor::Record(
@@ -29,13 +31,12 @@ bool CompressionRejectionProbabilityPredictor::Record(
   } else {
     compressed_count_++;
   }
-  attempted_compression_count_++;
-  if (attempted_compression_count_ >= kWindowSize) {
-    pred_rejection_percentage_ = static_cast<int>(
+  if (attempted_compression_count() >= window_size_) {
+    pred_rejection_prob_percentage_ = static_cast<int>(
         rejected_count_ * 100 / (compressed_count_ + rejected_count_));
-    attempted_compression_count_ = 0;
     compressed_count_ = 0;
     rejected_count_ = 0;
+    assert(attempted_compression_count() == 0);
   }
   return true;
 }
@@ -44,7 +45,12 @@ AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
     const CompressionType type)
     : CompressorWrapper::CompressorWrapper(std::move(compressor)),
       opts_(opts),
-      type_(type) {}
+      type_(type),
+      predictor_(
+          std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {
+  (void)type_;
+  (void)opts_;
+}
 
 Status AutoSkipCompressorWrapper::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
@@ -58,29 +64,18 @@ Status AutoSkipCompressorWrapper::CompressBlock(
     return CompressBlockAndRecord(uncompressed_data, compressed_output,
                                   out_compression_type, wa);
   } else {
-    auto predictor_ptr =
-        static_cast<AutoSkipCompressionContext*>(wa->get())->predictor_;
-    auto prediction = predictor_ptr->Predict();
+    auto prediction = predictor_->Predict();
     if (prediction <= kProbabilityCutOff) {
       // decide to compress
       return CompressBlockAndRecord(uncompressed_data, compressed_output,
                                     out_compression_type, wa);
     } else {
-      // bypassed compression
+      // decide to bypass compression
       *out_compression_type = kNoCompression;
       return Status::OK();
     }
   }
   return Status::OK();
-}
-
-Compressor::ManagedWorkingArea AutoSkipCompressorWrapper::ObtainWorkingArea() {
-  return ManagedWorkingArea(
-      static_cast<WorkingArea*>(new AutoSkipCompressionContext(type_, opts_)),
-      this);
-}
-void AutoSkipCompressorWrapper::ReleaseWorkingArea(WorkingArea* wa) {
-  delete static_cast<AutoSkipCompressionContext*>(wa);
 }
 
 Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
@@ -89,15 +84,13 @@ Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
   Status status = wrapped_->CompressBlock(uncompressed_data, compressed_output,
                                           out_compression_type, wa);
   // determine if it was rejected or compressed
-  auto predictor_ptr =
-      static_cast<AutoSkipCompressionContext*>(wa->get())->predictor_;
-  predictor_ptr->Record(uncompressed_data, compressed_output, opts_);
+  predictor_->Record(uncompressed_data, compressed_output, opts_);
   return status;
 }
 
 const char* AutoSkipCompressorManager::Name() const {
   // should have returned "AutoSkipCompressorManager" but we currently have an
-  // error so return return "AutoSkipCompressorManager";
+  // error so for now returning name of the wrapped container
   return wrapped_->Name();
 }
 

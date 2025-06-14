@@ -1002,11 +1002,23 @@ def finalize_and_sanitize(src_params):
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
     # Disabling block align if mixed manager is neing used
-    if dest_params.get("compression_manager") != "none":
+    if dest_params.get("compression_manager") == "mixed":
         if dest_params.get("block_align") == 1:
             dest_params["block_align"] = 0
         dest_params["compression_type"] = "zstd"
         dest_params["bottommost_compression_type"] = "zstd"
+    elif dest_params.get("compression_manager") == "autoskip":
+        # disabling compression parallel threads if mixed manager is being used as the predictor is not thread safe
+        dest_params["compression_parallel_threads"] = 1
+        # esuring the compression is being used
+        if dest_params.get("compression_type") == "none":
+            dest_params["compression_type"] = random.choice(
+                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+            )
+        if dest_params.get("bottommost_compression_type") == "none":
+            dest_params["bottommost_compression_type"] = random.choice(
+                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+            )
     else:
         # Enabling block_align with compression is not supported
         if dest_params.get("block_align") == 1:
