@@ -1381,6 +1381,9 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   TEST_SYNC_POINT_CALLBACK("TestCompactFiles:PausingManualCompaction:3",
                            static_cast<void*>(const_cast<std::atomic<int>*>(
                                &manual_compaction_paused_)));
+  TEST_SYNC_POINT_CALLBACK("TestCancelCompactFiles:SuccessfulCompaction",
+                           static_cast<void*>(const_cast<std::atomic<int>*>(
+                               &manual_compaction_paused_)));
   {
     InstrumentedMutexLock l(&mutex_);
     auto* current = cfd->current();
@@ -1433,7 +1436,12 @@ Status DBImpl::CompactFilesImpl(
   if (shutting_down_.load(std::memory_order_acquire)) {
     return Status::ShutdownInProgress();
   }
-  if (manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
+
+  // triggered by DisableManualCompactions or by user-set canceled flag in
+  // CompactionOptions
+  if (manual_compaction_paused_.load(std::memory_order_acquire) > 0 ||
+      (compact_options.canceled &&
+       compact_options.canceled->load(std::memory_order_acquire))) {
     return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
 
