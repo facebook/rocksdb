@@ -350,7 +350,7 @@ default_params = {
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
     "universal_reduce_file_locking": lambda: random.randint(0, 1),
     "compression_manager": lambda: random.choice(
-        ["mixed", "none", "autoskip", "randommixed"]
+        ["mixed"] * 1 + ["none"] * 2 + ["autoskip"] * 2 + ["randommixed"] * 2
     ),
 }
 
@@ -1002,7 +1002,10 @@ def finalize_and_sanitize(src_params):
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
     # Disabling block align if mixed manager is neing used
-    if dest_params.get("compression_manager") == "mixed":
+    if (
+        dest_params.get("compression_manager") == "mixed"
+        or dest_params.get("compression_manager") == "randommixed"
+    ):
         if dest_params.get("block_align") == 1:
             dest_params["block_align"] = 0
         dest_params["compression_type"] = "zstd"
