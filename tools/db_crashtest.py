@@ -520,6 +520,7 @@ cf_consistency_params = {
     "ingest_external_file_one_in": 0,
     # `CfConsistencyStressTest::TestIterateAgainstExpected()` is not implemented.
     "verify_iterator_with_expected_state_one_in": 0,
+    "memtablerep": random.choice(["skip_list"] * 9 + ["vector"]),
 }
 
 # For pessimistic transaction db
@@ -721,6 +722,10 @@ def finalize_and_sanitize(src_params):
             dest_params["use_direct_io_for_flush_and_compaction"] = 0
         else:
             dest_params["mock_direct_io"] = True
+
+    if dest_params["memtablerep"] == "vector":
+        dest_params["inplace_update_support"] = 0
+        dest_params["paranoid_memory_checks"] = 0
 
     if dest_params["test_batches_snapshots"] == 1:
         dest_params["enable_compaction_filter"] = 0
@@ -949,8 +954,6 @@ def finalize_and_sanitize(src_params):
         # disable atomic flush.
         if dest_params["test_best_efforts_recovery"] == 0:
             dest_params["disable_wal"] = 0
-    if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
-        dest_params["memtablerep"] = "skip_list"
     if (
         dest_params.get("enable_compaction_filter", 0) == 1
         or dest_params.get("inplace_update_support", 0) == 1
