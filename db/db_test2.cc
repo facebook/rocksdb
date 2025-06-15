@@ -1936,9 +1936,9 @@ TEST_F(DBTest2, RoundRobinManager) {
   }
 }
 
-TEST_F(DBTest2, SimpleMixedCompressionManager) {
+TEST_F(DBTest2, RandomMixedCompressionManager) {
   if (ZSTD_Supported()) {
-    auto mgr = std::make_shared<SimpleMixedCompressionManager>(
+    auto mgr = std::make_shared<RandomMixedCompressionManager>(
         GetDefaultBuiltinCompressionManager());
     // Currently mixedmanager only supports with preffered compression manager
     // zstd
