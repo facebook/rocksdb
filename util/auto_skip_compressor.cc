@@ -31,9 +31,10 @@ bool CompressionRejectionProbabilityPredictor::Record(
   } else {
     compressed_count_++;
   }
-  if (attempted_compression_count() >= window_size_) {
-    pred_rejection_prob_percentage_ = static_cast<int>(
-        rejected_count_ * 100 / (compressed_count_ + rejected_count_));
+  auto attempted = attempted_compression_count();
+  if (attempted >= window_size_) {
+    pred_rejection_prob_percentage_ =
+        static_cast<int>(rejected_count_ * 100 / attempted);
     compressed_count_ = 0;
     rejected_count_ = 0;
     assert(attempted_compression_count() == 0);
