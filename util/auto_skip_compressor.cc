@@ -8,6 +8,7 @@
 
 #include "options/options_helper.h"
 #include "rocksdb/advanced_compression.h"
+#include "test_util/sync_point.h"
 #include "util/random.h"
 namespace ROCKSDB_NAMESPACE {
 
@@ -50,6 +51,10 @@ AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
           std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {
   (void)type_;
   (void)opts_;
+}
+
+const char* AutoSkipCompressorWrapper::Name() const {
+  return "AutoSkipCompressorWrapper";
 }
 
 Status AutoSkipCompressorWrapper::CompressBlock(

@@ -10,7 +10,6 @@
 #include <memory>
 
 #include "rocksdb/advanced_compression.h"
-#include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Predict rejection probability using a moving window approach
@@ -36,6 +35,7 @@ class CompressionRejectionProbabilityPredictor {
 
 class AutoSkipCompressorWrapper : public CompressorWrapper {
  public:
+  const char* Name() const override;
   explicit AutoSkipCompressorWrapper(std::unique_ptr<Compressor> compressor,
                                      const CompressionOptions& opts,
                                      const CompressionType type);
