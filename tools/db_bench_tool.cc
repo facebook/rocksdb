@@ -2392,6 +2392,21 @@ class Stats {
                   (now - start_) / 1000000.0);
 
           if (id_ == 0 && FLAGS_stats_per_interval) {
+            if (dbstats != nullptr) {
+              auto compressed =
+                  dbstats->getTickerCount(NUMBER_BLOCK_COMPRESSED);
+              auto rejected =
+                  dbstats->getTickerCount(NUMBER_BLOCK_COMPRESSION_REJECTED);
+              auto bypassed =
+                  dbstats->getTickerCount(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+              fprintf(stderr,
+                      "%s ... thread %d: compressed: %lu rejected: %lu "
+                      "bypassed: %lu",
+                      clock_->TimeToString(now / 1000000).c_str(), id_,
+                      compressed, rejected, bypassed);
+            } else {
+              fprintf(stderr, "dbstats empty");
+            }
             std::string stats;
 
             if (db_with_cfh && db_with_cfh->num_created.load()) {
@@ -3580,6 +3595,10 @@ class Benchmark {
       } else if (name == "fillseq") {
         fresh_db = true;
         method = &Benchmark::WriteSeq;
+      } else if (name == "fillseqcomp") {
+        method = &Benchmark::WriteSeqComp;
+      } else if (name == "fillsequncomp") {
+        method = &Benchmark::WriteSeqUnComp;
       } else if (name == "fillbatch") {
         fresh_db = true;
         entries_per_batch_ = 1000;
@@ -5119,6 +5138,8 @@ class Benchmark {
   }
 
   void WriteSeq(ThreadState* thread) { DoWrite(thread, SEQUENTIAL); }
+  void WriteSeqComp(ThreadState* thread) { DoWrite(thread, SEQUENTIAL); }
+  void WriteSeqUnComp(ThreadState* thread) { DoWrite(thread, SEQUENTIAL); }
 
   void WriteRandom(ThreadState* thread) { DoWrite(thread, RANDOM); }
 
@@ -5192,7 +5213,8 @@ class Benchmark {
     return FLAGS_sine_a * sin((FLAGS_sine_b * x) + FLAGS_sine_c) + FLAGS_sine_d;
   }
 
-  void DoWrite(ThreadState* thread, WriteMode write_mode) {
+  void DoWrite(ThreadState* thread, WriteMode write_mode,
+               int same_value_percentage = 0) {
     const int test_duration = write_mode == RANDOM ? FLAGS_duration : 0;
     const int64_t num_ops = writes_ == 0 ? num_ : writes_;
 
@@ -8744,6 +8766,7 @@ int db_bench_tool(int argc, char** argv, ToolHooks& hooks) {
   }
   if (FLAGS_statistics) {
     dbstats = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    fprintf(stderr, "dbstats initialized");
   }
   if (dbstats) {
     dbstats->set_stats_level(static_cast<StatsLevel>(FLAGS_stats_level));
