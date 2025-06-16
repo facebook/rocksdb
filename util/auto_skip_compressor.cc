@@ -8,6 +8,7 @@
 
 #include "options/options_helper.h"
 #include "rocksdb/advanced_compression.h"
+#include "test_util/sync_point.h"
 #include "util/random.h"
 namespace ROCKSDB_NAMESPACE {
 
@@ -31,9 +32,10 @@ bool CompressionRejectionProbabilityPredictor::Record(
   } else {
     compressed_count_++;
   }
-  if (attempted_compression_count() >= window_size_) {
-    pred_rejection_prob_percentage_ = static_cast<int>(
-        rejected_count_ * 100 / (compressed_count_ + rejected_count_));
+  auto attempted = attempted_compression_count();
+  if (attempted >= window_size_) {
+    pred_rejection_prob_percentage_ =
+        static_cast<int>(rejected_count_ * 100 / attempted);
     compressed_count_ = 0;
     rejected_count_ = 0;
     assert(attempted_compression_count() == 0);
@@ -41,16 +43,11 @@ bool CompressionRejectionProbabilityPredictor::Record(
   return true;
 }
 AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
-    std::unique_ptr<Compressor> compressor, const CompressionOptions& opts,
-    const CompressionType type)
+    std::unique_ptr<Compressor> compressor, const CompressionOptions& opts)
     : CompressorWrapper::CompressorWrapper(std::move(compressor)),
       opts_(opts),
-      type_(type),
       predictor_(
-          std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {
-  (void)type_;
-  (void)opts_;
-}
+          std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
 
 Status AutoSkipCompressorWrapper::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
@@ -100,7 +97,7 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
   assert(GetSupportedCompressions().size() > 1);
   assert(preferred != kNoCompression);
   return std::make_unique<AutoSkipCompressorWrapper>(
-      wrapped_->GetCompressorForSST(context, opts, preferred), opts, preferred);
+      wrapped_->GetCompressorForSST(context, opts, preferred), opts);
 }
 
 std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
