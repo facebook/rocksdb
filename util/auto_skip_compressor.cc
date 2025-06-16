@@ -42,16 +42,11 @@ bool CompressionRejectionProbabilityPredictor::Record(
   return true;
 }
 AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
-    std::unique_ptr<Compressor> compressor, const CompressionOptions& opts,
-    const CompressionType type)
+    std::unique_ptr<Compressor> compressor, const CompressionOptions opts)
     : CompressorWrapper::CompressorWrapper(std::move(compressor)),
       opts_(opts),
-      type_(type),
       predictor_(
-          std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {
-  (void)type_;
-  (void)opts_;
-}
+          std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
 
 Status AutoSkipCompressorWrapper::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
@@ -101,7 +96,7 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
   assert(GetSupportedCompressions().size() > 1);
   assert(preferred != kNoCompression);
   return std::make_unique<AutoSkipCompressorWrapper>(
-      wrapped_->GetCompressorForSST(context, opts, preferred), opts, preferred);
+      wrapped_->GetCompressorForSST(context, opts, preferred), opts);
 }
 
 std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
