@@ -455,6 +455,72 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
   }
 }
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
+TEST_F(DBCompactionTest, UniversalReduceFileLockingRepickNothing) {
+  const int kFileNumCompactionTrigger = 3;
+
+  Options options = CurrentOptions();
+  options.compaction_options_universal.reduce_file_locking = true;
+  // Set `max_background_jobs` to be 3 to allow low and bottom priority thread
+  // to run compaction together
+  options.max_background_jobs = 3;
+  Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  options.num_levels = 3;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.level0_file_num_compaction_trigger = kFileNumCompactionTrigger;
+  options.compaction_options_universal.max_size_amplification_percent = 1;
+
+  DestroyAndReopen(options);
+
+  // Need to get a token to enable compaction parallelism up to
+  // `max_background_compactions` jobs.
+  auto pressure_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {// Wait for the full (bottom-priority) compaction to be pre-picked as an
+       // intent (that is allowing files to be picked by other compactions and
+       // will pick later when the bottom-priority thread is available to
+       // execute the compaction) before triggering the low-priority compaction.
+       {"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+        "LowPriCompaction"},
+       // Wait for low-priority compaction to start before
+       // repicking for the full compaction intent (bottom-priority), enabling
+       // them to run in parallel.
+       {"DBImpl::BackgroundCompaction:NonTrivial",
+        "DBImpl::BGWorkBottomCompaction"}});
+
+  bool bottom_pri_compaction_attempt_repick = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction():AfterPickCompactionBottomPri",
+      [&](void* arg) {
+        bottom_pri_compaction_attempt_repick = true;
+        Compaction* c = static_cast<Compaction*>(arg);
+        // Verify the intended full compaction for bottom priority thread does
+        // not get to run (i.e, output to bottommost level) since when it
+        // repicks its files, some of the the intended input files are already
+        // compacted by the low priority thread
+        assert(c == nullptr);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 0; i < kFileNumCompactionTrigger; ++i) {
+    if (i == 0) {
+      ASSERT_OK(Put("file_locked_for_bottom_pri_compaction", "value"));
+    } else {
+      ASSERT_OK(
+          Put("file_not_locked_for_bottom_pri_compaction" + std::to_string(i),
+              "value"));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  TEST_SYNC_POINT("LowPriCompaction");
+  ASSERT_OK(Put("a_new_file_to_pick_for_low_pri_compaction", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_TRUE(bottom_pri_compaction_attempt_repick);
+}
 
 TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   // This test verify UpdateAccumulatedStats is not on
@@ -2824,46 +2890,99 @@ TEST_F(DBCompactionTest, L0_CompactionBug_Issue44_b) {
 }
 
 TEST_F(DBCompactionTest, ManualAutoRace) {
-  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::BGWorkCompaction", "DBCompactionTest::ManualAutoRace:1"},
-       {"DBImpl::RunManualCompaction:WaitScheduled",
-        "BackgroundCallCompaction:0"}});
+  const int kNumL0FilesTrigger = 4;
+  // Verify that the auto compaction is retried after the conflicting exclusive
+  // manual compaction finishes for:
+  // 1. Non-bottom-priority compactions (tested with level compaction)
+  // 2. Bottom-priority compactions (tested with universal compaction)
+  for (auto compaction_style :
+       {kCompactionStyleLevel, kCompactionStyleUniversal}) {
+    Env::Default()->SetBackgroundThreads(
+        compaction_style == kCompactionStyleUniversal ? 2 : 0,
+        Env::Priority::BOTTOM);
+    for (auto universal_reduce_file_locking : {false, true}) {
+      if (compaction_style != kCompactionStyleUniversal &&
+          universal_reduce_file_locking) {
+        continue;
+      }
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+      Options options = CurrentOptions();
+      options.num_levels = 3;
+      options.level0_file_num_compaction_trigger = kNumL0FilesTrigger;
+      options.compaction_style = compaction_style;
+      options.compaction_options_universal.reduce_file_locking =
+          universal_reduce_file_locking;
 
-  ASSERT_OK(Put(1, "foo", ""));
-  ASSERT_OK(Put(1, "bar", ""));
-  ASSERT_OK(Flush(1));
-  ASSERT_OK(Put(1, "foo", ""));
-  ASSERT_OK(Put(1, "bar", ""));
-  // Generate four files in CF 0, which should trigger an auto compaction
-  ASSERT_OK(Put("foo", ""));
-  ASSERT_OK(Put("bar", ""));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("foo", ""));
-  ASSERT_OK(Put("bar", ""));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("foo", ""));
-  ASSERT_OK(Put("bar", ""));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("foo", ""));
-  ASSERT_OK(Put("bar", ""));
-  ASSERT_OK(Flush());
+      DestroyAndReopen(options);
+      CreateAndReopenWithCF({"exclusive_manual_compaction_cf"}, options);
 
-  // The auto compaction is scheduled but waited until here
-  TEST_SYNC_POINT("DBCompactionTest::ManualAutoRace:1");
-  // The auto compaction will wait until the manual compaction is registerd
-  // before processing so that it will be cancelled.
-  CompactRangeOptions cro;
-  cro.exclusive_manual_compaction = true;
-  ASSERT_OK(dbfull()->CompactRange(cro, handles_[1], nullptr, nullptr));
-  ASSERT_EQ("0,1", FilesPerLevel(1));
+      // Set up sync points to ensure that the auto compaction
+      // encounters a conflict from exclusive manual compaction before the auto
+      // compaction gets to pick files, This will trigger a retry later.
+      //
+      // Specifically, the sync points are set up as following:
+      // 1. Wait until background low-pri scheduled (not picking files yet) or
+      // bottom-pri scheduled (not repicking files yet) for
+      // `universal_reduce_file_locking = true` before triggering
+      // CompactRange()
+      //
+      // 2. Wait until the triggered CompactRange()
+      // registers its compaction and creates conflict before the auto
+      // compaction picks or repicks files for the background compaction.
+      if (compaction_style == kCompactionStyleLevel ||
+          !universal_reduce_file_locking) {
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+            {{"DBImpl::BGWorkCompaction", "DBCompactionTest::ManualAutoRace:1"},
+             {"DBImpl::RunManualCompaction:WaitScheduled",
+              "BackgroundCallCompaction:0"}});
+      } else {
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+            {{"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+              "DBCompactionTest::ManualAutoRace:1"},
+             {"DBImpl::RunManualCompaction:WaitScheduled",
+              "BackgroundCallCompaction:0:BottomPri"}});
+      }
 
-  // Eventually the cancelled compaction will be rescheduled and executed.
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ("0,1", FilesPerLevel(0));
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+      bool encounter_conflict = false;
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "DBImpl::BackgroundCompaction()::Conflict",
+          [&](void* /*arg*/) { encounter_conflict = true; });
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+      // Generate files in CF 1 for exclusive CompactRange()
+      ASSERT_OK(Put(1, "foo", ""));
+      ASSERT_OK(Put(1, "bar", ""));
+      ASSERT_OK(Flush(1));
+      ASSERT_OK(Put(1, "foo", ""));
+      ASSERT_OK(Put(1, "bar", ""));
+      // Generate files in CF0 to trigger full compaction
+      for (int i = 0; i < kNumL0FilesTrigger; ++i) {
+        ASSERT_OK(Put("foo", ""));
+        ASSERT_OK(Put("bar", ""));
+        ASSERT_OK(Flush());
+      }
+
+      TEST_SYNC_POINT("DBCompactionTest::ManualAutoRace:1");
+      CompactRangeOptions cro;
+      cro.exclusive_manual_compaction = true;
+      ASSERT_OK(dbfull()->CompactRange(cro, handles_[1], nullptr, nullptr));
+      ASSERT_EQ(compaction_style == kCompactionStyleLevel ? "0,1" : "0,0,1",
+                FilesPerLevel(1));
+
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+      ASSERT_TRUE(encounter_conflict);
+
+      // Verify that the auto compaction is eventually executed after the
+      // exclusive CompactRange() finishes.
+      ASSERT_EQ(compaction_style == kCompactionStyleLevel ? "0,1" : "0,0,1",
+                FilesPerLevel(0));
+
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    }
+    Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
+  }
 }
 
 TEST_P(DBCompactionTestWithParam, ManualCompaction) {
@@ -3986,41 +4105,51 @@ TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
 TEST_P(DBCompactionTestWithParam, FullCompactionInBottomPriThreadPool) {
   const int kNumFilesTrigger = 3;
   Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
-  for (bool use_universal_compaction : {false, true}) {
-    Options options = CurrentOptions();
-    if (use_universal_compaction) {
-      options.compaction_style = kCompactionStyleUniversal;
-    } else {
-      options.compaction_style = kCompactionStyleLevel;
-      options.level_compaction_dynamic_level_bytes = true;
+  for (auto compaction_style :
+       {kCompactionStyleLevel, kCompactionStyleUniversal}) {
+    for (auto universal_reduce_file_locking : {false, true}) {
+      if (compaction_style != kCompactionStyleUniversal &&
+          universal_reduce_file_locking) {
+        continue;
+      }
+      Options options = CurrentOptions();
+      options.compaction_style = compaction_style;
+      if (compaction_style == kCompactionStyleLevel) {
+        options.level_compaction_dynamic_level_bytes = true;
+      } else {
+        options.compaction_options_universal.reduce_file_locking =
+            universal_reduce_file_locking;
+        // Trigger compaction if size amplification exceeds 110%
+        options.compaction_options_universal.max_size_amplification_percent =
+            110;
+      }
+      options.num_levels = 4;
+      options.write_buffer_size = 100 << 10;     // 100KB
+      options.target_file_size_base = 32 << 10;  // 32KB
+      options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+
+      DestroyAndReopen(options);
+
+      int num_bottom_pri_compactions = 0;
+      SyncPoint::GetInstance()->SetCallBack(
+          "DBImpl::BGWorkBottomCompaction",
+          [&](void* /*arg*/) { ++num_bottom_pri_compactions; });
+      SyncPoint::GetInstance()->EnableProcessing();
+
+      Random rnd(301);
+      for (int num = 0; num < kNumFilesTrigger; num++) {
+        ASSERT_EQ(NumSortedRuns(), num);
+        int key_idx = 0;
+        GenerateNewFile(&rnd, &key_idx);
+      }
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+      ASSERT_EQ(1, num_bottom_pri_compactions);
+
+      // Verify that size amplification did occur
+      ASSERT_EQ(NumSortedRuns(), 1);
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     }
-    options.num_levels = 4;
-    options.write_buffer_size = 100 << 10;     // 100KB
-    options.target_file_size_base = 32 << 10;  // 32KB
-    options.level0_file_num_compaction_trigger = kNumFilesTrigger;
-    // Trigger compaction if size amplification exceeds 110%
-    options.compaction_options_universal.max_size_amplification_percent = 110;
-    DestroyAndReopen(options);
-
-    int num_bottom_pri_compactions = 0;
-    SyncPoint::GetInstance()->SetCallBack(
-        "DBImpl::BGWorkBottomCompaction",
-        [&](void* /*arg*/) { ++num_bottom_pri_compactions; });
-    SyncPoint::GetInstance()->EnableProcessing();
-
-    Random rnd(301);
-    for (int num = 0; num < kNumFilesTrigger; num++) {
-      ASSERT_EQ(NumSortedRuns(), num);
-      int key_idx = 0;
-      GenerateNewFile(&rnd, &key_idx);
-    }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-    ASSERT_EQ(1, num_bottom_pri_compactions);
-
-    // Verify that size amplification did occur
-    ASSERT_EQ(NumSortedRuns(), 1);
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
   Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
@@ -9998,55 +10127,60 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
 
   env_->SetBackgroundThreads(1, Env::Priority::BOTTOM);
 
-  Options options = CurrentOptions();
-  options.level0_file_num_compaction_trigger = kNumL0Files;
-  options.num_levels = kNumLevels;
-  DestroyAndReopen(options);
+  for (bool universal_reduce_file_locking : {false, true}) {
+    Options options = CurrentOptions();
+    options.level0_file_num_compaction_trigger = kNumL0Files;
+    options.num_levels = kNumLevels;
+    options.compaction_style = kCompactionStyleUniversal;
+    options.compaction_options_universal.reduce_file_locking =
+        universal_reduce_file_locking;
+    DestroyAndReopen(options);
 
-  // Setup last level to be non-empty since it's a bit unclear whether
-  // compaction to an empty level would be considered "bottommost".
-  ASSERT_OK(Put(Key(0), "val"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(kNumLevels - 1);
-
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::BGWorkBottomCompaction",
-        "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
-        "PreTriggerCompaction"},
-       {"DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
-        "PostTriggerCompaction",
-        "BackgroundCallCompaction:0"}});
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  port::Thread compact_range_thread([&] {
-    CompactRangeOptions cro;
-    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-    cro.exclusive_manual_compaction = false;
-    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
-  });
-
-  // Sleep in the low-pri thread so any newly scheduled compaction will be
-  // queued. Otherwise it might finish before we check its existence.
-  test::SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
-  sleeping_task_low.WaitUntilSleeping();
-
-  TEST_SYNC_POINT(
-      "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
-      "PreTriggerCompaction");
-  for (int i = 0; i < kNumL0Files; ++i) {
+    // Setup last level to be non-empty since it's a bit unclear whether
+    // compaction to an empty level would be considered "bottommost".
     ASSERT_OK(Put(Key(0), "val"));
     ASSERT_OK(Flush());
-  }
-  ASSERT_EQ(0u, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
-  TEST_SYNC_POINT(
-      "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
-      "PostTriggerCompaction");
+    MoveFilesToLevel(kNumLevels - 1);
 
-  sleeping_task_low.WakeUp();
-  sleeping_task_low.WaitUntilDone();
-  compact_range_thread.join();
+    SyncPoint::GetInstance()->LoadDependency(
+        {{"DBImpl::BGWorkBottomCompaction",
+          "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+          "PreTriggerCompaction"},
+         {"DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+          "PostTriggerCompaction",
+          "BackgroundCallCompaction:0"}});
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    port::Thread compact_range_thread([&] {
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      cro.exclusive_manual_compaction = false;
+      ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+    });
+
+    // Sleep in the low-pri thread so any newly scheduled compaction will be
+    // queued. Otherwise it might finish before we check its existence.
+    test::SleepingBackgroundTask sleeping_task_low;
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                   &sleeping_task_low, Env::Priority::LOW);
+    sleeping_task_low.WaitUntilSleeping();
+
+    TEST_SYNC_POINT(
+        "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+        "PreTriggerCompaction");
+    for (int i = 0; i < kNumL0Files; ++i) {
+      ASSERT_OK(Put(Key(0), "val"));
+      ASSERT_OK(Flush());
+    }
+    ASSERT_EQ(0u, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+    TEST_SYNC_POINT(
+        "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+        "PostTriggerCompaction");
+
+    sleeping_task_low.WakeUp();
+    sleeping_task_low.WaitUntilDone();
+    compact_range_thread.join();
+  }
 }
 
 TEST_F(DBCompactionTest, BottommostFileCompactionAllowIngestBehind) {

@@ -1952,12 +1952,19 @@ class DBImpl : public DB {
   };
   struct PrepickedCompaction {
     // background compaction takes ownership of `compaction`.
+    // TODO(hx235): consider using std::shared_ptr for easier ownership
+    // management
     Compaction* compaction;
     // caller retains ownership of `manual_compaction_state` as it is reused
     // across background compactions.
     ManualCompactionState* manual_compaction_state;  // nullptr if non-manual
     // task limiter token is requested during compaction picking.
     std::unique_ptr<TaskLimiterToken> task_token;
+    // If true, `compaction` is picked temporarily to express compaction intent
+    // and will be released before re-picking a real compaction based on the
+    // updated LSM shape when thread associated with `compaction` is ready to
+    // run
+    bool need_repick;
   };
 
   struct CompactionArg {
@@ -2456,6 +2463,8 @@ class DBImpl : public DB {
                          bool* flush_rescheduled_to_retain_udt,
                          Env::Priority thread_pri);
 
+  Compaction* CreateIntendedCompactionForwardedToBottomPriorityPool(
+      Compaction* c);
   bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
                                const std::vector<CompactionInputFiles>& inputs,
                                bool* sfm_bookkeeping, LogBuffer* log_buffer);
@@ -2723,6 +2732,11 @@ class DBImpl : public DB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       ErrorIteratorFuncType error_iterator_func);
 
+  bool ShouldPickCompaction(bool is_prepicked,
+                            const PrepickedCompaction* prepicked_compaction);
+
+  void ResetBottomPriCompactionIntent(ColumnFamilyData* cfd,
+                                      std::unique_ptr<Compaction>& c);
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_ = nullptr;
 

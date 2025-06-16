@@ -107,7 +107,8 @@ default_params = {
     "iterpercent": 10,
     "lock_wal_one_in": lambda: random.choice([10000, 1000000]),
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
-    "max_background_compactions": 20,
+    "max_background_compactions": lambda: random.choice([2, 20]),
+    "num_bottom_pri_threads": lambda: random.choice([0, 1, 20]),
     "max_bytes_for_level_base": 10485760,
     # max_key has to be the same across invocations for verification to work, hence no lambda
     "max_key": random.choice([100000, 25000000]),
@@ -347,7 +348,10 @@ default_params = {
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
-    "compression_manager": lambda: random.choice(["mixed", "none"]),
+    "universal_reduce_file_locking": lambda: random.randint(0, 1),
+    "compression_manager": lambda: random.choice(
+        ["mixed"] * 1 + ["none"] * 2 + ["autoskip"] * 2 + ["randommixed"] * 2
+    ),
 }
 
 _TEST_DIR_ENV_VAR = "TEST_TMPDIR"
@@ -998,11 +1002,27 @@ def finalize_and_sanitize(src_params):
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
     # Disabling block align if mixed manager is neing used
-    if dest_params.get("compression_manager") == "mixed":
+    if (
+        dest_params.get("compression_manager") == "mixed"
+        or dest_params.get("compression_manager") == "randommixed"
+    ):
         if dest_params.get("block_align") == 1:
             dest_params["block_align"] = 0
         dest_params["compression_type"] = "zstd"
-        dest_params["bottommost_compression_type"] = "none"
+        dest_params["bottommost_compression_type"] = "zstd"
+    elif dest_params.get("compression_manager") == "autoskip":
+        # disabling compression parallel threads if mixed manager is being used as the predictor is not thread safe
+        dest_params["compression_parallel_threads"] = 1
+        # esuring the compression is being used
+        if dest_params.get("compression_type") == "none":
+            dest_params["compression_type"] = random.choice(
+                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+            )
+        if dest_params.get("bottommost_compression_type") == "none":
+            dest_params["bottommost_compression_type"] = random.choice(
+                ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
+            )
+        dest_params["block_align"] = 0
     else:
         # Enabling block_align with compression is not supported
         if dest_params.get("block_align") == 1:

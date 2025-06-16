@@ -249,6 +249,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "trace_replay/trace_record_result.cc",
         "trace_replay/trace_replay.cc",
         "util/async_file_reader.cc",
+        "util/auto_skip_compressor.cc",
         "util/build_version.cc",
         "util/cleanable.cc",
         "util/coding.cc",
@@ -4706,6 +4707,12 @@ cpp_unittest_wrapper(name="comparator_db_test",
 
 cpp_unittest_wrapper(name="compressed_secondary_cache_test",
             srcs=["cache/compressed_secondary_cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="compression_test",
+            srcs=["util/compression_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
