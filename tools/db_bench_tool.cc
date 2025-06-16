@@ -5138,9 +5138,14 @@ class Benchmark {
   }
 
   void WriteSeq(ThreadState* thread) { DoWrite(thread, SEQUENTIAL); }
-  void WriteSeqComp(ThreadState* thread) { DoWrite(thread, SEQUENTIAL); }
-  void WriteSeqUnComp(ThreadState* thread) { DoWrite(thread, SEQUENTIAL); }
-
+  void WriteSeqComp(ThreadState* thread) {
+    FLAGS_same_value_percentage = 100;
+    DoWrite(thread, SEQUENTIAL);
+  }
+  void WriteSeqUnComp(ThreadState* thread) {
+    FLAGS_same_value_percentage = 0;
+    DoWrite(thread, SEQUENTIAL);
+  }
   void WriteRandom(ThreadState* thread) { DoWrite(thread, RANDOM); }
 
   void WriteUniqueRandom(ThreadState* thread) {
@@ -5213,8 +5218,7 @@ class Benchmark {
     return FLAGS_sine_a * sin((FLAGS_sine_b * x) + FLAGS_sine_c) + FLAGS_sine_d;
   }
 
-  void DoWrite(ThreadState* thread, WriteMode write_mode,
-               int same_value_percentage = 0) {
+  void DoWrite(ThreadState* thread, WriteMode write_mode) {
     const int test_duration = write_mode == RANDOM ? FLAGS_duration : 0;
     const int64_t num_ops = writes_ == 0 ? num_ : writes_;
 
