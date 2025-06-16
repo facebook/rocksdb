@@ -344,7 +344,14 @@ struct TableProperties {
   // {collector_name[1]},{collector_name[2]},{collector_name[3]} ..
   std::string property_collectors_names;
 
-  // The compression algo used to compress the SST files.
+  // Identifies the compression algorithm or schema used in the file.
+  // Specifically:
+  // * For format_version < 7, it is one of several names for built-in
+  // compression types. Because of how some previous versions of RocksDB
+  // behave, this must be set to "ZSTD" if any blocks are compressed
+  // with zstd and must NOT be set to "NoCompression" if any blocks are
+  // compressed.
+  // * For format_version >= 7, it is ...
   std::string compression_name;
 
   // Compression options used to compress the SST files.

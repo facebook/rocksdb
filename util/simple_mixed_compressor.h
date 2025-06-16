@@ -8,7 +8,6 @@
 
 #pragma once
 #include <memory>
-#include <mutex>
 #include <vector>
 
 #include "compression.h"
@@ -35,6 +34,7 @@ class MultiCompressorWrapper : public Compressor {
 
 struct RandomMixedCompressor : public MultiCompressorWrapper {
   using MultiCompressorWrapper::MultiCompressorWrapper;
+  const char* Name() const override;
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
@@ -50,6 +50,7 @@ class RandomMixedCompressionManager : public CompressionManagerWrapper {
 
 struct RoundRobinCompressor : public MultiCompressorWrapper {
   using MultiCompressorWrapper::MultiCompressorWrapper;
+  const char* Name() const override;
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
