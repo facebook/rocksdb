@@ -594,8 +594,11 @@ Status GetDecompressor(const std::string& compression_name,
           compatibility_name);
     }
     if (mgr_to_use == nullptr) {
+      ConfigOptions strict;
+      strict.ignore_unknown_options = false;
+      strict.ignore_unsupported_options = false;
       Status s = CompressionManager::CreateFromString(
-          ConfigOptions{}, compatibility_name.ToString(), &mgr_to_use);
+          strict, compatibility_name.ToString(), &mgr_to_use);
       // Even though we might be able to recover from "not found" if only
       // built-in compression types are used (would be checked below), it
       // would provide misleading or unreliable success to allow that to

@@ -252,8 +252,7 @@ class BuiltinCompressorV2 : public Compressor {
 
   // TODO: use ZSTD_CCtx directly
   ManagedWorkingArea ObtainWorkingArea() override {
-    return ManagedWorkingArea(
-        static_cast<WorkingArea*>(new CompressionContext(type_, opts_)), this);
+    return ManagedWorkingArea(new CompressionContext(type_, opts_), this);
   }
   void ReleaseWorkingArea(WorkingArea* wa) override {
     delete static_cast<CompressionContext*>(wa);
@@ -352,6 +351,8 @@ class BuiltinCompressionManagerV1 : public CompressionManager {
 
   std::unique_ptr<Compressor> GetCompressor(const CompressionOptions& opts,
                                             CompressionType type) override {
+    // At the time of deprecating the writing of new format_version=1 files,
+    // ZSTD was the last supported built-in compression type.
     if (type > kZSTD) {
       // Unrecognized; fall back on default compression
       type = ColumnFamilyOptions{}.compression;
@@ -867,7 +868,7 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
       // No acceptable compression ratio => no compression
       return nullptr;
     }
-    if (type > kZSTD) {
+    if (type > kLastBuiltinCompression) {
       // Unrecognized; fall back on default compression
       type = ColumnFamilyOptions{}.compression;
     }

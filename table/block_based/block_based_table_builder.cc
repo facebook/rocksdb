@@ -2036,7 +2036,7 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   if (kNumBlocksBuffered == 0) {
     // The below code is neither safe nor necessary for handling zero data
     // blocks.
-    // For compression metadata
+    // For PostPopulateCompressionProperties()
     r->data_block_compressor = r->basic_compressor.get();
     return;
   }

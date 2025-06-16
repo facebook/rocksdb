@@ -26,6 +26,7 @@ enum CompressionType : unsigned char {
   kLZ4HCCompression = 0x05,
   kXpressCompression = 0x06,
   kZSTD = 0x07,
+  kLastBuiltinCompression = kZSTD,
 
   // Reserved for future use: up to 0x7F
 

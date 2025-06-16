@@ -616,33 +616,61 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
   }
+  bool using_builtin_compatible_compression = true;
   if (cf_opts.compression_manager &&
       strcmp(cf_opts.compression_manager->CompatibilityName(),
              GetBuiltinCompressionManager(
                  GetCompressFormatForVersion(table_options_.format_version))
-                 ->CompatibilityName()) != 0 &&
-      !FormatVersionUsesCompressionManagerName(table_options_.format_version)) {
-    return Status::InvalidArgument(
-        "Using a CompressionManager incompatible with built-in (using a custom "
-        "CompatibilityName()) is not supported for format_version < 7");
+                 ->CompatibilityName()) != 0) {
+    if (FormatVersionUsesCompressionManagerName(
+            table_options_.format_version)) {
+      using_builtin_compatible_compression = false;
+    } else {
+      return Status::InvalidArgument(
+          "Using a CompressionManager incompatible with built-in (custom "
+          "CompatibilityName()) is not supported for format_version < 7");
+    }
   }
-  if (table_options_.block_align && (cf_opts.compression != kNoCompression)) {
-    return Status::InvalidArgument(
-        "Enable block_align, but compression "
-        "enabled");
-  }
-  if (table_options_.block_align &&
-      cf_opts.bottommost_compression != kDisableCompressionOption &&
-      cf_opts.bottommost_compression != kNoCompression) {
-    return Status::InvalidArgument(
-        "Enable block_align, but bottommost_compression enabled");
-  }
-  if (table_options_.block_align) {
-    for (auto level_compression : cf_opts.compression_per_level) {
-      if (level_compression != kDisableCompressionOption &&
-          level_compression != kNoCompression) {
+  auto validate_compression_type_fn = [&](CompressionType ctype,
+                                          const char* context) {
+    if (ctype == kNoCompression) {
+      return Status::OK();
+    }
+    if (ctype == kDisableCompressionOption) {
+      if (strcmp(context, "compression") == 0) {
         return Status::InvalidArgument(
-            "Enable block_align, but compression_per_level enabled");
+            "kDisableCompressionOption not permitted for option: "
+            "compression");
+      } else {
+        return Status::OK();
+      }
+    }
+    if (table_options_.block_align) {
+      return Status::InvalidArgument("Enable block_align, but " +
+                                     std::string(context) + " enabled");
+    }
+    if (ctype > kLastBuiltinCompression &&
+        using_builtin_compatible_compression) {
+      return Status::InvalidArgument(
+          "Using a CompressionType other than built-in ...");  // TODO
+    }
+    // Otherwise
+    return Status::OK();
+  };
+  {
+    Status s = validate_compression_type_fn(cf_opts.compression, "compression");
+    if (!s.ok()) {
+      return s;
+    }
+    s = validate_compression_type_fn(cf_opts.bottommost_compression,
+                                     "bottommost_compression");
+    if (!s.ok()) {
+      return s;
+    }
+    for (auto ctype : cf_opts.compression_per_level) {
+      s = validate_compression_type_fn(ctype, "compression_per_level");
+      if (!s.ok()) {
+        return s;
       }
     }
   }
