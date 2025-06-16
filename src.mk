@@ -243,6 +243,7 @@ LIB_SOURCES =                                                   \
   util/compaction_job_stats_impl.cc                             \
   util/comparator.cc                                            \
   util/compression.cc                                           \
+  util/auto_skip_compressor.cc                                           \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
@@ -592,6 +593,7 @@ TEST_MAIN_SOURCES =                                                     \
   table/table_test.cc                                                   \
   table/block_fetcher_test.cc                                           \
   test_util/testutil_test.cc                                            \
+  util/compression_test.cc                                            \
   tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc         \
   tools/io_tracer_parser_test.cc                                        \
   tools/ldb_cmd_test.cc                                                 \

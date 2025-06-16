@@ -582,5 +582,10 @@ class CompressionManagerWrapper : public CompressionManager {
 // using this compression manager.
 const std::shared_ptr<CompressionManager>&
 GetDefaultBuiltinCompressionManager();
-
+// Gets CompressionManager designed for the automated compression strategy.
+// This may include deciding to compress or not.
+// In future should be able to select compression algorithm based on the CPU
+// utilization and IO constraints.
+std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
+    std::shared_ptr<CompressionManager> wrapped);
 }  // namespace ROCKSDB_NAMESPACE
