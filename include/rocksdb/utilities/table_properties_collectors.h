@@ -31,7 +31,8 @@ class CompactOnDeletionCollectorFactory
   //     based on deletion ratio.
   CompactOnDeletionCollectorFactory(size_t sliding_window_size,
                                     size_t deletion_trigger,
-                                    double deletion_ratio);
+                                    double deletion_ratio,
+                                    uint64_t min_file_size = 0);
 
   ~CompactOnDeletionCollectorFactory() override {}
 
@@ -59,6 +60,12 @@ class CompactOnDeletionCollectorFactory
   }
 
   double GetDeletionRatio() const { return deletion_ratio_.load(); }
+
+  uint64_t GetMinFileSize() const { return min_file_size_.load(); }
+  void SetMinFileSize(uint64_t min_file_size) {
+    min_file_size_.store(min_file_size);
+  }
+
   static const char* kClassName() { return "CompactOnDeletionCollector"; }
   const char* Name() const override { return kClassName(); }
 
@@ -68,6 +75,7 @@ class CompactOnDeletionCollectorFactory
   std::atomic<size_t> sliding_window_size_;
   std::atomic<size_t> deletion_trigger_;
   std::atomic<double> deletion_ratio_;
+  std::atomic<uint64_t> min_file_size_;
 };
 
 // Creates a factory of a table property collector that marks a SST
@@ -85,7 +93,8 @@ class CompactOnDeletionCollectorFactory
 std::shared_ptr<CompactOnDeletionCollectorFactory>
 NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
                                      size_t deletion_trigger,
-                                     double deletion_ratio = 0);
+                                     double deletion_ratio = 0,
+                                     uint64_t min_file_size = 0);
 
 // A factory of a table property collector that marks a SST file as
 // need-compaction when for the tiering use case, it observes, among all the
