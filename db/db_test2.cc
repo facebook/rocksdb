@@ -10,7 +10,6 @@
 #include <atomic>
 #include <cstdlib>
 #include <functional>
-#include <iostream>
 #include <memory>
 
 #include "db/db_test_util.h"
@@ -1936,9 +1935,9 @@ TEST_F(DBTest2, RoundRobinManager) {
   }
 }
 
-TEST_F(DBTest2, SimpleMixedCompressionManager) {
+TEST_F(DBTest2, RandomMixedCompressionManager) {
   if (ZSTD_Supported()) {
-    auto mgr = std::make_shared<SimpleMixedCompressionManager>(
+    auto mgr = std::make_shared<RandomMixedCompressionManager>(
         GetDefaultBuiltinCompressionManager());
     // Currently mixedmanager only supports with preffered compression manager
     // zstd
@@ -3228,7 +3227,7 @@ TEST_F(DBTest2, PausingManualCompaction1) {
       "TestCompactFiles:PausingManualCompaction:3", [&](void* arg) {
         auto paused = static_cast<std::atomic<int>*>(arg);
         // CompactFiles() relies on manual_compactions_paused to
-        // determine if thie compaction should be paused or not
+        // determine if this compaction should be paused or not
         ASSERT_EQ(0, paused->load(std::memory_order_acquire));
         paused->fetch_add(1, std::memory_order_release);
       });
@@ -3340,6 +3339,7 @@ TEST_F(DBTest2, PausingManualCompaction3) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   dbfull()->DisableManualCompaction();
+
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
@@ -5634,6 +5634,103 @@ TEST_F(DBTest2, TestCompactFiles) {
 
   ASSERT_OK(user_thread1_status);
   ASSERT_OK(user_thread2_status);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBTest2, TestCancelCompactFiles) {
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options;
+  options.env = env_;
+  options.num_levels = 2;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  auto* handle = db_->DefaultColumnFamily();
+  ASSERT_EQ(db_->NumberLevels(handle), 2);
+
+  ROCKSDB_NAMESPACE::SstFileWriter sst_file_writer{
+      ROCKSDB_NAMESPACE::EnvOptions(), options};
+
+  // ingest large SST files
+  std::vector<std::string> external_sst_file_names;
+  int key_counter = 0;
+  const int num_keys_per_file = 100000;
+  const int num_files = 10;
+  for (int i = 0; i < num_files; ++i) {
+    std::string file_name =
+        dbname_ + "/test_compact_files" + std::to_string(i) + ".sst_t";
+    external_sst_file_names.push_back(file_name);
+    ASSERT_OK(sst_file_writer.Open(file_name));
+    for (int j = 0; j < num_keys_per_file; ++j) {
+      ASSERT_OK(sst_file_writer.Put(Key(j + num_keys_per_file * key_counter),
+                                    std::to_string(j)));
+    }
+    key_counter += 1;
+    ASSERT_OK(sst_file_writer.Finish());
+  }
+
+  ASSERT_OK(db_->IngestExternalFile(handle, external_sst_file_names,
+                                    IngestExternalFileOptions()));
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
+  std::vector<std::string> files;
+  GetSstFiles(env_, dbname_, &files);
+  ASSERT_EQ(files.size(), num_files);
+
+  // Test that 0 compactions happen - canceled is set to True initially
+  CompactionOptions compaction_options;
+  std::atomic<bool> canceled(true);
+  compaction_options.canceled = &canceled;
+
+  ASSERT_TRUE(db_->CompactFiles(compaction_options, handle, files, 1)
+                  .IsManualCompactionPaused());
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
+
+  // Test cancellation before the check to cancel compaction happens -
+  // compaction should not occur
+  bool disable_compaction = false;
+  compaction_options.canceled->store(false, std::memory_order_release);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "TestCancelCompactFiles:SuccessfulCompaction", [&](void* arg) {
+        auto paused = static_cast<std::atomic<int>*>(arg);
+        if (disable_compaction) {
+          db_->DisableManualCompaction();
+          ASSERT_EQ(1, paused->load(std::memory_order_acquire));
+        } else {
+          compaction_options.canceled->store(true, std::memory_order_release);
+          ASSERT_EQ(0, paused->load(std::memory_order_acquire));
+        }
+      });
+
+  ASSERT_TRUE(db_->CompactFiles(compaction_options, handle, files, 1)
+                  .IsManualCompactionPaused());
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
+
+  // DisableManualCompaction() should successfully cancel compaction
+  disable_compaction = true;
+  compaction_options.canceled->store(false, std::memory_order_release);
+  ASSERT_TRUE(db_->CompactFiles(compaction_options, handle, files, 1)
+                  .IsManualCompactionPaused());
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), num_files);
+  // unlike CompactRange, value of compaction_options.canceled will be
+  // unaffected by calling DisableManualCompactions()
+  ASSERT_FALSE(compaction_options.canceled->load());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  db_->EnableManualCompaction();
+
+  // Test cancelation after the check to cancel compaction - compaction should
+  // occur, leaving only 1 file
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactFilesImpl:0", [&](void* /*arg*/) {
+        compaction_options.canceled->store(true, std::memory_order_release);
+      });
+
+  compaction_options.canceled->store(false, std::memory_order_release);
+  ASSERT_OK(db_->CompactFiles(compaction_options, handle, files, 1));
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 1);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
