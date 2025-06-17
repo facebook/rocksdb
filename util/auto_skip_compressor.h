@@ -12,8 +12,7 @@
 #include "rocksdb/advanced_compression.h"
 
 namespace ROCKSDB_NAMESPACE {
-// Predicts Rejection Probability using sampled data of certain
-// window size
+// Predict rejection probability using a moving window approach
 class CompressionRejectionProbabilityPredictor {
  public:
   CompressionRejectionProbabilityPredictor(int window_size)
@@ -73,7 +72,7 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
   Status CompressBlockAndRecord(Slice uncompressed_data,
                                 std::string* compressed_output,
                                 CompressionType* out_compression_type,
-                                ManagedWorkingArea* wa);
+                                AutoSkipWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   const CompressionOptions kOpts;
