@@ -8,6 +8,7 @@
 
 #include "options/options_helper.h"
 #include "rocksdb/advanced_compression.h"
+#include "test_util/sync_point.h"
 #include "util/random.h"
 namespace ROCKSDB_NAMESPACE {
 
@@ -60,7 +61,7 @@ Status AutoSkipCompressorWrapper::CompressBlock(
                                   out_compression_type, wa);
   } else {
     auto predictor_ptr =
-        static_cast<AutoSkipCompressionContext*>(wa->get())->predictor_;
+        static_cast<AutoSkipCompressionContext*>(wa->get())->predictor;
     auto prediction = predictor_ptr->Predict();
     if (prediction <= kProbabilityCutOff) {
       // decide to compress
@@ -90,12 +91,12 @@ Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
   auto wrap_wa =
-      &(static_cast<AutoSkipCompressionContext*>(wa->get())->wrapped_);
+      &(static_cast<AutoSkipCompressionContext*>(wa->get())->wrapped);
   Status status = wrapped_->CompressBlock(uncompressed_data, compressed_output,
                                           out_compression_type, wrap_wa);
   // determine if it was rejected or compressed
   auto predictor_ptr =
-      static_cast<AutoSkipCompressionContext*>(wa->get())->predictor_;
+      static_cast<AutoSkipCompressionContext*>(wa->get())->predictor;
   predictor_ptr->Record(uncompressed_data, compressed_output, opts_);
   return status;
 }

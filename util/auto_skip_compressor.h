@@ -10,7 +10,6 @@
 #include <memory>
 
 #include "rocksdb/advanced_compression.h"
-#include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Predicts Rejection Probability using previous using past data of certain
@@ -37,15 +36,15 @@ class CompressionRejectionProbabilityPredictor {
 class AutoSkipCompressionContext : public Compressor::WorkingArea {
  public:
   explicit AutoSkipCompressionContext(Compressor::ManagedWorkingArea&& wa)
-      : wrapped_(std::move(wa)),
-        predictor_(
+      : wrapped(std::move(wa)),
+        predictor(
             std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
   ~AutoSkipCompressionContext() {}
   AutoSkipCompressionContext(const AutoSkipCompressionContext&) = delete;
   AutoSkipCompressionContext& operator=(const AutoSkipCompressionContext&) =
       delete;
-  Compressor::ManagedWorkingArea wrapped_;
-  std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor_;
+  Compressor::ManagedWorkingArea wrapped;
+  std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor;
 };
 
 class AutoSkipCompressorWrapper : public CompressorWrapper {
