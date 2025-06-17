@@ -1011,7 +1011,7 @@ def finalize_and_sanitize(src_params):
         dest_params["compression_type"] = "zstd"
         dest_params["bottommost_compression_type"] = "zstd"
     elif dest_params.get("compression_manager") == "autoskip":
-        # disabling compression parallel threads if mixed manager is being used as the predictor is not thread safe
+        # disabling compression parallel threads if auto skip manager is being used as the predictor is not thread safe
         dest_params["compression_parallel_threads"] = 1
         # esuring the compression is being used
         if dest_params.get("compression_type") == "none":

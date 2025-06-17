@@ -37,8 +37,7 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
  public:
   const char* Name() const override;
   explicit AutoSkipCompressorWrapper(std::unique_ptr<Compressor> compressor,
-                                     const CompressionOptions& opts,
-                                     const CompressionType type);
+                                     const CompressionOptions& opts);
 
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
@@ -51,8 +50,7 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
                                 ManagedWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
-  const CompressionOptions& opts_;
-  const CompressionType type_;
+  const CompressionOptions kOpts;
   std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor_;
 };
 
