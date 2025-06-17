@@ -106,6 +106,7 @@ class BlockBasedTable : public TableReader {
       std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr =
           nullptr,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
+      UnownedPtr<CompressionManager> compression_manager = nullptr,
       bool prefetch_index_and_filter_in_cache = true, bool skip_filters = false,
       int level = -1, const bool immortal_table = false,
       const SequenceNumber largest_seqno = 0,

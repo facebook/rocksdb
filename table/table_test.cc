@@ -444,7 +444,8 @@ class TableConstructor : public Constructor {
 
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     return moptions.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
+        TableReaderOptions(ioptions, moptions.prefix_extractor,
+                           moptions.compression_manager.get(), soptions,
                            *last_internal_comparator_,
                            0 /* block_protection_bytes_per_key */,
                            /*skip_filters*/ false,
@@ -5332,7 +5333,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
         new RandomAccessFileReader(std::move(source), ""));
 
     options.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor, EnvOptions(),
+        TableReaderOptions(ioptions, moptions.prefix_extractor,
+                           moptions.compression_manager.get(), EnvOptions(),
                            ikc, 0 /* block_protection_bytes_per_key */),
         std::move(file_reader), ss_rw.contents().size(), &table_reader);
 
@@ -5507,7 +5509,8 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   const MutableCFOptions moptions2(options2);
 
   ASSERT_OK(moptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions2, moptions2.prefix_extractor, EnvOptions(),
+      TableReaderOptions(ioptions2, moptions2.prefix_extractor,
+                         moptions2.compression_manager.get(), EnvOptions(),
                          GetPlainInternalComparator(options2.comparator),
                          0 /* block_protection_bytes_per_key */),
       std::move(file_reader), sink->contents().size(), &table_reader));
@@ -7004,7 +7007,8 @@ TEST_F(ExternalTableTest, SstReaderTest) {
   std::shared_ptr<ExternalTableFactory> factory =
       std::make_shared<DummyExternalTableFactory>(
           /*support_property_block=*/false);
-  options.table_factory = NewExternalTableFactory(factory);
+  options.table_factory.reset(
+      NewExternalTableFactoryAsUniquePtr(factory).release());
 
   std::unique_ptr<SstFileWriter> writer;
   writer.reset(new SstFileWriter(EnvOptions(), options));
@@ -7386,8 +7390,7 @@ TEST_F(ExternalTableTest, IngestionTest) {
 
 int main(int argc, char** argv) {
   // Opt-in this whole test file
-  ROCKSDB_NAMESPACE::BlockBasedTableFactory::AllowUnsupportedFormatVersion() =
-      true;
+  ROCKSDB_NAMESPACE::TEST_AllowUnsupportedFormatVersion() = true;
 
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);

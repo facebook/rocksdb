@@ -163,10 +163,11 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
                                 bool user_defined_timestamps_persisted = true) {
     const MutableCFOptions moptions(options_);
     TableReaderOptions table_reader_options = TableReaderOptions(
-        ioptions, moptions.prefix_extractor, foptions, comparator,
-        0 /* block_protection_bytes_per_key */, false /* _skip_filters */,
-        false /* _immortal */, false /* _force_direct_prefetch */,
-        -1 /* _level */, nullptr /* _block_cache_tracer */,
+        ioptions, moptions.prefix_extractor, moptions.compression_manager.get(),
+        foptions, comparator, 0 /* block_protection_bytes_per_key */,
+        false /* _skip_filters */, false /* _immortal */,
+        false /* _force_direct_prefetch */, -1 /* _level */,
+        nullptr /* _block_cache_tracer */,
         0 /* _max_file_size_for_l0_meta_pin */, "" /* _cur_db_session_id */,
         0 /* _cur_file_num */, {} /* _unique_id */, 0 /* _largest_seqno */,
         0 /* _tail_size */, user_defined_timestamps_persisted);
