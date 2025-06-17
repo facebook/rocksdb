@@ -34,17 +34,17 @@ class CompressionRejectionProbabilityPredictor {
   size_t window_size_;
 };
 
-class AutoSkipCompressionContext : public CompressionContext {
+class AutoSkipCompressionContext : public Compressor::WorkingArea {
  public:
-  explicit AutoSkipCompressionContext(const CompressionType& type,
-                                      const CompressionOptions& options)
-      : CompressionContext::CompressionContext(type, options),
+  explicit AutoSkipCompressionContext(Compressor::ManagedWorkingArea&& wa)
+      : wrapped_(std::move(wa)),
         predictor_(
             std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
   ~AutoSkipCompressionContext() {}
   AutoSkipCompressionContext(const AutoSkipCompressionContext&) = delete;
   AutoSkipCompressionContext& operator=(const AutoSkipCompressionContext&) =
       delete;
+  Compressor::ManagedWorkingArea wrapped_;
   std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor_;
 };
 
