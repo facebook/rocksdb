@@ -473,14 +473,7 @@ class ExternalTableFactoryAdapter : public TableFactory {
 
 }  // namespace
 
-std::shared_ptr<TableFactory> NewExternalTableFactory(
-    std::shared_ptr<ExternalTableFactory> inner_factory) {
-  std::shared_ptr<TableFactory> res;
-  res.reset(new ExternalTableFactoryAdapter(std::move(inner_factory)));
-  return res;
-}
-
-std::unique_ptr<TableFactory> NewExternalTableFactoryAsUniquePtr(
+std::unique_ptr<TableFactory> NewExternalTableFactory(
     std::shared_ptr<ExternalTableFactory> inner_factory) {
   std::unique_ptr<TableFactory> res;
   res = std::make_unique<ExternalTableFactoryAdapter>(std::move(inner_factory));
