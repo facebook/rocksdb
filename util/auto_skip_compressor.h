@@ -12,7 +12,7 @@
 #include "rocksdb/advanced_compression.h"
 
 namespace ROCKSDB_NAMESPACE {
-// Predicts Rejection Probability using previous using past data of certain
+// Predicts Rejection Probability using sampled data of certain
 // window size
 class CompressionRejectionProbabilityPredictor {
  public:
