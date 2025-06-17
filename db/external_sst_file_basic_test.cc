@@ -446,7 +446,7 @@ TEST_F(ExternalSSTFileBasicTest, BasicWithFileChecksumCrc32c) {
 namespace {
 class VariousFileChecksumGenerator : public FileChecksumGenCrc32c {
  public:
-  VariousFileChecksumGenerator(const std::string& name)
+  explicit VariousFileChecksumGenerator(const std::string& name)
       : FileChecksumGenCrc32c({}), name_(name) {}
 
   const char* Name() const override { return name_.c_str(); }
