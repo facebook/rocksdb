@@ -1,1 +1,1 @@
-Add the NewExternalTableFactoryAsUniquePtr() API to return a std::unique_ptr
+Change NewExternalTableFactory to return a unique_ptr instead of shared_ptr.
