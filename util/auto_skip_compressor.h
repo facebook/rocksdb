@@ -50,7 +50,7 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
                                 ManagedWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
-  const CompressionOptions opts_;
+  const CompressionOptions kOpts;
   std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor_;
 };
 

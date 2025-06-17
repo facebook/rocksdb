@@ -45,7 +45,7 @@ bool CompressionRejectionProbabilityPredictor::Record(
 AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
     std::unique_ptr<Compressor> compressor, const CompressionOptions& opts)
     : CompressorWrapper::CompressorWrapper(std::move(compressor)),
-      opts_(opts),
+      kOpts(opts),
       predictor_(
           std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
 
@@ -81,7 +81,7 @@ Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
   Status status = wrapped_->CompressBlock(uncompressed_data, compressed_output,
                                           out_compression_type, wa);
   // determine if it was rejected or compressed
-  predictor_->Record(uncompressed_data, compressed_output, opts_);
+  predictor_->Record(uncompressed_data, compressed_output, kOpts);
   return status;
 }
 
