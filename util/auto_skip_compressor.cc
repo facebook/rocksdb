@@ -69,17 +69,15 @@ Status AutoSkipCompressorWrapper::CompressBlock(
   TEST_SYNC_POINT_CALLBACK(
       "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
       &exploration);
+  auto autoskip_wa = static_cast<AutoSkipWorkingArea*>(wa->get());
   if (exploration) {
-    auto autoskip_wa = static_cast<AutoSkipWorkingArea*>(wa->get());
     return CompressBlockAndRecord(uncompressed_data, compressed_output,
                                   out_compression_type, autoskip_wa);
   } else {
-    auto predictor_ptr =
-        static_cast<AutoSkipWorkingArea*>(wa->get())->predictor;
+    auto predictor_ptr = autoskip_wa->predictor;
     auto prediction = predictor_ptr->Predict();
     if (prediction <= kProbabilityCutOff) {
       // decide to compress
-      auto autoskip_wa = static_cast<AutoSkipWorkingArea*>(wa->get());
       return CompressBlockAndRecord(uncompressed_data, compressed_output,
                                     out_compression_type, autoskip_wa);
     } else {
