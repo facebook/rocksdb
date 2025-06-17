@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.3.4 (06/17/2025)
+### Public API Changes
+* Change NewExternalTableFactory to return a unique_ptr instead of shared_ptr.
+
 ## 10.3.3 (06/04/2025)
 ### Bug Fixes
 * Fix iterator operations returning NotImplemented status if disallow_memtable_writes and paranoid_memory_checks CF options are both set.
