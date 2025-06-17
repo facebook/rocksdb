@@ -56,6 +56,14 @@ const char* AutoSkipCompressorWrapper::Name() const {
 Status AutoSkipCompressorWrapper::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
+  // Check if the managed working area is provided or owned by this object.
+  // If not, bypass auto-skip logic since the working area lacks a predictor to
+  // record or make necessary decisions to compress or bypass compression of the
+  // block
+  if (wa == nullptr || wa->owner() != this) {
+    return wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                                   out_compression_type, wa);
+  }
   bool exploration =
       Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
   TEST_SYNC_POINT_CALLBACK(
