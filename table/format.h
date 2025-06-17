@@ -175,6 +175,10 @@ inline bool FormatVersionUsesIndexHandleInFooter(uint32_t version) {
   return version < 6;
 }
 
+inline bool FormatVersionUsesCompressionManagerName(uint32_t version) {
+  return version >= 7;
+}
+
 // Footer encapsulates the fixed information stored at the tail end of every
 // SST file. In general, it should only include things that cannot go
 // elsewhere under the metaindex block. For example, checksum_type is
@@ -307,6 +311,10 @@ class FooterBuilder {
   Slice slice_;
   std::array<char, Footer::kMaxEncodedLength> data_;
 };
+
+// Set to true to allow unit testing of writing unsupported block-based table
+// format versions (to test read side)
+bool& TEST_AllowUnsupportedFormatVersion();
 
 // Read the footer from file
 // If enforce_table_magic_number != 0, ReadFooterFromFile() will return

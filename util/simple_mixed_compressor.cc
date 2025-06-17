@@ -55,6 +55,11 @@ std::unique_ptr<Compressor> MultiCompressorWrapper::MaybeCloneSpecialized(
                                                     std::move(dict_samples));
 }
 
+// RandomMixedCompressor implementation
+const char* RandomMixedCompressor::Name() const {
+  return "RandomMixedCompressor";
+}
+
 Status RandomMixedCompressor::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
@@ -66,8 +71,7 @@ Status RandomMixedCompressor::CompressBlock(
 }
 
 const char* RandomMixedCompressionManager::Name() const {
-  return wrapped_->Name();
-  // return "RandomMixedCompressionManager";
+  return "RandomMixedCompressionManager";
 }
 
 std::unique_ptr<Compressor> RandomMixedCompressionManager::GetCompressorForSST(
@@ -79,6 +83,10 @@ std::unique_ptr<Compressor> RandomMixedCompressionManager::GetCompressorForSST(
 }
 
 // RoundRobinCompressor implementation
+const char* RoundRobinCompressor::Name() const {
+  return "RoundRobinCompressor";
+}
+
 Status RoundRobinCompressor::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
@@ -92,10 +100,7 @@ Status RoundRobinCompressor::CompressBlock(
 RelaxedAtomic<uint64_t> RoundRobinCompressor::block_counter{0};
 
 // RoundRobinManager implementation
-const char* RoundRobinManager::Name() const {
-  // return "RoundRobinManager";
-  return wrapped_->Name();
-}
+const char* RoundRobinManager::Name() const { return "RoundRobinManager"; }
 
 std::unique_ptr<Compressor> RoundRobinManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,

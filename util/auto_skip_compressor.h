@@ -49,6 +49,7 @@ class AutoSkipCompressionContext : public Compressor::WorkingArea {
 
 class AutoSkipCompressorWrapper : public CompressorWrapper {
  public:
+  const char* Name() const override;
   explicit AutoSkipCompressorWrapper(std::unique_ptr<Compressor> compressor,
                                      const CompressionOptions& opts,
                                      const CompressionType type);

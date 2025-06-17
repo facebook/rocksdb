@@ -71,7 +71,7 @@ bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode);
 // Store in *dst a string of length "len" that will compress to
 // "N*compressed_fraction" bytes and return a Slice that references
 // the generated data.
-Slice CompressibleString(Random* rnd, double compressed_fraction, int len,
+Slice CompressibleString(Random* rnd, double compressed_to_fraction, int len,
                          std::string* dst);
 
 #ifndef NDEBUG
