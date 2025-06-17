@@ -7007,7 +7007,8 @@ TEST_F(ExternalTableTest, SstReaderTest) {
   std::shared_ptr<ExternalTableFactory> factory =
       std::make_shared<DummyExternalTableFactory>(
           /*support_property_block=*/false);
-  options.table_factory = NewExternalTableFactory(factory);
+  options.table_factory.reset(
+      NewExternalTableFactoryAsUniquePtr(factory).release());
 
   std::unique_ptr<SstFileWriter> writer;
   writer.reset(new SstFileWriter(EnvOptions(), options));

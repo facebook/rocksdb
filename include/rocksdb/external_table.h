@@ -272,4 +272,8 @@ class ExternalTableFactory : public Customizable {
 std::shared_ptr<TableFactory> NewExternalTableFactory(
     std::shared_ptr<ExternalTableFactory> inner_factory);
 
+// A unique_ptr version of the above
+std::unique_ptr<TableFactory> NewExternalTableFactoryAsUniquePtr(
+    std::shared_ptr<ExternalTableFactory> inner_factory);
+
 }  // namespace ROCKSDB_NAMESPACE
