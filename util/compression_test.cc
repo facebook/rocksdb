@@ -72,36 +72,36 @@ class AutoSkipTestFlushBlockPolicy : public FlushBlockPolicy {
         bypassed_percentage = static_cast<int>(bypassed_count * 100 / total);
         compressed_percentage =
             static_cast<int>(compressed_count * 100 / total);
-      }
-      // use mulitple of 10 to get correct assertion
-      switch (multiple_of_10) {
-        case 1:
-          // This is exploration stage in which we set the rejection ratio to
-          // 0.6
-          EXPECT_EQ(rejection_percentage, 60);
-          EXPECT_EQ(bypassed_percentage, 0);
-          EXPECT_EQ(compressed_percentage, 40);
-          break;
-        case 2:
-          // With the rejection ratio set to 0.6 all the blocks should be
-          // bypassed in next window
-          EXPECT_EQ(rejection_percentage, 0);
-          EXPECT_EQ(bypassed_percentage, 100);
-          EXPECT_EQ(compressed_percentage, 0);
-          break;
-        case 3:
-          // This is exploration stage in which we set the rejection ratio to
-          // 0.4
-          EXPECT_EQ(rejection_percentage, 40);
-          EXPECT_EQ(bypassed_percentage, 0);
-          EXPECT_EQ(compressed_percentage, 60);
-          break;
-        case 4:
-          // With the rejection ratio set to 0.4 all the blocks should be
-          // attempted to be compressed
-          EXPECT_EQ(rejection_percentage, 60);
-          EXPECT_EQ(bypassed_percentage, 0);
-          EXPECT_EQ(compressed_percentage, 40);
+        // use mulitple of 10 to get correct assertion
+        switch (multiple_of_10) {
+          case 1:
+            // This is exploration stage in which we set the rejection ratio to
+            // 0.6
+            EXPECT_EQ(rejection_percentage, 60);
+            EXPECT_EQ(bypassed_percentage, 0);
+            EXPECT_EQ(compressed_percentage, 40);
+            break;
+          case 2:
+            // With the rejection ratio set to 0.6 all the blocks should be
+            // bypassed in next window
+            EXPECT_EQ(rejection_percentage, 0);
+            EXPECT_EQ(bypassed_percentage, 100);
+            EXPECT_EQ(compressed_percentage, 0);
+            break;
+          case 3:
+            // This is exploration stage in which we set the rejection ratio to
+            // 0.4
+            EXPECT_EQ(rejection_percentage, 40);
+            EXPECT_EQ(bypassed_percentage, 0);
+            EXPECT_EQ(compressed_percentage, 60);
+            break;
+          case 4:
+            // With the rejection ratio set to 0.4 all the blocks should be
+            // attempted to be compressed
+            EXPECT_EQ(rejection_percentage, 60);
+            EXPECT_EQ(bypassed_percentage, 0);
+            EXPECT_EQ(compressed_percentage, 40);
+        }
       }
     }
     num_keys_++;
