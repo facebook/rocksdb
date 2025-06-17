@@ -33,24 +33,20 @@ class CompressionRejectionProbabilityPredictor {
   size_t window_size_;
 };
 
-class AutoSkipCompressionContext : public Compressor::WorkingArea {
+class AutoSkipWorkingArea : public Compressor::WorkingArea {
  public:
-  explicit AutoSkipCompressionContext(Compressor::ManagedWorkingArea&& wa)
+  explicit AutoSkipWorkingArea(Compressor::ManagedWorkingArea&& wa)
       : wrapped(std::move(wa)),
         predictor(
             std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
-  ~AutoSkipCompressionContext() {}
-  AutoSkipCompressionContext(const AutoSkipCompressionContext&) = delete;
-  AutoSkipCompressionContext& operator=(const AutoSkipCompressionContext&) =
-      delete;
-  // Define move constructor
-  AutoSkipCompressionContext(AutoSkipCompressionContext&& other) noexcept
+  ~AutoSkipWorkingArea() {}
+  AutoSkipWorkingArea(const AutoSkipWorkingArea&) = delete;
+  AutoSkipWorkingArea& operator=(const AutoSkipWorkingArea&) = delete;
+  AutoSkipWorkingArea(AutoSkipWorkingArea&& other) noexcept
       : wrapped(std::move(other.wrapped)),
         predictor(std::move(other.predictor)) {}
 
-  // Define move assignment operator
-  AutoSkipCompressionContext& operator=(
-      AutoSkipCompressionContext&& other) noexcept {
+  AutoSkipWorkingArea& operator=(AutoSkipWorkingArea&& other) noexcept {
     if (this != &other) {
       wrapped = std::move(other.wrapped);
       predictor = std::move(other.predictor);
