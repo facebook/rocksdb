@@ -1408,6 +1408,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
   for (uint32_t attempt = 0; attempt < 20; attempt++) {
     // Random Read
     Random rnd(301 + attempt);
+#ifndef OS_WIN  // Windows currently does not read remaining data.
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "UpdateResults::io_uring_result", [&](void* arg) {
           if (attempt > 0) {
@@ -1421,6 +1422,7 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
             }
           }
         });
+#endif
 
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     std::unique_ptr<RandomAccessFile> file;
@@ -1478,6 +1480,7 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
     // too long, we can modify the io uring depth with SyncPoint here.
     const int num_reads = rnd.Uniform(512) + 1;
 
+#ifndef OS_WIN  // Windows currently does not read remaining data.
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "UpdateResults::io_uring_result", [&](void* arg) {
           if (attempt > 5) {
@@ -1494,6 +1497,7 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
             }
           }
         });
+#endif
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
     // Generate (offset, len) pairs
