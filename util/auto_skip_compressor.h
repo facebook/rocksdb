@@ -122,13 +122,15 @@ class CPUIOAwareCompressor : public Compressor {
   void ReleaseWorkingArea(WorkingArea* wa) override;
 
  private:
-  Status CompressBlockAndRecord(Slice uncompressed_data,
+  Status CompressBlockAndRecord(int choosen_compression_type,
+                                int compresion_level_ptr,
+                                Slice uncompressed_data,
                                 std::string* compressed_output,
                                 CompressionType* out_compression_type,
                                 AutoSkipWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
-  std::vector<std::vector<int>> compresion_levels_ = {
+  std::vector<std::vector<int>> compression_levels_ = {
       {0}, {}, {}, {1, 4, 9}, {1, 4, 9}, {}, {1, 15, 22}};
   const CompressionOptions kOpts;
   std::vector<std::vector<std::unique_ptr<Compressor>>> allcompressors_;

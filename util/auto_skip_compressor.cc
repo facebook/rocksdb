@@ -129,12 +129,12 @@ CPUIOAwareCompressor::CPUIOAwareCompressor(const CompressionOptions& opts)
     if (type_ == kNoCompression) {
       continue;
     }
-    if (compresion_levels_[type_ - 1].size() == 0) {
+    if (compression_levels_[type_ - 1].size() == 0) {
       allcompressors_.push_back({});
       continue;
     } else {
       std::vector<std::unique_ptr<Compressor>> compressors_diff_levels;
-      for (auto level : compresion_levels_[type_ - 1]) {
+      for (auto level : compression_levels_[type_ - 1]) {
         CompressionOptions new_opts = opts;
         new_opts.level = level;
         compressors_diff_levels.push_back(
@@ -167,15 +167,25 @@ Status CPUIOAwareCompressor::CompressBlock(
       &exploration);
   auto autoskip_wa = static_cast<AutoSkipWorkingArea*>(wa->get());
   if (exploration) {
-    return CompressBlockAndRecord(uncompressed_data, compressed_output,
-                                  out_compression_type, autoskip_wa);
+    int choosen_compression_type =
+        Random::GetTLSInstance()->Uniform(compression_levels_.size());
+    int compresion_level_ptr = Random::GetTLSInstance()->Uniform(
+        compression_levels_[choosen_compression_type].size());
+    return CompressBlockAndRecord(
+        choosen_compression_type, compresion_level_ptr, uncompressed_data,
+        compressed_output, out_compression_type, autoskip_wa);
   } else {
     auto predictor_ptr = autoskip_wa->predictor;
     auto prediction = predictor_ptr->Predict();
     if (prediction <= kProbabilityCutOff) {
+      int choosen_compression_type =
+          Random::GetTLSInstance()->Uniform(compression_levels_.size());
+      int compresion_level_ptr = Random::GetTLSInstance()->Uniform(
+          compression_levels_[choosen_compression_type].size());
       // decide to compress
-      return CompressBlockAndRecord(uncompressed_data, compressed_output,
-                                    out_compression_type, autoskip_wa);
+      return CompressBlockAndRecord(
+          choosen_compression_type, compresion_level_ptr, uncompressed_data,
+          compressed_output, out_compression_type, autoskip_wa);
     } else {
       // decide to bypass compression
       *out_compression_type = kNoCompression;
@@ -195,11 +205,13 @@ void CPUIOAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
 }
 
 Status CPUIOAwareCompressor::CompressBlockAndRecord(
+    int choosen_compression_type, int compresion_level_ptr,
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, AutoSkipWorkingArea* wa) {
-  Status status = allcompressors_.back().back()->CompressBlock(
-      uncompressed_data, compressed_output, out_compression_type,
-      &(wa->wrapped));
+  Status status =
+      allcompressors_[choosen_compression_type][compresion_level_ptr]
+          ->CompressBlock(uncompressed_data, compressed_output,
+                          out_compression_type, &(wa->wrapped));
   // determine if it was rejected or compressed
   auto predictor_ptr = wa->predictor;
   predictor_ptr->Record(uncompressed_data, compressed_output, kOpts);
