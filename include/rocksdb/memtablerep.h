@@ -403,10 +403,10 @@ class SkipListFactory : public MemTableRepFactory {
 // the vector is sorted. This is useful for workloads where iteration is very
 // rare and writes are generally not issued after reads begin.
 //
-// Concurrent inserts are supported by buffering writes at thread local vectors
-// for each write batch. Reusing write threads, doing batched writes and
-// enable unordered_write (see option comment for effects on read consistency)
-// are recommended when enabling concurrent inserts.
+// Concurrent inserts are supported by buffering writes in thread-local vectors
+// for each write batch. To optimize performance for concurrent inserts, it is
+// recommended to perform batched writes, and enable unordered_write (refer to
+// the option comment for its impact on read consistency).
 //
 // Parameters:
 //   count: Passed to the constructor of the underlying std::vector of each

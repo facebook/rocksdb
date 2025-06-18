@@ -3210,11 +3210,11 @@ Status WriteBatchInternal::InsertInto(
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
     TrimHistoryScheduler* trim_history_scheduler,
     bool ignore_missing_column_families, uint64_t recovery_log_number, DB* db,
-    bool concurrent_memtable_writes, bool seq_per_batch, bool batch_per_txn) {
+    bool seq_per_batch, bool batch_per_txn) {
   MemTableInserter inserter(
       sequence, memtables, flush_scheduler, trim_history_scheduler,
       ignore_missing_column_families, recovery_log_number, db,
-      concurrent_memtable_writes, nullptr /* prot_info */,
+      /*concurrent_memtable_writes=*/false, nullptr /* prot_info */,
       nullptr /*has_valid_writes*/, seq_per_batch, batch_per_txn);
   for (auto w : write_group) {
     if (w->CallbackFailed()) {

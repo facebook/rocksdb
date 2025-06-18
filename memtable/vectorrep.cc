@@ -104,15 +104,21 @@ class VectorRep : public MemTableRep {
 
  private:
   friend class Iterator;
+  ALIGN_AS(CACHE_LINE_SIZE) RelaxedAtomic<size_t> bucket_size_;
   using Bucket = std::vector<const char*>;
   std::shared_ptr<Bucket> bucket_;
   mutable port::RWMutex rwlock_;
-  RelaxedAtomic<size_t> bucket_size_;
   bool immutable_;
   bool sorted_;
   const KeyComparator& compare_;
   // Thread-local vector to buffer concurrent writes.
+  using TlBucket = std::vector<const char*>;
   ThreadLocalPtr tl_writes_;
+
+  static void DeleteTlBucket(void* ptr) {
+    auto* v = static_cast<TlBucket*>(ptr);
+    delete v;
+  }
 };
 
 void VectorRep::Insert(KeyHandle handle) {
@@ -126,13 +132,12 @@ void VectorRep::Insert(KeyHandle handle) {
 }
 
 void VectorRep::InsertConcurrently(KeyHandle handle) {
-  void* v = tl_writes_.Get();
+  auto* v = static_cast<TlBucket*>(tl_writes_.Get());
   if (!v) {
-    v = new std::vector<const char*>();
+    v = new TlBucket();
     tl_writes_.Reset(v);
   }
-  static_cast<std::vector<const char*>*>(v)->push_back(
-      static_cast<char*>(handle));
+  v->push_back(static_cast<char*>(handle));
 }
 
 // Returns true iff an entry that compares equal to key is in the collection.
@@ -152,7 +157,7 @@ size_t VectorRep::ApproximateMemoryUsage() {
 }
 
 void VectorRep::BatchPostProcess() {
-  auto v = static_cast<std::vector<const char*>*>(tl_writes_.Get());
+  auto* v = static_cast<TlBucket*>(tl_writes_.Get());
   if (v) {
     {
       WriteLock l(&rwlock_);
@@ -162,25 +167,20 @@ void VectorRep::BatchPostProcess() {
       }
     }
     bucket_size_.FetchAddRelaxed(v->size());
-    v->clear();
-    v->shrink_to_fit();
+    delete v;
+    tl_writes_.Reset(nullptr);
   }
-}
-
-void delete_vector(void* ptr) {
-  std::vector<const char*>* v = static_cast<std::vector<const char*>*>(ptr);
-  delete v;
 }
 
 VectorRep::VectorRep(const KeyComparator& compare, Allocator* allocator,
                      size_t count)
     : MemTableRep(allocator),
-      bucket_(new Bucket()),
       bucket_size_(0),
+      bucket_(new Bucket()),
       immutable_(false),
       sorted_(false),
       compare_(compare),
-      tl_writes_(delete_vector) {
+      tl_writes_(DeleteTlBucket) {
   bucket_.get()->reserve(count);
 }
 
