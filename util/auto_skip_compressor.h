@@ -55,6 +55,16 @@ class WindowAveragePredictor {
   int count_;
   const int kWindowSize;
 };
+
+using IOCostPredictor = WindowAveragePredictor<size_t>;
+using CPUUtilPredictor = WindowAveragePredictor<int>;
+
+struct IOCPUCostPredictor {
+  IOCPUCostPredictor(int window_size)
+      : IOPredictor(window_size), CPUPredictor(window_size) {}
+  IOCostPredictor IOPredictor;
+  CPUUtilPredictor CPUPredictor;
+};
 class AutoSkipWorkingArea : public Compressor::WorkingArea {
  public:
   explicit AutoSkipWorkingArea(Compressor::ManagedWorkingArea&& wa)
