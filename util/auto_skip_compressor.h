@@ -87,4 +87,12 @@ class AutoSkipCompressorManager : public CompressionManagerWrapper {
       CompressionType preferred) override;
 };
 
+class CUPIOAwareCompressorManager : public CompressionManagerWrapper {
+  using CompressionManagerWrapper::CompressionManagerWrapper;
+  const char* Name() const override;
+  std::unique_ptr<Compressor> GetCompressorForSST(
+      const FilterBuildingContext& context, const CompressionOptions& opts,
+      CompressionType preferred) override;
+};
+
 }  // namespace ROCKSDB_NAMESPACE

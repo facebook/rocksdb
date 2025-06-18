@@ -128,4 +128,24 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
   return std::make_shared<AutoSkipCompressorManager>(
       wrapped == nullptr ? GetDefaultBuiltinCompressionManager() : wrapped);
 }
+const char* CUPIOAwareCompressorManager::Name() const {
+  // should have returned "AutoSkipCompressorManager" but we currently have an
+  // error so for now returning name of the wrapped container
+  return wrapped_->Name();
+}
+
+std::unique_ptr<Compressor> CUPIOAwareCompressorManager::GetCompressorForSST(
+    const FilterBuildingContext& context, const CompressionOptions& opts,
+    CompressionType preferred) {
+  assert(GetSupportedCompressions().size() > 1);
+  assert(preferred != kNoCompression);
+  return std::make_unique<AutoSkipCompressorWrapper>(
+      wrapped_->GetCompressorForSST(context, opts, preferred), opts);
+}
+
+std::shared_ptr<CompressionManagerWrapper> CreateCPUIOAwareCompressorManager(
+    std::shared_ptr<CompressionManager> wrapped) {
+  return std::make_shared<AutoSkipCompressorManager>(
+      wrapped == nullptr ? GetDefaultBuiltinCompressionManager() : wrapped);
+}
 }  // namespace ROCKSDB_NAMESPACE
