@@ -128,8 +128,10 @@ class CPUIOAwareCompressor : public Compressor {
                                 AutoSkipWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
+  std::vector<std::vector<int>> compresion_levels_ = {
+      {0}, {}, {}, {1, 4, 9}, {1, 4, 9}, {}, {1, 15, 22}};
   const CompressionOptions kOpts;
-  std::vector<std::unique_ptr<Compressor>> compressors_;
+  std::vector<std::vector<std::unique_ptr<Compressor>>> allcompressors_;
 };
 
 class CUPIOAwareCompressorManager : public CompressionManagerWrapper {

@@ -129,7 +129,19 @@ CPUIOAwareCompressor::CPUIOAwareCompressor(const CompressionOptions& opts)
     if (type_ == kNoCompression) {
       continue;
     }
-    compressors_.push_back(builtInManager->GetCompressor(opts, type_));
+    if (compresion_levels_[type_ - 1].size() == 0) {
+      allcompressors_.push_back({});
+      continue;
+    } else {
+      std::vector<std::unique_ptr<Compressor>> compressors_diff_levels;
+      for (auto level : compresion_levels_[type_ - 1]) {
+        CompressionOptions new_opts = opts;
+        new_opts.level = level;
+        compressors_diff_levels.push_back(
+            builtInManager->GetCompressor(new_opts, type_));
+      }
+      allcompressors_.push_back(std::move(compressors_diff_levels));
+    }
   }
 }
 
@@ -141,11 +153,11 @@ Status CPUIOAwareCompressor::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
   // Check if the managed working area is provided or owned by this object.
-  // If not, bypass auto-skip logic since the working area lacks a predictor to
-  // record or make necessary decisions to compress or bypass compression of the
-  // block
+  // If not, bypass auto-skip logic since the working area lacks a predictor
+  // to record or make necessary decisions to compress or bypass compression
+  // of the block
   if (wa == nullptr || wa->owner() != this) {
-    return compressors_.back()->CompressBlock(
+    return allcompressors_.back().back()->CompressBlock(
         uncompressed_data, compressed_output, out_compression_type, wa);
   }
   bool exploration =
@@ -174,7 +186,7 @@ Status CPUIOAwareCompressor::CompressBlock(
 }
 
 Compressor::ManagedWorkingArea CPUIOAwareCompressor::ObtainWorkingArea() {
-  auto wrap_wa = compressors_.back()->ObtainWorkingArea();
+  auto wrap_wa = allcompressors_.back().back()->ObtainWorkingArea();
   return ManagedWorkingArea(new CPUIOAwareWorkingArea(std::move(wrap_wa)),
                             this);
 }
@@ -185,9 +197,9 @@ void CPUIOAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
 Status CPUIOAwareCompressor::CompressBlockAndRecord(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, AutoSkipWorkingArea* wa) {
-  Status status =
-      compressors_.back()->CompressBlock(uncompressed_data, compressed_output,
-                                         out_compression_type, &(wa->wrapped));
+  Status status = allcompressors_.back().back()->CompressBlock(
+      uncompressed_data, compressed_output, out_compression_type,
+      &(wa->wrapped));
   // determine if it was rejected or compressed
   auto predictor_ptr = wa->predictor;
   predictor_ptr->Record(uncompressed_data, compressed_output, kOpts);
