@@ -13,7 +13,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 // Predict rejection probability using a moving window approach
-// This class is not thread safe
 class CompressionRejectionProbabilityPredictor {
  public:
   CompressionRejectionProbabilityPredictor(int window_size)
@@ -33,6 +32,30 @@ class CompressionRejectionProbabilityPredictor {
   size_t window_size_;
 };
 
+class AutoSkipWorkingArea : public Compressor::WorkingArea {
+ public:
+  explicit AutoSkipWorkingArea(Compressor::ManagedWorkingArea&& wa)
+      : wrapped(std::move(wa)),
+        predictor(
+            std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
+  ~AutoSkipWorkingArea() {}
+  AutoSkipWorkingArea(const AutoSkipWorkingArea&) = delete;
+  AutoSkipWorkingArea& operator=(const AutoSkipWorkingArea&) = delete;
+  AutoSkipWorkingArea(AutoSkipWorkingArea&& other) noexcept
+      : wrapped(std::move(other.wrapped)),
+        predictor(std::move(other.predictor)) {}
+
+  AutoSkipWorkingArea& operator=(AutoSkipWorkingArea&& other) noexcept {
+    if (this != &other) {
+      wrapped = std::move(other.wrapped);
+      predictor = std::move(other.predictor);
+    }
+    return *this;
+  }
+  Compressor::ManagedWorkingArea wrapped;
+  std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor;
+};
+
 class AutoSkipCompressorWrapper : public CompressorWrapper {
  public:
   const char* Name() const override;
@@ -42,12 +65,14 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
+  ManagedWorkingArea ObtainWorkingArea() override;
+  void ReleaseWorkingArea(WorkingArea* wa) override;
 
  private:
   Status CompressBlockAndRecord(Slice uncompressed_data,
                                 std::string* compressed_output,
                                 CompressionType* out_compression_type,
-                                ManagedWorkingArea* wa);
+                                AutoSkipWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   const CompressionOptions kOpts;
