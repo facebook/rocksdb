@@ -827,7 +827,7 @@ DEFINE_int32(checksum_type,
              ROCKSDB_NAMESPACE::BlockBasedTableOptions().checksum,
              "ChecksumType as an int");
 
-DEFINE_bool(statistics, false, "Database statistics");
+DEFINE_bool(statistics, true, "Database statistics");
 DEFINE_int32(stats_level, ROCKSDB_NAMESPACE::StatsLevel::kExceptDetailedTimers,
              "stats level for statistics");
 DEFINE_string(statistics_string, "", "Serialized statistics string");
@@ -1427,6 +1427,8 @@ DEFINE_int64(stats_interval, 0,
              "Stats are reported every N operations when this is greater than "
              "zero. When 0 the interval grows over time.");
 
+DEFINE_bool(stats_block_compression, true,
+            "Simulate read/write latency on HDD.");
 DEFINE_int64(stats_interval_seconds, 0,
              "Report stats every N seconds. This overrides stats_interval when"
              " both are > 0.");
@@ -2392,7 +2394,7 @@ class Stats {
                   (now - start_) / 1000000.0);
 
           if (id_ == 0 && FLAGS_stats_per_interval) {
-            if (dbstats != nullptr) {
+            if (dbstats != nullptr && FLAGS_stats_block_compression) {
               auto compressed =
                   dbstats->getTickerCount(NUMBER_BLOCK_COMPRESSED);
               auto rejected =
@@ -2401,24 +2403,48 @@ class Stats {
                   dbstats->getTickerCount(NUMBER_BLOCK_COMPRESSION_BYPASSED);
               fprintf(stderr,
                       "%s ... thread %d: compressed: %lu rejected: %lu "
-                      "bypassed: %lu",
+                      "bypassed: %lu\n",
                       clock_->TimeToString(now / 1000000).c_str(), id_,
                       compressed, rejected, bypassed);
             } else {
-              fprintf(stderr, "dbstats empty");
-            }
-            std::string stats;
+              std::string stats;
 
-            if (db_with_cfh && db_with_cfh->num_created.load()) {
-              for (size_t i = 0; i < db_with_cfh->num_created.load(); ++i) {
-                if (db->GetProperty(db_with_cfh->cfh[i], "rocksdb.cfstats",
+              if (db_with_cfh && db_with_cfh->num_created.load()) {
+                for (size_t i = 0; i < db_with_cfh->num_created.load(); ++i) {
+                  if (db->GetProperty(db_with_cfh->cfh[i], "rocksdb.cfstats",
+                                      &stats)) {
+                    fprintf(stderr, "%s\n", stats.c_str());
+                  }
+                  if (FLAGS_show_table_properties) {
+                    for (int level = 0; level < FLAGS_num_levels; ++level) {
+                      if (db->GetProperty(
+                              db_with_cfh->cfh[i],
+                              "rocksdb.aggregated-table-properties-at-level" +
+                                  std::to_string(level),
+                              &stats)) {
+                        if (stats.find("# entries=0") == std::string::npos) {
+                          fprintf(stderr, "Level[%d]: %s\n", level,
+                                  stats.c_str());
+                        }
+                      }
+                    }
+                  }
+                }
+              } else if (db) {
+                if (db->GetProperty("rocksdb.stats", &stats)) {
+                  fprintf(stderr, "%s", stats.c_str());
+                }
+                if (db->GetProperty("rocksdb.num-running-compactions",
                                     &stats)) {
-                  fprintf(stderr, "%s\n", stats.c_str());
+                  fprintf(stderr, "num-running-compactions: %s\n",
+                          stats.c_str());
+                }
+                if (db->GetProperty("rocksdb.num-running-flushes", &stats)) {
+                  fprintf(stderr, "num-running-flushes: %s\n\n", stats.c_str());
                 }
                 if (FLAGS_show_table_properties) {
                   for (int level = 0; level < FLAGS_num_levels; ++level) {
                     if (db->GetProperty(
-                            db_with_cfh->cfh[i],
                             "rocksdb.aggregated-table-properties-at-level" +
                                 std::to_string(level),
                             &stats)) {
@@ -2426,28 +2452,6 @@ class Stats {
                         fprintf(stderr, "Level[%d]: %s\n", level,
                                 stats.c_str());
                       }
-                    }
-                  }
-                }
-              }
-            } else if (db) {
-              if (db->GetProperty("rocksdb.stats", &stats)) {
-                fprintf(stderr, "%s", stats.c_str());
-              }
-              if (db->GetProperty("rocksdb.num-running-compactions", &stats)) {
-                fprintf(stderr, "num-running-compactions: %s\n", stats.c_str());
-              }
-              if (db->GetProperty("rocksdb.num-running-flushes", &stats)) {
-                fprintf(stderr, "num-running-flushes: %s\n\n", stats.c_str());
-              }
-              if (FLAGS_show_table_properties) {
-                for (int level = 0; level < FLAGS_num_levels; ++level) {
-                  if (db->GetProperty(
-                          "rocksdb.aggregated-table-properties-at-level" +
-                              std::to_string(level),
-                          &stats)) {
-                    if (stats.find("# entries=0") == std::string::npos) {
-                      fprintf(stderr, "Level[%d]: %s\n", level, stats.c_str());
                     }
                   }
                 }
