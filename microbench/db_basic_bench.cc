@@ -47,12 +47,12 @@ class KeyGenerator {
     memset(buff, 0, key_size_);
     if (prefix_num_ > 0) {
       uint32_t prefix = (k % prefix_num_) * MULTIPLIER + offset;
-      Encode(buff, prefix);
+      Encode(buff, prefix, prefix_size_);
       if (prefix_only) {
         return {buff, prefix_size_};
       }
     }
-    Encode(buff + prefix_size_, k);
+    Encode(buff + prefix_size_, k, sizeof(uint32_t));
     return {buff, key_size_};
   }
 
@@ -82,16 +82,22 @@ class KeyGenerator {
   // generate random keys
   // max_keys: the max keys that it could generate
   // prefix_num: the max prefix number
+  // prefix_size: size of prefix number in bytes
   // key_size: in bytes
   explicit KeyGenerator(Random* rnd, uint64_t max_keys = 100 * 1024 * 1024,
-                        size_t prefix_num = 0, size_t key_size = 10) {
+                        size_t prefix_num = 0, size_t prefix_size = 0,
+                        size_t key_size = 10) {
     prefix_num_ = prefix_num;
     key_size_ = key_size;
     max_keys_ = max_keys;
     rnd_ = rnd;
-    if (prefix_num > 0) {
-      prefix_size_ = 4;  // TODO: support different prefix_size
-    }
+
+    // ensure largest possible prefix num can be represented in prefix_size
+    // bytes
+    assert(prefix_num == 0 ||
+           prefix_num * MULTIPLIER + 2 <= (1ULL << (8 * prefix_size)));
+
+    prefix_size_ = prefix_size;
   }
 
   // generate sequential keys
@@ -116,14 +122,15 @@ class KeyGenerator {
   char buff_[256] = {0};
   const int MULTIPLIER = 3;
 
-  void static Encode(char* buf, uint32_t value) {
+  // helper function to encode variable size prefix or key numbers
+  void static Encode(char* buf, uint32_t value, uint32_t size) {
     if (port::kLittleEndian) {
-      buf[0] = static_cast<char>((value >> 24) & 0xff);
-      buf[1] = static_cast<char>((value >> 16) & 0xff);
-      buf[2] = static_cast<char>((value >> 8) & 0xff);
-      buf[3] = static_cast<char>(value & 0xff);
+      const size_t bits{size * 8};
+      for (int i{}; i < size; ++size) {
+        buf[i] = static_cast<char>((value >> (bits - (i + 1) * 8)) & 0xff);
+      }
     } else {
-      memcpy(buf, &value, sizeof(value));
+      memcpy(buf, &value, size);
     }
   }
 };
