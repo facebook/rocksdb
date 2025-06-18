@@ -92,25 +92,22 @@ class AutoSkipWorkingArea : public Compressor::WorkingArea {
 class CPUIOAwareWorkingArea : public Compressor::WorkingArea {
  public:
   explicit CPUIOAwareWorkingArea(Compressor::ManagedWorkingArea&& wa)
-      : wrapped(std::move(wa)),
-        predictor(
-            std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
+      : wrapped(std::move(wa)) {}
   ~CPUIOAwareWorkingArea() {}
   CPUIOAwareWorkingArea(const CPUIOAwareWorkingArea&) = delete;
   CPUIOAwareWorkingArea& operator=(const CPUIOAwareWorkingArea&) = delete;
   CPUIOAwareWorkingArea(CPUIOAwareWorkingArea&& other) noexcept
-      : wrapped(std::move(other.wrapped)),
-        predictor(std::move(other.predictor)) {}
+      : wrapped(std::move(other.wrapped)) {}
 
   CPUIOAwareWorkingArea& operator=(CPUIOAwareWorkingArea&& other) noexcept {
     if (this != &other) {
       wrapped = std::move(other.wrapped);
-      predictor = std::move(other.predictor);
+      cost_predictors = std::move(other.cost_predictors);
     }
     return *this;
   }
   Compressor::ManagedWorkingArea wrapped;
-  std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor;
+  std::vector<std::vector<IOCPUCostPredictor>> cost_predictors;
 };
 
 class AutoSkipCompressorWrapper : public CompressorWrapper {

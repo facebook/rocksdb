@@ -198,8 +198,24 @@ Status CPUIOAwareCompressor::CompressBlock(
 
 Compressor::ManagedWorkingArea CPUIOAwareCompressor::ObtainWorkingArea() {
   auto wrap_wa = allcompressors_.back().back()->ObtainWorkingArea();
-  return ManagedWorkingArea(new CPUIOAwareWorkingArea(std::move(wrap_wa)),
-                            this);
+  auto wa = new CPUIOAwareWorkingArea(std::move(wrap_wa));
+  const auto& compressions = GetSupportedCompressions();
+  for (auto type_ : compressions) {
+    if (type_ == kNoCompression) {
+      continue;
+    }
+    if (compression_levels_[type_ - 1].size() == 0) {
+      wa->cost_predictors.push_back({});
+      continue;
+    } else {
+      std::vector<IOCPUCostPredictor> predictors_diff_levels;
+      for (size_t i = 0; i < compression_levels_[type_ - 1].size(); i++) {
+        predictors_diff_levels.push_back(IOCPUCostPredictor(10));
+      }
+      wa->cost_predictors.push_back(std::move(predictors_diff_levels));
+    }
+  }
+  return ManagedWorkingArea(wa, this);
 }
 void CPUIOAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   delete static_cast<CPUIOAwareWorkingArea*>(wa);
