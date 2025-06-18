@@ -260,10 +260,6 @@ Status ExternalSstFileIngestionJob::Prepare(
     } else {
       need_generate_file_checksum_ = true;
     }
-    FileChecksumGenContext gen_context;
-    std::unique_ptr<FileChecksumGenerator> file_checksum_gen =
-        db_options_.file_checksum_gen_factory->CreateFileChecksumGenerator(
-            gen_context);
     std::vector<std::string> generated_checksums;
     std::vector<std::string> generated_checksum_func_names;
     // Step 1: generate the checksum for ingested sst file.
@@ -271,7 +267,9 @@ Status ExternalSstFileIngestionJob::Prepare(
       for (size_t i = 0; i < files_to_ingest_.size(); i++) {
         std::string generated_checksum;
         std::string generated_checksum_func_name;
-        std::string requested_checksum_func_name;
+        std::string requested_checksum_func_name =
+            i < files_checksum_func_names.size() ? files_checksum_func_names[i]
+                                                 : "";
         // TODO: rate limit file reads for checksum calculation during file
         // ingestion.
         // TODO: plumb Env::IOActivity
@@ -314,40 +312,50 @@ Status ExternalSstFileIngestionJob::Prepare(
             if (files_checksum_func_names[i] !=
                 generated_checksum_func_names[i]) {
               status = Status::InvalidArgument(
-                  "Checksum function name does not match with the checksum "
-                  "function name of this DB");
-              ROCKS_LOG_WARN(
-                  db_options_.info_log,
-                  "Sst file checksum verification of file: %s failed: %s",
-                  external_files_paths[i].c_str(), status.ToString().c_str());
+                  "DB file checksum gen factory " +
+                  std::string(db_options_.file_checksum_gen_factory->Name()) +
+                  " generated checksum function name " +
+                  generated_checksum_func_names[i] + " for file " +
+                  external_files_paths[i] +
+                  " which does not match requested/provided " +
+                  files_checksum_func_names[i]);
               break;
             }
             if (files_checksums[i] != generated_checksums[i]) {
               status = Status::Corruption(
-                  "Ingested checksum does not match with the generated "
-                  "checksum");
-              ROCKS_LOG_WARN(
-                  db_options_.info_log,
-                  "Sst file checksum verification of file: %s failed: %s",
-                  files_to_ingest_[i].internal_file_path.c_str(),
-                  status.ToString().c_str());
+                  "Checksum verification mismatch for ingestion file " +
+                  external_files_paths[i] + " using function " +
+                  generated_checksum_func_names[i] + ". Expected: " +
+                  Slice(files_checksums[i]).ToString(/*hex=*/true) +
+                  " Computed: " +
+                  Slice(generated_checksums[i]).ToString(/*hex=*/true));
               break;
             }
           }
         } else {
-          // If verify_file_checksum is not enabled, we only verify the
-          // checksum function name. If it does not match, fail the ingestion.
-          // If matches, we trust the ingested checksum information and store
-          // in the Manifest.
+          // If verify_file_checksum is not enabled, we only verify the factory
+          // recognizes the checksum function name. If it does not match, fail
+          // the ingestion. If matches, we trust the ingested checksum
+          // information and store in the Manifest.
           for (size_t i = 0; i < files_to_ingest_.size(); i++) {
-            if (files_checksum_func_names[i] != file_checksum_gen->Name()) {
+            FileChecksumGenContext gen_context;
+            gen_context.file_name = files_to_ingest_[i].internal_file_path;
+            gen_context.requested_checksum_func_name =
+                files_checksum_func_names[i];
+            auto file_checksum_gen =
+                db_options_.file_checksum_gen_factory
+                    ->CreateFileChecksumGenerator(gen_context);
+
+            if (file_checksum_gen == nullptr ||
+                files_checksum_func_names[i] != file_checksum_gen->Name()) {
               status = Status::InvalidArgument(
-                  "Checksum function name does not match with the checksum "
-                  "function name of this DB");
-              ROCKS_LOG_WARN(
-                  db_options_.info_log,
-                  "Sst file checksum verification of file: %s failed: %s",
-                  external_files_paths[i].c_str(), status.ToString().c_str());
+                  "Checksum function name " + files_checksum_func_names[i] +
+                  " for file " + external_files_paths[i] +
+                  " not recognized by DB checksum gen factory" +
+                  db_options_.file_checksum_gen_factory->Name() +
+                  (file_checksum_gen ? (" Returned function " +
+                                        std::string(file_checksum_gen->Name()))
+                                     : ""));
               break;
             }
             files_to_ingest_[i].file_checksum = files_checksums[i];
@@ -362,12 +370,11 @@ Status ExternalSstFileIngestionJob::Prepare(
         status = Status::InvalidArgument(
             "The checksum information of ingested sst files are nonempty and "
             "the size of checksums or the size of the checksum function "
-            "names "
-            "does not match with the number of ingested sst files");
-        ROCKS_LOG_WARN(
-            db_options_.info_log,
-            "The ingested sst files checksum information is incomplete: %s",
-            status.ToString().c_str());
+            "names does not match with the number of ingested sst files");
+      }
+      if (!status.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log, "Ingestion failed: %s",
+                       status.ToString().c_str());
       }
     }
   }
