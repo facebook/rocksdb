@@ -874,13 +874,13 @@ set(SOURCES
         trace_replay/trace_record.cc
         trace_replay/trace_replay.cc
         util/async_file_reader.cc
+        util/auto_skip_compressor.cc
         util/cleanable.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
         util/compression.cc
         util/simple_mixed_compressor.cc
-        util/auto_skip_compressor.cc
         util/compression_context_cache.cc
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
@@ -1447,7 +1447,6 @@ if(WITH_TESTS)
         table/table_test.cc
         table/block_fetcher_test.cc
         test_util/testutil_test.cc
-        util/compression_test.cc
         trace_replay/block_cache_tracer_test.cc
         trace_replay/io_tracer_test.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc
@@ -1459,6 +1458,7 @@ if(WITH_TESTS)
         util/autovector_test.cc
         util/bloom_test.cc
         util/coding_test.cc
+        util/compression_test.cc
         util/crc32c_test.cc
         util/defer_test.cc
         util/dynamic_bloom_test.cc

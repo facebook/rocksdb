@@ -32,7 +32,7 @@ class AutoSkipTestFlushBlockPolicy : public FlushBlockPolicy {
         statistics_(statistics) {}
 
   bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
-    auto multiple_of_10 = num_keys_ / window_;
+    auto nth_window = num_keys_ / window_;
     if (data_block_builder_.empty()) {
       // First key in this block
       return false;
@@ -49,9 +49,10 @@ class AutoSkipTestFlushBlockPolicy : public FlushBlockPolicy {
       };
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
-      // We force exploration to set the predicted rejection ratio and then test
-      // that the prediction is exploited
-      if (multiple_of_10 % 2 == 0) {
+      // We force exploration to set the predicted rejection ratio for odd
+      // window and then test that the prediction is exploited in the even
+      // window
+      if (nth_window % 2 == 0) {
         SyncPoint::GetInstance()->SetCallBack(
             "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
             set_exploration);
@@ -72,36 +73,43 @@ class AutoSkipTestFlushBlockPolicy : public FlushBlockPolicy {
         bypassed_percentage = static_cast<int>(bypassed_count * 100 / total);
         compressed_percentage =
             static_cast<int>(compressed_count * 100 / total);
-      }
-      // use mulitple of 10 to get correct assertion
-      switch (multiple_of_10) {
-        case 1:
-          // This is exploration stage in which we set the rejection ratio to
-          // 0.6
-          EXPECT_EQ(rejection_percentage, 60);
-          EXPECT_EQ(bypassed_percentage, 0);
-          EXPECT_EQ(compressed_percentage, 40);
-          break;
-        case 2:
-          // With the rejection ratio set to 0.6 all the blocks should be
-          // bypassed in next window
-          EXPECT_EQ(rejection_percentage, 0);
-          EXPECT_EQ(bypassed_percentage, 100);
-          EXPECT_EQ(compressed_percentage, 0);
-          break;
-        case 3:
-          // This is exploration stage in which we set the rejection ratio to
-          // 0.4
-          EXPECT_EQ(rejection_percentage, 40);
-          EXPECT_EQ(bypassed_percentage, 0);
-          EXPECT_EQ(compressed_percentage, 60);
-          break;
-        case 4:
-          // With the rejection ratio set to 0.4 all the blocks should be
-          // attempted to be compressed
-          EXPECT_EQ(rejection_percentage, 60);
-          EXPECT_EQ(bypassed_percentage, 0);
-          EXPECT_EQ(compressed_percentage, 40);
+        // use nth window to detect test cases and set the expected
+        switch (nth_window) {
+          case 1:
+            // In first window we only explore and thus here we verify that the
+            // correct prediction has been made by the end of the window
+            // Since 6 of 10 blocks are compression unfriendly, the predicted
+            // rejection ratio should be 60%
+            EXPECT_EQ(rejection_percentage, 60);
+            EXPECT_EQ(bypassed_percentage, 0);
+            EXPECT_EQ(compressed_percentage, 40);
+            break;
+          case 2:
+            // With the rejection ratio set to 0.6 all the blocks should be
+            // bypassed in next window
+            EXPECT_EQ(rejection_percentage, 0);
+            EXPECT_EQ(bypassed_percentage, 100);
+            EXPECT_EQ(compressed_percentage, 0);
+            break;
+          case 3:
+            // In third window we only explore and verify that the correct
+            // prediction has been made by the end of the window
+            // since 4 of 10 blocks are compression ufriendly, the predicted
+            // rejection ratio should be 40%
+            EXPECT_EQ(rejection_percentage, 40);
+            EXPECT_EQ(bypassed_percentage, 0);
+            EXPECT_EQ(compressed_percentage, 60);
+            break;
+          case 4:
+            // With the rejection ratio set to 0.4 all the blocks should be
+            // attempted to be compressed
+            // 6 of 10 blocks are compression unfriendly and thus should be
+            // rejected 4 of 10 blocks are compression friendly and thus should
+            // be compressed
+            EXPECT_EQ(rejection_percentage, 60);
+            EXPECT_EQ(bypassed_percentage, 0);
+            EXPECT_EQ(compressed_percentage, 40);
+        }
       }
     }
     num_keys_++;

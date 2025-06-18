@@ -132,8 +132,8 @@ Status Decompressor::ExtractUncompressedSize(Args& args) {
   // payload. (RocksDB compress_format_version=2 except Snappy)
   //
   // This is historically a varint32, but it is preliminarily generalized
-  // to varint64. (TODO: support that on the write side, at least for some
-  // codecs, in BBT format_version=7)
+  // to varint64, in case that is supported on the write side for some
+  // algorithms.
   if (LIKELY(GetVarint64(&args.compressed_data, &args.uncompressed_size))) {
     if (LIKELY(args.uncompressed_size <= SIZE_MAX)) {
       return Status::OK();
@@ -155,6 +155,8 @@ namespace {
 
 class BuiltinCompressorV1 : public Compressor {
  public:
+  const char* Name() const override { return "BuiltinCompressorV1"; }
+
   explicit BuiltinCompressorV1(const CompressionOptions& opts,
                                CompressionType type)
       : opts_(opts), type_(type) {
@@ -192,6 +194,8 @@ class BuiltinCompressorV1 : public Compressor {
 
 class BuiltinCompressorV2 : public Compressor {
  public:
+  const char* Name() const override { return "BuiltinCompressorV2"; }
+
   explicit BuiltinCompressorV2(const CompressionOptions& opts,
                                CompressionType type,
                                CompressionDict&& dict = {})
@@ -248,8 +252,7 @@ class BuiltinCompressorV2 : public Compressor {
 
   // TODO: use ZSTD_CCtx directly
   ManagedWorkingArea ObtainWorkingArea() override {
-    return ManagedWorkingArea(
-        static_cast<WorkingArea*>(new CompressionContext(type_, opts_)), this);
+    return ManagedWorkingArea(new CompressionContext(type_, opts_), this);
   }
   void ReleaseWorkingArea(WorkingArea* wa) override {
     delete static_cast<CompressionContext*>(wa);
@@ -348,6 +351,8 @@ class BuiltinCompressionManagerV1 : public CompressionManager {
 
   std::unique_ptr<Compressor> GetCompressor(const CompressionOptions& opts,
                                             CompressionType type) override {
+    // At the time of deprecating the writing of new format_version=1 files,
+    // ZSTD was the last supported built-in compression type.
     if (type > kZSTD) {
       // Unrecognized; fall back on default compression
       type = ColumnFamilyOptions{}.compression;
@@ -361,6 +366,10 @@ class BuiltinCompressionManagerV1 : public CompressionManager {
 
   std::shared_ptr<Decompressor> GetDecompressor() override {
     return std::shared_ptr<Decompressor>(shared_from_this(), &decompressor_);
+  }
+
+  bool SupportsCompressionType(CompressionType type) const override {
+    return CompressionTypeSupported(type);
   }
 
  protected:
@@ -665,6 +674,41 @@ class BuiltinDecompressorV2 : public Decompressor {
   }
 };
 
+class BuiltinDecompressorV2SnappyOnly : public BuiltinDecompressorV2 {
+ public:
+  const char* Name() const override {
+    return "BuiltinDecompressorV2SnappyOnly";
+  }
+
+  Status ExtractUncompressedSize(Args& args) override {
+    assert(args.compression_type == kSnappyCompression);
+#ifdef SNAPPY
+    size_t uncompressed_length = 0;
+    if (!snappy::GetUncompressedLength(args.compressed_data.data(),
+                                       args.compressed_data.size(),
+                                       &uncompressed_length)) {
+      return Status::Corruption("Error reading snappy compressed length");
+    }
+    args.uncompressed_size = uncompressed_length;
+    return Status::OK();
+#else
+    return Status::NotSupported("Snappy not supported in this build");
+#endif
+  }
+
+  Status DecompressBlock(const Args& args, char* uncompressed_output) override {
+    assert(args.compression_type == kSnappyCompression);
+    return Snappy_DecompressBlock(args, uncompressed_output);
+  }
+
+  Status MaybeCloneForDict(const Slice&,
+                           std::unique_ptr<Decompressor>* out) override {
+    // NOTE: quietly ignores the dictionary (for compatibility)
+    *out = std::make_unique<BuiltinDecompressorV2SnappyOnly>();
+    return Status::OK();
+  }
+};
+
 class BuiltinDecompressorV2WithDict : public BuiltinDecompressorV2 {
  public:
   explicit BuiltinDecompressorV2WithDict(const Slice& dict) : dict_(dict) {}
@@ -824,7 +868,7 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
       // No acceptable compression ratio => no compression
       return nullptr;
     }
-    if (type > kZSTD) {
+    if (type > kLastBuiltinCompression) {
       // Unrecognized; fall back on default compression
       type = ColumnFamilyOptions{}.compression;
     }
@@ -851,16 +895,40 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
   std::shared_ptr<Decompressor> GetDecompressorForTypes(
       const CompressionType* types_begin,
       const CompressionType* types_end) override {
-    if (std::find(types_begin, types_end, kZSTD)) {
+    if (types_begin == types_end) {
+      return nullptr;
+    } else if (types_begin + 1 == types_end &&
+               *types_begin == kSnappyCompression) {
+      return GetSnappyDecompressor();
+    } else if (std::find(types_begin, types_end, kZSTD)) {
       return GetZstdDecompressor();
     } else {
       return GetGeneralDecompressor();
     }
   }
+  std::shared_ptr<Decompressor> GetDecompressorForCompressor(
+      const Compressor& compressor) override {
+#ifdef ROCKSDB_USE_RTTI
+    // To be extra safe, only optimize here if we are certain we are not
+    // looking at a wrapped compressor, so that we are sure it only uses that
+    // one compression type.
+    if (dynamic_cast<const BuiltinCompressorV2*>(&compressor)) {
+      CompressionType type = compressor.GetPreferredCompressionType();
+      return GetDecompressorForTypes(&type, &type + 1);
+    }
+#endif
+    // Fallback
+    return CompressionManager::GetDecompressorForCompressor(compressor);
+  }
+
+  bool SupportsCompressionType(CompressionType type) const override {
+    return CompressionTypeSupported(type);
+  }
 
  protected:
   BuiltinDecompressorV2 decompressor_;
   BuiltinDecompressorV2OptimizeZstd zstd_decompressor_;
+  BuiltinDecompressorV2SnappyOnly snappy_decompressor_;
 
   inline std::shared_ptr<Decompressor> GetGeneralDecompressor() {
     return std::shared_ptr<Decompressor>(shared_from_this(), &decompressor_);
@@ -869,6 +937,11 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
   inline std::shared_ptr<Decompressor> GetZstdDecompressor() {
     return std::shared_ptr<Decompressor>(shared_from_this(),
                                          &zstd_decompressor_);
+  }
+
+  inline std::shared_ptr<Decompressor> GetSnappyDecompressor() {
+    return std::shared_ptr<Decompressor>(shared_from_this(),
+                                         &snappy_decompressor_);
   }
 };
 
@@ -882,7 +955,7 @@ const std::shared_ptr<BuiltinCompressionManagerV2>
 }  // namespace
 
 Status CompressionManager::CreateFromString(
-    const ConfigOptions& /*config_options*/, const std::string& id,
+    const ConfigOptions& config_options, const std::string& id,
     std::shared_ptr<CompressionManager>* result) {
   if (id == kNullptrString || id.empty()) {
     result->reset();
@@ -897,20 +970,27 @@ Status CompressionManager::CreateFromString(
              id.compare(kBuiltinCompressionManagerV2->Name()) == 0) {
     *result = kBuiltinCompressionManagerV2;
     return Status::OK();
+  } else if (config_options.ignore_unsupported_options) {
+    return Status::OK();
   } else {
     return Status::NotFound("Compatible compression manager for \"" + id +
                             "\"");
   }
 }
 
-Status CompressionManager::FindCompatibleCompressionManager(
-    Slice compatibility_name, std::shared_ptr<CompressionManager>* out) {
+std::shared_ptr<CompressionManager>
+CompressionManager::FindCompatibleCompressionManager(Slice compatibility_name) {
   if (compatibility_name.compare(CompatibilityName()) == 0) {
-    *out = shared_from_this();
-    return Status::OK();
+    return shared_from_this();
   } else {
-    return CreateFromString(ConfigOptions(), compatibility_name.ToString(),
-                            out);
+    std::shared_ptr<CompressionManager> out;
+    Status s =
+        CreateFromString(ConfigOptions(), compatibility_name.ToString(), &out);
+    if (s.ok()) {
+      return out;
+    } else {
+      return nullptr;
+    }
   }
 }
 

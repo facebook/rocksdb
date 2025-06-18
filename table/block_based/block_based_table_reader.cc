@@ -562,6 +562,105 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
 
   return Status::OK();
 }
+
+Status GetDecompressor(const std::string& compression_name,
+                       UnownedPtr<CompressionManager> compression_manager,
+                       uint32_t table_format_version,
+                       std::shared_ptr<Decompressor>* out_decompressor) {
+  if (compression_name.empty()) {
+    // Very old file (before RocksDB 4.9.0) that might contain compressed
+    // blocks. Get a general decompressor for the format version.
+    auto mgr_to_use = GetBuiltinCompressionManager(
+        GetCompressFormatForVersion(table_format_version));
+    *out_decompressor = mgr_to_use->GetDecompressor();
+    return Status::OK();
+  }
+  if (FormatVersionUsesCompressionManagerName(table_format_version)) {
+    constexpr char kFieldSep = ';';
+    size_t separator_pos = compression_name.find_first_of(kFieldSep);
+    if (separator_pos == std::string::npos) {
+      return Status::Corruption(
+          "Missing separator in compression_name property");
+    }
+    // Built with explicit CompressionManager and schema support for
+    // identifying its compatibility name, which is the first field here.
+    Slice compatibility_name(compression_name.data(), separator_pos);
+    std::shared_ptr<CompressionManager> mgr_to_use;
+    if (compression_manager) {
+      // First attempt to go through the compression manager configured for
+      // writing new files, for efficiency (usually correct) and not forcing
+      // use of ObjectLibrary registration (dependency injection).
+      mgr_to_use = compression_manager->FindCompatibleCompressionManager(
+          compatibility_name);
+    }
+    if (mgr_to_use == nullptr) {
+      ConfigOptions strict;
+      strict.ignore_unknown_options = false;
+      strict.ignore_unsupported_options = false;
+      Status s = CompressionManager::CreateFromString(
+          strict, compatibility_name.ToString(), &mgr_to_use);
+      // Even though we might be able to recover from "not found" if only
+      // built-in compression types are used (would be checked below), it
+      // would provide misleading or unreliable success to allow that to
+      // succeed.
+      if (!s.ok()) {
+        return s;
+      }
+      assert(mgr_to_use);
+    }
+
+    // Second field is set of compression types actually used in the file
+    size_t start_pos = separator_pos + 1;
+    separator_pos = compression_name.find_first_of(kFieldSep, start_pos);
+    if (UNLIKELY(separator_pos == std::string::npos)) {
+      return Status::Corruption("Missing second field from compression_name");
+    }
+    if (UNLIKELY((separator_pos - start_pos) & 1)) {
+      return Status::Corruption(
+          "Second field of compression_name has odd size");
+    }
+    size_t count = (separator_pos - start_pos) / 2;
+    auto ctypes = std::make_unique<CompressionType[]>(count);
+    const char* ptr = compression_name.data() + start_pos;
+    for (size_t i = 0; i < count; ++i) {
+      uint64_t val = 0;
+      bool success = ParseBaseChars<16>(&ptr, 2, &val);
+      if (UNLIKELY(!success || val == kNoCompression ||
+                   val >= kDisableCompressionOption)) {
+        return Status::Corruption(
+            "Error parsing second field of compression_name");
+      }
+      ctypes[i] = static_cast<CompressionType>(val);
+    }
+    *out_decompressor =
+        mgr_to_use->GetDecompressorForTypes(ctypes.get(), ctypes.get() + count);
+    assert(*out_decompressor || count == 0);
+    // Can ignore possible additional future fields
+  } else {
+    // No explicit CompressionManager, e.g. legacy file support where
+    // decompressing with built-in CompressionManager works.
+    CompressionType saved_comp_type =
+        CompressionTypeFromString(compression_name);
+    if (saved_comp_type == kDisableCompressionOption) {
+      // Unrecognized. For RocksDB versions able to read format_version=7,
+      // this is considered an error so that we can continue to evolve the
+      // schema of the compression_name property and report good error
+      // messages.
+      return Status::Corruption("Unrecognized compression_name: " +
+                                compression_name);
+    } else if (saved_comp_type != kNoCompression) {
+      // Use built-in compression manager
+      auto mgr_to_use = GetBuiltinCompressionManager(
+          GetCompressFormatForVersion(table_format_version));
+      *out_decompressor =
+          mgr_to_use->GetDecompressorOptimizeFor(saved_comp_type);
+    } else {
+      // No compression -> decompressor not needed
+      *out_decompressor = nullptr;
+    }
+  }
+  return Status::OK();
+}
 }  // namespace
 
 void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
@@ -629,6 +728,7 @@ Status BlockBasedTable::Open(
     std::unique_ptr<TableReader>* table_reader, uint64_t tail_size,
     std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr,
     const std::shared_ptr<const SliceTransform>& prefix_extractor,
+    UnownedPtr<CompressionManager> compression_manager,
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
     const int level, const bool immortal_table,
     const SequenceNumber largest_seqno, const bool force_direct_prefetch,
@@ -696,7 +796,8 @@ Status BlockBasedTable::Open(
     }
     return s;
   }
-  if (!IsSupportedFormatVersion(footer.format_version())) {
+  if (!IsSupportedFormatVersion(footer.format_version()) &&
+      !TEST_AllowUnsupportedFormatVersion()) {
     return Status::Corruption(
         "Unknown Footer version. Maybe this file was created with newer "
         "version of RocksDB?");
@@ -746,17 +847,13 @@ Status BlockBasedTable::Open(
     return s;
   }
 
-  CompressionType saved_comp_type = CompressionTypeFromString(
+  // Read compression metadata and configure decompressor
+  s = GetDecompressor(
       rep->table_properties ? rep->table_properties->compression_name
-                            : std::string{});
-  if (saved_comp_type != kNoCompression) {
-    // Includes "unrecognized" or "unspecified" case, including some old files
-    // before the compression_name table property was introduced in
-    // version 4.9.0
-    // TODO: custom CompressionManager
-    auto mgr = GetBuiltinCompressionManager(
-        GetCompressFormatForVersion(footer.format_version()));
-    rep->decompressor = mgr->GetDecompressorOptimizeFor(saved_comp_type);
+                            : std::string{},
+      compression_manager, footer.format_version(), &rep->decompressor);
+  if (!s.ok()) {
+    return s;
   }
 
   // Populate BlockCreateContext
