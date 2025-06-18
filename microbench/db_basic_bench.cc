@@ -52,7 +52,12 @@ class KeyGenerator {
         return {buff, prefix_size_};
       }
     }
-    Encode(buff + prefix_size_, k, sizeof(uint32_t));
+
+    if (prefix_num_ > 0) {
+      Encode(buff + prefix_size_, k, sizeof(uint32_t));
+    } else {
+      Encode(buff, k, sizeof(uint32_t));
+    }
     return {buff, key_size_};
   }
 
@@ -82,11 +87,11 @@ class KeyGenerator {
   // generate random keys
   // max_keys: the max keys that it could generate
   // prefix_num: the max prefix number
-  // prefix_size: size of prefix number in bytes
   // key_size: in bytes
+  // prefix_size: size of prefix number in bytes
   explicit KeyGenerator(Random* rnd, uint64_t max_keys = 100 * 1024 * 1024,
-                        size_t prefix_num = 0, size_t prefix_size = 0,
-                        size_t key_size = 10) {
+                        size_t prefix_num = 0, size_t key_size = 10,
+                        size_t prefix_size = 4) {
     prefix_num_ = prefix_num;
     key_size_ = key_size;
     max_keys_ = max_keys;
