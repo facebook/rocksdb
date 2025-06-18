@@ -51,13 +51,11 @@ class KeyGenerator {
       if (prefix_only) {
         return {buff, prefix_size_};
       }
-    }
-
-    if (prefix_num_ > 0) {
       Encode(buff + prefix_size_, k, sizeof(uint32_t));
     } else {
       Encode(buff, k, sizeof(uint32_t));
     }
+
     return {buff, key_size_};
   }
 
@@ -129,9 +127,10 @@ class KeyGenerator {
 
   // helper function to encode variable size prefix or key numbers
   void static Encode(char* buf, uint32_t value, uint32_t size) {
+    assert(size <= sizeof(uint32_t));
     if (port::kLittleEndian) {
       const size_t bits{size * 8};
-      for (int i{}; i < size; ++size) {
+      for (int i{}; i < size; ++i) {
         buf[i] = static_cast<char>((value >> (bits - (i + 1) * 8)) & 0xff);
       }
     } else {
