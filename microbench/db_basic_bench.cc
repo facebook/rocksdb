@@ -24,23 +24,25 @@ class KeyGenerator {
   // Generate next key
   // buff: the caller needs to make sure there's enough space for generated key
   // offset: to control the group of the key, 0 means normal key, 1 means
-  // non-existing key, 2 is reserved prefix_only: only return a prefix
+  // non-existing key, 2 is reserved
+  // prefix_only: only return a prefix
   Slice Next(char* buff, int8_t offset = 0, bool prefix_only = false) {
-    assert(max_key_ < std::numeric_limits<uint32_t>::max() /
-                          MULTIPLIER);  // TODO: add large key support
+    assert(max_keys_ < std::numeric_limits<uint32_t>::max() /
+                           MULTIPLIER);  // TODO: add large key support
 
     uint32_t k;
     if (is_sequential_) {
-      assert(next_sequential_key_ < max_key_);
-      k = (next_sequential_key_ % max_key_) * MULTIPLIER + offset;
-      if (next_sequential_key_ + 1 == max_key_) {
+      assert(next_sequential_key_ < max_keys_);
+      k = (next_sequential_key_ % max_keys_) * MULTIPLIER + offset;
+      if (next_sequential_key_ + 1 == max_keys_) {
         next_sequential_key_ = 0;
       } else {
-        next_sequential_key_++;
+        ++next_sequential_key_;
       }
     } else {
-      k = (rnd_->Next() % max_key_) * MULTIPLIER + offset;
+      k = (rnd_->Next() % max_keys_) * MULTIPLIER + offset;
     }
+
     // TODO: make sure the buff is large enough
     memset(buff, 0, key_size_);
     if (prefix_num_ > 0) {
@@ -58,7 +60,7 @@ class KeyGenerator {
   // single thread
   Slice Next() { return Next(buff_); }
 
-  // user internal buffer for generated prefix
+  // use internal buffer for generated prefix
   Slice NextPrefix() {
     assert(prefix_num_ > 0);
     return Next(buff_, 0, true);
@@ -77,14 +79,15 @@ class KeyGenerator {
     return {buff, key_size_};
   }
 
-  // max_key: the max key that it could generate
+  // generate random keys
+  // max_keys: the max keys that it could generate
   // prefix_num: the max prefix number
   // key_size: in bytes
-  explicit KeyGenerator(Random* rnd, uint64_t max_key = 100 * 1024 * 1024,
+  explicit KeyGenerator(Random* rnd, uint64_t max_keys = 100 * 1024 * 1024,
                         size_t prefix_num = 0, size_t key_size = 10) {
     prefix_num_ = prefix_num;
     key_size_ = key_size;
-    max_key_ = max_key;
+    max_keys_ = max_keys;
     rnd_ = rnd;
     if (prefix_num > 0) {
       prefix_size_ = 4;  // TODO: support different prefix_size
@@ -92,10 +95,12 @@ class KeyGenerator {
   }
 
   // generate sequential keys
-  explicit KeyGenerator(uint64_t max_key = 100 * 1024 * 1024,
+  // max_keys: the max keys that it could generate
+  // key_size: in bytes
+  explicit KeyGenerator(uint64_t max_keys = 100 * 1024 * 1024,
                         size_t key_size = 10) {
     key_size_ = key_size;
-    max_key_ = max_key;
+    max_keys_ = max_keys;
     rnd_ = nullptr;
     is_sequential_ = true;
   }
@@ -105,7 +110,7 @@ class KeyGenerator {
   size_t prefix_num_ = 0;
   size_t prefix_size_ = 0;
   size_t key_size_;
-  uint64_t max_key_;
+  uint64_t max_keys_;
   bool is_sequential_ = false;
   uint32_t next_sequential_key_ = 0;
   char buff_[256] = {0};
