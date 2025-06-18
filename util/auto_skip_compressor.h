@@ -32,6 +32,29 @@ class CompressionRejectionProbabilityPredictor {
   size_t window_size_;
 };
 
+template <typename T>
+class WindowAveragePredictor {
+ public:
+  WindowAveragePredictor(int window_size)
+      : sum_(0), count_(0), kWindowSize(window_size) {}
+  int Predict() { return prediction_; }
+  bool Record(T data) {
+    sum_ += data;
+    count_++;
+    if (count_ >= kWindowSize) {
+      prediction_ = sum_ / count_;
+      sum_ = 0;
+      count_ = 0;
+    }
+    return true;
+  }
+
+ private:
+  T sum_;
+  T prediction_;
+  int count_;
+  const int kWindowSize;
+};
 class AutoSkipWorkingArea : public Compressor::WorkingArea {
  public:
   explicit AutoSkipWorkingArea(Compressor::ManagedWorkingArea&& wa)
