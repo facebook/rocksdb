@@ -45,9 +45,7 @@ bool CompressionRejectionProbabilityPredictor::Record(
 AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
     std::unique_ptr<Compressor> compressor, const CompressionOptions& opts)
     : CompressorWrapper::CompressorWrapper(std::move(compressor)),
-      kOpts(opts),
-      predictor_(
-          std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
+      kOpts(opts) {}
 
 const char* AutoSkipCompressorWrapper::Name() const {
   return "AutoSkipCompressorWrapper";
@@ -89,14 +87,6 @@ Status AutoSkipCompressorWrapper::CompressBlock(
   return Status::OK();
 }
 
-Compressor::ManagedWorkingArea AutoSkipCompressorWrapper::ObtainWorkingArea() {
-  auto wrap_wa = wrapped_->ObtainWorkingArea();
-  return ManagedWorkingArea(new AutoSkipWorkingArea(std::move(wrap_wa)), this);
-}
-void AutoSkipCompressorWrapper::ReleaseWorkingArea(WorkingArea* wa) {
-  delete static_cast<AutoSkipWorkingArea*>(wa);
-}
-
 Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, AutoSkipWorkingArea* wa) {
@@ -106,6 +96,14 @@ Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
   auto predictor_ptr = wa->predictor;
   predictor_ptr->Record(uncompressed_data, compressed_output, kOpts);
   return status;
+}
+
+Compressor::ManagedWorkingArea AutoSkipCompressorWrapper::ObtainWorkingArea() {
+  auto wrap_wa = wrapped_->ObtainWorkingArea();
+  return ManagedWorkingArea(new AutoSkipWorkingArea(std::move(wrap_wa)), this);
+}
+void AutoSkipCompressorWrapper::ReleaseWorkingArea(WorkingArea* wa) {
+  delete static_cast<AutoSkipWorkingArea*>(wa);
 }
 
 const char* AutoSkipCompressorManager::Name() const {
@@ -121,6 +119,79 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
   assert(preferred != kNoCompression);
   return std::make_unique<AutoSkipCompressorWrapper>(
       wrapped_->GetCompressorForSST(context, opts, preferred), opts);
+}
+
+CPUIOAwareCompressor::CPUIOAwareCompressor(const CompressionOptions& opts)
+    : kOpts(opts) {
+  auto builtInManager = GetDefaultBuiltinCompressionManager();
+  const auto& compressions = GetSupportedCompressions();
+  for (auto type_ : compressions) {
+    if (type_ == kNoCompression) {
+      continue;
+    }
+    compressors_.push_back(builtInManager->GetCompressor(opts, type_));
+  }
+}
+
+const char* CPUIOAwareCompressor::Name() const {
+  return "CPUIOAwareCompressor";
+}
+
+Status CPUIOAwareCompressor::CompressBlock(
+    Slice uncompressed_data, std::string* compressed_output,
+    CompressionType* out_compression_type, ManagedWorkingArea* wa) {
+  // Check if the managed working area is provided or owned by this object.
+  // If not, bypass auto-skip logic since the working area lacks a predictor to
+  // record or make necessary decisions to compress or bypass compression of the
+  // block
+  if (wa == nullptr || wa->owner() != this) {
+    return compressors_.back()->CompressBlock(
+        uncompressed_data, compressed_output, out_compression_type, wa);
+  }
+  bool exploration =
+      Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
+  TEST_SYNC_POINT_CALLBACK(
+      "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
+      &exploration);
+  auto autoskip_wa = static_cast<AutoSkipWorkingArea*>(wa->get());
+  if (exploration) {
+    return CompressBlockAndRecord(uncompressed_data, compressed_output,
+                                  out_compression_type, autoskip_wa);
+  } else {
+    auto predictor_ptr = autoskip_wa->predictor;
+    auto prediction = predictor_ptr->Predict();
+    if (prediction <= kProbabilityCutOff) {
+      // decide to compress
+      return CompressBlockAndRecord(uncompressed_data, compressed_output,
+                                    out_compression_type, autoskip_wa);
+    } else {
+      // decide to bypass compression
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+  }
+  return Status::OK();
+}
+
+Compressor::ManagedWorkingArea CPUIOAwareCompressor::ObtainWorkingArea() {
+  auto wrap_wa = compressors_.back()->ObtainWorkingArea();
+  return ManagedWorkingArea(new CPUIOAwareWorkingArea(std::move(wrap_wa)),
+                            this);
+}
+void CPUIOAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
+  delete static_cast<CPUIOAwareWorkingArea*>(wa);
+}
+
+Status CPUIOAwareCompressor::CompressBlockAndRecord(
+    Slice uncompressed_data, std::string* compressed_output,
+    CompressionType* out_compression_type, AutoSkipWorkingArea* wa) {
+  Status status =
+      compressors_.back()->CompressBlock(uncompressed_data, compressed_output,
+                                         out_compression_type, &(wa->wrapped));
+  // determine if it was rejected or compressed
+  auto predictor_ptr = wa->predictor;
+  predictor_ptr->Record(uncompressed_data, compressed_output, kOpts);
+  return status;
 }
 
 std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
@@ -139,8 +210,9 @@ std::unique_ptr<Compressor> CUPIOAwareCompressorManager::GetCompressorForSST(
     CompressionType preferred) {
   assert(GetSupportedCompressions().size() > 1);
   assert(preferred != kNoCompression);
-  return std::make_unique<AutoSkipCompressorWrapper>(
-      wrapped_->GetCompressorForSST(context, opts, preferred), opts);
+  (void)context;
+  (void)preferred;
+  return std::make_unique<CPUIOAwareCompressor>(opts);
 }
 
 std::shared_ptr<CompressionManagerWrapper> CreateCPUIOAwareCompressorManager(

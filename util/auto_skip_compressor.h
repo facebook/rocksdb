@@ -56,6 +56,30 @@ class AutoSkipWorkingArea : public Compressor::WorkingArea {
   std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor;
 };
 
+class CPUIOAwareWorkingArea : public Compressor::WorkingArea {
+ public:
+  explicit CPUIOAwareWorkingArea(Compressor::ManagedWorkingArea&& wa)
+      : wrapped(std::move(wa)),
+        predictor(
+            std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
+  ~CPUIOAwareWorkingArea() {}
+  CPUIOAwareWorkingArea(const CPUIOAwareWorkingArea&) = delete;
+  CPUIOAwareWorkingArea& operator=(const CPUIOAwareWorkingArea&) = delete;
+  CPUIOAwareWorkingArea(CPUIOAwareWorkingArea&& other) noexcept
+      : wrapped(std::move(other.wrapped)),
+        predictor(std::move(other.predictor)) {}
+
+  CPUIOAwareWorkingArea& operator=(CPUIOAwareWorkingArea&& other) noexcept {
+    if (this != &other) {
+      wrapped = std::move(other.wrapped);
+      predictor = std::move(other.predictor);
+    }
+    return *this;
+  }
+  Compressor::ManagedWorkingArea wrapped;
+  std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor;
+};
+
 class AutoSkipCompressorWrapper : public CompressorWrapper {
  public:
   const char* Name() const override;
@@ -76,7 +100,6 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   const CompressionOptions kOpts;
-  std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor_;
 };
 
 class AutoSkipCompressorManager : public CompressionManagerWrapper {
@@ -85,6 +108,28 @@ class AutoSkipCompressorManager : public CompressionManagerWrapper {
   std::unique_ptr<Compressor> GetCompressorForSST(
       const FilterBuildingContext& context, const CompressionOptions& opts,
       CompressionType preferred) override;
+};
+
+class CPUIOAwareCompressor : public Compressor {
+ public:
+  const char* Name() const override;
+  explicit CPUIOAwareCompressor(const CompressionOptions& opts);
+
+  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea* wa) override;
+  ManagedWorkingArea ObtainWorkingArea() override;
+  void ReleaseWorkingArea(WorkingArea* wa) override;
+
+ private:
+  Status CompressBlockAndRecord(Slice uncompressed_data,
+                                std::string* compressed_output,
+                                CompressionType* out_compression_type,
+                                AutoSkipWorkingArea* wa);
+  static constexpr int kExplorationPercentage = 10;
+  static constexpr int kProbabilityCutOff = 50;
+  const CompressionOptions kOpts;
+  std::vector<std::unique_ptr<Compressor>> compressors_;
 };
 
 class CUPIOAwareCompressorManager : public CompressionManagerWrapper {
