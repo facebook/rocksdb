@@ -1888,49 +1888,45 @@ TEST_F(DBTest2, RoundRobinManager) {
     auto mgr = std::make_shared<RoundRobinManager>(
         GetDefaultBuiltinCompressionManager());
 
-    for (CompressionType type : {kZSTD}) {
-      std::vector<std::string> values;
-      for (bool use_wrapper : {true}) {
-        SCOPED_TRACE("Compression type: " + std::to_string(type) +
-                     (use_wrapper ? " with " : " no ") + "wrapper");
+    std::vector<std::string> values;
+    for (bool use_wrapper : {true}) {
+      SCOPED_TRACE((use_wrapper ? "With " : "No ") + std::string("wrapper"));
 
-        Options options = CurrentOptions();
-        options.compression = type;
-        options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-        options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
-        BlockBasedTableOptions bbto;
-        bbto.enable_index_compression = false;
-        options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-        options.compression_manager = use_wrapper ? mgr : nullptr;
-        DestroyAndReopen(options);
+      Options options = CurrentOptions();
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+      BlockBasedTableOptions bbto;
+      bbto.enable_index_compression = false;
+      options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+      options.compression_manager = use_wrapper ? mgr : nullptr;
+      DestroyAndReopen(options);
 
-        Random rnd(301);
-        constexpr int kCount = 13;
+      Random rnd(301);
+      constexpr int kCount = 13;
 
-        // Highly compressible blocks, except 1 non-compressible. Half of the
-        // compressible are morked for bypass and 1 marked for rejection. Values
-        // are large enough to ensure just 1 k-v per block.
-        for (int i = 0; i < kCount; ++i) {
-          std::string value;
-          if (i == 6) {
-            // One non-compressible block
-            value = rnd.RandomBinaryString(20000);
-          } else {
-            test::CompressibleString(&rnd, 0.1, 20000, &value);
-          }
-          values.push_back(value);
-          ASSERT_OK(Put(Key(i), value));
-          ASSERT_EQ(Get(Key(i)), value);
+      // Highly compressible blocks, except 1 non-compressible. Half of the
+      // compressible are morked for bypass and 1 marked for rejection. Values
+      // are large enough to ensure just 1 k-v per block.
+      for (int i = 0; i < kCount; ++i) {
+        std::string value;
+        if (i == 6) {
+          // One non-compressible block
+          value = rnd.RandomBinaryString(20000);
+        } else {
+          test::CompressibleString(&rnd, 0.1, 20000, &value);
         }
-        ASSERT_OK(Flush());
-
-        // Ensure well-formed for reads
-        for (int i = 0; i < kCount; ++i) {
-          ASSERT_NE(Get(Key(i)), "NOT_FOUND");
-          ASSERT_EQ(Get(Key(i)), values[i]);
-        }
-        ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
+        values.push_back(value);
+        ASSERT_OK(Put(Key(i), value));
+        ASSERT_EQ(Get(Key(i)), value);
       }
+      ASSERT_OK(Flush());
+
+      // Ensure well-formed for reads
+      for (int i = 0; i < kCount; ++i) {
+        ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+        ASSERT_EQ(Get(Key(i)), values[i]);
+      }
+      ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
     }
   }
 }
@@ -1939,54 +1935,49 @@ TEST_F(DBTest2, RandomMixedCompressionManager) {
   if (ZSTD_Supported()) {
     auto mgr = std::make_shared<RandomMixedCompressionManager>(
         GetDefaultBuiltinCompressionManager());
-    // Currently mixedmanager only supports with preffered compression manager
-    // zstd
-    for (CompressionType type : {kZSTD}) {
-      std::vector<std::string> values;
-      for (bool use_wrapper : {true}) {
-        SCOPED_TRACE("Compression type: " + std::to_string(type) +
-                     (use_wrapper ? " with " : " no ") + "wrapper");
+    std::vector<std::string> values;
+    for (bool use_wrapper : {true}) {
+      SCOPED_TRACE((use_wrapper ? "With " : "No ") + std::string("wrapper"));
 
-        Options options = CurrentOptions();
-        options.compression = type;
-        options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-        options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
-        BlockBasedTableOptions bbto;
-        bbto.enable_index_compression = false;
-        options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-        options.compression_manager = use_wrapper ? mgr : nullptr;
-        DestroyAndReopen(options);
+      Options options = CurrentOptions();
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+      options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+      BlockBasedTableOptions bbto;
+      bbto.enable_index_compression = false;
+      options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+      options.compression_manager = use_wrapper ? mgr : nullptr;
+      DestroyAndReopen(options);
 
-        Random rnd(301);
-        constexpr int kCount = 13;
+      Random rnd(301);
+      constexpr int kCount = 13;
 
-        // Highly compressible blocks, except 1 non-compressible. Half of the
-        // compressible are morked for bypass and 1 marked for rejection. Values
-        // are large enough to ensure just 1 k-v per block.
-        for (int i = 0; i < kCount; ++i) {
-          std::string value;
-          if (i == 6) {
-            // One non-compressible block
-            value = rnd.RandomBinaryString(20000);
-          } else {
-            test::CompressibleString(&rnd, 0.1, 20000, &value);
-          }
-          values.push_back(value);
-          ASSERT_OK(Put(Key(i), value));
-          ASSERT_EQ(Get(Key(i)), value);
+      // Highly compressible blocks, except 1 non-compressible. Half of the
+      // compressible are morked for bypass and 1 marked for rejection. Values
+      // are large enough to ensure just 1 k-v per block.
+      for (int i = 0; i < kCount; ++i) {
+        std::string value;
+        if (i == 6) {
+          // One non-compressible block
+          value = rnd.RandomBinaryString(20000);
+        } else {
+          test::CompressibleString(&rnd, 0.1, 20000, &value);
         }
-        ASSERT_OK(Flush());
-
-        // Ensure well-formed for reads
-        for (int i = 0; i < kCount; ++i) {
-          ASSERT_NE(Get(Key(i)), "NOT_FOUND");
-          ASSERT_EQ(Get(Key(i)), values[i]);
-        }
-        ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
+        values.push_back(value);
+        ASSERT_OK(Put(Key(i), value));
+        ASSERT_EQ(Get(Key(i)), value);
       }
+      ASSERT_OK(Flush());
+
+      // Ensure well-formed for reads
+      for (int i = 0; i < kCount; ++i) {
+        ASSERT_NE(Get(Key(i)), "NOT_FOUND");
+        ASSERT_EQ(Get(Key(i)), values[i]);
+      }
+      ASSERT_EQ(Get(Key(kCount)), "NOT_FOUND");
     }
   }
 }
+
 TEST_F(DBTest2, CompressionManagerWrapper) {
   // Test that we can use a custom CompressionManager to wrap the built-in
   // CompressionManager, thus adopting a custom *strategy* based on existing
@@ -2103,110 +2094,19 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
   }
 }
 
-namespace {
-template <CompressionType kCompression>
-struct CompressorCustomAlg : public CompressorWrapper {
-  explicit CompressorCustomAlg(const CompressionOptions& opts)
-      : CompressorWrapper(GetDefaultBuiltinCompressionManager()->GetCompressor(
-            opts, kSnappyCompression)) {}
-
-  explicit CompressorCustomAlg(std::unique_ptr<Compressor> compressor)
-      : CompressorWrapper(std::move(compressor)) {}
-
-  const char* Name() const override { return "CompressorCustomAlg"; }
-
-  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
-                       CompressionType* out_compression_type,
-                       ManagedWorkingArea* working_area) override {
-    Status s = wrapped_->CompressBlock(uncompressed_data, compressed_output,
-                                       out_compression_type, working_area);
-    if (*out_compression_type != kNoCompression) {
-      assert(*out_compression_type == kSnappyCompression);
-      compressed_output->insert(/*pos=*/0, /*count=*/1,
-                                lossless_cast<char>(kCompression));
-      *out_compression_type = kCompression;
-    }
-    return s;
-  }
-
-  std::unique_ptr<Compressor> MaybeCloneSpecialized(
-      CacheEntryRole block_type, DictSampleArgs&& dict_samples) override {
-    std::unique_ptr<Compressor> rv =
-        wrapped_->MaybeCloneSpecialized(block_type, std::move(dict_samples));
-    if (rv) {
-      rv = std::make_unique<CompressorCustomAlg>(std::move(rv));
-    }
-    return rv;
-  }
-};
-
-struct DecompressorCustomAlg : public DecompressorWrapper {
-  DecompressorCustomAlg()
-      : DecompressorWrapper(
-            GetDefaultBuiltinCompressionManager()->GetDecompressor()) {}
-
-  explicit DecompressorCustomAlg(std::shared_ptr<Decompressor> decompressor)
-      : DecompressorWrapper(std::move(decompressor)) {}
-
-  const char* Name() const override { return "DecompressorCustomAlg"; }
-
-  Status MaybeCloneForDict(const Slice& serialized_dict,
-                           std::unique_ptr<Decompressor>* out) override {
-    Status s = wrapped_->MaybeCloneForDict(serialized_dict, out);
-    if (s.ok()) {
-      *out = std::make_unique<DecompressorCustomAlg>(std::move(*out));
-    }
-    return s;
-  }
-
-  Status ExtractUncompressedSize(Args& args) override {
-    if (args.compression_type > kLastBuiltinCompression) {
-      assert(args.compressed_data.size() > 0);
-      assert(args.compressed_data[0] ==
-             lossless_cast<char>(args.compression_type));
-      // It's ok to modify args if we restore to original
-      SaveAndRestore<Slice> save_compressed_slice(&args.compressed_data);
-      args.compressed_data.remove_prefix(1);
-      SaveAndRestore<CompressionType> save_compression_type(
-          &args.compression_type);
-      args.compression_type = kSnappyCompression;
-      return wrapped_->ExtractUncompressedSize(args);
-    } else {
-      // Also support built-in compressions
-      return wrapped_->ExtractUncompressedSize(args);
-    }
-  }
-
-  Status DecompressBlock(const Args& args, char* uncompressed_output) override {
-    if (args.compression_type > kLastBuiltinCompression) {
-      assert(args.compressed_data.size() > 0);
-      assert(args.compressed_data[0] ==
-             lossless_cast<char>(args.compression_type));
-      // Or we can copy args and modify
-      Args modified_args = args;
-      modified_args.compressed_data.remove_prefix(1);
-      modified_args.compression_type = kSnappyCompression;
-      return wrapped_->DecompressBlock(modified_args, uncompressed_output);
-    } else {
-      // Also support built-in compressions
-      return wrapped_->DecompressBlock(args, uncompressed_output);
-    }
-  }
-};
-}  // anonymous namespace
-
 TEST_F(DBTest2, CompressionManagerCustomCompression) {
-  if (!Snappy_Supported()) {
-    fprintf(stderr, "snappy compression not supported, skip this test\n");
-    return;
-  }
-
   // Test that we can use a custom CompressionManager to implement custom
   // compression algorithms, and that there are appropriate schema guard rails
   // to ensure data is not processed by the wrong algorithm.
-  using Compressor8A = CompressorCustomAlg<kCustomCompression8A>;
-  using Compressor8B = CompressorCustomAlg<kCustomCompression8B>;
-  using Compressor8C = CompressorCustomAlg<kCustomCompression8C>;
+  using Compressor8A = test::CompressorCustomAlg<kCustomCompression8A>;
+  using Compressor8B = test::CompressorCustomAlg<kCustomCompression8B>;
+  using Compressor8C = test::CompressorCustomAlg<kCustomCompression8C>;
+
+  if (!Compressor8A::Supported()) {
+    fprintf(stderr,
+            "Prerequisite compression library not supported. Skipping\n");
+    return;
+  }
 
   class MyManager : public CompressionManager {
    public:
@@ -2230,13 +2130,13 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
       switch (static_cast<unsigned char>(type)) {
         case kCustomCompression8A:
           used_compressor8A_count_++;
-          return std::make_unique<Compressor8A>(opts);
+          return std::make_unique<Compressor8A>();
         case kCustomCompression8B:
           used_compressor8B_count_++;
-          return std::make_unique<Compressor8B>(opts);
+          return std::make_unique<Compressor8B>();
         case kCustomCompression8C:
           used_compressor8C_count_++;
-          return std::make_unique<Compressor8C>(opts);
+          return std::make_unique<Compressor8C>();
         // Also support built-in compression algorithms
         default:
           return GetDefaultBuiltinCompressionManager()->GetCompressor(opts,
@@ -2244,9 +2144,8 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
       }
     }
 
-    // TODO: test limited-scope decompressors
     std::shared_ptr<Decompressor> GetDecompressor() override {
-      return std::make_shared<DecompressorCustomAlg>();
+      return std::make_shared<test::DecompressorCustomAlg>();
     }
 
     CompressionType last_specific_decompressor_type_ = kNoCompression;
@@ -2256,7 +2155,9 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
         const CompressionType* types_end) override {
       assert(types_end > types_begin);
       last_specific_decompressor_type_ = *types_begin;
-      return std::make_shared<DecompressorCustomAlg>();
+      auto decomp = std::make_shared<test::DecompressorCustomAlg>();
+      decomp->SetAllowedTypes(types_begin, types_end);
+      return decomp;
     }
 
     void AddFriend(const std::shared_ptr<CompressionManager>& mgr) {
@@ -2441,7 +2342,7 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
   // compression manager Foo because it's not registered nor known by Bar)
   options.compression_manager = mgr_bar;
   options.compression = kSnappyCompression;
-  ASSERT_EQ(TryReopen(options).code(), Status::Code::kNotFound);
+  ASSERT_EQ(TryReopen(options).code(), Status::Code::kNotSupported);
 
   // But should re-open if we make Bar aware of the Foo compression manager
   mgr_bar->AddFriend(mgr_foo);

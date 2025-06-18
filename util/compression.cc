@@ -7,6 +7,7 @@
 
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/utilities/object_registry.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -955,11 +956,12 @@ const std::shared_ptr<BuiltinCompressionManagerV2>
 }  // namespace
 
 Status CompressionManager::CreateFromString(
-    const ConfigOptions& config_options, const std::string& id,
+    const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<CompressionManager>* result) {
-  if (id == kNullptrString || id.empty()) {
+  if (value == kNullptrString || value.empty()) {
     result->reset();
     return Status::OK();
+    /*
   } else if (id.compare(kBuiltinCompressionManagerV1->CompatibilityName()) ==
                  0 ||
              id.compare(kBuiltinCompressionManagerV1->Name()) == 0) {
@@ -970,12 +972,48 @@ Status CompressionManager::CreateFromString(
              id.compare(kBuiltinCompressionManagerV2->Name()) == 0) {
     *result = kBuiltinCompressionManagerV2;
     return Status::OK();
-  } else if (config_options.ignore_unsupported_options) {
-    return Status::OK();
-  } else {
-    return Status::NotFound("Compatible compression manager for \"" + id +
-                            "\"");
+    */
   }
+
+  static std::once_flag loaded;
+  std::call_once(loaded, [&]() {
+    auto& library = *ObjectLibrary::Default();
+    library.AddFactory<CompressionManager>(
+        kBuiltinCompressionManagerV1->CompatibilityName(),
+        [](const std::string& /*uri*/,
+           std::unique_ptr<CompressionManager>* guard,
+           std::string* /*errmsg*/) {
+          *guard = std::make_unique<BuiltinCompressionManagerV1>();
+          return guard->get();
+        });
+    library.AddFactory<CompressionManager>(
+        kBuiltinCompressionManagerV2->CompatibilityName(),
+        [](const std::string& /*uri*/,
+           std::unique_ptr<CompressionManager>* guard,
+           std::string* /*errmsg*/) {
+          *guard = std::make_unique<BuiltinCompressionManagerV2>();
+          return guard->get();
+        });
+  });
+
+  std::string id;
+  std::unordered_map<std::string, std::string> opt_map;
+  Status status = Customizable::GetOptionsMap(config_options, result->get(),
+                                              value, &id, &opt_map);
+  if (!status.ok()) {  // GetOptionsMap failed
+    return status;
+  } else if (id.empty()) {  // We have no Id but have options.  Not good
+    return Status::NotSupported("Cannot reset object ", id);
+  } else {
+    status = config_options.registry->NewSharedObject(id, result);
+  }
+  if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
+    return Status::OK();
+  } else if (status.ok()) {
+    status = Customizable::ConfigureNewObject(config_options, result->get(),
+                                              opt_map);
+  }
+  return status;
 }
 
 std::shared_ptr<CompressionManager>
