@@ -800,6 +800,9 @@ struct DecompressorCustomAlg : public DecompressorWrapper {
       auto clone = std::make_unique<DecompressorCustomAlg>(std::move(*out));
       clone->SetAllowedTypes(allowed_types_);
       *out = std::move(clone);
+      assert(out->get()->GetSerializedDict() == serialized_dict);
+    } else {
+      assert(*out == nullptr);
     }
     return s;
   }

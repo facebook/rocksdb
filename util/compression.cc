@@ -961,23 +961,12 @@ Status CompressionManager::CreateFromString(
   if (value == kNullptrString || value.empty()) {
     result->reset();
     return Status::OK();
-    /*
-  } else if (id.compare(kBuiltinCompressionManagerV1->CompatibilityName()) ==
-                 0 ||
-             id.compare(kBuiltinCompressionManagerV1->Name()) == 0) {
-    *result = kBuiltinCompressionManagerV1;
-    return Status::OK();
-  } else if (id.compare(kBuiltinCompressionManagerV2->CompatibilityName()) ==
-                 0 ||
-             id.compare(kBuiltinCompressionManagerV2->Name()) == 0) {
-    *result = kBuiltinCompressionManagerV2;
-    return Status::OK();
-    */
   }
 
   static std::once_flag loaded;
   std::call_once(loaded, [&]() {
     auto& library = *ObjectLibrary::Default();
+    // TODO: try to enhance ObjectLibrary to support singletons
     library.AddFactory<CompressionManager>(
         kBuiltinCompressionManagerV1->CompatibilityName(),
         [](const std::string& /*uri*/,
