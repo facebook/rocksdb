@@ -250,7 +250,7 @@ TEST(CompactOnDeletionCollector, MinFileSize) {
       std::unique_ptr<TablePropertiesCollector> collector(
           factory->CreateTablePropertiesCollector(context));
 
-      // Add enough deletions to meet both sliding window and ratio triggers
+      // Add enough deletions to meet the sliding window triggers
       for (size_t i = 0; i < kWindowSize; i++) {
         if (i < kDeletionTrigger) {
           ASSERT_OK(collector->AddUserKey("key", "value", kEntryDelete, 0,
@@ -272,7 +272,7 @@ TEST(CompactOnDeletionCollector, MinFileSize) {
           factory->CreateTablePropertiesCollector(context));
 
       const size_t kTotalEntries = 100;
-      // Add all deletions to maximize ratio
+      // Add all deletions to maximize tombstone ratio
       for (size_t i = 0; i < kTotalEntries - 1; i++) {
         ASSERT_OK(
             collector->AddUserKey("key", "value", kEntrySingleDelete, 0, 0));

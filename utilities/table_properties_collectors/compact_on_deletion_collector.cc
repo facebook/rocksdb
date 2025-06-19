@@ -43,9 +43,7 @@ Status CompactOnDeletionCollector::AddUserKey(const Slice& /*key*/,
                                               EntryType type,
                                               SequenceNumber /*seq*/,
                                               uint64_t file_size) {
-#ifndef NDEBUG
   assert(!finished_);
-#endif
   if (!bucket_size_ && !deletion_ratio_enabled_) {
     // This collector is effectively disabled
     return Status::OK();
@@ -110,9 +108,7 @@ Status CompactOnDeletionCollector::Finish(
     double ratio = static_cast<double>(deletion_entries_) / total_entries_;
     need_compaction_ = ratio >= deletion_ratio_;
   }
-#ifndef NDEBUG
   finished_ = true;
-#endif
   return Status::OK();
 }
 static std::unordered_map<std::string, OptionTypeInfo>

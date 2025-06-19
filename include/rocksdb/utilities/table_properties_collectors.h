@@ -23,12 +23,16 @@ class CompactOnDeletionCollectorFactory
   // A factory of a table property collector that marks a SST
   // file as need-compaction when it observe at least "D" deletion
   // entries in any "N" consecutive entries, or the ratio of tombstone
-  // entries >= deletion_ratio.
+  // entries >= deletion_ratio for the entire file.
   //
   // @param sliding_window_size "N"
   // @param deletion_trigger "D"
   // @param deletion_ratio, if <= 0 or > 1, disable triggering compaction
   //     based on deletion ratio.
+  // @param min_file_size, a file needs to be at least this size to be marked
+  //     for compaction. See comments above
+  //     TablePropertiesCollector::AddUserKey() for limitations/inaccuracies on
+  //     the file size.
   CompactOnDeletionCollectorFactory(size_t sliding_window_size,
                                     size_t deletion_trigger,
                                     double deletion_ratio,

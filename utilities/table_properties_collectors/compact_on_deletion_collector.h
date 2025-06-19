@@ -64,8 +64,6 @@ class CompactOnDeletionCollector : public TablePropertiesCollector {
   const bool deletion_ratio_enabled_;
   // true if the current SST file needs to be compacted.
   bool need_compaction_;
-#ifndef NDEBUG
   bool finished_ = false;
-#endif
 };
 }  // namespace ROCKSDB_NAMESPACE
