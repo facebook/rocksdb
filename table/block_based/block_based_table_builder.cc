@@ -2077,6 +2077,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
     }
   }
 
+  assert(samples.sample_data.size() > 0);
+
   // final sample data block flushed, now we can generate dictionary
   r->compressor_with_dict = r->basic_compressor->MaybeCloneSpecialized(
       CacheEntryRole::kDataBlock, std::move(samples));

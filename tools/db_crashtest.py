@@ -1011,10 +1011,6 @@ def finalize_and_sanitize(src_params):
             dest_params["block_align"] = 0
         if dest_params["format_version"] < 7:
             dest_params["format_version"] = 7
-        # FIXME while debugging
-        dest_params["compressed_secondary_cache_size"] = 0
-        dest_params["compressed_secondary_cache_ratio"] = 0.0
-        dest_params["secondary_cache_uri"] = ""
     elif (
         dest_params.get("compression_manager") == "mixed"
         or dest_params.get("compression_manager") == "randommixed"

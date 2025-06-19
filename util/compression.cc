@@ -701,13 +701,6 @@ class BuiltinDecompressorV2SnappyOnly : public BuiltinDecompressorV2 {
     assert(args.compression_type == kSnappyCompression);
     return Snappy_DecompressBlock(args, uncompressed_output);
   }
-
-  Status MaybeCloneForDict(const Slice&,
-                           std::unique_ptr<Decompressor>* out) override {
-    // NOTE: quietly ignores the dictionary (for compatibility)
-    *out = std::make_unique<BuiltinDecompressorV2SnappyOnly>();
-    return Status::OK();
-  }
 };
 
 class BuiltinDecompressorV2WithDict : public BuiltinDecompressorV2 {
@@ -753,6 +746,17 @@ class BuiltinDecompressorV2WithDict : public BuiltinDecompressorV2 {
 
 Status BuiltinDecompressorV2::MaybeCloneForDict(
     const Slice& dict, std::unique_ptr<Decompressor>* out) {
+  // Because of unfortunate decisions in handling built-in compression types,
+  // all the compression types before ZSTD that do not actually support
+  // dictionary compression pretend to support it. Specifically, we have to be
+  // able to read files with a compression dictionary block using those
+  // compression types even though the compression dictionary is ignored by
+  // the compression algorithm. And the Decompressor has to return the
+  // configured dictionary from GetSerializedDict() even if it is ignored. This
+  // unfortunately means that a new schema version (BuiltinV3?) would be needed
+  // toactually support dictionary compression in the future for these
+  // algorithms (if the libraries add support).
+  // TODO: can we make this a better/cleaner experience?
   *out = std::make_unique<BuiltinDecompressorV2WithDict>(dict);
   return Status::OK();
 }
