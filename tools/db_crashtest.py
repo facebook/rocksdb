@@ -723,7 +723,7 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["mock_direct_io"] = True
 
-    if dest_params["memtablerep"] == "vector":
+    if dest_params.get("memtablerep") == "vector":
         dest_params["inplace_update_support"] = 0
         dest_params["paranoid_memory_checks"] = 0
 
