@@ -10,6 +10,7 @@
 #include "rocksdb/advanced_compression.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
+#include "util/stop_watch.h"
 namespace ROCKSDB_NAMESPACE {
 
 int CompressionRejectionProbabilityPredictor::Predict() const {
@@ -217,6 +218,7 @@ Status CPUIOAwareCompressor::CompressBlockAndRecord(
     int choosen_compression_type, int compresion_level_ptr,
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, CPUIOAwareWorkingArea* wa) {
+  StopWatchNano timer(Env::Default()->GetSystemClock().get(), true);
   Status status =
       allcompressors_[choosen_compression_type][compresion_level_ptr]
           ->CompressBlock(uncompressed_data, compressed_output,
@@ -225,7 +227,9 @@ Status CPUIOAwareCompressor::CompressBlockAndRecord(
   auto predictor =
       wa->cost_predictors[choosen_compression_type][compresion_level_ptr];
   predictor.IOPredictor.Record(compressed_output->size());
-  // predictor.CPUPredictor.Record(time);
+  if (timer.IsStarted()) {
+    predictor.CPUPredictor.Record(timer.ElapsedNanos());
+  }
   return status;
 }
 
