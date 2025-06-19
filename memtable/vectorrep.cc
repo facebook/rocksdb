@@ -30,6 +30,8 @@ class VectorRep : public MemTableRep {
   // collection.
   void Insert(KeyHandle handle) override;
 
+  void InsertConcurrently(KeyHandle handle) override;
+
   // Returns true iff an entry that compares equal to key is in the collection.
   bool Contains(const char* key) const override;
 
@@ -39,6 +41,8 @@ class VectorRep : public MemTableRep {
 
   void Get(const LookupKey& k, void* callback_args,
            bool (*callback_func)(void* arg, const char* entry)) override;
+
+  void BatchPostProcess() override;
 
   ~VectorRep() override = default;
 
@@ -100,19 +104,40 @@ class VectorRep : public MemTableRep {
 
  private:
   friend class Iterator;
+  ALIGN_AS(CACHE_LINE_SIZE) RelaxedAtomic<size_t> bucket_size_;
   using Bucket = std::vector<const char*>;
   std::shared_ptr<Bucket> bucket_;
   mutable port::RWMutex rwlock_;
   bool immutable_;
   bool sorted_;
   const KeyComparator& compare_;
+  // Thread-local vector to buffer concurrent writes.
+  using TlBucket = std::vector<const char*>;
+  ThreadLocalPtr tl_writes_;
+
+  static void DeleteTlBucket(void* ptr) {
+    auto* v = static_cast<TlBucket*>(ptr);
+    delete v;
+  }
 };
 
 void VectorRep::Insert(KeyHandle handle) {
   auto* key = static_cast<char*>(handle);
-  WriteLock l(&rwlock_);
-  assert(!immutable_);
-  bucket_->push_back(key);
+  {
+    WriteLock l(&rwlock_);
+    assert(!immutable_);
+    bucket_->push_back(key);
+  }
+  bucket_size_.FetchAddRelaxed(1);
+}
+
+void VectorRep::InsertConcurrently(KeyHandle handle) {
+  auto* v = static_cast<TlBucket*>(tl_writes_.Get());
+  if (!v) {
+    v = new TlBucket();
+    tl_writes_.Reset(v);
+  }
+  v->push_back(static_cast<char*>(handle));
 }
 
 // Returns true iff an entry that compares equal to key is in the collection.
@@ -127,19 +152,35 @@ void VectorRep::MarkReadOnly() {
 }
 
 size_t VectorRep::ApproximateMemoryUsage() {
-  return sizeof(bucket_) + sizeof(*bucket_) +
-         bucket_->size() *
-             sizeof(
-                 std::remove_reference<decltype(*bucket_)>::type::value_type);
+  return bucket_size_.LoadRelaxed() *
+         sizeof(std::remove_reference<decltype(*bucket_)>::type::value_type);
+}
+
+void VectorRep::BatchPostProcess() {
+  auto* v = static_cast<TlBucket*>(tl_writes_.Get());
+  if (v) {
+    {
+      WriteLock l(&rwlock_);
+      assert(!immutable_);
+      for (auto& key : *v) {
+        bucket_->push_back(key);
+      }
+    }
+    bucket_size_.FetchAddRelaxed(v->size());
+    delete v;
+    tl_writes_.Reset(nullptr);
+  }
 }
 
 VectorRep::VectorRep(const KeyComparator& compare, Allocator* allocator,
                      size_t count)
     : MemTableRep(allocator),
+      bucket_size_(0),
       bucket_(new Bucket()),
       immutable_(false),
       sorted_(false),
-      compare_(compare) {
+      compare_(compare),
+      tl_writes_(DeleteTlBucket) {
   bucket_.get()->reserve(count);
 }
 
