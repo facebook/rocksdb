@@ -109,6 +109,10 @@ class TablePropertiesCollector {
   // table.
   // @params key    the user key that is inserted into the table.
   // @params value  the value that is inserted into the table.
+  // @params file_size the current file size. For BlockBasedTable, this
+  //         includes all the data blocks written so far, upto but not including
+  //         the current block being built. With parallel compression, data
+  //         blocks are written async so it depends on the compression progress.
   virtual Status AddUserKey(const Slice& key, const Slice& value,
                             EntryType /*type*/, SequenceNumber /*seq*/,
                             uint64_t /*file_size*/) {
@@ -143,7 +147,7 @@ class TablePropertiesCollector {
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;
 
-  // EXPERIMENTAL Return whether the output file should be further compacted
+  // Return whether the output file should be further compacted
   virtual bool NeedCompact() const { return false; }
 
   // For internal use only.
