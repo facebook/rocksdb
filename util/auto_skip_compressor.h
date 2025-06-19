@@ -157,7 +157,7 @@ class CPUIOAwareCompressor : public Compressor {
                                 Slice uncompressed_data,
                                 std::string* compressed_output,
                                 CompressionType* out_compression_type,
-                                AutoSkipWorkingArea* wa);
+                                CPUIOAwareWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   std::vector<std::vector<int>> compression_levels_ = {
