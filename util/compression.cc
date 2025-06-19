@@ -7,6 +7,7 @@
 
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/utilities/object_registry.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -700,13 +701,6 @@ class BuiltinDecompressorV2SnappyOnly : public BuiltinDecompressorV2 {
     assert(args.compression_type == kSnappyCompression);
     return Snappy_DecompressBlock(args, uncompressed_output);
   }
-
-  Status MaybeCloneForDict(const Slice&,
-                           std::unique_ptr<Decompressor>* out) override {
-    // NOTE: quietly ignores the dictionary (for compatibility)
-    *out = std::make_unique<BuiltinDecompressorV2SnappyOnly>();
-    return Status::OK();
-  }
 };
 
 class BuiltinDecompressorV2WithDict : public BuiltinDecompressorV2 {
@@ -752,6 +746,17 @@ class BuiltinDecompressorV2WithDict : public BuiltinDecompressorV2 {
 
 Status BuiltinDecompressorV2::MaybeCloneForDict(
     const Slice& dict, std::unique_ptr<Decompressor>* out) {
+  // Because of unfortunate decisions in handling built-in compression types,
+  // all the compression types before ZSTD that do not actually support
+  // dictionary compression pretend to support it. Specifically, we have to be
+  // able to read files with a compression dictionary block using those
+  // compression types even though the compression dictionary is ignored by
+  // the compression algorithm. And the Decompressor has to return the
+  // configured dictionary from GetSerializedDict() even if it is ignored. This
+  // unfortunately means that a new schema version (BuiltinV3?) would be needed
+  // toactually support dictionary compression in the future for these
+  // algorithms (if the libraries add support).
+  // TODO: can we make this a better/cleaner experience?
   *out = std::make_unique<BuiltinDecompressorV2WithDict>(dict);
   return Status::OK();
 }
@@ -955,27 +960,53 @@ const std::shared_ptr<BuiltinCompressionManagerV2>
 }  // namespace
 
 Status CompressionManager::CreateFromString(
-    const ConfigOptions& config_options, const std::string& id,
+    const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<CompressionManager>* result) {
-  if (id == kNullptrString || id.empty()) {
+  if (value == kNullptrString || value.empty()) {
     result->reset();
     return Status::OK();
-  } else if (id.compare(kBuiltinCompressionManagerV1->CompatibilityName()) ==
-                 0 ||
-             id.compare(kBuiltinCompressionManagerV1->Name()) == 0) {
-    *result = kBuiltinCompressionManagerV1;
-    return Status::OK();
-  } else if (id.compare(kBuiltinCompressionManagerV2->CompatibilityName()) ==
-                 0 ||
-             id.compare(kBuiltinCompressionManagerV2->Name()) == 0) {
-    *result = kBuiltinCompressionManagerV2;
-    return Status::OK();
-  } else if (config_options.ignore_unsupported_options) {
-    return Status::OK();
-  } else {
-    return Status::NotFound("Compatible compression manager for \"" + id +
-                            "\"");
   }
+
+  static std::once_flag loaded;
+  std::call_once(loaded, [&]() {
+    auto& library = *ObjectLibrary::Default();
+    // TODO: try to enhance ObjectLibrary to support singletons
+    library.AddFactory<CompressionManager>(
+        kBuiltinCompressionManagerV1->CompatibilityName(),
+        [](const std::string& /*uri*/,
+           std::unique_ptr<CompressionManager>* guard,
+           std::string* /*errmsg*/) {
+          *guard = std::make_unique<BuiltinCompressionManagerV1>();
+          return guard->get();
+        });
+    library.AddFactory<CompressionManager>(
+        kBuiltinCompressionManagerV2->CompatibilityName(),
+        [](const std::string& /*uri*/,
+           std::unique_ptr<CompressionManager>* guard,
+           std::string* /*errmsg*/) {
+          *guard = std::make_unique<BuiltinCompressionManagerV2>();
+          return guard->get();
+        });
+  });
+
+  std::string id;
+  std::unordered_map<std::string, std::string> opt_map;
+  Status status = Customizable::GetOptionsMap(config_options, result->get(),
+                                              value, &id, &opt_map);
+  if (!status.ok()) {  // GetOptionsMap failed
+    return status;
+  } else if (id.empty()) {  // We have no Id but have options.  Not good
+    return Status::NotSupported("Cannot reset object ", id);
+  } else {
+    status = config_options.registry->NewSharedObject(id, result);
+  }
+  if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
+    return Status::OK();
+  } else if (status.ok()) {
+    status = Customizable::ConfigureNewObject(config_options, result->get(),
+                                              opt_map);
+  }
+  return status;
 }
 
 std::shared_ptr<CompressionManager>

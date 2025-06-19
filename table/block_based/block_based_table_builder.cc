@@ -832,15 +832,17 @@ struct BlockBasedTableBuilder::Rep {
       if (table_options.verify_compression) {
         verify_decompressor = basic_decompressor.get();
         if (table_options.enable_index_compression) {
-          basic_working_area.verify =
-              verify_decompressor->ObtainWorkingArea(tbo.compression_type);
+          basic_working_area.verify = verify_decompressor->ObtainWorkingArea(
+              basic_compressor->GetPreferredCompressionType());
         }
         if (state == State::kUnbuffered) {
+          assert(data_block_compressor);
+          data_block_verify_decompressor = verify_decompressor.get();
           for (uint32_t i = 0; i < compression_parallel_threads; i++) {
             data_block_working_areas[i].verify =
-                verify_decompressor->ObtainWorkingArea(tbo.compression_type);
+                data_block_verify_decompressor->ObtainWorkingArea(
+                    data_block_compressor->GetPreferredCompressionType());
           }
-          data_block_verify_decompressor = verify_decompressor.get();
         }
       }
     }
@@ -2074,6 +2076,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
       buffer_idx -= kNumBlocksBuffered;
     }
   }
+
+  assert(samples.sample_data.size() > 0);
 
   // final sample data block flushed, now we can generate dictionary
   r->compressor_with_dict = r->basic_compressor->MaybeCloneSpecialized(

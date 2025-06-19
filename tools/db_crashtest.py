@@ -178,7 +178,7 @@ default_params = {
     "verify_checksum": 1,
     "write_buffer_size": lambda: random.choice([1024 * 1024, 4 * 1024 * 1024]),
     "writepercent": 35,
-    "format_version": lambda: random.choice([2, 3, 4, 5, 6, 6]),
+    "format_version": lambda: random.choice([2, 3, 4, 5, 6, 7, 7]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
@@ -350,7 +350,11 @@ default_params = {
     "ingest_wbwi_one_in": lambda: random.choice([0, 0, 100, 500]),
     "universal_reduce_file_locking": lambda: random.randint(0, 1),
     "compression_manager": lambda: random.choice(
-        ["mixed"] * 1 + ["none"] * 2 + ["autoskip"] * 2 + ["randommixed"] * 2
+        ["mixed"] * 1
+        + ["none"] * 2
+        + ["autoskip"] * 2
+        + ["randommixed"] * 2
+        + ["custom"] * 3
     ),
 }
 
@@ -1004,15 +1008,17 @@ def finalize_and_sanitize(src_params):
             # have to disable metadata write fault injection to other file
             dest_params["exclude_wal_from_write_fault_injection"] = 1
             dest_params["metadata_write_fault_one_in"] = 0
-    # Disabling block align if mixed manager is neing used
-    if (
+    # Disabling block align if mixed manager is being used
+    if dest_params.get("compression_manager") == "custom":
+        if dest_params.get("block_align") == 1:
+            dest_params["block_align"] = 0
+        if dest_params["format_version"] < 7:
+            dest_params["format_version"] = 7
+    elif (
         dest_params.get("compression_manager") == "mixed"
         or dest_params.get("compression_manager") == "randommixed"
     ):
-        if dest_params.get("block_align") == 1:
-            dest_params["block_align"] = 0
-        dest_params["compression_type"] = "zstd"
-        dest_params["bottommost_compression_type"] = "zstd"
+        dest_params["block_align"] = 0
     elif dest_params.get("compression_manager") == "autoskip":
         # ensuring the compression is being used
         if dest_params.get("compression_type") == "none":

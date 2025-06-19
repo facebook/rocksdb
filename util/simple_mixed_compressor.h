@@ -18,7 +18,6 @@ namespace ROCKSDB_NAMESPACE {
 class MultiCompressorWrapper : public Compressor {
  public:
   explicit MultiCompressorWrapper(const CompressionOptions& opts,
-                                  CompressionType type,
                                   CompressionDict&& dict = {});
 
   size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;

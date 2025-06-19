@@ -248,6 +248,7 @@ struct DecompressorDict {
       decompressor_ = std::make_unique<FailureDecompressor>(std::move(s));
     } else {
       assert(s.ok());
+      assert(decompressor_->GetSerializedDict() == dict);
     }
 
     memory_usage_ = sizeof(struct DecompressorDict);

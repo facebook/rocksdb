@@ -23,6 +23,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/table.h"
 #include "table/internal_iterator.h"
+#include "util/defer.h"
 #include "util/mutexlock.h"
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
@@ -729,6 +730,131 @@ class StringFS : public FileSystemWrapper {
 
  protected:
   std::unordered_map<std::string, std::string> files_;
+};
+
+// A compressor that essentially implements a custom compression algorithm
+// by leveraging an existing compression algorithm and putting a custom header
+// on it to detect any attempts to decompress it with the wrong compression
+// type or dictionary.
+template <CompressionType kCompression>
+struct CompressorCustomAlg : public CompressorWrapper {
+  static bool Supported() { return LZ4_Supported(); }
+
+  explicit CompressorCustomAlg(std::unique_ptr<Compressor> wrapped =
+                                   GetDefaultBuiltinCompressionManager()
+                                       ->GetCompressor({}, kLZ4Compression))
+      : CompressorWrapper(std::move(wrapped)),
+        dictionary_hash_(GetSliceHash(wrapped_->GetSerializedDict())) {
+    static_assert(kCompression > kLastBuiltinCompression);
+  }
+
+  const char* Name() const override { return "CompressorCustomAlg"; }
+
+  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea* working_area) override {
+    Status s = wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                                       out_compression_type, working_area);
+    if (*out_compression_type != kNoCompression) {
+      assert(*out_compression_type == kLZ4Compression);
+      std::string header(/*size=*/5, 0);
+      header[0] = lossless_cast<char>(kCompression);
+      EncodeFixed32(&header[1], dictionary_hash_);
+      compressed_output->insert(0, header);
+      *out_compression_type = kCompression;
+    }
+    return s;
+  }
+
+  std::unique_ptr<Compressor> MaybeCloneSpecialized(
+      CacheEntryRole block_type, DictSampleArgs&& dict_samples) override {
+    auto clone =
+        wrapped_->MaybeCloneSpecialized(block_type, std::move(dict_samples));
+    return std::make_unique<CompressorCustomAlg>(std::move(clone));
+  }
+
+ protected:
+  uint32_t dictionary_hash_;
+};
+
+// A decompressor suitable for all the instantiable CompressorCustomAlg
+// implementations. Can be configured to check that it is only used to
+// decompress certain types using SetAllowedTypes().
+struct DecompressorCustomAlg : public DecompressorWrapper {
+  using TypeSet = SmallEnumSet<CompressionType, kDisableCompressionOption>;
+
+  DecompressorCustomAlg(
+      std::shared_ptr<Decompressor> wrapped =
+          GetDefaultBuiltinCompressionManager()->GetDecompressor())
+      : DecompressorWrapper(std::move(wrapped)),
+        dictionary_hash_(GetSliceHash(wrapped_->GetSerializedDict())),
+        allowed_types_(TypeSet::All()) {}
+
+  const char* Name() const override { return "DecompressorCustomAlg"; }
+
+  Status MaybeCloneForDict(const Slice& serialized_dict,
+                           std::unique_ptr<Decompressor>* out) override {
+    Status s = wrapped_->MaybeCloneForDict(serialized_dict, out);
+    if (s.ok()) {
+      assert(*out != nullptr);
+      auto clone = std::make_unique<DecompressorCustomAlg>(std::move(*out));
+      clone->SetAllowedTypes(allowed_types_);
+      *out = std::move(clone);
+      assert(out->get()->GetSerializedDict() == serialized_dict);
+    } else {
+      assert(*out == nullptr);
+    }
+    return s;
+  }
+
+  Status ExtractUncompressedSize(Args& args) override {
+    if (args.compression_type > kLastBuiltinCompression) {
+      assert(args.compressed_data.size() > 0);
+      assert(args.compressed_data[0] ==
+             lossless_cast<char>(args.compression_type));
+      assert(DecodeFixed32(args.compressed_data.data() + 1) ==
+             dictionary_hash_);
+      // Strip off our header because ExtractUncompressedSize() is also going
+      // to strip off the uncompressed size data.
+      args.compressed_data.remove_prefix(5);
+      // It's ok to modify other parts of args if we restore to original
+      SaveAndRestore<CompressionType> save_compression_type(
+          &args.compression_type, kLZ4Compression);
+      return wrapped_->ExtractUncompressedSize(args);
+    } else {
+      // Also support built-in compressions
+      return wrapped_->ExtractUncompressedSize(args);
+    }
+  }
+
+  Status DecompressBlock(const Args& args, char* uncompressed_output) override {
+    if (args.compression_type > kLastBuiltinCompression) {
+      // Also allowed to copy args and modify
+      Args modified_args = args;
+      modified_args.compression_type = kLZ4Compression;
+      return wrapped_->DecompressBlock(modified_args, uncompressed_output);
+    } else {
+      // Also support built-in compressions
+      return wrapped_->DecompressBlock(args, uncompressed_output);
+    }
+  }
+
+  void SetAllowedTypes(const CompressionType* types_begin,
+                       const CompressionType* types_end) {
+    TypeSet allowed_types;
+    for (auto type = types_begin; type != types_end; ++type) {
+      allowed_types.Add(*type);
+    }
+    allowed_types_ = std::move(allowed_types);
+  }
+
+  void SetAllowedTypes(TypeSet allowed_types) {
+    allowed_types_ = std::move(allowed_types);
+  }
+
+ protected:
+  uint32_t dictionary_hash_;
+  SmallEnumSet<CompressionType, kDisableCompressionOption> allowed_types_;
 };
 
 // Randomly initialize the given DBOptions
