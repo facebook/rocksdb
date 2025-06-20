@@ -45,6 +45,7 @@ class WindowAveragePredictor {
       prediction_ = sum_ / count_;
       sum_ = 0;
       count_ = 0;
+      fprintf(stdout, "prediction: %lu\n", prediction_);
     }
     return true;
   }
@@ -57,7 +58,7 @@ class WindowAveragePredictor {
 };
 
 using IOCostPredictor = WindowAveragePredictor<size_t>;
-using CPUUtilPredictor = WindowAveragePredictor<int>;
+using CPUUtilPredictor = WindowAveragePredictor<uint64_t>;
 
 struct IOCPUCostPredictor {
   IOCPUCostPredictor(int window_size)
@@ -152,8 +153,8 @@ class CPUIOAwareCompressor : public Compressor {
   void ReleaseWorkingArea(WorkingArea* wa) override;
 
  private:
-  Status CompressBlockAndRecord(int choosen_compression_type,
-                                int compresion_level_ptr,
+  Status CompressBlockAndRecord(size_t choosen_compression_type,
+                                size_t compresion_level_ptr,
                                 Slice uncompressed_data,
                                 std::string* compressed_output,
                                 CompressionType* out_compression_type,
@@ -166,7 +167,7 @@ class CPUIOAwareCompressor : public Compressor {
   std::vector<std::vector<std::unique_ptr<Compressor>>> allcompressors_;
 };
 
-class CUPIOAwareCompressorManager : public CompressionManagerWrapper {
+class CPUIOAwareCompressorManager : public CompressionManagerWrapper {
   using CompressionManagerWrapper::CompressionManagerWrapper;
   const char* Name() const override;
   std::unique_ptr<Compressor> GetCompressorForSST(
