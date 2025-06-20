@@ -868,7 +868,6 @@ class PosixFileSystem : public FileSystem {
       IOOptions opts;
       return CreateDirIfMissing(*result, opts, nullptr);
     }
-    return IOStatus::OK();
   }
 
   IOStatus GetFreeSpace(const std::string& fname, const IOOptions& /*opts*/,
