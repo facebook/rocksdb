@@ -32,6 +32,40 @@ class CompressionRejectionProbabilityPredictor {
   size_t window_size_;
 };
 
+template <typename T>
+class WindowAveragePredictor {
+ public:
+  WindowAveragePredictor(int window_size)
+      : sum_(0), count_(0), kWindowSize(window_size) {}
+  int Predict() { return prediction_; }
+  bool Record(T data) {
+    sum_ += data;
+    count_++;
+    if (count_ >= kWindowSize) {
+      prediction_ = sum_ / count_;
+      sum_ = 0;
+      count_ = 0;
+      fprintf(stdout, "prediction: %lu\n", prediction_);
+    }
+    return true;
+  }
+
+ private:
+  T sum_;
+  T prediction_;
+  int count_;
+  const int kWindowSize;
+};
+
+using IOCostPredictor = WindowAveragePredictor<size_t>;
+using CPUUtilPredictor = WindowAveragePredictor<uint64_t>;
+
+struct IOCPUCostPredictor {
+  IOCPUCostPredictor(int window_size)
+      : IOPredictor(window_size), CPUPredictor(window_size) {}
+  IOCostPredictor IOPredictor;
+  CPUUtilPredictor CPUPredictor;
+};
 class AutoSkipWorkingArea : public Compressor::WorkingArea {
  public:
   explicit AutoSkipWorkingArea(Compressor::ManagedWorkingArea&& wa)
@@ -56,6 +90,27 @@ class AutoSkipWorkingArea : public Compressor::WorkingArea {
   std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor;
 };
 
+class CPUIOAwareWorkingArea : public Compressor::WorkingArea {
+ public:
+  explicit CPUIOAwareWorkingArea(Compressor::ManagedWorkingArea&& wa)
+      : wrapped(std::move(wa)) {}
+  ~CPUIOAwareWorkingArea() {}
+  CPUIOAwareWorkingArea(const CPUIOAwareWorkingArea&) = delete;
+  CPUIOAwareWorkingArea& operator=(const CPUIOAwareWorkingArea&) = delete;
+  CPUIOAwareWorkingArea(CPUIOAwareWorkingArea&& other) noexcept
+      : wrapped(std::move(other.wrapped)) {}
+
+  CPUIOAwareWorkingArea& operator=(CPUIOAwareWorkingArea&& other) noexcept {
+    if (this != &other) {
+      wrapped = std::move(other.wrapped);
+      cost_predictors = std::move(other.cost_predictors);
+    }
+    return *this;
+  }
+  Compressor::ManagedWorkingArea wrapped;
+  std::vector<std::vector<IOCPUCostPredictor>> cost_predictors;
+};
+
 class AutoSkipCompressorWrapper : public CompressorWrapper {
  public:
   const char* Name() const override;
@@ -76,10 +131,43 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   const CompressionOptions kOpts;
-  std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor_;
 };
 
 class AutoSkipCompressorManager : public CompressionManagerWrapper {
+  using CompressionManagerWrapper::CompressionManagerWrapper;
+  const char* Name() const override;
+  std::unique_ptr<Compressor> GetCompressorForSST(
+      const FilterBuildingContext& context, const CompressionOptions& opts,
+      CompressionType preferred) override;
+};
+
+class CPUIOAwareCompressor : public Compressor {
+ public:
+  const char* Name() const override;
+  explicit CPUIOAwareCompressor(const CompressionOptions& opts);
+
+  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea* wa) override;
+  ManagedWorkingArea ObtainWorkingArea() override;
+  void ReleaseWorkingArea(WorkingArea* wa) override;
+
+ private:
+  Status CompressBlockAndRecord(size_t choosen_compression_type,
+                                size_t compresion_level_ptr,
+                                Slice uncompressed_data,
+                                std::string* compressed_output,
+                                CompressionType* out_compression_type,
+                                CPUIOAwareWorkingArea* wa);
+  static constexpr int kExplorationPercentage = 10;
+  static constexpr int kProbabilityCutOff = 50;
+  std::vector<std::vector<int>> compression_levels_ = {
+      {0}, {}, {}, {1, 4, 9}, {1, 4, 9}, {}, {1, 15, 22}};
+  const CompressionOptions kOpts;
+  std::vector<std::vector<std::unique_ptr<Compressor>>> allcompressors_;
+};
+
+class CPUIOAwareCompressorManager : public CompressionManagerWrapper {
   using CompressionManagerWrapper::CompressionManagerWrapper;
   const char* Name() const override;
   std::unique_ptr<Compressor> GetCompressorForSST(

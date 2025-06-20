@@ -10,6 +10,7 @@
 #include "rocksdb/advanced_compression.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
+#include "util/stop_watch.h"
 namespace ROCKSDB_NAMESPACE {
 
 int CompressionRejectionProbabilityPredictor::Predict() const {
@@ -42,12 +43,11 @@ bool CompressionRejectionProbabilityPredictor::Record(
   }
   return true;
 }
+
 AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
     std::unique_ptr<Compressor> compressor, const CompressionOptions& opts)
     : CompressorWrapper::CompressorWrapper(std::move(compressor)),
-      kOpts(opts),
-      predictor_(
-          std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
+      kOpts(opts) {}
 
 const char* AutoSkipCompressorWrapper::Name() const {
   return "AutoSkipCompressorWrapper";
@@ -89,14 +89,6 @@ Status AutoSkipCompressorWrapper::CompressBlock(
   return Status::OK();
 }
 
-Compressor::ManagedWorkingArea AutoSkipCompressorWrapper::ObtainWorkingArea() {
-  auto wrap_wa = wrapped_->ObtainWorkingArea();
-  return ManagedWorkingArea(new AutoSkipWorkingArea(std::move(wrap_wa)), this);
-}
-void AutoSkipCompressorWrapper::ReleaseWorkingArea(WorkingArea* wa) {
-  delete static_cast<AutoSkipWorkingArea*>(wa);
-}
-
 Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, AutoSkipWorkingArea* wa) {
@@ -106,6 +98,14 @@ Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
   auto predictor_ptr = wa->predictor;
   predictor_ptr->Record(uncompressed_data, compressed_output, kOpts);
   return status;
+}
+
+Compressor::ManagedWorkingArea AutoSkipCompressorWrapper::ObtainWorkingArea() {
+  auto wrap_wa = wrapped_->ObtainWorkingArea();
+  return ManagedWorkingArea(new AutoSkipWorkingArea(std::move(wrap_wa)), this);
+}
+void AutoSkipCompressorWrapper::ReleaseWorkingArea(WorkingArea* wa) {
+  delete static_cast<AutoSkipWorkingArea*>(wa);
 }
 
 const char* AutoSkipCompressorManager::Name() const {
@@ -123,9 +123,175 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
       wrapped_->GetCompressorForSST(context, opts, preferred), opts);
 }
 
+CPUIOAwareCompressor::CPUIOAwareCompressor(const CompressionOptions& opts)
+    : kOpts(opts) {
+  auto builtInManager = GetDefaultBuiltinCompressionManager();
+  const auto& compressions = GetSupportedCompressions();
+  for (size_t i = 0; i < compression_levels_.size(); i++) {
+    CompressionType type_ = static_cast<CompressionType>(i + 1);
+    if (type_ == kNoCompression) {
+      continue;
+    }
+    if (compression_levels_[type_ - 1].size() == 0) {
+      allcompressors_.push_back({});
+      continue;
+    } else {
+      if (std::find(compressions.begin(), compressions.end(), type_) ==
+          compressions.end()) {
+        compression_levels_[i].clear();
+        allcompressors_.push_back({});
+        continue;
+      }
+      std::vector<std::unique_ptr<Compressor>> compressors_diff_levels;
+      for (auto level : compression_levels_[type_ - 1]) {
+        CompressionOptions new_opts = opts;
+        new_opts.level = level;
+        compressors_diff_levels.push_back(
+            builtInManager->GetCompressor(new_opts, type_));
+      }
+      allcompressors_.push_back(std::move(compressors_diff_levels));
+    }
+  }
+}
+
+const char* CPUIOAwareCompressor::Name() const {
+  return "CPUIOAwareCompressor";
+}
+
+Status CPUIOAwareCompressor::CompressBlock(
+    Slice uncompressed_data, std::string* compressed_output,
+    CompressionType* out_compression_type, ManagedWorkingArea* wa) {
+  // Check if the managed working area is provided or owned by this object.
+  // If not, bypass auto-skip logic since the working area lacks a predictor
+  // to record or make necessary decisions to compress or bypass compression
+  // of the block
+  if (wa == nullptr || wa->owner() != this) {
+    return allcompressors_.back().back()->CompressBlock(
+        uncompressed_data, compressed_output, out_compression_type, wa);
+  }
+  bool exploration =
+      Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
+  TEST_SYNC_POINT_CALLBACK(
+      "CPUIOAwareCompressor::CompressBlock::exploitOrExplore", &exploration);
+  auto local_wa = static_cast<CPUIOAwareWorkingArea*>(wa->get());
+  if (exploration) {
+    int choosen_compression_type =
+        Random::GetTLSInstance()->Uniform(compression_levels_.size());
+    int compresion_level_ptr = Random::GetTLSInstance()->Uniform(
+        compression_levels_[choosen_compression_type].size());
+
+    TEST_SYNC_POINT_CALLBACK(
+        "CPUIOAwareCompressor::CompressBlock::SelectCompressionType",
+        &choosen_compression_type);
+    TEST_SYNC_POINT_CALLBACK(
+        "CPUIOAwareCompressor::CompressBlock::SelectCompressionLevel",
+        &compresion_level_ptr);
+    return CompressBlockAndRecord(
+        choosen_compression_type, compresion_level_ptr, uncompressed_data,
+        compressed_output, out_compression_type, local_wa);
+  } else {
+    int choosen_compression_type = compression_levels_.size() - 1;
+    int compresion_level_ptr =
+        compression_levels_[choosen_compression_type].size() - 1;
+    TEST_SYNC_POINT_CALLBACK(
+        "CPUIOAwareCompressor::CompressBlock::SelectCompressionType",
+        &choosen_compression_type);
+    TEST_SYNC_POINT_CALLBACK(
+        "CPUIOAwareCompressor::CompressBlock::SelectCompressionLevel",
+        &compresion_level_ptr);
+    // decide to compress
+    return CompressBlockAndRecord(
+        choosen_compression_type, compresion_level_ptr, uncompressed_data,
+        compressed_output, out_compression_type, local_wa);
+  }
+  return Status::OK();
+}
+
+Compressor::ManagedWorkingArea CPUIOAwareCompressor::ObtainWorkingArea() {
+  auto wrap_wa = allcompressors_.back().back()->ObtainWorkingArea();
+  auto wa = new CPUIOAwareWorkingArea(std::move(wrap_wa));
+  // const auto& compressions = GetSupportedCompressions();
+  for (size_t i = 0; i < compression_levels_.size(); i++) {
+    CompressionType type_ = static_cast<CompressionType>(i + 1);
+    if (compression_levels_[type_ - 1].size() == 0) {
+      wa->cost_predictors.push_back({});
+      continue;
+    } else {
+      // if (std::find(compressions.begin(), compressions.end(), type_) ==
+      //     compressions.end()) {
+      //   compression_levels_[i].clear();
+      //   wa->cost_predictors.push_back({});
+      //   continue;
+      // }
+      std::vector<IOCPUCostPredictor> predictors_diff_levels;
+      for (size_t j = 0; j < compression_levels_[type_ - 1].size(); j++) {
+        predictors_diff_levels.push_back(IOCPUCostPredictor(10));
+      }
+      wa->cost_predictors.push_back(std::move(predictors_diff_levels));
+    }
+  }
+  return ManagedWorkingArea(wa, this);
+}
+void CPUIOAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
+  delete static_cast<CPUIOAwareWorkingArea*>(wa);
+}
+
+Status CPUIOAwareCompressor::CompressBlockAndRecord(
+    size_t choosen_compression_type, size_t compresion_level_ptr,
+    Slice uncompressed_data, std::string* compressed_output,
+    CompressionType* out_compression_type, CPUIOAwareWorkingArea* wa) {
+  assert(choosen_compression_type < allcompressors_.size());
+  assert(compresion_level_ptr <
+         allcompressors_[choosen_compression_type].size());
+  StopWatchNano timer(Env::Default()->GetSystemClock().get(), true);
+  Status status =
+      allcompressors_[choosen_compression_type][compresion_level_ptr]
+          ->CompressBlock(uncompressed_data, compressed_output,
+                          out_compression_type, &(wa->wrapped));
+  auto output_length = compressed_output->size();
+  TEST_SYNC_POINT_CALLBACK(
+      "CPUIOAwareCompressor::CompressBlock::DelayOrGetSetCompressedOutput",
+      &output_length);
+  auto predictor =
+      wa->cost_predictors[choosen_compression_type][compresion_level_ptr];
+  predictor.IOPredictor.Record(output_length);
+  if (timer.IsStarted()) {
+    auto cpu_time = timer.ElapsedNanos();
+    predictor.CPUPredictor.Record(cpu_time);
+    fprintf(stdout,
+            "CPUIOAwareCompressor::CompressBlockAndRecord: "
+            "compression_algorithm: %lu compression_level: %lu cpu_time: %lu, "
+            "output_length: %lu\n",
+            choosen_compression_type, compresion_level_ptr, cpu_time,
+            output_length);
+  }
+  return status;
+}
+
 std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
     std::shared_ptr<CompressionManager> wrapped) {
   return std::make_shared<AutoSkipCompressorManager>(
+      wrapped == nullptr ? GetDefaultBuiltinCompressionManager() : wrapped);
+}
+const char* CPUIOAwareCompressorManager::Name() const {
+  // should have returned "CPUIOAwareCompressorManager" but we currently have an
+  // error so for now returning name of the wrapped container
+  return wrapped_->Name();
+}
+
+std::unique_ptr<Compressor> CPUIOAwareCompressorManager::GetCompressorForSST(
+    const FilterBuildingContext& context, const CompressionOptions& opts,
+    CompressionType preferred) {
+  assert(GetSupportedCompressions().size() > 1);
+  assert(preferred != kNoCompression);
+  (void)context;
+  (void)preferred;
+  return std::make_unique<CPUIOAwareCompressor>(opts);
+}
+
+std::shared_ptr<CompressionManagerWrapper> CreateCPUIOAwareCompressorManager(
+    std::shared_ptr<CompressionManager> wrapped) {
+  return std::make_shared<CPUIOAwareCompressorManager>(
       wrapped == nullptr ? GetDefaultBuiltinCompressionManager() : wrapped);
 }
 }  // namespace ROCKSDB_NAMESPACE

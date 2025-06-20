@@ -588,4 +588,8 @@ GetDefaultBuiltinCompressionManager();
 // utilization and IO constraints.
 std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
     std::shared_ptr<CompressionManager> wrapped);
+// Gets CompressionManager designed for the CPU and IO cost aware compression
+// strategy. This may include deciding to compress or not.
+std::shared_ptr<CompressionManagerWrapper> CreateCPUIOAwareCompressorManager(
+    std::shared_ptr<CompressionManager> wrapped);
 }  // namespace ROCKSDB_NAMESPACE
