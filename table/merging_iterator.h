@@ -56,7 +56,7 @@ class MergeIteratorBuilder {
   ~MergeIteratorBuilder();
 
   // Add point key iterator `iter` to the merging iterator.
-  void AddIterator(InternalIterator* iter);
+  void AddIterator(InternalIterator* iter, bool is_memtable_iter);
 
   // Add a point key iterator and a range tombstone iterator.
   // `tombstone_iter_ptr` should and only be set by LevelIterator.
@@ -70,7 +70,7 @@ class MergeIteratorBuilder {
   // point iterators are not LevelIterator, then range tombstone iterator is
   // only added to the merging iter if there is a non-null `tombstone_iter`.
   void AddPointAndTombstoneIterator(
-      InternalIterator* point_iter,
+      InternalIterator* point_iter, bool is_memtable_iter,
       std::unique_ptr<TruncatedRangeDelIterator>&& tombstone_iter,
       std::unique_ptr<TruncatedRangeDelIterator>** tombstone_iter_ptr =
           nullptr);
@@ -90,6 +90,7 @@ class MergeIteratorBuilder {
   MergingIterator* merge_iter;
   InternalIterator* first_iter;
   bool use_merging_iter;
+  bool first_iter_is_memtable;
   Arena* arena;
   // Used to set LevelIterator.range_tombstone_iter_.
   // See AddRangeTombstoneIterator() implementation for more detail.

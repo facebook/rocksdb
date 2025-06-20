@@ -1968,10 +1968,11 @@ InternalIterator* Version::TEST_GetLevelIterator(
       nullptr /* range_del_agg */, nullptr /* compaction_boundaries */,
       allow_unprepared_value, &tombstone_iter_ptr);
   if (read_options.ignore_range_deletions) {
-    merge_iter_builder->AddIterator(level_iter);
+    merge_iter_builder->AddIterator(level_iter, /*is_memtable_iter=*/false);
   } else {
     merge_iter_builder->AddPointAndTombstoneIterator(
-        level_iter, nullptr /* tombstone_iter */, tombstone_iter_ptr);
+        level_iter, /*is_memtable_iter=*/false, nullptr /* tombstone_iter */,
+        tombstone_iter_ptr);
   }
   return level_iter;
 }
@@ -2077,10 +2078,10 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
           /*largest_compaction_key=*/nullptr, allow_unprepared_value,
           /*range_del_read_seqno=*/nullptr, &tombstone_iter);
       if (read_options.ignore_range_deletions) {
-        merge_iter_builder->AddIterator(table_iter);
+        merge_iter_builder->AddIterator(table_iter, /*is_memtable_iter=*/false);
       } else {
         merge_iter_builder->AddPointAndTombstoneIterator(
-            table_iter, std::move(tombstone_iter));
+            table_iter, /*is_memtable_iter=*/false, std::move(tombstone_iter));
       }
     }
     if (should_sample) {
@@ -2092,7 +2093,25 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         sample_file_read_inc(meta);
       }
     }
-  } else if (storage_info_.LevelFilesBrief(level).num_files > 0) {
+  } else if (storage_info_.LevelFilesBrief(level).num_files == 1) {
+    const auto& file = storage_info_.LevelFilesBrief(level).files[0];
+    std::unique_ptr<TruncatedRangeDelIterator> tombstone_iter = nullptr;
+    auto table_iter = cfd_->table_cache()->NewIterator(
+        read_options, soptions, cfd_->internal_comparator(),
+        *file.file_metadata, /*range_del_agg=*/nullptr, mutable_cf_options_,
+        nullptr, cfd_->internal_stats()->GetFileReadHist(0),
+        TableReaderCaller::kUserIterator, arena,
+        /*skip_filters=*/false, level, max_file_size_for_l0_meta_pin_,
+        /*smallest_compaction_key=*/nullptr,
+        /*largest_compaction_key=*/nullptr, allow_unprepared_value,
+        /*range_del_read_seqno=*/nullptr, &tombstone_iter);
+    if (read_options.ignore_range_deletions) {
+      merge_iter_builder->AddIterator(table_iter, /*is_memtable_iter=*/false);
+    } else {
+      merge_iter_builder->AddPointAndTombstoneIterator(
+          table_iter, /*is_memtable_iter=*/false, std::move(tombstone_iter));
+    }
+  } else if (storage_info_.LevelFilesBrief(level).num_files > 1) {
     // For levels > 0, we can use a concatenating iterator that sequentially
     // walks through the non-overlapping files in the level, opening them
     // lazily.
@@ -2108,10 +2127,11 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         /*compaction_boundaries=*/nullptr, allow_unprepared_value,
         &tombstone_iter_ptr);
     if (read_options.ignore_range_deletions) {
-      merge_iter_builder->AddIterator(level_iter);
+      merge_iter_builder->AddIterator(level_iter, /*is_memtable_iter=*/false);
     } else {
       merge_iter_builder->AddPointAndTombstoneIterator(
-          level_iter, nullptr /* tombstone_iter */, tombstone_iter_ptr);
+          level_iter, /*is_memtable_iter=*/false, nullptr /* tombstone_iter */,
+          tombstone_iter_ptr);
     }
   }
 }
