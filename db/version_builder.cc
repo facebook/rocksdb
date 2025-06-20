@@ -32,6 +32,7 @@
 #include "db/version_edit.h"
 #include "db/version_edit_handler.h"
 #include "db/version_set.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "table/table_reader.h"
 #include "util/string_util.h"
@@ -855,12 +856,27 @@ class VersionBuilder::Rep {
         has_invalid_levels_ = true;
       }
 
+      if (current_level ==
+              VersionStorageInfo::FileLocation::Invalid().GetLevel() &&
+          ioptions_->allow_deleting_missing_file_during_recovery) {
+        if (version_set_) {
+          ROCKS_LOG_WARN(
+              version_set_->db_options()->info_log,
+              "table file #%" PRIu64
+              " on level %d not found when applying file deletion, ignored",
+              file_number, level);
+        }
+        return Status::OK();
+      }
+
       std::ostringstream oss;
       oss << "Cannot delete table file #" << file_number << " from level "
           << level << " since it is ";
       if (current_level ==
           VersionStorageInfo::FileLocation::Invalid().GetLevel()) {
-        oss << "not in the LSM tree";
+        oss << "not in the LSM tree. Set ColumnFamilyOptions::"
+               "allow_deleting_missing_file_during_recovery to true "
+               "to skip this error";
       } else {
         oss << "on level " << current_level;
       }
