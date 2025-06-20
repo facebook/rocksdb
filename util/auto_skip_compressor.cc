@@ -263,8 +263,8 @@ Status CPUIOAwareCompressor::CompressBlockAndRecord(
                           out_compression_type, &(wa->wrapped));
   auto output_length = compressed_output->size();
   TEST_SYNC_POINT_CALLBACK(
-      "CPUIOAwareCompressor::CompressBlockAndRecord:"
-      "DelayOrSetCompressedOutputSize",
+      "CPUIOAwareCompressor::CompressBlockAndRecord::"
+      "DelaySetCompressedOutputSize",
       &output_length);
   auto predictor =
       wa->cost_predictors[choosen_compression_type][compresion_level_ptr];
@@ -273,11 +273,11 @@ Status CPUIOAwareCompressor::CompressBlockAndRecord(
     auto cpu_time = timer.ElapsedNanos();
     predictor.CPUPredictor.Record(cpu_time);
     TEST_SYNC_POINT_CALLBACK(
-        "CPUIOAwareCompressor::CompressBlockAndRecord:"
+        "CPUIOAwareCompressor::CompressBlockAndRecord::"
         "GetCPUTime",
         &cpu_time);
     TEST_SYNC_POINT_CALLBACK(
-        "CPUIOAwareCompressor::CompressBlockAndRecord:"
+        "CPUIOAwareCompressor::CompressBlockAndRecord::"
         "GetCompressedOutputSize",
         &output_length);
     fprintf(stdout,

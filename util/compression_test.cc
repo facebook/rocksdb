@@ -208,29 +208,38 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
     }
     // Check every window
     if (num_keys_ % window_ == 0) {
-      auto set_exploration = [&](void* arg) {
-        bool* exploration = static_cast<bool*>(arg);
-        *exploration = true;
-      };
-      auto unset_exploration = [&](void* arg) {
-        bool* exploration = static_cast<bool*>(arg);
-        *exploration = false;
-      };
-      auto set_compression_type = [&](void* arg) {
-        size_t* compression_type = static_cast<size_t*>(arg);
-        *compression_type = 6;
-      };
-      auto set_compression_level = [&](void* arg) {
-        size_t* compression_level = static_cast<size_t*>(arg);
-        *compression_level = 2;
-      };
-      auto set_compress_size_with_delay = [&](void* arg) {
-        size_t* compress_size = static_cast<size_t*>(arg);
-        *compress_size = 100;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-      };
       uint64_t cpu_time = 0;
       size_t output_size = 0;
+      auto set_exploration = [](bool value) {
+        return [value](void* arg) {
+          bool* exploration = static_cast<bool*>(arg);
+          *exploration = value;
+          fprintf(stderr, "set exploration: %d\n", value);
+        };
+      };
+      auto set_compression_type = [](size_t type) {
+        return [type](void* arg) {
+          size_t* compression_type = static_cast<size_t*>(arg);
+          *compression_type = type;
+          fprintf(stderr, "set compression type: %lu\n", type);
+        };
+      };
+      auto set_compression_level = [](size_t level) {
+        return [level](void* arg) {
+          size_t* compression_level = static_cast<size_t*>(arg);
+          *compression_level = level;
+          fprintf(stderr, "set compression level: %lu\n", level);
+        };
+      };
+      auto set_compress_size_with_delay = [](size_t size, int milliseconds) {
+        return [size, milliseconds](void* arg) {
+          size_t* compress_size = static_cast<size_t*>(arg);
+          *compress_size = size;
+          fprintf(stderr, "set compression size: %lu time second: %d\n", size,
+                  milliseconds);
+          std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+        };
+      };
       auto get_compress_size = [&](void* arg) {
         size_t* compress_size = static_cast<size_t*>(arg);
         output_size = *compress_size;
@@ -241,51 +250,138 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
       };
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
-      // We force exploration to set the predicted rejection ratio for odd
-      // window and then test that the prediction is exploited in the even
-      // window
-      if (nth_window % 2 == 0) {
-        SyncPoint::GetInstance()->SetCallBack(
-            "CPUIOAwareCompressorWrapper::CompressBlock::exploitOrExplore",
-            set_exploration);
-      } else {
-        SyncPoint::GetInstance()->SetCallBack(
-            "CPUIOAwareCompressorWrapper::CompressBlock::exploitOrExplore",
-            unset_exploration);
-      }
-
-      SyncPoint::GetInstance()->SetCallBack(
-          "CPUIOAwareCompressorWrapper::CompressBlock::SelectCompressionType",
-          set_compression_type);
-      SyncPoint::GetInstance()->SetCallBack(
-          "CPUIOAwareCompressorWrapper::CompressBlock::SelectCompressionLevel",
-          set_compression_level);
-
-      SyncPoint::GetInstance()->SetCallBack(
-          "CPUIOAwareCompressorWrapper::CompressBlockRecord:"
-          "DelaySetCompressOutputSize",
-          set_compress_size_with_delay);
-      SyncPoint::GetInstance()->SetCallBack(
-          "CPUIOAwareCompressorWrapper::CompressBlockRecord:"
-          "GetCompressOutputSize",
-          get_compress_size);
-      SyncPoint::GetInstance()->SetCallBack(
-          "CPUIOAwareCompressorWrapper::CompressBlockRecord:"
-          "GetCPUTime",
-          get_cpu_time);
-      SyncPoint::GetInstance()->EnableProcessing();
 
       // use nth window to detect test cases and set the expected
       switch (nth_window) {
+        case 0:
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
+              set_exploration(true));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::"
+              "SelectCompressionType",
+              set_compression_type(6));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::"
+              "SelectCompressionLevel",
+              set_compression_level(2));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockAndRecord::"
+              "DelaySetCompressedOutputSize",
+              set_compress_size_with_delay(100, 1000));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockRecord::"
+              "GetCompressedOutputSize",
+              get_compress_size);
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockRecord:"
+              "GetCPUTime",
+              get_cpu_time);
+
+          break;
         case 1:
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
+              set_exploration(false));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::"
+              "SelectCompressionType",
+              set_compression_type(6));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::"
+              "SelectCompressionLevel",
+              set_compression_level(2));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockAndRecord::"
+              "DelaySetCompressedOutputSize",
+              set_compress_size_with_delay(100, 1000));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockRecord::"
+              "GetCompressedOutputSize",
+              get_compress_size);
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockRecord::"
+              "GetCPUTime",
+              get_cpu_time);
           break;
         case 2:
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
+              set_exploration(true));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::"
+              "SelectCompressionType",
+              set_compression_type(6));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::"
+              "SelectCompressionLevel",
+              set_compression_level(2));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockAndRecord::"
+              "DelaySetCompressedOutputSize",
+              set_compress_size_with_delay(1000, 2000));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockRecord::"
+              "GetCompressedOutputSize",
+              get_compress_size);
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockRecord::"
+              "GetCPUTime",
+              get_cpu_time);
+
           break;
         case 3:
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
+              set_exploration(false));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::"
+              "SelectCompressionType",
+              set_compression_type(4));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::"
+              "SelectCompressionLevel",
+              set_compression_level(2));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockAndRecord::"
+              "DelaySetCompressedOutputSize",
+              set_compress_size_with_delay(1000, 2000));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockAndRecord::"
+              "GetCompressedOutputSize",
+              get_compress_size);
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockAndRecord::"
+              "GetCPUTime",
+              get_cpu_time);
           break;
         case 4:
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
+              set_exploration(true));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::"
+              "SelectCompressionType",
+              set_compression_type(4));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlock::"
+              "SelectCompressionLevel",
+              set_compression_level(2));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockAndRecord::"
+              "DelaySetCompressedOutputSize",
+              set_compress_size_with_delay(200, 2000));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockRecord::"
+              "GetCompressedOutputSize",
+              get_compress_size);
+          SyncPoint::GetInstance()->SetCallBack(
+              "CPUIOAwareCompressor::CompressBlockRecord::"
+              "GetCPUTime",
+              get_cpu_time);
           break;
       }
+      SyncPoint::GetInstance()->EnableProcessing();
     }
     num_keys_++;
     return true;
