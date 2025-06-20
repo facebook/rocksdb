@@ -2282,7 +2282,7 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     ASSERT_EQ(NumTableFilesAtLevel(0), 2);
     ASSERT_EQ(Get("b"), value);
 
-    // Verify it was compressed with snappy
+    // Verify it was compressed with LZ4
     r = {"b", "b0"};
     tables_properties.clear();
     ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r,
@@ -2323,7 +2323,7 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     ASSERT_EQ(NumTableFilesAtLevel(0), 4);
     ASSERT_EQ(Get("d"), value);
 
-    // Verify it was compressed with snappy
+    // Verify it was compressed with LZ4
     r = {"d", "d0"};
     tables_properties.clear();
     ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r,
