@@ -2147,13 +2147,14 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
       return std::make_shared<test::DecompressorCustomAlg>();
     }
 
-    CompressionType last_specific_decompressor_type_ = kNoCompression;
+    RelaxedAtomic<CompressionType> last_specific_decompressor_type_{
+        kNoCompression};
 
     std::shared_ptr<Decompressor> GetDecompressorForTypes(
         const CompressionType* types_begin,
         const CompressionType* types_end) override {
       assert(types_end > types_begin);
-      last_specific_decompressor_type_ = *types_begin;
+      last_specific_decompressor_type_.StoreRelaxed(*types_begin);
       auto decomp = std::make_shared<test::DecompressorCustomAlg>();
       decomp->SetAllowedTypes(types_begin, types_end);
       return decomp;
@@ -2291,7 +2292,8 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
     // Uses new format for "compression_name" property
     EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;04;");
-    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_, kLZ4Compression);
+    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_.LoadRelaxed(),
+              kLZ4Compression);
 
     // Custom compression type
     options.compression = kCustomCompression8A;
@@ -2312,7 +2314,8 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     ASSERT_EQ(tables_properties.size(), 1U);
     EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
     EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;8A;");
-    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_, kCustomCompression8A);
+    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_.LoadRelaxed(),
+              kCustomCompression8A);
 
     // Also dynamically changeable, because the compression manager will respect
     // the current setting as reported under the legacy logic
@@ -2331,7 +2334,8 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     ASSERT_EQ(tables_properties.size(), 1U);
     EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
     EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;04;");
-    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_, kLZ4Compression);
+    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_.LoadRelaxed(),
+              kLZ4Compression);
 
     // Dynamically changeable to custom compressions also
     ASSERT_OK(dbfull()->SetOptions({{"compression", "kCustomCompression8B"}}));
@@ -2349,7 +2353,8 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     ASSERT_EQ(tables_properties.size(), 1U);
     EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
     EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;8B;");
-    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_, kCustomCompression8B);
+    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_.LoadRelaxed(),
+              kCustomCompression8B);
 
     // Fails to re-open with incompatible compression manager (can't find
     // compression manager Foo because it's not registered nor known by Bar)
@@ -2382,7 +2387,8 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
                                                 1, &tables_properties));
     ASSERT_EQ(tables_properties.size(), 1U);
     EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
-    EXPECT_EQ(mgr_bar->last_specific_decompressor_type_, kLZ4Compression);
+    EXPECT_EQ(mgr_bar->last_specific_decompressor_type_.LoadRelaxed(),
+              kLZ4Compression);
 
     // Fails to re-open with incompatible compression manager (can't find
     // compression manager Bar because it's not registered nor known by Foo)
