@@ -172,7 +172,8 @@ class DBAutoSkip : public DBTestBase {
       // We want to get the compression algorithm in random beside
       // kNoCompression, This is assuming that kNoCompression is the first
       // compression algorithm
-      auto selected_index = rnd_.Uniform(compressions.size() - 2) + 1;
+      auto selected_index =
+          rnd_.Uniform(static_cast<int>(compressions.size() - 2)) + 1;
       auto compression = compressions[selected_index];
       options.compression = compression;
       options.bottommost_compression = compression;
