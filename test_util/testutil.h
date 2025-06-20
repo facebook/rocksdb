@@ -750,12 +750,16 @@ struct CompressorCustomAlg : public CompressorWrapper {
 
   const char* Name() const override { return "CompressorCustomAlg"; }
 
+  CompressionType GetPreferredCompressionType() const override {
+    return kCompression;
+  }
+
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* working_area) override {
     Status s = wrapped_->CompressBlock(uncompressed_data, compressed_output,
                                        out_compression_type, working_area);
-    if (*out_compression_type != kNoCompression) {
+    if (s.ok() && *out_compression_type != kNoCompression) {
       assert(*out_compression_type == kLZ4Compression);
       std::string header(/*size=*/5, 0);
       header[0] = lossless_cast<char>(kCompression);
@@ -807,7 +811,8 @@ struct DecompressorCustomAlg : public DecompressorWrapper {
   }
 
   Status ExtractUncompressedSize(Args& args) override {
-    if (args.compression_type > kLastBuiltinCompression) {
+    if (args.compression_type >= kFirstCustomCompression &&
+        args.compression_type <= kLastCustomCompression) {
       assert(args.compressed_data.size() > 0);
       assert(args.compressed_data[0] ==
              lossless_cast<char>(args.compression_type));
@@ -827,7 +832,8 @@ struct DecompressorCustomAlg : public DecompressorWrapper {
   }
 
   Status DecompressBlock(const Args& args, char* uncompressed_output) override {
-    if (args.compression_type > kLastBuiltinCompression) {
+    if (args.compression_type >= kFirstCustomCompression &&
+        args.compression_type <= kLastCustomCompression) {
       // Also allowed to copy args and modify
       Args modified_args = args;
       modified_args.compression_type = kLZ4Compression;
