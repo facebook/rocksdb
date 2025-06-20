@@ -740,9 +740,9 @@ template <CompressionType kCompression>
 struct CompressorCustomAlg : public CompressorWrapper {
   static bool Supported() { return LZ4_Supported(); }
 
-  explicit CompressorCustomAlg(std::unique_ptr<Compressor> wrapped =
-                                   GetDefaultBuiltinCompressionManager()
-                                       ->GetCompressor({}, kLZ4Compression))
+  explicit CompressorCustomAlg(
+      std::unique_ptr<Compressor> wrapped =
+          GetBuiltinV2CompressionManager()->GetCompressor({}, kLZ4Compression))
       : CompressorWrapper(std::move(wrapped)),
         dictionary_hash_(GetSliceHash(wrapped_->GetSerializedDict())) {
     static_assert(kCompression > kLastBuiltinCompression);
@@ -783,9 +783,8 @@ struct CompressorCustomAlg : public CompressorWrapper {
 struct DecompressorCustomAlg : public DecompressorWrapper {
   using TypeSet = SmallEnumSet<CompressionType, kDisableCompressionOption>;
 
-  DecompressorCustomAlg(
-      std::shared_ptr<Decompressor> wrapped =
-          GetDefaultBuiltinCompressionManager()->GetDecompressor())
+  DecompressorCustomAlg(std::shared_ptr<Decompressor> wrapped =
+                            GetBuiltinV2CompressionManager()->GetDecompressor())
       : DecompressorWrapper(std::move(wrapped)),
         dictionary_hash_(GetSliceHash(wrapped_->GetSerializedDict())),
         allowed_types_(TypeSet::All()) {}

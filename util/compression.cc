@@ -1043,8 +1043,7 @@ const std::shared_ptr<CompressionManager>& GetBuiltinCompressionManager(
   }
 }
 
-const std::shared_ptr<CompressionManager>&
-GetDefaultBuiltinCompressionManager() {
+const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager() {
   return GetBuiltinCompressionManager(2);
 }
 

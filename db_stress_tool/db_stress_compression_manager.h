@@ -41,7 +41,7 @@ class DbStressCustomCompressionManager : public CompressionManager {
             test::CompressorCustomAlg<kCustomCompressionAC>>();
       // Also support built-in compression algorithms
       default:
-        return GetDefaultBuiltinCompressionManager()->GetCompressor(opts, type);
+        return GetBuiltinV2CompressionManager()->GetCompressor(opts, type);
     }
   }
 
@@ -59,7 +59,7 @@ class DbStressCustomCompressionManager : public CompressionManager {
 
  protected:
   std::shared_ptr<CompressionManager> default_ =
-      GetDefaultBuiltinCompressionManager();
+      GetBuiltinV2CompressionManager();
 };
 
 }  // namespace ROCKSDB_NAMESPACE

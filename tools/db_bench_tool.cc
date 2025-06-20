@@ -4653,7 +4653,7 @@ class Benchmark {
         options.bottommost_compression = kZSTD;
 
         mgr = std::make_shared<RoundRobinManager>(
-            GetDefaultBuiltinCompressionManager());
+            GetBuiltinV2CompressionManager());
       } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
         options.compression = FLAGS_compression_type_e;
         if (FLAGS_compression_type_e == kNoCompression) {
@@ -4662,8 +4662,8 @@ class Benchmark {
                   "autoskip");
           ErrorExit();
         }
-        mgr = CreateAutoSkipCompressionManager(
-            GetDefaultBuiltinCompressionManager());
+        mgr =
+            CreateAutoSkipCompressionManager(GetBuiltinV2CompressionManager());
       } else {
         // not defined -> exit with error
         fprintf(stderr, "Requested compression manager not supported");

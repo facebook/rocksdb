@@ -754,8 +754,11 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
     case kDisableCompressionOption:
       return "DisableOption";
     default: {
+      bool is_custom = compression_type >= kFirstCustomCompression &&
+                       compression_type <= kLastCustomCompression;
       char c = lossless_cast<char>(compression_type);
-      return "Custom" + Slice(&c, 1).ToString(/*hex=*/true);
+      return (is_custom ? "Custom" : "Reserved") +
+             Slice(&c, 1).ToString(/*hex=*/true);
     }
   }
 }
