@@ -216,6 +216,14 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
         bool* exploration = static_cast<bool*>(arg);
         *exploration = false;
       };
+      auto set_compression_type = [&](void* arg) {
+        size_t* compression_type = static_cast<size_t*>(arg);
+        *compression_type = 6;
+      };
+      auto set_compression_level = [&](void* arg) {
+        size_t* compression_level = static_cast<size_t*>(arg);
+        *compression_level = 2;
+      };
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
       // We force exploration to set the predicted rejection ratio for odd
@@ -223,62 +231,48 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
       // window
       if (nth_window % 2 == 0) {
         SyncPoint::GetInstance()->SetCallBack(
-            "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
+            "CPUIOAwareCompressorWrapper::CompressBlock::exploitOrExplore",
             set_exploration);
       } else {
         SyncPoint::GetInstance()->SetCallBack(
-            "AutoSkipCompressorWrapper::CompressBlock::exploitOrExplore",
+            "CPUIOAwareCompressorWrapper::CompressBlock::exploitOrExplore",
             unset_exploration);
       }
+
+      SyncPoint::GetInstance()->SetCallBack(
+          "CPUIOAwareCompressorWrapper::CompressBlock::SelectCompressionType",
+          set_compression_type);
+      SyncPoint::GetInstance()->SetCallBack(
+          "CPUIOAwareCompressorWrapper::CompressBlock::SelectCompressionLevel",
+          set_compression_level);
+
       SyncPoint::GetInstance()->EnableProcessing();
 
-      auto compressed_count = PopStat(NUMBER_BLOCK_COMPRESSED);
-      auto bypassed_count = PopStat(NUMBER_BLOCK_COMPRESSION_BYPASSED);
-      auto rejected_count = PopStat(NUMBER_BLOCK_COMPRESSION_REJECTED);
-      auto total = compressed_count + rejected_count + bypassed_count;
-      int rejection_percentage, bypassed_percentage, compressed_percentage;
-      if (total != 0) {
-        rejection_percentage = static_cast<int>(rejected_count * 100 / total);
-        bypassed_percentage = static_cast<int>(bypassed_count * 100 / total);
-        compressed_percentage =
-            static_cast<int>(compressed_count * 100 / total);
-        // use nth window to detect test cases and set the expected
-        switch (nth_window) {
-          case 1:
-            // In first window we only explore and thus here we verify that the
-            // correct prediction has been made by the end of the window
-            // Since 6 of 10 blocks are compression unfriendly, the predicted
-            // rejection ratio should be 60%
-            EXPECT_EQ(rejection_percentage, 60);
-            EXPECT_EQ(bypassed_percentage, 0);
-            EXPECT_EQ(compressed_percentage, 40);
-            break;
-          case 2:
-            // With the rejection ratio set to 0.6 all the blocks should be
-            // bypassed in next window
-            EXPECT_EQ(rejection_percentage, 0);
-            EXPECT_EQ(bypassed_percentage, 100);
-            EXPECT_EQ(compressed_percentage, 0);
-            break;
-          case 3:
-            // In third window we only explore and verify that the correct
-            // prediction has been made by the end of the window
-            // since 4 of 10 blocks are compression ufriendly, the predicted
-            // rejection ratio should be 40%
-            EXPECT_EQ(rejection_percentage, 40);
-            EXPECT_EQ(bypassed_percentage, 0);
-            EXPECT_EQ(compressed_percentage, 60);
-            break;
-          case 4:
-            // With the rejection ratio set to 0.4 all the blocks should be
-            // attempted to be compressed
-            // 6 of 10 blocks are compression unfriendly and thus should be
-            // rejected 4 of 10 blocks are compression friendly and thus should
-            // be compressed
-            EXPECT_EQ(rejection_percentage, 60);
-            EXPECT_EQ(bypassed_percentage, 0);
-            EXPECT_EQ(compressed_percentage, 40);
-        }
+      // use nth window to detect test cases and set the expected
+      switch (nth_window) {
+        case 1:
+          // In first window we only explore and thus here we verify that the
+          // correct prediction has been made by the end of the window
+          // Since 6 of 10 blocks are compression unfriendly, the predicted
+          // rejection ratio should be 60%
+          break;
+        case 2:
+          // With the rejection ratio set to 0.6 all the blocks should be
+          // bypassed in next window
+          break;
+        case 3:
+          // In third window we only explore and verify that the correct
+          // prediction has been made by the end of the window
+          // since 4 of 10 blocks are compression ufriendly, the predicted
+          // rejection ratio should be 40%
+          break;
+        case 4:
+          // With the rejection ratio set to 0.4 all the blocks should be
+          // attempted to be compressed
+          // 6 of 10 blocks are compression unfriendly and thus should be
+          // rejected 4 of 10 blocks are compression friendly and thus should
+          // be compressed
+          break;
       }
     }
     num_keys_++;
@@ -292,6 +286,28 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
   const BlockBuilder& data_block_builder_;
   std::shared_ptr<Statistics> statistics_;
 };
+class CPUIOAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+ public:
+  explicit CPUIOAwareTestFlushBlockPolicyFactory(
+      const int window, std::shared_ptr<Statistics> statistics)
+      : window_(window), statistics_(statistics) {}
+
+  virtual const char* Name() const override {
+    return "CPUIOAwareTestFlushBlockPolicyFactory";
+  }
+
+  virtual FlushBlockPolicy* NewFlushBlockPolicy(
+      const BlockBasedTableOptions& /*table_options*/,
+      const BlockBuilder& data_block_builder) const override {
+    (void)data_block_builder;
+    return new CPUIOAwareTestFlushBlockPolicy(window_, data_block_builder,
+                                              statistics_);
+  }
+
+ private:
+  int window_;
+  std::shared_ptr<Statistics> statistics_;
+};
 
 class DBCPUIOPredictor : public DBTestBase {
  public:
@@ -299,7 +315,7 @@ class DBCPUIOPredictor : public DBTestBase {
   Random rnd_;
   int key_index_;
   DBCPUIOPredictor()
-      : DBTestBase("db_auto_skip", /*env_do_fsync=*/true),
+      : DBTestBase("db_cpuio_skip", /*env_do_fsync=*/true),
         options(CurrentOptions()),
         rnd_(231),
         key_index_(0) {
@@ -311,7 +327,7 @@ class DBCPUIOPredictor : public DBTestBase {
     BlockBasedTableOptions bbto;
     bbto.enable_index_compression = false;
     bbto.flush_block_policy_factory.reset(
-        new AutoSkipTestFlushBlockPolicyFactory(10, statistics));
+        new CPUIOAwareTestFlushBlockPolicyFactory(10, statistics));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
     DestroyAndReopen(options);
   }

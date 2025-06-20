@@ -143,11 +143,13 @@ CPUIOAwareCompressor::CPUIOAwareCompressor(const CompressionOptions& opts)
         continue;
       }
       std::vector<std::unique_ptr<Compressor>> compressors_diff_levels;
-      for (auto level : compression_levels_[type_ - 1]) {
+      for (size_t j = 0; j < compression_levels_[type_ - 1].size(); j++) {
+        auto level = compression_levels_[type_ - 1][j];
         CompressionOptions new_opts = opts;
         new_opts.level = level;
         compressors_diff_levels.push_back(
             builtInManager->GetCompressor(new_opts, type_));
+        allcompressors_index_.push_back({i, j});
       }
       allcompressors_.push_back(std::move(compressors_diff_levels));
     }
@@ -175,24 +177,32 @@ Status CPUIOAwareCompressor::CompressBlock(
       "CPUIOAwareCompressor::CompressBlock::exploitOrExplore", &exploration);
   auto local_wa = static_cast<CPUIOAwareWorkingArea*>(wa->get());
   if (exploration) {
-    int choosen_compression_type =
-        Random::GetTLSInstance()->Uniform(compression_levels_.size());
-    int compresion_level_ptr = Random::GetTLSInstance()->Uniform(
-        compression_levels_[choosen_compression_type].size());
-
+    // int choosen_compression_type =
+    //     Random::GetTLSInstance()->Uniform(compression_levels_.size());
+    // int compresion_level_ptr = Random::GetTLSInstance()->Uniform(
+    //     compression_levels_[choosen_compression_type].size());
+    auto choosen_index =
+        allcompressors_index_[Random::GetTLSInstance()->Uniform(
+            allcompressors_index_.size())];
+    size_t choosen_compression_type = choosen_index.first;
+    size_t compresion_level_ptr = choosen_index.second;
     TEST_SYNC_POINT_CALLBACK(
         "CPUIOAwareCompressor::CompressBlock::SelectCompressionType",
         &choosen_compression_type);
     TEST_SYNC_POINT_CALLBACK(
         "CPUIOAwareCompressor::CompressBlock::SelectCompressionLevel",
         &compresion_level_ptr);
+    fprintf(stdout,
+            "Exploration: compression_algorithm: %lu compression_level: %lu\n",
+            choosen_compression_type, compresion_level_ptr);
     return CompressBlockAndRecord(
         choosen_compression_type, compresion_level_ptr, uncompressed_data,
         compressed_output, out_compression_type, local_wa);
   } else {
-    int choosen_compression_type = compression_levels_.size() - 1;
-    int compresion_level_ptr =
-        compression_levels_[choosen_compression_type].size() - 1;
+    auto choosen_index =
+        allcompressors_index_[allcompressors_index_.size() - 1];
+    size_t choosen_compression_type = choosen_index.first;
+    size_t compresion_level_ptr = choosen_index.second;
     TEST_SYNC_POINT_CALLBACK(
         "CPUIOAwareCompressor::CompressBlock::SelectCompressionType",
         &choosen_compression_type);
@@ -200,6 +210,9 @@ Status CPUIOAwareCompressor::CompressBlock(
         "CPUIOAwareCompressor::CompressBlock::SelectCompressionLevel",
         &compresion_level_ptr);
     // decide to compress
+    fprintf(stdout,
+            "Exploitation: compression_algorithm: %lu compression_level: %lu\n",
+            choosen_compression_type, compresion_level_ptr);
     return CompressBlockAndRecord(
         choosen_compression_type, compresion_level_ptr, uncompressed_data,
         compressed_output, out_compression_type, local_wa);
@@ -250,7 +263,8 @@ Status CPUIOAwareCompressor::CompressBlockAndRecord(
                           out_compression_type, &(wa->wrapped));
   auto output_length = compressed_output->size();
   TEST_SYNC_POINT_CALLBACK(
-      "CPUIOAwareCompressor::CompressBlock::DelayOrGetSetCompressedOutput",
+      "CPUIOAwareCompressor::CompressBlockAndRecord::"
+      "DelayOrGetSetCompressedOutput",
       &output_length);
   auto predictor =
       wa->cost_predictors[choosen_compression_type][compresion_level_ptr];

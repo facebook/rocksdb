@@ -165,6 +165,7 @@ class CPUIOAwareCompressor : public Compressor {
       {0}, {}, {}, {1, 4, 9}, {1, 4, 9}, {}, {1, 15, 22}};
   const CompressionOptions kOpts;
   std::vector<std::vector<std::unique_ptr<Compressor>>> allcompressors_;
+  std::vector<std::pair<size_t, size_t>> allcompressors_index_;
 };
 
 class CPUIOAwareCompressorManager : public CompressionManagerWrapper {
