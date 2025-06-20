@@ -224,6 +224,21 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
         size_t* compression_level = static_cast<size_t*>(arg);
         *compression_level = 2;
       };
+      auto set_compress_size_with_delay = [&](void* arg) {
+        size_t* compress_size = static_cast<size_t*>(arg);
+        *compress_size = 100;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+      };
+      uint64_t cpu_time = 0;
+      size_t output_size = 0;
+      auto get_compress_size = [&](void* arg) {
+        size_t* compress_size = static_cast<size_t*>(arg);
+        output_size = *compress_size;
+      };
+      auto get_cpu_time = [&](void* arg) {
+        size_t* time = static_cast<size_t*>(arg);
+        cpu_time = *time;
+      };
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
       // We force exploration to set the predicted rejection ratio for odd
@@ -246,32 +261,29 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
           "CPUIOAwareCompressorWrapper::CompressBlock::SelectCompressionLevel",
           set_compression_level);
 
+      SyncPoint::GetInstance()->SetCallBack(
+          "CPUIOAwareCompressorWrapper::CompressBlockRecord:"
+          "DelaySetCompressOutputSize",
+          set_compress_size_with_delay);
+      SyncPoint::GetInstance()->SetCallBack(
+          "CPUIOAwareCompressorWrapper::CompressBlockRecord:"
+          "GetCompressOutputSize",
+          get_compress_size);
+      SyncPoint::GetInstance()->SetCallBack(
+          "CPUIOAwareCompressorWrapper::CompressBlockRecord:"
+          "GetCPUTime",
+          get_cpu_time);
       SyncPoint::GetInstance()->EnableProcessing();
 
       // use nth window to detect test cases and set the expected
       switch (nth_window) {
         case 1:
-          // In first window we only explore and thus here we verify that the
-          // correct prediction has been made by the end of the window
-          // Since 6 of 10 blocks are compression unfriendly, the predicted
-          // rejection ratio should be 60%
           break;
         case 2:
-          // With the rejection ratio set to 0.6 all the blocks should be
-          // bypassed in next window
           break;
         case 3:
-          // In third window we only explore and verify that the correct
-          // prediction has been made by the end of the window
-          // since 4 of 10 blocks are compression ufriendly, the predicted
-          // rejection ratio should be 40%
           break;
         case 4:
-          // With the rejection ratio set to 0.4 all the blocks should be
-          // attempted to be compressed
-          // 6 of 10 blocks are compression unfriendly and thus should be
-          // rejected 4 of 10 blocks are compression friendly and thus should
-          // be compressed
           break;
       }
     }
