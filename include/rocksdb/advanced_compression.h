@@ -273,11 +273,11 @@ class Decompressor {
   // dictionary is processed into a form reusable by repeated compressions in
   // many threads, that happens within this call.
   //
-  // Must return OK if storing a result in `out`. Otherwise, could return values
-  // like NotSupported - dictionary compression is not (yet) supported for this
-  // kind of Decompressor.
-  // Corruption - dictionary is malformed (though many implementations will
-  // accept any data as a dictionary)
+  // Must return OK if and only if storing a result in `out`. Otherwise, could
+  // return values like NotSupported - dictionary compression is not (yet)
+  // supported for this kind of Decompressor. Corruption - dictionary is
+  // malformed (though many implementations will accept any data as a
+  // dictionary)
   virtual Status MaybeCloneForDict(const Slice& /*serialized_dict*/,
                                    std::unique_ptr<Decompressor>* /*out*/) {
     return Status::NotSupported(

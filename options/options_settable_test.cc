@@ -703,8 +703,12 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       new_options->compaction_options_fifo.file_temperature_age_thresholds[0]
           .age,
       12345);
-  ASSERT_EQ(new_options->compression_manager,
-            GetBuiltinCompressionManager(/*compression_format_version*/ 2));
+  // TODO: try to enhance ObjectLibrary to support singletons
+  // ASSERT_EQ(new_options->compression_manager,
+  //           GetBuiltinCompressionManager(/*compression_format_version*/ 2));
+  ASSERT_STREQ(
+      new_options->compression_manager->Name(),
+      GetBuiltinCompressionManager(/*compression_format_version*/ 2)->Name());
 
   ColumnFamilyOptions rnd_filled_options = *new_options;
 

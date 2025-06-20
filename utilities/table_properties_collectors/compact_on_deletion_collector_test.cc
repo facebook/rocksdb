@@ -232,6 +232,61 @@ TEST(CompactOnDeletionCollector, SlidingWindow) {
   }
 }
 
+TEST(CompactOnDeletionCollector, MinFileSize) {
+  TablePropertiesCollectorFactory::Context context;
+  context.column_family_id =
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
+  context.last_level_inclusive_max_seqno_threshold = kMaxSequenceNumber;
+
+  const size_t kWindowSize = 1000;
+  const size_t kDeletionTrigger = 800;
+  const double kDeletionRatio = 0.9;
+  const uint64_t kMinFileSize = 1 << 20;
+
+  for (uint64_t file_size : {(uint64_t)0, kMinFileSize - 1, kMinFileSize}) {
+    {
+      auto factory = NewCompactOnDeletionCollectorFactory(
+          kWindowSize, kDeletionTrigger, 0, kMinFileSize);
+      std::unique_ptr<TablePropertiesCollector> collector(
+          factory->CreateTablePropertiesCollector(context));
+
+      // Add enough deletions to meet the sliding window triggers
+      for (size_t i = 0; i < kWindowSize; i++) {
+        if (i < kDeletionTrigger) {
+          ASSERT_OK(collector->AddUserKey("key", "value", kEntryDelete, 0,
+                                          file_size));
+        } else {
+          ASSERT_OK(
+              collector->AddUserKey("key", "value", kEntryPut, 0, file_size));
+        }
+      }
+      ASSERT_OK(collector->Finish(nullptr));
+      ASSERT_EQ(collector->NeedCompact(), file_size >= kMinFileSize);
+    }
+
+    {
+      auto factory = NewCompactOnDeletionCollectorFactory(
+          kWindowSize, kDeletionTrigger, kDeletionRatio, kMinFileSize);
+
+      std::unique_ptr<TablePropertiesCollector> collector(
+          factory->CreateTablePropertiesCollector(context));
+
+      const size_t kTotalEntries = 100;
+      // Add all deletions to maximize tombstone ratio
+      for (size_t i = 0; i < kTotalEntries - 1; i++) {
+        ASSERT_OK(
+            collector->AddUserKey("key", "value", kEntrySingleDelete, 0, 0));
+      }
+      // Give update file size
+      ASSERT_OK(collector->AddUserKey("key", "value", kEntrySingleDelete, 0,
+                                      file_size));
+
+      ASSERT_OK(collector->Finish(nullptr));
+      ASSERT_EQ(collector->NeedCompact(), file_size >= kMinFileSize);
+    }
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
