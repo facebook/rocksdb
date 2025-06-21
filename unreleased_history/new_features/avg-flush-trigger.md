@@ -1,1 +1,0 @@
-* Add a new CF option `memtable_avg_op_scan_flush_trigger` that supports triggering memtable flush when an iterator scans through an expensive range of keys, with the average number of skipped keys from the active memtable exceeding the threshold.
