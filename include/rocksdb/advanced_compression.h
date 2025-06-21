@@ -597,6 +597,6 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
     std::shared_ptr<CompressionManager> wrapped = nullptr);
 // Gets CompressionManager designed for the CPU and IO cost aware compression
 // strategy. This may include deciding to compress or not.
-std::shared_ptr<CompressionManagerWrapper> CreateCPUIOAwareCompressorManager(
+std::shared_ptr<CompressionManagerWrapper> CreateCPUIOAwareCompressionManager(
     std::shared_ptr<CompressionManager> wrapped = nullptr);
 }  // namespace ROCKSDB_NAMESPACE

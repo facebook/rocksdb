@@ -89,6 +89,14 @@ Status AutoSkipCompressorWrapper::CompressBlock(
   return Status::OK();
 }
 
+Compressor::ManagedWorkingArea AutoSkipCompressorWrapper::ObtainWorkingArea() {
+  auto wrap_wa = wrapped_->ObtainWorkingArea();
+  return ManagedWorkingArea(new AutoSkipWorkingArea(std::move(wrap_wa)), this);
+}
+void AutoSkipCompressorWrapper::ReleaseWorkingArea(WorkingArea* wa) {
+  delete static_cast<AutoSkipWorkingArea*>(wa);
+}
+
 Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, AutoSkipWorkingArea* wa) {
@@ -98,14 +106,6 @@ Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
   auto predictor_ptr = wa->predictor;
   predictor_ptr->Record(uncompressed_data, compressed_output, kOpts);
   return status;
-}
-
-Compressor::ManagedWorkingArea AutoSkipCompressorWrapper::ObtainWorkingArea() {
-  auto wrap_wa = wrapped_->ObtainWorkingArea();
-  return ManagedWorkingArea(new AutoSkipWorkingArea(std::move(wrap_wa)), this);
-}
-void AutoSkipCompressorWrapper::ReleaseWorkingArea(WorkingArea* wa) {
-  delete static_cast<AutoSkipWorkingArea*>(wa);
 }
 
 const char* AutoSkipCompressorManager::Name() const {
@@ -302,7 +302,7 @@ std::unique_ptr<Compressor> CPUIOAwareCompressorManager::GetCompressorForSST(
   return std::make_unique<CPUIOAwareCompressor>(opts);
 }
 
-std::shared_ptr<CompressionManagerWrapper> CreateCPUIOAwareCompressorManager(
+std::shared_ptr<CompressionManagerWrapper> CreateCPUIOAwareCompressionManager(
     std::shared_ptr<CompressionManager> wrapped) {
   return std::make_shared<CPUIOAwareCompressorManager>(
       wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped);

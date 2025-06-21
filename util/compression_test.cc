@@ -426,7 +426,7 @@ class DBCPUIOPredictor : public DBTestBase {
         options(CurrentOptions()),
         rnd_(231),
         key_index_(0) {
-    options.compression_manager = CreateCPUIOAwareCompressorManager();
+    options.compression_manager = CreateCPUIOAwareCompressionManager();
     auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.statistics = statistics;
     options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
