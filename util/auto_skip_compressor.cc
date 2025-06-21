@@ -125,6 +125,8 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
 
 CPUIOAwareCompressor::CPUIOAwareCompressor(const CompressionOptions& opts)
     : kOpts(opts) {
+  // Creates compressor supporting all the compression types and levels as per
+  // the compression levels set in vector compression_levels_
   auto builtInManager = GetBuiltinV2CompressionManager();
   const auto& compressions = GetSupportedCompressions();
   for (size_t i = 0; i < compression_levels_.size(); i++) {
@@ -136,6 +138,8 @@ CPUIOAwareCompressor::CPUIOAwareCompressor(const CompressionOptions& opts)
       allcompressors_.push_back({});
       continue;
     } else {
+      // if the compression type is not supported, then skip and remove
+      // compression levels from the supported compression level list
       if (std::find(compressions.begin(), compressions.end(), type_) ==
           compressions.end()) {
         compression_levels_[i].clear();
@@ -168,8 +172,14 @@ Status CPUIOAwareCompressor::CompressBlock(
   // to record or make necessary decisions to compress or bypass compression
   // of the block
   if (wa == nullptr || wa->owner() != this) {
-    return allcompressors_.back().back()->CompressBlock(
-        uncompressed_data, compressed_output, out_compression_type, wa);
+    // We just go with the last compressor created. If Zstd is supported will be
+    // highest compression level of Zstd
+    auto choosen_compression = allcompressors_index_.back();
+    size_t choosen_compression_type = choosen_compression.first;
+    size_t compression_level_ptr = choosen_compression.second;
+    return allcompressors_[choosen_compression_type][compression_level_ptr]
+        ->CompressBlock(uncompressed_data, compressed_output,
+                        out_compression_type, wa);
   }
   bool exploration =
       Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
@@ -192,6 +202,7 @@ Status CPUIOAwareCompressor::CompressBlock(
         choosen_compression_type, compresion_level_ptr, uncompressed_data,
         compressed_output, out_compression_type, local_wa);
   } else {
+    // Going with the last compressor created as the default behavior
     auto choosen_index =
         allcompressors_index_[allcompressors_index_.size() - 1];
     size_t choosen_compression_type = choosen_index.first;
@@ -213,6 +224,7 @@ Status CPUIOAwareCompressor::CompressBlock(
 Compressor::ManagedWorkingArea CPUIOAwareCompressor::ObtainWorkingArea() {
   auto wrap_wa = allcompressors_.back().back()->ObtainWorkingArea();
   auto wa = new CPUIOAwareWorkingArea(std::move(wrap_wa));
+  // Create cost predictors for each compression type and level
   for (size_t i = 0; i < compression_levels_.size(); i++) {
     CompressionType type_ = static_cast<CompressionType>(i + 1);
     if (compression_levels_[type_ - 1].size() == 0) {
@@ -229,6 +241,7 @@ Compressor::ManagedWorkingArea CPUIOAwareCompressor::ObtainWorkingArea() {
   return ManagedWorkingArea(wa, this);
 }
 void CPUIOAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
+  // remove all created cost predictors
   for (auto& prdictors_diff_levels :
        static_cast<CPUIOAwareWorkingArea*>(wa)->cost_predictors) {
     for (auto& predictor : prdictors_diff_levels) {
@@ -257,27 +270,25 @@ Status CPUIOAwareCompressor::CompressBlockAndRecord(
       &output_length);
   auto predictor =
       wa->cost_predictors[choosen_compression_type][compresion_level_ptr];
+  auto cpu_time = timer.ElapsedNanos();
+  TEST_SYNC_POINT_CALLBACK(
+      "CPUIOAwareCompressor::CompressBlockAndRecord::"
+      "GetCPUTime",
+      &cpu_time);
+  TEST_SYNC_POINT_CALLBACK(
+      "CPUIOAwareCompressor::CompressBlockAndRecord::"
+      "GetCompressedOutputSize",
+      &output_length);
+  predictor->CPUPredictor.Record(cpu_time);
   predictor->IOPredictor.Record(output_length);
-  if (timer.IsStarted()) {
-    auto cpu_time = timer.ElapsedNanos();
-    predictor->CPUPredictor.Record(cpu_time);
-    TEST_SYNC_POINT_CALLBACK(
-        "CPUIOAwareCompressor::CompressBlockAndRecord::"
-        "GetCPUTime",
-        &cpu_time);
-    TEST_SYNC_POINT_CALLBACK(
-        "CPUIOAwareCompressor::CompressBlockAndRecord::"
-        "GetCompressedOutputSize",
-        &output_length);
-    TEST_SYNC_POINT_CALLBACK(
-        "CPUIOAwareCompressor::CompressBlockAndRecord::GetCPUPredictor",
-        &(wa->cost_predictors[choosen_compression_type][compresion_level_ptr]
-              ->CPUPredictor));
-    TEST_SYNC_POINT_CALLBACK(
-        "CPUIOAwareCompressor::CompressBlockAndRecord::GetIOPredictor",
-        &(wa->cost_predictors[choosen_compression_type][compresion_level_ptr]
-              ->IOPredictor));
-  }
+  TEST_SYNC_POINT_CALLBACK(
+      "CPUIOAwareCompressor::CompressBlockAndRecord::GetIOPredictor",
+      &(wa->cost_predictors[choosen_compression_type][compresion_level_ptr]
+            ->IOPredictor));
+  TEST_SYNC_POINT_CALLBACK(
+      "CPUIOAwareCompressor::CompressBlockAndRecord::GetCPUPredictor",
+      &(wa->cost_predictors[choosen_compression_type][compresion_level_ptr]
+            ->CPUPredictor));
   return status;
 }
 

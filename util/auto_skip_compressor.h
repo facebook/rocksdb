@@ -37,7 +37,7 @@ class WindowAveragePredictor {
  public:
   WindowAveragePredictor(int window_size)
       : sum_(0), prediction_(0), count_(0), kWindowSize(window_size) {}
-  int Predict() { return prediction_; }
+  T Predict() { return prediction_; }
   bool Record(T data) {
     sum_ += data;
     count_++;
@@ -161,6 +161,12 @@ class CPUIOAwareCompressor : public Compressor {
                                 CPUIOAwareWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
+  // This is the vector containing the list of compression levels that
+  // CPUIOAwareCompressor will use create compressor and predicts the cost
+  // The vector contains list of compression level for compression algorithm in
+  // the order defined by enum CompressionType i.e. {  kZlibCompression = 0x02,
+  // kBZip2Compression = 0x03, kLZ4Compression = 0x04, kLZ4HCCompression = 0x05,
+  // kXpressCompression = 0x06, kZSTD = 0x07}
   std::vector<std::vector<int>> compression_levels_ = {
       {0}, {}, {}, {1, 4, 9}, {1, 4, 9}, {}, {1, 15, 22}};
   const CompressionOptions kOpts;
