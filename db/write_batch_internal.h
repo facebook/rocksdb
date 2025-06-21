@@ -185,18 +185,19 @@ class WriteBatchInternal {
   // If flush_scheduler is non-null, it will be invoked if the memtable
   // should be flushed.
   //
-  // Under concurrent use, the caller is responsible for making sure that
-  // the memtables object itself is thread-local.
+  // This overload is for non-concurrent insertion only.
   static Status InsertInto(
       WriteThread::WriteGroup& write_group, SequenceNumber sequence,
       ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
       TrimHistoryScheduler* trim_history_scheduler,
       bool ignore_missing_column_families = false, uint64_t log_number = 0,
-      DB* db = nullptr, bool concurrent_memtable_writes = false,
-      bool seq_per_batch = false, bool batch_per_txn = true);
+      DB* db = nullptr, bool seq_per_batch = false, bool batch_per_txn = true);
 
   // Convenience form of InsertInto when you have only one batch
   // next_seq returns the seq after last sequence number used in MemTable insert
+  //
+  // Under concurrent use, the caller is responsible for making sure that
+  // the memtables object itself is thread-local.
   static Status InsertInto(
       const WriteBatch* batch, ColumnFamilyMemTables* memtables,
       FlushScheduler* flush_scheduler,

@@ -16,20 +16,17 @@ namespace ROCKSDB_NAMESPACE {
 
 // MultiCompressorWrapper implementation
 MultiCompressorWrapper::MultiCompressorWrapper(const CompressionOptions& opts,
-                                               CompressionType type,
                                                CompressionDict&& dict) {
-  assert(type != kNoCompression);
-  assert(type == kZSTD);
-  auto builtInManager = GetDefaultBuiltinCompressionManager();
+  // TODO: make the compression manager a field
+  auto builtInManager = GetBuiltinV2CompressionManager();
   const auto& compressions = GetSupportedCompressions();
-  for (auto type_ : compressions) {
-    if (type_ == kNoCompression) {
+  for (auto type : compressions) {
+    if (type == kNoCompression) {
       continue;
     }
-    compressors_.push_back(builtInManager->GetCompressor(opts, type_));
+    compressors_.push_back(builtInManager->GetCompressor(opts, type));
   }
   (void)dict;
-  (void)type;
 }
 
 size_t MultiCompressorWrapper::GetMaxSampleSizeIfWantDict(
@@ -42,7 +39,7 @@ Slice MultiCompressorWrapper::GetSerializedDict() const {
 }
 
 CompressionType MultiCompressorWrapper::GetPreferredCompressionType() const {
-  return kZSTD;
+  return compressors_.back()->GetPreferredCompressionType();
 }
 
 Compressor::ManagedWorkingArea MultiCompressorWrapper::ObtainWorkingArea() {
@@ -51,12 +48,18 @@ Compressor::ManagedWorkingArea MultiCompressorWrapper::ObtainWorkingArea() {
 
 std::unique_ptr<Compressor> MultiCompressorWrapper::MaybeCloneSpecialized(
     CacheEntryRole block_type, DictSampleArgs&& dict_samples) {
+  // TODO: full dictionary compression support. Currently this just falls
+  // back on a non-multi compressor when asked to use a dictionary.
   return compressors_.back()->MaybeCloneSpecialized(block_type,
                                                     std::move(dict_samples));
 }
 
-// SimpleMixedCompressor implementation
-Status SimpleMixedCompressor::CompressBlock(
+// RandomMixedCompressor implementation
+const char* RandomMixedCompressor::Name() const {
+  return "RandomMixedCompressor";
+}
+
+Status RandomMixedCompressor::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
   auto selected =
@@ -66,21 +69,21 @@ Status SimpleMixedCompressor::CompressBlock(
                                    out_compression_type, wa);
 }
 
-// SimpleMixedCompressionManager implementation
-const char* SimpleMixedCompressionManager::Name() const {
-  return wrapped_->Name();
-  // return "SimpleMixedCompressionManager";
+const char* RandomMixedCompressionManager::Name() const {
+  return "RandomMixedCompressionManager";
 }
 
-std::unique_ptr<Compressor> SimpleMixedCompressionManager::GetCompressorForSST(
-    const FilterBuildingContext& context, const CompressionOptions& opts,
-    CompressionType preferred) {
-  assert(preferred == kZSTD);
-  (void)context;
-  return std::make_unique<SimpleMixedCompressor>(opts, preferred);
+std::unique_ptr<Compressor> RandomMixedCompressionManager::GetCompressorForSST(
+    const FilterBuildingContext& /*context*/, const CompressionOptions& opts,
+    CompressionType /*preferred*/) {
+  return std::make_unique<RandomMixedCompressor>(opts);
 }
 
 // RoundRobinCompressor implementation
+const char* RoundRobinCompressor::Name() const {
+  return "RoundRobinCompressor";
+}
+
 Status RoundRobinCompressor::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
@@ -94,17 +97,12 @@ Status RoundRobinCompressor::CompressBlock(
 RelaxedAtomic<uint64_t> RoundRobinCompressor::block_counter{0};
 
 // RoundRobinManager implementation
-const char* RoundRobinManager::Name() const {
-  // return "RoundRobinManager";
-  return wrapped_->Name();
-}
+const char* RoundRobinManager::Name() const { return "RoundRobinManager"; }
 
 std::unique_ptr<Compressor> RoundRobinManager::GetCompressorForSST(
-    const FilterBuildingContext& context, const CompressionOptions& opts,
-    CompressionType preferred) {
-  assert(preferred == kZSTD);
-  (void)context;
-  return std::make_unique<RoundRobinCompressor>(opts, preferred);
+    const FilterBuildingContext& /*context*/, const CompressionOptions& opts,
+    CompressionType /*preferred*/) {
+  return std::make_unique<RoundRobinCompressor>(opts);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

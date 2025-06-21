@@ -80,15 +80,16 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     ptr = reinterpret_cast<CacheAllocationPtr*>(handle_value);
     handle_value_charge = cache_->GetCharge(lru_handle);
     data_ptr = ptr->get();
-    data_ptr = GetVarint32Ptr(data_ptr, data_ptr + 1,
-                              static_cast<uint32_t*>(&type_32));
+    const char* limit = ptr->get() + handle_value_charge;
+    data_ptr =
+        GetVarint32Ptr(data_ptr, limit, static_cast<uint32_t*>(&type_32));
     type = static_cast<CompressionType>(type_32);
-    data_ptr = GetVarint32Ptr(data_ptr, data_ptr + 1,
-                              static_cast<uint32_t*>(&source_32));
+    data_ptr =
+        GetVarint32Ptr(data_ptr, limit, static_cast<uint32_t*>(&source_32));
     source = static_cast<CacheTier>(source_32);
     uint64_t data_size = 0;
-    data_ptr = GetVarint64Ptr(data_ptr, ptr->get() + handle_value_charge,
-                              static_cast<uint64_t*>(&data_size));
+    data_ptr =
+        GetVarint64Ptr(data_ptr, limit, static_cast<uint64_t*>(&data_size));
     assert(handle_value_charge > data_size);
     handle_value_charge = data_size;
   }

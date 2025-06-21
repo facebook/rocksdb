@@ -1730,6 +1730,10 @@ DEFINE_uint64(stats_history_buffer_size,
 DEFINE_bool(avoid_flush_during_recovery,
             ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
             "If true, avoids flushing the recovered WAL data where possible.");
+
+DEFINE_bool(avoid_flush_during_shutdown,
+            ROCKSDB_NAMESPACE::Options().avoid_flush_during_shutdown,
+            "If true, avoids flushing the recovered WAL data where possible.");
 DEFINE_int64(multiread_stride, 0,
              "Stride length for the keys in a MultiGet batch");
 DEFINE_bool(multiread_batched, false, "Use the new MultiGet API");
@@ -1817,6 +1821,11 @@ DEFINE_bool(track_and_verify_wals, false, "See Options.track_and_verify_wals");
 DEFINE_int32(same_value_percentage, 0,
              "Percentage of time value will be same i.e good for compression "
              "of the block");
+
+DEFINE_bool(universal_reduce_file_locking,
+            ROCKSDB_NAMESPACE::Options()
+                .compaction_options_universal.reduce_file_locking,
+            "See Options().compaction_options_universal.reduce_file_locking");
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -2898,14 +2907,13 @@ class Benchmark {
     // mixed compression  manager expect compression type to be expliciltiy
     // configured through Options to be zstd
     auto compression = std::string("zstd");
-    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
-      fprintf(stdout, "Compression manager: mixed\n");
-      fprintf(stdout, "Compression: zstd\n");
-    } else {
-      fprintf(stdout, "Compression manager: none\n");
+    if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
       compression = CompressionTypeToString(FLAGS_compression_type_e);
-      fprintf(stdout, "Compression: %s\n", compression.c_str());
+    } else {
+      fprintf(stdout, "Compression manager: %s\n",
+              FLAGS_compression_manager.c_str());
     }
+    fprintf(stdout, "Compression: %s\n", compression.c_str());
     fprintf(stdout, "Compression sampling rate: %" PRId64 "\n",
             FLAGS_sample_for_compression);
     if (options.memtable_factory != nullptr) {
@@ -4260,6 +4268,7 @@ class Benchmark {
     options.stats_history_buffer_size =
         static_cast<size_t>(FLAGS_stats_history_buffer_size);
     options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
+    options.avoid_flush_during_shutdown = FLAGS_avoid_flush_during_shutdown;
 
     options.compression_opts.level = FLAGS_compression_level;
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
@@ -4491,6 +4500,7 @@ class Benchmark {
       block_based_options.block_restart_interval = FLAGS_block_restart_interval;
       block_based_options.index_block_restart_interval =
           FLAGS_index_block_restart_interval;
+      TEST_AllowUnsupportedFormatVersion() = true;
       block_based_options.format_version =
           static_cast<uint32_t>(FLAGS_format_version);
       block_based_options.read_amp_bytes_per_bit = FLAGS_read_amp_bytes_per_bit;
@@ -4629,19 +4639,37 @@ class Benchmark {
         FLAGS_level0_file_num_compaction_trigger;
     options.level0_slowdown_writes_trigger =
         FLAGS_level0_slowdown_writes_trigger;
-    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
-      // Need to list zstd in the compression_name table property if it's
-      // potentially used by being in the mix (i.e., potentially at least one
-      // data block in the table is compressed by zstd). This ensures proper
-      // context and dictionary handling, and prevents crashes in older RocksDB
-      // versions.
-      options.compression = kZSTD;
-      options.bottommost_compression = kZSTD;
-      auto mgr = std::make_shared<RoundRobinManager>(
-          GetDefaultBuiltinCompressionManager());
-      options.compression_manager = mgr;
-    } else {
+    if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
       options.compression = FLAGS_compression_type_e;
+    } else {
+      std::shared_ptr<CompressionManagerWrapper> mgr;
+      if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+        // Need to list zstd in the compression_name table property if it's
+        // potentially used by being in the mix (i.e., potentially at least one
+        // data block in the table is compressed by zstd). This ensures proper
+        // context and dictionary handling, and prevents crashes in older
+        // RocksDB versions.
+        options.compression = kZSTD;
+        options.bottommost_compression = kZSTD;
+
+        mgr = std::make_shared<RoundRobinManager>(
+            GetBuiltinV2CompressionManager());
+      } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
+        options.compression = FLAGS_compression_type_e;
+        if (FLAGS_compression_type_e == kNoCompression) {
+          fprintf(stderr,
+                  "Compression type must not be no Compression when using "
+                  "autoskip");
+          ErrorExit();
+        }
+        mgr =
+            CreateAutoSkipCompressionManager(GetBuiltinV2CompressionManager());
+      } else {
+        // not defined -> exit with error
+        fprintf(stderr, "Requested compression manager not supported");
+        ErrorExit();
+      }
+      options.compression_manager = mgr;
     }
 
     if (FLAGS_simulate_hybrid_fs_file != "") {
@@ -4789,6 +4817,8 @@ class Benchmark {
     options.paranoid_memory_checks = FLAGS_paranoid_memory_checks;
     options.memtable_op_scan_flush_trigger =
         FLAGS_memtable_op_scan_flush_trigger;
+    options.compaction_options_universal.reduce_file_locking =
+        FLAGS_universal_reduce_file_locking;
   }
 
   void InitializeOptionsGeneral(Options* opts, ToolHooks& hooks) {

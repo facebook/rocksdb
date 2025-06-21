@@ -1672,55 +1672,75 @@ TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
   }
   const int kNumFilesTrigger = 3;
   Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
-  Options options = CurrentOptions();
-  options.compaction_style = kCompactionStyleUniversal;
-  options.max_background_compactions = 2;
-  options.num_levels = num_levels_;
-  options.write_buffer_size = 100 << 10;     // 100KB
-  options.target_file_size_base = 32 << 10;  // 32KB
-  options.level0_file_num_compaction_trigger = kNumFilesTrigger;
-  // Trigger compaction if size amplification exceeds 110%
-  options.compaction_options_universal.max_size_amplification_percent = 110;
-  DestroyAndReopen(options);
 
-  // Need to get a token to enable compaction parallelism up to
-  // `max_background_compactions` jobs.
-  auto pressure_token =
-      dbfull()->TEST_write_controler().GetCompactionPressureToken();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {// wait for the full compaction to be picked before adding files intended
-       // for the second one.
-       {"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
-        "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0"},
-       // the full (bottom-pri) compaction waits until a partial (low-pri)
-       // compaction has started to verify they can run in parallel.
-       {"DBImpl::BackgroundCompaction:NonTrivial",
-        "DBImpl::BGWorkBottomCompaction"}});
-  SyncPoint::GetInstance()->EnableProcessing();
+  for (bool universal_reduce_file_locking : {true, false}) {
+    Options options = CurrentOptions();
+    options.compaction_style = kCompactionStyleUniversal;
+    options.compaction_options_universal.reduce_file_locking =
+        universal_reduce_file_locking;
+    options.max_background_compactions = 2;
+    options.num_levels = num_levels_;
+    options.write_buffer_size = 100 << 10;     // 100KB
+    options.target_file_size_base = 32 << 10;  // 32KB
+    options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+    // Trigger compaction if size amplification exceeds 110%
+    options.compaction_options_universal.max_size_amplification_percent = 110;
+    DestroyAndReopen(options);
 
-  Random rnd(301);
-  for (int i = 0; i < 2; ++i) {
-    for (int num = 0; num < kNumFilesTrigger; num++) {
-      int key_idx = 0;
-      GenerateNewFile(&rnd, &key_idx, true /* no_wait */);
-      // use no_wait above because that one waits for flush and compaction. We
-      // don't want to wait for compaction because the full compaction is
-      // intentionally blocked while more files are flushed.
-      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    // Need to get a token to enable compaction parallelism up to
+    // `max_background_compactions` jobs.
+    auto pressure_token =
+        dbfull()->TEST_write_controler().GetCompactionPressureToken();
+    if (universal_reduce_file_locking) {
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+          {// Wait for the full compaction to be repicked before adding files
+           // intended for the second compaction.
+           {"DBImpl::BackgroundCompaction():AfterPickCompactionBottomPri",
+            "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0"},
+           // Wait for the second compaction to run before running the full
+           // compaction to verify they can run in parallel
+           {"DBImpl::BackgroundCompaction:NonTrivial:BeforeRun",
+            "DBImpl::BackgroundCompaction:NonTrivial:BeforeRunBottomPri"}});
+    } else {
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+          {// Wait for the full compaction to be forwarded before adding files
+           // intended for the second compaction.
+           {"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+            "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0"},
+           // Wait for the second compaction to run before running the full
+           // compaction to verify they can run in parallel
+           {"DBImpl::BackgroundCompaction:NonTrivial:BeforeRun",
+            "DBImpl::BackgroundCompaction:NonTrivial:BeforeRunBottomPri"}});
     }
-    if (i == 0) {
-      TEST_SYNC_POINT(
-          "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0");
+
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Random rnd(301);
+    for (int i = 0; i < 2; ++i) {
+      for (int num = 0; num < kNumFilesTrigger; num++) {
+        int key_idx = 0;
+        GenerateNewFile(&rnd, &key_idx, true /* no_wait */);
+        // use no_wait above because that one waits for flush and compaction. We
+        // don't want to wait for compaction because the full compaction is
+        // intentionally blocked while more files are flushed.
+        ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+      }
+      if (i == 0) {
+        TEST_SYNC_POINT(
+            "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0");
+      }
     }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+    // First compaction should output to bottom level. Second should output to
+    // L0 since older L0 files pending compaction prevent it from being placed
+    // lower.
+    ASSERT_EQ(NumSortedRuns(), 2);
+    ASSERT_GT(NumTableFilesAtLevel(0), 0);
+    ASSERT_GT(NumTableFilesAtLevel(num_levels_ - 1), 0);
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  // First compaction should output to bottom level. Second should output to L0
-  // since older L0 files pending compaction prevent it from being placed lower.
-  ASSERT_EQ(NumSortedRuns(), 2);
-  ASSERT_GT(NumTableFilesAtLevel(0), 0);
-  ASSERT_GT(NumTableFilesAtLevel(num_levels_ - 1), 0);
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 

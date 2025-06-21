@@ -874,6 +874,7 @@ set(SOURCES
         trace_replay/trace_record.cc
         trace_replay/trace_replay.cc
         util/async_file_reader.cc
+        util/auto_skip_compressor.cc
         util/cleanable.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
@@ -1457,6 +1458,7 @@ if(WITH_TESTS)
         util/autovector_test.cc
         util/bloom_test.cc
         util/coding_test.cc
+        util/compression_test.cc
         util/crc32c_test.cc
         util/defer_test.cc
         util/dynamic_bloom_test.cc
