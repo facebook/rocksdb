@@ -126,6 +126,6 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
 std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
     std::shared_ptr<CompressionManager> wrapped) {
   return std::make_shared<AutoSkipCompressorManager>(
-      wrapped == nullptr ? GetDefaultBuiltinCompressionManager() : wrapped);
+      wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped);
 }
 }  // namespace ROCKSDB_NAMESPACE

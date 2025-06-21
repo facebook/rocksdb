@@ -371,8 +371,9 @@ class CompressionManager
                                  const std::string& id,
                                  std::shared_ptr<CompressionManager>* result);
 
-  // Will this compression type be used if requested in calling
-  // GetCompressor/GetCompressorForSST?
+  // Returns false iff a configuration that would pass the given compression
+  // type to GetCompressor/GetCompressorForSST should be rejected (not
+  // supported)
   virtual bool SupportsCompressionType(CompressionType type) const = 0;
 
   // TODO: function to check compatibility with or sanitize CompressionOptions
@@ -577,11 +578,17 @@ class CompressionManagerWrapper : public CompressionManager {
   std::shared_ptr<CompressionManager> wrapped_;
 };
 
-// Compression manager that implements built-in compression strategy. The
-// behavior of compression_manager=nullptr is essentially equivalent to
-// using this compression manager.
-const std::shared_ptr<CompressionManager>&
-GetDefaultBuiltinCompressionManager();
+// Compression manager that implements the second schema for RocksDB built-in
+// compression support. (The first schema is intentionally not provided here.)
+// *** CURRENT STATE ***
+// This is currently the latest schema for built-in compression, and the
+// compression manager used when compression_manager=nullptr.
+const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager();
+
+// NOTE: No GetLatestBuiltinCompressionManager() is provided because that could
+// lead to unexpected schema changes for user CompressionManagers building on
+// the built-in schema, in the unlikely/rare case of a new built-in schema.
+
 // Gets CompressionManager designed for the automated compression strategy.
 // This may include deciding to compress or not.
 // In future should be able to select compression algorithm based on the CPU

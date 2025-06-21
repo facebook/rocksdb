@@ -17,7 +17,8 @@ namespace ROCKSDB_NAMESPACE {
 // MultiCompressorWrapper implementation
 MultiCompressorWrapper::MultiCompressorWrapper(const CompressionOptions& opts,
                                                CompressionDict&& dict) {
-  auto builtInManager = GetDefaultBuiltinCompressionManager();
+  // TODO: make the compression manager a field
+  auto builtInManager = GetBuiltinV2CompressionManager();
   const auto& compressions = GetSupportedCompressions();
   for (auto type : compressions) {
     if (type == kNoCompression) {

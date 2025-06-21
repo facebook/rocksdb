@@ -977,7 +977,10 @@ struct BlockBasedTableBuilder::Rep {
       assert(mgr);
       // Use newer compression_name property
       props.compression_name.reserve(32);
-      props.compression_name.append(mgr->CompatibilityName());
+      // If compression is disabled, use empty manager name
+      if (basic_compressor) {
+        props.compression_name.append(mgr->CompatibilityName());
+      }
       props.compression_name.push_back(';');
       // Rest of property to be filled out at the end of building the file
     } else {
