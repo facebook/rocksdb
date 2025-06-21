@@ -177,10 +177,6 @@ Status CPUIOAwareCompressor::CompressBlock(
       "CPUIOAwareCompressor::CompressBlock::exploitOrExplore", &exploration);
   auto local_wa = static_cast<CPUIOAwareWorkingArea*>(wa->get());
   if (exploration) {
-    // int choosen_compression_type =
-    //     Random::GetTLSInstance()->Uniform(compression_levels_.size());
-    // int compresion_level_ptr = Random::GetTLSInstance()->Uniform(
-    //     compression_levels_[choosen_compression_type].size());
     auto choosen_index =
         allcompressors_index_[Random::GetTLSInstance()->Uniform(
             allcompressors_index_.size())];
@@ -192,9 +188,6 @@ Status CPUIOAwareCompressor::CompressBlock(
     TEST_SYNC_POINT_CALLBACK(
         "CPUIOAwareCompressor::CompressBlock::SelectCompressionLevel",
         &compresion_level_ptr);
-    // fprintf(stdout,
-    //         "Exploration: compression_algorithm: %lu compression_level:
-    //         %lu\n", choosen_compression_type, compresion_level_ptr);
     return CompressBlockAndRecord(
         choosen_compression_type, compresion_level_ptr, uncompressed_data,
         compressed_output, out_compression_type, local_wa);
@@ -210,9 +203,6 @@ Status CPUIOAwareCompressor::CompressBlock(
         "CPUIOAwareCompressor::CompressBlock::SelectCompressionLevel",
         &compresion_level_ptr);
     // decide to compress
-    // fprintf(stdout,
-    //         "Exploitation: compression_algorithm: %lu compression_level:
-    //         %lu\n", choosen_compression_type, compresion_level_ptr);
     return CompressBlockAndRecord(
         choosen_compression_type, compresion_level_ptr, uncompressed_data,
         compressed_output, out_compression_type, local_wa);
@@ -221,7 +211,6 @@ Status CPUIOAwareCompressor::CompressBlock(
 }
 
 Compressor::ManagedWorkingArea CPUIOAwareCompressor::ObtainWorkingArea() {
-  fprintf(stderr, "CPUIOAwareCompressor::ObtainWorkingArea\n");
   auto wrap_wa = allcompressors_.back().back()->ObtainWorkingArea();
   auto wa = new CPUIOAwareWorkingArea(std::move(wrap_wa));
   for (size_t i = 0; i < compression_levels_.size(); i++) {
@@ -230,12 +219,6 @@ Compressor::ManagedWorkingArea CPUIOAwareCompressor::ObtainWorkingArea() {
       wa->cost_predictors.push_back({});
       continue;
     } else {
-      // if (std::find(compressions.begin(), compressions.end(), type_) ==
-      //     compressions.end()) {
-      //   compression_levels_[i].clear();
-      //   wa->cost_predictors.push_back({});
-      //   continue;
-      // }
       std::vector<IOCPUCostPredictor*> predictors_diff_levels;
       for (size_t j = 0; j < compression_levels_[type_ - 1].size(); j++) {
         predictors_diff_levels.emplace_back(new IOCPUCostPredictor(10));
@@ -243,11 +226,9 @@ Compressor::ManagedWorkingArea CPUIOAwareCompressor::ObtainWorkingArea() {
       wa->cost_predictors.emplace_back(std::move(predictors_diff_levels));
     }
   }
-  fprintf(stderr, "CPUIOAwareCompressor::ObtainWorkingArea\n");
   return ManagedWorkingArea(wa, this);
 }
 void CPUIOAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
-  fprintf(stderr, "CPUIOAwareCompressor::ReleaseWorkingArea\n");
   for (auto& prdictors_diff_levels :
        static_cast<CPUIOAwareWorkingArea*>(wa)->cost_predictors) {
     for (auto& predictor : prdictors_diff_levels) {
@@ -255,7 +236,6 @@ void CPUIOAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
     }
   }
   delete static_cast<CPUIOAwareWorkingArea*>(wa);
-  fprintf(stderr, "CPUIOAwareCompressor::ReleaseWorkingArea\n");
 }
 
 Status CPUIOAwareCompressor::CompressBlockAndRecord(
@@ -297,11 +277,6 @@ Status CPUIOAwareCompressor::CompressBlockAndRecord(
         "CPUIOAwareCompressor::CompressBlockAndRecord::GetIOPredictor",
         &(wa->cost_predictors[choosen_compression_type][compresion_level_ptr]
               ->IOPredictor));
-    // fprintf(stdout,
-    //         "CPUIOAwareCompressor::CompressBlockAndRecord "
-    //         "compression_algorithm: %lu compression_level: %lu cpu_time: %lu,
-    //         " "output_length: %lu\n", choosen_compression_type,
-    //         compresion_level_ptr, cpu_time, output_length);
   }
   return status;
 }

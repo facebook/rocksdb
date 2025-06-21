@@ -36,30 +36,19 @@ template <typename T>
 class WindowAveragePredictor {
  public:
   WindowAveragePredictor(int window_size)
-      : sum_(0), prediction_(0), count_(0), kWindowSize(window_size) {
-    fprintf(
-        stderr,
-        "new predictor sum: %lu prediction_: %lu count_: %d window size: %d\n",
-        sum_, prediction_, count_, kWindowSize);
-  }
+      : sum_(0), prediction_(0), count_(0), kWindowSize(window_size) {}
   int Predict() { return prediction_; }
   bool Record(T data) {
     sum_ += data;
     count_++;
-    fprintf(stderr, "sum: %lu count: %d prediction: %lu data: %lu\n", sum_,
-            count_, prediction_, data);
     if (count_ >= kWindowSize) {
       prediction_ = sum_ / count_;
       sum_ = 0;
       count_ = 0;
-      fprintf(stderr, "changed prediction: %lu\n", prediction_);
     }
     return true;
   }
-  ~WindowAveragePredictor() {
-    fprintf(stderr, "destroyed predictor sum: %lu count: %d prediction: %lu\n",
-            sum_, count_, prediction_);
-  }
+  ~WindowAveragePredictor() {}
 
  private:
   T sum_;
