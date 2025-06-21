@@ -32,6 +32,7 @@ enum CompressionType : unsigned char {
 
   // For use by user custom CompressionManagers
   kCustomCompression80 = 0x80,
+  kFirstCustomCompression = kCustomCompression80,
   kCustomCompression81 = 0x81,
   kCustomCompression82 = 0x82,
   kCustomCompression83 = 0x83,
@@ -158,6 +159,7 @@ enum CompressionType : unsigned char {
   kCustomCompressionFC = 0xFC,
   kCustomCompressionFD = 0xFD,
   kCustomCompressionFE = 0xFE,
+  kLastCustomCompression = kCustomCompressionFE,
 
   // kDisableCompressionOption is used to disable some compression options.
   kDisableCompressionOption = 0xff,

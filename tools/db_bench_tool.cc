@@ -1730,6 +1730,10 @@ DEFINE_uint64(stats_history_buffer_size,
 DEFINE_bool(avoid_flush_during_recovery,
             ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
             "If true, avoids flushing the recovered WAL data where possible.");
+
+DEFINE_bool(avoid_flush_during_shutdown,
+            ROCKSDB_NAMESPACE::Options().avoid_flush_during_shutdown,
+            "If true, avoids flushing the recovered WAL data where possible.");
 DEFINE_int64(multiread_stride, 0,
              "Stride length for the keys in a MultiGet batch");
 DEFINE_bool(multiread_batched, false, "Use the new MultiGet API");
@@ -4264,6 +4268,7 @@ class Benchmark {
     options.stats_history_buffer_size =
         static_cast<size_t>(FLAGS_stats_history_buffer_size);
     options.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
+    options.avoid_flush_during_shutdown = FLAGS_avoid_flush_during_shutdown;
 
     options.compression_opts.level = FLAGS_compression_level;
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
@@ -4648,7 +4653,7 @@ class Benchmark {
         options.bottommost_compression = kZSTD;
 
         mgr = std::make_shared<RoundRobinManager>(
-            GetDefaultBuiltinCompressionManager());
+            GetBuiltinV2CompressionManager());
       } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
         options.compression = FLAGS_compression_type_e;
         if (FLAGS_compression_type_e == kNoCompression) {
@@ -4657,8 +4662,8 @@ class Benchmark {
                   "autoskip");
           ErrorExit();
         }
-        mgr = CreateAutoSkipCompressionManager(
-            GetDefaultBuiltinCompressionManager());
+        mgr =
+            CreateAutoSkipCompressionManager(GetBuiltinV2CompressionManager());
       } else {
         // not defined -> exit with error
         fprintf(stderr, "Requested compression manager not supported");

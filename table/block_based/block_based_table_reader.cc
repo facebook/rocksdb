@@ -606,7 +606,8 @@ Status GetDecompressor(const std::string& compression_name,
       if (!s.ok()) {
         return s;
       }
-      assert(mgr_to_use);
+      assert(mgr_to_use || compatibility_name == kNullptrString ||
+             compatibility_name.empty());
     }
 
     // Second field is set of compression types actually used in the file
@@ -632,9 +633,15 @@ Status GetDecompressor(const std::string& compression_name,
       }
       ctypes[i] = static_cast<CompressionType>(val);
     }
-    *out_decompressor =
-        mgr_to_use->GetDecompressorForTypes(ctypes.get(), ctypes.get() + count);
-    assert(*out_decompressor || count == 0);
+    if (mgr_to_use) {
+      *out_decompressor = mgr_to_use->GetDecompressorForTypes(
+          ctypes.get(), ctypes.get() + count);
+      assert(*out_decompressor || count == 0);
+    } else {
+      // Compression/decompression disabled
+      *out_decompressor = nullptr;
+      assert(count == 0);
+    }
     // Can ignore possible additional future fields
   } else {
     // No explicit CompressionManager, e.g. legacy file support where

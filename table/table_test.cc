@@ -1795,18 +1795,23 @@ TEST_P(BlockBasedTableTest, IndexUncompressed) {
 #endif  // SNAPPY
 
 TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
-  TableConstructor c(&reverse_key_comparator);
+  TableConstructor c(&reverse_key_comparator,
+                     true /* convert_to_internal_key_ */);
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
 
-  {
+  for (CompressionType ct : {kNoCompression, kSnappyCompression}) {
+    if (!Snappy_Supported() && ct == kSnappyCompression) {
+      continue;
+    }
     Options options;
-    options.compression = CompressionType::kNoCompression;
+    options.compression = ct;
     BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     const ImmutableOptions ioptions(options);
     const MutableCFOptions moptions(options);
+    c.Add("blah", std::string(200, 'x'));  // something to compress
     c.Finish(options, ioptions, moptions, table_options,
              GetPlainInternalComparator(options.comparator), &keys, &kvmap);
 
@@ -1823,7 +1828,13 @@ TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
     // No filter policy is used
     ASSERT_EQ("", props.filter_policy_name);
     // Compression type == that set:
-    ASSERT_EQ("NoCompression", props.compression_name);
+    if (FormatVersionUsesCompressionManagerName(table_options.format_version)) {
+      ASSERT_EQ(ct == kNoCompression ? ";;" : "BuiltinV2;01;",
+                props.compression_name);
+    } else {
+      ASSERT_EQ(ct == kNoCompression ? "NoCompression" : "Snappy",
+                props.compression_name);
+    }
     c.ResetTableReader();
   }
 

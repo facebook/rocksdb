@@ -125,7 +125,7 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
 
 CPUIOAwareCompressor::CPUIOAwareCompressor(const CompressionOptions& opts)
     : kOpts(opts) {
-  auto builtInManager = GetDefaultBuiltinCompressionManager();
+  auto builtInManager = GetBuiltinV2CompressionManager();
   const auto& compressions = GetSupportedCompressions();
   for (size_t i = 0; i < compression_levels_.size(); i++) {
     CompressionType type_ = static_cast<CompressionType>(i + 1);
@@ -284,7 +284,7 @@ Status CPUIOAwareCompressor::CompressBlockAndRecord(
 std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
     std::shared_ptr<CompressionManager> wrapped) {
   return std::make_shared<AutoSkipCompressorManager>(
-      wrapped == nullptr ? GetDefaultBuiltinCompressionManager() : wrapped);
+      wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped);
 }
 const char* CPUIOAwareCompressorManager::Name() const {
   // should have returned "CPUIOAwareCompressorManager" but we currently have an
@@ -305,6 +305,6 @@ std::unique_ptr<Compressor> CPUIOAwareCompressorManager::GetCompressorForSST(
 std::shared_ptr<CompressionManagerWrapper> CreateCPUIOAwareCompressorManager(
     std::shared_ptr<CompressionManager> wrapped) {
   return std::make_shared<CPUIOAwareCompressorManager>(
-      wrapped == nullptr ? GetDefaultBuiltinCompressionManager() : wrapped);
+      wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped);
 }
 }  // namespace ROCKSDB_NAMESPACE
