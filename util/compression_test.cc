@@ -167,18 +167,6 @@ class DBAutoSkip : public DBTestBase {
     bbto.flush_block_policy_factory.reset(
         new AutoSkipTestFlushBlockPolicyFactory(10, statistics));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    const auto& compressions = GetSupportedCompressions();
-    if (compressions.size() > 1) {
-      // We want to get the compression algorithm in random beside
-      // kNoCompression, This is assuming that kNoCompression is the first
-      // compression algorithm
-      auto selected_index =
-          rnd_.Uniform(static_cast<int>(compressions.size() - 2)) + 1;
-      auto compression = compressions[selected_index];
-      options.compression = compression;
-      options.bottommost_compression = compression;
-    }
-    DestroyAndReopen(options);
   }
 
   bool CompressionFriendlyPut(const int no_of_kvs, const int size_of_value) {
@@ -202,7 +190,13 @@ class DBAutoSkip : public DBTestBase {
 };
 
 TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
-  if (GetSupportedCompressions().size() > 1) {
+  for (auto type : GetSupportedCompressions()) {
+    if (type == kNoCompression) {
+      continue;
+    }
+    options.compression = type;
+    options.bottommost_compression = type;
+    DestroyAndReopen(options);
     const int kValueSize = 20000;
     // This will set the rejection ratio to 60%
     CompressionUnfriendlyPut(6, kValueSize);
