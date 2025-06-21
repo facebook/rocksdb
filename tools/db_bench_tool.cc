@@ -4662,8 +4662,17 @@ class Benchmark {
                   "autoskip");
           ErrorExit();
         }
-        mgr =
-            CreateAutoSkipCompressionManager(GetBuiltinV2CompressionManager());
+        mgr = CreateAutoSkipCompressionManager();
+      } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
+                             "costpredictor")) {
+        options.compression = FLAGS_compression_type_e;
+        if (FLAGS_compression_type_e == kNoCompression) {
+          fprintf(stderr,
+                  "Compression type must not be no Compression when using "
+                  "autoskip");
+          ErrorExit();
+        }
+        mgr = CreateCPUIOAwareCompressionManager();
       } else {
         // not defined -> exit with error
         fprintf(stderr, "Requested compression manager not supported");

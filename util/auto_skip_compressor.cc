@@ -168,9 +168,7 @@ Status CPUIOAwareCompressor::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, ManagedWorkingArea* wa) {
   // Check if the managed working area is provided or owned by this object.
-  // If not, bypass auto-skip logic since the working area lacks a predictor
-  // to record or make necessary decisions to compress or bypass compression
-  // of the block
+  // If not, bypass compressor logic since the working area lacks a predictor
   if (wa == nullptr || wa->owner() != this) {
     // We just go with the last compressor created. If Zstd is supported will be
     // highest compression level of Zstd

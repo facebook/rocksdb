@@ -264,6 +264,8 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
       // use nth window to detect test cases and set the expected
       switch (nth_window) {
         case 0:
+          // Set exploration to true and compression type to zstd and
+          // compression level to 2
           SyncPoint::GetInstance()->SetCallBack(
               "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
               set_exploration(true));
@@ -281,6 +283,7 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               set_compress_size_with_delay(100, 1000));
           break;
         case 1:
+          // Verify that the Mocked cpu cost and io cost are predicted correctly
           EXPECT_EQ(output_size_, 100);
           EXPECT_GT(cpu_time_, 1000 * 1000);
           EXPECT_EQ(predicted_io_bytes, 100);
@@ -302,13 +305,15 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               set_compress_size_with_delay(100, 1000));
           break;
         case 2:
+          // Set exploration to true and compression type to  and compression
+          // level to 2
           SyncPoint::GetInstance()->SetCallBack(
               "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
               set_exploration(true));
           SyncPoint::GetInstance()->SetCallBack(
               "CPUIOAwareCompressor::CompressBlock::"
               "SelectCompressionType",
-              set_compression_type(6));
+              set_compression_type(4));
           SyncPoint::GetInstance()->SetCallBack(
               "CPUIOAwareCompressor::CompressBlock::"
               "SelectCompressionLevel",
@@ -319,6 +324,7 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               set_compress_size_with_delay(1000, 2000));
           break;
         case 3:
+          // Verify that the Mocked cpu cost and io cost are predicted correctly
           EXPECT_EQ(output_size_, 1000);
           EXPECT_GT(cpu_time_, 2000 * 1000);
           EXPECT_EQ(predicted_io_bytes, 1000);
@@ -339,24 +345,8 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               "DelaySetCompressedOutputSize",
               set_compress_size_with_delay(1000, 2000));
           break;
-        case 4:
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
-              set_exploration(true));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::"
-              "SelectCompressionType",
-              set_compression_type(4));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::"
-              "SelectCompressionLevel",
-              set_compression_level(2));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockAndRecord::"
-              "DelaySetCompressedOutputSize",
-              set_compress_size_with_delay(200, 2000));
-          break;
       }
+      // Add syncpoint to get the cpu and io cost
       SyncPoint::GetInstance()->SetCallBack(
           "CPUIOAwareCompressor::CompressBlockAndRecord::"
           "GetCompressedOutputSize",
@@ -488,22 +478,21 @@ TEST_F(DBAutoSkip, DISABLED_AutoSkipCompressionManager) {
   }
 }
 TEST_F(DBCPUIOPredictor, CUPIOAwareCompressorManager) {
+  // making sure that the compression is supported
   if (GetSupportedCompressions().size() > 1) {
     const int kValueSize = 20000;
-    // This will set the rejection ratio to 60%
+    // This denotes the first window
+    // Mocked to have specific cpu utilization and io cost
     CompressionUnfriendlyPut(6, kValueSize);
     CompressionFriendlyPut(4, kValueSize);
-    // This will verify all the data block compressions are bypassed based on
-    // previous prediction
+    // In this window we verify the correct prediction has been made
     CompressionUnfriendlyPut(6, kValueSize);
     CompressionFriendlyPut(4, kValueSize);
-    // This will set the rejection ratio to 40%
+    // In this winodw we mock for another alogrithm and compression level to
+    // have specific cpu utilization and io cost
     CompressionUnfriendlyPut(4, kValueSize);
     CompressionFriendlyPut(6, kValueSize);
-    // This will verify all the data block compression are attempted based on
-    // previous prediction
-    // Compression will be rejected for 6 compression unfriendly blocks
-    // Compression will be accepted for 4 compression friendly blocks
+    // In this window we verify the correct prediction has been made
     CompressionUnfriendlyPut(6, kValueSize);
     CompressionFriendlyPut(4, kValueSize);
     // Extra block write to ensure that the all above cases are checked
