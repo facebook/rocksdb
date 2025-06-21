@@ -41,6 +41,8 @@ class WriteBatchBase {
   virtual Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
                      const SliceParts& value);
   virtual Status Put(const SliceParts& key, const SliceParts& value);
+  virtual Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
+                     const Slice& ts, const SliceParts& value);
 
   // EXPERIMENTAL
   // Store the mapping "key->value" in the database with the specified write
@@ -80,6 +82,8 @@ class WriteBatchBase {
   virtual Status Merge(ColumnFamilyHandle* column_family, const SliceParts& key,
                        const SliceParts& value);
   virtual Status Merge(const SliceParts& key, const SliceParts& value);
+  virtual Status Merge(ColumnFamilyHandle* column_family, const SliceParts& key,
+                       const Slice& ts, const SliceParts& value);
 
   // If the database contains a mapping for "key", erase it.  Else do nothing.
   virtual Status Delete(ColumnFamilyHandle* column_family,
@@ -92,6 +96,8 @@ class WriteBatchBase {
   virtual Status Delete(ColumnFamilyHandle* column_family,
                         const SliceParts& key);
   virtual Status Delete(const SliceParts& key);
+  virtual Status Delete(ColumnFamilyHandle* column_family,
+                        const SliceParts& key, const Slice& ts);
 
   // If the database contains a mapping for "key", erase it. Expects that the
   // key was not overwritten. Else do nothing.
@@ -105,6 +111,8 @@ class WriteBatchBase {
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
                               const SliceParts& key);
   virtual Status SingleDelete(const SliceParts& key);
+  virtual Status SingleDelete(ColumnFamilyHandle* column_family,
+                              const SliceParts& key, const Slice& ts);
 
   // If the database contains mappings in the range ["begin_key", "end_key"),
   // erase them. Else do nothing.
@@ -121,6 +129,9 @@ class WriteBatchBase {
                              const SliceParts& end_key);
   virtual Status DeleteRange(const SliceParts& begin_key,
                              const SliceParts& end_key);
+  virtual Status DeleteRange(ColumnFamilyHandle* column_family,
+                             const SliceParts& begin_key,
+                             const SliceParts& end_key, const Slice& ts);
 
   // Append a blob of arbitrary size to the records in this batch. The blob will
   // be stored in the transaction log but not in any other file. In particular,
