@@ -833,7 +833,6 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
       GetSupportedDictCompressions();
   Random rnd(301);
   // Format version before and after compression handling changes
-  TEST_AllowUnsupportedFormatVersion() = true;
   for (int format_version : {6, 7}) {
     // Test all supported compression types because (at least historically)
     // dictionary compression could be enabled and a dictionary block saved

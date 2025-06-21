@@ -3435,15 +3435,15 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     options_.compression_manager =
         std::make_shared<DbStressCustomCompressionManager>();
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
-    options_.compression_manager = std::make_shared<RoundRobinManager>(
-        GetDefaultBuiltinCompressionManager());
+    options_.compression_manager =
+        std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "randommixed")) {
     options_.compression_manager =
         std::make_shared<RandomMixedCompressionManager>(
-            GetDefaultBuiltinCompressionManager());
+            GetBuiltinV2CompressionManager());
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
     options_.compression_manager =
-        CreateAutoSkipCompressionManager(GetDefaultBuiltinCompressionManager());
+        CreateAutoSkipCompressionManager(GetBuiltinV2CompressionManager());
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
     // Nothing to do using default compression manager
   } else {

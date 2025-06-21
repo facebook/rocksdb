@@ -24,6 +24,7 @@
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/trace_record_result.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/replayer.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/testutil.h"
@@ -1885,8 +1886,8 @@ TEST_F(DBTest2, CompressionOptions) {
 
 TEST_F(DBTest2, RoundRobinManager) {
   if (ZSTD_Supported()) {
-    auto mgr = std::make_shared<RoundRobinManager>(
-        GetDefaultBuiltinCompressionManager());
+    auto mgr =
+        std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
 
     std::vector<std::string> values;
     for (bool use_wrapper : {true}) {
@@ -1934,7 +1935,7 @@ TEST_F(DBTest2, RoundRobinManager) {
 TEST_F(DBTest2, RandomMixedCompressionManager) {
   if (ZSTD_Supported()) {
     auto mgr = std::make_shared<RandomMixedCompressionManager>(
-        GetDefaultBuiltinCompressionManager());
+        GetBuiltinV2CompressionManager());
     std::vector<std::string> values;
     for (bool use_wrapper : {true}) {
       SCOPED_TRACE((use_wrapper ? "With " : "No ") + std::string("wrapper"));
@@ -2026,7 +2027,7 @@ TEST_F(DBTest2, CompressionManagerWrapper) {
           wrapped_->GetCompressorForSST(context, opts, preferred));
     }
   };
-  auto mgr = std::make_shared<MyManager>(GetDefaultBuiltinCompressionManager());
+  auto mgr = std::make_shared<MyManager>(GetBuiltinV2CompressionManager());
 
   for (CompressionType type : GetSupportedCompressions()) {
     for (bool use_wrapper : {false, true}) {
@@ -2117,8 +2118,7 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     bool SupportsCompressionType(CompressionType type) const override {
       return type == kCustomCompression8A || type == kCustomCompression8B ||
              type == kCustomCompression8C ||
-             GetDefaultBuiltinCompressionManager()->SupportsCompressionType(
-                 type);
+             GetBuiltinV2CompressionManager()->SupportsCompressionType(type);
     }
 
     int used_compressor8A_count_ = 0;
@@ -2139,8 +2139,7 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
           return std::make_unique<Compressor8C>();
         // Also support built-in compression algorithms
         default:
-          return GetDefaultBuiltinCompressionManager()->GetCompressor(opts,
-                                                                      type);
+          return GetBuiltinV2CompressionManager()->GetCompressor(opts, type);
       }
     }
 
@@ -2148,13 +2147,14 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
       return std::make_shared<test::DecompressorCustomAlg>();
     }
 
-    CompressionType last_specific_decompressor_type_ = kNoCompression;
+    RelaxedAtomic<CompressionType> last_specific_decompressor_type_{
+        kNoCompression};
 
     std::shared_ptr<Decompressor> GetDecompressorForTypes(
         const CompressionType* types_begin,
         const CompressionType* types_end) override {
       assert(types_end > types_begin);
-      last_specific_decompressor_type_ = *types_begin;
+      last_specific_decompressor_type_.StoreRelaxed(*types_begin);
       auto decomp = std::make_shared<test::DecompressorCustomAlg>();
       decomp->SetAllowedTypes(types_begin, types_end);
       return decomp;
@@ -2191,9 +2191,11 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     // respect their distinct compatibility names and treat them as incompatible
     // (or else risk processing data incorrectly)
     // NOTE: these are not registered in ObjectRegistry to test what happens
-    // when the original CompressionManager might not be available.
+    // when the original CompressionManager might not be available, but
+    // mgr_bar will be registered during the test, with different names to
+    // prevent interference between iterations.
     auto mgr_foo = std::make_shared<MyManager>("Foo");
-    auto mgr_bar = std::make_shared<MyManager>("Bar");
+    auto mgr_bar = std::make_shared<MyManager>(use_dict ? "Bar1" : "Bar2");
 
     // And this one claims to be fully compatible with the built-in compression
     // manager when it's not fully compatible (for custom CompressionTypes)
@@ -2256,10 +2258,7 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     options.compression = kLZ4Compression;
     ASSERT_EQ(TryReopen(options).code(), Status::Code::kInvalidArgument);
 
-    // TODO: eliminate this hack when format_version=7 is published
-    SaveAndRestore guard(&TEST_AllowUnsupportedFormatVersion(), true);
-
-    // Set new format version
+    // Set format version supporting custom compression
     bbto.format_version = 7;
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
 
@@ -2269,8 +2268,13 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     options.compression = kCustomCompression8B;
     ASSERT_EQ(TryReopen(options).code(), Status::Code::kInvalidArgument);
 
-    // Using a built-in compression type with fv=7 but named custom schema
+    // Custom compression schema, but specifying a custom compression type it
+    // doesn't support.
     options.compression_manager = mgr_foo;
+    options.compression = kCustomCompressionF0;
+    ASSERT_EQ(TryReopen(options).code(), Status::Code::kNotSupported);
+
+    // Using a built-in compression type with fv=7 but named custom schema
     options.compression = kLZ4Compression;
     Reopen(options);
     ASSERT_OK(
@@ -2279,7 +2283,7 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     ASSERT_EQ(NumTableFilesAtLevel(0), 2);
     ASSERT_EQ(Get("b"), value);
 
-    // Verify it was compressed with snappy
+    // Verify it was compressed with LZ4
     r = {"b", "b0"};
     tables_properties.clear();
     ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r,
@@ -2288,7 +2292,8 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
     // Uses new format for "compression_name" property
     EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;04;");
-    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_, kLZ4Compression);
+    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_.LoadRelaxed(),
+              kLZ4Compression);
 
     // Custom compression type
     options.compression = kCustomCompression8A;
@@ -2309,7 +2314,8 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     ASSERT_EQ(tables_properties.size(), 1U);
     EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
     EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;8A;");
-    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_, kCustomCompression8A);
+    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_.LoadRelaxed(),
+              kCustomCompression8A);
 
     // Also dynamically changeable, because the compression manager will respect
     // the current setting as reported under the legacy logic
@@ -2320,7 +2326,7 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     ASSERT_EQ(NumTableFilesAtLevel(0), 4);
     ASSERT_EQ(Get("d"), value);
 
-    // Verify it was compressed with snappy
+    // Verify it was compressed with LZ4
     r = {"d", "d0"};
     tables_properties.clear();
     ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r,
@@ -2328,7 +2334,8 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     ASSERT_EQ(tables_properties.size(), 1U);
     EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
     EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;04;");
-    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_, kLZ4Compression);
+    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_.LoadRelaxed(),
+              kLZ4Compression);
 
     // Dynamically changeable to custom compressions also
     ASSERT_OK(dbfull()->SetOptions({{"compression", "kCustomCompression8B"}}));
@@ -2346,7 +2353,8 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     ASSERT_EQ(tables_properties.size(), 1U);
     EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
     EXPECT_EQ(tables_properties.begin()->second->compression_name, "Foo;8B;");
-    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_, kCustomCompression8B);
+    EXPECT_EQ(mgr_foo->last_specific_decompressor_type_.LoadRelaxed(),
+              kCustomCompression8B);
 
     // Fails to re-open with incompatible compression manager (can't find
     // compression manager Foo because it's not registered nor known by Bar)
@@ -2365,10 +2373,50 @@ TEST_F(DBTest2, CompressionManagerCustomCompression) {
     ASSERT_EQ(Get("d").size(), kValueSize);
     ASSERT_EQ(Get("e").size(), kValueSize);
 
-    // TODO: mix of compatibility names in same DB
+    // Add a file using mgr_bar
+    ASSERT_OK(
+        Put("f", test::CompressibleString(&rnd, 0.1, kValueSize, &value)));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 6);
+    ASSERT_EQ(Get("f"), value);
+
+    // Verify it was compressed appropriately
+    r = {"f", "f0"};
+    tables_properties.clear();
+    ASSERT_OK(db_->GetPropertiesOfTablesInRange(db_->DefaultColumnFamily(), &r,
+                                                1, &tables_properties));
+    ASSERT_EQ(tables_properties.size(), 1U);
+    EXPECT_LT(tables_properties.begin()->second->data_size, kValueSize / 2);
+    EXPECT_EQ(mgr_bar->last_specific_decompressor_type_.LoadRelaxed(),
+              kLZ4Compression);
+
+    // Fails to re-open with incompatible compression manager (can't find
+    // compression manager Bar because it's not registered nor known by Foo)
+    options.compression_manager = mgr_foo;
+    ASSERT_EQ(TryReopen(options).code(), Status::Code::kNotSupported);
+
+    // Register and re-open
+    auto& library = *ObjectLibrary::Default();
+    library.AddFactory<CompressionManager>(
+        mgr_bar->CompatibilityName(),
+        [mgr_bar](const std::string& /*uri*/,
+                  std::unique_ptr<CompressionManager>* guard,
+                  std::string* /*errmsg*/) {
+          *guard = std::make_unique<MyManager>(mgr_bar->CompatibilityName());
+          return guard->get();
+        });
+    Reopen(options);
+
+    // Can still read everything
+    ASSERT_EQ(Get("a").size(), kValueSize);
+    ASSERT_EQ(Get("b").size(), kValueSize);
+    ASSERT_EQ(Get("c").size(), kValueSize);
+    ASSERT_EQ(Get("d").size(), kValueSize);
+    ASSERT_EQ(Get("e").size(), kValueSize);
+    ASSERT_EQ(Get("f").size(), kValueSize);
+
     // TODO: test old version of a compression manager unable to read a
     // compression type
-    // TODO: test getting compression manager from object registry
   }
 }
 

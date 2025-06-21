@@ -110,32 +110,48 @@ void GetInternalTblPropCollFactory(
   }
 }
 
-bool CompressionSupportedWithManager(CompressionType type,
-                                     UnownedPtr<CompressionManager> mgr) {
-  return mgr ? mgr->SupportsCompressionType(type)
-             : CompressionTypeSupported(type);
+Status CheckCompressionSupportedWithManager(
+    CompressionType type, UnownedPtr<CompressionManager> mgr) {
+  if (mgr) {
+    if (!mgr->SupportsCompressionType(type)) {
+      return Status::NotSupported("Compression type " +
+                                  CompressionTypeToString(type) +
+                                  " is not recognized/supported by this "
+                                  "version of CompressionManager " +
+                                  mgr->GetId());
+    }
+  } else {
+    if (!CompressionTypeSupported(type)) {
+      if (type <= kLastBuiltinCompression) {
+        return Status::InvalidArgument("Compression type " +
+                                       CompressionTypeToString(type) +
+                                       " is not linked with the binary.");
+      } else {
+        return Status::NotSupported(
+            "Compression type " + CompressionTypeToString(type) +
+            " is not recognized/supported by built-in CompressionManager.");
+      }
+    }
+  }
+  return Status::OK();
 }
 
 Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
   if (!cf_options.compression_per_level.empty()) {
     for (size_t level = 0; level < cf_options.compression_per_level.size();
          ++level) {
-      if (!CompressionSupportedWithManager(
-              cf_options.compression_per_level[level],
-              cf_options.compression_manager.get())) {
-        return Status::InvalidArgument(
-            "Compression type " +
-            CompressionTypeToString(cf_options.compression_per_level[level]) +
-            " is not linked with the binary.");
+      Status s = CheckCompressionSupportedWithManager(
+          cf_options.compression_per_level[level],
+          cf_options.compression_manager.get());
+      if (!s.ok()) {
+        return s;
       }
     }
   } else {
-    if (!CompressionSupportedWithManager(
-            cf_options.compression, cf_options.compression_manager.get())) {
-      return Status::InvalidArgument(
-          "Compression type " +
-          CompressionTypeToString(cf_options.compression) +
-          " is not linked with the binary.");
+    Status s = CheckCompressionSupportedWithManager(
+        cf_options.compression, cf_options.compression_manager.get());
+    if (!s.ok()) {
+      return s;
     }
   }
   if (cf_options.compression_opts.zstd_max_train_bytes > 0) {

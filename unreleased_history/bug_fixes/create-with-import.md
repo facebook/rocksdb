@@ -1,1 +1,0 @@
-* Fix a bug where CreateColumnFamilyWithImport() could miss the SST file for the memtable flush it triggered. The exported CF then may not contain the updates in the memtable when CreateColumnFamilyWithImport() is called.

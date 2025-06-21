@@ -158,7 +158,7 @@ class DBAutoSkip : public DBTestBase {
         rnd_(231),
         key_index_(0) {
     options.compression_manager =
-        CreateAutoSkipCompressionManager(GetDefaultBuiltinCompressionManager());
+        CreateAutoSkipCompressionManager(GetBuiltinV2CompressionManager());
     auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.statistics = statistics;
     options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);

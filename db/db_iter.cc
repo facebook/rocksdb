@@ -511,7 +511,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
 
             valid_ = true;
             return true;
-            break;
           case kTypeMerge:
             if (!PrepareValueInternal()) {
               return false;
@@ -523,7 +522,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             current_entry_is_merged_ = true;
             valid_ = true;
             return MergeValuesNewToOld();  // Go to a different state machine
-            break;
           default:
             valid_ = false;
             status_ = Status::Corruption(
@@ -1124,7 +1122,6 @@ bool DBIter::FindValueForCurrentKey() {
         }
         return true;
       }
-      break;
     case kTypeValue:
     case kTypeValuePreferredSeqno:
       SetValueAndColumnsFromPlain(pinned_value_);

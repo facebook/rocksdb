@@ -705,10 +705,9 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       12345);
   // TODO: try to enhance ObjectLibrary to support singletons
   // ASSERT_EQ(new_options->compression_manager,
-  //           GetBuiltinCompressionManager(/*compression_format_version*/ 2));
-  ASSERT_STREQ(
-      new_options->compression_manager->Name(),
-      GetBuiltinCompressionManager(/*compression_format_version*/ 2)->Name());
+  //           GetBuiltinV2CompressionManager());
+  ASSERT_STREQ(new_options->compression_manager->Name(),
+               GetBuiltinV2CompressionManager()->Name());
 
   ColumnFamilyOptions rnd_filled_options = *new_options;
 
