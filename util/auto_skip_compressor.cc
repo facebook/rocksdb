@@ -192,9 +192,9 @@ Status CPUIOAwareCompressor::CompressBlock(
     TEST_SYNC_POINT_CALLBACK(
         "CPUIOAwareCompressor::CompressBlock::SelectCompressionLevel",
         &compresion_level_ptr);
-    fprintf(stdout,
-            "Exploration: compression_algorithm: %lu compression_level: %lu\n",
-            choosen_compression_type, compresion_level_ptr);
+    // fprintf(stdout,
+    //         "Exploration: compression_algorithm: %lu compression_level:
+    //         %lu\n", choosen_compression_type, compresion_level_ptr);
     return CompressBlockAndRecord(
         choosen_compression_type, compresion_level_ptr, uncompressed_data,
         compressed_output, out_compression_type, local_wa);
@@ -210,9 +210,9 @@ Status CPUIOAwareCompressor::CompressBlock(
         "CPUIOAwareCompressor::CompressBlock::SelectCompressionLevel",
         &compresion_level_ptr);
     // decide to compress
-    fprintf(stdout,
-            "Exploitation: compression_algorithm: %lu compression_level: %lu\n",
-            choosen_compression_type, compresion_level_ptr);
+    // fprintf(stdout,
+    //         "Exploitation: compression_algorithm: %lu compression_level:
+    //         %lu\n", choosen_compression_type, compresion_level_ptr);
     return CompressBlockAndRecord(
         choosen_compression_type, compresion_level_ptr, uncompressed_data,
         compressed_output, out_compression_type, local_wa);
@@ -280,12 +280,19 @@ Status CPUIOAwareCompressor::CompressBlockAndRecord(
         "CPUIOAwareCompressor::CompressBlockAndRecord::"
         "GetCompressedOutputSize",
         &output_length);
-    fprintf(stdout,
-            "CPUIOAwareCompressor::CompressBlockAndRecord "
-            "compression_algorithm: %lu compression_level: %lu cpu_time: %lu, "
-            "output_length: %lu\n",
-            choosen_compression_type, compresion_level_ptr, cpu_time,
-            output_length);
+    TEST_SYNC_POINT_CALLBACK(
+        "CPUIOAwareCompressor::CompressBlockAndRecord::GetCPUPredictor",
+        &(wa->cost_predictors[choosen_compression_type][compresion_level_ptr]
+              .CPUPredictor));
+    TEST_SYNC_POINT_CALLBACK(
+        "CPUIOAwareCompressor::CompressBlockAndRecord::GetIOPredictor",
+        &(wa->cost_predictors[choosen_compression_type][compresion_level_ptr]
+              .IOPredictor));
+    // fprintf(stdout,
+    //         "CPUIOAwareCompressor::CompressBlockAndRecord "
+    //         "compression_algorithm: %lu compression_level: %lu cpu_time: %lu,
+    //         " "output_length: %lu\n", choosen_compression_type,
+    //         compresion_level_ptr, cpu_time, output_length);
   }
   return status;
 }

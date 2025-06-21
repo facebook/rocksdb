@@ -17,6 +17,7 @@
 #include "rocksdb/flush_block_policy.h"
 #include "table/block_based/block_builder.h"
 #include "test_util/testutil.h"
+#include "util/auto_skip_compressor.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -208,45 +209,55 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
     }
     // Check every window
     if (num_keys_ % window_ == 0) {
-      uint64_t cpu_time = 0;
-      size_t output_size = 0;
       auto set_exploration = [](bool value) {
         return [value](void* arg) {
           bool* exploration = static_cast<bool*>(arg);
           *exploration = value;
-          fprintf(stderr, "set exploration: %d\n", value);
+          // fprintf(stderr, "set exploration: %d\n", value);
         };
       };
       auto set_compression_type = [](size_t type) {
         return [type](void* arg) {
           size_t* compression_type = static_cast<size_t*>(arg);
           *compression_type = type;
-          fprintf(stderr, "set compression type: %lu\n", type);
+          // fprintf(stderr, "set compression type: %lu\n", type);
         };
       };
       auto set_compression_level = [](size_t level) {
         return [level](void* arg) {
           size_t* compression_level = static_cast<size_t*>(arg);
           *compression_level = level;
-          fprintf(stderr, "set compression level: %lu\n", level);
+          // fprintf(stderr, "set compression level: %lu\n", level);
         };
       };
       auto set_compress_size_with_delay = [](size_t size, int milliseconds) {
         return [size, milliseconds](void* arg) {
           size_t* compress_size = static_cast<size_t*>(arg);
           *compress_size = size;
-          fprintf(stderr, "set compression size: %lu time second: %d\n", size,
-                  milliseconds);
+          // fprintf(stderr, "set compression size: %lu time second: %d\n",
+          // size, milliseconds);
           std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
         };
       };
       auto get_compress_size = [&](void* arg) {
         size_t* compress_size = static_cast<size_t*>(arg);
-        output_size = *compress_size;
+        output_size_ = *compress_size;
+        // fprintf(stderr, "get compression size: %lu\n", *compress_size);
       };
       auto get_cpu_time = [&](void* arg) {
         size_t* time = static_cast<size_t*>(arg);
-        cpu_time = *time;
+        cpu_time_ = *time;
+        // fprintf(stderr, "get cpu time: %lu\n", *time);
+      };
+      auto get_cpu_predictor = [&](void* arg) {
+        auto predictor = static_cast<CPUUtilPredictor*>(arg);
+        predicted_cpu_time_ = predictor->Predict();
+        fprintf(stderr, "predicted cpu time: %lu\n", predicted_cpu_time_);
+      };
+      auto get_io_predictor = [&](void* arg) {
+        auto predictor = static_cast<IOCostPredictor*>(arg);
+        predicted_io_bytes = predictor->Predict();
+        fprintf(stderr, "predicted io cost: %lu\n", predicted_io_bytes);
       };
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -269,17 +280,10 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               "CPUIOAwareCompressor::CompressBlockAndRecord::"
               "DelaySetCompressedOutputSize",
               set_compress_size_with_delay(100, 1000));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockRecord::"
-              "GetCompressedOutputSize",
-              get_compress_size);
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockRecord:"
-              "GetCPUTime",
-              get_cpu_time);
-
           break;
         case 1:
+          EXPECT_EQ(output_size_, 100);
+          EXPECT_GT(cpu_time_, 1000 * 1000);
           SyncPoint::GetInstance()->SetCallBack(
               "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
               set_exploration(false));
@@ -295,14 +299,6 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               "CPUIOAwareCompressor::CompressBlockAndRecord::"
               "DelaySetCompressedOutputSize",
               set_compress_size_with_delay(100, 1000));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockRecord::"
-              "GetCompressedOutputSize",
-              get_compress_size);
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockRecord::"
-              "GetCPUTime",
-              get_cpu_time);
           break;
         case 2:
           SyncPoint::GetInstance()->SetCallBack(
@@ -320,17 +316,10 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               "CPUIOAwareCompressor::CompressBlockAndRecord::"
               "DelaySetCompressedOutputSize",
               set_compress_size_with_delay(1000, 2000));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockRecord::"
-              "GetCompressedOutputSize",
-              get_compress_size);
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockRecord::"
-              "GetCPUTime",
-              get_cpu_time);
-
           break;
         case 3:
+          EXPECT_EQ(output_size_, 1000);
+          EXPECT_GT(cpu_time_, 2000 * 1000);
           SyncPoint::GetInstance()->SetCallBack(
               "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
               set_exploration(false));
@@ -346,14 +335,6 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               "CPUIOAwareCompressor::CompressBlockAndRecord::"
               "DelaySetCompressedOutputSize",
               set_compress_size_with_delay(1000, 2000));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockAndRecord::"
-              "GetCompressedOutputSize",
-              get_compress_size);
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockAndRecord::"
-              "GetCPUTime",
-              get_cpu_time);
           break;
         case 4:
           SyncPoint::GetInstance()->SetCallBack(
@@ -371,16 +352,24 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               "CPUIOAwareCompressor::CompressBlockAndRecord::"
               "DelaySetCompressedOutputSize",
               set_compress_size_with_delay(200, 2000));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockRecord::"
-              "GetCompressedOutputSize",
-              get_compress_size);
-          SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockRecord::"
-              "GetCPUTime",
-              get_cpu_time);
           break;
       }
+      SyncPoint::GetInstance()->SetCallBack(
+          "CPUIOAwareCompressor::CompressBlockAndRecord::"
+          "GetCompressedOutputSize",
+          get_compress_size);
+      SyncPoint::GetInstance()->SetCallBack(
+          "CPUIOAwareCompressor::CompressBlockAndRecord::"
+          "GetCPUTime",
+          get_cpu_time);
+      SyncPoint::GetInstance()->SetCallBack(
+          "CPUIOAwareCompressor::CompressBlockAndRecord::"
+          "GetCPUPredictor",
+          get_cpu_predictor);
+      SyncPoint::GetInstance()->SetCallBack(
+          "CPUIOAwareCompressor::CompressBlockAndRecord::"
+          "GetIOPredictor",
+          get_io_predictor);
       SyncPoint::GetInstance()->EnableProcessing();
     }
     num_keys_++;
@@ -393,7 +382,14 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
   int num_keys_;
   const BlockBuilder& data_block_builder_;
   std::shared_ptr<Statistics> statistics_;
+
+  static size_t cpu_time_, predicted_cpu_time_, predicted_io_bytes;
+  static size_t output_size_;
 };
+size_t CPUIOAwareTestFlushBlockPolicy::cpu_time_ = 0,
+       CPUIOAwareTestFlushBlockPolicy::predicted_cpu_time_ = 0,
+       CPUIOAwareTestFlushBlockPolicy::predicted_io_bytes = 0,
+       CPUIOAwareTestFlushBlockPolicy::output_size_ = 0;
 class CPUIOAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
   explicit CPUIOAwareTestFlushBlockPolicyFactory(
