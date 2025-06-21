@@ -167,7 +167,7 @@ class DBAutoSkip : public DBTestBase {
     bbto.flush_block_policy_factory.reset(
         new AutoSkipTestFlushBlockPolicyFactory(10, statistics));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    auto compressions = GetSupportedCompressions();
+    const auto& compressions = GetSupportedCompressions();
     if (compressions.size() > 1) {
       // We want to get the compression algorithm in random beside
       // kNoCompression, This is assuming that kNoCompression is the first
