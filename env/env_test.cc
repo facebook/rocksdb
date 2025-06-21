@@ -3467,7 +3467,6 @@ class ReadAsyncRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
 
  private:
   ReadAsyncFS& fs_;
-  std::unique_ptr<FSRandomAccessFile> file_;
   int counter = 0;
 };
 
@@ -3655,6 +3654,50 @@ struct StaticDestructionTester {
 TEST(EnvTestMisc, StaticDestruction) {
   // Check for any crashes during static destruction.
   static_destruction_tester.activated = true;
+}
+
+// Test GetFileSize API
+class TestGetFileSize : public testing::Test {
+ public:
+  TestGetFileSize() { env_ = Env::Default(); }
+  Env* env_;
+};
+
+// Validate GetFileSize API returns the right value.
+// Use the default implementation from Posix File system
+TEST_F(TestGetFileSize, GetFileSize) {
+  EnvOptions soptions;
+  auto fs = env_->GetFileSystem();
+
+  std::string fname = test::PerThreadDBPath(env_, "getFileSizeTestfile");
+
+  constexpr size_t kSectorSize = 4096;
+  constexpr size_t kNumSectors = 128;
+  constexpr size_t expectedFileSize = kSectorSize * kNumSectors;
+
+  // 1. create & write to a file.
+  {
+    std::unique_ptr<FSWritableFile> wfile;
+    ASSERT_OK(
+        fs->NewWritableFile(fname, FileOptions(), &wfile, nullptr /*dbg*/));
+
+    for (size_t i = 0; i < kNumSectors; ++i) {
+      auto data = NewAligned(kSectorSize * 8, static_cast<char>(i + 1));
+      Slice slice(data.get(), kSectorSize);
+      ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
+    }
+    ASSERT_OK(wfile->Close(IOOptions(), nullptr));
+  }
+  // 2. Get file size
+  {
+    std::unique_ptr<FSRandomAccessFile> file;
+    ASSERT_OK(fs->NewRandomAccessFile(fname, FileOptions(), &file, nullptr));
+
+    uint64_t actualFileSize;
+    file->GetFileSize(&actualFileSize);
+
+    ASSERT_EQ(actualFileSize, expectedFileSize);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
