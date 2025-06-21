@@ -179,7 +179,7 @@ Status CPUIOAwareCompressor::CompressBlock(
   if (exploration) {
     auto choosen_index =
         allcompressors_index_[Random::GetTLSInstance()->Uniform(
-            allcompressors_index_.size())];
+            static_cast<int>(allcompressors_index_.size()))];
     size_t choosen_compression_type = choosen_index.first;
     size_t compresion_level_ptr = choosen_index.second;
     TEST_SYNC_POINT_CALLBACK(
