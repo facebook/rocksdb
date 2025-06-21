@@ -119,7 +119,7 @@ class CPUIOAwareWorkingArea : public Compressor::WorkingArea {
     return *this;
   }
   Compressor::ManagedWorkingArea wrapped;
-  std::vector<std::vector<IOCPUCostPredictor>> cost_predictors;
+  std::vector<std::vector<IOCPUCostPredictor*>> cost_predictors;
 };
 
 class AutoSkipCompressorWrapper : public CompressorWrapper {

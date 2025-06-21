@@ -221,9 +221,9 @@ Status CPUIOAwareCompressor::CompressBlock(
 }
 
 Compressor::ManagedWorkingArea CPUIOAwareCompressor::ObtainWorkingArea() {
+  fprintf(stderr, "CPUIOAwareCompressor::ObtainWorkingArea\n");
   auto wrap_wa = allcompressors_.back().back()->ObtainWorkingArea();
   auto wa = new CPUIOAwareWorkingArea(std::move(wrap_wa));
-  // const auto& compressions = GetSupportedCompressions();
   for (size_t i = 0; i < compression_levels_.size(); i++) {
     CompressionType type_ = static_cast<CompressionType>(i + 1);
     if (compression_levels_[type_ - 1].size() == 0) {
@@ -236,17 +236,26 @@ Compressor::ManagedWorkingArea CPUIOAwareCompressor::ObtainWorkingArea() {
       //   wa->cost_predictors.push_back({});
       //   continue;
       // }
-      std::vector<IOCPUCostPredictor> predictors_diff_levels;
+      std::vector<IOCPUCostPredictor*> predictors_diff_levels;
       for (size_t j = 0; j < compression_levels_[type_ - 1].size(); j++) {
-        predictors_diff_levels.push_back(IOCPUCostPredictor(10));
+        predictors_diff_levels.emplace_back(new IOCPUCostPredictor(10));
       }
-      wa->cost_predictors.push_back(std::move(predictors_diff_levels));
+      wa->cost_predictors.emplace_back(std::move(predictors_diff_levels));
     }
   }
+  fprintf(stderr, "CPUIOAwareCompressor::ObtainWorkingArea\n");
   return ManagedWorkingArea(wa, this);
 }
 void CPUIOAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
+  fprintf(stderr, "CPUIOAwareCompressor::ReleaseWorkingArea\n");
+  for (auto& prdictors_diff_levels :
+       static_cast<CPUIOAwareWorkingArea*>(wa)->cost_predictors) {
+    for (auto& predictor : prdictors_diff_levels) {
+      delete predictor;
+    }
+  }
   delete static_cast<CPUIOAwareWorkingArea*>(wa);
+  fprintf(stderr, "CPUIOAwareCompressor::ReleaseWorkingArea\n");
 }
 
 Status CPUIOAwareCompressor::CompressBlockAndRecord(
@@ -268,10 +277,10 @@ Status CPUIOAwareCompressor::CompressBlockAndRecord(
       &output_length);
   auto predictor =
       wa->cost_predictors[choosen_compression_type][compresion_level_ptr];
-  predictor.IOPredictor.Record(output_length);
+  predictor->IOPredictor.Record(output_length);
   if (timer.IsStarted()) {
     auto cpu_time = timer.ElapsedNanos();
-    predictor.CPUPredictor.Record(cpu_time);
+    predictor->CPUPredictor.Record(cpu_time);
     TEST_SYNC_POINT_CALLBACK(
         "CPUIOAwareCompressor::CompressBlockAndRecord::"
         "GetCPUTime",
@@ -283,11 +292,11 @@ Status CPUIOAwareCompressor::CompressBlockAndRecord(
     TEST_SYNC_POINT_CALLBACK(
         "CPUIOAwareCompressor::CompressBlockAndRecord::GetCPUPredictor",
         &(wa->cost_predictors[choosen_compression_type][compresion_level_ptr]
-              .CPUPredictor));
+              ->CPUPredictor));
     TEST_SYNC_POINT_CALLBACK(
         "CPUIOAwareCompressor::CompressBlockAndRecord::GetIOPredictor",
         &(wa->cost_predictors[choosen_compression_type][compresion_level_ptr]
-              .IOPredictor));
+              ->IOPredictor));
     // fprintf(stdout,
     //         "CPUIOAwareCompressor::CompressBlockAndRecord "
     //         "compression_algorithm: %lu compression_level: %lu cpu_time: %lu,

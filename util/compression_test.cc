@@ -249,16 +249,16 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
         cpu_time_ = *time;
         // fprintf(stderr, "get cpu time: %lu\n", *time);
       };
-      auto get_cpu_predictor = [&](void* arg) {
-        auto predictor = static_cast<CPUUtilPredictor*>(arg);
-        predicted_cpu_time_ = predictor->Predict();
-        fprintf(stderr, "predicted cpu time: %lu\n", predicted_cpu_time_);
-      };
-      auto get_io_predictor = [&](void* arg) {
-        auto predictor = static_cast<IOCostPredictor*>(arg);
-        predicted_io_bytes = predictor->Predict();
-        fprintf(stderr, "predicted io cost: %lu\n", predicted_io_bytes);
-      };
+      // auto get_cpu_predictor = [&](void* arg) {
+      //   auto predictor = static_cast<CPUUtilPredictor*>(arg);
+      //   predicted_cpu_time_ = predictor->Predict();
+      //   fprintf(stderr, "predicted cpu time: %lu\n", predicted_cpu_time_);
+      // };
+      // auto get_io_predictor = [&](void* arg) {
+      //   auto predictor = static_cast<IOCostPredictor*>(arg);
+      //   predicted_io_bytes = predictor->Predict();
+      //   fprintf(stderr, "predicted io cost: %lu\n", predicted_io_bytes);
+      // };
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
 
@@ -362,14 +362,14 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
           "CPUIOAwareCompressor::CompressBlockAndRecord::"
           "GetCPUTime",
           get_cpu_time);
-      SyncPoint::GetInstance()->SetCallBack(
-          "CPUIOAwareCompressor::CompressBlockAndRecord::"
-          "GetCPUPredictor",
-          get_cpu_predictor);
-      SyncPoint::GetInstance()->SetCallBack(
-          "CPUIOAwareCompressor::CompressBlockAndRecord::"
-          "GetIOPredictor",
-          get_io_predictor);
+      // SyncPoint::GetInstance()->SetCallBack(
+      //     "CPUIOAwareCompressor::CompressBlockAndRecord::"
+      //     "GetCPUPredictor",
+      //     get_cpu_predictor);
+      // SyncPoint::GetInstance()->SetCallBack(
+      //     "CPUIOAwareCompressor::CompressBlockAndRecord::"
+      //     "GetIOPredictor",
+      // get_io_predictor);
       SyncPoint::GetInstance()->EnableProcessing();
     }
     num_keys_++;
