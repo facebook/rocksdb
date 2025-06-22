@@ -7952,8 +7952,9 @@ TEST_F(UserDefinedIndexTest, IngestTest) {
   ro.iterate_upper_bound = nullptr;
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
+  MultiScanOptions scan_opts(BytewiseComparator());
+  scan_opts.insert("key20");
   std::vector<ScanOptions> scan_opts({ScanOptions("key20")});
-  ;
   scan_opts[0].property_bag.emplace().emplace("count", std::to_string(25));
   iter->Prepare(scan_opts);
   // Test that we can read all the keys

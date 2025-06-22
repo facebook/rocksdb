@@ -84,6 +84,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
+  void Prepare(const std::vector<ScanOptions>*) override;
+
   bool PrepareValue() override {
     assert(Valid());
 
@@ -225,7 +227,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
-  void Prepare(const std::vector<ScanOptions>* scan_opts) override;
+  void Prepare(const MultiScanOptions* scan_opts) override;
 
   FilePrefetchBuffer* prefetch_buffer() {
     return block_prefetcher_.prefetch_buffer();

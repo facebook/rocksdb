@@ -27,6 +27,8 @@ TEST_F(IntervalSetTest, BasicTest) {
   ASSERT_EQ(set.size(), 3);
   auto iter = set.begin();
   ASSERT_EQ(*iter, Interval<int>(0, 15));
+<<<<<<< HEAD
+=======
   iter++;
   ASSERT_EQ(*iter, Interval<int>(16, 30));
   iter++;
@@ -43,20 +45,15 @@ TEST_F(IntervalSetTest, BasicTest) {
 
 TEST_F(IntervalSetTest, SliceTest) {
   IntervalSet<Slice, Comparator> set(BytewiseComparator());
-  EXPECT_TRUE(set.insert("k00", "k10"));
+  set.insert("k0", "k10");
   // Should do nothing
-  EXPECT_TRUE(set.insert("k02", "k08"));
-  auto iter = set.begin();
-  ASSERT_EQ(iter->start().ToString(), "k00");
-  ASSERT_EQ(iter->end().ToString(), "k10");
-  ASSERT_EQ(set.size(), 1);
-  iter++;
-  ASSERT_EQ(iter, set.end());
-  EXPECT_TRUE(set.insert("k15", "k20"));
-  EXPECT_TRUE(set.insert("k16"));
+  set.insert("k2", "k8");
+  set.insert("k15", "k20");
+  set.insert("k16");
   ASSERT_EQ(set.size(), 2);
-  iter = set.begin();
-  ASSERT_EQ(iter->start().ToString(), "k00");
+  auto iter = set.begin();
+  ASSERT_EQ(iter->start().ToString(), "k0");
+>>>>>>> 053af68e3 (Ensure typeness of comparator is rocksdb Comparator)
   ASSERT_EQ(iter->end().ToString(), "k10");
   iter++;
   ASSERT_EQ(iter->start().ToString(), "k15");

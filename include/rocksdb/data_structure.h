@@ -374,15 +374,23 @@ class Interval<Slice, Comparator> {
   enum class End { INF };
 
   // Constructors that take a Comparator
+<<<<<<< HEAD
   /* implicit */ Interval(const Comparator* c, const Slice& start,
                           const Slice& end)
+=======
+  /* implicit */ Interval(const Comparator * c, const Slice& start, const Slice& end)
+>>>>>>> 053af68e3 (Ensure typeness of comparator is rocksdb Comparator)
       : start_(start), end_(end), comparator_(c) {}
 
   /* implicit */ Interval(const Comparator* c, const Slice& start)
       : start_(start), end_(End::INF), comparator_(c) {}
 
   // Constructor that takes a pair
+<<<<<<< HEAD
   /* implicit */ Interval(const Comparator* c, const std::pair<Slice, Slice>& p)
+=======
+  /* implicit */ Interval(const Comparator *c, const std::pair<Slice, Slice>& p)
+>>>>>>> 053af68e3 (Ensure typeness of comparator is rocksdb Comparator)
       : start_(p.first), end_(p.second), comparator_(c) {}
 
   Slice& start() { return start_; }
@@ -468,6 +476,7 @@ class IntervalSet {
 
   size_t size() const { return intervals_.size(); }
 
+  size_t size() const { return intervals_.size(); }
  private:
   void insertImpl(const Interval<T>& i) {
     // Skip empty intervals
@@ -661,7 +670,6 @@ class IntervalSet<Slice, Comparator> {
     Slice new_start = i.start();
     Slice new_end;
     bool inf_end = false;
-
     if (i.has_end()) {
       new_end = i.end();
     } else {
@@ -722,7 +730,6 @@ class IntervalSet<Slice, Comparator> {
         erase_end = intervals_.end();
         break;
       }
-
       ++it;
       erase_end = it;
     }

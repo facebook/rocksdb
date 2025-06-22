@@ -1780,6 +1780,122 @@ struct ScanOptions {
       : range(_start, _upper_bound) {}
 };
 
+// Container for multiple scan ranges that can be used with MultiScan.
+// This replaces std::vector<ScanOptions> with a more efficient implementation
+// that can merge overlapping ranges.
+class MultiScanOptions {
+ public:
+  // Iterator for accessing the scan ranges
+  class iterator {
+   public:
+    iterator(MultiScanOptions& parent, int start, int end)
+        : parent_(&parent), current_(start), end_(end) {}
+    
+    // Increment operator
+    iterator& operator++() {
+      current_++;
+      return *this;
+    }
+    
+    // Post-increment operator
+    iterator operator++(int) {
+      iterator tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+    
+    // Dereference operator to get the current ScanOptions
+    const Interval<Slice, Comparator> operator*() const {
+      if (parent_->parent_range_ != nullptr) {
+        // If this is a subset, get from parent
+        auto interval = parent_->parent_range_->ranges_.cbegin();
+        std::advance(interval, current_);
+        return *interval;
+      } else {
+        // Get directly from our ranges
+        auto interval = parent_->ranges_.cbegin();
+        std::advance(interval, current_);
+        return *interval;
+      }
+    }
+
+    // Equality operators
+    bool operator==(const iterator& other) const {
+      return parent_ == other.parent_ && current_ == other.current_;
+    }
+    
+    bool operator!=(const iterator& other) const {
+      return !(*this == other);
+    }
+    
+   private:
+    const MultiScanOptions* parent_;
+    int current_;
+    int end_;
+  };
+
+  // Constructor that takes a comparator
+  explicit MultiScanOptions(const Comparator* comparator = BytewiseComparator())
+      : comp_(comparator), ranges_(comparator) {}
+  
+  // Destructor
+  ~MultiScanOptions() {}
+
+  // Add a range with start and end keys
+  void insert(const Slice& start, const Slice& end) {
+    ranges_.insert(start, end);
+  }
+
+  // Add a range with only a start key (unbounded end)
+  void insert(const Slice& start) {
+    ranges_.insert(start);
+  }
+
+  bool empty() const { return ranges_.empty(); }
+
+  void clear() { ranges_.clear(); }
+  // Get the number of ranges
+  size_t size() const { return ranges_.size(); }
+
+  // Iterator support
+  iterator begin() {
+    if (parent_range_ != nullptr) {
+      return iterator(*this, start_, end_);
+    }
+    return iterator(*this, 0, ranges_.size());
+  }
+
+  iterator end() {
+    if (parent_range_ != nullptr) {
+      return iterator(*this, end_, end_);
+    }
+    return iterator(*this, ranges_.size(), ranges_.size());
+  }
+
+  // Create a subset of ranges
+  MultiScanOptions get_subset(int start, int end) const {
+    return MultiScanOptions(*this, start, end);
+  }
+
+ private:
+  // Private constructor for creating subsets
+  MultiScanOptions(const MultiScanOptions& parent, int start, int end)
+      : parent_range_(&parent), start_(start), end_(end), comp_(parent.comp_), ranges_(parent.comp_) {}
+
+
+  // For subsets, reference to the parent MultiScanOptions
+  const MultiScanOptions* parent_range_ = nullptr;
+  int start_ = -1;
+  int end_ = -1;
+  
+  // The comparator used for ordering ranges
+  const Comparator* comp_;
+
+  // The set of ranges
+  IntervalSet<Slice, Comparator> ranges_;
+
+};
+
 // Options that control read operations
 struct ReadOptions {
   // *** BEGIN options relevant to point lookups as well as scans ***
