@@ -95,8 +95,6 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-using ScanOptionsMap = std::unordered_map<size_t, std::vector<ScanOptions>>;
-
 // Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
 int FindFileInRange(const InternalKeyComparator& icmp,
@@ -1011,6 +1009,8 @@ class LevelIterator final : public InternalIterator {
     if (range_tombstone_iter_ptr_) {
       *range_tombstone_iter_ptr_ = &range_tombstone_iter_;
     }
+
+    prepared_iters.reserve(file_index_);
   }
 
   ~LevelIterator() override { delete file_iter_.Set(nullptr); }
@@ -1103,45 +1103,15 @@ class LevelIterator final : public InternalIterator {
 
   void Prepare(const std::vector<ScanOptions>* scan_opts) override {
     // We assume here that scan_opts is sorted such that
-    // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
+    // scan_opts[0].range.start < scan_opts[1].range.start
     scan_opts_ = scan_opts;
-    if (scan_opts_ == nullptr) {
-      return;
-    }
+<<<<<<< HEAD
+=======
 
-    file_to_scan_opts_ = std::make_unique<ScanOptionsMap>();
-    for (size_t k = 0; k < scan_opts_->size(); k++) {
-      const ScanOptions& opt = scan_opts_->at(k);
-      auto start = opt.range.start;
-      auto end = opt.range.limit;
-
-      if (!start.has_value()) {
-        continue;
-      }
-
-      // We can capture this case in the future, but for now lets skip this.
-      if (!end.has_value()) {
-        continue;
-      }
-
-      InternalKey istart(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
-      InternalKey iend(end.value(), 0, kValueTypeForSeekForPrev);
-
-      // TODO: This needs to be optimized, right now we iterate twice, which
-      // we dont need to. We can do this in N rather than 2N.
-      size_t fstart = FindFile(icomparator_, *flevel_, istart.Encode());
-      size_t fend = FindFile(icomparator_, *flevel_, iend.Encode());
-
-      // We need to check the relevant cases
-      // Cases:
-      // 1. [  S        E  ]
-      // 2. [  S  ]  [  E  ]
-      // 3. [  S  ] ...... [  E  ]
-      for (auto i = fstart; i <= fend; i++) {
-        if (i < flevel_->num_files) {
-          (*file_to_scan_opts_)[i].emplace_back(start.value(), end.value());
-          (*file_to_scan_opts_)[i].back().property_bag = opt.property_bag;
-        }
+>>>>>>> d979641b7 (Prefetching on block prepare (only first entry))
+    if (scan_opts_ != nullptr) {
+      for (size_t i = 0; i < flevel_->num_files; i++) {
+        PrepareFileIterator(i);
       }
     }
   }
@@ -1152,6 +1122,7 @@ class LevelIterator final : public InternalIterator {
   void SkipEmptyFileBackward();
   void SetFileIterator(InternalIterator* iter);
   void InitFileIterator(size_t new_file_index);
+  void PrepareFileIterator(size_t new_file_index);
 
   const Slice& file_smallest_key(size_t file_index) {
     assert(file_index < flevel_->num_files);
@@ -1179,9 +1150,9 @@ class LevelIterator final : public InternalIterator {
   // Move file_iter_ to the file at file_index_.
   // range_tombstone_iter_ is updated with a range tombstone iterator
   // into the new file. Old range tombstone iterator is cleared.
-  InternalIterator* NewFileIterator() {
-    assert(file_index_ < flevel_->num_files);
-    auto file_meta = flevel_->files[file_index_];
+  InternalIterator* NewFileIterator(size_t index) {
+    assert(index < flevel_->num_files);
+    auto file_meta = flevel_->files[index];
     if (should_sample_) {
       sample_file_read_inc(file_meta.file_metadata);
     }
@@ -1189,10 +1160,10 @@ class LevelIterator final : public InternalIterator {
     const InternalKey* smallest_compaction_key = nullptr;
     const InternalKey* largest_compaction_key = nullptr;
     if (compaction_boundaries_ != nullptr) {
-      smallest_compaction_key = (*compaction_boundaries_)[file_index_].smallest;
-      largest_compaction_key = (*compaction_boundaries_)[file_index_].largest;
+      smallest_compaction_key = (*compaction_boundaries_)[index].smallest;
+      largest_compaction_key = (*compaction_boundaries_)[index].largest;
     }
-    CheckMayBeOutOfLowerBound();
+    CheckMayBeOutOfLowerBound(index);
     ClearRangeTombstoneIter();
     return table_cache_->NewIterator(
         read_options_, file_options_, icomparator_, *file_meta.file_metadata,
@@ -1208,12 +1179,12 @@ class LevelIterator final : public InternalIterator {
   //
   // Note MyRocks may update iterate bounds between seek. To workaround it,
   // we need to check and update may_be_out_of_lower_bound_ accordingly.
-  void CheckMayBeOutOfLowerBound() {
+  void CheckMayBeOutOfLowerBound(size_t index) {
     if (read_options_.iterate_lower_bound != nullptr &&
-        file_index_ < flevel_->num_files) {
+        index < flevel_->num_files) {
       may_be_out_of_lower_bound_ =
           user_comparator_.CompareWithoutTimestamp(
-              ExtractUserKey(file_smallest_key(file_index_)), /*a_has_ts=*/true,
+              ExtractUserKey(file_smallest_key(index)), /*a_has_ts=*/true,
               *read_options_.iterate_lower_bound, /*b_has_ts=*/false) < 0;
     }
   }
@@ -1273,8 +1244,8 @@ class LevelIterator final : public InternalIterator {
   bool to_return_sentinel_ = false;
   const std::vector<ScanOptions>* scan_opts_;
 
-  // Our stored scan_opts for each prefix
-  std::unique_ptr<ScanOptionsMap> file_to_scan_opts_ = nullptr;
+  // During prepare we can preload our iters
+  std::vector<InternalIterator*> prepared_iters;
 
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
@@ -1382,7 +1353,7 @@ void LevelIterator::Seek(const Slice& target) {
     }
   }
   SkipEmptyFileForward();
-  CheckMayBeOutOfLowerBound();
+  CheckMayBeOutOfLowerBound(file_index_);
 }
 
 void LevelIterator::SeekForPrev(const Slice& target) {
@@ -1394,7 +1365,7 @@ void LevelIterator::SeekForPrev(const Slice& target) {
       icomparator_.Compare(target, file_smallest_key(0)) < 0) {
     SetFileIterator(nullptr);
     ClearRangeTombstoneIter();
-    CheckMayBeOutOfLowerBound();
+    CheckMayBeOutOfLowerBound(file_index_);
     return;
   }
   if (new_file_index >= flevel_->num_files) {
@@ -1417,7 +1388,7 @@ void LevelIterator::SeekForPrev(const Slice& target) {
     }
     SkipEmptyFileBackward();
   }
-  CheckMayBeOutOfLowerBound();
+  CheckMayBeOutOfLowerBound(file_index_);
 }
 
 void LevelIterator::SeekToFirst() {
@@ -1433,7 +1404,7 @@ void LevelIterator::SeekToFirst() {
     }
   }
   SkipEmptyFileForward();
-  CheckMayBeOutOfLowerBound();
+  CheckMayBeOutOfLowerBound(file_index_);
 }
 
 void LevelIterator::SeekToLast() {
@@ -1447,7 +1418,7 @@ void LevelIterator::SeekToLast() {
     }
   }
   SkipEmptyFileBackward();
-  CheckMayBeOutOfLowerBound();
+  CheckMayBeOutOfLowerBound(file_index_);
 }
 
 void LevelIterator::Next() {
@@ -1537,18 +1508,7 @@ bool LevelIterator::SkipEmptyFileForward() {
     // LevelIterator::Seek*, it should also call Seek* into the corresponding
     // range tombstone iterator.
     if (file_iter_.iter() != nullptr) {
-      // If we are doing prepared scan opts then we should seek to the values
-      // specified by the scan opts
-      if (scan_opts_ && (*file_to_scan_opts_)[file_index_].size()) {
-        const ScanOptions& opts = file_to_scan_opts_->at(file_index_).front();
-        if (opts.range.start.has_value()) {
-          InternalKey target(*opts.range.start.AsPtr(), kMaxSequenceNumber,
-                             kValueTypeForSeek);
-          file_iter_.Seek(target.Encode());
-        }
-      } else {
-        file_iter_.SeekToFirst();
-      }
+      file_iter_.SeekToFirst();
       if (range_tombstone_iter_) {
         if (*range_tombstone_iter_) {
           (*range_tombstone_iter_)->SeekToFirst();
@@ -1596,15 +1556,10 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   }
 
   InternalIterator* old_iter = file_iter_.Set(iter);
+  // Since this is a new table iterator, no need to call Prepare() if
+  // scan_opts_ is null
   if (iter && scan_opts_) {
-    if (file_to_scan_opts_.get() &&
-        file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
-      const std::vector<ScanOptions>& opts =
-          file_to_scan_opts_->at(file_index_);
-      file_iter_.Prepare(&opts);
-    } else {
-      file_iter_.Prepare(scan_opts_);
-    }
+    file_iter_.Prepare(scan_opts_);
   }
 
   // Update the read pattern for PrefetchBuffer.
@@ -1636,9 +1591,39 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
       // no need to change anything
     } else {
       file_index_ = new_file_index;
-      InternalIterator* iter = NewFileIterator();
-      SetFileIterator(iter);
+      if (prepared_iters.size() > new_file_index &&
+          prepared_iters[new_file_index] != nullptr) {
+        SetFileIterator(prepared_iters[new_file_index]);
+      } else {
+        InternalIterator* iter = NewFileIterator(new_file_index);
+        SetFileIterator(iter);
+      }
     }
+  }
+}
+
+void LevelIterator::PrepareFileIterator(size_t new_file_index) {
+  if (scan_opts_ != nullptr && scan_opts_->size() > 0) {
+    auto iter = NewFileIterator(new_file_index);
+    prepared_iters[new_file_index] = iter;
+    // We assume the scan_opts is ordered by start range.
+    const std::vector<ScanOptions>& opts = *scan_opts_;
+    std::vector<ScanOptions> subset;
+    subset.reserve(opts.size());
+    // We first find the first scan_opts start key that is in the file.
+    for (size_t i = 0; i < opts.size(); i++) {
+      const FdWithKeyRange& cur_file = flevel_->files[new_file_index];
+      auto target = opts[i].range.start.AsPtr();
+      if (user_comparator_.Compare(*target,
+                                   ExtractUserKey(cur_file.largest_key)) <= 0 &&
+          user_comparator_.Compare(
+              *target, ExtractUserKey(cur_file.smallest_key)) >= 0) {
+        subset.push_back(opts[i]);
+      }
+    }
+
+    // We first need to determine which opts belong to which iterator
+    iter->Prepare(&subset);
   }
 }
 
