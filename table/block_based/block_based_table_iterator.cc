@@ -188,6 +188,17 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
   }
 }
 
+void BlockBasedTableIterator::Prepare(
+    const std::vector<ScanOptions>* scan_opts_) {
+  // We assume the first key is in range
+  if (scan_opts_ != nullptr && scan_opts_->size()) {
+    auto target = (*scan_opts_)[0].range.start.AsPtr();
+    auto internal_target =
+        InternalKey(*target, kMaxSequenceNumber, kValueTypeForSeek).Encode();
+    SeekImpl(&internal_target, true);
+  }
+}
+
 void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
   multi_scan_.reset();
   direction_ = IterDirection::kBackward;

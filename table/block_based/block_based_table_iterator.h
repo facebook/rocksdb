@@ -84,6 +84,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
+  void Prepare(const std::vector<ScanOptions>*) override;
+
   bool PrepareValue() override {
     assert(Valid());
 
