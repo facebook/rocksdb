@@ -60,7 +60,7 @@ using IOCostPredictor = WindowAveragePredictor<size_t>;
 using CPUUtilPredictor = WindowAveragePredictor<uint64_t>;
 
 struct IOCPUCostPredictor {
-  IOCPUCostPredictor(int window_size)
+  explicit IOCPUCostPredictor(int window_size)
       : IOPredictor(window_size), CPUPredictor(window_size) {}
   IOCostPredictor IOPredictor;
   CPUUtilPredictor CPUPredictor;
