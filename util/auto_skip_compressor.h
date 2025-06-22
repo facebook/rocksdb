@@ -35,7 +35,7 @@ class CompressionRejectionProbabilityPredictor {
 template <typename T>
 class WindowAveragePredictor {
  public:
-  WindowAveragePredictor(int window_size)
+  explicit WindowAveragePredictor(int window_size)
       : sum_(0), prediction_(0), count_(0), kWindowSize(window_size) {}
   T Predict() { return prediction_; }
   bool Record(T data) {
@@ -48,7 +48,6 @@ class WindowAveragePredictor {
     }
     return true;
   }
-  ~WindowAveragePredictor() {}
 
  private:
   T sum_;

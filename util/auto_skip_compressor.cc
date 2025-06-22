@@ -135,7 +135,7 @@ CPUIOAwareCompressor::CPUIOAwareCompressor(const CompressionOptions& opts)
       continue;
     }
     if (compression_levels_[type_ - 1].size() == 0) {
-      allcompressors_.push_back({});
+      allcompressors_.emplace_back();
       continue;
     } else {
       // if the compression type is not supported, then skip and remove
@@ -143,7 +143,7 @@ CPUIOAwareCompressor::CPUIOAwareCompressor(const CompressionOptions& opts)
       if (std::find(compressions.begin(), compressions.end(), type_) ==
           compressions.end()) {
         compression_levels_[i].clear();
-        allcompressors_.push_back({});
+        allcompressors_.emplace_back();
         continue;
       }
       std::vector<std::unique_ptr<Compressor>> compressors_diff_levels;
@@ -153,7 +153,7 @@ CPUIOAwareCompressor::CPUIOAwareCompressor(const CompressionOptions& opts)
         new_opts.level = level;
         compressors_diff_levels.push_back(
             builtInManager->GetCompressor(new_opts, type_));
-        allcompressors_index_.push_back({i, j});
+        allcompressors_index_.emplace_back(i, j);
       }
       allcompressors_.push_back(std::move(compressors_diff_levels));
     }
@@ -172,6 +172,9 @@ Status CPUIOAwareCompressor::CompressBlock(
   if (wa == nullptr || wa->owner() != this) {
     // We just go with the last compressor created. If Zstd is supported will be
     // highest compression level of Zstd
+    if (allcompressors_.size() == 0) {
+      return Status::NotSupported("No compression type supported");
+    }
     auto choosen_compression = allcompressors_index_.back();
     size_t choosen_compression_type = choosen_compression.first;
     size_t compression_level_ptr = choosen_compression.second;
@@ -223,13 +226,15 @@ Compressor::ManagedWorkingArea CPUIOAwareCompressor::ObtainWorkingArea() {
   auto wrap_wa = allcompressors_.back().back()->ObtainWorkingArea();
   auto wa = new CPUIOAwareWorkingArea(std::move(wrap_wa));
   // Create cost predictors for each compression type and level
+  wa->cost_predictors.reserve(compression_levels_.size());
   for (size_t i = 0; i < compression_levels_.size(); i++) {
     CompressionType type_ = static_cast<CompressionType>(i + 1);
     if (compression_levels_[type_ - 1].size() == 0) {
-      wa->cost_predictors.push_back({});
+      wa->cost_predictors.emplace_back();
       continue;
     } else {
       std::vector<IOCPUCostPredictor*> predictors_diff_levels;
+      predictors_diff_levels.reserve(compression_levels_[type_ - 1].size());
       for (size_t j = 0; j < compression_levels_[type_ - 1].size(); j++) {
         predictors_diff_levels.emplace_back(new IOCPUCostPredictor(10));
       }
