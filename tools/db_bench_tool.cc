@@ -336,6 +336,7 @@ DEFINE_int64(batch_size, 1, "Batch size");
 
 DEFINE_int64(multiscan_size, 10,
              "MultiScan size - number of multiscans of size `batch_size`");
+
 DEFINE_int64(
     multiscan_stride, 100,
     "The amount of keys between two successive Scan operations in multiscan");
@@ -6381,22 +6382,8 @@ class Benchmark {
     thread->stats.AddMessage(msg);
   }
 
-  ScanOptions GenerateScanOption(int64_t scan_size, int64_t start_key) {
-    std::cout << scan_size << " " << start_key << std::endl;
-    std::unique_ptr<const char[]> skey_guard;
-    Slice skey = AllocateKey(&skey_guard);
-    std::unique_ptr<const char[]> ekey_guard;
-    Slice ekey = AllocateKey(&ekey_guard);
-
-    GenerateKeyFromIntForSeek(start_key, FLAGS_num, &skey);
-    uint64_t end_key = start_key + scan_size;
-    GenerateKeyFromIntForSeek(end_key, FLAGS_num, &ekey);
-
-    return ScanOptions(skey, ekey);
-  }
-
   void MultiScan(ThreadState* thread) {
-    const size_t scan_size = FLAGS_seek_nexts ? FLAGS_seek_nexts : 50;
+    const int64_t scan_size = FLAGS_seek_nexts ? FLAGS_seek_nexts : 50;
     const int64_t multiscan_size = FLAGS_multiscan_size;
     auto count_hist = std::make_shared<HistogramImpl>();
     ReadOptions options = read_options_;
@@ -6405,26 +6392,37 @@ class Benchmark {
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
       std::vector<ScanOptions> opts;
+      std::vector<std::unique_ptr<const char[]>> guards;
       opts.reserve(multiscan_size);
       uint64_t range = static_cast<uint64_t>(FLAGS_num) -
                        ((scan_size + FLAGS_multiscan_stride) * multiscan_size);
       uint64_t start_key = thread->rand.Uniform(range);
       for (int64_t i = 0; i < multiscan_size; i++) {
-        opts.push_back(GenerateScanOption(scan_size, start_key));
+        std::unique_ptr<const char[]> skey_guard;
+        Slice skey = AllocateKey(&skey_guard);
+        guards.push_back(std::move(skey_guard));
+        std::unique_ptr<const char[]> ekey_guard;
+        Slice ekey = AllocateKey(&ekey_guard);
+        guards.push_back(std::move(ekey_guard));
+
+        GenerateKeyFromInt(start_key, FLAGS_num, &skey);
+        uint64_t end_key = start_key + scan_size;
+        GenerateKeyFromInt(end_key, FLAGS_num, &ekey);
+
+        opts.push_back(ScanOptions(skey, ekey));
         start_key += scan_size + FLAGS_multiscan_stride;
       }
 
-      size_t scan_count = 0;
-      auto iter = db->NewMultiScan(options, db->DefaultColumnFamily(), opts);
-      for (auto scan_range : *iter) {
-        size_t key_count = 0;
-        for (auto it __attribute__((__unused__)) : scan_range) {
-          key_count++;
+      auto iter =
+          db->NewMultiScan(read_options_, db->DefaultColumnFamily(), opts);
+      for (auto rng : *iter) {
+        size_t keys = 0;
+        for (auto it __attribute__((__unused__)) : rng) {
+          keys++;
         }
-        std::cout << key_count << std::endl;
-        scan_count++;
+        count_hist->Add(1);
       }
-      count_hist->Add(scan_count);
+
       thread->stats.FinishedOps(nullptr, db, 1, kMultiScan);
     }
 
