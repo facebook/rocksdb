@@ -1101,17 +1101,17 @@ class LevelIterator final : public InternalIterator {
     read_seq_ = read_seq;
   }
 
-  void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+  void Prepare(const MultiScanOptions* so) override {
     // We assume here that scan_opts is sorted such that
     // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
-    scan_opts_ = scan_opts;
-    if (scan_opts_ == nullptr) {
+    if (so == nullptr) {
       return;
     }
+    scan_opts_ = so;
 
     file_to_scan_opts_ = std::make_unique<ScanOptionsMap>();
     for (size_t k = 0; k < scan_opts_->size(); k++) {
-      const ScanOptions& opt = scan_opts_->at(k);
+      const ScanOptions& opt = scan_opts_->GetScanOptions().at(k);
       auto start = opt.range.start;
       auto end = opt.range.limit;
 
@@ -1271,7 +1271,7 @@ class LevelIterator final : public InternalIterator {
   bool prefix_exhausted_ = false;
   // Whether next/prev key is a sentinel key.
   bool to_return_sentinel_ = false;
-  const std::vector<ScanOptions>* scan_opts_;
+  const MultiScanOptions* scan_opts_;
 
   // Our stored scan_opts for each prefix
   std::unique_ptr<ScanOptionsMap> file_to_scan_opts_ = nullptr;
@@ -1601,7 +1601,9 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
         file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
       const std::vector<ScanOptions>& opts =
           file_to_scan_opts_->at(file_index_);
-      file_iter_.Prepare(&opts);
+      auto new_opts = MultiScanOptions(*scan_opts_);
+      new_opts.GetScanOptions() = opts;
+      file_iter_.Prepare(&new_opts);
     } else {
       file_iter_.Prepare(scan_opts_);
     }
