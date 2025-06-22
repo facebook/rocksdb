@@ -1979,7 +1979,14 @@ class RandomGenerator {
 
   Slice Generate(unsigned int len) {
     assert(len <= data_.size());
-    if (rnd.PercentTrue(FLAGS_same_value_percentage)) {
+    if (FLAGS_same_value_percentage < 0) {
+      std::string data;
+      test::CompressibleString(&rnd, 0, len, &data);
+      return Slice(data.data(), len);
+    } else if (FLAGS_same_value_percentage > 100) {
+      std::string data(len, 'A');
+      return Slice(data.data(), len);
+    } else if (rnd.PercentTrue(FLAGS_same_value_percentage)) {
       return Slice(data_.data(), len);
     } else {
       if (pos_ + len > data_.size()) {
@@ -5144,12 +5151,16 @@ class Benchmark {
 
   void WriteSeq(ThreadState* thread) { DoWrite(thread, SEQUENTIAL); }
   void WriteSeqComp(ThreadState* thread) {
-    FLAGS_same_value_percentage = 100;
+    auto tmp = FLAGS_same_value_percentage;
+    FLAGS_same_value_percentage = 200;
     DoWrite(thread, SEQUENTIAL);
+    FLAGS_same_value_percentage = tmp;
   }
   void WriteSeqUnComp(ThreadState* thread) {
-    FLAGS_same_value_percentage = 0;
+    auto tmp = FLAGS_same_value_percentage;
+    FLAGS_same_value_percentage = -100;
     DoWrite(thread, SEQUENTIAL);
+    FLAGS_same_value_percentage = tmp;
   }
   void WriteRandom(ThreadState* thread) { DoWrite(thread, RANDOM); }
 
