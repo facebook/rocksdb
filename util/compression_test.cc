@@ -190,11 +190,11 @@ class DBAutoSkip : public DBTestBase {
   }
 };
 
-class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
+class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
  public:
-  explicit CPUIOAwareTestFlushBlockPolicy(
-      const int window, const BlockBuilder& data_block_builder,
-      std::shared_ptr<Statistics> statistics)
+  explicit CostAwareTestFlushBlockPolicy(const int window,
+                                         const BlockBuilder& data_block_builder,
+                                         std::shared_ptr<Statistics> statistics)
       : window_(window),
         num_keys_(0),
         data_block_builder_(data_block_builder),
@@ -267,18 +267,18 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
           // Set exploration to true and compression type to zstd and
           // compression level to 2
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
+              "CostAwareCompressor::CompressBlock::exploitOrExplore",
               set_exploration(true));
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::"
+              "CostAwareCompressor::CompressBlock::"
               "SelectCompressionType",
               set_compression_type(6));
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::"
+              "CostAwareCompressor::CompressBlock::"
               "SelectCompressionLevel",
               set_compression_level(2));
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockAndRecord::"
+              "CostAwareCompressor::CompressBlockAndRecord::"
               "DelaySetCompressedOutputSize",
               set_compress_size_with_delay(100, 1000));
           break;
@@ -289,18 +289,18 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
           EXPECT_EQ(predicted_io_bytes, 100);
           EXPECT_GT(predicted_cpu_time_, 1000 * 1000);
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
+              "CostAwareCompressor::CompressBlock::exploitOrExplore",
               set_exploration(false));
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::"
+              "CostAwareCompressor::CompressBlock::"
               "SelectCompressionType",
               set_compression_type(6));
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::"
+              "CostAwareCompressor::CompressBlock::"
               "SelectCompressionLevel",
               set_compression_level(2));
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockAndRecord::"
+              "CostAwareCompressor::CompressBlockAndRecord::"
               "DelaySetCompressedOutputSize",
               set_compress_size_with_delay(100, 1000));
           break;
@@ -308,18 +308,18 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
           // Set exploration to true and compression type to  and compression
           // level to 2
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
+              "CostAwareCompressor::CompressBlock::exploitOrExplore",
               set_exploration(true));
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::"
+              "CostAwareCompressor::CompressBlock::"
               "SelectCompressionType",
               set_compression_type(4));
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::"
+              "CostAwareCompressor::CompressBlock::"
               "SelectCompressionLevel",
               set_compression_level(2));
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockAndRecord::"
+              "CostAwareCompressor::CompressBlockAndRecord::"
               "DelaySetCompressedOutputSize",
               set_compress_size_with_delay(1000, 2000));
           break;
@@ -330,37 +330,37 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
           EXPECT_EQ(predicted_io_bytes, 1000);
           EXPECT_GT(predicted_cpu_time_, 2000 * 1000);
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::exploitOrExplore",
+              "CostAwareCompressor::CompressBlock::exploitOrExplore",
               set_exploration(false));
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::"
+              "CostAwareCompressor::CompressBlock::"
               "SelectCompressionType",
               set_compression_type(4));
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlock::"
+              "CostAwareCompressor::CompressBlock::"
               "SelectCompressionLevel",
               set_compression_level(2));
           SyncPoint::GetInstance()->SetCallBack(
-              "CPUIOAwareCompressor::CompressBlockAndRecord::"
+              "CostAwareCompressor::CompressBlockAndRecord::"
               "DelaySetCompressedOutputSize",
               set_compress_size_with_delay(1000, 2000));
           break;
       }
       // Add syncpoint to get the cpu and io cost
       SyncPoint::GetInstance()->SetCallBack(
-          "CPUIOAwareCompressor::CompressBlockAndRecord::"
+          "CostAwareCompressor::CompressBlockAndRecord::"
           "GetCompressedOutputSize",
           get_compress_size);
       SyncPoint::GetInstance()->SetCallBack(
-          "CPUIOAwareCompressor::CompressBlockAndRecord::"
+          "CostAwareCompressor::CompressBlockAndRecord::"
           "GetCPUTime",
           get_cpu_time);
       SyncPoint::GetInstance()->SetCallBack(
-          "CPUIOAwareCompressor::CompressBlockAndRecord::"
+          "CostAwareCompressor::CompressBlockAndRecord::"
           "GetCPUPredictor",
           get_cpu_predictor);
       SyncPoint::GetInstance()->SetCallBack(
-          "CPUIOAwareCompressor::CompressBlockAndRecord::"
+          "CostAwareCompressor::CompressBlockAndRecord::"
           "GetIOPredictor",
           get_io_predictor);
       SyncPoint::GetInstance()->EnableProcessing();
@@ -379,26 +379,26 @@ class CPUIOAwareTestFlushBlockPolicy : public FlushBlockPolicy {
   static size_t cpu_time_, predicted_cpu_time_, predicted_io_bytes;
   static size_t output_size_;
 };
-size_t CPUIOAwareTestFlushBlockPolicy::cpu_time_ = 0,
-       CPUIOAwareTestFlushBlockPolicy::predicted_cpu_time_ = 0,
-       CPUIOAwareTestFlushBlockPolicy::predicted_io_bytes = 0,
-       CPUIOAwareTestFlushBlockPolicy::output_size_ = 0;
-class CPUIOAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+size_t CostAwareTestFlushBlockPolicy::cpu_time_ = 0,
+       CostAwareTestFlushBlockPolicy::predicted_cpu_time_ = 0,
+       CostAwareTestFlushBlockPolicy::predicted_io_bytes = 0,
+       CostAwareTestFlushBlockPolicy::output_size_ = 0;
+class CostAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
-  explicit CPUIOAwareTestFlushBlockPolicyFactory(
+  explicit CostAwareTestFlushBlockPolicyFactory(
       const int window, std::shared_ptr<Statistics> statistics)
       : window_(window), statistics_(statistics) {}
 
   virtual const char* Name() const override {
-    return "CPUIOAwareTestFlushBlockPolicyFactory";
+    return "CostAwareTestFlushBlockPolicyFactory";
   }
 
   virtual FlushBlockPolicy* NewFlushBlockPolicy(
       const BlockBasedTableOptions& /*table_options*/,
       const BlockBuilder& data_block_builder) const override {
     (void)data_block_builder;
-    return new CPUIOAwareTestFlushBlockPolicy(window_, data_block_builder,
-                                              statistics_);
+    return new CostAwareTestFlushBlockPolicy(window_, data_block_builder,
+                                             statistics_);
   }
 
  private:
@@ -416,14 +416,14 @@ class DBCPUIOPredictor : public DBTestBase {
         options(CurrentOptions()),
         rnd_(231),
         key_index_(0) {
-    options.compression_manager = CreateCPUIOAwareCompressionManager();
+    options.compression_manager = CreateCostAwareCompressionManager();
     auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.statistics = statistics;
     options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
     BlockBasedTableOptions bbto;
     bbto.enable_index_compression = false;
     bbto.flush_block_policy_factory.reset(
-        new CPUIOAwareTestFlushBlockPolicyFactory(10, statistics));
+        new CostAwareTestFlushBlockPolicyFactory(10, statistics));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
     DestroyAndReopen(options);
   }

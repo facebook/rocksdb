@@ -243,7 +243,7 @@ LIB_SOURCES =                                                   \
   util/compaction_job_stats_impl.cc                             \
   util/comparator.cc                                            \
   util/compression.cc                                           \
-  util/auto_skip_compressor.cc                                           \
+  util/auto_tune_compressor.cc                                           \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \

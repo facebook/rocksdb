@@ -89,17 +89,17 @@ class AutoSkipWorkingArea : public Compressor::WorkingArea {
   std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor;
 };
 
-class CPUIOAwareWorkingArea : public Compressor::WorkingArea {
+class CostAwareWorkingArea : public Compressor::WorkingArea {
  public:
-  explicit CPUIOAwareWorkingArea(Compressor::ManagedWorkingArea&& wa)
+  explicit CostAwareWorkingArea(Compressor::ManagedWorkingArea&& wa)
       : wrapped(std::move(wa)) {}
-  ~CPUIOAwareWorkingArea() {}
-  CPUIOAwareWorkingArea(const CPUIOAwareWorkingArea&) = delete;
-  CPUIOAwareWorkingArea& operator=(const CPUIOAwareWorkingArea&) = delete;
-  CPUIOAwareWorkingArea(CPUIOAwareWorkingArea&& other) noexcept
+  ~CostAwareWorkingArea() {}
+  CostAwareWorkingArea(const CostAwareWorkingArea&) = delete;
+  CostAwareWorkingArea& operator=(const CostAwareWorkingArea&) = delete;
+  CostAwareWorkingArea(CostAwareWorkingArea&& other) noexcept
       : wrapped(std::move(other.wrapped)) {}
 
-  CPUIOAwareWorkingArea& operator=(CPUIOAwareWorkingArea&& other) noexcept {
+  CostAwareWorkingArea& operator=(CostAwareWorkingArea&& other) noexcept {
     if (this != &other) {
       wrapped = std::move(other.wrapped);
       cost_predictors = std::move(other.cost_predictors);
@@ -140,10 +140,10 @@ class AutoSkipCompressorManager : public CompressionManagerWrapper {
       CompressionType preferred) override;
 };
 
-class CPUIOAwareCompressor : public Compressor {
+class CostAwareCompressor : public Compressor {
  public:
   const char* Name() const override;
-  explicit CPUIOAwareCompressor(const CompressionOptions& opts);
+  explicit CostAwareCompressor(const CompressionOptions& opts);
 
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
@@ -157,11 +157,11 @@ class CPUIOAwareCompressor : public Compressor {
                                 Slice uncompressed_data,
                                 std::string* compressed_output,
                                 CompressionType* out_compression_type,
-                                CPUIOAwareWorkingArea* wa);
+                                CostAwareWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   // This is the vector containing the list of compression levels that
-  // CPUIOAwareCompressor will use create compressor and predicts the cost
+  // CostAwareCompressor will use create compressor and predicts the cost
   // The vector contains list of compression level for compression algorithm in
   // the order defined by enum CompressionType i.e. {  kZlibCompression = 0x02,
   // kBZip2Compression = 0x03, kLZ4Compression = 0x04, kLZ4HCCompression = 0x05,
@@ -173,7 +173,7 @@ class CPUIOAwareCompressor : public Compressor {
   std::vector<std::pair<size_t, size_t>> allcompressors_index_;
 };
 
-class CPUIOAwareCompressorManager : public CompressionManagerWrapper {
+class CostAwareCompressorManager : public CompressionManagerWrapper {
   using CompressionManagerWrapper::CompressionManagerWrapper;
   const char* Name() const override;
   std::unique_ptr<Compressor> GetCompressorForSST(
