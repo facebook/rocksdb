@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#include "util/auto_skip_compressor.h"
+#include "util/auto_tune_compressor.h"
 
 #include "options/options_helper.h"
 #include "rocksdb/advanced_compression.h"

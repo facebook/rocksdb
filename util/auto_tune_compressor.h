@@ -12,6 +12,7 @@
 #include "rocksdb/advanced_compression.h"
 
 namespace ROCKSDB_NAMESPACE {
+// Auto Skip Compression Components
 // Predict rejection probability using a moving window approach
 class CompressionRejectionProbabilityPredictor {
  public:
@@ -32,6 +33,59 @@ class CompressionRejectionProbabilityPredictor {
   size_t window_size_;
 };
 
+class AutoSkipWorkingArea : public Compressor::WorkingArea {
+ public:
+  explicit AutoSkipWorkingArea(Compressor::ManagedWorkingArea&& wa)
+      : wrapped(std::move(wa)),
+        predictor(
+            std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
+  ~AutoSkipWorkingArea() {}
+  AutoSkipWorkingArea(const AutoSkipWorkingArea&) = delete;
+  AutoSkipWorkingArea& operator=(const AutoSkipWorkingArea&) = delete;
+  AutoSkipWorkingArea(AutoSkipWorkingArea&& other) noexcept
+      : wrapped(std::move(other.wrapped)),
+        predictor(std::move(other.predictor)) {}
+
+  AutoSkipWorkingArea& operator=(AutoSkipWorkingArea&& other) noexcept {
+    if (this != &other) {
+      wrapped = std::move(other.wrapped);
+      predictor = std::move(other.predictor);
+    }
+    return *this;
+  }
+  Compressor::ManagedWorkingArea wrapped;
+  std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor;
+};
+class AutoSkipCompressorWrapper : public CompressorWrapper {
+ public:
+  const char* Name() const override;
+  explicit AutoSkipCompressorWrapper(std::unique_ptr<Compressor> compressor,
+                                     const CompressionOptions& opts);
+
+  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea* wa) override;
+  ManagedWorkingArea ObtainWorkingArea() override;
+  void ReleaseWorkingArea(WorkingArea* wa) override;
+
+ private:
+  Status CompressBlockAndRecord(Slice uncompressed_data,
+                                std::string* compressed_output,
+                                CompressionType* out_compression_type,
+                                AutoSkipWorkingArea* wa);
+  static constexpr int kExplorationPercentage = 10;
+  static constexpr int kProbabilityCutOff = 50;
+  const CompressionOptions kOpts;
+};
+
+class AutoSkipCompressorManager : public CompressionManagerWrapper {
+  using CompressionManagerWrapper::CompressionManagerWrapper;
+  const char* Name() const override;
+  std::unique_ptr<Compressor> GetCompressorForSST(
+      const FilterBuildingContext& context, const CompressionOptions& opts,
+      CompressionType preferred) override;
+};
+// Cost Aware Components
 template <typename T>
 class WindowAveragePredictor {
  public:
@@ -65,30 +119,6 @@ struct IOCPUCostPredictor {
   IOCostPredictor IOPredictor;
   CPUUtilPredictor CPUPredictor;
 };
-class AutoSkipWorkingArea : public Compressor::WorkingArea {
- public:
-  explicit AutoSkipWorkingArea(Compressor::ManagedWorkingArea&& wa)
-      : wrapped(std::move(wa)),
-        predictor(
-            std::make_shared<CompressionRejectionProbabilityPredictor>(10)) {}
-  ~AutoSkipWorkingArea() {}
-  AutoSkipWorkingArea(const AutoSkipWorkingArea&) = delete;
-  AutoSkipWorkingArea& operator=(const AutoSkipWorkingArea&) = delete;
-  AutoSkipWorkingArea(AutoSkipWorkingArea&& other) noexcept
-      : wrapped(std::move(other.wrapped)),
-        predictor(std::move(other.predictor)) {}
-
-  AutoSkipWorkingArea& operator=(AutoSkipWorkingArea&& other) noexcept {
-    if (this != &other) {
-      wrapped = std::move(other.wrapped);
-      predictor = std::move(other.predictor);
-    }
-    return *this;
-  }
-  Compressor::ManagedWorkingArea wrapped;
-  std::shared_ptr<CompressionRejectionProbabilityPredictor> predictor;
-};
-
 class CostAwareWorkingArea : public Compressor::WorkingArea {
  public:
   explicit CostAwareWorkingArea(Compressor::ManagedWorkingArea&& wa)
@@ -108,36 +138,6 @@ class CostAwareWorkingArea : public Compressor::WorkingArea {
   }
   Compressor::ManagedWorkingArea wrapped;
   std::vector<std::vector<IOCPUCostPredictor*>> cost_predictors;
-};
-
-class AutoSkipCompressorWrapper : public CompressorWrapper {
- public:
-  const char* Name() const override;
-  explicit AutoSkipCompressorWrapper(std::unique_ptr<Compressor> compressor,
-                                     const CompressionOptions& opts);
-
-  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
-                       CompressionType* out_compression_type,
-                       ManagedWorkingArea* wa) override;
-  ManagedWorkingArea ObtainWorkingArea() override;
-  void ReleaseWorkingArea(WorkingArea* wa) override;
-
- private:
-  Status CompressBlockAndRecord(Slice uncompressed_data,
-                                std::string* compressed_output,
-                                CompressionType* out_compression_type,
-                                AutoSkipWorkingArea* wa);
-  static constexpr int kExplorationPercentage = 10;
-  static constexpr int kProbabilityCutOff = 50;
-  const CompressionOptions kOpts;
-};
-
-class AutoSkipCompressorManager : public CompressionManagerWrapper {
-  using CompressionManagerWrapper::CompressionManagerWrapper;
-  const char* Name() const override;
-  std::unique_ptr<Compressor> GetCompressorForSST(
-      const FilterBuildingContext& context, const CompressionOptions& opts,
-      CompressionType preferred) override;
 };
 
 class CostAwareCompressor : public Compressor {

@@ -17,7 +17,7 @@
 #include "rocksdb/flush_block_policy.h"
 #include "table/block_based/block_builder.h"
 #include "test_util/testutil.h"
-#include "util/auto_skip_compressor.h"
+#include "util/auto_tune_compressor.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
