@@ -189,16 +189,43 @@ class DBAutoSkip : public DBTestBase {
     return true;
   }
 };
-
+// FIXME: the test is failing the assertion in auto_skip_compressor.cc
+// when run on nightly build in build-linux-arm-test-full mode [1].
+//
+// [1]
+// auto_skip_compressor.cc:101: Assertion `preferred != kNoCompression' failed.
+TEST_F(DBAutoSkip, DISABLED_AutoSkipCompressionManager) {
+  if (GetSupportedCompressions().size() > 1) {
+    const int kValueSize = 20000;
+    // This will set the rejection ratio to 60%
+    CompressionUnfriendlyPut(6, kValueSize);
+    CompressionFriendlyPut(4, kValueSize);
+    // This will verify all the data block compressions are bypassed based on
+    // previous prediction
+    CompressionUnfriendlyPut(6, kValueSize);
+    CompressionFriendlyPut(4, kValueSize);
+    // This will set the rejection ratio to 40%
+    CompressionUnfriendlyPut(4, kValueSize);
+    CompressionFriendlyPut(6, kValueSize);
+    // This will verify all the data block compression are attempted based on
+    // previous prediction
+    // Compression will be rejected for 6 compression unfriendly blocks
+    // Compression will be accepted for 4 compression friendly blocks
+    CompressionUnfriendlyPut(6, kValueSize);
+    CompressionFriendlyPut(4, kValueSize);
+    // Extra block write to ensure that the all above cases are checked
+    CompressionFriendlyPut(6, kValueSize);
+    CompressionFriendlyPut(4, kValueSize);
+    ASSERT_OK(Flush());
+  }
+}
 class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
  public:
   explicit CostAwareTestFlushBlockPolicy(const int window,
-                                         const BlockBuilder& data_block_builder,
-                                         std::shared_ptr<Statistics> statistics)
+                                         const BlockBuilder& data_block_builder)
       : window_(window),
         num_keys_(0),
-        data_block_builder_(data_block_builder),
-        statistics_(statistics) {}
+        data_block_builder_(data_block_builder) {}
 
   bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
     auto nth_window = num_keys_ / window_;
@@ -212,51 +239,42 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
         return [value](void* arg) {
           bool* exploration = static_cast<bool*>(arg);
           *exploration = value;
-          // fprintf(stderr, "set exploration: %d\n", value);
         };
       };
       auto set_compression_type = [](size_t type) {
         return [type](void* arg) {
           size_t* compression_type = static_cast<size_t*>(arg);
           *compression_type = type;
-          // fprintf(stderr, "set compression type: %lu\n", type);
         };
       };
       auto set_compression_level = [](size_t level) {
         return [level](void* arg) {
           size_t* compression_level = static_cast<size_t*>(arg);
           *compression_level = level;
-          // fprintf(stderr, "set compression level: %lu\n", level);
         };
       };
       auto set_compress_size_with_delay = [](size_t size, int milliseconds) {
         return [size, milliseconds](void* arg) {
           size_t* compress_size = static_cast<size_t*>(arg);
           *compress_size = size;
-          // fprintf(stderr, "set compression size: %lu time second: %d\n",
-          // size, milliseconds);
           std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
         };
       };
       auto get_compress_size = [&](void* arg) {
         size_t* compress_size = static_cast<size_t*>(arg);
         output_size_ = *compress_size;
-        // fprintf(stderr, "get compression size: %lu\n", *compress_size);
       };
       auto get_cpu_time = [&](void* arg) {
         size_t* time = static_cast<size_t*>(arg);
         cpu_time_ = *time;
-        // fprintf(stderr, "get cpu time: %lu\n", *time);
       };
       auto get_cpu_predictor = [&](void* arg) {
         auto predictor = static_cast<CPUUtilPredictor*>(arg);
         predicted_cpu_time_ = predictor->Predict();
-        // fprintf(stderr, "predicted cpu time: %lu\n", predicted_cpu_time_);
       };
       auto get_io_predictor = [&](void* arg) {
         auto predictor = static_cast<IOCostPredictor*>(arg);
         predicted_io_bytes = predictor->Predict();
-        // fprintf(stderr, "predicted io cost: %lu\n", predicted_io_bytes);
       };
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -368,13 +386,11 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
     num_keys_++;
     return true;
   }
-  uint64_t PopStat(Tickers t) { return statistics_->getAndResetTickerCount(t); }
 
  private:
   int window_;
   int num_keys_;
   const BlockBuilder& data_block_builder_;
-  std::shared_ptr<Statistics> statistics_;
 
   static size_t cpu_time_, predicted_cpu_time_, predicted_io_bytes;
   static size_t output_size_;
@@ -385,9 +401,8 @@ size_t CostAwareTestFlushBlockPolicy::cpu_time_ = 0,
        CostAwareTestFlushBlockPolicy::output_size_ = 0;
 class CostAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
-  explicit CostAwareTestFlushBlockPolicyFactory(
-      const int window, std::shared_ptr<Statistics> statistics)
-      : window_(window), statistics_(statistics) {}
+  explicit CostAwareTestFlushBlockPolicyFactory(const int window)
+      : window_(window) {}
 
   virtual const char* Name() const override {
     return "CostAwareTestFlushBlockPolicyFactory";
@@ -397,25 +412,19 @@ class CostAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
       const BlockBasedTableOptions& /*table_options*/,
       const BlockBuilder& data_block_builder) const override {
     (void)data_block_builder;
-    return new CostAwareTestFlushBlockPolicy(window_, data_block_builder,
-                                             statistics_);
+    return new CostAwareTestFlushBlockPolicy(window_, data_block_builder);
   }
 
  private:
   int window_;
-  std::shared_ptr<Statistics> statistics_;
 };
 
-class DBCPUIOPredictor : public DBTestBase {
+class DBCompresssionCostPredictor : public DBTestBase {
  public:
   Options options;
-  Random rnd_;
-  int key_index_;
-  DBCPUIOPredictor()
+  DBCompresssionCostPredictor()
       : DBTestBase("db_cpuio_skip", /*env_do_fsync=*/true),
-        options(CurrentOptions()),
-        rnd_(231),
-        key_index_(0) {
+        options(CurrentOptions()) {
     options.compression_manager = CreateCostAwareCompressionManager();
     auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.statistics = statistics;
@@ -423,81 +432,36 @@ class DBCPUIOPredictor : public DBTestBase {
     BlockBasedTableOptions bbto;
     bbto.enable_index_compression = false;
     bbto.flush_block_policy_factory.reset(
-        new CostAwareTestFlushBlockPolicyFactory(10, statistics));
+        new CostAwareTestFlushBlockPolicyFactory(10));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
     DestroyAndReopen(options);
   }
-
-  bool CompressionFriendlyPut(const int no_of_kvs, const int size_of_value) {
-    auto value = std::string(size_of_value, 'A');
-    for (int i = 0; i < no_of_kvs; ++i) {
-      auto status = Put(Key(key_index_), value);
-      EXPECT_EQ(status.ok(), true);
-      key_index_++;
-    }
-    return true;
-  }
-  bool CompressionUnfriendlyPut(const int no_of_kvs, const int size_of_value) {
-    auto value = rnd_.RandomBinaryString(size_of_value);
-    for (int i = 0; i < no_of_kvs; ++i) {
-      auto status = Put(Key(key_index_), value);
-      EXPECT_EQ(status.ok(), true);
-      key_index_++;
-    }
-    return true;
-  }
 };
-// FIXME: the test is failing the assertion in auto_skip_compressor.cc
-// when run on nightly build in build-linux-arm-test-full mode [1].
-//
-// [1]
-// auto_skip_compressor.cc:101: Assertion `preferred != kNoCompression' failed.
-TEST_F(DBAutoSkip, DISABLED_AutoSkipCompressionManager) {
-  if (GetSupportedCompressions().size() > 1) {
-    const int kValueSize = 20000;
-    // This will set the rejection ratio to 60%
-    CompressionUnfriendlyPut(6, kValueSize);
-    CompressionFriendlyPut(4, kValueSize);
-    // This will verify all the data block compressions are bypassed based on
-    // previous prediction
-    CompressionUnfriendlyPut(6, kValueSize);
-    CompressionFriendlyPut(4, kValueSize);
-    // This will set the rejection ratio to 40%
-    CompressionUnfriendlyPut(4, kValueSize);
-    CompressionFriendlyPut(6, kValueSize);
-    // This will verify all the data block compression are attempted based on
-    // previous prediction
-    // Compression will be rejected for 6 compression unfriendly blocks
-    // Compression will be accepted for 4 compression friendly blocks
-    CompressionUnfriendlyPut(6, kValueSize);
-    CompressionFriendlyPut(4, kValueSize);
-    // Extra block write to ensure that the all above cases are checked
-    CompressionFriendlyPut(6, kValueSize);
-    CompressionFriendlyPut(4, kValueSize);
-    ASSERT_OK(Flush());
-  }
-}
-TEST_F(DBCPUIOPredictor, CUPIOAwareCompressorManager) {
+
+TEST_F(DBCompresssionCostPredictor, CUPIOAwareCompressorManager) {
   // making sure that the compression is supported
   if (GetSupportedCompressions().size() > 1) {
     const int kValueSize = 20000;
+    auto index_ = 0;
+    Random rnd(231);
+    auto value = rnd.RandomBinaryString(kValueSize);
+    auto window_size = 10;
+    auto window_write = [&]() {
+      for (auto i = 0; i < window_size; ++i) {
+        auto status = Put(Key(index_), value);
+        EXPECT_EQ(status.ok(), true);
+        index_++;
+      }
+    };
     // This denotes the first window
     // Mocked to have specific cpu utilization and io cost
-    CompressionUnfriendlyPut(6, kValueSize);
-    CompressionFriendlyPut(4, kValueSize);
-    // In this window we verify the correct prediction has been made
-    CompressionUnfriendlyPut(6, kValueSize);
-    CompressionFriendlyPut(4, kValueSize);
+    window_write();
     // In this winodw we mock for another alogrithm and compression level to
+    window_write();
     // have specific cpu utilization and io cost
-    CompressionUnfriendlyPut(4, kValueSize);
-    CompressionFriendlyPut(6, kValueSize);
+    window_write();
     // In this window we verify the correct prediction has been made
-    CompressionUnfriendlyPut(6, kValueSize);
-    CompressionFriendlyPut(4, kValueSize);
-    // Extra block write to ensure that the all above cases are checked
-    CompressionFriendlyPut(6, kValueSize);
-    CompressionFriendlyPut(4, kValueSize);
+    window_write();
     ASSERT_OK(Flush());
   }
 }
