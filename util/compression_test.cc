@@ -167,7 +167,6 @@ class DBAutoSkip : public DBTestBase {
     bbto.flush_block_policy_factory.reset(
         new AutoSkipTestFlushBlockPolicyFactory(10, statistics));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    DestroyAndReopen(options);
   }
 
   bool CompressionFriendlyPut(const int no_of_kvs, const int size_of_value) {
@@ -190,13 +189,14 @@ class DBAutoSkip : public DBTestBase {
   }
 };
 
-// FIXME: the test is failing the assertion in auto_skip_compressor.cc
-// when run on nightly build in build-linux-arm-test-full mode [1].
-//
-// [1]
-// auto_skip_compressor.cc:101: Assertion `preferred != kNoCompression' failed.
-TEST_F(DBAutoSkip, DISABLED_AutoSkipCompressionManager) {
-  if (GetSupportedCompressions().size() > 1) {
+TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
+  for (auto type : GetSupportedCompressions()) {
+    if (type == kNoCompression) {
+      continue;
+    }
+    options.compression = type;
+    options.bottommost_compression = type;
+    DestroyAndReopen(options);
     const int kValueSize = 20000;
     // This will set the rejection ratio to 60%
     CompressionUnfriendlyPut(6, kValueSize);
