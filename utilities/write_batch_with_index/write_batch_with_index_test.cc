@@ -342,6 +342,11 @@ void AssertIterEqual(WBWIIteratorImpl* wbwii,
   }
   ASSERT_FALSE(wbwii->Valid());
 }
+
+void AssertWBWICountEQWBCount(WriteBatchWithIndex& wbwi) {
+  std::cout << wbwi.GetWBWIOpCount() << std::endl;
+  ASSERT_EQ(wbwi.GetWBWIOpCount(), wbwi.GetWriteBatch()->Count());
+}
 }  // namespace
 
 class WBWIBaseTest : public testing::Test {
@@ -356,6 +361,8 @@ class WBWIBaseTest : public testing::Test {
   }
 
   virtual ~WBWIBaseTest() {
+    AssertWBWICountEQWBCount(*batch_);
+
     if (db_ != nullptr) {
       ReleaseSnapshot();
       delete db_;
@@ -715,6 +722,7 @@ TEST_P(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
   batch_.reset(new WriteBatchWithIndex(nullptr, 20, GetParam()));
 
   TestValueAsSecondaryIndexHelper(entries_list, batch_.get(), GetParam());
+  AssertWBWICountEQWBCount(*batch_);
 
   // Clear batch and re-run test with new values
   batch_->Clear();
@@ -729,6 +737,7 @@ TEST_P(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
   entries_list = std::vector<Entry>(new_entries, new_entries + 8);
 
   TestValueAsSecondaryIndexHelper(entries_list, batch_.get(), GetParam());
+  AssertWBWICountEQWBCount(*batch_);
 }
 
 TEST_P(WriteBatchWithIndexTest, WBWIIteratorImpl) {
@@ -3816,6 +3825,7 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
     // See comment for WBWIMemTable for sequence number assignment method.
     expected_seqno[idx]++;
   }
+  AssertWBWICountEQWBCount(*wbwi);
   // Get a non-existing key
   found_final_value = false;
   ASSERT_EQ("NOT_FOUND", Get("foo", wbwi_mem, visible_seq, &found_final_value));

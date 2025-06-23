@@ -379,6 +379,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   };
   const std::unordered_map<uint32_t, CFStat>& GetCFStats() const;
 
+  size_t GetWBWIOpCount() const;
   bool GetOverwriteKey() const;
 
  private:
