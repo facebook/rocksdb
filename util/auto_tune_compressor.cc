@@ -181,44 +181,17 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
         ->CompressBlock(uncompressed_data, compressed_output,
                         out_compression_type, wa);
   }
-  bool exploration =
-      Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
-  TEST_SYNC_POINT_CALLBACK(
-      "CostAwareCompressor::CompressBlock::exploitOrExplore", &exploration);
   auto local_wa = static_cast<CostAwareWorkingArea*>(wa->get());
-  if (exploration) {
-    auto choosen_index =
-        allcompressors_index_[Random::GetTLSInstance()->Uniform(
-            static_cast<int>(allcompressors_index_.size()))];
-    size_t choosen_compression_type = choosen_index.first;
-    size_t compresion_level_ptr = choosen_index.second;
-    TEST_SYNC_POINT_CALLBACK(
-        "CostAwareCompressor::CompressBlock::SelectCompressionType",
-        &choosen_compression_type);
-    TEST_SYNC_POINT_CALLBACK(
-        "CostAwareCompressor::CompressBlock::SelectCompressionLevel",
-        &compresion_level_ptr);
-    return CompressBlockAndRecord(
-        choosen_compression_type, compresion_level_ptr, uncompressed_data,
-        compressed_output, out_compression_type, local_wa);
-  } else {
-    // Going with the last compressor created as the default behavior
-    auto choosen_index =
-        allcompressors_index_[allcompressors_index_.size() - 1];
-    size_t choosen_compression_type = choosen_index.first;
-    size_t compresion_level_ptr = choosen_index.second;
-    TEST_SYNC_POINT_CALLBACK(
-        "CostAwareCompressor::CompressBlock::SelectCompressionType",
-        &choosen_compression_type);
-    TEST_SYNC_POINT_CALLBACK(
-        "CostAwareCompressor::CompressBlock::SelectCompressionLevel",
-        &compresion_level_ptr);
-    // decide to compress
-    return CompressBlockAndRecord(
-        choosen_compression_type, compresion_level_ptr, uncompressed_data,
-        compressed_output, out_compression_type, local_wa);
-  }
-  return Status::OK();
+  auto choosen_index = allcompressors_index_[Random::GetTLSInstance()->Uniform(
+      static_cast<int>(allcompressors_index_.size()))];
+  TEST_SYNC_POINT_CALLBACK(
+      "CostAwareCompressor::CompressBlock::SelectCompressionTypeAndLevel",
+      &choosen_index);
+  size_t choosen_compression_type = choosen_index.first;
+  size_t compresion_level_ptr = choosen_index.second;
+  return CompressBlockAndRecord(choosen_compression_type, compresion_level_ptr,
+                                uncompressed_data, compressed_output,
+                                out_compression_type, local_wa);
 }
 
 Compressor::ManagedWorkingArea CostAwareCompressor::ObtainWorkingArea() {
@@ -266,20 +239,16 @@ Status CostAwareCompressor::CompressBlockAndRecord(
           ->CompressBlock(uncompressed_data, compressed_output,
                           out_compression_type, &(wa->wrapped));
   auto output_length = compressed_output->size();
-  TEST_SYNC_POINT_CALLBACK(
-      "CostAwareCompressor::CompressBlockAndRecord::"
-      "DelaySetCompressedOutputSize",
-      &output_length);
   auto predictor =
       wa->cost_predictors[choosen_compression_type][compresion_level_ptr];
   auto cpu_time = timer.ElapsedNanos();
   TEST_SYNC_POINT_CALLBACK(
       "CostAwareCompressor::CompressBlockAndRecord::"
-      "GetCPUTime",
+      "SetCompressionTime",
       &cpu_time);
   TEST_SYNC_POINT_CALLBACK(
       "CostAwareCompressor::CompressBlockAndRecord::"
-      "GetCompressedOutputSize",
+      "SetCompressedOutputSize",
       &output_length);
   predictor->CPUPredictor.Record(cpu_time);
   predictor->IOPredictor.Record(output_length);

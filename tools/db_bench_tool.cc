@@ -4655,6 +4655,8 @@ class Benchmark {
       mgr = CreateAutoSkipCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "costpredictor")) {
+      options.compression = kZSTD;
+      options.bottommost_compression = kZSTD;
       options.compression = FLAGS_compression_type_e;
       mgr = CreateCostAwareCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {

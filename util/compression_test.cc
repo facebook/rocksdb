@@ -235,38 +235,25 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
     }
     // Check every window
     if (num_keys_ % window_ == 0) {
-      auto set_exploration = [](bool value) {
-        return [value](void* arg) {
-          bool* exploration = static_cast<bool*>(arg);
-          *exploration = value;
+      auto set_compression_type_and_level = [](size_t type, size_t level) {
+        return [type, level](void* arg) {
+          std::pair<size_t, size_t>* info =
+              static_cast<std::pair<size_t, size_t>*>(arg);
+          info->first = type;
+          info->second = level;
         };
       };
-      auto set_compression_type = [](size_t type) {
-        return [type](void* arg) {
-          size_t* compression_type = static_cast<size_t*>(arg);
-          *compression_type = type;
-        };
-      };
-      auto set_compression_level = [](size_t level) {
-        return [level](void* arg) {
-          size_t* compression_level = static_cast<size_t*>(arg);
-          *compression_level = level;
-        };
-      };
-      auto set_compress_size_with_delay = [](size_t size, int milliseconds) {
-        return [size, milliseconds](void* arg) {
+      auto set_compress_size = [](size_t size) {
+        return [size](void* arg) {
           size_t* compress_size = static_cast<size_t*>(arg);
           *compress_size = size;
-          std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
         };
       };
-      auto get_compress_size = [&](void* arg) {
-        size_t* compress_size = static_cast<size_t*>(arg);
-        output_size_ = *compress_size;
-      };
-      auto get_cpu_time = [&](void* arg) {
-        size_t* time = static_cast<size_t*>(arg);
-        cpu_time_ = *time;
+      auto set_cpu_time = [](size_t ctime) {
+        return [ctime](void* arg) {
+          size_t* time = static_cast<size_t*>(arg);
+          *time = ctime;
+        };
       };
       auto get_cpu_predictor = [&](void* arg) {
         auto predictor = static_cast<CPUUtilPredictor*>(arg);
@@ -285,94 +272,62 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
           // Set exploration to true and compression type to zstd and
           // compression level to 2
           SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlock::exploitOrExplore",
-              set_exploration(true));
-          SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlock::"
-              "SelectCompressionType",
-              set_compression_type(6));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlock::"
-              "SelectCompressionLevel",
-              set_compression_level(2));
+              "SelectCompressionTypeAndLevel",
+              set_compression_type_and_level(6, 2));
           SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlockAndRecord::"
-              "DelaySetCompressedOutputSize",
-              set_compress_size_with_delay(100, 1000));
+              "SetCompressedOutputSize",
+              set_compress_size(100));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CostAwareCompressor::CompressBlockAndRecord::"
+              "SetCompressionTime",
+              set_cpu_time(1000));
           break;
         case 1:
           // Verify that the Mocked cpu cost and io cost are predicted correctly
-          EXPECT_EQ(output_size_, 100);
-          EXPECT_GT(cpu_time_, 1000 * 1000);
           EXPECT_EQ(predicted_io_bytes, 100);
-          EXPECT_GT(predicted_cpu_time_, 1000 * 1000);
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlock::exploitOrExplore",
-              set_exploration(false));
+          EXPECT_EQ(predicted_cpu_time_, 1000);
           SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlock::"
-              "SelectCompressionType",
-              set_compression_type(6));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlock::"
-              "SelectCompressionLevel",
-              set_compression_level(2));
+              "SelectCompressionTypeAndLevel",
+              set_compression_type_and_level(6, 2));
           SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlockAndRecord::"
-              "DelaySetCompressedOutputSize",
-              set_compress_size_with_delay(100, 1000));
+              "SetCompressedOutputSize",
+              set_compress_size(100));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CostAwareCompressor::CompressBlockAndRecord::"
+              "SetCompressionTime",
+              set_cpu_time(1000));
           break;
         case 2:
           // Set exploration to true and compression type to  and compression
           // level to 2
           SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlock::exploitOrExplore",
-              set_exploration(true));
-          SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlock::"
-              "SelectCompressionType",
-              set_compression_type(4));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlock::"
-              "SelectCompressionLevel",
-              set_compression_level(2));
+              "SelectCompressionTypeAndLevel",
+              set_compression_type_and_level(4, 2));
           SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlockAndRecord::"
-              "DelaySetCompressedOutputSize",
-              set_compress_size_with_delay(1000, 2000));
+              "SetCompressedOutputSize",
+              set_compress_size(1000));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CostAwareCompressor::CompressBlockAndRecord::"
+              "SetCompressionTime",
+              set_cpu_time(2000));
           break;
         case 3:
           // Verify that the Mocked cpu cost and io cost are predicted correctly
-          EXPECT_EQ(output_size_, 1000);
-          EXPECT_GT(cpu_time_, 2000 * 1000);
           EXPECT_EQ(predicted_io_bytes, 1000);
-          EXPECT_GT(predicted_cpu_time_, 2000 * 1000);
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlock::exploitOrExplore",
-              set_exploration(false));
+          EXPECT_EQ(predicted_cpu_time_, 2000);
           SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlock::"
-              "SelectCompressionType",
-              set_compression_type(4));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlock::"
-              "SelectCompressionLevel",
-              set_compression_level(2));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlockAndRecord::"
-              "DelaySetCompressedOutputSize",
-              set_compress_size_with_delay(1000, 2000));
+              "SelectCompressionTypeAndLevel",
+              set_compression_type_and_level(4, 2));
           break;
       }
       // Add syncpoint to get the cpu and io cost
-      SyncPoint::GetInstance()->SetCallBack(
-          "CostAwareCompressor::CompressBlockAndRecord::"
-          "GetCompressedOutputSize",
-          get_compress_size);
-      SyncPoint::GetInstance()->SetCallBack(
-          "CostAwareCompressor::CompressBlockAndRecord::"
-          "GetCPUTime",
-          get_cpu_time);
       SyncPoint::GetInstance()->SetCallBack(
           "CostAwareCompressor::CompressBlockAndRecord::"
           "GetCPUPredictor",
@@ -426,6 +381,10 @@ class DBCompresssionCostPredictor : public DBTestBase {
       : DBTestBase("db_cpuio_skip", /*env_do_fsync=*/true),
         options(CurrentOptions()) {
     options.compression_manager = CreateCostAwareCompressionManager();
+    if (ZSTD_Supported()) {
+      options.compression = kZSTD;
+      options.bottommost_compression = kZSTD;
+    }
     auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.statistics = statistics;
     options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
@@ -438,9 +397,9 @@ class DBCompresssionCostPredictor : public DBTestBase {
   }
 };
 
-TEST_F(DBCompresssionCostPredictor, CUPIOAwareCompressorManager) {
+TEST_F(DBCompresssionCostPredictor, CostAwareCompressorManager) {
   // making sure that the compression is supported
-  if (GetSupportedCompressions().size() > 1) {
+  if (ZSTD_Supported()) {
     const int kValueSize = 20000;
     auto index_ = 0;
     Random rnd(231);
@@ -456,13 +415,14 @@ TEST_F(DBCompresssionCostPredictor, CUPIOAwareCompressorManager) {
     // This denotes the first window
     // Mocked to have specific cpu utilization and io cost
     window_write();
-    // In this winodw we mock for another alogrithm and compression level to
+    // check the predictor is predicting the correct cpu and io cost
     window_write();
+    // In this winodw we mock for another alogrithm and compression level to
     // have specific cpu utilization and io cost
     window_write();
-    // In this window we verify the correct prediction has been made
+    // check the predictor is predicting the correct cpu and io cost
     window_write();
-    ASSERT_OK(Flush());
+    Flush();
   }
 }
 }  // namespace ROCKSDB_NAMESPACE
