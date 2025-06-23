@@ -231,7 +231,7 @@ Status CostAwareCompressor::CompressBlockAndRecord(
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, CostAwareWorkingArea* wa) {
   assert(choosen_compression_type < allcompressors_.size());
-  assert(compresion_level_ptr <
+  assert(compression_level_ptr <
          allcompressors_[choosen_compression_type].size());
   StopWatchNano timer(Env::Default()->GetSystemClock().get(), true);
   Status status =
@@ -252,7 +252,7 @@ Status CostAwareCompressor::CompressBlockAndRecord(
   predictor->IOPredictor.Record(output_length);
   TEST_SYNC_POINT_CALLBACK(
       "CostAwareCompressor::CompressBlockAndRecord::GetPredictor",
-      &(wa->cost_predictors[choosen_compression_type][compression_level_ptr]));
+      wa->cost_predictors[choosen_compression_type][compression_level_ptr]);
   return status;
 }
 
