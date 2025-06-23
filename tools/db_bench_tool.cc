@@ -1980,8 +1980,7 @@ class RandomGenerator {
   Slice Generate(unsigned int len) {
     assert(len <= data_.size());
     if (FLAGS_same_value_percentage < 0) {
-      std::string data;
-      test::CompressibleString(&rnd, 0, len, &data);
+      std::string data = rnd.RandomBinaryString(len);
       return Slice(data.data(), len);
     } else if (FLAGS_same_value_percentage > 100) {
       std::string data(len, 'A');
@@ -2409,8 +2408,8 @@ class Stats {
               auto bypassed =
                   dbstats->getTickerCount(NUMBER_BLOCK_COMPRESSION_BYPASSED);
               fprintf(stderr,
-                      "%s ... thread %d: compressed: %lu rejected: %lu "
-                      "bypassed: %lu\n",
+                      "%s ... thread %d: compressed: %" PRIu64
+                      " rejected: %" PRIu64 "bypassed: %" PRIu64 "\n",
                       clock_->TimeToString(now / 1000000).c_str(), id_,
                       compressed, rejected, bypassed);
             } else {
