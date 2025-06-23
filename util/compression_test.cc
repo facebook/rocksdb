@@ -244,25 +244,18 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
           info->second = level;
         };
       };
-      auto set_compress_size = [](size_t size) {
-        return [size](void* arg) {
-          size_t* compress_size = static_cast<size_t*>(arg);
-          *compress_size = size;
+      auto set_compress_time_and_size = [](size_t time, size_t size) {
+        return [time, size](void* arg) {
+          std::pair<size_t, size_t>* measured_data =
+              static_cast<std::pair<size_t, size_t>*>(arg);
+          measured_data->first = time;
+          measured_data->second = size;
         };
       };
-      auto set_cpu_time = [](size_t ctime) {
-        return [ctime](void* arg) {
-          size_t* time = static_cast<size_t*>(arg);
-          *time = ctime;
-        };
-      };
-      auto get_cpu_predictor = [&](void* arg) {
-        auto predictor = static_cast<CPUUtilPredictor*>(arg);
-        predicted_cpu_time_ = predictor->Predict();
-      };
-      auto get_io_predictor = [&](void* arg) {
-        auto predictor = static_cast<IOCostPredictor*>(arg);
-        predicted_io_bytes = predictor->Predict();
+      auto get_predictor = [&](void* arg) {
+        auto predictor = static_cast<IOCPUCostPredictor*>(arg);
+        predicted_cpu_time_ = predictor->CPUPredictor.Predict();
+        predicted_io_bytes = predictor->IOPredictor.Predict();
       };
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -278,12 +271,8 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               set_compression_type_and_level(6, 2));
           SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlockAndRecord::"
-              "SetCompressedOutputSize",
-              set_compress_size(100));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlockAndRecord::"
-              "SetCompressionTime",
-              set_cpu_time(1000));
+              "SetCompressionTimeOutputSize",
+              set_compress_time_and_size(1000, 100));
           break;
         case 1:
           // Verify that the Mocked cpu cost and io cost are predicted correctly
@@ -295,12 +284,8 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               set_compression_type_and_level(6, 2));
           SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlockAndRecord::"
-              "SetCompressedOutputSize",
-              set_compress_size(100));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlockAndRecord::"
-              "SetCompressionTime",
-              set_cpu_time(1000));
+              "SetCompressionTimeOutputSize",
+              set_compress_time_and_size(1000, 100));
           break;
         case 2:
           // Set exploration to true and compression type to  and compression
@@ -311,12 +296,8 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               set_compression_type_and_level(4, 2));
           SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlockAndRecord::"
-              "SetCompressedOutputSize",
-              set_compress_size(1000));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlockAndRecord::"
-              "SetCompressionTime",
-              set_cpu_time(2000));
+              "SetCompressionTimeOutputSize",
+              set_compress_time_and_size(2000, 1000));
           break;
         case 3:
           // Verify that the Mocked cpu cost and io cost are predicted correctly
@@ -331,12 +312,8 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
       // Add syncpoint to get the cpu and io cost
       SyncPoint::GetInstance()->SetCallBack(
           "CostAwareCompressor::CompressBlockAndRecord::"
-          "GetCPUPredictor",
-          get_cpu_predictor);
-      SyncPoint::GetInstance()->SetCallBack(
-          "CostAwareCompressor::CompressBlockAndRecord::"
-          "GetIOPredictor",
-          get_io_predictor);
+          "GetPredictor",
+          get_predictor);
       SyncPoint::GetInstance()->EnableProcessing();
     }
     num_keys_++;

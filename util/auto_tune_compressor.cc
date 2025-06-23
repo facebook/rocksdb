@@ -227,7 +227,7 @@ void CostAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
 }
 
 Status CostAwareCompressor::CompressBlockAndRecord(
-    size_t choosen_compression_type, size_t compresion_level_ptr,
+    size_t choosen_compression_type, size_t compression_level_ptr,
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, CostAwareWorkingArea* wa) {
   assert(choosen_compression_type < allcompressors_.size());
@@ -235,31 +235,24 @@ Status CostAwareCompressor::CompressBlockAndRecord(
          allcompressors_[choosen_compression_type].size());
   StopWatchNano timer(Env::Default()->GetSystemClock().get(), true);
   Status status =
-      allcompressors_[choosen_compression_type][compresion_level_ptr]
+      allcompressors_[choosen_compression_type][compression_level_ptr]
           ->CompressBlock(uncompressed_data, compressed_output,
                           out_compression_type, &(wa->wrapped));
-  auto output_length = compressed_output->size();
+  std::pair<size_t, size_t> measured_data(timer.ElapsedCPUNanos(),
+                                          compressed_output->size());
   auto predictor =
-      wa->cost_predictors[choosen_compression_type][compresion_level_ptr];
-  auto cpu_time = timer.ElapsedNanos();
+      wa->cost_predictors[choosen_compression_type][compression_level_ptr];
   TEST_SYNC_POINT_CALLBACK(
       "CostAwareCompressor::CompressBlockAndRecord::"
-      "SetCompressionTime",
-      &cpu_time);
-  TEST_SYNC_POINT_CALLBACK(
-      "CostAwareCompressor::CompressBlockAndRecord::"
-      "SetCompressedOutputSize",
-      &output_length);
+      "SetCompressionTimeOutputSize",
+      &measured_data);
+  auto output_length = measured_data.second;
+  auto cpu_time = measured_data.first;
   predictor->CPUPredictor.Record(cpu_time);
   predictor->IOPredictor.Record(output_length);
   TEST_SYNC_POINT_CALLBACK(
-      "CostAwareCompressor::CompressBlockAndRecord::GetIOPredictor",
-      &(wa->cost_predictors[choosen_compression_type][compresion_level_ptr]
-            ->IOPredictor));
-  TEST_SYNC_POINT_CALLBACK(
-      "CostAwareCompressor::CompressBlockAndRecord::GetCPUPredictor",
-      &(wa->cost_predictors[choosen_compression_type][compresion_level_ptr]
-            ->CPUPredictor));
+      "CostAwareCompressor::CompressBlockAndRecord::GetPredictor",
+      &(wa->cost_predictors[choosen_compression_type][compression_level_ptr]));
   return status;
 }
 

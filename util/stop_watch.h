@@ -122,6 +122,15 @@ class StopWatchNano {
     return elapsed;
   }
 
+  uint64_t ElapsedCPUNanos(bool reset = false) {
+    auto now = clock_->CPUNanos();
+    auto elapsed = now - start_;
+    if (reset) {
+      start_ = now;
+    }
+    return elapsed;
+  }
+
   uint64_t ElapsedNanosSafe(bool reset = false) {
     return (clock_ != nullptr) ? ElapsedNanos(reset) : 0U;
   }
