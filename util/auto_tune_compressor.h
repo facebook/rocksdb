@@ -3,8 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-// Creates auto skip compressor wrapper which intelligently decides bypassing
+// Defines auto skip compressor wrapper which intelligently decides bypassing
 // compression based on past data
+// Defines CostAwareCompressor which currently tries to predict the cpu and io
+// cost of the compression
 
 #pragma once
 #include <memory>
@@ -16,7 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 // Predict rejection probability using a moving window approach
 class CompressionRejectionProbabilityPredictor {
  public:
-  CompressionRejectionProbabilityPredictor(int window_size)
+  explicit CompressionRejectionProbabilityPredictor(int window_size)
       : pred_rejection_prob_percentage_(0),
         rejected_count_(0),
         compressed_count_(0),
@@ -142,8 +144,8 @@ class CostAwareWorkingArea : public Compressor::WorkingArea {
 
 class CostAwareCompressor : public Compressor {
  public:
-  const char* Name() const override;
   explicit CostAwareCompressor(const CompressionOptions& opts);
+  const char* Name() const override;
   size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
   Slice GetSerializedDict() const override;
   CompressionType GetPreferredCompressionType() const override;
