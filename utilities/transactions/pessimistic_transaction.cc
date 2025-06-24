@@ -904,7 +904,7 @@ Status WriteCommittedTxn::CommitInternal() {
             "Transaction %s qualifies for commit optimization due to update "
             "count. However, it will commit normally due to wbwi and wb record "
             "count mismatch. Some updates were added directly to the "
-            "transaction's underlying writ batch.",
+            "transaction's underlying write batch.",
             GetName().c_str());
       } else {
         bypass_memtable = true;
@@ -917,7 +917,7 @@ Status WriteCommittedTxn::CommitInternal() {
             "Transaction %s qualifies for commit optimization due to write "
             "batch size. However, it will commit normally due to wbwi and wb "
             "record count mismatch. Some updates were added directly to the "
-            "transaction's underlying writ batch.",
+            "transaction's underlying write batch.",
             GetName().c_str());
       } else {
         bypass_memtable = true;

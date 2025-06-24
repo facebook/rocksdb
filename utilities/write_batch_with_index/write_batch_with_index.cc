@@ -49,7 +49,7 @@ struct WriteBatchWithIndex::Rep {
   // Tracks ids of CFs that have updates in this WBWI, number of updates and
   // number of overwritten single deletions per cf. Useful for WBWIMemTable
   // when this WBWI is ingested into a DB.
-  UnorderedMap<uint32_t, CFStat> cf_id_to_stat;
+  std::unordered_map<uint32_t, WriteBatchWithIndex::CFStat> cf_id_to_stat;
   size_t op_count;
 
   // In overwrite mode, find the existing entry for the same key and update it
