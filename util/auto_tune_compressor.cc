@@ -161,7 +161,29 @@ CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts)
 }
 
 const char* CostAwareCompressor::Name() const { return "CostAwareCompressor"; }
+size_t CostAwareCompressor::GetMaxSampleSizeIfWantDict(
+    CacheEntryRole block_type) const {
+  auto idx = allcompressors_index_.back();
+  return allcompressors_[idx.first][idx.second]->GetMaxSampleSizeIfWantDict(
+      block_type);
+}
 
+Slice CostAwareCompressor::GetSerializedDict() const {
+  auto idx = allcompressors_index_.back();
+  return allcompressors_[idx.first][idx.second]->GetSerializedDict();
+}
+
+CompressionType CostAwareCompressor::GetPreferredCompressionType() const {
+  return kZSTD;
+}
+std::unique_ptr<Compressor> CostAwareCompressor::MaybeCloneSpecialized(
+    CacheEntryRole block_type, DictSampleArgs&& dict_samples) {
+  // TODO: full dictionary compression support. Currently this just falls
+  // back on a non-multi compressor when asked to use a dictionary.
+  auto idx = allcompressors_index_.back();
+  return allcompressors_[idx.first][idx.second]->MaybeCloneSpecialized(
+      block_type, std::move(dict_samples));
+}
 Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
                                           std::string* compressed_output,
                                           CompressionType* out_compression_type,
@@ -233,12 +255,12 @@ Status CostAwareCompressor::CompressBlockAndRecord(
   assert(choosen_compression_type < allcompressors_.size());
   assert(compression_level_ptr <
          allcompressors_[choosen_compression_type].size());
-  StopWatchNano timer(Env::Default()->GetSystemClock().get(), true);
+  StopWatchCPUMicros timer(Env::Default()->GetSystemClock().get(), true);
   Status status =
       allcompressors_[choosen_compression_type][compression_level_ptr]
           ->CompressBlock(uncompressed_data, compressed_output,
                           out_compression_type, &(wa->wrapped));
-  std::pair<size_t, size_t> measured_data(timer.ElapsedCPUNanos(),
+  std::pair<size_t, size_t> measured_data(timer.ElapsedMicros(),
                                           compressed_output->size());
   auto predictor =
       wa->cost_predictors[choosen_compression_type][compression_level_ptr];
@@ -253,6 +275,15 @@ Status CostAwareCompressor::CompressBlockAndRecord(
   TEST_SYNC_POINT_CALLBACK(
       "CostAwareCompressor::CompressBlockAndRecord::GetPredictor",
       wa->cost_predictors[choosen_compression_type][compression_level_ptr]);
+  // Just of testing the accuracy of the predictor
+  /**
+  printf(
+      "CostPredictor measured_time: %zu measured_io: %zu predicted_time: %zu "
+      "predicted_io: %zu compression_type: %lu compression_level_ptr: %lu\n",
+      cpu_time, output_length, predictor->CPUPredictor.Predict(),
+      predictor->IOPredictor.Predict(), choosen_compression_type,
+      compression_level_ptr);
+      **/
   return status;
 }
 
@@ -282,4 +313,5 @@ std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
   return std::make_shared<CostAwareCompressorManager>(
       wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped);
 }
+
 }  // namespace ROCKSDB_NAMESPACE

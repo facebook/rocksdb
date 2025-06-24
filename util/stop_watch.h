@@ -122,8 +122,30 @@ class StopWatchNano {
     return elapsed;
   }
 
-  uint64_t ElapsedCPUNanos(bool reset = false) {
-    auto now = clock_->CPUNanos();
+  uint64_t ElapsedNanosSafe(bool reset = false) {
+    return (clock_ != nullptr) ? ElapsedNanos(reset) : 0U;
+  }
+
+  bool IsStarted() { return start_ != 0; }
+
+ private:
+  SystemClock* clock_;
+  uint64_t start_;
+};
+
+class StopWatchCPUMicros {
+ public:
+  explicit StopWatchCPUMicros(SystemClock* clock, bool auto_start = false)
+      : clock_(clock), start_(0) {
+    if (auto_start) {
+      Start();
+    }
+  }
+
+  void Start() { start_ = clock_->CPUMicros(); }
+
+  uint64_t ElapsedMicros(bool reset = false) {
+    auto now = clock_->CPUMicros();
     auto elapsed = now - start_;
     if (reset) {
       start_ = now;
@@ -131,8 +153,8 @@ class StopWatchNano {
     return elapsed;
   }
 
-  uint64_t ElapsedNanosSafe(bool reset = false) {
-    return (clock_ != nullptr) ? ElapsedNanos(reset) : 0U;
+  uint64_t ElapsedMicrosSafe(bool reset = false) {
+    return (clock_ != nullptr) ? ElapsedMicros(reset) : 0U;
   }
 
   bool IsStarted() { return start_ != 0; }

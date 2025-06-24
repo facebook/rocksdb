@@ -255,11 +255,16 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
       auto get_predictor = [&](void* arg) {
         auto predictor = static_cast<IOCPUCostPredictor*>(arg);
         predicted_cpu_time_ = predictor->CPUPredictor.Predict();
-        predicted_io_bytes = predictor->IOPredictor.Predict();
+        predicted_io_bytes_ = predictor->IOPredictor.Predict();
       };
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
 
+      // Add syncpoint to get the cpu and io cost
+      SyncPoint::GetInstance()->SetCallBack(
+          "CostAwareCompressor::CompressBlockAndRecord::"
+          "GetPredictor",
+          get_predictor);
       // use nth window to detect test cases and set the expected
       switch (nth_window) {
         case 0:
@@ -276,7 +281,7 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
           break;
         case 1:
           // Verify that the Mocked cpu cost and io cost are predicted correctly
-          EXPECT_EQ(predicted_io_bytes, 100);
+          EXPECT_EQ(predicted_io_bytes_, 100);
           EXPECT_EQ(predicted_cpu_time_, 1000);
           SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlock::"
@@ -301,19 +306,22 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
           break;
         case 3:
           // Verify that the Mocked cpu cost and io cost are predicted correctly
-          EXPECT_EQ(predicted_io_bytes, 1000);
+          EXPECT_EQ(predicted_io_bytes_, 1000);
           EXPECT_EQ(predicted_cpu_time_, 2000);
           SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlock::"
               "SelectCompressionTypeAndLevel",
               set_compression_type_and_level(4, 2));
+          SyncPoint::GetInstance()->SetCallBack(
+              "CostAwareCompressor::CompressBlockAndRecord::"
+              "SetCompressionTimeOutputSize",
+              set_compress_time_and_size(2000, 1000));
+          break;
+        case 4:
+          SyncPoint::GetInstance()->DisableProcessing();
+          SyncPoint::GetInstance()->ClearAllCallBacks();
           break;
       }
-      // Add syncpoint to get the cpu and io cost
-      SyncPoint::GetInstance()->SetCallBack(
-          "CostAwareCompressor::CompressBlockAndRecord::"
-          "GetPredictor",
-          get_predictor);
       SyncPoint::GetInstance()->EnableProcessing();
     }
     num_keys_++;
@@ -325,12 +333,12 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
   int num_keys_;
   const BlockBuilder& data_block_builder_;
 
-  static size_t cpu_time_, predicted_cpu_time_, predicted_io_bytes;
+  static size_t cpu_time_, predicted_cpu_time_, predicted_io_bytes_;
   static size_t output_size_;
 };
 size_t CostAwareTestFlushBlockPolicy::cpu_time_ = 0,
        CostAwareTestFlushBlockPolicy::predicted_cpu_time_ = 0,
-       CostAwareTestFlushBlockPolicy::predicted_io_bytes = 0,
+       CostAwareTestFlushBlockPolicy::predicted_io_bytes_ = 0,
        CostAwareTestFlushBlockPolicy::output_size_ = 0;
 class CostAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
@@ -400,7 +408,7 @@ TEST_F(DBCompresssionCostPredictor, CostAwareCompressorManager) {
     window_write();
     // check the predictor is predicting the correct cpu and io cost
     window_write();
-    Flush();
+    ASSERT_OK(Flush());
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

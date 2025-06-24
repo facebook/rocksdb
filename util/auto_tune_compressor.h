@@ -144,11 +144,16 @@ class CostAwareCompressor : public Compressor {
  public:
   const char* Name() const override;
   explicit CostAwareCompressor(const CompressionOptions& opts);
+  size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
+  Slice GetSerializedDict() const override;
+  CompressionType GetPreferredCompressionType() const override;
+  ManagedWorkingArea ObtainWorkingArea() override;
+  std::unique_ptr<Compressor> MaybeCloneSpecialized(
+      CacheEntryRole block_type, DictSampleArgs&& dict_samples) override;
 
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
-  ManagedWorkingArea ObtainWorkingArea() override;
   void ReleaseWorkingArea(WorkingArea* wa) override;
 
  private:
