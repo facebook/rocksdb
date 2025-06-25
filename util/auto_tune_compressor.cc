@@ -285,15 +285,6 @@ Status CostAwareCompressor::CompressBlockAndRecord(
   TEST_SYNC_POINT_CALLBACK(
       "CostAwareCompressor::CompressBlockAndRecord::GetPredictor",
       wa->cost_predictors[choosen_compression_type][compression_level_ptr]);
-  // Just for testing the accuracy of the predictor will be removed on landing
-  /**
-  printf(
-      "CostPredictor measured_time: %zu measured_io: %zu predicted_time: %zu "
-      "predicted_io: %zu compression_type: %lu compression_level_ptr: %lu\n",
-      cpu_time, output_length, predictor->CPUPredictor.Predict(),
-      predictor->IOPredictor.Predict(), choosen_compression_type,
-      compression_level_ptr);
-      **/
   return status;
 }
 
