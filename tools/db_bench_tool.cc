@@ -4640,7 +4640,8 @@ class Benchmark {
     options.level0_slowdown_writes_trigger =
         FLAGS_level0_slowdown_writes_trigger;
     std::shared_ptr<CompressionManagerWrapper> mgr = nullptr;
-    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed") ||
+        !strcasecmp(FLAGS_compression_manager.c_str(), "costpredictor")) {
       // Need to list zstd in the compression_name table property if it's
       // potentially used by being in the mix (i.e., potentially at least one
       // data block in the table is compressed by zstd). This ensures proper
@@ -4648,17 +4649,16 @@ class Benchmark {
       // RocksDB versions.
       options.compression = kZSTD;
       options.bottommost_compression = kZSTD;
-      mgr =
-          std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
+      if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+        mgr = std::make_shared<RoundRobinManager>(
+            GetBuiltinV2CompressionManager());
+      } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
+                             "costpredictor")) {
+        mgr = CreateCostAwareCompressionManager();
+      }
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       options.compression = FLAGS_compression_type_e;
       mgr = CreateAutoSkipCompressionManager();
-    } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
-                           "costpredictor")) {
-      options.compression = kZSTD;
-      options.bottommost_compression = kZSTD;
-      options.compression = FLAGS_compression_type_e;
-      mgr = CreateCostAwareCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
       options.compression = FLAGS_compression_type_e;
     } else {

@@ -170,11 +170,8 @@ class CostAwareCompressor : public Compressor {
   // This is the vector containing the list of compression levels that
   // CostAwareCompressor will use create compressor and predicts the cost
   // The vector contains list of compression level for compression algorithm in
-  // the order defined by enum CompressionType i.e. {  kZlibCompression = 0x02,
-  // kBZip2Compression = 0x03, kLZ4Compression = 0x04, kLZ4HCCompression = 0x05,
-  // kXpressCompression = 0x06, kZSTD = 0x07}
-  std::vector<std::vector<int>> compression_levels_ = {
-      {0}, {}, {}, {1, 4, 9}, {1, 4, 9}, {}, {1, 15, 22}};
+  // the order defined by enum CompressionType
+  static std::vector<std::vector<int>> CompressionLevels;
   const CompressionOptions kOpts;
   std::vector<std::vector<std::unique_ptr<Compressor>>> allcompressors_;
   std::vector<std::pair<size_t, size_t>> allcompressors_index_;

@@ -13,6 +13,15 @@
 #include "util/stop_watch.h"
 namespace ROCKSDB_NAMESPACE {
 
+std::vector<std::vector<int>> CostAwareCompressor::CompressionLevels = {
+    {0},         // KSnappyCompression
+    {},          // kZlibCompression
+    {},          // kBZip2Compression
+    {1, 4, 9},   // kLZ4Compression
+    {1, 4, 9},   // klZ4HCCompression
+    {},          // kXpressCompression
+    {1, 15, 22}  // kZSTD
+};
 int CompressionRejectionProbabilityPredictor::Predict() const {
   return pred_rejection_prob_percentage_;
 }
@@ -126,33 +135,33 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
 CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts)
     : kOpts(opts) {
   // Creates compressor supporting all the compression types and levels as per
-  // the compression levels set in vector compression_levels_
+  // the compression levels set in vector CompressionLevels
   auto builtInManager = GetBuiltinV2CompressionManager();
   const auto& compressions = GetSupportedCompressions();
-  for (size_t i = 0; i < compression_levels_.size(); i++) {
-    CompressionType type_ = static_cast<CompressionType>(i + 1);
-    if (type_ == kNoCompression) {
+  for (size_t i = 0; i < CompressionLevels.size(); i++) {
+    CompressionType type = static_cast<CompressionType>(i + 1);
+    if (type == kNoCompression) {
       continue;
     }
-    if (compression_levels_[type_ - 1].size() == 0) {
+    if (CompressionLevels[type - 1].size() == 0) {
       allcompressors_.emplace_back();
       continue;
     } else {
       // if the compression type is not supported, then skip and remove
       // compression levels from the supported compression level list
-      if (std::find(compressions.begin(), compressions.end(), type_) ==
+      if (std::find(compressions.begin(), compressions.end(), type) ==
           compressions.end()) {
-        compression_levels_[i].clear();
+        CompressionLevels[i].clear();
         allcompressors_.emplace_back();
         continue;
       }
       std::vector<std::unique_ptr<Compressor>> compressors_diff_levels;
-      for (size_t j = 0; j < compression_levels_[type_ - 1].size(); j++) {
-        auto level = compression_levels_[type_ - 1][j];
+      for (size_t j = 0; j < CompressionLevels[type - 1].size(); j++) {
+        auto level = CompressionLevels[type - 1][j];
         CompressionOptions new_opts = opts;
         new_opts.level = level;
         compressors_diff_levels.push_back(
-            builtInManager->GetCompressor(new_opts, type_));
+            builtInManager->GetCompressor(new_opts, type));
         allcompressors_index_.emplace_back(i, j);
       }
       allcompressors_.push_back(std::move(compressors_diff_levels));
@@ -194,11 +203,9 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
     return Status::NotSupported("No compression type supported");
   }
   if (wa == nullptr || wa->owner() != this) {
-    // We just go with the last compressor created. If Zstd is supported will be
     // highest compression level of Zstd
-    auto choosen_compression = allcompressors_index_.back();
-    size_t choosen_compression_type = choosen_compression.first;
-    size_t compression_level_ptr = choosen_compression.second;
+    size_t choosen_compression_type = 6;
+    size_t compression_level_ptr = 2;
     return allcompressors_[choosen_compression_type][compression_level_ptr]
         ->CompressBlock(uncompressed_data, compressed_output,
                         out_compression_type, wa);
@@ -220,16 +227,16 @@ Compressor::ManagedWorkingArea CostAwareCompressor::ObtainWorkingArea() {
   auto wrap_wa = allcompressors_.back().back()->ObtainWorkingArea();
   auto wa = new CostAwareWorkingArea(std::move(wrap_wa));
   // Create cost predictors for each compression type and level
-  wa->cost_predictors.reserve(compression_levels_.size());
-  for (size_t i = 0; i < compression_levels_.size(); i++) {
-    CompressionType type_ = static_cast<CompressionType>(i + 1);
-    if (compression_levels_[type_ - 1].size() == 0) {
+  wa->cost_predictors.reserve(CompressionLevels.size());
+  for (size_t i = 0; i < CompressionLevels.size(); i++) {
+    CompressionType type = static_cast<CompressionType>(i + 1);
+    if (CompressionLevels[type - 1].size() == 0) {
       wa->cost_predictors.emplace_back();
       continue;
     } else {
       std::vector<IOCPUCostPredictor*> predictors_diff_levels;
-      predictors_diff_levels.reserve(compression_levels_[type_ - 1].size());
-      for (size_t j = 0; j < compression_levels_[type_ - 1].size(); j++) {
+      predictors_diff_levels.reserve(CompressionLevels[type - 1].size());
+      for (size_t j = 0; j < CompressionLevels[type - 1].size(); j++) {
         predictors_diff_levels.emplace_back(new IOCPUCostPredictor(10));
       }
       wa->cost_predictors.emplace_back(std::move(predictors_diff_levels));
@@ -255,6 +262,9 @@ Status CostAwareCompressor::CompressBlockAndRecord(
   assert(choosen_compression_type < allcompressors_.size());
   assert(compression_level_ptr <
          allcompressors_[choosen_compression_type].size());
+  assert(choosen_compression_type < wa->cost_predictors.size());
+  assert(compression_level_ptr <
+         wa->cost_predictors[choosen_compression_type].size());
   StopWatchCPUMicros timer(Env::Default()->GetSystemClock().get(), true);
   Status status =
       allcompressors_[choosen_compression_type][compression_level_ptr]

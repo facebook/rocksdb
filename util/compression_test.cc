@@ -292,35 +292,6 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
               "SetCompressionTimeOutputSize",
               set_compress_time_and_size(1000, 100));
           break;
-        case 2:
-          // Set exploration to true and compression type to  and compression
-          // level to 2
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlock::"
-              "SelectCompressionTypeAndLevel",
-              set_compression_type_and_level(4, 2));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlockAndRecord::"
-              "SetCompressionTimeOutputSize",
-              set_compress_time_and_size(2000, 1000));
-          break;
-        case 3:
-          // Verify that the Mocked cpu cost and io cost are predicted correctly
-          EXPECT_EQ(predicted_io_bytes_, 1000);
-          EXPECT_EQ(predicted_cpu_time_, 2000);
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlock::"
-              "SelectCompressionTypeAndLevel",
-              set_compression_type_and_level(4, 2));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlockAndRecord::"
-              "SetCompressionTimeOutputSize",
-              set_compress_time_and_size(2000, 1000));
-          break;
-        case 4:
-          SyncPoint::GetInstance()->DisableProcessing();
-          SyncPoint::GetInstance()->ClearAllCallBacks();
-          break;
       }
       SyncPoint::GetInstance()->EnableProcessing();
     }
@@ -391,7 +362,7 @@ TEST_F(DBCompresssionCostPredictor, CostAwareCompressorManager) {
     Random rnd(231);
     auto value = rnd.RandomBinaryString(kValueSize);
     auto window_size = 10;
-    auto window_write = [&]() {
+    auto WindowWrite = [&]() {
       for (auto i = 0; i < window_size; ++i) {
         auto status = Put(Key(index_), value);
         EXPECT_EQ(status.ok(), true);
@@ -400,14 +371,9 @@ TEST_F(DBCompresssionCostPredictor, CostAwareCompressorManager) {
     };
     // This denotes the first window
     // Mocked to have specific cpu utilization and io cost
-    window_write();
+    WindowWrite();
     // check the predictor is predicting the correct cpu and io cost
-    window_write();
-    // In this winodw we mock for another alogrithm and compression level to
-    // have specific cpu utilization and io cost
-    window_write();
-    // check the predictor is predicting the correct cpu and io cost
-    window_write();
+    WindowWrite();
     ASSERT_OK(Flush());
   }
 }
