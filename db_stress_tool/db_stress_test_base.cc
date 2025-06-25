@@ -876,6 +876,10 @@ Status StressTest::CommitTxn(Transaction& txn, ThreadState* thread) {
     return Status::InvalidArgument("CommitTxn when FLAGS_use_txn is not set");
   }
   Status s = Status::OK();
+  // We don't issue write to transaction's underlying WriteBatch in stress test
+  assert(txn.GetWriteBatch()->GetWriteBatch()->Count());
+  assert(txn.GetWriteBatch()->GetWBWIOpCount() ==
+         txn.GetWriteBatch()->GetWriteBatch()->Count());
   if (FLAGS_use_optimistic_txn) {
     assert(optimistic_txn_db_);
     s = txn.Commit();

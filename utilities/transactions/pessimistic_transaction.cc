@@ -898,10 +898,30 @@ Status WriteCommittedTxn::CommitInternal() {
   if (!needs_ts) {
     if (commit_bypass_memtable_threshold_ &&
         wb_count >= commit_bypass_memtable_threshold_) {
-      bypass_memtable = true;
+      if (wbwi->GetWBWIOpCount() != wb_count) {
+        ROCKS_LOG_WARN(
+            db_impl_->immutable_db_options().info_log,
+            "Transaction %s qualifies for commit optimization due to update "
+            "count. However, it will commit normally due to wbwi and wb record "
+            "count mismatch. Some updates were added directly to the "
+            "transaction's underlying write batch.",
+            GetName().c_str());
+      } else {
+        bypass_memtable = true;
+      }
     } else if (commit_bypass_memtable_byte_threshold_ &&
                wb->GetDataSize() >= commit_bypass_memtable_byte_threshold_) {
-      bypass_memtable = true;
+      if (wbwi->GetWBWIOpCount() != wb_count) {
+        ROCKS_LOG_WARN(
+            db_impl_->immutable_db_options().info_log,
+            "Transaction %s qualifies for commit optimization due to write "
+            "batch size. However, it will commit normally due to wbwi and wb "
+            "record count mismatch. Some updates were added directly to the "
+            "transaction's underlying write batch.",
+            GetName().c_str());
+      } else {
+        bypass_memtable = true;
+      }
     }
   }
   if (!bypass_memtable) {

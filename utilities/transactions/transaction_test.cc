@@ -9929,6 +9929,57 @@ TEST_P(CommitBypassMemtableTest,
 
   delete txn_cf;
 }
+
+TEST_P(CommitBypassMemtableTest, WBWIOpCountMismatchWBCount) {
+  // Tests that large txn optimization checks op count in WBWI vs WB. When an
+  // update is written directly to a transaction's underlying write batch, the
+  // optimization should not apply.
+  SetUpTransactionDB();
+  bool commit_bypass_memtable = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteCommittedTxn::CommitInternal:bypass_memtable",
+      [&](void* arg) { commit_bypass_memtable = *(static_cast<bool*>(arg)); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  {
+    WriteOptions wopts;
+    TransactionOptions txn_opts;
+    txn_opts.large_txn_commit_optimize_byte_threshold = 100;
+    auto txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+    ASSERT_OK(txn->SetName("xid0"));
+    ASSERT_OK(txn->Put("k1", rnd.RandomString(1000)));
+    // This update is written directly to the underlying write batch, so the
+    // optimization should not apply.
+    ASSERT_OK(txn->GetWriteBatch()->GetWriteBatch()->Put("meta", "1"));
+    ASSERT_OK(txn->Prepare());
+    ASSERT_OK(txn->Commit());
+    ASSERT_FALSE(commit_bypass_memtable);
+
+    ASSERT_EQ(Get("meta"), "1");
+    delete txn;
+  }
+
+  {
+    WriteOptions wopts;
+    TransactionOptions txn_opts;
+    txn_opts.large_txn_commit_optimize_threshold = 10;
+    auto txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+    ASSERT_OK(txn->SetName("xid0"));
+    for (int i = 0; i < 10; ++i) {
+      ASSERT_OK(txn->Put(Key(i), rnd.RandomString(10)));
+    }
+    // This update is written directly to the underlying write batch, so the
+    // optimization should not apply.
+    ASSERT_OK(txn->GetWriteBatch()->GetWriteBatch()->Put("meta", "2"));
+    ASSERT_OK(txn->Prepare());
+    ASSERT_OK(txn->Commit());
+    ASSERT_FALSE(commit_bypass_memtable);
+
+    ASSERT_EQ(Get("meta"), "2");
+    delete txn;
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
