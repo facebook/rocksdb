@@ -101,17 +101,29 @@ class StopWatch {
   const uint64_t start_time_;
 };
 
+class SimpleStopWatch {
+ public:
+  bool IsStarted() { return start_ != 0; }
+  explicit SimpleStopWatch(SystemClock* clock) : clock_(clock), start_(0) {}
+  virtual void Start() = 0;
+  virtual uint64_t Elpased() = 0;
+  virtual ~SimpleStopWatch() = default;
+
+ protected:
+  SystemClock* clock_;
+  uint64_t start_;
+};
 // a nano second precision stopwatch
-class StopWatchNano {
+class StopWatchNano : public SimpleStopWatch {
  public:
   explicit StopWatchNano(SystemClock* clock, bool auto_start = false)
-      : clock_(clock), start_(0) {
+      : SimpleStopWatch(clock) {
     if (auto_start) {
       Start();
     }
   }
 
-  void Start() { start_ = clock_->NowNanos(); }
+  void Start() override { start_ = clock_->NowNanos(); }
 
   uint64_t ElapsedNanos(bool reset = false) {
     auto now = clock_->NowNanos();
@@ -121,22 +133,22 @@ class StopWatchNano {
     }
     return elapsed;
   }
+  uint64_t Elpased() override { return ElapsedNanos(); }
 
   uint64_t ElapsedNanosSafe(bool reset = false) {
     return (clock_ != nullptr) ? ElapsedNanos(reset) : 0U;
   }
-
-  bool IsStarted() { return start_ != 0; }
-
- protected:
-  SystemClock* clock_;
-  uint64_t start_;
 };
 
-class StopWatchCPUMicros : public StopWatchNano {
+class StopWatchCPUMicros : public SimpleStopWatch {
  public:
-  using StopWatchNano::StopWatchNano;
-  void Start() { start_ = clock_->CPUMicros(); }
+  explicit StopWatchCPUMicros(SystemClock* clock, bool auto_start = false)
+      : SimpleStopWatch(clock) {
+    if (auto_start) {
+      Start();
+    }
+  }
+  void Start() override { start_ = clock_->CPUMicros(); }
 
   uint64_t ElapsedMicros(bool reset = false) {
     auto now = clock_->CPUMicros();
@@ -150,10 +162,6 @@ class StopWatchCPUMicros : public StopWatchNano {
   uint64_t ElapsedMicrosSafe(bool reset = false) {
     return (clock_ != nullptr) ? ElapsedMicros(reset) : 0U;
   }
-
- private:
-  using StopWatchNano::ElapsedNanos;
-  using StopWatchNano::ElapsedNanosSafe;
+  uint64_t Elpased() override { return ElapsedMicros(); }
 };
-
 }  // namespace ROCKSDB_NAMESPACE
