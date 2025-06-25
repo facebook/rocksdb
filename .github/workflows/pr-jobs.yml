@@ -109,22 +109,6 @@ jobs:
     - uses: "./.github/actions/build-folly"
     - run: "(mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)"
     - uses: "./.github/actions/post-steps"
-  build-linux-cmake-with-folly-lite-no-test:
-    if: ${{ github.repository_owner == 'facebook' }}
-    runs-on:
-      labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
-    env:
-      CC: gcc-10
-      CXX: g++-10
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - uses: "./.github/actions/pre-steps"
-    - uses: "./.github/actions/setup-folly"
-    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)"
-    - uses: "./.github/actions/post-steps"
   build-linux-make-with-folly:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
@@ -242,34 +226,6 @@ jobs:
     - run: apt-get remove -y libgflags-dev
     - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
     - run: if ./db_stress --version; then false; else true; fi
-  build-examples:
-    if: ${{ github.repository_owner == 'facebook' }}
-    runs-on:
-      labels: 4-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - uses: "./.github/actions/pre-steps"
-    - name: Build examples
-      run: make V=1 -j4 static_lib && cd examples && make V=1 -j4
-    - uses: "./.github/actions/post-steps"
-  build-fuzzers:
-    if: ${{ github.repository_owner == 'facebook' }}
-    runs-on:
-      labels: 4-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - uses: "./.github/actions/pre-steps"
-    - name: Build rocksdb lib
-      run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j4 static_lib
-    - name: Build fuzzers
-      run: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
-    - uses: "./.github/actions/post-steps"
   build-linux-clang-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
@@ -317,18 +273,7 @@ jobs:
     - uses: "./.github/actions/pre-steps"
     - run: CC=gcc-10 CXX=g++-10 V=1 ROCKSDB_CXX_STANDARD=c++20 make -j32 all
     - uses: "./.github/actions/post-steps"
-  build-linux-gcc-11-no_test_run:
-    if: ${{ github.repository_owner == 'facebook' }}
-    runs-on:
-      labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - uses: "./.github/actions/pre-steps"
-    - run: LIB_MODE=static CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench
-    - uses: "./.github/actions/post-steps"
+
   # ======================== Linux Other Checks ======================= #
   build-linux-clang10-clang-analyze:
     if: ${{ github.repository_owner == 'facebook' }}
@@ -469,11 +414,11 @@ jobs:
     - uses: "./.github/actions/post-steps"
   # ======================== Windows with Tests ======================= #
   # NOTE: some windows jobs are in "nightly" to save resources
-  build-windows-vs2019:
+  build-windows-vs2022:
     if: ${{ github.repository_owner == 'facebook' }}
-    runs-on: windows-2019
+    runs-on: windows-2022
     env:
-      CMAKE_GENERATOR: Visual Studio 16 2019
+      CMAKE_GENERATOR: Visual Studio 17 2022
       CMAKE_PORTABLE: 1
     steps:
     - uses: actions/checkout@v4.1.0
