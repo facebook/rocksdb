@@ -330,7 +330,6 @@ class CostAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  private:
   int window_;
 };
-
 class DBCompresssionCostPredictor : public DBTestBase {
  public:
   Options options;
@@ -353,7 +352,6 @@ class DBCompresssionCostPredictor : public DBTestBase {
     DestroyAndReopen(options);
   }
 };
-
 TEST_F(DBCompresssionCostPredictor, CostAwareCompressorManager) {
   // making sure that the compression is supported
   if (ZSTD_Supported()) {

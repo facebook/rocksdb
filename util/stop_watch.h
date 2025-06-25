@@ -113,43 +113,56 @@ class SimpleStopWatch {
   SystemClock* clock_;
   uint64_t start_;
 };
+
 // a nano second precision stopwatch
-class StopWatchNano : public SimpleStopWatch {
+class StopWatchNano {
  public:
-  explicit StopWatchNano(SystemClock* clock, bool auto_start = false)
-      : SimpleStopWatch(clock) {
+  explicit StopWatchNano(SystemClock* clock, bool auto_start = false,
+                         bool cpu_time = false)
+      : clock_(clock), start_(0), is_time_type_cpu_(cpu_time) {
     if (auto_start) {
       Start();
     }
   }
-
-  void Start() override { start_ = clock_->NowNanos(); }
-
+  void Start() {
+    if (is_time_type_cpu_) {
+      start_ = clock_->CPUNanos();
+    } else {
+      start_ = clock_->NowNanos();
+    }
+  }
   uint64_t ElapsedNanos(bool reset = false) {
-    auto now = clock_->NowNanos();
+    uint64_t now = 0;
+    if (is_time_type_cpu_) {
+      now = clock_->CPUNanos();
+    } else {
+      now = clock_->NowNanos();
+    }
     auto elapsed = now - start_;
     if (reset) {
       start_ = now;
     }
     return elapsed;
   }
-  uint64_t Elpased() override { return ElapsedNanos(); }
-
   uint64_t ElapsedNanosSafe(bool reset = false) {
     return (clock_ != nullptr) ? ElapsedNanos(reset) : 0U;
   }
-};
+  bool IsStarted() { return start_ != 0; }
 
-class StopWatchCPUMicros : public SimpleStopWatch {
+ private:
+  SystemClock* clock_;
+  uint64_t start_;
+  bool is_time_type_cpu_;
+};
+class StopWatchCPUMicros {
  public:
   explicit StopWatchCPUMicros(SystemClock* clock, bool auto_start = false)
-      : SimpleStopWatch(clock) {
+      : clock_(clock), start_(0) {
     if (auto_start) {
       Start();
     }
   }
-  void Start() override { start_ = clock_->CPUMicros(); }
-
+  void Start() { start_ = clock_->CPUMicros(); }
   uint64_t ElapsedMicros(bool reset = false) {
     auto now = clock_->CPUMicros();
     auto elapsed = now - start_;
@@ -158,10 +171,13 @@ class StopWatchCPUMicros : public SimpleStopWatch {
     }
     return elapsed;
   }
-
   uint64_t ElapsedMicrosSafe(bool reset = false) {
     return (clock_ != nullptr) ? ElapsedMicros(reset) : 0U;
   }
-  uint64_t Elpased() override { return ElapsedMicros(); }
+  bool IsStarted() { return start_ != 0; }
+
+ private:
+  SystemClock* clock_;
+  uint64_t start_;
 };
 }  // namespace ROCKSDB_NAMESPACE

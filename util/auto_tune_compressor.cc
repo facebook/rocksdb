@@ -12,8 +12,7 @@
 #include "util/random.h"
 #include "util/stop_watch.h"
 namespace ROCKSDB_NAMESPACE {
-
-std::vector<std::vector<int>> CostAwareCompressor::CompressionLevels = {
+const std::vector<std::vector<int>> CostAwareCompressor::kCompressionLevels{
     {0},         // KSnappyCompression
     {},          // kZlibCompression
     {},          // kBZip2Compression
@@ -22,6 +21,7 @@ std::vector<std::vector<int>> CostAwareCompressor::CompressionLevels = {
     {},          // kXpressCompression
     {1, 15, 22}  // kZSTD
 };
+
 int CompressionRejectionProbabilityPredictor::Predict() const {
   return pred_rejection_prob_percentage_;
 }
@@ -56,7 +56,7 @@ bool CompressionRejectionProbabilityPredictor::Record(
 AutoSkipCompressorWrapper::AutoSkipCompressorWrapper(
     std::unique_ptr<Compressor> compressor, const CompressionOptions& opts)
     : CompressorWrapper::CompressorWrapper(std::move(compressor)),
-      kOpts(opts) {}
+      opts_(opts) {}
 
 const char* AutoSkipCompressorWrapper::Name() const {
   return "AutoSkipCompressorWrapper";
@@ -113,7 +113,7 @@ Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
                                           out_compression_type, &(wa->wrapped));
   // determine if it was rejected or compressed
   auto predictor_ptr = wa->predictor;
-  predictor_ptr->Record(uncompressed_data, compressed_output, kOpts);
+  predictor_ptr->Record(uncompressed_data, compressed_output, opts_);
   return status;
 }
 
@@ -133,17 +133,17 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
 }
 
 CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts)
-    : kOpts(opts) {
+    : opts_(opts) {
   // Creates compressor supporting all the compression types and levels as per
   // the compression levels set in vector CompressionLevels
   auto builtInManager = GetBuiltinV2CompressionManager();
   const auto& compressions = GetSupportedCompressions();
-  for (size_t i = 0; i < CompressionLevels.size(); i++) {
+  for (size_t i = 0; i < kCompressionLevels.size(); i++) {
     CompressionType type = static_cast<CompressionType>(i + 1);
     if (type == kNoCompression) {
       continue;
     }
-    if (CompressionLevels[type - 1].size() == 0) {
+    if (kCompressionLevels[type - 1].size() == 0) {
       allcompressors_.emplace_back();
       continue;
     } else {
@@ -151,13 +151,12 @@ CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts)
       // compression levels from the supported compression level list
       if (std::find(compressions.begin(), compressions.end(), type) ==
           compressions.end()) {
-        CompressionLevels[i].clear();
         allcompressors_.emplace_back();
         continue;
       }
       std::vector<std::unique_ptr<Compressor>> compressors_diff_levels;
-      for (size_t j = 0; j < CompressionLevels[type - 1].size(); j++) {
-        auto level = CompressionLevels[type - 1][j];
+      for (size_t j = 0; j < kCompressionLevels[type - 1].size(); j++) {
+        auto level = kCompressionLevels[type - 1][j];
         CompressionOptions new_opts = opts;
         new_opts.level = level;
         compressors_diff_levels.push_back(
@@ -227,19 +226,19 @@ Compressor::ManagedWorkingArea CostAwareCompressor::ObtainWorkingArea() {
   auto wrap_wa = allcompressors_.back().back()->ObtainWorkingArea();
   auto wa = new CostAwareWorkingArea(std::move(wrap_wa));
   // Create cost predictors for each compression type and level
-  wa->cost_predictors.reserve(CompressionLevels.size());
-  for (size_t i = 0; i < CompressionLevels.size(); i++) {
+  wa->cost_predictors_.reserve(allcompressors_.size());
+  for (size_t i = 0; i < allcompressors_.size(); i++) {
     CompressionType type = static_cast<CompressionType>(i + 1);
-    if (CompressionLevels[type - 1].size() == 0) {
-      wa->cost_predictors.emplace_back();
+    if (allcompressors_[type - 1].size() == 0) {
+      wa->cost_predictors_.emplace_back();
       continue;
     } else {
       std::vector<IOCPUCostPredictor*> predictors_diff_levels;
-      predictors_diff_levels.reserve(CompressionLevels[type - 1].size());
-      for (size_t j = 0; j < CompressionLevels[type - 1].size(); j++) {
+      predictors_diff_levels.reserve(kCompressionLevels[type - 1].size());
+      for (size_t j = 0; j < kCompressionLevels[type - 1].size(); j++) {
         predictors_diff_levels.emplace_back(new IOCPUCostPredictor(10));
       }
-      wa->cost_predictors.emplace_back(std::move(predictors_diff_levels));
+      wa->cost_predictors_.emplace_back(std::move(predictors_diff_levels));
     }
   }
   return ManagedWorkingArea(wa, this);
@@ -247,7 +246,7 @@ Compressor::ManagedWorkingArea CostAwareCompressor::ObtainWorkingArea() {
 void CostAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   // remove all created cost predictors
   for (auto& prdictors_diff_levels :
-       static_cast<CostAwareWorkingArea*>(wa)->cost_predictors) {
+       static_cast<CostAwareWorkingArea*>(wa)->cost_predictors_) {
     for (auto& predictor : prdictors_diff_levels) {
       delete predictor;
     }
@@ -262,18 +261,18 @@ Status CostAwareCompressor::CompressBlockAndRecord(
   assert(choosen_compression_type < allcompressors_.size());
   assert(compression_level_ptr <
          allcompressors_[choosen_compression_type].size());
-  assert(choosen_compression_type < wa->cost_predictors.size());
+  assert(choosen_compression_type < wa->cost_predictors_.size());
   assert(compression_level_ptr <
-         wa->cost_predictors[choosen_compression_type].size());
+         wa->cost_predictors_[choosen_compression_type].size());
   StopWatchCPUMicros timer(Env::Default()->GetSystemClock().get(), true);
   Status status =
       allcompressors_[choosen_compression_type][compression_level_ptr]
           ->CompressBlock(uncompressed_data, compressed_output,
-                          out_compression_type, &(wa->wrapped));
+                          out_compression_type, &(wa->wrapped_));
   std::pair<size_t, size_t> measured_data(timer.ElapsedMicros(),
                                           compressed_output->size());
   auto predictor =
-      wa->cost_predictors[choosen_compression_type][compression_level_ptr];
+      wa->cost_predictors_[choosen_compression_type][compression_level_ptr];
   TEST_SYNC_POINT_CALLBACK(
       "CostAwareCompressor::CompressBlockAndRecord::"
       "SetCompressionTimeOutputSize",
@@ -284,7 +283,7 @@ Status CostAwareCompressor::CompressBlockAndRecord(
   predictor->IOPredictor.Record(output_length);
   TEST_SYNC_POINT_CALLBACK(
       "CostAwareCompressor::CompressBlockAndRecord::GetPredictor",
-      wa->cost_predictors[choosen_compression_type][compression_level_ptr]);
+      wa->cost_predictors_[choosen_compression_type][compression_level_ptr]);
   return status;
 }
 

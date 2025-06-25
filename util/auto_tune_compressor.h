@@ -77,7 +77,7 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
                                 AutoSkipWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
-  const CompressionOptions kOpts;
+  const CompressionOptions opts_;
 };
 
 class AutoSkipCompressorManager : public CompressionManagerWrapper {
@@ -124,22 +124,22 @@ struct IOCPUCostPredictor {
 class CostAwareWorkingArea : public Compressor::WorkingArea {
  public:
   explicit CostAwareWorkingArea(Compressor::ManagedWorkingArea&& wa)
-      : wrapped(std::move(wa)) {}
+      : wrapped_(std::move(wa)) {}
   ~CostAwareWorkingArea() {}
   CostAwareWorkingArea(const CostAwareWorkingArea&) = delete;
   CostAwareWorkingArea& operator=(const CostAwareWorkingArea&) = delete;
   CostAwareWorkingArea(CostAwareWorkingArea&& other) noexcept
-      : wrapped(std::move(other.wrapped)) {}
+      : wrapped_(std::move(other.wrapped_)) {}
 
   CostAwareWorkingArea& operator=(CostAwareWorkingArea&& other) noexcept {
     if (this != &other) {
-      wrapped = std::move(other.wrapped);
-      cost_predictors = std::move(other.cost_predictors);
+      wrapped_ = std::move(other.wrapped_);
+      cost_predictors_ = std::move(other.cost_predictors_);
     }
     return *this;
   }
-  Compressor::ManagedWorkingArea wrapped;
-  std::vector<std::vector<IOCPUCostPredictor*>> cost_predictors;
+  Compressor::ManagedWorkingArea wrapped_;
+  std::vector<std::vector<IOCPUCostPredictor*>> cost_predictors_;
 };
 
 class CostAwareCompressor : public Compressor {
@@ -171,8 +171,8 @@ class CostAwareCompressor : public Compressor {
   // CostAwareCompressor will use create compressor and predicts the cost
   // The vector contains list of compression level for compression algorithm in
   // the order defined by enum CompressionType
-  static std::vector<std::vector<int>> CompressionLevels;
-  const CompressionOptions kOpts;
+  static const std::vector<std::vector<int>> kCompressionLevels;
+  const CompressionOptions opts_;
   std::vector<std::vector<std::unique_ptr<Compressor>>> allcompressors_;
   std::vector<std::pair<size_t, size_t>> allcompressors_index_;
 };
