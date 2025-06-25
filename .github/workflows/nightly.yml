@@ -117,3 +117,31 @@ jobs:
     - name: Build fuzzers
       run: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
     - uses: "./.github/actions/post-steps"
+  build-linux-gcc-11-no_test_run:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - run: LIB_MODE=static CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench
+    - uses: "./.github/actions/post-steps"
+  build-linux-cmake-with-folly-lite-no-test:
+    if: ${{ github.repository_owner == 'facebook' }}
+    runs-on:
+      labels: 16-core-ubuntu
+    container:
+      image: zjay437/rocksdb:0.6
+      options: --shm-size=16gb
+    env:
+      CC: gcc-10
+      CXX: g++-10
+    steps:
+    - uses: actions/checkout@v4.1.0
+    - uses: "./.github/actions/pre-steps"
+    - uses: "./.github/actions/setup-folly"
+    - run: "(mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)"
+    - uses: "./.github/actions/post-steps"
