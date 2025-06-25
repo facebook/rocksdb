@@ -344,7 +344,6 @@ void AssertIterEqual(WBWIIteratorImpl* wbwii,
 }
 
 void AssertWBWICountEQWBCount(WriteBatchWithIndex& wbwi) {
-  std::cout << wbwi.GetWBWIOpCount() << std::endl;
   ASSERT_EQ(wbwi.GetWBWIOpCount(), wbwi.GetWriteBatch()->Count());
 }
 }  // namespace

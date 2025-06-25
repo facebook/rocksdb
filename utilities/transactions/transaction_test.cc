@@ -9934,7 +9934,6 @@ TEST_P(CommitBypassMemtableTest, WBWIOpCountMismatchWBCount) {
   // Tests that large txn optimization checks op count in WBWI vs WB. When an
   // update is written directly to a transaction's underlying write batch, the
   // optimization should not apply.
-  const uint64_t size_threshold = 100;
   SetUpTransactionDB();
   bool commit_bypass_memtable = false;
   SyncPoint::GetInstance()->SetCallBack(
@@ -9946,11 +9945,12 @@ TEST_P(CommitBypassMemtableTest, WBWIOpCountMismatchWBCount) {
   {
     WriteOptions wopts;
     TransactionOptions txn_opts;
-    txn_opts.large_txn_commit_optimize_byte_threshold = size_threshold;
-    // Test default
+    txn_opts.large_txn_commit_optimize_byte_threshold = 100;
     auto txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
     ASSERT_OK(txn->SetName("xid0"));
     ASSERT_OK(txn->Put("k1", rnd.RandomString(1000)));
+    // This update is written directly to the underlying write batch, so the
+    // optimization should not apply.
     ASSERT_OK(txn->GetWriteBatch()->GetWriteBatch()->Put("meta", "1"));
     ASSERT_OK(txn->Prepare());
     ASSERT_OK(txn->Commit());
@@ -9964,12 +9964,13 @@ TEST_P(CommitBypassMemtableTest, WBWIOpCountMismatchWBCount) {
     WriteOptions wopts;
     TransactionOptions txn_opts;
     txn_opts.large_txn_commit_optimize_threshold = 10;
-    // Test default
     auto txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
     ASSERT_OK(txn->SetName("xid0"));
     for (int i = 0; i < 10; ++i) {
       ASSERT_OK(txn->Put(Key(i), rnd.RandomString(10)));
     }
+    // This update is written directly to the underlying write batch, so the
+    // optimization should not apply.
     ASSERT_OK(txn->GetWriteBatch()->GetWriteBatch()->Put("meta", "2"));
     ASSERT_OK(txn->Prepare());
     ASSERT_OK(txn->Commit());
