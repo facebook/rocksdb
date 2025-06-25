@@ -128,20 +128,14 @@ class StopWatchNano {
 
   bool IsStarted() { return start_ != 0; }
 
- private:
+ protected:
   SystemClock* clock_;
   uint64_t start_;
 };
 
-class StopWatchCPUMicros {
+class StopWatchCPUMicros : public StopWatchNano {
  public:
-  explicit StopWatchCPUMicros(SystemClock* clock, bool auto_start = false)
-      : clock_(clock), start_(0) {
-    if (auto_start) {
-      Start();
-    }
-  }
-
+  using StopWatchNano::StopWatchNano;
   void Start() { start_ = clock_->CPUMicros(); }
 
   uint64_t ElapsedMicros(bool reset = false) {
@@ -157,11 +151,9 @@ class StopWatchCPUMicros {
     return (clock_ != nullptr) ? ElapsedMicros(reset) : 0U;
   }
 
-  bool IsStarted() { return start_ != 0; }
-
  private:
-  SystemClock* clock_;
-  uint64_t start_;
+  using StopWatchNano::ElapsedNanos;
+  using StopWatchNano::ElapsedNanosSafe;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
