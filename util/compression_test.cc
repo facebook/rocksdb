@@ -236,14 +236,6 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
     }
     // Check every window
     if (num_keys_ % window_ == 0) {
-      auto set_compression_type_and_level = [](size_t type, size_t level) {
-        return [type, level](void* arg) {
-          std::pair<size_t, size_t>* info =
-              static_cast<std::pair<size_t, size_t>*>(arg);
-          info->first = type;
-          info->second = level;
-        };
-      };
       auto set_compress_time_and_size = [](size_t time, size_t size) {
         return [time, size](void* arg) {
           std::pair<size_t, size_t>* measured_data =
@@ -268,12 +260,6 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
       // use nth window to detect test cases and set the expected
       switch (nth_window) {
         case 0:
-          // Set exploration to true and compression type to zstd and
-          // compression level to 2
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlock::"
-              "SelectCompressionTypeAndLevel",
-              set_compression_type_and_level(6, 2));
           SyncPoint::GetInstance()->SetCallBack(
               "CostAwareCompressor::CompressBlockAndRecord::"
               "SetCompressionTimeOutputSize",
@@ -283,14 +269,6 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
           // Verify that the Mocked cpu cost and io cost are predicted correctly
           EXPECT_EQ(predicted_io_bytes_, 100);
           EXPECT_EQ(predicted_cpu_time_, 1000);
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlock::"
-              "SelectCompressionTypeAndLevel",
-              set_compression_type_and_level(6, 2));
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlockAndRecord::"
-              "SetCompressionTimeOutputSize",
-              set_compress_time_and_size(1000, 100));
           break;
       }
       SyncPoint::GetInstance()->EnableProcessing();
@@ -354,27 +332,29 @@ class DBCompresssionCostPredictor : public DBTestBase {
 };
 TEST_F(DBCompresssionCostPredictor, CostAwareCompressorManager) {
   // making sure that the compression is supported
-  if (ZSTD_Supported()) {
-    const int kValueSize = 20000;
-    auto index_ = 0;
-    Random rnd(231);
-    auto value = rnd.RandomBinaryString(kValueSize);
-    auto window_size = 10;
-    auto WindowWrite = [&]() {
-      for (auto i = 0; i < window_size; ++i) {
-        auto status = Put(Key(index_), value);
-        EXPECT_EQ(status.ok(), true);
-        index_++;
-      }
-    };
-    // This denotes the first window
-    // Mocked to have specific cpu utilization and io cost
-    WindowWrite();
-    // check the predictor is predicting the correct cpu and io cost
-    WindowWrite();
-    ASSERT_OK(Flush());
+  if (!ZSTD_Supported()) {
+    return;
   }
+  const int kValueSize = 20000;
+  int next_key = 0;
+  Random rnd(231);
+  auto value = rnd.RandomBinaryString(kValueSize);
+  int window_size = 10;
+  auto WindowWrite = [&]() {
+    for (auto i = 0; i < window_size; ++i) {
+      auto status = Put(Key(next_key), value);
+      EXPECT_OK(status);
+      next_key++;
+    }
+  };
+  // This denotes the first window
+  // Mocked to have specific cpu utilization and io cost
+  WindowWrite();
+  // check the predictor is predicting the correct cpu and io cost
+  WindowWrite();
+  ASSERT_OK(Flush());
 }
+
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

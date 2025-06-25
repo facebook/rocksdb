@@ -210,11 +210,7 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
                         out_compression_type, wa);
   }
   auto local_wa = static_cast<CostAwareWorkingArea*>(wa->get());
-  auto choosen_index = allcompressors_index_[Random::GetTLSInstance()->Uniform(
-      static_cast<int>(allcompressors_index_.size()))];
-  TEST_SYNC_POINT_CALLBACK(
-      "CostAwareCompressor::CompressBlock::SelectCompressionTypeAndLevel",
-      &choosen_index);
+  std::pair<size_t, size_t> choosen_index(6, 2);
   size_t choosen_compression_type = choosen_index.first;
   size_t compresion_level_ptr = choosen_index.second;
   return CompressBlockAndRecord(choosen_compression_type, compresion_level_ptr,
@@ -264,7 +260,7 @@ Status CostAwareCompressor::CompressBlockAndRecord(
   assert(choosen_compression_type < wa->cost_predictors_.size());
   assert(compression_level_ptr <
          wa->cost_predictors_[choosen_compression_type].size());
-  StopWatchCPUMicros timer(Env::Default()->GetSystemClock().get(), true);
+  StopWatchNano<> timer(Env::Default()->GetSystemClock().get(), true);
   Status status =
       allcompressors_[choosen_compression_type][compression_level_ptr]
           ->CompressBlock(uncompressed_data, compressed_output,

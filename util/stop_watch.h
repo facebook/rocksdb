@@ -101,31 +101,18 @@ class StopWatch {
   const uint64_t start_time_;
 };
 
-class SimpleStopWatch {
- public:
-  bool IsStarted() { return start_ != 0; }
-  explicit SimpleStopWatch(SystemClock* clock) : clock_(clock), start_(0) {}
-  virtual void Start() = 0;
-  virtual uint64_t Elpased() = 0;
-  virtual ~SimpleStopWatch() = default;
-
- protected:
-  SystemClock* clock_;
-  uint64_t start_;
-};
-
 // a nano second precision stopwatch
+template <bool use_cpu_time = false>
 class StopWatchNano {
  public:
-  explicit StopWatchNano(SystemClock* clock, bool auto_start = false,
-                         bool cpu_time = false)
-      : clock_(clock), start_(0), is_time_type_cpu_(cpu_time) {
+  explicit StopWatchNano(SystemClock* clock, bool auto_start = false)
+      : clock_(clock), start_(0) {
     if (auto_start) {
       Start();
     }
   }
   void Start() {
-    if (is_time_type_cpu_) {
+    if constexpr (use_cpu_time) {
       start_ = clock_->CPUNanos();
     } else {
       start_ = clock_->NowNanos();
@@ -133,7 +120,7 @@ class StopWatchNano {
   }
   uint64_t ElapsedNanos(bool reset = false) {
     uint64_t now = 0;
-    if (is_time_type_cpu_) {
+    if constexpr (use_cpu_time) {
       now = clock_->CPUNanos();
     } else {
       now = clock_->NowNanos();
@@ -148,33 +135,9 @@ class StopWatchNano {
     return (clock_ != nullptr) ? ElapsedNanos(reset) : 0U;
   }
   bool IsStarted() { return start_ != 0; }
-
- private:
-  SystemClock* clock_;
-  uint64_t start_;
-  bool is_time_type_cpu_;
-};
-class StopWatchCPUMicros {
- public:
-  explicit StopWatchCPUMicros(SystemClock* clock, bool auto_start = false)
-      : clock_(clock), start_(0) {
-    if (auto_start) {
-      Start();
-    }
-  }
-  void Start() { start_ = clock_->CPUMicros(); }
   uint64_t ElapsedMicros(bool reset = false) {
-    auto now = clock_->CPUMicros();
-    auto elapsed = now - start_;
-    if (reset) {
-      start_ = now;
-    }
-    return elapsed;
+    return ElapsedNanos(reset) / 1000;
   }
-  uint64_t ElapsedMicrosSafe(bool reset = false) {
-    return (clock_ != nullptr) ? ElapsedMicros(reset) : 0U;
-  }
-  bool IsStarted() { return start_ != 0; }
 
  private:
   SystemClock* clock_;
