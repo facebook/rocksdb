@@ -72,7 +72,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/coding_lean.h"
+#include "util/coding.h"
 #include "util/compression.h"
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
@@ -7482,11 +7482,113 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
     std::string index_contents_data_;
   };
 
+  class TestUserDefinedIndexReader : public UserDefinedIndexReader {
+   public:
+    TestUserDefinedIndexReader(Slice& index_block) {
+      Slice block = index_block;
+      while (!block.empty()) {
+        Slice key;
+        uint64_t offset;
+        uint64_t size;
+        uint32_t num_keys;
+        EXPECT_TRUE(GetLengthPrefixedSlice(&block, &key));
+        EXPECT_TRUE(GetFixed64(&block, &offset));
+        EXPECT_TRUE(GetFixed64(&block, &size));
+        EXPECT_TRUE(GetFixed32(&block, &num_keys));
+
+        UserDefinedIndexBuilder::BlockHandle handle;
+        handle.offset = offset;
+        handle.size = size;
+        index_data_[key.ToString()] =
+            std::make_pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>(
+                std::move(handle), std::move(num_keys));
+      }
+    }
+
+    std::unique_ptr<UserDefinedIndexIterator> NewIterator(
+        const ReadOptions& ro) override {
+      return std::make_unique<TestUserDefinedIndexIterator>(ro, index_data_);
+    }
+
+    size_t ApproximateMemoryUsage() const override { return 0; }
+
+   private:
+    class TestUserDefinedIndexIterator : public UserDefinedIndexIterator {
+     public:
+      TestUserDefinedIndexIterator(
+          const ReadOptions& ro,
+          std::map<std::string,
+                   std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>>&
+              index)
+          : ro_(ro), index_(index), iter_(index_.end()), valid_(false) {}
+
+      Status SeekAndGetResult(const Slice& key,
+                              IterateResult* result) override {
+        iter_ = index_.lower_bound(key.ToString());
+        if (iter_ != index_.end()) {
+          valid_ = true;
+          result->key = Slice(iter_->first);
+        } else {
+          valid_ = false;
+          result->bound_check_result = IterBoundCheck::kOutOfBound;
+          result->key = Slice();
+        }
+        return Status::OK();
+      }
+
+      Status NextAndGetResult(IterateResult* result) override {
+        if (ro_.iterate_upper_bound) {
+          if (iter_->first.compare(ro_.iterate_upper_bound->ToString()) >= 0) {
+            valid_ = false;
+            result->key = Slice();
+            return Status::OK();
+          }
+        }
+        iter_++;
+        if (iter_ != index_.end()) {
+          valid_ = true;
+          result->key = Slice(iter_->first);
+        } else {
+          valid_ = false;
+          result->key = Slice();
+        }
+        return Status::OK();
+      }
+
+      bool Valid() const override { return valid_; }
+
+      UserDefinedIndexBuilder::BlockHandle value() override {
+        UserDefinedIndexBuilder::BlockHandle handle;
+        handle.offset = iter_->second.first.offset;
+        handle.size = iter_->second.first.size;
+        return handle;
+      }
+
+     private:
+      const ReadOptions& ro_;
+      std::map<std::string,
+               std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>>&
+          index_;
+      std::map<std::string, std::pair<UserDefinedIndexBuilder::BlockHandle,
+                                      uint32_t>>::iterator iter_;
+      bool valid_;
+    };
+
+    std::map<std::string,
+             std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>>
+        index_data_;
+  };
+
   class TestUserDefinedIndexFactory : public UserDefinedIndexFactory {
    public:
     const char* Name() const override { return "test_index"; }
     UserDefinedIndexBuilder* NewBuilder() const override {
       return new TestUserDefinedIndexBuilder();
+    }
+
+    std::unique_ptr<UserDefinedIndexReader> NewReader(
+        Slice& index_block) const override {
+      return std::make_unique<TestUserDefinedIndexReader>(index_block);
     }
   };
 };
@@ -7527,7 +7629,8 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   MutableCFOptions moptions((ColumnFamilyOptions(options)));
   EnvOptions eoptions(options);
   TableReaderOptions toptions(
-      ioptions, moptions.prefix_extractor, eoptions,
+      ioptions, moptions.prefix_extractor,
+      /*compression_manager=*/nullptr, eoptions,
       ioptions.internal_comparator, moptions.block_protection_bytes_per_key,
       /*skip_filters*/ false, /*immortal*/ false,
       /*force_direct_prefetch*/ false, /*level*/ -1,
@@ -7572,6 +7675,30 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
     key_count++;
   }
   ASSERT_EQ(key_count, 100);  // We added 100 keys
+  iter.reset();
+
+  ro.table_index_name.emplace("test_index");
+  iter.reset(reader->NewIterator(ro));
+  ASSERT_NE(iter, nullptr);
+
+  // Test that we can read all the keys
+  key_count = 0;
+  for (iter->Seek("key09"); iter->Valid(); iter->Next()) {
+    key_count++;
+  }
+  ASSERT_EQ(key_count, 91);
+
+  Slice ub("key75");
+  ro.iterate_upper_bound = &ub;
+  iter.reset(reader->NewIterator(ro));
+  ASSERT_NE(iter, nullptr);
+
+  // Test that we can read all the keys
+  key_count = 0;
+  for (iter->Seek("key09"); iter->Valid(); iter->Next()) {
+    key_count++;
+  }
+  ASSERT_EQ(key_count, 66);
 }
 
 TEST_F(UserDefinedIndexTest, InvalidArgumentTest1) {

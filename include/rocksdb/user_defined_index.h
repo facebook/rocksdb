@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "rocksdb/advanced_iterator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
@@ -18,7 +19,8 @@ inline const std::string kUserDefinedIndexPrefix =
 
 // This is a public API for user-defined index builders.
 // It allows users to define their own index format and build custom
-// indexes during table building.
+// indexes during table building. Currently, only a monolithic index
+// block is supported (no partitioned index).
 
 // The interface for building user-defined index.
 class UserDefinedIndexBuilder {
@@ -47,6 +49,9 @@ class UserDefinedIndexBuilder {
   // @last_key_in_current_block: The last key in the current data block
   // @first_key_in_next_block: it will be nullptr if the entry being added is
   //                           the last one in the table
+  // @block_handle: offset/size of the data block referenced by this index
+  //                entry. This should be stored along with the index entry
+  //                key
   // @separator_scratch: a scratch buffer to back a computed separator between
   //                     those, as needed. May be modified on each call.
   // @return: the key or separator stored in the index, which could be
@@ -71,6 +76,48 @@ class UserDefinedIndexBuilder {
   virtual Status Finish(Slice* index_contents) = 0;
 };
 
+// The interface for iterating the user defined index. This will be
+// instantiated and used by a scan to iterate through the index entries
+// covered by the scan.
+class UserDefinedIndexIterator {
+ public:
+  virtual ~UserDefinedIndexIterator() = default;
+
+  // Given the target key, position the index iterator at the index entry
+  // with the smallest key >= target. The result must be updated with the
+  // index key, and the bound_check_result. The bound_check_result should
+  // be set to kOutOfBound if no block satisfies the target key and
+  // termination criteria, kInbound if the data block is definitely fully
+  // within bounds, or kUnknown if the data block could be partially
+  // within bounds.
+  virtual Status SeekAndGetResult(const Slice& target,
+                                  IterateResult* result) = 0;
+
+  // Advance to the next index entry. The result must be populated similar
+  // to SeekAndGetResult.
+  virtual Status NextAndGetResult(IterateResult* result) = 0;
+
+  // Return true if the current entry is valid
+  virtual bool Valid() const = 0;
+
+  // Return the BlockHandle in the current index entry
+  virtual UserDefinedIndexBuilder::BlockHandle value() = 0;
+};
+
+// A reader interface for the user defined index
+class UserDefinedIndexReader {
+ public:
+  virtual ~UserDefinedIndexReader() = default;
+
+  // Allocate an iterator that will be used by RocksDB to perform scans
+  virtual std::unique_ptr<UserDefinedIndexIterator> NewIterator(
+      const ReadOptions& read_options) = 0;
+
+  // The memory usage of the index, including the size of the raw contents and
+  // any other heap data structures allocated by the reader
+  virtual size_t ApproximateMemoryUsage() const = 0;
+};
+
 // Factory for creating user-defined index builders.
 class UserDefinedIndexFactory : public Customizable {
  public:
@@ -78,6 +125,11 @@ class UserDefinedIndexFactory : public Customizable {
 
   // Create a new builder for user-defined index.
   virtual UserDefinedIndexBuilder* NewBuilder() const = 0;
+
+  // Create a new user defined index reader given the contents of the index
+  // block
+  virtual std::unique_ptr<UserDefinedIndexReader> NewReader(
+      Slice& index_block) const = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
