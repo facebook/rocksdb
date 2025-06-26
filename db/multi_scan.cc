@@ -19,6 +19,8 @@ MultiScan::MultiScan(const ReadOptions& read_options,
   if (scan_opts[0].range.limit) {
     upper_bound_ = *scan_opts[0].range.limit;
     read_options_.iterate_upper_bound = &upper_bound_;
+  } else {
+    read_options_.iterate_upper_bound = nullptr;
   }
   for (auto opts : scan_opts) {
     // Check that all the ScanOptions either specify an upper bound or not. If
