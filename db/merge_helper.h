@@ -250,7 +250,7 @@ class MergeHelper {
   // Parallel with keys_; stores the operands
   mutable MergeContext merge_context_;
 
-  StopWatchNano filter_timer_;
+  StopWatchNano<> filter_timer_;
   uint64_t total_filter_time_;
   Statistics* stats_;
 

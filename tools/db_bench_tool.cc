@@ -4639,36 +4639,32 @@ class Benchmark {
         FLAGS_level0_file_num_compaction_trigger;
     options.level0_slowdown_writes_trigger =
         FLAGS_level0_slowdown_writes_trigger;
-    if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
+    options.compression = FLAGS_compression_type_e;
+    std::shared_ptr<CompressionManagerWrapper> mgr = nullptr;
+    if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
+      mgr =
+          std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
+    } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
+                           "costpredictor")) {
+      mgr = CreateCostAwareCompressionManager();
+    } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
+      mgr = CreateAutoSkipCompressionManager();
+    } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
       options.compression = FLAGS_compression_type_e;
     } else {
-      std::shared_ptr<CompressionManagerWrapper> mgr;
-      if (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed")) {
-        // Need to list zstd in the compression_name table property if it's
-        // potentially used by being in the mix (i.e., potentially at least one
-        // data block in the table is compressed by zstd). This ensures proper
-        // context and dictionary handling, and prevents crashes in older
-        // RocksDB versions.
-        options.compression = kZSTD;
-        options.bottommost_compression = kZSTD;
-
-        mgr = std::make_shared<RoundRobinManager>(
-            GetBuiltinV2CompressionManager());
-      } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
-        options.compression = FLAGS_compression_type_e;
-        if (FLAGS_compression_type_e == kNoCompression) {
-          fprintf(stderr,
-                  "Compression type must not be no Compression when using "
-                  "autoskip");
-          ErrorExit();
-        }
-        mgr =
-            CreateAutoSkipCompressionManager(GetBuiltinV2CompressionManager());
-      } else {
-        // not defined -> exit with error
-        fprintf(stderr, "Requested compression manager not supported");
-        ErrorExit();
-      }
+      // compression manager is not supported
+      // exit with error
+      fprintf(stderr, "Requested compression manager not supported");
+      ErrorExit();
+    }
+    if (FLAGS_compression_type_e == kNoCompression &&
+        strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
+      fprintf(stderr,
+              "Compression type must not be no Compression when using "
+              "compression manager");
+      ErrorExit();
+    }
+    if (mgr != nullptr) {
       options.compression_manager = mgr;
     }
 

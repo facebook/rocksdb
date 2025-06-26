@@ -589,10 +589,14 @@ const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager();
 // lead to unexpected schema changes for user CompressionManagers building on
 // the built-in schema, in the unlikely/rare case of a new built-in schema.
 
-// Gets CompressionManager designed for the automated compression strategy.
+// Creates CompressionManager designed for the automated compression strategy.
 // This may include deciding to compress or not.
-// In future should be able to select compression algorithm based on the CPU
-// utilization and IO constraints.
+// EXPERIMENTAL
 std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
-    std::shared_ptr<CompressionManager> wrapped);
+    std::shared_ptr<CompressionManager> wrapped = nullptr);
+// Creates CompressionManager designed for the CPU and IO cost aware compression
+// strategy
+// EXPERIMENTAL
+std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
+    std::shared_ptr<CompressionManager> wrapped = nullptr);
 }  // namespace ROCKSDB_NAMESPACE
