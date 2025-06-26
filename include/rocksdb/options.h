@@ -2061,6 +2061,17 @@ struct ReadOptions {
   // Default: false
   bool auto_refresh_iterator_with_snapshot = false;
 
+  // EXPERIMENTAL
+  //
+  // Specify an alternate index to use in the SST files instead of the native
+  // block based table index. The table_factory used for the column family
+  // must support building/reading this index.
+  //
+  // Currently, only forward scans are supported. For forward scans, only Seek()
+  // is supported. SeekToFirst() is not supported. If the caller wishes to scan
+  // from start to end, the native index must be used.
+  std::optional<std::string> table_index_name;
+
   // *** END options only relevant to iterators or scans ***
 
   // *** BEGIN options for RocksDB internal use only ***

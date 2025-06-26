@@ -544,6 +544,12 @@ class BlockBasedTable : public TableReader {
 
   bool TimestampMayMatch(const ReadOptions& read_options) const;
 
+  bool BlockTypeMaybeCompressed(BlockType type) const {
+    return type != BlockType::kFilter &&
+           type != BlockType::kCompressionDictionary &&
+           type != BlockType::kUserDefinedIndex;
+  }
+
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
   static constexpr size_t kMultiGetReadStackBufSize = 8192;
@@ -688,6 +694,8 @@ struct BlockBasedTable::Rep {
 
   std::unique_ptr<CacheReservationManager::CacheReservationHandle>
       table_reader_cache_res_handle = nullptr;
+
+  CachableEntry<Block_kUserDefinedIndex> udi_block;
 
   SequenceNumber get_global_seqno(BlockType block_type) const {
     return (block_type == BlockType::kFilterPartitionIndex ||
