@@ -2372,7 +2372,11 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
 
   io_s = dst_env->GetFileSystem()->NewWritableFile(dst, dst_file_options,
                                                    &dst_file, nullptr);
-  if (io_s.ok() && !src.empty()) {
+  if (!io_s.ok()) {
+    return io_s;
+  }
+
+  if (!src.empty()) {
     auto src_file_options = FileOptions(src_env_options);
     src_file_options.temperature = *src_temperature;
     io_s = src_env->GetFileSystem()->NewSequentialFile(src, src_file_options,
