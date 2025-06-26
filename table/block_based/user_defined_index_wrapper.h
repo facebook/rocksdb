@@ -178,6 +178,10 @@ class UserDefinedIndexIteratorWrapper
 
   Status status() const override { return status_; }
 
+  void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+    udi_iter_->Prepare(scan_opts->data(), scan_opts->size());
+  }
+
  private:
   std::unique_ptr<UserDefinedIndexIterator> udi_iter_;
   IterateResult result_;

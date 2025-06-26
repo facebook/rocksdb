@@ -7406,11 +7406,11 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
         : keys_in_current_block_(0), keys_per_block_(keys_per_block) {}
 
     bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
-      keys_in_current_block_++;
       if (keys_in_current_block_ >= keys_per_block_) {
-        keys_in_current_block_ = 0;
+        keys_in_current_block_ = 1;
         return true;
       }
+      keys_in_current_block_++;
       return false;
     }
 
@@ -7520,14 +7520,37 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
           std::map<std::string,
                    std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>>&
               index)
-          : ro_(ro), index_(index), iter_(index_.end()), valid_(false) {}
+          : ro_(ro),
+            index_(index),
+            iter_(index_.end()),
+            valid_(false),
+            scan_opts_(nullptr),
+            num_opts_(0),
+            target_num_keys_(0) {}
 
       Status SeekAndGetResult(const Slice& key,
                               IterateResult* result) override {
+        if (scan_opts_) {
+          if (scan_opts_[scan_idx_].range.start.value().ToString().compare(
+                  key.ToString()) == 0) {
+            EXPECT_TRUE(scan_opts_[scan_idx_].property_bag.has_value());
+            target_num_keys_ = std::stoi(scan_opts_[scan_idx_]
+                                             .property_bag.value()
+                                             .find("count")
+                                             ->second);
+            scan_idx_++;
+          } else {
+            scan_opts_ = nullptr;
+          }
+        }
         iter_ = index_.lower_bound(key.ToString());
         if (iter_ != index_.end()) {
           valid_ = true;
           result->key = Slice(iter_->first);
+          if (scan_opts_ && target_num_keys_ > 0 &&
+              iter_->first.compare(key.ToString()) == 0) {
+            target_num_keys_--;
+          }
         } else {
           valid_ = false;
           result->bound_check_result = IterBoundCheck::kOutOfBound;
@@ -7544,10 +7567,17 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
             return Status::OK();
           }
         }
+        if (scan_opts_ && target_num_keys_ == 0) {
+          valid_ = false;
+          result->key = Slice();
+          result->bound_check_result = IterBoundCheck::kOutOfBound;
+          return Status::OK();
+        }
         iter_++;
         if (iter_ != index_.end()) {
           valid_ = true;
           result->key = Slice(iter_->first);
+          target_num_keys_ -= std::min(target_num_keys_, iter_->second.second);
         } else {
           valid_ = false;
           result->key = Slice();
@@ -7564,6 +7594,12 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
         return handle;
       }
 
+      void Prepare(const ScanOptions scan_opts[], size_t num_opts) override {
+        scan_opts_ = scan_opts;
+        num_opts_ = num_opts;
+        scan_idx_ = 0;
+      }
+
      private:
       const ReadOptions& ro_;
       std::map<std::string,
@@ -7572,6 +7608,10 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
       std::map<std::string, std::pair<UserDefinedIndexBuilder::BlockHandle,
                                       uint32_t>>::iterator iter_;
       bool valid_;
+      const ScanOptions* scan_opts_;
+      size_t num_opts_;
+      size_t scan_idx_;
+      uint32_t target_num_keys_;
     };
 
     std::map<std::string,
@@ -7699,6 +7739,23 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
     key_count++;
   }
   ASSERT_EQ(key_count, 66);
+
+  ro.iterate_upper_bound = nullptr;
+  iter.reset(reader->NewIterator(ro));
+  ASSERT_NE(iter, nullptr);
+  std::vector<ScanOptions> scan_opts({ScanOptions("key20")});
+  ;
+  scan_opts[0].property_bag.emplace().emplace("count", std::to_string(25));
+  iter->Prepare(scan_opts);
+  // Test that we can read all the keys
+  key_count = 0;
+  for (iter->Seek(scan_opts[0].range.start.value()); iter->Valid();
+       iter->Next()) {
+    key_count++;
+  }
+  ASSERT_GE(key_count, 25);
+  // The index may undercount by 2 blocks
+  ASSERT_LE(key_count, 30);
 }
 
 TEST_F(UserDefinedIndexTest, InvalidArgumentTest1) {
@@ -7756,6 +7813,153 @@ TEST_F(UserDefinedIndexTest, InvalidArgumentTest2) {
   ASSERT_OK(writer->Merge(key, value));
   ASSERT_EQ(writer->Finish(), Status::InvalidArgument());
   writer.reset();
+}
+
+TEST_F(UserDefinedIndexTest, IngestTest) {
+  Options options;
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  // Set up the user-defined index factory
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  table_options.user_defined_index_factory = user_defined_index_factory;
+
+  // Set up custom flush block policy that flushes every 3 keys
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+
+  // Add 100 keys instead of just 5
+  for (int i = 0; i < 100; i++) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    std::string key = "key" + ss.str();
+    std::string value = "value" + ss.str();
+    ASSERT_OK(writer->Put(key, value));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  std::unique_ptr<DB> db;
+  options.create_if_missing = true;
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(options, "new_cf", &cfh));
+
+  IngestExternalFileOptions ifo;
+  s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
+  ASSERT_OK(s);
+
+  ReadOptions ro;
+  std::unique_ptr<Iterator> iter(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  ASSERT_OK(iter->status());
+
+  // Test that we can read all the keys
+  int key_count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    key_count++;
+  }
+  ASSERT_EQ(key_count, 100);  // We added 100 keys
+  iter.reset();
+
+  ro.table_index_name.emplace("test_index");
+  iter.reset(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+
+  // Test that we can read all the keys
+  key_count = 0;
+  for (iter->Seek("key09"); iter->Valid(); iter->Next()) {
+    key_count++;
+  }
+  ASSERT_EQ(key_count, 91);
+
+  Slice ub("key75");
+  ro.iterate_upper_bound = &ub;
+  iter.reset(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+
+  // Test that we can read all the keys
+  key_count = 0;
+  for (iter->Seek("key09"); iter->Valid(); iter->Next()) {
+    key_count++;
+  }
+  ASSERT_EQ(key_count, 66);
+
+  ro.iterate_upper_bound = nullptr;
+  iter.reset(db->NewIterator(ro, cfh));
+  ASSERT_NE(iter, nullptr);
+  std::vector<ScanOptions> scan_opts({ScanOptions("key20")});
+  ;
+  scan_opts[0].property_bag.emplace().emplace("count", std::to_string(25));
+  iter->Prepare(scan_opts);
+  // Test that we can read all the keys
+  key_count = 0;
+  for (iter->Seek(scan_opts[0].range.start.value()); iter->Valid();
+       iter->Next()) {
+    key_count++;
+  }
+  ASSERT_GE(key_count, 25);
+  // The index may undercount by 2 blocks
+  ASSERT_LE(key_count, 30);
+  iter.reset();
+  delete cfh;
+}
+
+TEST_F(UserDefinedIndexTest, IngestFailTest) {
+  Options options;
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  // Set up custom flush block policy that flushes every 3 keys
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+
+  // Add 100 keys instead of just 5
+  for (int i = 0; i < 100; i++) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    std::string key = "key" + ss.str();
+    std::string value = "value" + ss.str();
+    ASSERT_OK(writer->Put(key, value));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  // Set up the user-defined index factory
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  table_options.user_defined_index_factory = user_defined_index_factory;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<DB> db;
+  options.create_if_missing = true;
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db->CreateColumnFamily(options, "new_cf", &cfh));
+
+  IngestExternalFileOptions ifo;
+  s = db->IngestExternalFile(cfh, {ingest_file}, ifo);
+  ASSERT_NOK(s);
+  delete cfh;
 }
 }  // namespace ROCKSDB_NAMESPACE
 
