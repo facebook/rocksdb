@@ -7396,6 +7396,7 @@ TEST_F(ExternalTableTest, IngestionTest) {
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
   ASSERT_OK(db->Close());
 }
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

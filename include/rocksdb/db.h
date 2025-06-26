@@ -57,6 +57,7 @@ struct WaitForCompactOptions;
 class Env;
 class EventListener;
 class FileSystem;
+class MultiScan;
 class Replayer;
 class StatsHistoryIterator;
 class TraceReader;
@@ -1092,7 +1093,30 @@ class DB {
 
   // Get an iterator that scans multiple key ranges. The scan ranges should
   // be in increasing order of start key. See multi_scan_iterator.h for more
-  // details.
+  // details. For optimal performance, ensure that either all entries in
+  // scan_opts specify the range limit, or none of them do.
+  //
+  // NOTE: iterate_upper_bound in ReadOptions will be ignored. Instead, the
+  // range.limit in ScanOptions is consulted to determine the upper bound key,
+  // if specified.
+  //
+  // Example usage -
+  //  std::vector<ScanOptions> scans{{.start = Slice("bar")},
+  //                              {.start = Slice("foo")}};
+  //  std::unique_ptr<MultiScan> iter.reset(
+  //                                      db->NewMultiScan());
+  //  try {
+  //    for (auto scan : *iter) {
+  //      for (auto it : scan) {
+  //        // Do something with key - it.first
+  //        // Do something with value - it.second
+  //      }
+  //    }
+  //  } catch (MultiScanException& ex) {
+  //    // Check ex.status()
+  //  } catch (std::logic_error& ex) {
+  //    // Check ex.what()
+  //  }
   virtual std::unique_ptr<MultiScan> NewMultiScan(
       const ReadOptions& /*options*/, ColumnFamilyHandle* /*column_family*/,
       const std::vector<ScanOptions>& /*scan_opts*/) {
