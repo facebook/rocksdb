@@ -47,6 +47,12 @@ void BlockCreateContext::Create(std::unique_ptr<Block_kMetaIndex>* parsed_out,
 }
 
 void BlockCreateContext::Create(
+    std::unique_ptr<Block_kUserDefinedIndex>* parsed_out,
+    BlockContents&& block) {
+  parsed_out->reset(new Block_kUserDefinedIndex(std::move(block)));
+}
+
+void BlockCreateContext::Create(
     std::unique_ptr<ParsedFullFilterBlock>* parsed_out, BlockContents&& block) {
   parsed_out->reset(new ParsedFullFilterBlock(
       table_options->filter_policy.get(), std::move(block)));
