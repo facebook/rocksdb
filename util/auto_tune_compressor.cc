@@ -269,10 +269,6 @@ Status CostAwareCompressor::CompressBlockAndRecord(
                                           compressed_output->size());
   auto predictor =
       wa->cost_predictors_[choosen_compression_type][compression_level_ptr];
-  TEST_SYNC_POINT_CALLBACK(
-      "CostAwareCompressor::CompressBlockAndRecord::"
-      "SetCompressionTimeOutputSize",
-      &measured_data);
   auto output_length = measured_data.second;
   auto cpu_time = measured_data.first;
   predictor->CPUPredictor.Record(cpu_time);

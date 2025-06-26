@@ -236,18 +236,11 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
     }
     // Check every window
     if (num_keys_ % window_ == 0) {
-      auto set_compress_time_and_size = [](size_t time, size_t size) {
-        return [time, size](void* arg) {
-          std::pair<size_t, size_t>* measured_data =
-              static_cast<std::pair<size_t, size_t>*>(arg);
-          measured_data->first = time;
-          measured_data->second = size;
-        };
-      };
       auto get_predictor = [&](void* arg) {
-        auto predictor = static_cast<IOCPUCostPredictor*>(arg);
-        predicted_cpu_time_ = predictor->CPUPredictor.Predict();
-        predicted_io_bytes_ = predictor->IOPredictor.Predict();
+        // gets the predictor and sets the mocked cpu and io cost
+        predictor_ = static_cast<IOCPUCostPredictor*>(arg);
+        predictor_->CPUPredictor.SetPrediction(1000);
+        predictor_->IOPredictor.SetPrediction(100);
       };
       SyncPoint::GetInstance()->DisableProcessing();
       SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -257,21 +250,19 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
           "CostAwareCompressor::CompressBlockAndRecord::"
           "GetPredictor",
           get_predictor);
+      SyncPoint::GetInstance()->EnableProcessing();
       // use nth window to detect test cases and set the expected
       switch (nth_window) {
         case 0:
-          SyncPoint::GetInstance()->SetCallBack(
-              "CostAwareCompressor::CompressBlockAndRecord::"
-              "SetCompressionTimeOutputSize",
-              set_compress_time_and_size(1000, 100));
           break;
         case 1:
           // Verify that the Mocked cpu cost and io cost are predicted correctly
-          EXPECT_EQ(predicted_io_bytes_, 100);
-          EXPECT_EQ(predicted_cpu_time_, 1000);
+          auto predicted_cpu_time = predictor_->CPUPredictor.Predict();
+          auto predicted_io_bytes = predictor_->IOPredictor.Predict();
+          EXPECT_EQ(predicted_io_bytes, 100);
+          EXPECT_EQ(predicted_cpu_time, 1000);
           break;
       }
-      SyncPoint::GetInstance()->EnableProcessing();
     }
     num_keys_++;
     return true;
@@ -281,14 +272,8 @@ class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
   int window_;
   int num_keys_;
   const BlockBuilder& data_block_builder_;
-
-  static size_t cpu_time_, predicted_cpu_time_, predicted_io_bytes_;
-  static size_t output_size_;
+  IOCPUCostPredictor* predictor_;
 };
-size_t CostAwareTestFlushBlockPolicy::cpu_time_ = 0,
-       CostAwareTestFlushBlockPolicy::predicted_cpu_time_ = 0,
-       CostAwareTestFlushBlockPolicy::predicted_io_bytes_ = 0,
-       CostAwareTestFlushBlockPolicy::output_size_ = 0;
 class CostAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
   explicit CostAwareTestFlushBlockPolicyFactory(const int window)
@@ -315,10 +300,6 @@ class DBCompresssionCostPredictor : public DBTestBase {
       : DBTestBase("db_cpuio_skip", /*env_do_fsync=*/true),
         options(CurrentOptions()) {
     options.compression_manager = CreateCostAwareCompressionManager();
-    if (ZSTD_Supported()) {
-      options.compression = kZSTD;
-      options.bottommost_compression = kZSTD;
-    }
     auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.statistics = statistics;
     options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);

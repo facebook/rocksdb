@@ -104,6 +104,7 @@ class WindowAveragePredictor {
     }
     return true;
   }
+  void SetPrediction(T prediction) { prediction_ = prediction; }
 
  private:
   T sum_;

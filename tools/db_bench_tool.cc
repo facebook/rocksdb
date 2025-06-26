@@ -4652,17 +4652,16 @@ class Benchmark {
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
       options.compression = FLAGS_compression_type_e;
     } else {
-      // compression maanage is not supported
+      // compression manager is not supported
       // exit with error
       fprintf(stderr, "Requested compression manager not supported");
       ErrorExit();
     }
     if (FLAGS_compression_type_e == kNoCompression &&
-        (!strcasecmp(FLAGS_compression_manager.c_str(), "mixed") ||
-         !strcasecmp(FLAGS_compression_manager.c_str(), "costpredictor"))) {
+        strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
       fprintf(stderr,
               "Compression type must not be no Compression when using "
-              "autoskip");
+              "compression manager");
       ErrorExit();
     }
     if (mgr != nullptr) {
