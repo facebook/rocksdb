@@ -293,10 +293,10 @@ class CostAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  private:
   int window_;
 };
-class DBCompresssionCostPredictor : public DBTestBase {
+class DBCompressionCostPredictor : public DBTestBase {
  public:
   Options options;
-  DBCompresssionCostPredictor()
+  DBCompressionCostPredictor()
       : DBTestBase("db_cpuio_skip", /*env_do_fsync=*/true),
         options(CurrentOptions()) {
     options.compression_manager = CreateCostAwareCompressionManager();
@@ -311,7 +311,7 @@ class DBCompresssionCostPredictor : public DBTestBase {
     DestroyAndReopen(options);
   }
 };
-TEST_F(DBCompresssionCostPredictor, CostAwareCompressorManager) {
+TEST_F(DBCompressionCostPredictor, CostAwareCompressorManager) {
   // making sure that the compression is supported
   if (!ZSTD_Supported()) {
     return;
