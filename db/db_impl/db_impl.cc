@@ -791,7 +791,7 @@ Status DBImpl::StartPeriodicTaskScheduler() {
         PeriodicTaskType::kDumpStats,
         periodic_task_functions_.at(PeriodicTaskType::kDumpStats),
         mutable_db_options_.stats_dump_period_sec,
-        /*run_immediately=*/false);
+        /*run_immediately=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -801,7 +801,7 @@ Status DBImpl::StartPeriodicTaskScheduler() {
         PeriodicTaskType::kPersistStats,
         periodic_task_functions_.at(PeriodicTaskType::kPersistStats),
         mutable_db_options_.stats_persist_period_sec,
-        /*run_immediately=*/false);
+        /*run_immediately=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -6896,6 +6896,7 @@ void DBImpl::RecordSeqnoToTimeMapping() {
 }
 
 void DBImpl::TriggerPeriodicCompaction() {
+  TEST_SYNC_POINT("DBImpl::TriggerPeriodicCompaction:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
     for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
