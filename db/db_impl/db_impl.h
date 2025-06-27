@@ -808,8 +808,8 @@ class DBImpl : public DB {
   // match to our in-memory records
   virtual Status CheckConsistency();
 
-  // max_file_num_to_ignore allows bottom level compaction to filter out newly
-  // compacted SST files. Setting max_file_num_to_ignore to kMaxUint64 will
+  // min_file_num_to_ignore allows bottom level compaction to filter out newly
+  // compacted SST files. Setting min_file_num_to_ignore to kMaxUint64 will
   // disable the filtering
   // If `final_output_level` is not nullptr, it is set to manual compaction's
   // output level if returned status is OK, and it may or may not be set to
@@ -819,7 +819,7 @@ class DBImpl : public DB {
                              const CompactRangeOptions& compact_range_options,
                              const Slice* begin, const Slice* end,
                              bool exclusive, bool disallow_trivial_move,
-                             uint64_t max_file_num_to_ignore,
+                             uint64_t min_file_num_to_ignore,
                              const std::string& trim_ts,
                              int* final_output_level = nullptr);
 

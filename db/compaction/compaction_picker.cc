@@ -607,7 +607,7 @@ Compaction* CompactionPicker::CompactRange(
     int input_level, int output_level,
     const CompactRangeOptions& compact_range_options, const InternalKey* begin,
     const InternalKey* end, InternalKey** compaction_end, bool* manual_conflict,
-    uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
+    uint64_t min_file_num_to_ignore, const std::string& trim_ts) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
 
@@ -757,20 +757,20 @@ Compaction* CompactionPicker::CompactRange(
   assert(compact_range_options.target_path_id <
          static_cast<uint32_t>(ioptions_.cf_paths.size()));
 
-  // for BOTTOM LEVEL compaction only, use max_file_num_to_ignore to filter out
+  // for BOTTOM LEVEL compaction only, use min_file_num_to_ignore to filter out
   // files that are created during the current compaction.
   if ((compact_range_options.bottommost_level_compaction ==
            BottommostLevelCompaction::kForceOptimized ||
        compact_range_options.bottommost_level_compaction ==
            BottommostLevelCompaction::kIfHaveCompactionFilter) &&
-      max_file_num_to_ignore != std::numeric_limits<uint64_t>::max()) {
+      min_file_num_to_ignore != std::numeric_limits<uint64_t>::max()) {
     assert(input_level == output_level);
     // inputs_shrunk holds a continuous subset of input files which were all
     // created before the current manual compaction
     std::vector<FileMetaData*> inputs_shrunk;
     size_t skip_input_index = inputs.size();
     for (size_t i = 0; i < inputs.size(); ++i) {
-      if (inputs[i]->fd.GetNumber() < max_file_num_to_ignore) {
+      if (inputs[i]->fd.GetNumber() < min_file_num_to_ignore) {
         inputs_shrunk.push_back(inputs[i]);
       } else if (!inputs_shrunk.empty()) {
         // inputs[i] was created during the current manual compaction and
@@ -788,7 +788,7 @@ Compaction* CompactionPicker::CompactRange(
     // set covering_the_whole_range to false if there is any file that need to
     // be compacted in the range of inputs[skip_input_index+1, inputs.size())
     for (size_t i = skip_input_index + 1; i < inputs.size(); ++i) {
-      if (inputs[i]->fd.GetNumber() < max_file_num_to_ignore) {
+      if (inputs[i]->fd.GetNumber() < min_file_num_to_ignore) {
         covering_the_whole_range = false;
       }
     }
