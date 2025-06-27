@@ -273,11 +273,11 @@ class Decompressor {
   // dictionary is processed into a form reusable by repeated compressions in
   // many threads, that happens within this call.
   //
-  // Must return OK if storing a result in `out`. Otherwise, could return values
-  // like NotSupported - dictionary compression is not (yet) supported for this
-  // kind of Decompressor.
-  // Corruption - dictionary is malformed (though many implementations will
-  // accept any data as a dictionary)
+  // Must return OK if and only if storing a result in `out`. Otherwise, could
+  // return values like NotSupported - dictionary compression is not (yet)
+  // supported for this kind of Decompressor. Corruption - dictionary is
+  // malformed (though many implementations will accept any data as a
+  // dictionary)
   virtual Status MaybeCloneForDict(const Slice& /*serialized_dict*/,
                                    std::unique_ptr<Decompressor>* /*out*/) {
     return Status::NotSupported(
@@ -371,8 +371,9 @@ class CompressionManager
                                  const std::string& id,
                                  std::shared_ptr<CompressionManager>* result);
 
-  // Will this compression type be used if requested in calling
-  // GetCompressor/GetCompressorForSST?
+  // Returns false iff a configuration that would pass the given compression
+  // type to GetCompressor/GetCompressorForSST should be rejected (not
+  // supported)
   virtual bool SupportsCompressionType(CompressionType type) const = 0;
 
   // TODO: function to check compatibility with or sanitize CompressionOptions
@@ -577,15 +578,25 @@ class CompressionManagerWrapper : public CompressionManager {
   std::shared_ptr<CompressionManager> wrapped_;
 };
 
-// Compression manager that implements built-in compression strategy. The
-// behavior of compression_manager=nullptr is essentially equivalent to
-// using this compression manager.
-const std::shared_ptr<CompressionManager>&
-GetDefaultBuiltinCompressionManager();
-// Gets CompressionManager designed for the automated compression strategy.
+// Compression manager that implements the second schema for RocksDB built-in
+// compression support. (The first schema is intentionally not provided here.)
+// *** CURRENT STATE ***
+// This is currently the latest schema for built-in compression, and the
+// compression manager used when compression_manager=nullptr.
+const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager();
+
+// NOTE: No GetLatestBuiltinCompressionManager() is provided because that could
+// lead to unexpected schema changes for user CompressionManagers building on
+// the built-in schema, in the unlikely/rare case of a new built-in schema.
+
+// Creates CompressionManager designed for the automated compression strategy.
 // This may include deciding to compress or not.
-// In future should be able to select compression algorithm based on the CPU
-// utilization and IO constraints.
+// EXPERIMENTAL
 std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
-    std::shared_ptr<CompressionManager> wrapped);
+    std::shared_ptr<CompressionManager> wrapped = nullptr);
+// Creates CompressionManager designed for the CPU and IO cost aware compression
+// strategy
+// EXPERIMENTAL
+std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
+    std::shared_ptr<CompressionManager> wrapped = nullptr);
 }  // namespace ROCKSDB_NAMESPACE

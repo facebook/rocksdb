@@ -17,6 +17,7 @@
 #include "rocksdb/flush_block_policy.h"
 #include "table/block_based/block_builder.h"
 #include "test_util/testutil.h"
+#include "util/auto_tune_compressor.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -157,8 +158,7 @@ class DBAutoSkip : public DBTestBase {
         options(CurrentOptions()),
         rnd_(231),
         key_index_(0) {
-    options.compression_manager =
-        CreateAutoSkipCompressionManager(GetDefaultBuiltinCompressionManager());
+    options.compression_manager = CreateAutoSkipCompressionManager();
     auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.statistics = statistics;
     options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
@@ -167,7 +167,6 @@ class DBAutoSkip : public DBTestBase {
     bbto.flush_block_policy_factory.reset(
         new AutoSkipTestFlushBlockPolicyFactory(10, statistics));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    DestroyAndReopen(options);
   }
 
   bool CompressionFriendlyPut(const int no_of_kvs, const int size_of_value) {
@@ -191,7 +190,13 @@ class DBAutoSkip : public DBTestBase {
 };
 
 TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
-  if (GetSupportedCompressions().size() > 1) {
+  for (auto type : GetSupportedCompressions()) {
+    if (type == kNoCompression) {
+      continue;
+    }
+    options.compression = type;
+    options.bottommost_compression = type;
+    DestroyAndReopen(options);
     const int kValueSize = 20000;
     // This will set the rejection ratio to 60%
     CompressionUnfriendlyPut(6, kValueSize);
@@ -215,6 +220,122 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
     ASSERT_OK(Flush());
   }
 }
+class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
+ public:
+  explicit CostAwareTestFlushBlockPolicy(const int window,
+                                         const BlockBuilder& data_block_builder)
+      : window_(window),
+        num_keys_(0),
+        data_block_builder_(data_block_builder) {}
+
+  bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
+    auto nth_window = num_keys_ / window_;
+    if (data_block_builder_.empty()) {
+      // First key in this block
+      return false;
+    }
+    // Check every window
+    if (num_keys_ % window_ == 0) {
+      auto get_predictor = [&](void* arg) {
+        // gets the predictor and sets the mocked cpu and io cost
+        predictor_ = static_cast<IOCPUCostPredictor*>(arg);
+        predictor_->CPUPredictor.SetPrediction(1000);
+        predictor_->IOPredictor.SetPrediction(100);
+      };
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+
+      // Add syncpoint to get the cpu and io cost
+      SyncPoint::GetInstance()->SetCallBack(
+          "CostAwareCompressor::CompressBlockAndRecord::"
+          "GetPredictor",
+          get_predictor);
+      SyncPoint::GetInstance()->EnableProcessing();
+      // use nth window to detect test cases and set the expected
+      switch (nth_window) {
+        case 0:
+          break;
+        case 1:
+          // Verify that the Mocked cpu cost and io cost are predicted correctly
+          auto predicted_cpu_time = predictor_->CPUPredictor.Predict();
+          auto predicted_io_bytes = predictor_->IOPredictor.Predict();
+          EXPECT_EQ(predicted_io_bytes, 100);
+          EXPECT_EQ(predicted_cpu_time, 1000);
+          break;
+      }
+    }
+    num_keys_++;
+    return true;
+  }
+
+ private:
+  int window_;
+  int num_keys_;
+  const BlockBuilder& data_block_builder_;
+  IOCPUCostPredictor* predictor_;
+};
+class CostAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+ public:
+  explicit CostAwareTestFlushBlockPolicyFactory(const int window)
+      : window_(window) {}
+
+  virtual const char* Name() const override {
+    return "CostAwareTestFlushBlockPolicyFactory";
+  }
+
+  virtual FlushBlockPolicy* NewFlushBlockPolicy(
+      const BlockBasedTableOptions& /*table_options*/,
+      const BlockBuilder& data_block_builder) const override {
+    (void)data_block_builder;
+    return new CostAwareTestFlushBlockPolicy(window_, data_block_builder);
+  }
+
+ private:
+  int window_;
+};
+class DBCompressionCostPredictor : public DBTestBase {
+ public:
+  Options options;
+  DBCompressionCostPredictor()
+      : DBTestBase("db_cpuio_skip", /*env_do_fsync=*/true),
+        options(CurrentOptions()) {
+    options.compression_manager = CreateCostAwareCompressionManager();
+    auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    options.statistics = statistics;
+    options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+    BlockBasedTableOptions bbto;
+    bbto.enable_index_compression = false;
+    bbto.flush_block_policy_factory.reset(
+        new CostAwareTestFlushBlockPolicyFactory(10));
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    DestroyAndReopen(options);
+  }
+};
+TEST_F(DBCompressionCostPredictor, CostAwareCompressorManager) {
+  // making sure that the compression is supported
+  if (!ZSTD_Supported()) {
+    return;
+  }
+  const int kValueSize = 20000;
+  int next_key = 0;
+  Random rnd(231);
+  auto value = rnd.RandomBinaryString(kValueSize);
+  int window_size = 10;
+  auto WindowWrite = [&]() {
+    for (auto i = 0; i < window_size; ++i) {
+      auto status = Put(Key(next_key), value);
+      EXPECT_OK(status);
+      next_key++;
+    }
+  };
+  // This denotes the first window
+  // Mocked to have specific cpu utilization and io cost
+  WindowWrite();
+  // check the predictor is predicting the correct cpu and io cost
+  WindowWrite();
+  ASSERT_OK(Flush());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
