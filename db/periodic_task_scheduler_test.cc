@@ -56,6 +56,12 @@ TEST_F(PeriodicTaskSchedulerTest, Basic) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::FlushInfoLog:StartRunning",
       [&](void*) { flush_info_log_counter++; });
+
+  int trigger_compaction_counter = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::TriggerPeriodicCompaction:StartRunning",
+      [&](void*) { trigger_compaction_counter++; });
+
   SyncPoint::GetInstance()->EnableProcessing();
 
   Reopen(options);
@@ -70,7 +76,7 @@ TEST_F(PeriodicTaskSchedulerTest, Basic) {
 
   const PeriodicTaskScheduler& scheduler =
       dbfull()->TEST_GetPeriodicTaskScheduler();
-  ASSERT_EQ(3, scheduler.TEST_GetValidTaskNum());
+  ASSERT_EQ((int)PeriodicTaskType::kMax - 1, scheduler.TEST_GetValidTaskNum());
 
   ASSERT_EQ(1, dump_st_counter);
   ASSERT_EQ(1, pst_st_counter);
@@ -103,20 +109,30 @@ TEST_F(PeriodicTaskSchedulerTest, Basic) {
   ASSERT_EQ(3, pst_st_counter);
   ASSERT_EQ(4, flush_info_log_counter);
 
-  ASSERT_EQ(1u, scheduler.TEST_GetValidTaskNum());
+  ASSERT_EQ(2u, scheduler.TEST_GetValidTaskNum());
 
   // Re-enable one task
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_dump_period_sec", "5"}}));
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
   ASSERT_EQ(0u, dbfull()->GetDBOptions().stats_persist_period_sec);
 
-  ASSERT_EQ(2, scheduler.TEST_GetValidTaskNum());
+  ASSERT_EQ(3, scheduler.TEST_GetValidTaskNum());
 
   dbfull()->TEST_WaitForPeriodicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
   ASSERT_EQ(4, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
   ASSERT_EQ(5, flush_info_log_counter);
+
+  ASSERT_EQ(0, trigger_compaction_counter);
+  dbfull()->TEST_WaitForPeriodicTaskRun([&] {
+    mock_clock_->MockSleepForSeconds(static_cast<int>(12 * 60 * 60));
+  });
+  ASSERT_EQ(1, trigger_compaction_counter);
+  dbfull()->TEST_WaitForPeriodicTaskRun([&] {
+    mock_clock_->MockSleepForSeconds(static_cast<int>(12 * 60 * 60));
+  });
+  ASSERT_EQ(2, trigger_compaction_counter);
 
   Close();
 }
@@ -150,7 +166,9 @@ TEST_F(PeriodicTaskSchedulerTest, MultiInstances) {
   auto dbi = static_cast_with_check<DBImpl>(dbs[kInstanceNum - 1]);
 
   const PeriodicTaskScheduler& scheduler = dbi->TEST_GetPeriodicTaskScheduler();
-  ASSERT_EQ(kInstanceNum * 3, scheduler.TEST_GetValidTaskNum());
+  // kRecordSeqnoTime is not registered since the feature is not enabled
+  ASSERT_EQ(kInstanceNum * ((int)PeriodicTaskType::kMax - 1),
+            scheduler.TEST_GetValidTaskNum());
 
   int expected_run = kInstanceNum;
   dbi->TEST_WaitForPeriodicTaskRun(
