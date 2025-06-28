@@ -294,7 +294,6 @@ std::unique_ptr<Compressor> CostAwareCompressorManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,
     CompressionType preferred) {
   assert(GetSupportedCompressions().size() > 1);
-  assert(preferred != kNoCompression);
   (void)context;
   (void)preferred;
   return std::make_unique<CostAwareCompressor>(opts);
