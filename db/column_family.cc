@@ -1633,6 +1633,8 @@ Status ColumnFamilyData::SetOptions(
   Status s = GetColumnFamilyOptionsFromMap(config_opts, cf_opts, options_map,
                                            &cf_opts);
   if (s.ok()) {
+    // FIXME: we should call SanitizeOptions() too or consolidate it with
+    // ValidateOptions().
     s = ValidateOptions(db_opts, cf_opts);
   }
   if (s.ok()) {
