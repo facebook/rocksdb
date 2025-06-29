@@ -360,6 +360,11 @@ class StringSource : public FSRandomAccessFile {
 
   void set_total_reads(int tr) { total_reads_ = tr; }
 
+  IOStatus GetFileSize(uint64_t* file_size) override {
+    *file_size = contents_.size();
+    return IOStatus::OK();
+  }
+
  private:
   std::string contents_;
   uint64_t uniq_id_;

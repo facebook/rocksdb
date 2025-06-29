@@ -17,9 +17,9 @@ class DBEncryptionTest : public DBTestBase {
  public:
   DBEncryptionTest()
       : DBTestBase("db_encryption_test", /*env_do_fsync=*/true) {}
-  Env* GetTargetEnv() {
+  Env* GetNonEncryptedEnv() {
     if (encrypted_env_ != nullptr) {
-      return (static_cast<EnvWrapper*>(encrypted_env_))->target();
+      return (dynamic_cast<CompositeEnvWrapper*>(encrypted_env_))->env_target();
     } else {
       return env_;
     }
@@ -38,7 +38,7 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
   auto status = env_->GetChildren(dbname_, &fileNames);
   ASSERT_OK(status);
 
-  Env* target = GetTargetEnv();
+  Env* target = GetNonEncryptedEnv();
   int hits = 0;
   for (auto it = fileNames.begin(); it != fileNames.end(); ++it) {
     if (*it == "LOCK") {
@@ -89,7 +89,7 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
 }
 
 TEST_F(DBEncryptionTest, ReadEmptyFile) {
-  auto defaultEnv = GetTargetEnv();
+  auto defaultEnv = GetNonEncryptedEnv();
 
   // create empty file for reading it back in later
   auto envOptions = EnvOptions(CurrentOptions());
@@ -114,6 +114,55 @@ TEST_F(DBEncryptionTest, ReadEmptyFile) {
   ASSERT_OK(status);
 
   ASSERT_TRUE(data.empty());
+}
+
+TEST_F(DBEncryptionTest, NotSupportedGetFileSize) {
+  // Encrypted envs do not support GetFileSize.
+  // Validate ReadFooterFromFile allowing not supported GetFileSize file system.
+  std::shared_ptr<FileSystem> fs;
+  if (encrypted_env_) {
+    fs = encrypted_env_->GetFileSystem();
+  } else {
+    fs = env_->GetFileSystem();
+  }
+
+  // create empty file for reading it back in later
+  auto envOptions = EnvOptions(CurrentOptions());
+  auto filePath = dbname_ + "/empty.empty";
+
+  Status status;
+  {
+    // create an empty file
+    std::unique_ptr<WritableFile> writableFile;
+    status = env_->NewWritableFile(filePath, &writableFile, envOptions);
+    ASSERT_OK(status);
+  }
+
+  // Open it for reading footer
+  std::unique_ptr<FSRandomAccessFile> randomAccessFile;
+  status = fs->NewRandomAccessFile(filePath, FileOptions(), &randomAccessFile,
+                                   nullptr);
+  ASSERT_OK(status);
+
+  auto randomAccessFileReader = std::make_unique<RandomAccessFileReader>(
+      std::move(randomAccessFile), filePath);
+
+  status = ReadFooterFromFile(IOOptions(), randomAccessFileReader.get(), *fs,
+                              nullptr, 16 /* Wrong file size */, nullptr);
+  if (encrypted_env_) {
+    // For encrypted env, the GetFileSize API is not supported, so file size
+    // matching check is skipped. Instead it will return file size too short for
+    // footer validation.
+    ASSERT_TRUE(status.IsCorruption());
+    ASSERT_TRUE(status.ToString().find("file is too short") !=
+                std::string::npos);
+  } else {
+    // For non encrypted env, the GetFileSize API is supported, and should
+    // return value 0, which triggers file size not match error.
+    ASSERT_TRUE(status.IsCorruption());
+    ASSERT_TRUE(status.ToString().find("file size mismatch") !=
+                std::string::npos);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

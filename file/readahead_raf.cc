@@ -108,6 +108,10 @@ class ReadaheadRandomAccessFile : public FSRandomAccessFile {
 
   bool use_direct_io() const override { return file_->use_direct_io(); }
 
+  IOStatus GetFileSize(uint64_t* result) override {
+    return file_->GetFileSize(result);
+  }
+
  private:
   // Tries to read from buffer_ n bytes starting at offset. If anything was read
   // from the cache, it sets cached_len to the number of bytes actually read,
