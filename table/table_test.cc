@@ -444,7 +444,8 @@ class TableConstructor : public Constructor {
 
     file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     return moptions.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor, soptions,
+        TableReaderOptions(ioptions, moptions.prefix_extractor,
+                           moptions.compression_manager.get(), soptions,
                            *last_internal_comparator_,
                            0 /* block_protection_bytes_per_key */,
                            /*skip_filters*/ false,
@@ -1794,18 +1795,23 @@ TEST_P(BlockBasedTableTest, IndexUncompressed) {
 #endif  // SNAPPY
 
 TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
-  TableConstructor c(&reverse_key_comparator);
+  TableConstructor c(&reverse_key_comparator,
+                     true /* convert_to_internal_key_ */);
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
 
-  {
+  for (CompressionType ct : {kNoCompression, kSnappyCompression}) {
+    if (!Snappy_Supported() && ct == kSnappyCompression) {
+      continue;
+    }
     Options options;
-    options.compression = CompressionType::kNoCompression;
+    options.compression = ct;
     BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     const ImmutableOptions ioptions(options);
     const MutableCFOptions moptions(options);
+    c.Add("blah", std::string(200, 'x'));  // something to compress
     c.Finish(options, ioptions, moptions, table_options,
              GetPlainInternalComparator(options.comparator), &keys, &kvmap);
 
@@ -1822,7 +1828,13 @@ TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
     // No filter policy is used
     ASSERT_EQ("", props.filter_policy_name);
     // Compression type == that set:
-    ASSERT_EQ("NoCompression", props.compression_name);
+    if (FormatVersionUsesCompressionManagerName(table_options.format_version)) {
+      ASSERT_EQ(ct == kNoCompression ? ";;" : "BuiltinV2;01;",
+                props.compression_name);
+    } else {
+      ASSERT_EQ(ct == kNoCompression ? "NoCompression" : "Snappy",
+                props.compression_name);
+    }
     c.ResetTableReader();
   }
 
@@ -5332,7 +5344,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
         new RandomAccessFileReader(std::move(source), ""));
 
     options.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, moptions.prefix_extractor, EnvOptions(),
+        TableReaderOptions(ioptions, moptions.prefix_extractor,
+                           moptions.compression_manager.get(), EnvOptions(),
                            ikc, 0 /* block_protection_bytes_per_key */),
         std::move(file_reader), ss_rw.contents().size(), &table_reader);
 
@@ -5507,7 +5520,8 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   const MutableCFOptions moptions2(options2);
 
   ASSERT_OK(moptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions2, moptions2.prefix_extractor, EnvOptions(),
+      TableReaderOptions(ioptions2, moptions2.prefix_extractor,
+                         moptions2.compression_manager.get(), EnvOptions(),
                          GetPlainInternalComparator(options2.comparator),
                          0 /* block_protection_bytes_per_key */),
       std::move(file_reader), sink->contents().size(), &table_reader));
@@ -7382,12 +7396,12 @@ TEST_F(ExternalTableTest, IngestionTest) {
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfh));
   ASSERT_OK(db->Close());
 }
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   // Opt-in this whole test file
-  ROCKSDB_NAMESPACE::BlockBasedTableFactory::AllowUnsupportedFormatVersion() =
-      true;
+  ROCKSDB_NAMESPACE::TEST_AllowUnsupportedFormatVersion() = true;
 
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);

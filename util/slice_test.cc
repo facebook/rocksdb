@@ -14,6 +14,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -408,6 +409,17 @@ TEST(UnownedPtrTest, Tests) {
     ASSERT_EQ(q->first, 1);
     // Not committing to any moved-from semantics (on p here)
   }
+}
+
+TEST(ToBaseCharsStringTest, Tests) {
+  using ROCKSDB_NAMESPACE::ToBaseCharsString;
+  // Base 16
+  ASSERT_EQ(ToBaseCharsString<16>(5, 0, true), "00000");
+  ASSERT_EQ(ToBaseCharsString<16>(5, 42, true), "0002A");
+  ASSERT_EQ(ToBaseCharsString<16>(5, 42, false), "0002a");
+  ASSERT_EQ(ToBaseCharsString<16>(2, 255, false), "ff");
+  // Base 32
+  ASSERT_EQ(ToBaseCharsString<32>(2, 255, false), "7v");
 }
 
 }  // namespace ROCKSDB_NAMESPACE

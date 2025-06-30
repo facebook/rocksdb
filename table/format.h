@@ -157,10 +157,15 @@ inline uint32_t GetCompressFormatForVersion(uint32_t format_version) {
   // As of format_version 2, we encode compressed block with
   // compress_format_version == 2. Before that, the version is 1.
   // DO NOT CHANGE THIS FUNCTION, it affects disk format
+  // As of format_version 7 and opening up to custom compression, the
+  // compression format version is essentially independent of the block-based
+  // table format version, and encoded in the compression_name table property.
+  // Thus, this function can go away once we remove support for reading
+  // format_version=1.
   return format_version >= 2 ? 2 : 1;
 }
 
-constexpr uint32_t kLatestFormatVersion = 6;
+constexpr uint32_t kLatestFormatVersion = 7;
 
 inline bool IsSupportedFormatVersion(uint32_t version) {
   return version <= kLatestFormatVersion;
@@ -173,6 +178,10 @@ inline bool FormatVersionUsesContextChecksum(uint32_t version) {
 
 inline bool FormatVersionUsesIndexHandleInFooter(uint32_t version) {
   return version < 6;
+}
+
+inline bool FormatVersionUsesCompressionManagerName(uint32_t version) {
+  return version >= 7;
 }
 
 // Footer encapsulates the fixed information stored at the tail end of every
@@ -307,6 +316,10 @@ class FooterBuilder {
   Slice slice_;
   std::array<char, Footer::kMaxEncodedLength> data_;
 };
+
+// Set to true to allow unit testing of writing unsupported block-based table
+// format versions (to test read side)
+bool& TEST_AllowUnsupportedFormatVersion();
 
 // Read the footer from file
 // If enforce_table_magic_number != 0, ReadFooterFromFile() will return

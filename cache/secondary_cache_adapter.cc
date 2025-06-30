@@ -130,7 +130,7 @@ CacheWithSecondaryAdapter::~CacheWithSecondaryAdapter() {
               "Secondary cache reserved: %zu\n",
               pri_cache_res_->GetTotalMemoryUsed(), sec_capacity,
               sec_reserved_);
-      assert(pri_cache_res_mismatch);
+      assert(!pri_cache_res_mismatch);
     }
   }
 #endif  // NDEBUG
@@ -613,6 +613,7 @@ Status CacheWithSecondaryAdapter::UpdateCacheReservationRatio(
     //    cache utilization (increase in capacity - increase in share of cache
     //    reservation)
     // 3. Increase secondary cache capacity
+    assert(new_sec_reserved >= sec_reserved_);
     s = secondary_cache_->Deflate(new_sec_reserved - sec_reserved_);
     assert(s.ok());
     s = pri_cache_res_->UpdateCacheReservation(

@@ -561,6 +561,10 @@ struct BlockBasedTableOptions {
   // misplaced within or between files is as likely to fail checksum
   // verification as random corruption. Also checksum-protects SST footer.
   // Can be read by RocksDB versions >= 8.6.0.
+  // 7 -- Support for custom compression algorithms with a CompressionManager
+  // using a non-built-in CompatibilityName(). See `compression_manager` in
+  // ColumnFamilyOptions. Also changes the format of TableProperties field
+  // `compression_name`. Can be read by RocksDB versions >= 10.4.0.
   //
   // Using the default setting of format_version is strongly recommended, so
   // that available enhancements are adopted eventually and automatically. The

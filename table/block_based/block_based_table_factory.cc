@@ -469,7 +469,7 @@ void BlockBasedTableFactory::InitializeOptions() {
   }
 
   if (table_options_.format_version < kMinSupportedFormatVersion) {
-    if (AllowUnsupportedFormatVersion()) {
+    if (TEST_AllowUnsupportedFormatVersion()) {
       // Allow old format version for testing.
       // And relevant old sanitization.
       if (table_options_.format_version == 0 &&
@@ -569,9 +569,11 @@ Status BlockBasedTableFactory::NewTableReader(
       file_size, table_reader_options.block_protection_bytes_per_key,
       table_reader, table_reader_options.tail_size,
       shared_state_->table_reader_cache_res_mgr,
-      table_reader_options.prefix_extractor, prefetch_index_and_filter_in_cache,
-      table_reader_options.skip_filters, table_reader_options.level,
-      table_reader_options.immortal, table_reader_options.largest_seqno,
+      table_reader_options.prefix_extractor,
+      table_reader_options.compression_manager,
+      prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,
+      table_reader_options.level, table_reader_options.immortal,
+      table_reader_options.largest_seqno,
       table_reader_options.force_direct_prefetch,
       &shared_state_->tail_prefetch_stats,
       table_reader_options.block_cache_tracer,
@@ -608,28 +610,67 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Enable pin_l0_filter_and_index_blocks_in_cache, "
         ", but block cache is disabled");
   }
-  if (!IsSupportedFormatVersion(table_options_.format_version)) {
+  if (!IsSupportedFormatVersion(table_options_.format_version) &&
+      !TEST_AllowUnsupportedFormatVersion()) {
     return Status::InvalidArgument(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
   }
-  if (table_options_.block_align && (cf_opts.compression != kNoCompression)) {
-    return Status::InvalidArgument(
-        "Enable block_align, but compression "
-        "enabled");
+  bool using_builtin_compatible_compression = true;
+  if (cf_opts.compression_manager &&
+      strcmp(cf_opts.compression_manager->CompatibilityName(),
+             GetBuiltinCompressionManager(
+                 GetCompressFormatForVersion(table_options_.format_version))
+                 ->CompatibilityName()) != 0) {
+    if (FormatVersionUsesCompressionManagerName(
+            table_options_.format_version)) {
+      using_builtin_compatible_compression = false;
+    } else {
+      return Status::InvalidArgument(
+          "Using a CompressionManager incompatible with built-in (custom "
+          "CompatibilityName()) is not supported for format_version < 7");
+    }
   }
-  if (table_options_.block_align &&
-      cf_opts.bottommost_compression != kDisableCompressionOption &&
-      cf_opts.bottommost_compression != kNoCompression) {
-    return Status::InvalidArgument(
-        "Enable block_align, but bottommost_compression enabled");
-  }
-  if (table_options_.block_align) {
-    for (auto level_compression : cf_opts.compression_per_level) {
-      if (level_compression != kDisableCompressionOption &&
-          level_compression != kNoCompression) {
+  auto validate_compression_type_fn = [&](CompressionType ctype,
+                                          const char* context) {
+    if (ctype == kNoCompression) {
+      return Status::OK();
+    }
+    if (ctype == kDisableCompressionOption) {
+      if (strcmp(context, "compression") == 0) {
         return Status::InvalidArgument(
-            "Enable block_align, but compression_per_level enabled");
+            "kDisableCompressionOption not permitted for option: "
+            "compression");
+      } else {
+        return Status::OK();
+      }
+    }
+    if (table_options_.block_align) {
+      return Status::InvalidArgument("Enable block_align, but " +
+                                     std::string(context) + " enabled");
+    }
+    if (ctype > kLastBuiltinCompression &&
+        using_builtin_compatible_compression) {
+      return Status::InvalidArgument(
+          "Using a CompressionType other than built-in ...");  // TODO
+    }
+    // Otherwise
+    return Status::OK();
+  };
+  {
+    Status s = validate_compression_type_fn(cf_opts.compression, "compression");
+    if (!s.ok()) {
+      return s;
+    }
+    s = validate_compression_type_fn(cf_opts.bottommost_compression,
+                                     "bottommost_compression");
+    if (!s.ok()) {
+      return s;
+    }
+    for (auto ctype : cf_opts.compression_per_level) {
+      s = validate_compression_type_fn(ctype, "compression_per_level");
+      if (!s.ok()) {
+        return s;
       }
     }
   }
@@ -922,11 +963,6 @@ Status BlockBasedTableFactory::ParseOption(const ConfigOptions& config_options,
     }
   }
   return status;
-}
-
-bool& BlockBasedTableFactory::AllowUnsupportedFormatVersion() {
-  static bool allow = false;
-  return allow;
 }
 
 Status GetBlockBasedTableOptionsFromString(
