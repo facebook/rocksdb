@@ -608,6 +608,11 @@ struct DBOptions {
   // checksums. True also enters a read-only mode when a DB write fails;
   // see DB::Resume().
   //
+  // When set to true, the DB will fail to open if any of the file corrupted.
+  // When set to false, when there are files corrupted, the DB will still be
+  // opened, and the healthy ones could still be accessed, while corrupted one
+  // will not
+  //
   // As most workloads value data correctness over availability, this option
   // is on by default. Note that the name of this old option is potentially
   // misleading, and other options and operations go further in proactive
@@ -1299,8 +1304,11 @@ struct DBOptions {
 
   // This option is deprecated and marked as no-op. Kept for backward
   // compatibility until usage is fully removed.
-  // File size check will always be performed during DB Open through a thread
-  // pool. So the concern of DB Open slowness is eliminated.
+  // File size check will be performed through a thread
+  // pool during DB Open, when max_open_files is set to -1.
+  // Therefore, the concern of DB Open slowness is eliminated.
+  // Note that when max_open_files is not set to -1, only a subset of files will
+  // be opened and checked during DB Open.
   //
   // Default: false
   bool skip_checking_sst_file_sizes_on_db_open = false;

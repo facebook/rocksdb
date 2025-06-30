@@ -671,7 +671,7 @@ class PosixFileSystem : public FileSystem {
 
   IOStatus GetFileSize(const std::string& fname, const IOOptions& /*opts*/,
                        uint64_t* size, IODebugContext* /*dbg*/) override {
-    struct stat sbuf;
+    struct stat sbuf {};
     if (stat(fname.c_str(), &sbuf) != 0) {
       *size = 0;
       return IOError("while stat a file for size", fname, errno);
@@ -978,7 +978,7 @@ class PosixFileSystem : public FileSystem {
   // file size. However this API only works on opened file.
   IOStatus GetFileSizeOnOpenedFile(const int fd, const std::string& name,
                                    uint64_t* size) {
-    struct stat sb;
+    struct stat sb {};
     // Get file information using fstat
     if (fstat(fd, &sb) == -1) {
       *size = 0;
