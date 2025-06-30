@@ -3672,44 +3672,24 @@ TEST_F(TestGetFileSize, GetFileSize) {
   std::string fname = test::PerThreadDBPath(env_, "getFileSizeTestfile");
 
   // randomize file size
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<> distrib(1, 256 * 1024);
-  size_t expectedFileSize = distrib(gen);
+  auto rnd = Random::GetTLSInstance();
+  size_t expectedFileSize = rnd->Uniform(256 * 1024) + 1;
+  auto content = rnd->RandomBinaryString(expectedFileSize);
 
-  constexpr size_t kSectorSize = 4096;
+  ASSERT_OK(CreateFile(fs.get(), fname, content, false));
 
-  // 1. create & write to a file.
-  {
-    std::unique_ptr<FSWritableFile> wfile;
-    ASSERT_OK(
-        fs->NewWritableFile(fname, FileOptions(), &wfile, nullptr /*dbg*/));
+  std::unique_ptr<FSRandomAccessFile> file;
+  ASSERT_OK(fs->NewRandomAccessFile(fname, FileOptions(), &file, nullptr));
 
-    auto fileSizeLeft = expectedFileSize;
-    auto data = NewAligned(kSectorSize * 8, static_cast<char>(1));
-    while (fileSizeLeft > 0) {
-      auto byteToWrite = std::min(kSectorSize, fileSizeLeft);
-      Slice slice(data.get(), byteToWrite);
-      ASSERT_OK(wfile->Append(slice, IOOptions(), nullptr));
-      fileSizeLeft -= byteToWrite;
-    }
-    ASSERT_OK(wfile->Close(IOOptions(), nullptr));
-  }
-  // 2. Get file size
-  {
-    std::unique_ptr<FSRandomAccessFile> file;
-    ASSERT_OK(fs->NewRandomAccessFile(fname, FileOptions(), &file, nullptr));
+  uint64_t fileSizeFromFileSystemAPI;
+  ASSERT_OK(
+      fs->GetFileSize(fname, IOOptions(), &fileSizeFromFileSystemAPI, nullptr));
+  ASSERT_EQ(fileSizeFromFileSystemAPI, expectedFileSize);
 
-    uint64_t fileSizeFromFileSystemAPI;
-    ASSERT_OK(fs->GetFileSize(fname, IOOptions(), &fileSizeFromFileSystemAPI,
-                              nullptr));
-    ASSERT_EQ(fileSizeFromFileSystemAPI, expectedFileSize);
+  uint64_t fileSizeFromFsRandomAccessFileAPI;
+  ASSERT_OK(file->GetFileSize(&fileSizeFromFsRandomAccessFileAPI));
 
-    uint64_t fileSizeFromFsRandomAccessFileAPI;
-    ASSERT_OK(file->GetFileSize(&fileSizeFromFsRandomAccessFileAPI));
-
-    ASSERT_EQ(fileSizeFromFsRandomAccessFileAPI, expectedFileSize);
-  }
+  ASSERT_EQ(fileSizeFromFsRandomAccessFileAPI, expectedFileSize);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

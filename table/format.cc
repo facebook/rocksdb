@@ -484,6 +484,7 @@ bool& TEST_AllowUnsupportedFormatVersion() {
 
 static Status ReadFooterFromFileInternal(const IOOptions& opts,
                                          RandomAccessFileReader* file,
+                                         FileSystem& fs,
                                          FilePrefetchBuffer* prefetch_buffer,
                                          uint64_t expected_file_size,
                                          Footer* footer,
@@ -492,21 +493,25 @@ static Status ReadFooterFromFileInternal(const IOOptions& opts,
   Status s;
   s = file->file()->GetFileSize(&file_size_from_file_system);
   if (!s.ok()) {
+    auto corrupted_status =
+        Status::Corruption("Failed to get file size: " + s.ToString() +
+                           " for file " + file->file_name());
     if (s == Status::NotSupported()) {
-      // If the file system does not support GetFileSize, we will not be able
-      // to verify the file size. In this case, we will just trust the file
-      // size returned by the file object.
-      file_size_from_file_system = expected_file_size;
-      s = Status::OK();
+      // If file handle does not support GetFileSize, try File System API
+      s = fs.GetFileSize(file->file_name(), IOOptions(),
+                         &file_size_from_file_system, nullptr);
+      if (!s.ok()) {
+        return corrupted_status;
+      }
     } else {
-      return Status::Corruption("Failed to get file size: " + s.ToString());
+      return corrupted_status;
     }
   }
 
   if (expected_file_size != file_size_from_file_system) {
     // When file is opened during DB Open, the expected file size is from
     // manifest. Otherwise it is not guaranteed.
-    return Status::Corruption("Sst file size mismatch between manifest " +
+    return Status::Corruption("Sst file size mismatch between expected " +
                               std::to_string(expected_file_size) +
                               " and file system " +
                               std::to_string(file_size_from_file_system) +
@@ -576,7 +581,7 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           uint64_t expected_file_size, Footer* footer,
                           uint64_t enforce_table_magic_number,
                           Statistics* stats) {
-  Status s = ReadFooterFromFileInternal(opts, file, prefetch_buffer,
+  Status s = ReadFooterFromFileInternal(opts, file, fs, prefetch_buffer,
                                         expected_file_size, footer,
                                         enforce_table_magic_number);
   if (s.IsCorruption() &&
@@ -584,7 +589,7 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
     IOOptions new_opts = opts;
     new_opts.verify_and_reconstruct_read = true;
     footer->Reset();
-    s = ReadFooterFromFileInternal(new_opts, file,
+    s = ReadFooterFromFileInternal(new_opts, file, fs,
                                    /*prefetch_buffer=*/nullptr,
                                    expected_file_size, footer,
                                    enforce_table_magic_number);

@@ -160,6 +160,14 @@ Status ExternalSstFileIngestionJob::Prepare(
         // system the FSWritableFile will append a new prefix to the end of the
         // file when the file exists, which causes file corruption. On the
         // contrary, FSRandomRWFile handles an existing file correctly.
+
+        // TODO(xingbo), We should in general be moving away from production
+        // uses of ReuseWritableFile (except explicitly for WAL recycling),
+        // ReopenWritableFile, and NewRandomRWFile. We should create a
+        // FileSystem::SyncFile/FsyncFile API that by default does the
+        // re-open+sync+close combo but can (a) be reused easily, and (b) be
+        // overridden to do that more cleanly, e.g. in EncryptedEnv.
+        // https://github.com/facebook/rocksdb/issues/13741
         std::unique_ptr<FSRandomRWFile> file_to_sync;
         Status s = fs_->NewRandomRWFile(path_inside_db, env_options_,
                                         &file_to_sync, nullptr);
