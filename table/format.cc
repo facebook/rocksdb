@@ -482,13 +482,10 @@ bool& TEST_AllowUnsupportedFormatVersion() {
   return allow;
 }
 
-static Status ReadFooterFromFileInternal(const IOOptions& opts,
-                                         RandomAccessFileReader* file,
-                                         FileSystem& fs,
-                                         FilePrefetchBuffer* prefetch_buffer,
-                                         uint64_t expected_file_size,
-                                         Footer* footer,
-                                         uint64_t enforce_table_magic_number) {
+static Status ReadFooterFromFileInternal(
+    const IOOptions& opts, RandomAccessFileReader* file, FileSystem& fs,
+    FilePrefetchBuffer* prefetch_buffer, uint64_t expected_file_size,
+    Footer* footer, uint64_t enforce_table_magic_number) {
   uint64_t file_size_from_file_system = 0;
   Status s;
   s = file->file()->GetFileSize(&file_size_from_file_system);
