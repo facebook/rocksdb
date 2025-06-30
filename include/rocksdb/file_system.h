@@ -51,7 +51,7 @@ struct MutableDBOptions;
 class RateLimiter;
 struct ConfigOptions;
 
-using AccessPattern = RandomAccessFile::AccessPattern;
+using AccessPattern = Env::AccessPattern;
 using FileAttributes = Env::FileAttributes;
 
 // DEPRECATED
@@ -982,8 +982,6 @@ class FSRandomAccessFile {
     return 0;  // Default implementation to prevent issues with backwards
                // compatibility.
   }
-
-  enum AccessPattern { kNormal, kRandom, kSequential, kWillNeed, kWontNeed };
 
   virtual void Hint(AccessPattern /*pattern*/) {}
 

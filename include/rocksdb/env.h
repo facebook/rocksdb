@@ -459,6 +459,8 @@ class Env : public Customizable {
     kUnknown,  // Keep last for easy array of non-unknowns
   };
 
+  enum AccessPattern { kNormal, kSequential, kRandom, kWillNeed, kDontNeed };
+
   static std::string IOActivityToString(IOActivity activity);
 
   // Arrange to run "(*function)(arg)" once in a background thread, in
@@ -846,9 +848,7 @@ class RandomAccessFile {
                // compatibility.
   }
 
-  enum AccessPattern { NORMAL, RANDOM, SEQUENTIAL, WILLNEED, DONTNEED };
-
-  virtual void Hint(AccessPattern /*pattern*/) {}
+  virtual void Hint(Env::AccessPattern /*pattern*/) {}
 
   // Indicates the upper layers if the current RandomAccessFile implementation
   // uses direct IO.
@@ -1742,7 +1742,7 @@ class RandomAccessFileWrapper : public RandomAccessFile {
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
   }
-  void Hint(AccessPattern pattern) override { target_->Hint(pattern); }
+  void Hint(Env::AccessPattern pattern) override { target_->Hint(pattern); }
   bool use_direct_io() const override { return target_->use_direct_io(); }
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
