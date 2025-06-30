@@ -413,10 +413,10 @@ TEST_F(PointLockManagerTest, LockEfficiency) {
       // txn0 acquires the lock, so the rest of the transactions could block
       ASSERT_OK(locker_->TryLock(txn, 1, "k1", env_, true));
     } else {
-      blockingThreads.emplace_back(port::Thread([this, txn]() {
+      blockingThreads.emplace_back([this, txn]() {
         // block because txn1 and txn2 are holding a shared lock on k1.
         ASSERT_OK(locker_->TryLock(txn, 1, "k1", env_, true));
-      }));
+      });
     }
 
     // wait for transaction i to be blocked
@@ -498,10 +498,9 @@ TEST_F(PointLockManagerTest, LockFairness) {
       // txn0 acquires the lock, so the rest of the transactions would block
       ASSERT_OK(locker_->TryLock(txn, 1, "k1", env_, txn_lock_types[0]));
     } else {
-      blockingThreads.emplace_back(
-          port::Thread([this, txn, type = txn_lock_types[i]]() {
-            ASSERT_OK(locker_->TryLock(txn, 1, "k1", env_, type));
-          }));
+      blockingThreads.emplace_back([this, txn, type = txn_lock_types[i]]() {
+        ASSERT_OK(locker_->TryLock(txn, 1, "k1", env_, type));
+      });
     }
 
     // wait for transaction i to be blocked
@@ -616,10 +615,9 @@ TEST_F(PointLockManagerTest, FIFO) {
       // txn0 acquires the lock, so the rest of the transactions would block
       ASSERT_OK(locker_->TryLock(txn, 1, "k1", env_, txn_lock_types[0]));
     } else {
-      blockingThreads.emplace_back(
-          port::Thread([this, txn, type = txn_lock_types[i]]() {
-            ASSERT_OK(locker_->TryLock(txn, 1, "k1", env_, type));
-          }));
+      blockingThreads.emplace_back([this, txn, type = txn_lock_types[i]]() {
+        ASSERT_OK(locker_->TryLock(txn, 1, "k1", env_, type));
+      });
     }
 
     // wait for transaction i to be blocked

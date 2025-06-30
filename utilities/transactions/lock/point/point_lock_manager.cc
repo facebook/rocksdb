@@ -37,6 +37,17 @@ struct KeyLockWaiter {
         cv(std::move(c)),
         key_cv_pool(pool) {}
 
+  ~KeyLockWaiter() {
+    // return key_cv to the pool
+    key_cv_pool.emplace(std::move(mutex), std::move(cv));
+  }
+
+  // disable copy constructor and assignment operator, move and move assignment
+  KeyLockWaiter(const KeyLockWaiter&) = delete;
+  KeyLockWaiter& operator=(const KeyLockWaiter&) = delete;
+  KeyLockWaiter(KeyLockWaiter&&) = delete;
+  KeyLockWaiter& operator=(KeyLockWaiter&&) = delete;
+
   // Wait until it is the turn for this waiter to take the lock forever
   Status Wait() {
     std::function<bool()> check_ready = [this]() -> bool { return ready; };
@@ -68,11 +79,6 @@ struct KeyLockWaiter {
     cv->NotifyAll();
   }
 
-  ~KeyLockWaiter() {
-    // return key_cv to the pool
-    key_cv_pool.emplace(std::move(mutex), std::move(cv));
-  }
-
   const TransactionID id;
   const bool exclusive;
 
@@ -81,7 +87,7 @@ struct KeyLockWaiter {
   // it when destructed automatically.
   class LockHolder {
    public:
-    LockHolder(std::shared_ptr<TransactionDBMutex>& m) : mutex_(m) {
+    explicit LockHolder(std::shared_ptr<TransactionDBMutex>& m) : mutex_(m) {
       auto s = mutex_->Lock();
       // This mutex is only used for waiting and wake up between a pair of
       // threads, which holds it for a very short amount of time, so it is ok to
@@ -90,6 +96,13 @@ struct KeyLockWaiter {
       assert(s.ok());
     }
     ~LockHolder() { mutex_->UnLock(); }
+
+    // disable copy constructor and assignment operator, move and move
+    // assignment
+    LockHolder(const LockHolder&) = delete;
+    LockHolder& operator=(const LockHolder&) = delete;
+    LockHolder(LockHolder&&) = delete;
+    LockHolder& operator=(LockHolder&&) = delete;
 
    private:
     std::shared_ptr<TransactionDBMutex>& mutex_;
@@ -124,7 +137,7 @@ struct LockMapStripe {
     stripe_mutex = factory->AllocateMutex();
     assert(stripe_mutex);
 
-    mutex_factory_ = factory;
+    mutex_factory_ = std::move(factory);
     FillKeyCVPool();
   }
 
