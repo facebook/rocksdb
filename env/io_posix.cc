@@ -608,8 +608,8 @@ PosixRandomAccessFile::PosixRandomAccessFile(
 PosixRandomAccessFile::~PosixRandomAccessFile() { close(fd_); }
 
 IOStatus PosixRandomAccessFile::GetFileSize(uint64_t* result) {
-  // TODO use fd fstat to get file size and cache it
-  struct stat sbuf;
+  // TODO cache file size
+  struct stat sbuf {};
   if (fstat(fd_, &sbuf) != 0) {
     *result = 0;
     return IOError("While fstat with fd " + std::to_string(fd_), filename_,
