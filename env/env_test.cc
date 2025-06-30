@@ -3673,8 +3673,8 @@ TEST_F(TestGetFileSize, GetFileSize) {
 
   // randomize file size
   auto rnd = Random::GetTLSInstance();
-  size_t expectedFileSize = rnd->Uniform(256 * 1024) + 1;
-  auto content = rnd->RandomBinaryString(expectedFileSize);
+  auto expectedFileSize = rnd->Uniform(256 * 1024) + 1;
+  auto content = rnd->RandomBinaryString(static_cast<int>(expectedFileSize));
 
   ASSERT_OK(CreateFile(fs.get(), fname, content, false));
 
