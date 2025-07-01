@@ -6899,6 +6899,9 @@ void DBImpl::TriggerPeriodicCompaction() {
   TEST_SYNC_POINT("DBImpl::TriggerPeriodicCompaction:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Running the periodic task to trigger compactions.");
+
     for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped()) {
         continue;

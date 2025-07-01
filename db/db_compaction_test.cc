@@ -11124,7 +11124,7 @@ TEST_F(DBCompactionTest, PeriodicTask) {
   options.env = mock_env.get();
   options.compaction_style = kCompactionStyleUniversal;
   options.statistics = CreateDBStatistics();
-  int kPeriodicCompactionSeconds = 7 * 24 * 60 * 60;
+  int kPeriodicCompactionSeconds = 7 * 24 * 60 * 60;  // 1 week
   options.periodic_compaction_seconds = kPeriodicCompactionSeconds;
   options.num_levels = 50;
   auto listener = std::make_shared<PeriodicCompactionListener>();
