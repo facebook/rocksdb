@@ -789,11 +789,16 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
             }
             // Add the waiter txn ids to the blocking txn id list for better
             // deadlock detection.
-            // If lock is being upgraded, its request will be placed at the head
-            // of the waiter queue. Therefore, skip adding other waiters to the
-            // blocking txn id list.
-            if (!*isUpgrade && lock_info.waiter_queue != nullptr) {
+            if (lock_info.waiter_queue != nullptr) {
               for (auto& waiter : *lock_info.waiter_queue) {
+                if (*isUpgrade && waiter->exclusive) {
+                  // For upgrade locks, it will be placed at the beginning of
+                  // the queue. However, for shared lock waiters that are at the
+                  // beginning of the queue that got waked up but haven't taken
+                  // the lock yet, they should still be added to the blocking
+                  // txn id list.
+                  break;
+                }
                 txn_ids->push_back(waiter->id);
               }
             }

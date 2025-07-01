@@ -1164,6 +1164,8 @@ TEST_F(PointLockManagerTest, LockGuaranteeValidation) {
   std::atomic_int kNumOfThreads = 64;
   std::vector<std::thread> threads;
   std::atomic_int num_of_locks_acquired = 0;
+  std::atomic_int num_of_shared_locks_acquired = 0;
+  std::atomic_int num_of_exclusive_locks_acquired = 0;
   constexpr auto kNumOfKeys = 16;
 
   std::array<std::atomic_int, kNumOfKeys> counters{0};
@@ -1175,8 +1177,9 @@ TEST_F(PointLockManagerTest, LockGuaranteeValidation) {
 
   for (int thd_idx = 0; thd_idx < kNumOfThreads; thd_idx++) {
     threads.emplace_back(
-        [this, &txn_opt, &shutdown, &num_of_locks_acquired, thd_idx, &counters,
-         &values,
+        [this, &txn_opt, &shutdown, &num_of_locks_acquired,
+         &num_of_exclusive_locks_acquired, &num_of_shared_locks_acquired,
+         thd_idx, &counters, &values,
          /* Have to use this workaround to make both clang and microsoft
             compiler happy until we upgrade microsoft compiler. See
             https://developercommunity.visualstudio.com/t/
@@ -1221,6 +1224,11 @@ TEST_F(PointLockManagerTest, LockGuaranteeValidation) {
                 DEBUG_LOG("Thd %d acquired lock %s type %s\n", thd_idx,
                           key.c_str(), lock_type ? "exclusive" : "shared");
                 num_of_locks_acquired++;
+                if (lock_type) {
+                  num_of_exclusive_locks_acquired++;
+                } else {
+                  num_of_shared_locks_acquired++;
+                }
                 if (!isUpgrade) {
                   locked_key_with_types.emplace_back(key, lock_type);
                 } else {
@@ -1275,6 +1283,11 @@ TEST_F(PointLockManagerTest, LockGuaranteeValidation) {
     ASSERT_EQ(counters[i].load(), values[i]);
   }
 
+  printf("num_of_locks_acquired: %d\n", num_of_locks_acquired.load());
+  printf("num_of_exclusive_locks_acquired: %d\n",
+         num_of_exclusive_locks_acquired.load());
+  printf("num_of_shared_locks_acquired: %d\n",
+         num_of_shared_locks_acquired.load());
   ASSERT_TRUE(num_of_locks_acquired.load() > 0);
 }
 
