@@ -1193,7 +1193,7 @@ TEST_F(PointLockManagerTest, LockGuaranteeValidation) {
             for (uint32_t j = 0; j < num_key_to_lock; j++) {
               auto key =
                   std::to_string(Random::GetTLSInstance()->Uniform(key_count));
-              auto lock_type = true;
+              auto lock_type = Random::GetTLSInstance()->OneIn(2);
               // check whether a lock on the same key is already held
               auto it = std::find_if(locked_key_with_types.begin(),
                                      locked_key_with_types.end(),
