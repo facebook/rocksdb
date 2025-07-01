@@ -1158,6 +1158,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     sub_compact->compaction_job_stats.is_remote_compaction = false;
   }
 
+  uint64_t prev_now_micros = db_options_.clock->NowMicros();
   uint64_t prev_cpu_micros = db_options_.clock->CPUMicros();
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
@@ -1551,6 +1552,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     sub_compact->Current().UpdateBlobStats();
   }
 
+  uint64_t cur_now_micros = db_options_.clock->NowMicros();
+  sub_compact->compaction_job_stats.elapsed_micros =
+      cur_now_micros - prev_now_micros;
   uint64_t cur_cpu_micros = db_options_.clock->CPUMicros();
   sub_compact->compaction_job_stats.cpu_micros =
       cur_cpu_micros - prev_cpu_micros;
