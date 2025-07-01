@@ -12,6 +12,7 @@
 #include <memory>
 
 #include "rocksdb/advanced_compression.h"
+#include "util/auto_refill_budget.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Auto Skip Compression Components
@@ -185,5 +186,5 @@ class CostAwareCompressorManager : public CompressionManagerWrapper {
       const FilterBuildingContext& context, const CompressionOptions& opts,
       CompressionType preferred) override;
 };
-
+std::pair<IOBudget*, CPUBudget*> CreateBudget();
 }  // namespace ROCKSDB_NAMESPACE

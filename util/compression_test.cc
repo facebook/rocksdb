@@ -16,6 +16,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/flush_block_policy.h"
 #include "table/block_based/block_builder.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/testutil.h"
 #include "util/auto_tune_compressor.h"
 #include "util/random.h"
@@ -335,7 +336,32 @@ TEST_F(DBCompresssionCostPredictor, CostAwareCompressorManager) {
   WindowWrite();
   ASSERT_OK(Flush());
 }
+// Test refill behavior with mock clock
+TEST(AutoRefillBudgetTest, RefillBehavior) {
+  auto mock_clock = std::make_shared<MockSystemClock>(SystemClock::Default());
 
+  // Create budget with 1000 units, refill every 100ms
+  AutoRefillBudget<int64_t> budget(1000, 100 * 1000, mock_clock);
+
+  // Consume all budget
+  ASSERT_TRUE(budget.TryConsume(1000));
+  ASSERT_EQ(0, budget.GetAvailableBudget());
+
+  // Advance time by 50ms - should not refill yet
+  mock_clock->SleepForMicroseconds(50 * 1000);
+  ASSERT_EQ(0, budget.GetAvailableBudget());
+  ASSERT_FALSE(budget.TryConsume(1));
+
+  // Advance time by another 50ms (total 100ms) - should refill
+  mock_clock->SleepForMicroseconds(50 * 1000);
+  ASSERT_EQ(1000, budget.GetAvailableBudget());
+  ASSERT_TRUE(budget.TryConsume(500));
+  ASSERT_EQ(500, budget.GetAvailableBudget());
+
+  // Advance time by 200ms - should refill again
+  mock_clock->SleepForMicroseconds(200 * 1000);
+  ASSERT_EQ(1000, budget.GetAvailableBudget());
+}
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
