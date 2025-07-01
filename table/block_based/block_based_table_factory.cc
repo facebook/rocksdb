@@ -690,6 +690,12 @@ Status BlockBasedTableFactory::ValidateOptions(
         "data_block_hash_table_util_ratio should be greater than 0 when "
         "data_block_index_type is set to kDataBlockBinaryAndHash");
   }
+  if (table_options_.user_defined_index_factory &&
+      (cf_opts.compression_opts.parallel_threads > 1 ||
+       cf_opts.bottommost_compression_opts.parallel_threads > 1)) {
+    return Status::InvalidArgument(
+        "user_defined_index_factory not supported with parallel compression");
+  }
   if (db_opts.unordered_write && cf_opts.max_successive_merges > 0) {
     // TODO(myabandeh): support it
     return Status::InvalidArgument(
