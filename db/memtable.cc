@@ -134,6 +134,20 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
   size_t size = cached_range_tombstone_.Size();
   for (size_t i = 0; i < size; ++i) {
+    #if defined(__cpp_lib_atomic_shared_ptr)
+    std::atomic<std::shared_ptr<FragmentedRangeTombstoneListCache>>* local_cache_ref_ptr =
+        cached_range_tombstone_.AccessAtCore(i);
+    auto new_local_cache_ref = std::make_shared<
+        const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
+    std::shared_ptr<FragmentedRangeTombstoneListCache> aliased_ptr(
+      new_local_cache_ref,
+      new_cache.get()
+    );
+    local_cache_ref_ptr->store(
+      std::move(aliased_ptr),
+      std::memory_order_relaxed
+    );
+    #else
     std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
         cached_range_tombstone_.AccessAtCore(i);
     auto new_local_cache_ref = std::make_shared<
@@ -143,6 +157,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
         std::shared_ptr<FragmentedRangeTombstoneListCache>(new_local_cache_ref,
                                                            new_cache.get()),
         std::memory_order_relaxed);
+    #endif
   }
   const Comparator* ucmp = cmp.user_comparator();
   assert(ucmp);
@@ -790,8 +805,13 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
 
   // takes current cache
   std::shared_ptr<FragmentedRangeTombstoneListCache> cache =
+  #if defined(__cpp_lib_atomic_shared_ptr)
+      cached_range_tombstone_.Access()->load(std::memory_order_relaxed)
+  #else
       std::atomic_load_explicit(cached_range_tombstone_.Access(),
-                                std::memory_order_relaxed);
+                                std::memory_order_relaxed)
+  #endif
+  ;
   // construct fragmented tombstone list if necessary
   if (!cache->initialized.load(std::memory_order_acquire)) {
     cache->reader_mutex.lock();
@@ -1059,6 +1079,20 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       range_del_mutex_.lock();
     }
     for (size_t i = 0; i < size; ++i) {
+      #if defined(__cpp_lib_atomic_shared_ptr)
+      std::atomic<std::shared_ptr<FragmentedRangeTombstoneListCache>>* local_cache_ref_ptr =
+        cached_range_tombstone_.AccessAtCore(i);
+      auto new_local_cache_ref = std::make_shared<
+        const std::shared_ptr<FragmentedRangeTombstoneListCache>>(new_cache);
+      std::shared_ptr<FragmentedRangeTombstoneListCache> aliased_ptr(
+        new_local_cache_ref,
+        new_cache.get()
+      );
+      local_cache_ref_ptr->store(
+        std::move(aliased_ptr),
+        std::memory_order_relaxed
+      );
+      #else
       std::shared_ptr<FragmentedRangeTombstoneListCache>* local_cache_ref_ptr =
           cached_range_tombstone_.AccessAtCore(i);
       auto new_local_cache_ref = std::make_shared<
@@ -1073,6 +1107,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
           std::shared_ptr<FragmentedRangeTombstoneListCache>(
               new_local_cache_ref, new_cache.get()),
           std::memory_order_relaxed);
+      #endif
     }
 
     if (allow_concurrent) {
