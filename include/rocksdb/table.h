@@ -27,6 +27,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/user_defined_index.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -492,7 +493,13 @@ struct BlockBasedTableOptions {
   // Because filters only impact performance and are not data-critical, an
   // SST file can be opened and used without filters if (a) the filter
   // policy name or schema is unrecognized, or (b) filter_policy is nullptr.
+  // See filter_policy regarding filters.
   std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
+
+  // If non-nullptr, use the specified factory to build user-defined index.
+  // This allows users to define their own index format and build the index
+  // during table building.
+  std::shared_ptr<UserDefinedIndexFactory> user_defined_index_factory = nullptr;
 
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
