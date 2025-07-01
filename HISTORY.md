@@ -1,6 +1,12 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.4.1 (07/01/2025)
+### Behavior Changes
+* RocksDB now triggers eligible compactions every 12 hours when periodic compaction is configured. This solves a limitation of the compaction trigger mechanism, which would only trigger compaction after specific events like flush, compaction, or SetOptions.
+### Bug Fixes
+* Fix a bug in BackupEngine that can crash backup due to a null FSWritableFile passed to WritableFileWriter.
+
 ## 10.4.0 (06/20/2025)
 ### New Features
 * Add a new CF option `memtable_avg_op_scan_flush_trigger` that supports triggering memtable flush when an iterator scans through an expensive range of keys, with the average number of skipped keys from the active memtable exceeding the threshold.
