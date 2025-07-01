@@ -5,7 +5,7 @@
 ### Behavior Changes
 * RocksDB now triggers eligible compactions every 12 hours when periodic compaction is configured. This solves a limitation of the compaction trigger mechanism, which would only trigger compaction after specific events like flush, compaction, or SetOptions.
 ### Bug Fixes
-* Fix a bug in BackupEngine that can crash backup due to a null WritableFileWriter.
+* Fix a bug in BackupEngine that can crash backup due to a null FSWritableFile passed to WritableFileWriter.
 
 ## 10.4.0 (06/20/2025)
 ### New Features
