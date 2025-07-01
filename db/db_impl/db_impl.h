@@ -1286,6 +1286,12 @@ class DBImpl : public DB {
   // For the background timer job
   void RecordSeqnoToTimeMapping();
 
+  // Compactions rely on an event triggers like flush/compaction/SetOptions.
+  // We need to trigger periodic compactions even when there is no such trigger.
+  // This function checks and schedules available compactions and will run
+  // periodically.
+  void TriggerPeriodicCompaction();
+
   // REQUIRES: DB mutex held
   std::pair<SequenceNumber, uint64_t> GetSeqnoToTimeSample() const;
 
