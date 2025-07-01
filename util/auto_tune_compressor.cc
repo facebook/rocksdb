@@ -299,20 +299,17 @@ std::unique_ptr<Compressor> CostAwareCompressorManager::GetCompressorForSST(
   return std::make_unique<CostAwareCompressor>(opts);
 }
 
-std::pair<IOBudget*, CPUBudget*> CreateBudget() {
-  static IOBudget io_budget(1000, 1000);
-  static CPUBudget cpu_budget(1000, 1000);
-  return std::pair<IOBudget*, CPUBudget*>(&io_budget, &cpu_budget);
+std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
+    std::shared_ptr<CompressionManager> wrapped,
+    std::shared_ptr<CPUIOBudgetFactory> budget_factory) {
+  return std::make_shared<CostAwareCompressorManager>(
+      wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped,
+      budget_factory);
 }
 
-std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
-    std::shared_ptr<CompressionManager> wrapped) {
-  return std::make_shared<CostAwareCompressorManager>(
-      wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped);
-}
-std::pair<IOBudget*, CPUBudget*> GetBudgets() {
-  static IOBudget io_budget(1000, 1000);
-  static CPUBudget cpu_budget(1000, 1000);
+std::pair<IOBudget*, CPUBudget*> DefaultBudgetFactory::GetBudget() {
+  static IOBudget io_budget(io_budget_, per_time_);
+  static CPUBudget cpu_budget(cpu_budget_, per_time_);
   return std::pair<IOBudget*, CPUBudget*>(&io_budget, &cpu_budget);
 }
 }  // namespace ROCKSDB_NAMESPACE
