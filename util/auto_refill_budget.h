@@ -121,4 +121,10 @@ class AutoRefillBudget {
 using IOBudget = AutoRefillBudget<size_t>;
 using CPUBudget = AutoRefillBudget<size_t>;
 
+class CPUIOBudgetFactory {
+ public:
+  // Create a new IOBudget instance
+  virtual std::pair<IOBudget*, CPUBudget*> GetBudget() = 0;
+  virtual ~CPUIOBudgetFactory() = default;
+};
 }  // namespace ROCKSDB_NAMESPACE
