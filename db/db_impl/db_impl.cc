@@ -2116,8 +2116,12 @@ InternalIterator* DBImpl::NewInternalIterator(
     }
     merge_iter_builder.AddPointAndTombstoneIterator(
         mem_iter, std::move(mem_tombstone_iter));
+    mem_iter = nullptr;  // ownership transferred to merge_iter_builder
+  } else if (super_version->mem->IsEmpty()) {
+    // do nothing
   } else {
     merge_iter_builder.AddIterator(mem_iter);
+    mem_iter = nullptr;  // ownership transferred to merge_iter_builder
   }
 
   // Collect all needed child iterators for immutable memtables
@@ -2141,6 +2145,12 @@ InternalIterator* DBImpl::NewInternalIterator(
         this, &mutex_, super_version,
         read_options.background_purge_on_iterator_cleanup ||
             immutable_db_options_.avoid_unnecessary_blocking_io);
+    if (internal_iter == nullptr) {
+      assert(mem_iter != nullptr);
+      internal_iter = mem_iter;  // fallback
+    } else if (mem_iter) {
+      delete mem_iter;
+    }
     internal_iter->RegisterCleanup(CleanupSuperVersionHandle, cleanup, nullptr);
 
     return internal_iter;
