@@ -71,18 +71,26 @@ class PessimisticTransaction : public TransactionBaseImpl {
                                             std::string* key) const override {
     std::lock_guard<std::mutex> lock(wait_mutex_);
     std::vector<TransactionID> ids(waiting_txn_ids_.size());
+    if (enable_get_waiting_txn_after_timeout_ && timed_out_key_.has_value()) {
+    if (key) *key = timed_out_key_.value();
+    } else {
     if (key) *key = waiting_key_ ? *waiting_key_ : "";
+    }
     if (column_family_id) *column_family_id = waiting_cf_id_;
     std::copy(waiting_txn_ids_.begin(), waiting_txn_ids_.end(), ids.begin());
     return ids;
   }
 
   void SetWaitingTxn(autovector<TransactionID> ids, uint32_t column_family_id,
-                     const std::string* key) {
+                     const std::string* key, bool is_timed_out = false) {
     std::lock_guard<std::mutex> lock(wait_mutex_);
     waiting_txn_ids_ = ids;
     waiting_cf_id_ = column_family_id;
-    waiting_key_ = key;
+    if (is_timed_out) {
+      timed_out_key_ =  key ? *key : "";
+    } else {
+      waiting_key_ = key;
+    }
   }
 
   void ClearWaitingTxn() {

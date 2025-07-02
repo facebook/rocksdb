@@ -490,12 +490,16 @@ TEST_P(TransactionTest, WaitingTxn) {
   ASSERT_OK(s);
   s = db->Put(write_options, cfa, Slice("foo"), Slice("bar"));
   ASSERT_OK(s);
+  TransactionOptions txn_options_with_enable_get_waiting_txn_after_timeout = txn_options;
+  txn_options_with_enable_get_waiting_txn_after_timeout.enable_get_waiting_txn_after_timeout = true;
 
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
   Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  Transaction* txn3 = db->BeginTransaction(write_options, txn_options_with_enable_get_waiting_txn_after_timeout);
   TransactionID id1 = txn1->GetID();
   ASSERT_TRUE(txn1);
   ASSERT_TRUE(txn2);
+  ASSERT_TRUE(txn3);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "PointLockManager::AcquireWithTimeout:WaitingTxn", [&](void* /*arg*/) {
@@ -561,9 +565,34 @@ TEST_P(TransactionTest, WaitingTxn) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
+  // with enable_get_waiting_txn_after_timeout false, GetWaitingTxns returns 0 
+  // values after timeout
+  std::string *key_ptr = nullptr;
+  uint32_t cf_id;
+  std::vector<TransactionID> wait = txn2->GetWaitingTxns(&cf_id, key_ptr);
+  ASSERT_EQ(key_ptr, nullptr);
+  ASSERT_EQ(wait.size(), 0);
+  ASSERT_EQ(cf_id, 0);
+
+  // with enable_get_waiting_txn_after_timeout true, GetWaitingTxns returns the 
+  // waiting values as it would normally before timeout
+  s = txn3->GetForUpdate(read_options, "foo", &value);
+  ASSERT_TRUE(s.IsTimedOut());
+  ASSERT_EQ(s.ToString(), "Operation timed out: Timeout waiting to lock key");
+  ASSERT_EQ(get_perf_context()->key_lock_wait_count, 2);
+  ASSERT_GE(get_perf_context()->key_lock_wait_time, 0);
+  std::string key_3;
+  uint32_t cf_id_3;
+  std::vector<TransactionID> wait_3 = txn3->GetWaitingTxns(&cf_id_3, &key_3);
+  ASSERT_EQ(key_3, "foo");
+  ASSERT_EQ(wait_3.size(), 1);
+  ASSERT_EQ(wait_3[0], id1);
+  ASSERT_EQ(cf_id_3, 0U);
+
   delete cfa;
   delete txn1;
   delete txn2;
+  delete txn3;
 }
 
 TEST_P(TransactionTest, SharedLocks) {
