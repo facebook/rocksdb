@@ -399,7 +399,8 @@ TEST_F(PointLockManagerTest, LockEfficiency) {
   // Count the total number of wait sync point calls
   std::atomic_int wait_sync_point_times = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      wait_sync_point_name_, [&](void* /*arg*/) { wait_sync_point_times++; });
+      wait_sync_point_name_,
+      [&wait_sync_point_times](void* /*arg*/) { wait_sync_point_times++; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   constexpr auto num_of_txn = 10;
@@ -482,7 +483,8 @@ TEST_F(PointLockManagerTest, LockFairness) {
   // Count the total number of wait sync point calls
   std::atomic_int wait_sync_point_times = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      wait_sync_point_name_, [&](void* /*arg*/) { wait_sync_point_times++; });
+      wait_sync_point_name_,
+      [&wait_sync_point_times](void* /*arg*/) { wait_sync_point_times++; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   constexpr auto num_of_txn = 10;
@@ -600,7 +602,8 @@ TEST_F(PointLockManagerTest, FIFO) {
   // Count the total number of wait sync point calls
   std::atomic_int wait_sync_point_times = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      wait_sync_point_name_, [&](void* /*arg*/) { wait_sync_point_times++; });
+      wait_sync_point_name_,
+      [&wait_sync_point_times](void* /*arg*/) { wait_sync_point_times++; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   constexpr auto num_of_txn = 3;
@@ -753,7 +756,8 @@ TEST_F(PointLockManagerTest, SharedLockTimeoutInTheMiddle) {
   // Count the total number of wait sync point calls
   std::atomic_int wait_sync_point_times = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      wait_sync_point_name_, [&](void* /*arg*/) { wait_sync_point_times++; });
+      wait_sync_point_name_,
+      [&wait_sync_point_times](void* /*arg*/) { wait_sync_point_times++; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   auto wait_for_txn_to_be_blocked = [&](int expected_sync_point_call_times) {
@@ -1060,15 +1064,6 @@ TEST_F(PointLockManagerTest, DeadLockOnWaiter) {
   delete txn1;
 }
 
-#ifdef DEBUG_POINT_LOCK_MANAGER_TEST
-#define DEBUG_LOG(...)            \
-  do {                            \
-    fprintf(stderr, __VA_ARGS__); \
-  } while (0)
-#else
-#define DEBUG_LOG(...)
-#endif
-
 TEST_F(PointLockManagerTest, SharedLockRaceCondition) {
   // Verify a shared lock race condition is handled properly.
   // When there are waiters in the queue, and all of them are shared waiters,
@@ -1099,7 +1094,8 @@ TEST_F(PointLockManagerTest, SharedLockRaceCondition) {
 
   std::atomic<bool> reached(false);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      wait_sync_point_name_, [&](void* /*arg*/) { reached.store(true); });
+      wait_sync_point_name_,
+      [&reached](void* /*arg*/) { reached.store(true); });
 
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1145,6 +1141,114 @@ TEST_F(PointLockManagerTest, SharedLockRaceCondition) {
   delete txn1;
 }
 
+TEST_F(PointLockManagerTest, UpgradeLockRaceCondition) {
+  // Verify an upgrade lock race condition is handled properly.
+  // When a key is locked in exlusive mode, shared lock waiters will be enqueued
+  // as waiters. When the exclusive lock holder release the lock. The shared
+  // lock waiters are waked up to take the lock. At this point, when a new
+  // shared lock requester comes in, it will take the lock directly without
+  // waiting or queueing. This requester then immediately upgrade the lock to
+  // exclusive lock. This request will be prioritized to the head of the queue.
+  // Meantime, it should also depend on the shared lock waiters which are still
+  // in the queue that are ready to take the lock. Later, when one of the reader
+  // lock want to also upgrade its lock, it will detect a dead lock and abort.
+
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
+  TransactionOptions txn_opt;
+  txn_opt.deadlock_detect = true;
+  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.expiration = kLongTxnTimeoutUs;
+
+  auto txn1 = NewTxn(txn_opt);
+  auto txn2 = NewTxn(txn_opt);
+  auto txn3 = NewTxn(txn_opt);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"LockMapStrpe::WaitOnKeyInternal:AfterWokenUp",
+        "PointLockManagerTest::UpgradeLockRaceCondition:"
+        "BeforeNewSharedLockRequest"},
+       {"PointLockManagerTest::UpgradeLockRaceCondition:"
+        "AfterNewSharedLockRequest",
+        "LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock"}});
+
+  std::atomic<bool> reached(false);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      wait_sync_point_name_,
+      [&reached](void* /*arg*/) { reached.store(true); });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // txn1 acquires an exclusive lock on k1, so that the following shared lock
+  // request would be blocked
+  ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
+
+  auto t1 = port::Thread([this, &txn2]() {
+    // txn2 try to acquire a shared lock on k1, and get blocked
+    ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
+  });
+
+  while (!reached.load()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+
+  // unlock txn1, txn2 should be woken up, but txn2 stops on the sync point
+  locker_->UnLock(txn1, 1, "k1", env_);
+
+  // Use sync point to simulate the race condition.
+  // txn3 tries to take the lock right after txn2 is woken up, but before it
+  // takes the lock
+  TEST_SYNC_POINT(
+      "PointLockManagerTest::UpgradeLockRaceCondition:"
+      "BeforeNewSharedLockRequest");
+
+  // txn3 try to acquire a shared lock on k1, and get granted immediately
+  ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, false));
+
+  // txn3 try to upgrade its lock to exclusive lock and get blocked.
+  reached = false;
+  auto t2 = port::Thread([this, &txn3]() {
+    ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, true));
+  });
+
+  while (!reached.load()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+
+  TEST_SYNC_POINT(
+      "PointLockManagerTest::UpgradeLockRaceCondition:"
+      "AfterNewSharedLockRequest");
+
+  // validate txn2 is woken up and takes the shared lock
+  t1.join();
+
+  // validate txn2 would get deadlock when it try to upgrade its lock to
+  // exclusive
+  auto s = locker_->TryLock(txn2, 1, "k1", env_, true);
+  ASSERT_TRUE(s.IsDeadlock());
+
+  // cleanup
+  locker_->UnLock(txn2, 1, "k1", env_);
+  t2.join();
+  locker_->UnLock(txn3, 1, "k1", env_);
+
+  delete txn3;
+  delete txn2;
+  delete txn1;
+}
+
+#ifdef DEBUG_POINT_LOCK_MANAGER_TEST
+#define DEBUG_LOG(...)            \
+  do {                            \
+    fprintf(stderr, __VA_ARGS__); \
+  } while (0)
+#else
+#define DEBUG_LOG(...)
+#endif
+
+// TODO: validate when a lock is in exclusive mode, no one else could acquire
+// shared lock Add a per key status, to track shared vs exclusive.
 TEST_F(PointLockManagerTest, LockGuaranteeValidation) {
   // Verify lock guarantee. Exclusive lock provide unique access guarantee.
   // Shared lock provide shared access guarantee.

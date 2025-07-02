@@ -752,9 +752,20 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
     if (!lock_info.txn_ids.empty()) {
       assert((lock_info.txn_ids.size() == 1) || (!lock_info.exclusive));
 
+      // TODO : rewrite this block based on whether it is fifo, instead of
+      // whether it is upgrade
+      // Lock downgrade has to work, as caller uses it and it should always
+      // succeed
+
       if (lock_info.exclusive || txn_lock_info.exclusive) {
         if (lock_info.txn_ids.size() == 1 &&
-            lock_info.txn_ids[0] == txn_lock_info.txn_ids[0]) {
+            lock_info.txn_ids[0] == txn_lock_info.txn_ids[0] &&
+            // Either not follow fifo, which means it is the turn of this thread
+            // to take lock. Or follow fifo, but the first transaction is X
+            // lock.
+            // TODO : Explicitly handle lock downgrade
+            (!follow_fifo_order ||
+             lock_info.waiter_queue->front()->exclusive)) {
           // The list contains one txn and we're it, so just take it.
           lock_info.exclusive = txn_lock_info.exclusive;
           lock_info.expiration_time = txn_lock_info.expiration_time;
