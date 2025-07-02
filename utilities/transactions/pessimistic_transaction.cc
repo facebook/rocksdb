@@ -50,6 +50,7 @@ PessimisticTransaction::PessimisticTransaction(
       lock_timeout_(0),
       deadlock_detect_(false),
       deadlock_detect_depth_(0),
+      enable_get_waiting_txn_after_timeout_(false),
       skip_concurrency_control_(false) {
   txn_db_impl_ = static_cast_with_check<PessimisticTransactionDB>(txn_db);
   db_impl_ = static_cast_with_check<DBImpl>(db_);
@@ -72,6 +73,8 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
 
   deadlock_detect_ = txn_options.deadlock_detect;
   deadlock_detect_depth_ = txn_options.deadlock_detect_depth;
+  enable_get_waiting_txn_after_timeout_ =
+      txn_options.enable_get_waiting_txn_after_timeout;
   write_batch_.SetMaxBytes(txn_options.max_write_batch_size);
   write_batch_.GetWriteBatch()->SetTrackTimestampSize(
       txn_options.write_batch_track_timestamp_size);
