@@ -253,6 +253,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   periodic_task_functions_.emplace(
       PeriodicTaskType::kRecordSeqnoTime,
       [this]() { this->RecordSeqnoToTimeMapping(); });
+  periodic_task_functions_.emplace(
+      PeriodicTaskType::kTriggerCompaction,
+      [this]() { this->TriggerPeriodicCompaction(); });
 
   versions_.reset(new VersionSet(
       dbname_, &immutable_db_options_, file_options_, table_cache_.get(),
@@ -787,7 +790,8 @@ Status DBImpl::StartPeriodicTaskScheduler() {
     Status s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kDumpStats,
         periodic_task_functions_.at(PeriodicTaskType::kDumpStats),
-        mutable_db_options_.stats_dump_period_sec);
+        mutable_db_options_.stats_dump_period_sec,
+        /*run_immediately=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -796,7 +800,8 @@ Status DBImpl::StartPeriodicTaskScheduler() {
     Status s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kPersistStats,
         periodic_task_functions_.at(PeriodicTaskType::kPersistStats),
-        mutable_db_options_.stats_persist_period_sec);
+        mutable_db_options_.stats_persist_period_sec,
+        /*run_immediately=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -804,7 +809,15 @@ Status DBImpl::StartPeriodicTaskScheduler() {
 
   Status s = periodic_task_scheduler_.Register(
       PeriodicTaskType::kFlushInfoLog,
-      periodic_task_functions_.at(PeriodicTaskType::kFlushInfoLog));
+      periodic_task_functions_.at(PeriodicTaskType::kFlushInfoLog),
+      /*run_immediately=*/true);
+
+  if (s.ok()) {
+    s = periodic_task_scheduler_.Register(
+        PeriodicTaskType::kTriggerCompaction,
+        periodic_task_functions_.at(PeriodicTaskType::kTriggerCompaction),
+        /*run_immediately=*/false);
+  }
 
   return s;
 }
@@ -855,7 +868,7 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
     s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kRecordSeqnoTime,
         periodic_task_functions_.at(PeriodicTaskType::kRecordSeqnoTime),
-        seqno_time_cadence);
+        seqno_time_cadence, /*run_immediately=*/true);
   }
 
   return s;
@@ -1365,7 +1378,7 @@ Status DBImpl::SetDBOptions(
         s = periodic_task_scheduler_.Register(
             PeriodicTaskType::kDumpStats,
             periodic_task_functions_.at(PeriodicTaskType::kDumpStats),
-            new_options.stats_dump_period_sec);
+            new_options.stats_dump_period_sec, /*run_immediately=*/true);
       }
       if (new_options.max_total_wal_size !=
           mutable_db_options_.max_total_wal_size) {
@@ -1380,7 +1393,7 @@ Status DBImpl::SetDBOptions(
           s = periodic_task_scheduler_.Register(
               PeriodicTaskType::kPersistStats,
               periodic_task_functions_.at(PeriodicTaskType::kPersistStats),
-              new_options.stats_persist_period_sec);
+              new_options.stats_persist_period_sec, /*run_immediately=*/true);
         }
       }
       mutex_.Lock();
@@ -6880,6 +6893,35 @@ void DBImpl::RecordSeqnoToTimeMapping() {
 
   // clean up & report outside db mutex
   sv_context.Clean();
+}
+
+void DBImpl::TriggerPeriodicCompaction() {
+  TEST_SYNC_POINT("DBImpl::TriggerPeriodicCompaction:StartRunning");
+  {
+    InstrumentedMutexLock l(&mutex_);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Running the periodic task to trigger compactions.");
+
+    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      if (cfd->GetLatestCFOptions().periodic_compaction_seconds &&
+          !cfd->queued_for_compaction()) {
+        cfd->current()->storage_info()->ComputeCompactionScore(
+            cfd->ioptions(), cfd->GetLatestMutableCFOptions());
+        EnqueuePendingCompaction(cfd);
+        if (cfd->queued_for_compaction()) {
+          ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                         "Periodic task to trigger compaction queued Column "
+                         "family [%s] for compaction.",
+                         cfd->GetName().c_str());
+        }
+      }
+    }
+    MaybeScheduleFlushOrCompaction();
+    bg_cv_.SignalAll();
+  }
 }
 
 void DBImpl::TrackOrUntrackFiles(
