@@ -27,6 +27,8 @@
 #ifdef __FreeBSD__
 #include <sys/sysctl.h>
 #endif
+#include <sys/resource.h>
+
 #include <atomic>
 #include <cinttypes>
 #include <condition_variable>
@@ -1430,7 +1432,11 @@ DEFINE_int64(stats_interval, 0,
 DEFINE_int64(stats_interval_seconds, 0,
              "Report stats every N seconds. This overrides stats_interval when"
              " both are > 0.");
-
+DEFINE_int32(
+    stats_per_interval_block_compression, 0,
+    "Reports additional block compression stats per interval when this "
+    "is greater than "
+    "0.");
 DEFINE_int32(stats_per_interval_cpuio_usage, 0,
              "Reports additional cpu and io usage stats per interval when this "
              "is greater than "
@@ -2404,12 +2410,37 @@ class Stats {
                   (now - start_) / 1000000.0);
           if (id_ == 0 && FLAGS_stats_per_interval_cpuio_usage &&
               opts_.rate_limiter) {
-            fprintf(
-                stderr,
-                "UsageStats: %s rate_limiter_bytes_through: %lu cpu_usage:\n",
-                clock_->TimeToString(now / 1000000).c_str(),
-                opts_.rate_limiter->GetTotalBytesThrough());
+            auto total_bytes_through =
+                opts_.rate_limiter->GetTotalBytesThrough();
+            auto drain_request =
+                dbstats->getTickerCount(NUMBER_RATE_LIMITER_DRAINS);
+            struct rusage usage;
+            getrusage(RUSAGE_SELF, &usage);
+            double cpu_time_used =
+                (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
+                (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
+            double total_time = clock_->NowMicros() / 1e6;
+            fprintf(stderr,
+                    "UsageStats: %s rate_limiter_bytes_through: %lu "
+                    "drain_request: %lu "
+                    "cpu_time: %lf total_time: %lf\n",
+                    clock_->TimeToString(now / 1000000).c_str(),
+                    total_bytes_through, drain_request, cpu_time_used,
+                    total_time);
           }
+          if (dbstats != nullptr &&
+              FLAGS_stats_per_interval_block_compression) {
+            auto compressed = dbstats->getTickerCount(NUMBER_BLOCK_COMPRESSED);
+            auto rejected =
+                dbstats->getTickerCount(NUMBER_BLOCK_COMPRESSION_REJECTED);
+            auto bypassed =
+                dbstats->getTickerCount(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+            fprintf(stderr,
+                    "%s ... thread %d: compressed: %" PRIu64
+                    " rejected: %" PRIu64 " bypassed: %" PRIu64 "\n",
+                    clock_->TimeToString(now / 1000000).c_str(), id_,
+                    compressed, rejected, bypassed);
+          };
           if (id_ == 0 && FLAGS_stats_per_interval) {
             std::string stats;
 
