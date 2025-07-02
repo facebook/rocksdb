@@ -147,7 +147,9 @@ class CostAwareWorkingArea : public Compressor::WorkingArea {
 
 class CostAwareCompressor : public Compressor {
  public:
-  explicit CostAwareCompressor(const CompressionOptions& opts);
+  explicit CostAwareCompressor(const CompressionOptions& opts,
+                               IOBudget* io_budget = nullptr,
+                               CPUBudget* cpu_budget = nullptr);
   const char* Name() const override;
   size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
   Slice GetSerializedDict() const override;
@@ -168,6 +170,11 @@ class CostAwareCompressor : public Compressor {
                                 std::string* compressed_output,
                                 CompressionType* out_compression_type,
                                 CostAwareWorkingArea* wa);
+
+  // Select compression type and level based on budget availability
+  std::pair<size_t, size_t> SelectCompressionBasedOnBudget(
+      CostAwareWorkingArea* wa);
+
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   // This is the vector containing the list of compression levels that
@@ -178,6 +185,10 @@ class CostAwareCompressor : public Compressor {
   const CompressionOptions opts_;
   std::vector<std::vector<std::unique_ptr<Compressor>>> allcompressors_;
   std::vector<std::pair<size_t, size_t>> allcompressors_index_;
+
+  // Budget references for cost-aware compression decisions
+  IOBudget* io_budget_;
+  CPUBudget* cpu_budget_;
 };
 
 class CostAwareCompressorManager : public CompressionManagerWrapper {

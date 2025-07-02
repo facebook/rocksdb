@@ -1431,6 +1431,10 @@ DEFINE_int64(stats_interval_seconds, 0,
              "Report stats every N seconds. This overrides stats_interval when"
              " both are > 0.");
 
+DEFINE_int32(stats_per_interval_cpuio_usage, 0,
+             "Reports additional cpu and io usage stats per interval when this "
+             "is greater than "
+             "0.");
 DEFINE_int32(stats_per_interval, 0,
              "Reports additional stats per interval when this is greater than "
              "0.");
@@ -2222,10 +2226,14 @@ class Stats {
   std::string message_;
   bool exclude_from_merge_;
   ReporterAgent* reporter_agent_;  // does not own
+  Options opts_;
   friend class CombinedStats;
 
  public:
-  Stats() : clock_(FLAGS_env->GetSystemClock().get()) { Start(-1); }
+  Stats(Options option)
+      : clock_(FLAGS_env->GetSystemClock().get()), opts_(option) {
+    Start(-1);
+  }
 
   void SetReporterAgent(ReporterAgent* reporter_agent) {
     reporter_agent_ = reporter_agent;
@@ -2394,7 +2402,14 @@ class Stats {
                   done_ / ((now - start_) / 1000000.0),
                   (now - last_report_finish_) / 1000000.0,
                   (now - start_) / 1000000.0);
-
+          if (id_ == 0 && FLAGS_stats_per_interval_cpuio_usage &&
+              opts_.rate_limiter) {
+            fprintf(
+                stderr,
+                "UsageStats: %s rate_limiter_bytes_through: %lu cpu_usage:\n",
+                clock_->TimeToString(now / 1000000).c_str(),
+                opts_.rate_limiter->GetTotalBytesThrough());
+          }
           if (id_ == 0 && FLAGS_stats_per_interval) {
             std::string stats;
 
@@ -2711,8 +2726,8 @@ struct ThreadState {
   Stats stats;
   SharedState* shared;
 
-  explicit ThreadState(int index, int my_seed)
-      : tid(index), rand(*seed_base + my_seed) {}
+  explicit ThreadState(int index, int my_seed, Options option)
+      : tid(index), rand(*seed_base + my_seed), stats(option) {}
 };
 
 class Duration {
@@ -4064,7 +4079,7 @@ class Benchmark {
       arg[i].method = method;
       arg[i].shared = &shared;
       total_thread_count_++;
-      arg[i].thread = new ThreadState(i, total_thread_count_);
+      arg[i].thread = new ThreadState(i, total_thread_count_, open_options_);
       arg[i].thread->stats.SetReporterAgent(reporter_agent.get());
       arg[i].thread->shared = &shared;
       FLAGS_env->StartThread(ThreadBody, &arg[i]);
@@ -4083,7 +4098,7 @@ class Benchmark {
     shared.mu.Unlock();
 
     // Stats for some threads can be excluded.
-    Stats merge_stats;
+    Stats merge_stats(open_options_);
     for (int i = 0; i < n; i++) {
       merge_stats.Merge(arg[i].thread->stats);
     }
