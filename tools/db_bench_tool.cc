@@ -85,6 +85,7 @@
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/rate_tracker.h"
 #include "util/simple_mixed_compressor.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
@@ -2226,6 +2227,7 @@ class Stats {
   uint64_t bytes_;
   uint64_t last_op_finish_;
   uint64_t last_report_finish_;
+  AtomicRateTracker<size_t> io_rate_, cpu_usage_, req_drain_rate_;
   std::unordered_map<OperationType, std::shared_ptr<HistogramImpl>,
                      std::hash<unsigned char>>
       hist_;
@@ -2427,6 +2429,15 @@ class Stats {
                     clock_->TimeToString(now / 1000000).c_str(),
                     total_bytes_through, drain_request, cpu_time_used,
                     total_time);
+            auto bytes_throughput = io_rate_.Record(total_bytes_through);
+            auto req_drain_throughput = req_drain_rate_.Record(drain_request);
+            auto cpu_usage = cpu_usage_.Record(cpu_time_used);
+            fprintf(stderr,
+                    "UsageRateStats: %s rate_limiter_bytes_through: %f "
+                    "drain_request: %f "
+                    "cpu_time: %f\n",
+                    clock_->TimeToString(now / 1000000).c_str(),
+                    bytes_throughput, req_drain_throughput, cpu_usage);
           }
           if (dbstats != nullptr &&
               FLAGS_stats_per_interval_block_compression) {
