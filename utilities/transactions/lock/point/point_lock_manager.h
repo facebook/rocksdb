@@ -132,8 +132,12 @@ class PointLockManager : public LockManager {
   // this column family is no longer in use.
   void RemoveColumnFamily(const ColumnFamilyHandle* cf) override;
 
+  // Caller makes sure that a lock on the key is not requested again, unless it
+  // is an upgrade or downgrade.
   Status TryLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
                  const std::string& key, Env* env, bool exclusive) override;
+  // Caller makes sure that a lock on the key is not requested again, unless it
+  // is an upgrade or downgrade.
   Status TryLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
                  const Endpoint& start, const Endpoint& end, Env* env,
                  bool exclusive) override;
@@ -201,10 +205,16 @@ class PointLockManager : public LockManager {
                             const std::string& key, Env* env, int64_t timeout,
                             const LockInfo& lock_info);
 
+  Status AcquireLockIfUnderLimit(LockMap* lock_map, LockMapStripe* stripe,
+                                 const std::string& key,
+                                 const LockInfo& txn_lock_info,
+                                 LockInfo* lock_info);
+
   Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
                        const std::string& key, Env* env,
                        const LockInfo& lock_info, uint64_t* wait_time,
-                       autovector<TransactionID>* txn_ids);
+                       autovector<TransactionID>* txn_ids, bool* isUpgrade,
+                       bool fifo);
 
   void UnLockKey(PessimisticTransaction* txn, const std::string& key,
                  LockMapStripe* stripe, LockMap* lock_map, Env* env);
