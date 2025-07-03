@@ -400,6 +400,11 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   if (s.ok()) {
     // Will notify and unblock threads waiting for error recovery to finish.
     s = error_handler_.ClearBGError();
+    log_write_mutex_.Lock();
+    for (auto& log : logs_) {
+      log.writer->file()->reset_seen_error();
+    }
+    log_write_mutex_.Unlock();
   } else {
     // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
     // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
