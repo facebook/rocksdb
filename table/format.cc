@@ -493,7 +493,7 @@ static Status ReadFooterFromFileInternal(
     auto corrupted_status =
         Status::Corruption("Failed to get file size: " + s.ToString() +
                            " for file " + file->file_name());
-    if (s == Status::NotSupported()) {
+    if (s.IsNotSupported()) {
       // If file handle does not support GetFileSize, try File System API
       s = fs.GetFileSize(file->file_name(), IOOptions(),
                          &file_size_from_file_system, nullptr);
@@ -553,16 +553,14 @@ static Status ReadFooterFromFileInternal(
 
   TEST_SYNC_POINT_CALLBACK("ReadFooterFromFileInternal:0", &footer_input);
 
-  // Check that we actually read the whole footer from the file. It may be
-  // that size isn't correct.
+  // Check that we actually read the whole footer from the file.
   if (footer_input.size() < Footer::kMinEncodedLength) {
-    // When file is opened during DB Open, the expected file size is from
-    // manifest. Otherwise it is not guaranteed.
     return Status::Corruption(
-        "Sst file size mismatch: " + file->file_name() + ". Expected " +
-        std::to_string(expected_file_size) +
-        ", reported size from file system " +
-        std::to_string(file_size_from_file_system) + "\n");
+        "The number of bytes read for Footer input " +
+        std::to_string(footer_input.size()) +
+        " is smaller than minimum footer encoded length: " +
+        std::to_string(Footer::kMinEncodedLength) + " for file " +
+        file->file_name() + "\n");
   }
 
   s = footer->DecodeFrom(footer_input, read_offset, enforce_table_magic_number);
