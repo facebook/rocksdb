@@ -157,10 +157,15 @@ inline uint32_t GetCompressFormatForVersion(uint32_t format_version) {
   // As of format_version 2, we encode compressed block with
   // compress_format_version == 2. Before that, the version is 1.
   // DO NOT CHANGE THIS FUNCTION, it affects disk format
+  // As of format_version 7 and opening up to custom compression, the
+  // compression format version is essentially independent of the block-based
+  // table format version, and encoded in the compression_name table property.
+  // Thus, this function can go away once we remove support for reading
+  // format_version=1.
   return format_version >= 2 ? 2 : 1;
 }
 
-constexpr uint32_t kLatestFormatVersion = 6;
+constexpr uint32_t kLatestFormatVersion = 7;
 
 inline bool IsSupportedFormatVersion(uint32_t version) {
   return version <= kLatestFormatVersion;
@@ -173,6 +178,10 @@ inline bool FormatVersionUsesContextChecksum(uint32_t version) {
 
 inline bool FormatVersionUsesIndexHandleInFooter(uint32_t version) {
   return version < 6;
+}
+
+inline bool FormatVersionUsesCompressionManagerName(uint32_t version) {
+  return version >= 7;
 }
 
 // Footer encapsulates the fixed information stored at the tail end of every
@@ -308,6 +317,10 @@ class FooterBuilder {
   std::array<char, Footer::kMaxEncodedLength> data_;
 };
 
+// Set to true to allow unit testing of writing unsupported block-based table
+// format versions (to test read side)
+bool& TEST_AllowUnsupportedFormatVersion();
+
 // Read the footer from file
 // If enforce_table_magic_number != 0, ReadFooterFromFile() will return
 // corruption if table_magic number is not equal to enforce_table_magic_number
@@ -382,6 +395,7 @@ struct BlockContents {
 
   // The additional memory space taken by the block data.
   size_t usable_size() const {
+    // FIXME: doesn't account for possible block trailer
     if (allocation.get() != nullptr) {
       auto allocator = allocation.get_deleter().allocator;
       if (allocator) {
@@ -416,21 +430,30 @@ struct BlockContents {
 // The `data` points to serialized block contents read in from file, which
 // must be compressed and include a trailer beyond `size`. A new buffer is
 // allocated with the given allocator (or default) and the uncompressed
-// contents are returned in `out_contents`.
-// format_version is as defined in include/rocksdb/table.h, which is
-// used to determine compression format version.
-Status UncompressSerializedBlock(const UncompressionInfo& info,
-                                 const char* data, size_t size,
+// contents are returned in `out_contents`. Statistics updated.
+Status DecompressSerializedBlock(const char* data, size_t size,
+                                 CompressionType type,
+                                 Decompressor& decompressor,
                                  BlockContents* out_contents,
-                                 uint32_t format_version,
                                  const ImmutableOptions& ioptions,
                                  MemoryAllocator* allocator = nullptr);
 
-// This is a variant of UncompressSerializedBlock that does not expect a
-// block trailer beyond `size`. (CompressionType is taken from `info`.)
-Status UncompressBlockData(const UncompressionInfo& info, const char* data,
-                           size_t size, BlockContents* out_contents,
-                           uint32_t format_version,
+Status DecompressSerializedBlock(Decompressor::Args& args,
+                                 Decompressor& decompressor,
+                                 BlockContents* out_contents,
+                                 const ImmutableOptions& ioptions,
+                                 MemoryAllocator* allocator = nullptr);
+
+// This is a variant of DecompressSerializedBlock that does not expect a
+// block trailer beyond `size`. (CompressionType is passed in.)
+Status DecompressBlockData(
+    const char* data, size_t size, CompressionType type,
+    Decompressor& decompressor, BlockContents* out_contents,
+    const ImmutableOptions& ioptions, MemoryAllocator* allocator = nullptr,
+    Decompressor::ManagedWorkingArea* working_area = nullptr);
+
+Status DecompressBlockData(Decompressor::Args& args, Decompressor& decompressor,
+                           BlockContents* out_contents,
                            const ImmutableOptions& ioptions,
                            MemoryAllocator* allocator = nullptr);
 

@@ -19,6 +19,13 @@
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+std::string EncodeAsUint64(uint64_t v) {
+  std::string dst;
+  PutFixed64(&dst, v);
+  return dst;
+}
+}  // namespace
 class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
  public:
   DBBasicTestWithTimestamp()
@@ -1480,13 +1487,24 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToUserKeyBeforeSavedKey) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp,
-       FIXME_ReverseIterationWithBlobAndUnpreparedValue) {
+class ReverseIterationWithUnpreparedBlobTest
+    : public DBBasicTestWithTimestampBase,
+      public testing::WithParamInterface<std::tuple<bool, uint64_t>> {
+ public:
+  ReverseIterationWithUnpreparedBlobTest()
+      : DBBasicTestWithTimestampBase(
+            "db_basic_test_with_timestamp_reverse_with_unprepare") {}
+};
+INSTANTIATE_TEST_CASE_P(ReverseIterationWithUnpreparedBlobTest,
+                        ReverseIterationWithUnpreparedBlobTest,
+                        ::testing::Combine(::testing::Values(true, false),
+                                           ::testing::Values(0, 2)));
+TEST_P(ReverseIterationWithUnpreparedBlobTest, Basic) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.env = env_;
   options.enable_blob_files = true;
-  options.max_sequential_skip_in_iterations = 0;
+  options.max_sequential_skip_in_iterations = std::get<1>(GetParam());
 
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
@@ -1501,7 +1519,7 @@ TEST_F(DBBasicTestWithTimestamp,
   for (uint64_t key = 0; key <= kMaxKey; ++key) {
     for (size_t i = 0; i < write_timestamps.size(); ++i) {
       ASSERT_OK(db_->Put(WriteOptions(), Key1(key), write_timestamps[i],
-                         "value" + std::to_string(i)));
+                         Key1(key) + "value" + std::to_string(i)));
     }
   }
 
@@ -1513,17 +1531,28 @@ TEST_F(DBBasicTestWithTimestamp,
 
     ReadOptions read_opts;
     read_opts.timestamp = &read_timestamp;
-    read_opts.allow_unprepared_value = true;
+    read_opts.allow_unprepared_value = std::get<0>(GetParam());
 
     std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
 
     it->SeekForPrev(Key1(kMaxKey));
-    ASSERT_TRUE(it->Valid());
-    ASSERT_OK(it->status());
+    uint64_t key = kMaxKey;
+    int count = 0;
+    while (it->Valid()) {
+      ASSERT_OK(it->status());
 
-    // FIXME: PrepareValue() should succeed and status() should remain OK
-    ASSERT_FALSE(it->PrepareValue());
-    ASSERT_TRUE(it->status().IsCorruption());
+      ASSERT_TRUE(it->PrepareValue());
+      ASSERT_TRUE(it->Valid());
+      ASSERT_OK(it->status());
+      ASSERT_EQ(it->key(), Key1(key));
+      ASSERT_EQ(it->timestamp(), Timestamp(3, 0));
+      ASSERT_EQ(it->value(), Key1(key) + "value" + std::to_string(1));
+      key--;
+      count++;
+      it->Prev();
+    }
+    ASSERT_OK(it->status());
+    ASSERT_EQ(kMaxKey + 1, count);
   }
 
   Close();
@@ -3746,17 +3775,42 @@ INSTANTIATE_TEST_CASE_P(
         test::UserDefinedTimestampTestMode::kStripUserDefinedTimestamp,
         test::UserDefinedTimestampTestMode::kNormal));
 
-TEST_F(DBBasicTestWithTimestamp, EnableDisableUDT) {
+// Test params:
+// 1) whether to flush before close
+class EnableDisableUDTTest : public DBBasicTestWithTimestampBase,
+                             public testing::WithParamInterface<bool> {
+ public:
+  EnableDisableUDTTest()
+      : DBBasicTestWithTimestampBase("/enable_disable_udt") {}
+};
+
+INSTANTIATE_TEST_CASE_P(EnableDisableUDTTest, EnableDisableUDTTest,
+                        ::testing::Values(true, false));
+
+TEST_P(EnableDisableUDTTest, Basic) {
   Options options = CurrentOptions();
+  // Un-flushed data before close will involve a WAL replay on DB reopen.
+  bool flush_before_close = GetParam();
   options.env = env_;
-  // Create a column family without user-defined timestamps.
   options.comparator = BytewiseComparator();
   options.persist_user_defined_timestamps = true;
   DestroyAndReopen(options);
 
+  ReadOptions ropts;
+  std::string read_ts;
+  std::string value;
+  std::string key_ts;
+
   // Create one SST file, its user keys have no user-defined timestamps.
-  ASSERT_OK(db_->Put(WriteOptions(), "foo", "val1"));
-  ASSERT_OK(Flush(0));
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "val0"));
+  ASSERT_OK(db_->Put(WriteOptions(), "bar", "val0"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), "bar", "baz"));
+  ASSERT_OK(db_->Get(ReadOptions(), "foo", &value));
+  ASSERT_EQ("val0", value);
+  ASSERT_TRUE(db_->Get(ReadOptions(), "bar", &value).IsNotFound());
+  if (flush_before_close) {
+    ASSERT_OK(Flush(0));
+  }
   Close();
 
   // Reopen the existing column family and enable user-defined timestamps
@@ -3765,47 +3819,63 @@ TEST_F(DBBasicTestWithTimestamp, EnableDisableUDT) {
   options.persist_user_defined_timestamps = false;
   options.allow_concurrent_memtable_write = false;
   Reopen(options);
-
-  std::string value;
-  ASSERT_TRUE(db_->Get(ReadOptions(), "foo", &value).IsInvalidArgument());
-  std::string read_ts;
-  PutFixed64(&read_ts, 0);
-  ReadOptions ropts;
+  // Read data from previous session before and after compaction.
+  read_ts = EncodeAsUint64(1);
   Slice read_ts_slice = read_ts;
   ropts.timestamp = &read_ts_slice;
-  std::string key_ts;
-  // Entries in pre-existing SST files are treated as if they have minimum
-  // user-defined timestamps.
-  ASSERT_OK(db_->Get(ropts, "foo", &value, &key_ts));
-  ASSERT_EQ("val1", value);
-  ASSERT_EQ(read_ts, key_ts);
+  for (int i = 0; i < 2; i++) {
+    ASSERT_TRUE(db_->Get(ReadOptions(), "foo", &value).IsInvalidArgument());
+    // Entries in pre-existing SST files are treated as if they have minimum
+    // user-defined timestamps.
+    ASSERT_OK(db_->Get(ropts, "foo", &value, &key_ts));
+    ASSERT_EQ("val0", value);
+    ASSERT_EQ(EncodeAsUint64(0), key_ts);
+    ASSERT_TRUE(db_->Get(ropts, "bar", &value, &key_ts).IsNotFound());
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  }
 
   // Do timestamped read / write.
-  std::string write_ts;
-  PutFixed64(&write_ts, 1);
-  ASSERT_OK(db_->Put(WriteOptions(), "foo", write_ts, "val2"));
-  read_ts.clear();
-  PutFixed64(&read_ts, 1);
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", EncodeAsUint64(1), "val1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "bar", EncodeAsUint64(1), "val1"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), "bar", "baz", EncodeAsUint64(2)));
   ASSERT_OK(db_->Get(ropts, "foo", &value, &key_ts));
-  ASSERT_EQ("val2", value);
-  ASSERT_EQ(write_ts, key_ts);
+  ASSERT_EQ("val1", value);
+  ASSERT_EQ(EncodeAsUint64(1), key_ts);
+  ASSERT_OK(db_->Get(ropts, "bar", &value, &key_ts));
+  ASSERT_EQ("val1", value);
+  ASSERT_EQ(EncodeAsUint64(1), key_ts);
+  read_ts = EncodeAsUint64(2);
+  ASSERT_TRUE(db_->Get(ropts, "bar", &value, &key_ts).IsNotFound());
   // The user keys in this SST file don't have user-defined timestamps either,
   // because `persist_user_defined_timestamps` flag is set to false.
-  ASSERT_OK(Flush(0));
+  if (flush_before_close) {
+    ASSERT_OK(Flush(0));
+  }
   Close();
 
   // Reopen the existing column family while disabling user-defined timestamps.
   options.comparator = BytewiseComparator();
   Reopen(options);
 
-  ASSERT_TRUE(db_->Get(ropts, "foo", &value).IsInvalidArgument());
-  ASSERT_OK(db_->Get(ReadOptions(), "foo", &value));
-  ASSERT_EQ("val2", value);
+  // Read data from previous session before and after compaction.
+  for (int i = 0; i < 2; i++) {
+    ASSERT_TRUE(db_->Get(ropts, "foo", &value).IsInvalidArgument());
+    ASSERT_OK(db_->Get(ReadOptions(), "foo", &value));
+    ASSERT_EQ("val1", value);
+    ASSERT_TRUE(db_->Get(ReadOptions(), "bar", &value).IsNotFound());
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  }
 
   // Continue to write / read the column family without user-defined timestamps.
-  ASSERT_OK(db_->Put(WriteOptions(), "foo", "val3"));
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "val2"));
+  ASSERT_OK(db_->Put(WriteOptions(), "bar", "val2"));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), "bar", "baz"));
   ASSERT_OK(db_->Get(ReadOptions(), "foo", &value));
-  ASSERT_EQ("val3", value);
+  ASSERT_EQ("val2", value);
+  ASSERT_TRUE(db_->Get(ReadOptions(), "bar", &value).IsNotFound());
+  if (flush_before_close) {
+    ASSERT_OK(Flush(0));
+  }
   Close();
 }
 
@@ -4841,6 +4911,117 @@ TEST_F(DBBasicTestWithTimestamp, TimestampFilterTableReadOnGet) {
                   Tickers::TIMESTAMP_FILTER_TABLE_FILTERED));
   }
 
+  Close();
+}
+
+class GetNewestUserDefinedTimestampTest : public DBBasicTestWithTimestampBase {
+ public:
+  explicit GetNewestUserDefinedTimestampTest()
+      : DBBasicTestWithTimestampBase("get_newest_udt_test") {}
+};
+
+TEST_F(GetNewestUserDefinedTimestampTest, Basic) {
+  std::string newest_timestamp;
+  // UDT disabled, get InvalidArgument.
+  ASSERT_TRUE(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp)
+                  .IsInvalidArgument());
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.max_write_buffer_number = 5;
+  options.min_write_buffer_number_to_merge = 4;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+
+  DestroyAndReopen(options);
+  // UDT persisted, get NotSupported.
+  ASSERT_TRUE(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp)
+                  .IsNotSupported());
+
+  options.persist_user_defined_timestamps = false;
+  options.allow_concurrent_memtable_write = false;
+
+  DestroyAndReopen(options);
+  ASSERT_TRUE(
+      db_->GetNewestUserDefinedTimestamp(nullptr, nullptr).IsInvalidArgument());
+
+  ColumnFamilyHandleImpl* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      db_->DefaultColumnFamily());
+  ColumnFamilyData* cfd = cfh->cfd();
+  // The column family hasn't seen any user defined timestamp
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_TRUE(newest_timestamp.empty());
+
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), EncodeAsUint64(1), "val1"));
+  // Testing get newest timestamp from mutable memtable.
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_EQ(EncodeAsUint64(1), newest_timestamp);
+
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), EncodeAsUint64(2), "val2"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfd));
+  // Testing get the newest timestamp from immutable memtable because the
+  // mutable one is empty.
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_EQ(EncodeAsUint64(2), newest_timestamp);
+
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), EncodeAsUint64(3), "val3"));
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), EncodeAsUint64(4), "val4"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfd));
+  // Testing get the newest timestamp from the more recent immutable memtable
+  // when there are multiple immutable memtables.
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_EQ(EncodeAsUint64(4), newest_timestamp);
+
+  ASSERT_OK(db_->Put(WriteOptions(), Key(1), EncodeAsUint64(5), "val5"));
+  // Testing get newest timestamp from mutable memtable when it has data, in the
+  // presence of immutable memtables.
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_EQ(EncodeAsUint64(5), newest_timestamp);
+
+  ASSERT_OK(Flush());
+  // After flushing and all the user defined timestamp are flushed. User defined
+  // timestamp info for SST files is available from MANIFEST.
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_EQ(EncodeAsUint64(5), newest_timestamp);
+
+  Reopen(options);
+  // Similar after flush, when there is no memtables, but some SST files,
+  // if MANIFEST records the upperbound of flushed timestamps because timestamps
+  // are not persisted in SST files, this info can be found.
+  ASSERT_OK(db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+  ASSERT_EQ(EncodeAsUint64(5), newest_timestamp);
+
+  Close();
+}
+
+TEST_F(GetNewestUserDefinedTimestampTest, ConcurrentWrites) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  options.persist_user_defined_timestamps = false;
+  options.allow_concurrent_memtable_write = false;
+
+  DestroyAndReopen(options);
+
+  std::vector<std::thread> threads;
+  threads.reserve(10);
+  std::atomic<uint64_t> current_ts{0};
+  for (int i = 0; i < 10; i++) {
+    threads.emplace_back([this, i, &current_ts]() {
+      if (i % 2 == 0) {
+        std::string newest_timestamp;
+        ASSERT_OK(
+            db_->GetNewestUserDefinedTimestamp(nullptr, &newest_timestamp));
+      } else {
+        uint64_t write_ts = current_ts.fetch_add(1);
+        ASSERT_OK(db_->Put(WriteOptions(), Key(1), EncodeAsUint64(write_ts),
+                           "val" + std::to_string(i)));
+      }
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
   Close();
 }
 

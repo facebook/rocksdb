@@ -90,6 +90,8 @@ class WBWIIterator {
   // Returns n where the current entry is the n-th update to the current key.
   // The update count starts from 1.
   // Only valid if WBWI is created with overwrite_key = true.
+  // With overwrite_key=false, update count for each entry is not maintained,
+  // see UpdateExistingEntryWithCfId().
   virtual uint32_t GetUpdateCount() const { return 0; }
 };
 
@@ -234,7 +236,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
                                 Iterator* base_iterator,
                                 const ReadOptions* opts = nullptr);
   // default column family
-  Iterator* NewIteratorWithBase(Iterator* base_iterator);
+  Iterator* NewIteratorWithBase(Iterator* base_iterator,
+                                const ReadOptions* opts = nullptr);
 
   // Similar to DB::Get() but will only read the key from this batch.
   // If the batch does not have enough data to resolve Merge operations,
@@ -374,11 +377,10 @@ class WriteBatchWithIndex : public WriteBatchBase {
     uint32_t entry_count = 0;
     uint32_t overwritten_sd_count = 0;
   };
-  // Will track CF ID, per CF entry count and overwritten sd count.
-  // Should be enabled when WBWI is empty for correct tracking.
-  void SetTrackPerCFStat(bool track);
   const std::unordered_map<uint32_t, CFStat>& GetCFStats() const;
 
+  // The total number of operations issued into this WBWI.
+  size_t GetWBWIOpCount() const;
   bool GetOverwriteKey() const;
 
  private:

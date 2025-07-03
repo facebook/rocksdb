@@ -50,8 +50,9 @@ Env::IOActivity ThreadStatusUtil::TEST_GetExpectedIOActivity(
       return Env::IOActivity::kGetEntity;
     case ThreadStatus::OperationType::OP_MULTIGETENTITY:
       return Env::IOActivity::kMultiGetEntity;
-    case ThreadStatus::OperationType::OP_READ_MANIFEST:
-      return Env::IOActivity::kReadManifest;
+    case ThreadStatus::OperationType::
+        OP_GET_FILE_CHECKSUMS_FROM_CURRENT_MANIFEST:
+      return Env::IOActivity::kGetFileChecksumsFromCurrentManifest;
     default:
       return Env::IOActivity::kUnknown;
   }

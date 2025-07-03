@@ -24,6 +24,7 @@
 #include "rocksdb/table.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
+#include "util/atomic.h"
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -82,6 +83,8 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   bool IsEmpty() const override;
 
+  uint64_t PreCompressionSize() const override;
+
   // Size of the file generated so far.  If invoked after a successful
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
@@ -116,12 +119,6 @@ class BlockBasedTableBuilder : public TableBuilder {
   // for details of the states.
   // REQUIRES: `rep_->state == kBuffered`
   void EnterUnbuffered();
-
-  // Call block's Finish() method and then
-  // - in buffered mode, buffer the uncompressed block contents.
-  // - in unbuffered mode, write the compressed block contents to file.
-  void WriteBlock(BlockBuilder* block, BlockHandle* handle,
-                  BlockType blocktype);
 
   // Compress and write block content to the file.
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
@@ -158,7 +155,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   class BlockBasedTablePropertiesCollectorFactory;
   class BlockBasedTablePropertiesCollector;
   Rep* rep_;
-
+  struct WorkingAreaPair;
   struct ParallelCompressionRep;
 
   // Advanced operation: flush any buffered key/value pairs to file.
@@ -174,17 +171,13 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   // Get blocks from mem-table walking thread, compress them and
   // pass them to the write thread. Used in parallel compression mode only
-  void BGWorkCompression(const CompressionContext& compression_ctx,
-                         UncompressionContext* verify_ctx);
+  void BGWorkCompression(WorkingAreaPair& working_area);
 
   // Given uncompressed block content, try to compress it and return result and
   // compression type
   void CompressAndVerifyBlock(const Slice& uncompressed_block_data,
-                              bool is_data_block,
-                              const CompressionContext& compression_ctx,
-                              UncompressionContext* verify_ctx,
+                              bool is_data_block, WorkingAreaPair& working_area,
                               std::string* compressed_output,
-                              Slice* result_block_contents,
                               CompressionType* result_compression_type,
                               Status* out_status);
 
@@ -198,11 +191,5 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Stop BGWorkCompression and BGWorkWriteMaybeCompressedBlock threads
   void StopParallelCompression();
 };
-
-Slice CompressBlock(const Slice& uncompressed_data, const CompressionInfo& info,
-                    CompressionType* type, uint32_t format_version,
-                    bool do_sample, std::string* compressed_output,
-                    std::string* sampled_output_fast,
-                    std::string* sampled_output_slow);
 
 }  // namespace ROCKSDB_NAMESPACE

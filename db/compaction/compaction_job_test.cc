@@ -43,7 +43,6 @@ void VerifyInitializationOfCompactionJobStats(
   ASSERT_EQ(compaction_job_stats.elapsed_micros, 0U);
 
   ASSERT_EQ(compaction_job_stats.num_input_records, 0U);
-  ASSERT_EQ(compaction_job_stats.num_input_files, 0U);
   ASSERT_EQ(compaction_job_stats.num_input_files_at_output_level, 0U);
 
   ASSERT_EQ(compaction_job_stats.num_output_records, 0U);
@@ -52,7 +51,6 @@ void VerifyInitializationOfCompactionJobStats(
   ASSERT_TRUE(compaction_job_stats.is_manual_compaction);
   ASSERT_FALSE(compaction_job_stats.is_remote_compaction);
 
-  ASSERT_EQ(compaction_job_stats.total_input_bytes, 0U);
   ASSERT_EQ(compaction_job_stats.total_output_bytes, 0U);
 
   ASSERT_EQ(compaction_job_stats.total_input_raw_key_bytes, 0U);
@@ -460,9 +458,10 @@ class CompactionJobTestBase : public testing::Test {
       ReadOptions read_opts;
       Status s = cf_options_.table_factory->NewTableReader(
           read_opts,
-          TableReaderOptions(cfd->ioptions(), nullptr, FileOptions(),
+          TableReaderOptions(cfd->ioptions(), /*prefix_extractor=*/nullptr,
+                             /*compression_manager=*/nullptr, FileOptions(),
                              cfd_->internal_comparator(),
-                             0 /* block_protection_bytes_per_key */),
+                             /*block_protection_bytes_per_key=*/0),
           std::move(freader), file_size, &table_reader, false);
       ASSERT_OK(s);
       assert(table_reader);
@@ -595,11 +594,11 @@ class CompactionJobTestBase : public testing::Test {
       const std::vector<std::vector<FileMetaData*>>& input_files,
       const std::vector<int> input_levels,
       std::function<void(Compaction& comp)>&& verify_func,
-      const std::vector<SequenceNumber>& snapshots = {}) {
+      std::vector<SequenceNumber>&& snapshots = {}) {
     const int kLastLevel = cf_options_.num_levels - 1;
     verify_per_key_placement_ = std::move(verify_func);
     mock::KVVector empty_map;
-    RunCompaction(input_files, input_levels, {empty_map}, snapshots,
+    RunCompaction(input_files, input_levels, {empty_map}, std::move(snapshots),
                   kMaxSequenceNumber, kLastLevel, false);
   }
 
@@ -608,7 +607,7 @@ class CompactionJobTestBase : public testing::Test {
       const std::vector<std::vector<FileMetaData*>>& input_files,
       const std::vector<int>& input_levels,
       const std::vector<mock::KVVector>& expected_results,
-      const std::vector<SequenceNumber>& snapshots = {},
+      std::vector<SequenceNumber>&& snapshots = {},
       SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber,
       int output_level = 1, bool verify = true,
       std::vector<uint64_t> expected_oldest_blob_file_numbers = {},
@@ -665,13 +664,15 @@ class CompactionJobTestBase : public testing::Test {
                 ucmp_->timestamp_size() == full_history_ts_low_.size());
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
     JobContext job_context(1, false /* create_superversion */);
+    job_context.InitSnapshotContext(snapshot_checker, nullptr,
+                                    earliest_write_conflict_snapshot,
+                                    std::move(snapshots));
     CompactionJob compaction_job(
         0, &compaction, db_options_, mutable_db_options_, env_options_,
         versions_.get(), &shutting_down_, &log_buffer, nullptr, nullptr,
-        nullptr, nullptr, &mutex_, &error_handler_, snapshots,
-        earliest_write_conflict_snapshot, snapshot_checker, &job_context,
-        table_cache_, &event_logger, false, false, dbname_,
-        &compaction_job_stats_, Env::Priority::USER, nullptr /* IOTracer */,
+        nullptr, nullptr, &mutex_, &error_handler_, &job_context, table_cache_,
+        &event_logger, false, false, dbname_, &compaction_job_stats_,
+        Env::Priority::USER, nullptr /* IOTracer */,
         /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
         env_->GenerateUniqueId(), DBImpl::GenerateDbSessionId(nullptr),
         full_history_ts_low_);
@@ -1474,7 +1475,7 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
                 /* expected_oldest_blob_file_numbers */ {19});
 }
 
-TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
+TEST_F(CompactionJobTest, VerifyProximalLevelOutput) {
   cf_options_.last_level_temperature = Temperature::kCold;
   SyncPoint::GetInstance()->SetCallBack(
       "Compaction::SupportsPerKeyPlacement:Enabled", [&](void* arg) {
@@ -1487,8 +1488,7 @@ TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionIterator::PrepareOutput.context", [&](void* arg) {
         auto context = static_cast<PerKeyPlacementContext*>(arg);
-        context->output_to_penultimate_level =
-            context->seq_num > latest_cold_seq;
+        context->output_to_proximal_level = context->seq_num > latest_cold_seq;
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1534,11 +1534,11 @@ TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
       /*verify_func=*/[&](Compaction& comp) {
         for (char c = 'a'; c <= 'z'; c++) {
           if (c == 'a') {
-            comp.TEST_AssertWithinPenultimateLevelOutputRange(
+            comp.TEST_AssertWithinProximalLevelOutputRange(
                 "a", true /*expect_failure*/);
           } else {
             std::string c_str{c};
-            comp.TEST_AssertWithinPenultimateLevelOutputRange(c_str);
+            comp.TEST_AssertWithinProximalLevelOutputRange(c_str);
           }
         }
       });
@@ -1670,6 +1670,7 @@ TEST_F(CompactionJobTest, ResultSerialization) {
     UniqueId64x2 id{rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX)};
     result.output_files.emplace_back(
         rnd.RandomString(rnd.Uniform(kStrMaxLen)) /* file_name */,
+        rnd64.Uniform(UINT64_MAX) /* file_size */,
         rnd64.Uniform(UINT64_MAX) /* smallest_seqno */,
         rnd64.Uniform(UINT64_MAX) /* largest_seqno */,
         rnd.RandomBinaryString(
@@ -1682,7 +1683,8 @@ TEST_F(CompactionJobTest, ResultSerialization) {
         file_checksum /* file_checksum */,
         file_checksum_func_name /* file_checksum_func_name */,
         rnd64.Uniform(UINT64_MAX) /* paranoid_hash */,
-        rnd.OneIn(2) /* marked_for_compaction */, id /* unique_id */, tp);
+        rnd.OneIn(2) /* marked_for_compaction */, id /* unique_id */, tp,
+        false /* is_proximal_level_output */, Temperature::kHot);
   }
   result.output_level = rnd.Uniform(10);
   result.output_path = rnd.RandomString(rnd.Uniform(kStrMaxLen));
@@ -1736,6 +1738,8 @@ TEST_F(CompactionJobTest, ResultSerialization) {
     ASSERT_EQ(deserialized_tmp.output_files[0].file_checksum, file_checksum);
     ASSERT_EQ(deserialized_tmp.output_files[0].file_checksum_func_name,
               file_checksum_func_name);
+    ASSERT_EQ(deserialized_tmp.output_files[0].file_temperature,
+              Temperature::kHot);
   }
 
   // Test unknown field
@@ -2033,7 +2037,7 @@ TEST_F(CompactionJobTest, CutToAlignGrandparentBoundarySameKey) {
     snapshots.emplace_back(i);
   }
   RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                {expected_file1, expected_file2}, snapshots);
+                {expected_file1, expected_file2}, std::move(snapshots));
 }
 
 TEST_F(CompactionJobTest, CutForMaxCompactionBytesSameKey) {
@@ -2092,7 +2096,8 @@ TEST_F(CompactionJobTest, CutForMaxCompactionBytesSameKey) {
     snapshots.emplace_back(i);
   }
   RunCompaction({lvl0_files, lvl1_files}, input_levels,
-                {expected_file1, expected_file2, expected_file3}, snapshots);
+                {expected_file1, expected_file2, expected_file3},
+                std::move(snapshots));
 }
 
 class CompactionJobTimestampTest : public CompactionJobTestBase {

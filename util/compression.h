@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <limits>
+
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
 #ifdef OS_FREEBSD
 #include <malloc_np.h>
@@ -21,10 +22,13 @@
 #include <string>
 
 #include "memory/memory_allocator_impl.h"
+#include "port/likely.h"
+#include "rocksdb/advanced_compression.h"
 #include "rocksdb/options.h"
-#include "rocksdb/table.h"
 #include "table/block_based/block_type.h"
 #include "test_util/sync_point.h"
+#include "util/atomic.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
 #include "util/string_util.h"
@@ -144,6 +148,124 @@ class ZSTDUncompressCachedData {
 
 namespace ROCKSDB_NAMESPACE {
 
+class FailureDecompressor : public Decompressor {
+ public:
+  explicit FailureDecompressor(Status&& status) : status_(std::move(status)) {
+    assert(!status_.ok());
+  }
+  ~FailureDecompressor() override { status_.PermitUncheckedError(); }
+
+  const char* Name() const override { return "FailureDecompressor"; }
+
+  Status ExtractUncompressedSize(Args& /*args*/) override { return status_; }
+
+  Status DecompressBlock(const Args& /*args*/,
+                         char* /*uncompressed_output*/) override {
+    return status_;
+  }
+
+ protected:
+  Status status_;
+};
+
+// Owns a decompression dictionary, and associated Decompressor, for storing
+// in the block cache.
+//
+// Justification: for a "processed" dictionary to be saved in block cache, we
+// also need a reference to the decompressor that processed it, to ensure it
+// is recognized properly. At that point, we might as well have the dictionary
+// part of the decompressor identity and track an associated decompressor along
+// with a decompression dictionary in the block cache, and the decompressor
+// hides potential details of processing the dictionary.
+struct DecompressorDict {
+  // Block containing the data for the compression dictionary in case the
+  // constructor that takes a string parameter is used.
+  std::string dict_str_;
+
+  // Block containing the data for the compression dictionary in case the
+  // constructor that takes a Slice parameter is used and the passed in
+  // CacheAllocationPtr is not nullptr.
+  CacheAllocationPtr dict_allocation_;
+
+  // A Decompressor referencing and using the dictionary owned by this.
+  std::unique_ptr<Decompressor> decompressor_;
+
+  // Approximate owned memory usage
+  size_t memory_usage_;
+
+  DecompressorDict(std::string&& dict, Decompressor& from_decompressor)
+      : dict_str_(std::move(dict)) {
+    Populate(from_decompressor, dict_str_);
+  }
+
+  DecompressorDict(Slice slice, CacheAllocationPtr&& allocation,
+                   Decompressor& from_decompressor)
+      : dict_allocation_(std::move(allocation)) {
+    Populate(from_decompressor, slice);
+  }
+
+  DecompressorDict(DecompressorDict&& rhs) noexcept
+      : dict_str_(std::move(rhs.dict_str_)),
+        dict_allocation_(std::move(rhs.dict_allocation_)),
+        decompressor_(std::move(rhs.decompressor_)),
+        memory_usage_(std::move(rhs.memory_usage_)) {}
+
+  DecompressorDict& operator=(DecompressorDict&& rhs) noexcept {
+    if (this == &rhs) {
+      return *this;
+    }
+    dict_str_ = std::move(rhs.dict_str_);
+    dict_allocation_ = std::move(rhs.dict_allocation_);
+    decompressor_ = std::move(rhs.decompressor_);
+    return *this;
+  }
+  // Disable copy
+  DecompressorDict(const DecompressorDict&) = delete;
+  DecompressorDict& operator=(const DecompressorDict&) = delete;
+
+  // The object is self-contained if the string constructor is used, or the
+  // Slice constructor is invoked with a non-null allocation. Otherwise, it
+  // is the caller's responsibility to ensure that the underlying storage
+  // outlives this object.
+  bool own_bytes() const { return !dict_str_.empty() || dict_allocation_; }
+
+  const Slice& GetRawDict() const { return decompressor_->GetSerializedDict(); }
+
+  // For TypedCacheInterface
+  const Slice& ContentSlice() const { return GetRawDict(); }
+  static constexpr CacheEntryRole kCacheEntryRole = CacheEntryRole::kOtherBlock;
+  static constexpr BlockType kBlockType = BlockType::kCompressionDictionary;
+
+  size_t ApproximateMemoryUsage() const { return memory_usage_; }
+
+ private:
+  void Populate(Decompressor& from_decompressor, Slice dict) {
+    Status s = from_decompressor.MaybeCloneForDict(dict, &decompressor_);
+    if (decompressor_ == nullptr) {
+      dict_str_ = {};
+      dict_allocation_ = {};
+      assert(!s.ok());
+      decompressor_ = std::make_unique<FailureDecompressor>(std::move(s));
+    } else {
+      assert(s.ok());
+      assert(decompressor_->GetSerializedDict() == dict);
+    }
+
+    memory_usage_ = sizeof(struct DecompressorDict);
+    memory_usage_ += dict_str_.size();
+    if (dict_allocation_) {
+      auto allocator = dict_allocation_.get_deleter().allocator;
+      if (allocator) {
+        memory_usage_ +=
+            allocator->UsableSize(dict_allocation_.get(), GetRawDict().size());
+      } else {
+        memory_usage_ += GetRawDict().size();
+      }
+    }
+    memory_usage_ += decompressor_->ApproximateOwnedMemoryUsage();
+  }
+};
+
 // Holds dictionary and related data, like ZSTD's digested compression
 // dictionary.
 struct CompressionDict {
@@ -153,7 +275,8 @@ struct CompressionDict {
   std::string dict_;
 
  public:
-  CompressionDict(std::string dict, CompressionType type, int level) {
+  CompressionDict() = default;
+  CompressionDict(std::string&& dict, CompressionType type, int level) {
     dict_ = std::move(dict);
 #ifdef ZSTD
     zstd_cdict_ = nullptr;
@@ -173,6 +296,25 @@ struct CompressionDict {
 #endif  // ZSTD
   }
 
+  CompressionDict(CompressionDict&& other) {
+#ifdef ZSTD
+    zstd_cdict_ = other.zstd_cdict_;
+    other.zstd_cdict_ = nullptr;
+#endif  // ZSTD
+    dict_ = std::move(other.dict_);
+  }
+  CompressionDict& operator=(CompressionDict&& other) {
+    if (this == &other) {
+      return *this;
+    }
+#ifdef ZSTD
+    zstd_cdict_ = other.zstd_cdict_;
+    other.zstd_cdict_ = nullptr;
+#endif  // ZSTD
+    dict_ = std::move(other.dict_);
+    return *this;
+  }
+
   ~CompressionDict() {
 #ifdef ZSTD
     size_t res = 0;
@@ -189,18 +331,16 @@ struct CompressionDict {
 #endif  // ZSTD
 
   Slice GetRawDict() const { return dict_; }
+  bool empty() const { return dict_.empty(); }
 
   static const CompressionDict& GetEmptyDict() {
     static CompressionDict empty_dict{};
     return empty_dict;
   }
 
-  CompressionDict() = default;
-  // Disable copy/move
+  // Disable copy
   CompressionDict(const CompressionDict&) = delete;
   CompressionDict& operator=(const CompressionDict&) = delete;
-  CompressionDict(CompressionDict&&) = delete;
-  CompressionDict& operator=(CompressionDict&&) = delete;
 };
 
 // Holds dictionary and related data, like ZSTD's digested uncompression
@@ -225,7 +365,7 @@ struct UncompressionDict {
   ZSTD_DDict* zstd_ddict_ = nullptr;
 #endif  // ROCKSDB_ZSTD_DDICT
 
-  UncompressionDict(std::string dict, bool using_zstd)
+  UncompressionDict(std::string&& dict, bool using_zstd)
       : dict_(std::move(dict)), slice_(dict_) {
 #ifdef ROCKSDB_ZSTD_DDICT
     if (!slice_.empty() && using_zstd) {
@@ -337,7 +477,7 @@ struct UncompressionDict {
   UncompressionDict& operator=(const CompressionDict&) = delete;
 };
 
-class CompressionContext {
+class CompressionContext : public Compressor::WorkingArea {
  private:
 #ifdef ZSTD
   ZSTD_CCtx* zstd_ctx_ = nullptr;
@@ -408,32 +548,28 @@ class CompressionContext {
   CompressionContext& operator=(const CompressionContext&) = delete;
 };
 
+// TODO: rename
 class CompressionInfo {
   const CompressionOptions& opts_;
   const CompressionContext& context_;
   const CompressionDict& dict_;
   const CompressionType type_;
-  const uint64_t sample_for_compression_;
 
  public:
   CompressionInfo(const CompressionOptions& _opts,
                   const CompressionContext& _context,
-                  const CompressionDict& _dict, CompressionType _type,
-                  uint64_t _sample_for_compression)
-      : opts_(_opts),
-        context_(_context),
-        dict_(_dict),
-        type_(_type),
-        sample_for_compression_(_sample_for_compression) {}
+                  const CompressionDict& _dict, CompressionType _type)
+      : opts_(_opts), context_(_context), dict_(_dict), type_(_type) {}
 
   const CompressionOptions& options() const { return opts_; }
   const CompressionContext& context() const { return context_; }
   const CompressionDict& dict() const { return dict_; }
   CompressionType type() const { return type_; }
-  uint64_t SampleForCompression() const { return sample_for_compression_; }
 };
 
-class UncompressionContext {
+// This is like a working area, reusable for different dicts, etc.
+// TODO: refactor / consolidate
+class UncompressionContext : public Decompressor::WorkingArea {
  private:
   CompressionContextCache* ctx_cache_ = nullptr;
   ZSTDUncompressCachedData uncomp_cached_data_;
@@ -563,8 +699,7 @@ inline bool CompressionTypeSupported(CompressionType compression_type) {
       return XPRESS_Supported();
     case kZSTD:
       return ZSTD_Supported();
-    default:
-      assert(false);
+    default:  // Including custom compression types
       return false;
   }
 }
@@ -592,12 +727,12 @@ inline bool DictCompressionTypeSupported(CompressionType compression_type) {
       // NB: dictionary supported since 0.5.0. See ZSTD_VERSION_NUMBER check
       // above.
       return ZSTD_Supported();
-    default:
-      assert(false);
+    default:  // Including custom compression types
       return false;
   }
 }
 
+// WART: does not match OptionsHelper::compression_type_string_map
 inline std::string CompressionTypeToString(CompressionType compression_type) {
   switch (compression_type) {
     case kNoCompression:
@@ -618,14 +753,66 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
       return "ZSTD";
     case kDisableCompressionOption:
       return "DisableOption";
-    default:
-      assert(false);
-      return "";
+    default: {
+      bool is_custom = compression_type >= kFirstCustomCompression &&
+                       compression_type <= kLastCustomCompression;
+      unsigned char c = lossless_cast<unsigned char>(compression_type);
+      return (is_custom ? "Custom" : "Reserved") +
+             ToBaseCharsString<16>(2, c, /*uppercase=*/true);
+    }
   }
 }
 
+// WART: does not match OptionsHelper::compression_type_string_map
+inline CompressionType CompressionTypeFromString(
+    std::string compression_type_str) {
+  if (!compression_type_str.empty()) {
+    switch (compression_type_str[0]) {
+      case 'N':
+        if (compression_type_str == "NoCompression") {
+          return kNoCompression;
+        }
+        break;
+      case 'S':
+        if (compression_type_str == "Snappy") {
+          return kSnappyCompression;
+        }
+        break;
+      case 'Z':
+        if (compression_type_str == "ZSTD") {
+          return kZSTD;
+        }
+        if (compression_type_str == "Zlib") {
+          return kZlibCompression;
+        }
+        break;
+      case 'B':
+        if (compression_type_str == "BZip2") {
+          return kBZip2Compression;
+        }
+        break;
+      case 'L':
+        if (compression_type_str == "LZ4") {
+          return kLZ4Compression;
+        }
+        if (compression_type_str == "LZ4HC") {
+          return kLZ4HCCompression;
+        }
+        break;
+      case 'X':
+        if (compression_type_str == "Xpress") {
+          return kXpressCompression;
+        }
+        break;
+      default:;
+    }
+  }
+  // unrecognized
+  return kDisableCompressionOption;
+}
+
 inline std::string CompressionOptionsToString(
-    CompressionOptions& compression_options) {
+    const CompressionOptions& compression_options) {
   std::string result;
   result.reserve(512);
   result.append("window_bits=")
@@ -643,6 +830,8 @@ inline std::string CompressionOptionsToString(
   result.append("zstd_max_train_bytes=")
       .append(std::to_string(compression_options.zstd_max_train_bytes))
       .append("; ");
+  // NOTE: parallel_threads is skipped because it doesn't really affect the file
+  // contents written, arguably doesn't belong in CompressionOptions
   result.append("enabled=")
       .append(std::to_string(compression_options.enabled))
       .append("; ");
@@ -652,6 +841,12 @@ inline std::string CompressionOptionsToString(
   result.append("use_zstd_dict_trainer=")
       .append(std::to_string(compression_options.use_zstd_dict_trainer))
       .append("; ");
+  result.append("max_compressed_bytes_per_kb=")
+      .append(std::to_string(compression_options.max_compressed_bytes_per_kb))
+      .append("; ");
+  result.append("checksum=")
+      .append(std::to_string(compression_options.checksum))
+      .append("; ");
   return result;
 }
 
@@ -660,7 +855,8 @@ inline std::string CompressionOptionsToString(
 // block. Also, decompressed sizes for LZ4 are encoded in platform-dependent
 // way.
 // 2 -- Zlib, BZip2 and LZ4 encode decompressed size as Varint32 just before the
-// start of compressed block. Snappy format is the same as version 1.
+// start of compressed block. Snappy and XPRESS instead extract the decompressed
+// size from the compressed block itself, same as version 1.
 
 inline bool Snappy_Compress(const CompressionInfo& /*info*/, const char* input,
                             size_t length, ::std::string* output) {
@@ -958,7 +1154,7 @@ inline bool BZip2_Compress(const CompressionInfo& /*info*/,
 
   // Initialize the output size.
   _stream.avail_out = static_cast<unsigned int>(length);
-  _stream.next_out = reinterpret_cast<char*>(&(*output)[output_header_len]);
+  _stream.next_out = output->data() + output_header_len;
 
   bool compressed = false;
   st = BZ2_bzCompress(&_stream, BZ_FINISH);
@@ -1336,6 +1532,7 @@ inline bool ZSTD_Compress(const CompressionInfo& info, const char* input,
       output, static_cast<uint32_t>(length));
 
   size_t compressBound = ZSTD_compressBound(length);
+  // TODO: use resize_and_overwrite with c++23
   output->resize(static_cast<size_t>(output_header_len + compressBound));
   size_t outlen = 0;
   ZSTD_CCtx* context = info.context().ZSTDPreallocCtx();
@@ -1528,10 +1725,10 @@ inline std::string ZSTD_FinalizeDictionary(
 #endif  // ROCKSDB_ZDICT_FINALIZE
 }
 
-inline bool CompressData(const Slice& raw,
-                         const CompressionInfo& compression_info,
-                         uint32_t compress_format_version,
-                         std::string* compressed_output) {
+inline bool OLD_CompressData(const Slice& raw,
+                             const CompressionInfo& compression_info,
+                             uint32_t compress_format_version,
+                             std::string* compressed_output) {
   bool ret = false;
 
   // Will return compressed block contents if (1) the compression method is
@@ -1575,7 +1772,7 @@ inline bool CompressData(const Slice& raw,
   return ret;
 }
 
-inline CacheAllocationPtr UncompressData(
+inline CacheAllocationPtr OLD_UncompressData(
     const UncompressionInfo& uncompression_info, const char* data, size_t n,
     size_t* uncompressed_size, uint32_t compress_format_version,
     MemoryAllocator* allocator = nullptr,
@@ -1605,6 +1802,19 @@ inline CacheAllocationPtr UncompressData(
       return CacheAllocationPtr();
   }
 }
+
+// ***********************************************************************
+// BEGIN built-in implementation of customization interface
+// ***********************************************************************
+
+// NOTE: to avoid compression API depending on block-based table API, uses
+// its own format version. See internal function GetCompressFormatForVersion()
+const std::shared_ptr<CompressionManager>& GetBuiltinCompressionManager(
+    int compression_format_version);
+
+// ***********************************************************************
+// END built-in implementation of customization interface
+// ***********************************************************************
 
 // Records the compression type for subsequent WAL records.
 class CompressionTypeRecord {

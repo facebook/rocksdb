@@ -516,14 +516,16 @@ enum Tickers : uint32_t {
   // Number of FIFO compactions that drop files based on different reasons
   FIFO_MAX_SIZE_COMPACTIONS,
   FIFO_TTL_COMPACTIONS,
+  FIFO_CHANGE_TEMPERATURE_COMPACTIONS,
 
   // Number of bytes prefetched during user initiated scan
   PREFETCH_BYTES,
 
-  // Number of prefetched bytes that were actually useful
+  // Number of prefetched bytes that were actually useful during user initiated
+  // scan
   PREFETCH_BYTES_USEFUL,
 
-  // Number of FS reads avoided due to scan prefetching
+  // Number of FS reads avoided due to prefetching during user initiated scan
   PREFETCH_HITS,
 
   // Footer corruption detected when opening an SST file for reading
@@ -533,6 +535,12 @@ enum Tickers : uint32_t {
   // file system option after detecting a checksum mismatch
   FILE_READ_CORRUPTION_RETRY_COUNT,
   FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT,
+
+  // Counter for the number of times a WBWI is ingested into the DB. This
+  // happens when IngestWriteBatchWithIndex() is used and when large
+  // transaction optimization is enabled through
+  // TransactionOptions::large_txn_commit_optimize_threshold.
+  NUMBER_WBWI_INGEST,
 
   TICKER_ENUM_MAX
 };
@@ -657,15 +665,22 @@ enum Histograms : uint32_t {
   ASYNC_READ_BYTES,
   POLL_WAIT_MICROS,
 
+  // Number of bytes for RocksDB's prefetching (as opposed to file
+  // system's prefetch) on SST file during compaction read
+  COMPACTION_PREFETCH_BYTES,
+
   // Number of prefetched bytes discarded by RocksDB.
   PREFETCHED_BYTES_DISCARDED,
 
   // Wait time for aborting async read in FilePrefetchBuffer destructor
   ASYNC_PREFETCH_ABORT_MICROS,
 
-  // Number of bytes read for RocksDB's prefetching contents (as opposed to file
+  // Number of bytes for RocksDB's prefetching contents (as opposed to file
   // system's prefetch) from the end of SST table during block based table open
   TABLE_OPEN_PREFETCH_TAIL_READ_BYTES,
+
+  // Number of operations per transaction.
+  NUM_OP_PER_TRANSACTION,
 
   HISTOGRAM_ENUM_MAX
 };

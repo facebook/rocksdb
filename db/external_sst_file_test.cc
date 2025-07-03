@@ -3915,9 +3915,7 @@ TEST_P(IngestDBGeneratedFileTest, FailureCase) {
     s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
     ASSERT_TRUE(s.ToString().find(err) != std::string::npos);
     ASSERT_NOK(s);
-    if (options.compaction_style != kCompactionStyleUniversal) {
-      // FIXME: after fixing ingestion with universal compaction, currently
-      //  will always ingest into L0.
+    if (options.num_levels > 1) {
       ingest_opts.fail_if_not_bottommost_level = true;
       s = db_->IngestExternalFile(to_ingest_files, ingest_opts);
       ASSERT_NOK(s);

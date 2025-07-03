@@ -16,6 +16,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/defer.h"
+#include "util/file_checksum_helper.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
 
@@ -260,55 +261,6 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   s = sst_file_writer.DeleteRange(Key(100), Key(200));
   ASSERT_NOK(s) << s.ToString();
 
-  DestroyAndReopen(options);
-
-  SyncPoint::GetInstance()->LoadDependency({
-      {"DBImpl::IngestExternalFile:AfterIncIngestFileCounter",
-       "ExternalSSTFileBasicTest.LiveWriteStart"},
-      {"WriteThread::JoinBatchGroup:Wait",
-       "DBImpl::IngestExternalFile:AfterIncIngestFileCounter:2"},
-  });
-  SyncPoint::GetInstance()->EnableProcessing();
-  PerfContext* write_thread_perf_context;
-  std::thread write_thread([&] {
-    TEST_SYNC_POINT("ExternalSSTFileBasicTest.LiveWriteStart");
-    SetPerfLevel(kEnableWait);
-    write_thread_perf_context = get_perf_context();
-    write_thread_perf_context->Reset();
-    ASSERT_OK(db_->Put(WriteOptions(), "bar", "v2"));
-    ASSERT_GT(write_thread_perf_context->write_thread_wait_nanos, 0);
-    // Test sync points were used to make sure this live write enter write
-    // thread after the file ingestion entered write thread. So by the time this
-    // live write finishes, the latest seqno is 1 means file ingestion used
-    // seqno 0.
-    ASSERT_EQ(db_->GetLatestSequenceNumber(), 1U);
-  });
-
-  // Add file using file path
-  SetPerfLevel(kEnableTimeExceptForMutex);
-  PerfContext* perf_ctx = get_perf_context();
-  perf_ctx->Reset();
-  s = DeprecatedAddFile({file1});
-  ASSERT_GT(perf_context.file_ingestion_nanos, 0);
-  ASSERT_GT(perf_context.file_ingestion_blocking_live_writes_nanos, 0);
-  ASSERT_OK(s) << s.ToString();
-  for (int k = 0; k < 100; k++) {
-    ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
-  }
-
-  write_thread.join();
-  SyncPoint::GetInstance()->DisableProcessing();
-
-  // Re-ingest the file just to check the perf context not enabled at and below
-  // kEnableWait.
-  SetPerfLevel(kEnableWait);
-  perf_ctx->Reset();
-  IngestExternalFileOptions opts;
-  opts.allow_global_seqno = true;
-  opts.allow_blocking_flush = true;
-  ASSERT_OK(db_->IngestExternalFile({file1}, opts));
-  ASSERT_EQ(perf_context.file_ingestion_nanos, 0);
-  ASSERT_EQ(perf_context.file_ingestion_blocking_live_writes_nanos, 0);
   DestroyAndRecreateExternalSSTFilesDir();
 }
 
@@ -395,7 +347,8 @@ class ChecksumVerifyHelper {
 
   Status GetSingleFileChecksumAndFuncName(
       const std::string& file_path, std::string* file_checksum,
-      std::string* file_checksum_func_name) {
+      std::string* file_checksum_func_name,
+      const std::string& requested_func_name = {}) {
     Status s;
     EnvOptions soptions;
     std::unique_ptr<SequentialFile> file_reader;
@@ -413,6 +366,8 @@ class ChecksumVerifyHelper {
       return Status::OK();
     } else {
       FileChecksumGenContext gen_context;
+      gen_context.file_name = file_path;
+      gen_context.requested_checksum_func_name = requested_func_name;
       std::unique_ptr<FileChecksumGenerator> file_checksum_gen =
           file_checksum_gen_factory->CreateFileChecksumGenerator(gen_context);
       *file_checksum_func_name = file_checksum_gen->Name();
@@ -488,10 +443,50 @@ TEST_F(ExternalSSTFileBasicTest, BasicWithFileChecksumCrc32c) {
   DestroyAndRecreateExternalSSTFilesDir();
 }
 
+namespace {
+class VariousFileChecksumGenerator : public FileChecksumGenCrc32c {
+ public:
+  explicit VariousFileChecksumGenerator(const std::string& name)
+      : FileChecksumGenCrc32c({}), name_(name) {}
+
+  const char* Name() const override { return name_.c_str(); }
+
+  std::string GetChecksum() const override {
+    return FileChecksumGenCrc32c::GetChecksum() + "_" + name_;
+  }
+
+ private:
+  const std::string name_;
+};
+
+class VariousFileChecksumGenFactory : public FileChecksumGenFactory {
+ public:
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& context) override {
+    static RelaxedAtomic<int> counter{0};
+    if (Slice(context.requested_checksum_func_name).starts_with("Various")) {
+      return std::make_unique<VariousFileChecksumGenerator>(
+          context.requested_checksum_func_name);
+    } else if (context.requested_checksum_func_name.empty()) {
+      // Lacking a specific request, use a different function name for each
+      // result.
+      return std::make_unique<VariousFileChecksumGenerator>(
+          "Various" + std::to_string(counter.FetchAddRelaxed(1)));
+    } else {
+      return nullptr;
+    }
+  }
+
+  static const char* kClassName() { return "VariousFileChecksumGenFactory"; }
+  const char* Name() const override { return kClassName(); }
+};
+}  // namespace
+
 TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   Options old_options = CurrentOptions();
   Options options = CurrentOptions();
-  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  options.file_checksum_gen_factory =
+      std::make_shared<VariousFileChecksumGenFactory>();
   const ImmutableCFOptions ioptions(options);
   ChecksumVerifyHelper checksum_helper(options);
 
@@ -512,7 +507,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file1_info.largest_key, Key(1099));
   std::string file_checksum1, file_checksum_func_name1;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-      file1, &file_checksum1, &file_checksum_func_name1));
+      file1, &file_checksum1, &file_checksum_func_name1,
+      file1_info.file_checksum_func_name));
   ASSERT_EQ(file1_info.file_checksum, file_checksum1);
   ASSERT_EQ(file1_info.file_checksum_func_name, file_checksum_func_name1);
 
@@ -531,7 +527,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file2_info.largest_key, Key(1299));
   std::string file_checksum2, file_checksum_func_name2;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-      file2, &file_checksum2, &file_checksum_func_name2));
+      file2, &file_checksum2, &file_checksum_func_name2,
+      file2_info.file_checksum_func_name));
   ASSERT_EQ(file2_info.file_checksum, file_checksum2);
   ASSERT_EQ(file2_info.file_checksum_func_name, file_checksum_func_name2);
 
@@ -550,7 +547,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file3_info.largest_key, Key(1499));
   std::string file_checksum3, file_checksum_func_name3;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-      file3, &file_checksum3, &file_checksum_func_name3));
+      file3, &file_checksum3, &file_checksum_func_name3,
+      file3_info.file_checksum_func_name));
   ASSERT_EQ(file3_info.file_checksum, file_checksum3);
   ASSERT_EQ(file3_info.file_checksum_func_name, file_checksum_func_name3);
 
@@ -569,7 +567,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file4_info.largest_key, Key(1799));
   std::string file_checksum4, file_checksum_func_name4;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-      file4, &file_checksum4, &file_checksum_func_name4));
+      file4, &file_checksum4, &file_checksum_func_name4,
+      file4_info.file_checksum_func_name));
   ASSERT_EQ(file4_info.file_checksum, file_checksum4);
   ASSERT_EQ(file4_info.file_checksum_func_name, file_checksum_func_name4);
 
@@ -588,7 +587,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file5_info.largest_key, Key(1999));
   std::string file_checksum5, file_checksum_func_name5;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-      file5, &file_checksum5, &file_checksum_func_name5));
+      file5, &file_checksum5, &file_checksum_func_name5,
+      file5_info.file_checksum_func_name));
   ASSERT_EQ(file5_info.file_checksum, file_checksum5);
   ASSERT_EQ(file5_info.file_checksum_func_name, file_checksum_func_name5);
 
@@ -607,7 +607,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file6_info.largest_key, Key(2199));
   std::string file_checksum6, file_checksum_func_name6;
   ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-      file6, &file_checksum6, &file_checksum_func_name6));
+      file6, &file_checksum6, &file_checksum_func_name6,
+      file6_info.file_checksum_func_name));
   ASSERT_EQ(file6_info.file_checksum, file_checksum6);
   ASSERT_EQ(file6_info.file_checksum_func_name, file_checksum_func_name6);
 
@@ -677,18 +678,23 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   }
   ASSERT_OK(env_->FileExists(file2));
 
-  // Enable verify_file_checksum option
-  // No checksum information is provided, generate it when ingesting
-  std::vector<std::string> checksum, checksum_func;
-  s = AddFileWithFileChecksum({file3}, checksum, checksum_func, true, false,
-                              false, false);
+  // Enable verify_file_checksum option. No checksum information is provided,
+  // so it is generated when ingesting. The configured checksum factory will
+  // use a different function than before.
+  s = AddFileWithFileChecksum({file3}, {}, {}, true, false, false, false);
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files2;
   dbfull()->GetLiveFilesMetaData(&live_files2);
   for (const auto& f : live_files2) {
     if (set1.find(f.name) == set1.end()) {
-      ASSERT_EQ(f.file_checksum, file_checksum3);
-      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name3);
+      // Recomputed checksum, different function
+      EXPECT_NE(f.file_checksum_func_name, file_checksum_func_name3);
+      std::string cur_checksum3, cur_checksum_func_name3;
+      ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
+          dbname_ + f.name, &cur_checksum3, &cur_checksum_func_name3,
+          f.file_checksum_func_name));
+      EXPECT_EQ(f.file_checksum, cur_checksum3);
+      EXPECT_EQ(f.file_checksum_func_name, cur_checksum_func_name3);
       set1.insert(f.name);
     }
   }
@@ -702,8 +708,9 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_NOK(s) << s.ToString();
 
   // Does not enable verify_file_checksum options
-  // Checksum function name matches, store the checksum being ingested.
-  s = AddFileWithFileChecksum({file4}, {"asd"}, {file_checksum_func_name4},
+  // Checksum function name is recognized, so store the checksum being ingested.
+  std::string file_checksum_func_name4alt = "VariousABCD";
+  s = AddFileWithFileChecksum({file4}, {"asd"}, {file_checksum_func_name4alt},
                               false, false, false, false);
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files3;
@@ -712,7 +719,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
     if (set1.find(f.name) == set1.end()) {
       ASSERT_FALSE(f.file_checksum == file_checksum4);
       ASSERT_EQ(f.file_checksum, "asd");
-      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name4);
+      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name4alt);
       set1.insert(f.name);
     }
   }
@@ -721,7 +728,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
 
   // enable verify_file_checksum options, DB enable checksum, and enable
   // write_global_seq. So the checksum stored is different from the one
-  // ingested due to the sequence number changes.
+  // ingested due to the sequence number changes. The checksum function name
+  // may also change since the checksum is recomputed.
   s = AddFileWithFileChecksum({file5}, {file_checksum5},
                               {file_checksum_func_name5}, true, false, false,
                               true);
@@ -730,11 +738,14 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   dbfull()->GetLiveFilesMetaData(&live_files4);
   for (const auto& f : live_files4) {
     if (set1.find(f.name) == set1.end()) {
+      // Recomputed checksum, different function
+      EXPECT_NE(f.file_checksum_func_name, file_checksum_func_name5);
       std::string cur_checksum5, cur_checksum_func_name5;
       ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
-          dbname_ + f.name, &cur_checksum5, &cur_checksum_func_name5));
-      ASSERT_EQ(f.file_checksum, cur_checksum5);
-      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name5);
+          dbname_ + f.name, &cur_checksum5, &cur_checksum_func_name5,
+          f.file_checksum_func_name));
+      EXPECT_EQ(f.file_checksum, cur_checksum5);
+      EXPECT_EQ(f.file_checksum_func_name, cur_checksum_func_name5);
       set1.insert(f.name);
     }
   }
@@ -742,18 +753,22 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_OK(env_->FileExists(file5));
 
   // Does not enable verify_file_checksum options and also the ingested file
-  // checksum information is empty. DB will generate and store the checksum
-  // in Manifest.
-  std::vector<std::string> files_c6, files_name6;
-  s = AddFileWithFileChecksum({file6}, files_c6, files_name6, false, false,
-                              false, false);
+  // checksum information is empty. DB will generate and store file checksum
+  // in Manifest, which could be different from the previous invocation.
+  s = AddFileWithFileChecksum({file6}, {}, {}, false, false, false, false);
   ASSERT_OK(s) << s.ToString();
   std::vector<LiveFileMetaData> live_files6;
   dbfull()->GetLiveFilesMetaData(&live_files6);
   for (const auto& f : live_files6) {
     if (set1.find(f.name) == set1.end()) {
-      ASSERT_EQ(f.file_checksum, file_checksum6);
-      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name6);
+      // Recomputed checksum, different function
+      EXPECT_NE(f.file_checksum_func_name, file_checksum_func_name6);
+      std::string cur_checksum6, cur_checksum_func_name6;
+      ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
+          dbname_ + f.name, &cur_checksum6, &cur_checksum_func_name6,
+          f.file_checksum_func_name));
+      EXPECT_EQ(f.file_checksum, cur_checksum6);
+      EXPECT_EQ(f.file_checksum_func_name, cur_checksum_func_name6);
       set1.insert(f.name);
     }
   }
@@ -1954,11 +1969,33 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
     SstFileWriter sst_file_writer(EnvOptions(), options);
     std::string file3 = sst_files_dir_ + "file3.sst";
     ASSERT_OK(sst_file_writer.Open(file3));
-    ASSERT_OK(sst_file_writer.Put("j", "j1"));
+    ASSERT_OK(sst_file_writer.Put("k", "k1"));
     ASSERT_OK(sst_file_writer.Put("m", "m1"));
     ExternalSstFileInfo file3_info;
     ASSERT_OK(sst_file_writer.Finish(&file3_info));
     files.push_back(std::move(file3));
+  }
+
+  // This could be ingested to the same level as file3 and file4, but the
+  // greedy/simple overlap check relegates it to a later level
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file4 = sst_files_dir_ + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    ASSERT_OK(sst_file_writer.Put("j", "j1"));
+    ExternalSstFileInfo file4_info;
+    ASSERT_OK(sst_file_writer.Finish(&file4_info));
+    files.push_back(std::move(file4));
+  }
+
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file5 = sst_files_dir_ + "file5.sst";
+    ASSERT_OK(sst_file_writer.Open(file5));
+    ASSERT_OK(sst_file_writer.Put("i", "i3"));
+    ExternalSstFileInfo file5_info;
+    ASSERT_OK(sst_file_writer.Finish(&file5_info));
+    files.push_back(std::move(file5));
   }
 
   IngestExternalFileOptions ifo;
@@ -1967,8 +2004,9 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
   ifo.allow_global_seqno = true;
   ASSERT_OK(db_->IngestExternalFile(files, ifo));
   ASSERT_EQ(Get("a"), "a1");
-  ASSERT_EQ(Get("i"), "i2");
+  ASSERT_EQ(Get("i"), "i3");
   ASSERT_EQ(Get("j"), "j1");
+  ASSERT_EQ(Get("k"), "k1");
   ASSERT_EQ(Get("m"), "m1");
 
   int total_keys = 0;
@@ -1979,10 +2017,11 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
   }
   ASSERT_OK(iter->status());
   delete iter;
-  ASSERT_EQ(total_keys, 4);
+  ASSERT_EQ(total_keys, 5);
 
   ASSERT_EQ(1, NumTableFilesAtLevel(6));
   ASSERT_EQ(2, NumTableFilesAtLevel(5));
+  ASSERT_EQ(2, NumTableFilesAtLevel(4));
 }
 
 class CompactionJobStatsCheckerForFilteredFiles : public EventListener {
@@ -2669,51 +2708,358 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
   }
 }
 
-TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevel) {
+// This tests an internal user's exact usage and expectation of the
+// IngestExternalFiles APIs to bulk load and replace files.
+TEST_F(ExternalSSTFileBasicTest,
+       AtomicReplaceColumnFamilyWithIngestedVersionKey) {
   Options options = GetDefaultOptions();
-
-  std::string file_path = sst_files_dir_ + std::to_string(1);
-  SstFileWriter sfw(EnvOptions(), options);
-
-  ASSERT_OK(sfw.Open(file_path));
-  ASSERT_OK(sfw.Put("b", "dontcare"));
-  ASSERT_OK(sfw.Finish());
-
-  // Test universal compaction + ingest with snapshot consistency
   options.create_if_missing = true;
   options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  options.num_levels = 7;
+  options.disallow_memtable_writes = false;
+
   DestroyAndReopen(options);
-  {
-    const Snapshot* snapshot = db_->GetSnapshot();
-    ManagedSnapshot snapshot_guard(db_, snapshot);
-    IngestExternalFileOptions ifo;
-    ifo.fail_if_not_bottommost_level = true;
-    ifo.snapshot_consistency = true;
-    const Status s = db_->IngestExternalFile({file_path}, ifo);
-    ASSERT_TRUE(s.ok());
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+  std::string data_file_original = sst_files_dir_ + "data_original";
+  ASSERT_OK(sst_file_writer.Open(data_file_original));
+  ASSERT_OK(sst_file_writer.Put("ukey1", "uval1_orig"));
+  ASSERT_OK(sst_file_writer.Put("ukey2", "uval2_orig"));
+  ASSERT_OK(sst_file_writer.Finish());
+  ASSERT_OK(db_->IngestExternalFile(db_->DefaultColumnFamily(),
+                                    {data_file_original},
+                                    IngestExternalFileOptions()));
+
+  ASSERT_OK(Put("data_version", "v_original"));
+  ASSERT_OK(Flush());
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "data_version", &value));
+  ASSERT_EQ(value, "v_original");
+  ASSERT_OK(db_->Get(ReadOptions(), "ukey1", &value));
+  ASSERT_EQ(value, "uval1_orig");
+  ASSERT_OK(db_->Get(ReadOptions(), "ukey2", &value));
+  ASSERT_EQ(value, "uval2_orig");
+  // Set up a 1) data version key file on L0, and 2) a user data file on L6
+  // to test the initial transitioning to use `atomic_replace_range`.
+  ASSERT_EQ("1,0,0,0,0,0,1", FilesPerLevel());
+
+  // Test multiple cycles of replacing by atomically ingest a data file and a
+  // version key file while replace the whole range in the column family.
+  for (int i = 0; i < 10; i++) {
+    std::string version_file_path =
+        sst_files_dir_ + "version" + std::to_string(i);
+    ASSERT_OK(sst_file_writer.Open(version_file_path));
+    ASSERT_OK(sst_file_writer.Put("data_version", "v" + std::to_string(i)));
+    ASSERT_OK(sst_file_writer.Finish());
+
+    std::string file_path = sst_files_dir_ + std::to_string(i);
+    ASSERT_OK(sst_file_writer.Open(file_path));
+    ASSERT_OK(sst_file_writer.Put("ukey1", "uval1" + std::to_string(i)));
+    ASSERT_OK(sst_file_writer.Put("ukey2", "uval2" + std::to_string(i)));
+    ASSERT_OK(sst_file_writer.Finish());
+
+    IngestExternalFileArg arg;
+    arg.column_family = db_->DefaultColumnFamily();
+    arg.external_files = {version_file_path, file_path};
+    arg.atomic_replace_range = {{nullptr, nullptr}};
+    // Test both fail_if_not_bottomost_level: true and false
+    arg.options.fail_if_not_bottommost_level = i % 2 == 0;
+    arg.options.snapshot_consistency = false;
+    // Ingest 1) a new data version file and 2) a new user data file while erase
+    // the whole column family
+    Status s = db_->IngestExternalFiles({arg});
+    ASSERT_OK(s);
+
+    // Check ingestion result and the expected LSM shape:
+    // Two files on L6, 1) a data version file 2) a user data file.
+    ASSERT_OK(db_->Get(ReadOptions(), "ukey1", &value));
+    ASSERT_EQ(value, "uval1" + std::to_string(i));
+    ASSERT_OK(db_->Get(ReadOptions(), "ukey2", &value));
+    ASSERT_EQ(value, "uval2" + std::to_string(i));
+    ASSERT_OK(db_->Get(ReadOptions(), "data_version", &value));
+    ASSERT_EQ(value, "v" + std::to_string(i));
+    ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
   }
 
-  // Test level compaction
-  options.compaction_style = CompactionStyle::kCompactionStyleLevel;
-  options.num_levels = 2;
-  DestroyAndReopen(options);
-  ASSERT_OK(db_->Put(WriteOptions(), "a", "dontcare"));
-  ASSERT_OK(db_->Put(WriteOptions(), "c", "dontcare"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
+  Close();
+}
 
-  ASSERT_OK(db_->Put(WriteOptions(), "b", "dontcare"));
-  ASSERT_OK(db_->Put(WriteOptions(), "d", "dontcare"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
+TEST_F(ExternalSSTFileBasicTest, FailIfNotBottommostLevelAndDisallowMemtable) {
+  for (bool disallow_memtable : {false, true}) {
+    Options options = GetDefaultOptions();
 
-  {
-    CompactRangeOptions cro;
-    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    // First test with universal compaction
+    options.create_if_missing = true;
+    options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+    DestroyAndReopen(options);
 
-    IngestExternalFileOptions ifo;
-    ifo.fail_if_not_bottommost_level = true;
-    const Status s = db_->IngestExternalFile({file_path}, ifo);
-    ASSERT_TRUE(s.IsTryAgain());
+    // And a CF potentially disallowing memtable write
+    options.disallow_memtable_writes = disallow_memtable;
+    CreateColumnFamilies({"cf0"}, options);
+    ASSERT_EQ(db_->GetOptions(handles_[0]).disallow_memtable_writes,
+              disallow_memtable);
+
+    // Ingest with snapshot consistency
+    std::string file_path = sst_files_dir_ + std::to_string(1);
+    std::string file_path2 = sst_files_dir_ + std::to_string(2);
+    SstFileWriter sfw(EnvOptions(), options);
+
+    ASSERT_OK(sfw.Open(file_path));
+    ASSERT_OK(sfw.Put("b", "0"));
+    ASSERT_OK(sfw.Finish());
+
+    {
+      const Snapshot* snapshot = db_->GetSnapshot();
+      ManagedSnapshot snapshot_guard(db_, snapshot);
+      IngestExternalFileOptions ifo;
+      ifo.fail_if_not_bottommost_level = true;
+      ifo.snapshot_consistency = true;
+      ASSERT_OK(db_->IngestExternalFile(handles_[0], {file_path}, ifo));
+    }
+    ASSERT_EQ(Get(0, "b"), "0");
+
+    // Test level compaction
+    options.compaction_style = CompactionStyle::kCompactionStyleLevel;
+    options.num_levels = 2;
+    CreateColumnFamilies({"cf1"}, options);
+    ASSERT_EQ(db_->GetOptions(handles_[1]).disallow_memtable_writes,
+              disallow_memtable);
+
+    if (!disallow_memtable) {
+      ASSERT_OK(Put(1, "a", "1"));
+      ASSERT_OK(Put(1, "c", "3"));
+      ASSERT_OK(Flush(1));
+
+      ASSERT_OK(Put(1, "b", "2"));
+      ASSERT_OK(Put(1, "d", "4"));
+      ASSERT_OK(Flush(1));
+    } else {
+      // Memtable write disallowed
+      EXPECT_EQ(Put(1, "a", "1").code(), Status::Code::kInvalidArgument);
+
+      // Use ingestion to get to the same state as above
+      ASSERT_OK(sfw.Open(file_path2));
+      ASSERT_OK(sfw.Put("a", "1"));
+      ASSERT_OK(sfw.Put("c", "3"));
+      ASSERT_OK(sfw.Finish());
+      ASSERT_OK(db_->IngestExternalFile(handles_[1], {file_path2}, {}));
+
+      ASSERT_OK(sfw.Open(file_path2));
+      ASSERT_OK(sfw.Put("b", "2"));
+      ASSERT_OK(sfw.Put("d", "4"));
+      ASSERT_OK(sfw.Finish());
+      ASSERT_OK(db_->IngestExternalFile(handles_[1], {file_path2}, {}));
+    }
+    ASSERT_EQ(Get(1, "a"), "1");
+    ASSERT_EQ(Get(1, "b"), "2");
+    ASSERT_EQ(Get(1, "c"), "3");
+    ASSERT_EQ(Get(1, "d"), "4");
+
+    {
+      // Test fail_if_not_bottommost_level, which fails if there's any overlap
+      // anywhere, even with snapshot_consistency=false
+      IngestExternalFileOptions ifo;
+      ASSERT_FALSE(ifo.fail_if_not_bottommost_level);
+      ifo.fail_if_not_bottommost_level = true;
+      ifo.snapshot_consistency = false;
+      // Fails with overlap on earlier level
+      Status s = db_->IngestExternalFile(handles_[1], {file_path}, ifo);
+      ASSERT_EQ(s.code(), Status::Code::kTryAgain);
+
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(db_->CompactRange(cro, handles_[1], nullptr, nullptr));
+
+      // Fails with overlap on last level
+      s = db_->IngestExternalFile(handles_[1], {file_path}, ifo);
+      ASSERT_EQ(s.code(), Status::Code::kTryAgain);
+
+      // No change to data
+      ASSERT_EQ(Get(1, "a"), "1");
+      ASSERT_EQ(Get(1, "b"), "2");
+      ASSERT_EQ(Get(1, "c"), "3");
+      ASSERT_EQ(Get(1, "d"), "4");
+    }
+
+    if (!disallow_memtable) {
+      // Test allow_blocking_flush=false (fail because of memtable overlap)
+      IngestExternalFileOptions ifo;
+      ASSERT_TRUE(ifo.allow_blocking_flush);
+      ifo.allow_blocking_flush = false;
+      ASSERT_OK(Put(1, "b", "42"));
+      Status s = db_->IngestExternalFile(handles_[1], {file_path}, ifo);
+      ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
+
+      ASSERT_EQ(Get(1, "a"), "1");
+      ASSERT_EQ(Get(1, "b"), "42");
+      ASSERT_EQ(Get(1, "c"), "3");
+      ASSERT_EQ(Get(1, "d"), "4");
+
+      // Revert state
+      ASSERT_OK(Put(1, "b", "2"));
+      ASSERT_OK(Flush(1));
+    }
+
+    {
+      // Test atomic_replace_range
+      IngestExternalFileArg arg;
+      arg.column_family = handles_[1];
+      arg.external_files = {file_path};
+      arg.atomic_replace_range = {{"a", "zzz"}};
+
+      // start with some failure cases
+      // TODO: support snapshot consistency with tombstone file
+      ASSERT_TRUE(arg.options.snapshot_consistency);
+      Status s = db_->IngestExternalFiles({arg});
+      ASSERT_EQ(s.code(), Status::Code::kNotSupported);
+
+      ASSERT_EQ(Get(1, "a"), "1");
+      ASSERT_EQ(Get(1, "b"), "2");
+      ASSERT_EQ(Get(1, "c"), "3");
+      ASSERT_EQ(Get(1, "d"), "4");
+
+      arg.options.snapshot_consistency = false;
+      // Can usually be used with atomic_replace_range and
+      // snapshot_consistency=false, except it requires no input overlap
+      arg.options.fail_if_not_bottommost_level = true;
+
+      // one-sided ranges not yet supported
+      arg.atomic_replace_range = {{{}, "zzz"}};
+      s = db_->IngestExternalFiles({arg});
+      ASSERT_EQ(s.code(), Status::Code::kNotSupported);
+
+      arg.atomic_replace_range = {{"a", {}}};
+      s = db_->IngestExternalFiles({arg});
+      ASSERT_EQ(s.code(), Status::Code::kNotSupported);
+
+      // rejected because doesn't cover ingested file
+      arg.atomic_replace_range = {{"x", "z"}};
+      s = db_->IngestExternalFiles({arg});
+      ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
+
+      // rejected because of partial file overlap
+      arg.atomic_replace_range = {{"a", "c"}};
+      s = db_->IngestExternalFiles({arg});
+      ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
+
+      if (!disallow_memtable) {
+        // memtable overlap with replace range
+        ASSERT_OK(Put(1, "e", "5"));
+        arg.options.allow_blocking_flush = false;
+
+        // rejected because of memtable overlap
+        arg.atomic_replace_range = {{"a", "z"}};
+        s = db_->IngestExternalFiles({arg});
+        ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
+
+        // rejected because of memtable overlap
+        arg.atomic_replace_range = {{nullptr, nullptr}};
+        s = db_->IngestExternalFiles({arg});
+        ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
+
+        // FIXME: upper bound should be exclusive (DeleteRange semantics).
+        // currently rejected because of documented bug
+        arg.atomic_replace_range = {{"a", "e"}};
+        s = db_->IngestExternalFiles({arg});
+        ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
+
+        // work-around ensuring no memtable overlap
+        arg.atomic_replace_range = {{"a", "d2"}};
+        ASSERT_OK(db_->IngestExternalFiles({arg}));
+
+        ASSERT_EQ(Get(1, "e"), "5");
+      } else {
+        // rejected because of partial file overlap
+        arg.atomic_replace_range = {{"b", "z"}};
+        s = db_->IngestExternalFiles({arg});
+        ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
+
+        // no memtable complications
+        arg.atomic_replace_range = {{"a", "z"}};
+        ASSERT_OK(db_->IngestExternalFiles({arg}));
+
+        ASSERT_EQ(Get(1, "e"), "NOT_FOUND");
+      }
+      ASSERT_EQ(Get(1, "a"), "NOT_FOUND");
+      ASSERT_EQ(Get(1, "b"), "0");
+      ASSERT_EQ(Get(1, "c"), "NOT_FOUND");
+      ASSERT_EQ(Get(1, "d"), "NOT_FOUND");
+
+      // The single ingested file replaced everything (except perhaps memtable)
+      std::vector<LiveFileMetaData> live_files;
+      db_->GetLiveFilesMetaData(&live_files);
+      // One file in each CF
+      ASSERT_EQ(live_files.size(), 2);
+
+      ASSERT_OK(sfw.Open(file_path));
+      ASSERT_OK(sfw.Put("f", "6"));
+      ASSERT_OK(sfw.Finish());
+
+      // Another file
+      ASSERT_OK(sfw.Open(file_path2));
+      ASSERT_OK(sfw.Put("f", "7"));
+      ASSERT_OK(sfw.Put("g", "8"));
+      ASSERT_OK(sfw.Finish());
+
+      if (!disallow_memtable) {
+        // rejected because of memtable overlap with range
+        arg.atomic_replace_range = {{"e", "z"}};
+        s = db_->IngestExternalFiles({arg});
+        ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
+
+        // allow blocking flush of "e" (which is then replaced), and the file
+        // with just "b" is not replaced
+        arg.options.allow_blocking_flush = true;
+        ASSERT_OK(db_->IngestExternalFiles({arg}));
+
+        ASSERT_EQ(Get(1, "b"), "0");
+        ASSERT_EQ(Get(1, "e"), "NOT_FOUND");
+        ASSERT_EQ(Get(1, "f"), "6");
+        ASSERT_EQ(Get(1, "g"), "NOT_FOUND");
+
+        // memtable overlap with replace range
+        ASSERT_OK(Put(1, "e", "5"));
+        arg.options.allow_blocking_flush = false;
+        arg.external_files = {file_path2};
+
+        // rejected because of memtable overlap
+        arg.atomic_replace_range = {{nullptr, nullptr}};
+        s = db_->IngestExternalFiles({arg});
+        ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
+
+        // Replace everything, including with memtable flush
+        arg.options.allow_blocking_flush = true;
+        ASSERT_OK(db_->IngestExternalFiles({arg}));
+
+        ASSERT_EQ(Get(1, "b"), "NOT_FOUND");
+        ASSERT_EQ(Get(1, "e"), "NOT_FOUND");
+        ASSERT_EQ(Get(1, "f"), "7");
+        ASSERT_EQ(Get(1, "g"), "8");
+      } else {
+        arg.external_files = {file_path2, file_path};
+
+        // rejected because of overlap in files to ingest with fail_if_ = true
+        arg.atomic_replace_range = {{"e", "z"}};
+        s = db_->IngestExternalFiles({arg});
+        ASSERT_EQ(s.code(), Status::Code::kTryAgain);
+
+        arg.options.fail_if_not_bottommost_level = false;
+
+        // rejected because range doesn't cover ingested files
+        // FIXME: upper bound should be exclusive "g" instead
+        arg.atomic_replace_range = {{"e", "f2"}};
+        s = db_->IngestExternalFiles({arg});
+        ASSERT_EQ(s.code(), Status::Code::kInvalidArgument);
+
+        // Loaded into different levels, and the file with just "b" is not
+        // replaced
+        arg.atomic_replace_range = {{"e", "z"}};
+        ASSERT_OK(db_->IngestExternalFiles({arg}));
+
+        ASSERT_EQ(Get(1, "b"), "0");
+        ASSERT_EQ(Get(1, "f"), "6");  // earlier file listed later to ingest
+        ASSERT_EQ(Get(1, "g"), "8");
+      }
+    }
   }
 }
 

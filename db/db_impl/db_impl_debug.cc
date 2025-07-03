@@ -84,6 +84,7 @@ void DBImpl::TEST_GetFilesMetaData(
 }
 
 uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
+  InstrumentedMutexLock l(&mutex_);
   return versions_->manifest_file_number();
 }
 
@@ -224,13 +225,13 @@ void DBImpl::TEST_EndWrite(void* w) {
 }
 
 size_t DBImpl::TEST_LogsToFreeSize() {
-  InstrumentedMutexLock l(&log_write_mutex_);
-  return logs_to_free_.size();
+  InstrumentedMutexLock l(&wal_write_mutex_);
+  return wals_to_free_.size();
 }
 
 uint64_t DBImpl::TEST_LogfileNumber() {
   InstrumentedMutexLock l(&mutex_);
-  return logfile_number_;
+  return cur_wal_number_;
 }
 
 void DBImpl::TEST_GetAllBlockCaches(
@@ -379,10 +380,13 @@ void DBImpl::TEST_VerifyNoObsoleteFilesCached(
     uint64_t file_number;
     GetUnaligned(reinterpret_cast<const uint64_t*>(key.data()), &file_number);
     // Assert file is in live/quarantined set
-    if (live_and_quar_files.find(file_number) == live_and_quar_files.end()) {
+    bool cached_file_is_live_or_quar =
+        live_and_quar_files.find(file_number) != live_and_quar_files.end();
+    if (!cached_file_is_live_or_quar) {
+      // Fail with useful info
       std::cerr << "File " << file_number << " is not live nor quarantined"
                 << std::endl;
-      assert(false);
+      assert(cached_file_is_live_or_quar);
     }
   };
   table_cache_->ApplyToAllEntries(fn, {});

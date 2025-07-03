@@ -54,7 +54,8 @@ Status CompactionOutputs::Finish(
   }
   current_output().finished = true;
   stats_.bytes_written += current_bytes;
-  stats_.num_output_files = outputs_.size();
+  stats_.bytes_written_pre_comp += builder_->PreCompressionSize();
+  stats_.num_output_files = static_cast<int>(outputs_.size());
 
   return s;
 }
@@ -792,8 +793,8 @@ void CompactionOutputs::FillFilesToCutForTtl() {
 }
 
 CompactionOutputs::CompactionOutputs(const Compaction* compaction,
-                                     const bool is_penultimate_level)
-    : compaction_(compaction), is_penultimate_level_(is_penultimate_level) {
+                                     const bool is_proximal_level)
+    : compaction_(compaction), is_proximal_level_(is_proximal_level) {
   partitioner_ = compaction->output_level() == 0
                      ? nullptr
                      : compaction->CreateSstPartitioner();

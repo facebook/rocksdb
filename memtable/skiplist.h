@@ -134,8 +134,8 @@ class SkipList {
   // i up to max_height_ is the predecessor of prev_[0] and prev_height_
   // is the height of prev_[0].  prev_[0] can only be equal to head before
   // insertion, in which case max_height_ and prev_height_ are 1.
-  Node** prev_;
   int32_t prev_height_;
+  Node** prev_;
 
   inline int GetMaxHeight() const {
     return max_height_.load(std::memory_order_relaxed);
@@ -438,7 +438,7 @@ SkipList<Key, Comparator>::SkipList(const Comparator cmp, Allocator* allocator,
       kScaledInverseBranching_((Random::kMaxNext + 1) / kBranching_),
       compare_(cmp),
       allocator_(allocator),
-      head_(NewNode(0 /* any key will do */, max_height)),
+      head_(NewNode({} /* any key will do */, max_height)),
       max_height_(1),
       prev_height_(1) {
   assert(max_height > 0 && kMaxHeight_ == static_cast<uint32_t>(max_height));

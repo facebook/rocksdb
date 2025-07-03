@@ -188,10 +188,12 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   }
 
   std::unique_ptr<FSWritableFile> file;
-
+  FileOptions fo_copy;
   {
     assert(file_options_);
-    Status s = NewWritableFile(fs_, blob_file_path, &file, *file_options_);
+    fo_copy = *file_options_;
+    fo_copy.write_hint = write_hint_;
+    Status s = NewWritableFile(fs_, blob_file_path, &file, fo_copy);
 
     TEST_SYNC_POINT_CALLBACK(
         "BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile", &s);
@@ -209,7 +211,9 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
 
   assert(file);
   file->SetIOPriority(write_options_->rate_limiter_priority);
-  file->SetWriteLifeTimeHint(write_hint_);
+  // Subsequent attempts to override the hint via SetWriteLifeTimeHint
+  // with the very same value will be ignored by the fs.
+  file->SetWriteLifeTimeHint(fo_copy.write_hint);
   FileTypeSet tmp_set = immutable_options_->checksum_handoff_file_types;
   Statistics* const statistics = immutable_options_->stats;
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
@@ -263,10 +267,9 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
   // TODO: allow user CompressionOptions, including max_compressed_bytes_per_kb
   CompressionOptions opts;
   CompressionContext context(blob_compression_type_, opts);
-  constexpr uint64_t sample_for_compression = 0;
 
   CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                       blob_compression_type_, sample_for_compression);
+                       blob_compression_type_);
 
   constexpr uint32_t compression_format_version = 2;
 
@@ -275,8 +278,8 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
   {
     StopWatch stop_watch(immutable_options_->clock, immutable_options_->stats,
                          BLOB_DB_COMPRESSION_MICROS);
-    success =
-        CompressData(*blob, info, compression_format_version, compressed_blob);
+    success = OLD_CompressData(*blob, info, compression_format_version,
+                               compressed_blob);
   }
 
   if (!success) {

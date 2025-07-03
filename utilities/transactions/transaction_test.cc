@@ -3912,16 +3912,16 @@ TEST_P(TransactionTest, LockLimitTest) {
 
   // lock limit reached
   s = txn->Put("W", "w");
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsLockLimit());
 
   // re-locking same key shouldn't put us over the limit
   s = txn->Put("X", "xx");
   ASSERT_OK(s);
 
   s = txn->GetForUpdate(read_options, "W", &value);
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsLockLimit());
   s = txn->GetForUpdate(read_options, "V", &value);
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsLockLimit());
 
   // re-locking same key shouldn't put us over the limit
   s = txn->GetForUpdate(read_options, "Y", &value);
@@ -3940,7 +3940,7 @@ TEST_P(TransactionTest, LockLimitTest) {
 
   // lock limit reached
   s = txn2->Put("M", "m");
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsLockLimit());
 
   s = txn->Commit();
   ASSERT_OK(s);
@@ -3967,7 +3967,7 @@ TEST_P(TransactionTest, LockLimitTest) {
 
   // lock limit reached
   s = txn2->Delete("Y");
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsLockLimit());
 
   s = txn2->Commit();
   ASSERT_OK(s);
@@ -3982,6 +3982,44 @@ TEST_P(TransactionTest, LockLimitTest) {
 
   s = db->Get(read_options, "X", &value);
   ASSERT_TRUE(s.IsNotFound());
+
+  delete txn;
+  delete txn2;
+}
+
+TEST_P(TransactionTest, LockLimitWithTimeoutHangTest) {
+  // Tests a bug where transaction can infinite-loop during lock acquiry.
+  // This happens when lock limit is reached and user specifies a positive
+  // timeout which is reached before the transaction start waiting for it.
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+
+  txn_db_options.max_num_locks = 3;
+  txn_db_options.transaction_lock_timeout = 10;  // 10ms
+  ASSERT_OK(ReOpen());
+
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn);
+
+  ASSERT_OK(txn->Put("X", "x"));
+  ASSERT_OK(txn->Put("Y", "y"));
+  ASSERT_OK(txn->Put("Z", "z"));
+
+  TransactionOptions txn2_options;
+  txn2_options.lock_timeout = 1;  // 1ms short timeout
+  Transaction* txn2 = db->BeginTransaction(write_options, txn2_options);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "PointLockManager::AcquireWithTimeout:WaitingTxn", [&](void*) {
+        // Sleep for 2ms, so timeout is already passed for txn2 before waiting.
+        // txn2 should fail instead of waiting forever.
+        env->SleepForMicroseconds(2 * 1000);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // This lock attempt should fail and return
+  ASSERT_TRUE(txn2->Put("W", "w").IsLockLimit());
+  SyncPoint::GetInstance()->DisableProcessing();
 
   delete txn;
   delete txn2;
@@ -8921,19 +8959,19 @@ class CommitBypassMemtableTest : public DBTestBase,
   TransactionDBOptions txn_db_opts;
 
   void SetUpTransactionDB(
-      uint32_t threshold = std::numeric_limits<uint32_t>::max()) {
+      bool atomic_flush = false) {
     options = CurrentOptions();
     options.create_if_missing = true;
     options.allow_2pc = true;
     options.two_write_queues = GetParam();
     // Avoid write stall
     options.max_write_buffer_number = 8;
+    options.atomic_flush = atomic_flush;
     // Destroy the DB to recreate as a TransactionDB.
     Close();
     Destroy(options, true);
 
     txn_db_opts.write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
-    txn_db_opts.txn_commit_bypass_memtable_threshold = threshold;
     ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
     ASSERT_NE(txn_db, nullptr);
     db_ = txn_db;
@@ -9389,10 +9427,10 @@ TEST_P(CommitBypassMemtableTest, Recovery) {
   VerifyDBFromMap(expected);
 }
 
-TEST_P(CommitBypassMemtableTest, ThresholdTxnDBOption) {
-  // Tests TransactionDBOptions::txn_commit_bypass_memtable_threshold
+TEST_P(CommitBypassMemtableTest, OptimizeLargeTxnCommitThreshold) {
+  // Tests TransactionOptions::large_txn_commit_optimize_threshold
   const uint32_t threshold = 10;
-  SetUpTransactionDB(/*threshold=*/threshold);
+  SetUpTransactionDB();
   bool commit_bypass_memtable = false;
   // TODO: add and use stats for this
   SyncPoint::GetInstance()->SetCallBack(
@@ -9400,53 +9438,124 @@ TEST_P(CommitBypassMemtableTest, ThresholdTxnDBOption) {
       [&](void* arg) { commit_bypass_memtable = *(static_cast<bool*>(arg)); });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  // TransactionOptions::commit_bypass_memtable takes precedence
   WriteOptions wopts;
+  // Test default (disabled)
   TransactionOptions txn_opts;
-  txn_opts.commit_bypass_memtable = true;
-  Transaction* txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  auto txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_OK(txn1->SetName("xid0"));
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_OK(
+        txn1->Put("key" + std::to_string(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_OK(txn1->Commit());
+  ASSERT_FALSE(commit_bypass_memtable);
+  delete txn1;
+
+  // Test with transaction option only
+  txn_opts.large_txn_commit_optimize_threshold = threshold;
+
+  // Test with transaction below threshold
+  txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
   ASSERT_OK(txn1->SetName("xid1"));
-  ASSERT_OK(txn1->Put("k2", "v2"));
   ASSERT_OK(txn1->Put("k1", "v1"));
   ASSERT_OK(txn1->Prepare());
   ASSERT_OK(txn1->Commit());
-  ASSERT_TRUE(commit_bypass_memtable);
+  ASSERT_FALSE(commit_bypass_memtable);
+  delete txn1;
 
-  // Below threshold
-  for (auto num_ops : {threshold, threshold + 1}) {
-    commit_bypass_memtable = false;
-    txn_opts.commit_bypass_memtable = false;
-    auto txn = txn_db->BeginTransaction(wopts, txn_opts, txn1);
-    txn1 = nullptr;
-    ASSERT_OK(txn->SetName("xid" + std::to_string(num_ops)));
-    for (uint32_t i = 0; i < num_ops; ++i) {
-      ASSERT_OK(
-          txn->Put("key" + std::to_string(i), "value" + std::to_string(i)));
-    }
-    ASSERT_OK(txn->Prepare());
-    ASSERT_OK(txn->Commit());
-    ASSERT_EQ(commit_bypass_memtable, num_ops > threshold);
-    delete txn;
+  // Test with transaction at threshold
+  txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_OK(txn1->SetName("xid2"));
+  for (uint32_t i = 0; i < threshold; ++i) {
+    ASSERT_OK(
+        txn1->Put("key" + std::to_string(i), "value" + std::to_string(i)));
   }
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_OK(txn1->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+  delete txn1;
 
-  // Repeat the same test with updates to two CFs
+  SetUpTransactionDB();
+  // Test with multiple column families
   std::vector<std::string> cfs = {"pk", "sk"};
   CreateColumnFamilies(cfs, options);
 
+  txn_opts.large_txn_commit_optimize_threshold = threshold;
+
   // Below threshold
-  for (auto num_ops : {threshold, threshold + 1}) {
-    commit_bypass_memtable = false;
-    txn_opts.commit_bypass_memtable = false;
-    auto txn_cf = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
-    ASSERT_OK(txn_cf->SetName("xid_cf" + std::to_string(num_ops)));
-    for (uint32_t i = 0; i < num_ops; ++i) {
-      ASSERT_OK(txn_cf->Put(handles_[i % 2], "key" + std::to_string(i),
-                            "value" + std::to_string(i)));
-    }
-    ASSERT_OK(txn_cf->Prepare());
-    ASSERT_OK(txn_cf->Commit());
-    ASSERT_EQ(commit_bypass_memtable, num_ops > threshold);
-    delete txn_cf;
+  auto txn_cf = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_OK(txn_cf->SetName("xid_cf_below"));
+  for (uint32_t i = 0; i < threshold - 1; ++i) {
+    ASSERT_OK(txn_cf->Put(handles_[i % 2], "key" + std::to_string(i),
+                          "value" + std::to_string(i)));
+  }
+  ASSERT_OK(txn_cf->Prepare());
+  commit_bypass_memtable = false;
+  ASSERT_OK(txn_cf->Commit());
+  ASSERT_FALSE(commit_bypass_memtable);
+  delete txn_cf;
+
+  // At threshold
+  txn_cf = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_OK(txn_cf->SetName("xid_cf_at_threshold"));
+  for (uint32_t i = 0; i < threshold; ++i) {
+    ASSERT_OK(txn_cf->Put(handles_[i % 2], "key" + std::to_string(i),
+                          "value" + std::to_string(i)));
+  }
+  ASSERT_OK(txn_cf->Prepare());
+  commit_bypass_memtable = false;
+  ASSERT_OK(txn_cf->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+  delete txn_cf;
+
+  // Test that commit_bypass_memtable takes precedence over
+  // large_txn_commit_optimize_threshold
+  txn_opts.large_txn_commit_optimize_threshold =
+      threshold * 10;                      // High threshold
+  txn_opts.commit_bypass_memtable = true;  // Should override threshold
+
+  txn_cf = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_OK(txn_cf->SetName("xid_cf_precedence"));
+  ASSERT_OK(txn_cf->Put(handles_[0], "key1", "value1"));  // Just one operation
+  ASSERT_OK(txn_cf->Prepare());
+  commit_bypass_memtable = false;
+  ASSERT_OK(txn_cf->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);  // Should be true because of
+                                        // commit_bypass_memtable
+  delete txn_cf;
+}
+
+TEST_P(CommitBypassMemtableTest, AtomicFlushTest) {
+  const uint32_t threshold = 10;
+  SetUpTransactionDB(/*atomic_flush=*/true);
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<std::string> cfs = {"cf0", "cf1", "cf2"};
+  CreateColumnFamilies(cfs, options);
+
+  // Seed data in CF1 and 2 as atomic flush picks CFs with non-empty memtable
+  ASSERT_OK(db_->Put({}, handles_[1], "key1", "val1"));
+  ASSERT_OK(db_->Put({}, handles_[2], "key2", "val2"));
+
+  // Write to cf 0, should see cf1 and cf2 flushed too
+  TransactionOptions txn_opts;
+  txn_opts.large_txn_commit_optimize_threshold = threshold;
+  auto txn = txn_db->BeginTransaction({}, txn_opts, nullptr);
+  for (uint32_t i = 0; i <= threshold; ++i) {
+    ASSERT_OK(txn->Put(handles_[0], "key" + std::to_string(i),
+                       "cf0" + std::to_string(i)));
+  }
+  ASSERT_OK(txn->SetName("cf0"));
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  delete txn;
+
+  ASSERT_OK(db_->WaitForCompact({}));
+  for (size_t i = 0; i < 3; ++i) {
+    auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+    ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+    ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
   }
 }
 
@@ -9654,6 +9763,221 @@ TEST_P(CommitBypassMemtableTest, MergeMiniStress) {
     }
 
     VerifyDBFromMap(expected_cf, nullptr, false, nullptr, handles_[0]);
+  }
+}
+
+TEST_F(TransactionDBTest, SelfDeadlockBug) {
+  ASSERT_OK(ReOpen());
+
+  // Create two transactions
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  txn_options.lock_timeout = 50;  // 50ms
+  txn_options.deadlock_detect = true;
+
+  ASSERT_OK(db->Put({}, "shared_key", "shared_value"));
+
+  // First transaction
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+  ASSERT_OK(txn1->SetName("txn1"));
+
+  // Second transaction
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn2);
+  ASSERT_OK(txn2->SetName("txn2"));
+
+  // Both transactions acquire shared lock on the same key.
+  std::string value;
+  ASSERT_OK(txn1->GetForUpdate(ReadOptions(), "shared_key", &value,
+                               /*exclusive=*/false));
+  ASSERT_OK(txn2->GetForUpdate(ReadOptions(), "shared_key", &value,
+                               /*exclusive=*/false));
+
+  // Second transaction tries to upgrade to exclusive lock, which should
+  // timeout.
+  Status s = txn1->Put({}, "shared_key", "val");
+  // Print out the deadlock info buffer
+  ASSERT_TRUE(db->GetDeadlockInfoBuffer().empty());
+  ASSERT_TRUE(s.IsTimedOut());
+  ASSERT_EQ(s.ToString(), "Operation timed out: Timeout waiting to lock key");
+
+  // After release lock from txn2, txn1 should be able to proceed.
+  ASSERT_OK(txn2->Rollback());
+  ASSERT_OK(txn1->Put({}, "shared_key", "val"));
+  ASSERT_OK(txn1->Rollback());
+  delete txn1;
+  delete txn2;
+}
+
+TEST_P(CommitBypassMemtableTest,
+       OptimizeLargeTxnCommitWriteBatchSizeThreshold) {
+  // Tests TransactionOptions::large_txn_commit_optimize_byte_threshold
+  const uint64_t threshold = 100;
+  SetUpTransactionDB();
+  bool commit_bypass_memtable = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteCommittedTxn::CommitInternal:bypass_memtable",
+      [&](void* arg) { commit_bypass_memtable = *(static_cast<bool*>(arg)); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+
+  WriteOptions wopts;
+  TransactionOptions txn_opts;
+  // Test default
+  auto txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_OK(txn->SetName("xid0"));
+  ASSERT_OK(txn->Put("k1", rnd.RandomString(1000)));
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_FALSE(commit_bypass_memtable);
+
+  // Test with transaction option only
+  txn_opts.large_txn_commit_optimize_byte_threshold = threshold;
+  // Above threshold
+  txn = txn_db->BeginTransaction(wopts, txn_opts, txn);
+  ASSERT_OK(txn->SetName("xid1"));
+  ASSERT_OK(txn->Put("k1", rnd.RandomString(threshold)));
+  ASSERT_TRUE(txn->GetWriteBatch()->GetDataSize() >= threshold);
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+
+  // Below threshold
+  txn = txn_db->BeginTransaction(wopts, txn_opts, txn);
+  ASSERT_OK(txn->SetName("xid2"));
+  ASSERT_OK(txn->Put("k2", "v2"));
+  ASSERT_TRUE(txn->GetWriteBatch()->GetDataSize() < threshold);
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_FALSE(commit_bypass_memtable);
+  delete txn;
+
+  // With commit_bypass_memtbale
+  TransactionOptions txn_opts2;
+  txn_opts2.commit_bypass_memtable = true;
+  txn_opts2.large_txn_commit_optimize_byte_threshold = threshold;
+  txn = txn_db->BeginTransaction(wopts, txn_opts2, nullptr);
+  ASSERT_OK(txn->SetName("xid3"));
+  ASSERT_OK(txn->Put("k3", "v3"));
+  ASSERT_TRUE(txn->GetWriteBatch()->GetDataSize() < threshold);
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+  delete txn;
+
+  // With count based threshold `large_txn_commit_optimize_threshold`
+  TransactionOptions txn_opts3;
+  txn_opts3.commit_bypass_memtable = false;
+  txn_opts3.large_txn_commit_optimize_byte_threshold = threshold;
+  txn_opts3.large_txn_commit_optimize_threshold = 3;
+  txn = txn_db->BeginTransaction(wopts, txn_opts3, nullptr);
+  ASSERT_OK(txn->SetName("xid4"));
+  ASSERT_OK(txn->Put("k3", "v3"));
+  ASSERT_OK(txn->Delete("k2"));
+  ASSERT_OK(txn->Delete("k1"));
+  ASSERT_TRUE(txn->GetWriteBatch()->GetDataSize() < threshold);
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+
+  txn = txn_db->BeginTransaction(wopts, txn_opts3, txn);
+  ASSERT_OK(txn->SetName("xid4"));
+  ASSERT_OK(txn->Put("k3", "v3"));
+  ASSERT_OK(txn->Delete("k2"));
+  ASSERT_OK(txn->Delete("k1"));
+  ASSERT_TRUE(txn->GetWriteBatch()->GetDataSize() < threshold);
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+
+  txn = txn_db->BeginTransaction(wopts, txn_opts3, txn);
+  ASSERT_OK(txn->SetName("xid5"));
+  ASSERT_OK(txn->Put("k5", "v5"));
+  ASSERT_TRUE(txn->GetWriteBatch()->GetDataSize() < threshold);
+  ASSERT_OK(txn->Prepare());
+  ASSERT_OK(txn->Commit());
+  ASSERT_FALSE(commit_bypass_memtable);
+  delete txn;
+
+  // Test with multiple column families
+  std::vector<std::string> cfs = {"pk", "sk"};
+  CreateColumnFamilies(cfs, options);
+  TransactionOptions txn_opts_cf;
+
+  txn_opts_cf.large_txn_commit_optimize_byte_threshold = threshold;
+
+  // Below threshold
+  auto txn_cf = txn_db->BeginTransaction(wopts, txn_opts_cf, nullptr);
+  ASSERT_OK(txn_cf->SetName("xid_cf_above"));
+  ASSERT_OK(txn_cf->Put(handles_[0], "k1", rnd.RandomString(threshold / 2)));
+  ASSERT_OK(txn_cf->Put(handles_[1], "k2", rnd.RandomString(threshold / 2)));
+  ASSERT_TRUE(txn_cf->GetWriteBatch()->GetDataSize() >= threshold);
+  ASSERT_OK(txn_cf->Prepare());
+  ASSERT_OK(txn_cf->Commit());
+  ASSERT_TRUE(commit_bypass_memtable);
+
+  txn_cf = txn_db->BeginTransaction(wopts, txn_opts_cf, txn_cf);
+  ASSERT_OK(txn_cf->SetName("xid_cf_below"));
+  ASSERT_OK(txn_cf->Put(handles_[0], "k1", rnd.RandomString(10)));
+  ASSERT_OK(txn_cf->Put(handles_[1], "k2", rnd.RandomString(10)));
+  ASSERT_TRUE(txn_cf->GetWriteBatch()->GetDataSize() < threshold);
+  ASSERT_OK(txn_cf->Prepare());
+  ASSERT_OK(txn_cf->Commit());
+  ASSERT_FALSE(commit_bypass_memtable);
+
+  delete txn_cf;
+}
+
+TEST_P(CommitBypassMemtableTest, WBWIOpCountMismatchWBCount) {
+  // Tests that large txn optimization checks op count in WBWI vs WB. When an
+  // update is written directly to a transaction's underlying write batch, the
+  // optimization should not apply.
+  SetUpTransactionDB();
+  bool commit_bypass_memtable = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteCommittedTxn::CommitInternal:bypass_memtable",
+      [&](void* arg) { commit_bypass_memtable = *(static_cast<bool*>(arg)); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  {
+    WriteOptions wopts;
+    TransactionOptions txn_opts;
+    txn_opts.large_txn_commit_optimize_byte_threshold = 100;
+    auto txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+    ASSERT_OK(txn->SetName("xid0"));
+    ASSERT_OK(txn->Put("k1", rnd.RandomString(1000)));
+    // This update is written directly to the underlying write batch, so the
+    // optimization should not apply.
+    ASSERT_OK(txn->GetWriteBatch()->GetWriteBatch()->Put("meta", "1"));
+    ASSERT_OK(txn->Prepare());
+    ASSERT_OK(txn->Commit());
+    ASSERT_FALSE(commit_bypass_memtable);
+
+    ASSERT_EQ(Get("meta"), "1");
+    delete txn;
+  }
+
+  {
+    WriteOptions wopts;
+    TransactionOptions txn_opts;
+    txn_opts.large_txn_commit_optimize_threshold = 10;
+    auto txn = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+    ASSERT_OK(txn->SetName("xid0"));
+    for (int i = 0; i < 10; ++i) {
+      ASSERT_OK(txn->Put(Key(i), rnd.RandomString(10)));
+    }
+    // This update is written directly to the underlying write batch, so the
+    // optimization should not apply.
+    ASSERT_OK(txn->GetWriteBatch()->GetWriteBatch()->Put("meta", "2"));
+    ASSERT_OK(txn->Prepare());
+    ASSERT_OK(txn->Commit());
+    ASSERT_FALSE(commit_bypass_memtable);
+
+    ASSERT_EQ(Get("meta"), "2");
+    delete txn;
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

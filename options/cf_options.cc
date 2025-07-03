@@ -301,7 +301,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
              OptionTypeInfo::Struct("file_temperature_age_thresholds",
                                     &file_temperature_age_type_info, 0,
                                     OptionVerificationType::kNormal,
-                                    OptionTypeFlags::kMutable))}};
+                                    OptionTypeFlags::kMutable))},
+        {"allow_trivial_copy_when_change_temperature",
+         {offsetof(struct CompactionOptionsFIFO,
+                   allow_trivial_copy_when_change_temperature),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"trivial_copy_buffer_size",
+         {offsetof(struct CompactionOptionsFIFO, trivial_copy_buffer_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     universal_compaction_options_type_info = {
@@ -340,6 +349,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"allow_trivial_move",
          {offsetof(class CompactionOptionsUniversal, allow_trivial_move),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"reduce_file_locking",
+         {offsetof(class CompactionOptionsUniversal, reduce_file_locking),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}}};
 
@@ -689,12 +702,24 @@ static std::unordered_map<std::string, OptionTypeInfo>
                      name, value, addr);
                }
              })},
+        {"compression_manager",
+         OptionTypeInfo::AsCustomSharedPtr<CompressionManager>(
+             offsetof(struct MutableCFOptions, compression_manager),
+             OptionVerificationType::kByNameAllowNull,
+             (OptionTypeFlags::kMutable | OptionTypeFlags::kAllowNull))},
         // End special case properties
         {"memtable_max_range_deletions",
          {offsetof(struct MutableCFOptions, memtable_max_range_deletions),
           OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-
+        {"memtable_op_scan_flush_trigger",
+         {offsetof(struct MutableCFOptions, memtable_op_scan_flush_trigger),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"memtable_avg_op_scan_flush_trigger",
+         {offsetof(struct MutableCFOptions, memtable_avg_op_scan_flush_trigger),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -736,6 +761,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableCFOptions, force_consistency_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"disallow_memtable_writes",
+         {offsetof(struct ImmutableCFOptions, disallow_memtable_writes),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"default_temperature",
          {offsetof(struct ImmutableCFOptions, default_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
@@ -745,9 +774,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {0, OptionType::kInt, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"max_write_buffer_number_to_maintain",
-         {offsetof(struct ImmutableCFOptions,
-                   max_write_buffer_number_to_maintain),
-          OptionType::kInt, OptionVerificationType::kNormal,
+         {0, OptionType::kInt, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone, nullptr}},
         {"max_write_buffer_size_to_maintain",
          {offsetof(struct ImmutableCFOptions,
@@ -983,8 +1010,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       compaction_filter_factory(cf_options.compaction_filter_factory),
       min_write_buffer_number_to_merge(
           cf_options.min_write_buffer_number_to_merge),
-      max_write_buffer_number_to_maintain(
-          cf_options.max_write_buffer_number_to_maintain),
       max_write_buffer_size_to_maintain(
           cf_options.max_write_buffer_size_to_maintain),
       inplace_update_support(cf_options.inplace_update_support),
@@ -998,6 +1023,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
+      disallow_memtable_writes(cf_options.disallow_memtable_writes),
       default_temperature(cf_options.default_temperature),
       memtable_insert_with_hint_prefix_extractor(
           cf_options.memtable_insert_with_hint_prefix_extractor),
@@ -1175,7 +1201,10 @@ void MutableCFOptions::Dump(Logger* log) const {
                  bottommost_file_compaction_delay);
   ROCKS_LOG_INFO(log, "                   uncache_aggressiveness: %" PRIu32,
                  uncache_aggressiveness);
-
+  ROCKS_LOG_INFO(log, "             memtable_op_scan_flush_trigger: %" PRIu32,
+                 memtable_op_scan_flush_trigger);
+  ROCKS_LOG_INFO(log, "         memtable_avg_op_scan_flush_trigger: %" PRIu32,
+                 memtable_avg_op_scan_flush_trigger);
   // Universal Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_universal.size_ratio : %d",
                  compaction_options_universal.size_ratio);
@@ -1198,6 +1227,8 @@ void MutableCFOptions::Dump(Logger* log) const {
       static_cast<int>(compaction_options_universal.allow_trivial_move));
   ROCKS_LOG_INFO(log, "compaction_options_universal.incremental        : %d",
                  static_cast<int>(compaction_options_universal.incremental));
+  ROCKS_LOG_INFO(log, "compaction_options_universal.reduce_file_locking : %d",
+                 compaction_options_universal.reduce_file_locking);
 
   // FIFO Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_fifo.max_table_files_size : %" PRIu64,

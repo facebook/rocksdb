@@ -74,12 +74,14 @@
 #include "options/cf_options.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
+#include "util/udt_util.h"
 #ifdef ROCKSDB_JEMALLOC
 #include "port/jemalloc_helper.h"
 #endif
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
@@ -168,7 +170,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                bool read_only)
     : dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
-      init_logger_creation_s_(),
       initial_db_options_(SanitizeOptions(dbname, options, read_only,
                                           &init_logger_creation_s_)),
       env_(initial_db_options_.env),
@@ -184,7 +185,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       mutex_(stats_, immutable_db_options_.clock, DB_MUTEX_WAIT_MICROS,
              immutable_db_options_.use_adaptive_mutex),
 #endif  // COERCE_CONTEXT_SWITCH
-      default_cf_handle_(nullptr),
       error_handler_(this, immutable_db_options_, &mutex_),
       event_logger_(immutable_db_options_.info_log.get()),
       max_total_in_memory_state_(0),
@@ -193,45 +193,15 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
           file_options_, immutable_db_options_)),
       seq_per_batch_(seq_per_batch),
       batch_per_txn_(batch_per_txn),
-      next_job_id_(1),
-      shutting_down_(false),
-      reject_new_background_jobs_(false),
-      db_lock_(nullptr),
-      manual_compaction_paused_(false),
       bg_cv_(&mutex_),
-      logfile_number_(0),
-      log_dir_synced_(false),
-      log_empty_(true),
-      persist_stats_cf_handle_(nullptr),
-      log_sync_cv_(&log_write_mutex_),
-      total_log_size_(0),
-      is_snapshot_supported_(true),
+      wal_sync_cv_(&wal_write_mutex_),
       write_buffer_manager_(immutable_db_options_.write_buffer_manager.get()),
       write_thread_(immutable_db_options_),
       nonmem_write_thread_(immutable_db_options_),
       write_controller_(mutable_db_options_.delayed_write_rate),
-      last_batch_group_size_(0),
-      unscheduled_flushes_(0),
-      unscheduled_compactions_(0),
-      bg_bottom_compaction_scheduled_(0),
-      bg_compaction_scheduled_(0),
-      num_running_compactions_(0),
-      bg_flush_scheduled_(0),
-      num_running_flushes_(0),
-      bg_purge_scheduled_(0),
-      disable_delete_obsolete_files_(0),
-      pending_purge_obsolete_files_(0),
       delete_obsolete_files_last_run_(immutable_db_options_.clock->NowMicros()),
-      has_unpersisted_data_(false),
-      unable_to_release_oldest_log_(false),
-      num_running_ingest_file_(0),
       wal_manager_(immutable_db_options_, file_options_, io_tracer_,
                    seq_per_batch),
-      bg_work_paused_(0),
-      bg_compaction_paused_(0),
-      refitting_level_(false),
-      opened_successfully_(false),
-      periodic_task_scheduler_(),
       two_write_queues_(options.two_write_queues),
       manual_wal_flush_(options.manual_wal_flush),
       // last_sequencee_ is always maintained by the main queue that also writes
@@ -249,14 +219,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // requires a custom gc for compaction, we use that to set use_custom_gc_
       // as well.
       use_custom_gc_(seq_per_batch),
-      shutdown_initiated_(false),
       own_sfm_(options.sst_file_manager == nullptr),
-      closed_(false),
       atomic_flush_install_cv_(&mutex_),
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
                      &error_handler_, &event_logger_,
-                     immutable_db_options_.listeners, dbname_),
-      lock_wal_count_(0) {
+                     immutable_db_options_.listeners, dbname_) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -284,9 +251,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   periodic_task_functions_.emplace(PeriodicTaskType::kFlushInfoLog,
                                    [this]() { this->FlushInfoLog(); });
   periodic_task_functions_.emplace(
-      PeriodicTaskType::kRecordSeqnoTime, [this]() {
-        this->RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
-      });
+      PeriodicTaskType::kRecordSeqnoTime,
+      [this]() { this->RecordSeqnoToTimeMapping(); });
+  periodic_task_functions_.emplace(
+      PeriodicTaskType::kTriggerCompaction,
+      [this]() { this->TriggerPeriodicCompaction(); });
 
   versions_.reset(new VersionSet(
       dbname_, &immutable_db_options_, file_options_, table_cache_.get(),
@@ -636,8 +605,8 @@ Status DBImpl::CloseHelper() {
     mutex_.Lock();
   }
   {
-    InstrumentedMutexLock lock(&log_write_mutex_);
-    for (auto l : logs_to_free_) {
+    InstrumentedMutexLock lock(&wal_write_mutex_);
+    for (auto l : wals_to_free_) {
       delete l;
     }
     for (auto& log : logs_) {
@@ -821,7 +790,8 @@ Status DBImpl::StartPeriodicTaskScheduler() {
     Status s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kDumpStats,
         periodic_task_functions_.at(PeriodicTaskType::kDumpStats),
-        mutable_db_options_.stats_dump_period_sec);
+        mutable_db_options_.stats_dump_period_sec,
+        /*run_immediately=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -830,7 +800,8 @@ Status DBImpl::StartPeriodicTaskScheduler() {
     Status s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kPersistStats,
         periodic_task_functions_.at(PeriodicTaskType::kPersistStats),
-        mutable_db_options_.stats_persist_period_sec);
+        mutable_db_options_.stats_persist_period_sec,
+        /*run_immediately=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -838,62 +809,53 @@ Status DBImpl::StartPeriodicTaskScheduler() {
 
   Status s = periodic_task_scheduler_.Register(
       PeriodicTaskType::kFlushInfoLog,
-      periodic_task_functions_.at(PeriodicTaskType::kFlushInfoLog));
+      periodic_task_functions_.at(PeriodicTaskType::kFlushInfoLog),
+      /*run_immediately=*/true);
+
+  if (s.ok()) {
+    s = periodic_task_scheduler_.Register(
+        PeriodicTaskType::kTriggerCompaction,
+        periodic_task_functions_.at(PeriodicTaskType::kTriggerCompaction),
+        /*run_immediately=*/false);
+  }
 
   return s;
 }
 
-Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
-                                             const WriteOptions& write_options,
-                                             bool is_new_db) {
+Status DBImpl::RegisterRecordSeqnoTimeWorker() {
   options_mutex_.AssertHeld();
 
-  uint64_t min_preserve_seconds = std::numeric_limits<uint64_t>::max();
-  uint64_t max_preserve_seconds = std::numeric_limits<uint64_t>::min();
-  std::vector<SuperVersionContext> sv_contexts;
+  // We assume InstallSuperVersionForConfigChange has already ensured suitable
+  // mappings are present for each relevant CF. We just need to be sure the DB's
+  // seqno_to_time_mapping_ and worker scheduler are appropriate for the
+  // combination of CF settings.
+
+  MinAndMaxPreserveSeconds preserve_info;
+  uint64_t seqno_time_cadence;
   {
     InstrumentedMutexLock l(&mutex_);
 
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       auto& mopts = cfd->GetLatestMutableCFOptions();
-      // preserve time is the max of 2 options.
-      uint64_t preserve_seconds =
-          std::max(mopts.preserve_internal_time_seconds,
-                   mopts.preclude_last_level_data_seconds);
-      if (!cfd->IsDropped() && preserve_seconds > 0) {
-        min_preserve_seconds = std::min(preserve_seconds, min_preserve_seconds);
-        max_preserve_seconds = std::max(preserve_seconds, max_preserve_seconds);
+      if (!cfd->IsDropped()) {
+        preserve_info.Combine(mopts);
       }
     }
-    size_t old_mapping_size = seqno_to_time_mapping_.Size();
-    if (min_preserve_seconds == std::numeric_limits<uint64_t>::max()) {
-      // Don't track
+    seqno_time_cadence = preserve_info.GetRecodingCadence();
+    if (seqno_time_cadence == 0) {
+      // To return as much as possible to the feature being disabled,
+      // clear the existing mapping
       seqno_to_time_mapping_.SetCapacity(0);
       seqno_to_time_mapping_.SetMaxTimeSpan(UINT64_MAX);
+      assert(seqno_to_time_mapping_.Empty());
     } else {
       uint64_t cap = std::min(kMaxSeqnoToTimeEntries,
-                              max_preserve_seconds * kMaxSeqnoTimePairsPerCF /
-                                  min_preserve_seconds);
+                              preserve_info.max_preserve_seconds *
+                                  kMaxSeqnoTimePairsPerCF /
+                                  preserve_info.min_preserve_seconds);
       seqno_to_time_mapping_.SetCapacity(cap);
-      seqno_to_time_mapping_.SetMaxTimeSpan(max_preserve_seconds);
+      seqno_to_time_mapping_.SetMaxTimeSpan(preserve_info.max_preserve_seconds);
     }
-    if (old_mapping_size != seqno_to_time_mapping_.Size()) {
-      InstallSeqnoToTimeMappingInSV(&sv_contexts);
-    }
-  }
-
-  // clean up outside db mutex
-  for (SuperVersionContext& sv_context : sv_contexts) {
-    sv_context.Clean();
-  }
-  sv_contexts.clear();
-
-  uint64_t seqno_time_cadence = 0;
-  if (min_preserve_seconds != std::numeric_limits<uint64_t>::max()) {
-    // round up to 1 when the time_duration is smaller than
-    // kMaxSeqnoTimePairsPerCF
-    seqno_time_cadence = (min_preserve_seconds + kMaxSeqnoTimePairsPerCF - 1) /
-                         kMaxSeqnoTimePairsPerCF;
   }
 
   TEST_SYNC_POINT_CALLBACK(
@@ -903,68 +865,10 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker(const ReadOptions& read_options,
   if (seqno_time_cadence == 0) {
     s = periodic_task_scheduler_.Unregister(PeriodicTaskType::kRecordSeqnoTime);
   } else {
-    // Before registering the periodic task, we need to be sure to fulfill two
-    // promises:
-    // 1) Any DB created with preserve/preclude options set from the beginning
-    // will get pre-allocated seqnos with pre-populated time mappings back to
-    // the times we are interested in. (This will enable future import of data
-    // while preserving rough write time. We can only do this reliably from
-    // DB::Open, as otherwise there could be a race between CreateColumnFamily
-    // and the first Write to the DB, and seqno-to-time mappings need to be
-    // monotonic.
-    // 2) In any DB, any data written after setting preserve/preclude options
-    // must have a reasonable time estimate (so that we can accurately place
-    // the data), which means at least one entry in seqno_to_time_mapping_.
-    //
-    // FIXME: We don't currently guarantee that if the first column family with
-    // that setting is added or configured after initial DB::Open but before
-    // the first user Write. Fixing this causes complications with the crash
-    // test because if DB starts without preserve/preclude option, does some
-    // user writes but all those writes are lost in crash, then re-opens with
-    // preserve/preclude option, it sees seqno==1 which looks like one of the
-    // user writes was recovered, when actually it was not.
-    bool last_seqno_zero = GetLatestSequenceNumber() == 0;
-    assert(!is_new_db || last_seqno_zero);
-    if (is_new_db && last_seqno_zero) {
-      // Pre-allocate seqnos and pre-populate historical mapping
-      // We can simply modify these, before writes are allowed
-      constexpr uint64_t kMax = kMaxSeqnoTimePairsPerSST;
-      versions_->SetLastAllocatedSequence(kMax);
-      versions_->SetLastPublishedSequence(kMax);
-      versions_->SetLastSequence(kMax);
-
-      // And record in manifest, to avoid going backwards in seqno on re-open
-      // (potentially with different options). Concurrency is simple because we
-      // are in DB::Open
-      {
-        InstrumentedMutexLock l(&mutex_);
-        VersionEdit edit;
-        edit.SetLastSequence(kMax);
-        s = versions_->LogAndApplyToDefaultColumnFamily(
-            read_options, write_options, &edit, &mutex_,
-            directories_.GetDbDir());
-        if (!s.ok() && versions_->io_status().IsIOError()) {
-          error_handler_.SetBGError(versions_->io_status(),
-                                    BackgroundErrorReason::kManifestWrite);
-        }
-      }
-
-      // Pre-populate mappings for reserved sequence numbers.
-      RecordSeqnoToTimeMapping(max_preserve_seconds);
-    } else {
-      if (!last_seqno_zero) {
-        // Ensure at least one mapping (or log a warning), and
-        // an updated entry whenever relevant SetOptions is called
-        RecordSeqnoToTimeMapping(/*populate_historical_seconds=*/0);
-      } else {
-        // FIXME (see limitation described above)
-      }
-    }
-
     s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kRecordSeqnoTime,
         periodic_task_functions_.at(PeriodicTaskType::kRecordSeqnoTime),
-        seqno_time_cadence);
+        seqno_time_cadence, /*run_immediately=*/true);
   }
 
   return s;
@@ -1255,11 +1159,11 @@ Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
   mutex_.AssertHeld();
-  if (!job_context->logs_to_free.empty()) {
-    for (auto l : job_context->logs_to_free) {
+  if (!job_context->wals_to_free.empty()) {
+    for (auto l : job_context->wals_to_free) {
       AddToLogsToFreeQueue(l);
     }
-    job_context->logs_to_free.clear();
+    job_context->wals_to_free.clear();
   }
 }
 
@@ -1309,8 +1213,9 @@ Status DBImpl::SetOptions(
     //
     // (b) Append a new Version without manifest write nor DB mutex release
     //
-    // Thus aren't releasing the DB mutex again until the end of this block,
-    // after installing the new SuperVersion.
+    // Thus aren't releasing the DB mutex from LogAndApply calling pre_cb,
+    // through installing the new Version until the end of this block, after
+    // installing the new SuperVersion.
     auto pre_cb = [&]() -> Status {
       Status cb_s = cfd->SetOptions(db_options, options_map);
       if (cb_s.ok()) {
@@ -1335,7 +1240,7 @@ Status DBImpl::SetOptions(
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
-      InstallSuperVersionAndScheduleWork(cfd, &sv_context);
+      InstallSuperVersionForConfigChange(cfd, &sv_context);
       persist_options_status =
           WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
       bg_cv_.SignalAll();
@@ -1353,8 +1258,7 @@ Status DBImpl::SetOptions(
 
   if (s.ok() && (options_map.count("preserve_internal_time_seconds") > 0 ||
                  options_map.count("preclude_last_level_data_seconds") > 0)) {
-    s = RegisterRecordSeqnoTimeWorker(read_options, write_options,
-                                      false /* is_new_db*/);
+    s = RegisterRecordSeqnoTimeWorker();
   }
 
   ROCKS_LOG_INFO(
@@ -1474,7 +1378,7 @@ Status DBImpl::SetDBOptions(
         s = periodic_task_scheduler_.Register(
             PeriodicTaskType::kDumpStats,
             periodic_task_functions_.at(PeriodicTaskType::kDumpStats),
-            new_options.stats_dump_period_sec);
+            new_options.stats_dump_period_sec, /*run_immediately=*/true);
       }
       if (new_options.max_total_wal_size !=
           mutable_db_options_.max_total_wal_size) {
@@ -1489,7 +1393,7 @@ Status DBImpl::SetDBOptions(
           s = periodic_task_scheduler_.Register(
               PeriodicTaskType::kPersistStats,
               periodic_task_functions_.at(PeriodicTaskType::kPersistStats),
-              new_options.stats_persist_period_sec);
+              new_options.stats_persist_period_sec, /*run_immediately=*/true);
         }
       }
       mutex_.Lock();
@@ -1518,7 +1422,7 @@ Status DBImpl::SetDBOptions(
         WriteThread::Writer w;
         write_thread_.EnterUnbatched(&w, &mutex_);
         if (wal_other_option_changed ||
-            total_log_size_ > GetMaxTotalWalSize()) {
+            wals_total_size_.LoadRelaxed() > GetMaxTotalWalSize()) {
           Status purge_wal_status = SwitchWAL(&write_context);
           if (!purge_wal_status.ok()) {
             ROCKS_LOG_WARN(immutable_db_options_.info_log,
@@ -1545,14 +1449,9 @@ Status DBImpl::SetDBOptions(
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "SetDBOptions() succeeded");
     new_options.Dump(immutable_db_options_.info_log.get());
     if (!persist_options_status.ok()) {
-      if (immutable_db_options_.fail_if_options_file_error) {
-        s = Status::IOError(
-            "SetDBOptions() succeeded, but unable to persist options",
-            persist_options_status.ToString());
-      }
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Unable to persist options in SetDBOptions() -- %s",
-                     persist_options_status.ToString().c_str());
+      s = Status::IOError(
+          "SetDBOptions() succeeded, but unable to persist options",
+          persist_options_status.ToString());
     }
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "SetDBOptions failed");
@@ -1587,8 +1486,8 @@ Status DBImpl::FlushWAL(const WriteOptions& write_options, bool sync) {
   if (manual_wal_flush_) {
     IOStatus io_s;
     {
-      // We need to lock log_write_mutex_ since logs_ might change concurrently
-      InstrumentedMutexLock wl(&log_write_mutex_);
+      // We need to lock wal_write_mutex_ since logs_ might change concurrently
+      InstrumentedMutexLock wl(&wal_write_mutex_);
       log::Writer* cur_log_writer = logs_.back().writer;
       io_s = cur_log_writer->WriteBuffer(write_options);
     }
@@ -1615,7 +1514,7 @@ Status DBImpl::FlushWAL(const WriteOptions& write_options, bool sync) {
 }
 
 bool DBImpl::WALBufferIsEmpty() {
-  InstrumentedMutexLock l(&log_write_mutex_);
+  InstrumentedMutexLock l(&wal_write_mutex_);
   log::Writer* cur_log_writer = logs_.back().writer;
   auto res = cur_log_writer->BufferIsEmpty();
   return res;
@@ -1623,7 +1522,7 @@ bool DBImpl::WALBufferIsEmpty() {
 
 Status DBImpl::GetOpenWalSizes(std::map<uint64_t, uint64_t>& number_to_size) {
   assert(number_to_size.empty());
-  InstrumentedMutexLock l(&log_write_mutex_);
+  InstrumentedMutexLock l(&wal_write_mutex_);
   for (auto& log : logs_) {
     auto* open_file = log.writer->file();
     if (open_file) {
@@ -1665,15 +1564,15 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
   uint64_t up_to_number;
 
   {
-    InstrumentedMutexLock l(&log_write_mutex_);
+    InstrumentedMutexLock l(&wal_write_mutex_);
     assert(!logs_.empty());
 
-    maybe_active_number = logfile_number_;
+    maybe_active_number = cur_wal_number_;
     up_to_number =
         include_current_wal ? maybe_active_number : maybe_active_number - 1;
 
     while (logs_.front().number <= up_to_number && logs_.front().IsSyncing()) {
-      log_sync_cv_.Wait();
+      wal_sync_cv_.Wait();
     }
     // First check that logs are safe to sync in background.
     if (include_current_wal &&
@@ -1697,7 +1596,7 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
       }
     }
 
-    need_wal_dir_sync = !log_dir_synced_;
+    need_wal_dir_sync = !wal_dir_synced_;
   }
 
   if (include_current_wal) {
@@ -1770,7 +1669,7 @@ IOStatus DBImpl::SyncWalImpl(bool include_current_wal,
                              /*arg=*/nullptr);
   }
   {
-    InstrumentedMutexLock l(&log_write_mutex_);
+    InstrumentedMutexLock l(&wal_write_mutex_);
     for (auto* wal : wals_internally_closed) {
       // We can only modify the state of log::Writer under the mutex
       bool was_closed = wal->PublishIfClosed();
@@ -1887,9 +1786,9 @@ Status DBImpl::UnlockWAL() {
 
 void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
                             VersionEdit* synced_wals) {
-  log_write_mutex_.AssertHeld();
-  if (synced_dir && logfile_number_ == up_to) {
-    log_dir_synced_ = true;
+  wal_write_mutex_.AssertHeld();
+  if (synced_dir && cur_wal_number_ == up_to) {
+    wal_dir_synced_ = true;
   }
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
@@ -1911,7 +1810,7 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
           (immutable_db_options_.background_close_inactive_wals &&
            wal.GetPreSyncSize() == wal.writer->file()->GetFlushedSize())) {
         // Fully synced
-        logs_to_free_.push_back(wal.ReleaseWriter());
+        wals_to_free_.push_back(wal.ReleaseWriter());
         it = logs_.erase(it);
       } else {
         wal.FinishSync();
@@ -1924,17 +1823,17 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
       ++it;
     }
   }
-  log_sync_cv_.SignalAll();
+  wal_sync_cv_.SignalAll();
 }
 
 void DBImpl::MarkLogsNotSynced(uint64_t up_to) {
-  log_write_mutex_.AssertHeld();
+  wal_write_mutex_.AssertHeld();
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;
        ++it) {
     auto& wal = *it;
     wal.FinishSync();
   }
-  log_sync_cv_.SignalAll();
+  wal_sync_cv_.SignalAll();
 }
 
 SequenceNumber DBImpl::GetLatestSequenceNumber() const {
@@ -1970,6 +1869,69 @@ Status DBImpl::GetFullHistoryTsLow(ColumnFamilyHandle* column_family,
   return Status::OK();
 }
 
+Status DBImpl::GetNewestUserDefinedTimestamp(ColumnFamilyHandle* column_family,
+                                             std::string* newest_timestamp) {
+  if (newest_timestamp == nullptr) {
+    return Status::InvalidArgument("newest_timestamp is nullptr");
+  }
+  ColumnFamilyData* cfd = nullptr;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    assert(cfh != nullptr);
+    cfd = cfh->cfd();
+  }
+  assert(cfd != nullptr && cfd->user_comparator() != nullptr);
+  if (cfd->user_comparator()->timestamp_size() == 0) {
+    return Status::InvalidArgument(
+        "Timestamp is not enabled in this column family");
+  }
+  if (cfd->ioptions().persist_user_defined_timestamps) {
+    return Status::NotSupported(
+        "GetNewestUserDefinedTimestamp doesn't support the case when user"
+        "defined timestamps are persisted.");
+  }
+
+  Status status;
+  // Acquire SuperVersion
+  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  {
+    InstrumentedMutexLock l(&mutex_);
+    bool enter_write_thread = sv->mem == cfd->mem();
+    WriteThread::Writer w;
+    // Enter write thread to read the mutable memtable to avoid racing access
+    // with concurrent writes. No need to enter nonmem_write_thread_ since this
+    // call only care about memtable writes, not WAL writes.
+    if (enter_write_thread) {
+      write_thread_.EnterUnbatched(&w, &mutex_);
+      WaitForPendingWrites();
+    }
+    *newest_timestamp = sv->mem->GetNewestUDT().ToString();
+    assert(!newest_timestamp->empty() || sv->mem->IsEmpty());
+    if (enter_write_thread) {
+      write_thread_.ExitUnbatched(&w);
+    }
+  }
+  // Read from immutable memtables if nothing found in mutable memtable.
+  if (newest_timestamp->empty()) {
+    *newest_timestamp = sv->imm->GetNewestUDT().ToString();
+  }
+  // Read from SST files if no result can be found in memtables.
+  if (newest_timestamp->empty() && sv->current->GetSstFilesSize() != 0) {
+    // full_history_ts_low is used to track the exclusive upperbound of
+    // flushed user defined timestamp. So we can use it to deduce the newest
+    // timestamp in the SST files that the column family has seen.
+    Slice full_history_ts_low = sv->full_history_ts_low;
+    if (!full_history_ts_low.empty()) {
+      GetU64CutoffTsFromFullHistoryTsLow(&full_history_ts_low,
+                                         newest_timestamp);
+    }
+  }
+  ReturnAndCleanupSuperVersion(cfd, sv);
+  return status;
+}
+
 InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
                                               Arena* arena,
                                               SequenceNumber sequence,
@@ -2003,10 +1965,10 @@ void DBImpl::BackgroundCallPurge() {
   TEST_SYNC_POINT("DBImpl::BackgroundCallPurge:beforeMutexLock");
   mutex_.Lock();
 
-  while (!logs_to_free_queue_.empty()) {
-    assert(!logs_to_free_queue_.empty());
-    log::Writer* log_writer = *(logs_to_free_queue_.begin());
-    logs_to_free_queue_.pop_front();
+  while (!wals_to_free_queue_.empty()) {
+    assert(!wals_to_free_queue_.empty());
+    log::Writer* log_writer = *(wals_to_free_queue_.begin());
+    wals_to_free_queue_.pop_front();
     mutex_.Unlock();
     delete log_writer;
     mutex_.Lock();
@@ -2704,7 +2666,7 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
     }
   };
 
-  bool last_try = false;
+  bool acquire_mutex = false;
   if (cf_list->size() == 1) {
     // Fast path for a single column family. We can simply get the thread local
     // super version
@@ -2753,29 +2715,32 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
     // sure.
     constexpr int num_retries = 3;
     for (int i = 0; i < num_retries; ++i) {
-      last_try = (i == num_retries - 1);
+      // When reading from kPersistedTier, we want a consistent view into CFs.
+      // So we take mutex to prevent any SV change in any CF.
+      acquire_mutex = ((i == num_retries - 1) && !read_options.snapshot) ||
+                      read_options.read_tier == kPersistedTier;
       bool retry = false;
 
       if (i > 0) {
         sv_cleanup_func();
       }
       if (read_options.snapshot == nullptr) {
-        if (last_try) {
-          TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::LastTry");
-          // We're close to max number of retries. For the last retry,
-          // acquire the lock so we're sure to succeed
-          mutex_.Lock();
-        }
         *snapshot = GetLastPublishedSequence();
       } else {
         *snapshot =
             static_cast_with_check<const SnapshotImpl>(read_options.snapshot)
                 ->number_;
       }
+      if (acquire_mutex) {
+        TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::LastTry");
+        // We're close to max number of retries. For the last retry,
+        // acquire the lock so we're sure to succeed
+        mutex_.Lock();
+      }
       for (auto cf_iter = cf_list->begin(); cf_iter != cf_list->end();
            ++cf_iter) {
         auto node = iter_deref_func(cf_iter);
-        if (!last_try) {
+        if (!acquire_mutex) {
           if (extra_sv_ref) {
             node->super_version = node->cfd->GetReferencedSuperVersion(this);
           } else {
@@ -2799,7 +2764,7 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
           }
         }
         TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::BeforeCheckingSnapshot");
-        if (read_options.snapshot != nullptr || last_try) {
+        if (read_options.snapshot != nullptr || acquire_mutex) {
           // If user passed a snapshot, then we don't care if a memtable is
           // sealed or compaction happens because the snapshot would ensure
           // that older key versions are kept around. If this is the last
@@ -2810,7 +2775,7 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
         // memtables, which will include immutable memtables as well, but that
         // might be tricky to maintain in case we decide, in future, to do
         // memtable compaction.
-        if (!last_try) {
+        if (!acquire_mutex) {
           SequenceNumber seq =
               node->super_version->mem->GetEarliestSequenceNumber();
           if (seq > *snapshot) {
@@ -2820,19 +2785,20 @@ Status DBImpl::MultiCFSnapshot(const ReadOptions& read_options,
         }
       }
       if (!retry) {
-        if (last_try) {
+        if (acquire_mutex) {
           mutex_.Unlock();
           TEST_SYNC_POINT("DBImpl::MultiCFSnapshot::AfterLastTryRefSV");
         }
         break;
       }
+      assert(!acquire_mutex);
     }
   }
 
   TEST_SYNC_POINT("DBImpl::MultiCFSnapshot:AfterGetSeqNum1");
   TEST_SYNC_POINT("DBImpl::MultiCFSnapshot:AfterGetSeqNum2");
   PERF_TIMER_STOP(get_snapshot_time);
-  *sv_from_thread_local = !last_try;
+  *sv_from_thread_local = !acquire_mutex;
   if (!s.ok()) {
     sv_cleanup_func();
   }
@@ -3538,7 +3504,7 @@ void DBImpl::MultiGetEntityWithCallback(
 }
 
 Status DBImpl::WrapUpCreateColumnFamilies(
-    const ReadOptions& read_options, const WriteOptions& write_options,
+    const WriteOptions& write_options,
     const std::vector<const ColumnFamilyOptions*>& cf_options) {
   options_mutex_.AssertHeld();
 
@@ -3555,8 +3521,7 @@ Status DBImpl::WrapUpCreateColumnFamilies(
   // Attempt both follow-up actions even if one fails
   Status s = WriteOptionsFile(write_options, false /*db_mutex_already_held*/);
   if (register_worker) {
-    s.UpdateIfOk(RegisterRecordSeqnoTimeWorker(read_options, write_options,
-                                               /* is_new_db */ false));
+    s.UpdateIfOk(RegisterRecordSeqnoTimeWorker());
   }
   return s;
 }
@@ -3571,8 +3536,7 @@ Status DBImpl::CreateColumnFamily(const ReadOptions& read_options,
   Status s = CreateColumnFamilyImpl(read_options, write_options, cf_options,
                                     column_family, handle);
   if (s.ok()) {
-    s.UpdateIfOk(
-        WrapUpCreateColumnFamilies(read_options, write_options, {&cf_options}));
+    s.UpdateIfOk(WrapUpCreateColumnFamilies(write_options, {&cf_options}));
   }
   return s;
 }
@@ -3599,8 +3563,7 @@ Status DBImpl::CreateColumnFamilies(
     success_once = true;
   }
   if (success_once) {
-    s.UpdateIfOk(
-        WrapUpCreateColumnFamilies(read_options, write_options, {&cf_options}));
+    s.UpdateIfOk(WrapUpCreateColumnFamilies(write_options, {&cf_options}));
   }
   return s;
 }
@@ -3630,8 +3593,7 @@ Status DBImpl::CreateColumnFamilies(
     cf_opts.push_back(&column_families[i].options);
   }
   if (success_once) {
-    s.UpdateIfOk(
-        WrapUpCreateColumnFamilies(read_options, write_options, cf_opts));
+    s.UpdateIfOk(WrapUpCreateColumnFamilies(write_options, cf_opts));
   }
   return s;
 }
@@ -3672,7 +3634,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
     edit.AddColumnFamily(column_family_name);
     uint32_t new_id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
     edit.SetColumnFamily(new_id);
-    edit.SetLogNumber(logfile_number_);
+    edit.SetLogNumber(cur_wal_number_);
     edit.SetComparatorName(cf_options.comparator->Name());
     edit.SetPersistUserDefinedTimestamps(
         cf_options.persist_user_defined_timestamps);
@@ -3700,7 +3662,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
-      InstallSuperVersionAndScheduleWork(cfd, &sv_context);
+      InstallSuperVersionForConfigChange(cfd, &sv_context);
 
       if (!cfd->mem()->IsSnapshotSupported()) {
         is_snapshot_supported_ = false;
@@ -3784,7 +3746,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
   Status s;
   // Save re-aquiring lock for RegisterRecordSeqnoTimeWorker when not
   // applicable
-  bool used_preserve_preclude = false;
+  MinAndMaxPreserveSeconds preserve_info;
   {
     InstrumentedMutexLock l(&mutex_);
     if (cfd->IsDropped()) {
@@ -3802,8 +3764,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       auto& moptions = cfd->GetLatestMutableCFOptions();
       max_total_in_memory_state_ -=
           moptions.write_buffer_size * moptions.max_write_buffer_number;
-      used_preserve_preclude = moptions.preserve_internal_time_seconds > 0 ||
-                               moptions.preclude_last_level_data_seconds > 0;
+      preserve_info.Combine(moptions);
     }
 
     if (!cf_support_snapshot) {
@@ -3821,9 +3782,8 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     bg_cv_.SignalAll();
   }
 
-  if (used_preserve_preclude) {
-    s = RegisterRecordSeqnoTimeWorker(read_options, write_options,
-                                      /* is_new_db */ false);
+  if (preserve_info.IsEnabled()) {
+    s = RegisterRecordSeqnoTimeWorker();
   }
 
   if (s.ok()) {
@@ -3871,6 +3831,14 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   // not present in block_cache, the return value will be Status::Incomplete.
   // In this case, key may still exist in the table.
   return s.ok() || s.IsIncomplete();
+}
+
+std::unique_ptr<MultiScan> DBImpl::NewMultiScan(
+    const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
+    const std::vector<ScanOptions>& scan_opts) {
+  std::unique_ptr<MultiScan> ms_iter = std::make_unique<MultiScan>(
+      _read_options, scan_opts, this, column_family);
+  return ms_iter;
 }
 
 Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
@@ -3929,11 +3897,14 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
 
     auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                     /* allow_unprepared_value */ true);
-    result = NewDBIterator(
-        env_, read_options, cfd->ioptions(), sv->mutable_cf_options,
-        cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
-        sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        nullptr /* read_callback */, cfh);
+    // TODO(cbi): Add support for `memtable_op_scan_flush_trigger` for tailing
+    // iterator. This requires refreshing DBIter's pointer to active_mem when
+    // tailing iterator refreshes to new memtable internally.
+    result = DBIter::NewIter(env_, read_options, cfd->ioptions(),
+                             sv->mutable_cf_options, cfd->user_comparator(),
+                             iter, sv->current, kMaxSequenceNumber,
+                             /*read_callback=*/nullptr, /*active_mem=*/nullptr,
+                             cfh, /*expose_blob_index=*/false);
   } else {
     // Note: no need to consider the special case of
     // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
@@ -4011,18 +3982,9 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   // Laying out the iterators in the order of being accessed makes it more
   // likely that any iterator pointer is close to the iterator it points to so
   // that they are likely to be in the same cache line and/or page.
-  ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, cfh->cfd()->ioptions(), sv->mutable_cf_options,
-      sv->current, snapshot,
-      sv->mutable_cf_options.max_sequential_skip_in_iterations,
-      sv->version_number, read_callback, cfh, expose_blob_index, allow_refresh);
-
-  InternalIterator* internal_iter = NewInternalIterator(
-      db_iter->GetReadOptions(), cfh->cfd(), sv, db_iter->GetArena(), snapshot,
-      /* allow_unprepared_value */ true, db_iter);
-  db_iter->SetIterUnderDBIter(internal_iter);
-
-  return db_iter;
+  return NewArenaWrappedDbIterator(
+      env_, read_options, cfh, sv, snapshot, read_callback, this,
+      expose_blob_index, allow_refresh, /*allow_mark_memtable_for_flush=*/true);
 }
 
 std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(
@@ -4146,14 +4108,12 @@ Status DBImpl::NewIterators(
       auto iter = new ForwardIterator(this, read_options, cf_sv_pair.cfd,
                                       cf_sv_pair.super_version,
                                       /* allow_unprepared_value */ true);
-      iterators->push_back(
-          NewDBIterator(env_, read_options, cf_sv_pair.cfd->ioptions(),
-                        cf_sv_pair.super_version->mutable_cf_options,
-                        cf_sv_pair.cfd->user_comparator(), iter,
-                        cf_sv_pair.super_version->current, kMaxSequenceNumber,
-                        cf_sv_pair.super_version->mutable_cf_options
-                            .max_sequential_skip_in_iterations,
-                        nullptr /*read_callback*/, cf_sv_pair.cfh));
+      iterators->push_back(DBIter::NewIter(
+          env_, read_options, cf_sv_pair.cfd->ioptions(),
+          cf_sv_pair.super_version->mutable_cf_options,
+          cf_sv_pair.cfd->user_comparator(), iter,
+          cf_sv_pair.super_version->current, kMaxSequenceNumber,
+          nullptr /*read_callback*/, /*active_mem=*/nullptr, cf_sv_pair.cfh));
     }
   } else {
     for (const auto& cf_sv_pair : cf_sv_pairs) {
@@ -4485,7 +4445,7 @@ Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
   // Add timestamp if needed
   for (size_t i = 0; i < n; i++) {
     auto [start, limit] = MaybeAddTimestampsToRange(
-        &range[i].start, &range[i].limit, ts_sz, &keys.emplace_back(),
+        range[i].start, range[i].limit, ts_sz, &keys.emplace_back(),
         &keys.emplace_back(), /*exclusive_end=*/false);
     assert(start.has_value());
     assert(limit.has_value());
@@ -4493,6 +4453,29 @@ Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
   }
   auto s =
       version->GetPropertiesOfTablesInRange(read_options, ukey_ranges, props);
+
+  // Decrement the ref count
+  mutex_.Lock();
+  version->Unref();
+  mutex_.Unlock();
+
+  return s;
+}
+
+Status DBImpl::GetPropertiesOfTablesByLevel(
+    ColumnFamilyHandle* column_family,
+    std::vector<std::unique_ptr<TablePropertiesCollection>>* props_by_level) {
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+  auto cfd = cfh->cfd();
+
+  // Increment the ref count
+  mutex_.Lock();
+  auto version = cfd->current();
+  version->Ref();
+  mutex_.Unlock();
+
+  const ReadOptions read_options;
+  auto s = version->GetPropertiesOfTablesByLevel(read_options, props_by_level);
 
   // Decrement the ref count
   mutex_.Lock();
@@ -4802,7 +4785,7 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
   // Add timestamp if needed
   std::string start_with_ts, limit_with_ts;
   auto [start, limit] = MaybeAddTimestampsToRange(
-      &range.start, &range.limit, ts_sz, &start_with_ts, &limit_with_ts);
+      range.start, range.limit, ts_sz, &start_with_ts, &limit_with_ts);
   assert(start.has_value());
   assert(limit.has_value());
   // Convert user_key into a corresponding internal key.
@@ -4840,9 +4823,8 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   for (int i = 0; i < n; i++) {
     // Add timestamp if needed
     std::string start_with_ts, limit_with_ts;
-    auto [start, limit] =
-        MaybeAddTimestampsToRange(&range[i].start, &range[i].limit, ts_sz,
-                                  &start_with_ts, &limit_with_ts);
+    auto [start, limit] = MaybeAddTimestampsToRange(
+        range[i].start, range[i].limit, ts_sz, &start_with_ts, &limit_with_ts);
     assert(start.has_value());
     assert(limit.has_value());
     // Convert user_key into a corresponding internal key.
@@ -4918,7 +4900,7 @@ Status DBImpl::GetUpdatesSince(
 }
 
 Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
-                                   const RangePtr* ranges, size_t n,
+                                   const RangeOpt* ranges, size_t n,
                                    bool include_end) {
   // TODO: plumb Env::IOActivity, Env::IOPriority
   const ReadOptions read_options;
@@ -4930,7 +4912,7 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
   const Comparator* ucmp = cfd->user_comparator();
   assert(ucmp);
   const size_t ts_sz = ucmp->timestamp_size();
-  autovector<UserKeyRangePtr> ukey_ranges;
+  autovector<UserKeyRangeOpt> ukey_ranges;
   std::vector<std::string> keys;
   std::vector<Slice> key_slices;
   ukey_ranges.reserve(n);
@@ -4940,8 +4922,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     auto [start, limit] = MaybeAddTimestampsToRange(
         ranges[i].start, ranges[i].limit, ts_sz, &keys.emplace_back(),
         &keys.emplace_back(), !include_end);
-    assert((ranges[i].start != nullptr) == start.has_value());
-    assert((ranges[i].limit != nullptr) == limit.has_value());
+    assert(ranges[i].start.has_value() == start.has_value());
+    assert(ranges[i].limit.has_value() == limit.has_value());
     ukey_ranges.emplace_back(start, limit);
   }
 
@@ -5047,7 +5029,6 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
   assert(column_family);
   auto* cfd =
       static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
-  auto* sv = GetAndRefSuperVersion(cfd);
   {
     // Without mutex, Version::GetColumnFamilyMetaData will have data race
     // with Compaction::MarkFilesBeingCompacted. One solution is to use mutex,
@@ -5059,9 +5040,8 @@ void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
     // DB::GetColumnFamilyMetaData is not called frequently, the regression
     // should not be big. We still need to keep an eye on it.
     InstrumentedMutexLock l(&mutex_);
-    sv->current->GetColumnFamilyMetaData(cf_meta);
+    cfd->current()->GetColumnFamilyMetaData(cf_meta);
   }
-  ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
 void DBImpl::GetAllColumnFamilyMetaData(
@@ -5490,12 +5470,7 @@ Status DBImpl::WriteOptionsFile(const WriteOptions& write_options,
   if (!s.ok()) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "Unnable to persist options -- %s", s.ToString().c_str());
-    if (immutable_db_options_.fail_if_options_file_error) {
-      s = Status::IOError("Unable to persist options.", s.ToString().c_str());
-    } else {
-      // Ignore error
-      s = Status::OK();
-    }
+    s = Status::IOError("Unable to persist options.", s.ToString().c_str());
   }
 
   // Restore lock if appropriate
@@ -5877,6 +5852,27 @@ Status DBImpl::IngestExternalFiles(
             "timestamps enabled doesn't support ingest behind.");
       }
     }
+    if (arg.atomic_replace_range.has_value()) {
+      if (ingest_opts.ingest_behind) {
+        return Status::InvalidArgument(
+            "Can't combine atomic_replace_range with ingest_behind.");
+      }
+      if (ingest_opts.snapshot_consistency) {
+        // TODO: support generating and ingesting a big tombstone file, which
+        // might depend on non-nullptr start and limit
+        return Status::NotSupported(
+            "atomic_replace_range not yet supported with "
+            "snapshot_consistency.");
+      } else {
+        if (arg.atomic_replace_range->start.has_value() ^
+            arg.atomic_replace_range->limit.has_value()) {
+          return Status::NotSupported(
+              "Only one of atomic_replace_range.{start,limit}.has_value() is "
+              "not supported.");
+        }
+      }
+    }
+
     if (ingest_opts.allow_db_generated_files) {
       if (ingest_opts.write_global_seqno) {
         return Status::NotSupported(
@@ -5925,8 +5921,8 @@ Status DBImpl::IngestExternalFiles(
             this);
     Status es = ingestion_jobs[i].Prepare(
         args[i].external_files, args[i].files_checksums,
-        args[i].files_checksum_func_names, args[i].file_temperature,
-        start_file_number, super_version);
+        args[i].files_checksum_func_names, args[i].atomic_replace_range,
+        args[i].file_temperature, start_file_number, super_version);
     // capture first error only
     if (!es.ok() && status.ok()) {
       status = es;
@@ -5941,8 +5937,8 @@ Status DBImpl::IngestExternalFiles(
             this);
     Status es = ingestion_jobs[0].Prepare(
         args[0].external_files, args[0].files_checksums,
-        args[0].files_checksum_func_names, args[0].file_temperature,
-        next_file_number, super_version);
+        args[0].files_checksum_func_names, args[0].atomic_replace_range,
+        args[0].file_temperature, next_file_number, super_version);
     if (!es.ok()) {
       status = es;
     }
@@ -6235,7 +6231,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
           versions_->LogAndApply(cfd, read_options, write_options, &dummy_edit,
                                  &mutex_, directories_.GetDbDir());
       if (status.ok()) {
-        InstallSuperVersionAndScheduleWork(cfd, &dummy_sv_ctx);
+        InstallSuperVersionForConfigChange(cfd, &dummy_sv_ctx);
       }
     }
   }
@@ -6272,7 +6268,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
                                         import_job.edit(), &mutex_,
                                         directories_.GetDbDir());
         if (status.ok()) {
-          InstallSuperVersionAndScheduleWork(cfd, &sv_context);
+          InstallSuperVersionForConfigChange(cfd, &sv_context);
         }
       }
 
@@ -6333,9 +6329,9 @@ Status DBImpl::ClipColumnFamily(ColumnFamilyHandle* column_family,
 
   if (status.ok()) {
     // DeleteFilesInRanges non-overlap files except L0
-    std::vector<RangePtr> ranges;
-    ranges.emplace_back(nullptr, &begin_key);
-    ranges.emplace_back(&end_key, nullptr);
+    std::vector<RangeOpt> ranges;
+    ranges.emplace_back(OptSlice{}, begin_key);
+    ranges.emplace_back(end_key, OptSlice{});
     status = DeleteFilesInRanges(column_family, ranges.data(), ranges.size());
   }
 
@@ -6732,7 +6728,7 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   }
 }
 
-void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
+std::pair<SequenceNumber, uint64_t> DBImpl::GetSeqnoToTimeSample() const {
   // TECHNICALITY: Sample last sequence number *before* time, as prescribed
   // for SeqnoToTimeMapping. We don't know how long it has been since the last
   // sequence number was written, so we at least have a one-sided bound by
@@ -6741,62 +6737,190 @@ void DBImpl::RecordSeqnoToTimeMapping(uint64_t populate_historical_seconds) {
   // while holding the DB mutex. (This is really to make testing happy because
   // it's fine to throw out extra close-but-not-quite-consistent mappings in
   // production.)
-  std::vector<SuperVersionContext> sv_contexts;
-  bool success = true;
-  SequenceNumber seqno;
-  uint64_t unix_time;
+  mutex_.AssertHeld();
+  SequenceNumber seqno = GetLatestSequenceNumber();
+  // HACK/TODO: seqno might be zero but we can't record a mapping for that.
+  // Start with 1, which should be close enough.
+  seqno = std::max(seqno, SequenceNumber{1});
+  int64_t unix_time_signed = 0;
+  immutable_db_options_.clock->GetCurrentTime(&unix_time_signed)
+      .PermitUncheckedError();  // Ignore error
+  return {seqno, static_cast<uint64_t>(unix_time_signed)};
+}
+
+void DBImpl::EnsureSeqnoToTimeMapping(
+    const MinAndMaxPreserveSeconds& preserve_info) {
+  mutex_.AssertHeld();
+  assert(preserve_info.IsEnabled());
+
+  // Atomically with CF creation or mutable option change (see
+  // InstallSuperVersionForConfigChange()), we need to be sure any data written
+  // after setting preserve/preclude options must have a reasonable time
+  // estimate (so that we can accurately place the data), which means at least
+  // one entry in seqno_to_time_mapping_. It's not critical that `preserve_info`
+  // take into account all CFs, as that's mostly relevant to how we add
+  // recurring entries and purge old ones.
+
+  auto [seqno, unix_time_now] = GetSeqnoToTimeSample();
+  // Ensure at least one sample that is sufficiently recent
+  uint64_t unix_time_last_sample = 0;
+  if (seqno_to_time_mapping_.Empty()) {
+    // The exact best settings will be found and applied in
+    // RegisterRecordSeqnoTimeWorker()
+    seqno_to_time_mapping_.SetCapacity(kMaxSeqnoToTimeEntries);
+  } else {
+    unix_time_last_sample =
+        seqno_to_time_mapping_.GetProximalTimeBeforeSeqno(kMaxSequenceNumber);
+  }
+  uint64_t cadence = preserve_info.GetRecodingCadence();
+  // Extend cadence so as to avoid stepping on toes of recorder job, which
+  // could lag a bit.
+  cadence += 3 + cadence / 100;
+  if (unix_time_now >= cadence &&
+      unix_time_last_sample <= unix_time_now - cadence) {
+    assert(seqno > 0);  // See GetSeqnoToTimeSample()
+    // Always successful assuming seqno never go backwards
+    seqno_to_time_mapping_.Append(seqno, unix_time_now);
+  }
+}
+
+void DBImpl::PrepopulateSeqnoToTimeMapping(
+    const MinAndMaxPreserveSeconds& preserve_info) {
+  // Only for opening a new DB, with preserve/preclude options set
+  if (!preserve_info.IsEnabled()) {
+    assert(false);
+    return;
+  }
+  if (GetLatestSequenceNumber() != 0) {
+    assert(false);
+    return;
+  }
+
+  // Here we fulfill the following promise:
+  //
+  // Any DB/CF created with preserve/preclude options set from the beginning
+  // will get pre-allocated seqnos with pre-populated time mappings back to
+  // the times we are interested in. (This will enable future import of data
+  // while preserving rough write time. We can only do this reliably from
+  // DB::Open, as otherwise there could be a race between CreateColumnFamily
+  // and the first Write to the DB, and seqno-to-time mappings need to be
+  // monotonic.
+  //
+  // FIXME: We don't currently guarantee that if the first column family with
+  // that setting is added or configured after initial DB::Open but before
+  // the first user Write. Fixing this causes complications with the crash
+  // test because if DB starts without preserve/preclude option, does some
+  // user writes but all those writes are lost in crash, then re-opens with
+  // preserve/preclude option, it sees seqno==1 which looks like one of the
+  // user writes was recovered, when actually it was not.
+
+  // Pre-allocate seqnos and pre-populate historical mapping
+  // We can simply modify these, before writes are allowed
+  constexpr uint64_t kMax = kMaxSeqnoTimePairsPerSST;
+  versions_->SetLastAllocatedSequence(kMax);
+  versions_->SetLastPublishedSequence(kMax);
+  versions_->SetLastSequence(kMax);
+
+  // And record in manifest, to avoid going backwards in seqno on re-open
+  // (potentially with different options). Concurrency is simple because we
+  // are in DB::Open
+  const WriteOptions write_options(Env::IOActivity::kDBOpen);
+  const ReadOptions read_options(Env::IOActivity::kDBOpen);
+  VersionEdit edit;
+  edit.SetLastSequence(kMax);
+  Status s = versions_->LogAndApplyToDefaultColumnFamily(
+      read_options, write_options, &edit, &mutex_, directories_.GetDbDir());
+  if (!s.ok() && versions_->io_status().IsIOError()) {
+    error_handler_.SetBGError(versions_->io_status(),
+                              BackgroundErrorReason::kManifestWrite);
+  }
+
+  auto [seqno, unix_time_now] = GetSeqnoToTimeSample();
+  uint64_t populate_historical_seconds = preserve_info.max_preserve_seconds;
+  if (seqno > 1 && unix_time_now > populate_historical_seconds) {
+    // seqno=0 is reserved
+    SequenceNumber from_seqno = 1;
+    seqno_to_time_mapping_.PrePopulate(
+        from_seqno, seqno, unix_time_now - populate_historical_seconds,
+        unix_time_now);
+  } else {
+    // One of these will fail
+    assert(seqno > 1);
+    assert(unix_time_now > populate_historical_seconds);
+  }
+}
+
+void DBImpl::InstallSuperVersionForConfigChange(
+    ColumnFamilyData* cfd, SuperVersionContext* sv_context) {
+  MinAndMaxPreserveSeconds preserve_info{cfd->GetLatestCFOptions()};
+  std::shared_ptr<SeqnoToTimeMapping> new_seqno_to_time_mapping;
+  if (preserve_info.IsEnabled()) {
+    // TODO: detect & optimize if mapping hasn't changed from previous
+    // SuperVersion
+    EnsureSeqnoToTimeMapping(preserve_info);
+    new_seqno_to_time_mapping = std::make_shared<SeqnoToTimeMapping>();
+    new_seqno_to_time_mapping->CopyFrom(seqno_to_time_mapping_);
+  }
+  InstallSuperVersionAndScheduleWork(cfd, sv_context,
+                                     std::move(new_seqno_to_time_mapping));
+}
+
+void DBImpl::RecordSeqnoToTimeMapping() {
+  SuperVersionContext sv_context;
   {
     InstrumentedMutexLock l(&mutex_);
+    // Record next sample
+    seqno_to_time_mapping_.Append(GetSeqnoToTimeSample());
+    // Create an immutable snapshot for sharing across CFs
+    std::shared_ptr<SeqnoToTimeMapping> new_seqno_to_time_mapping =
+        std::make_shared<SeqnoToTimeMapping>();
+    new_seqno_to_time_mapping->CopyFrom(seqno_to_time_mapping_);
 
-    seqno = GetLatestSequenceNumber();
-    int64_t unix_time_signed = 0;
-    immutable_db_options_.clock->GetCurrentTime(&unix_time_signed)
-        .PermitUncheckedError();  // Ignore error
-    unix_time = static_cast<uint64_t>(unix_time_signed);
-
-    if (populate_historical_seconds > 0) {
-      if (seqno > 1 && unix_time > populate_historical_seconds) {
-        // seqno=0 is reserved
-        SequenceNumber from_seqno = 1;
-        success = seqno_to_time_mapping_.PrePopulate(
-            from_seqno, seqno, unix_time - populate_historical_seconds,
-            unix_time);
-        InstallSeqnoToTimeMappingInSV(&sv_contexts);
-      } else {
-        // One of these will fail
-        assert(seqno > 1);
-        assert(unix_time > populate_historical_seconds);
-        success = false;
+    // Update in SV of all applicable CFs
+    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
       }
-    } else {
-      // FIXME: assert(seqno > 0);
-      // Always successful assuming seqno never go backwards
-      seqno_to_time_mapping_.Append(seqno, unix_time);
-      InstallSeqnoToTimeMappingInSV(&sv_contexts);
+      MinAndMaxPreserveSeconds preserve_info{cfd->GetLatestCFOptions()};
+      if (preserve_info.IsEnabled()) {
+        sv_context.NewSuperVersion();
+        cfd->InstallSuperVersion(&sv_context, &mutex_,
+                                 new_seqno_to_time_mapping);
+      }
     }
+    bg_cv_.SignalAll();
   }
 
   // clean up & report outside db mutex
-  for (SuperVersionContext& sv_context : sv_contexts) {
-    sv_context.Clean();
-  }
+  sv_context.Clean();
+}
 
-  if (populate_historical_seconds > 0) {
-    if (success) {
-      ROCKS_LOG_INFO(
-          immutable_db_options_.info_log,
-          "Pre-populated sequence number to time entries: [1,%" PRIu64
-          "] -> [%" PRIu64 ",%" PRIu64 "]",
-          seqno, unix_time - populate_historical_seconds, unix_time);
-    } else {
-      ROCKS_LOG_WARN(
-          immutable_db_options_.info_log,
-          "Failed to pre-populate sequence number to time entries: [1,%" PRIu64
-          "] -> [%" PRIu64 ",%" PRIu64 "]",
-          seqno, unix_time - populate_historical_seconds, unix_time);
+void DBImpl::TriggerPeriodicCompaction() {
+  TEST_SYNC_POINT("DBImpl::TriggerPeriodicCompaction:StartRunning");
+  {
+    InstrumentedMutexLock l(&mutex_);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Running the periodic task to trigger compactions.");
+
+    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      if (cfd->GetLatestCFOptions().periodic_compaction_seconds &&
+          !cfd->queued_for_compaction()) {
+        cfd->current()->storage_info()->ComputeCompactionScore(
+            cfd->ioptions(), cfd->GetLatestMutableCFOptions());
+        EnqueuePendingCompaction(cfd);
+        if (cfd->queued_for_compaction()) {
+          ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                         "Periodic task to trigger compaction queued Column "
+                         "family [%s] for compaction.",
+                         cfd->GetName().c_str());
+        }
+      }
     }
-  } else {
-    assert(success);
+    MaybeScheduleFlushOrCompaction();
+    bg_cv_.SignalAll();
   }
 }
 
@@ -6854,24 +6978,6 @@ void DBImpl::TrackOrUntrackFiles(
     // will take care of deduping it.
     action(file_path, /*size=*/std::nullopt);
   }
-}
-
-void DBImpl::InstallSeqnoToTimeMappingInSV(
-    std::vector<SuperVersionContext>* sv_contexts) {
-  mutex_.AssertHeld();
-  std::shared_ptr<SeqnoToTimeMapping> new_seqno_to_time_mapping =
-      std::make_shared<SeqnoToTimeMapping>();
-  new_seqno_to_time_mapping->CopyFrom(seqno_to_time_mapping_);
-  for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
-    if (cfd->IsDropped()) {
-      continue;
-    }
-    sv_contexts->emplace_back(/*create_superversion=*/true);
-    sv_contexts->back().new_seqno_to_time_mapping = new_seqno_to_time_mapping;
-    cfd->InstallSuperVersion(&sv_contexts->back(),
-                             cfd->GetLatestMutableCFOptions());
-  }
-  bg_cv_.SignalAll();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

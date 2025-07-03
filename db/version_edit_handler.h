@@ -198,7 +198,9 @@ class VersionEditHandler : public VersionEditHandlerBase {
                             bool prefetch_index_and_filter_in_cache,
                             bool is_initial_load);
 
-  virtual bool MustOpenAllColumnFamilies() const { return !read_only_; }
+  virtual bool MustOpenAllColumnFamilies() const {
+    return !version_set_->unchanging();
+  }
 
   const bool read_only_;
   std::vector<ColumnFamilyDescriptor> column_families_;
@@ -334,10 +336,10 @@ class ManifestTailer : public VersionEditHandlerPointInTime {
                           const ReadOptions& read_options,
                           EpochNumberRequirement epoch_number_requirement =
                               EpochNumberRequirement::kMustPresent)
-      : VersionEditHandlerPointInTime(/*read_only=*/false, column_families,
-                                      version_set, io_tracer, read_options,
-                                      /*allow_incomplete_valid_version=*/false,
-                                      epoch_number_requirement),
+      : VersionEditHandlerPointInTime(
+            /*read_only=*/true, column_families, version_set, io_tracer,
+            read_options,
+            /*allow_incomplete_valid_version=*/false, epoch_number_requirement),
         mode_(Mode::kRecovery) {}
 
   Status VerifyFile(ColumnFamilyData* cfd, const std::string& fpath, int level,

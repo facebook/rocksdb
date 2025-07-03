@@ -31,7 +31,7 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
           }
         },
         &awaiter->read_reqs_[i], &awaiter->io_handle_[i], &awaiter->del_fn_[i],
-        /*aligned_buf=*/nullptr);
+        /*aligned_buf=*/nullptr, awaiter->dbg_);
     if (!s.ok()) {
       // For any non-ok status, the FileSystem will not call the callback
       // So let's update the status ourselves

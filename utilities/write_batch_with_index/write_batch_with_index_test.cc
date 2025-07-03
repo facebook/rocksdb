@@ -342,6 +342,10 @@ void AssertIterEqual(WBWIIteratorImpl* wbwii,
   }
   ASSERT_FALSE(wbwii->Valid());
 }
+
+void AssertWBWICountEQWBCount(WriteBatchWithIndex& wbwi) {
+  ASSERT_EQ(wbwi.GetWBWIOpCount(), wbwi.GetWriteBatch()->Count());
+}
 }  // namespace
 
 class WBWIBaseTest : public testing::Test {
@@ -356,6 +360,8 @@ class WBWIBaseTest : public testing::Test {
   }
 
   virtual ~WBWIBaseTest() {
+    AssertWBWICountEQWBCount(*batch_);
+
     if (db_ != nullptr) {
       ReleaseSnapshot();
       delete db_;
@@ -715,6 +721,7 @@ TEST_P(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
   batch_.reset(new WriteBatchWithIndex(nullptr, 20, GetParam()));
 
   TestValueAsSecondaryIndexHelper(entries_list, batch_.get(), GetParam());
+  AssertWBWICountEQWBCount(*batch_);
 
   // Clear batch and re-run test with new values
   batch_->Clear();
@@ -729,6 +736,7 @@ TEST_P(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
   entries_list = std::vector<Entry>(new_entries, new_entries + 8);
 
   TestValueAsSecondaryIndexHelper(entries_list, batch_.get(), GetParam());
+  AssertWBWICountEQWBCount(*batch_);
 }
 
 TEST_P(WriteBatchWithIndexTest, WBWIIteratorImpl) {
@@ -3646,7 +3654,6 @@ TEST_P(WriteBatchWithIndexTest, EntityReadSanityChecks) {
 
 TEST_P(WriteBatchWithIndexTest, TrackAndClearCFStats) {
   std::string value;
-  batch_->SetTrackPerCFStat(true);
   ASSERT_OK(batch_->Put("A", "val"));
   ASSERT_OK(batch_->SingleDelete("B"));
 
@@ -3735,7 +3742,6 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
   Random& rnd = *Random::GetTLSInstance();
   auto wbwi = std::make_shared<WriteBatchWithIndex>(
       cmp, 0, /*overwrite_key=*/true, 0, 0);
-  wbwi->SetTrackPerCFStat(true);
   std::vector<std::pair<std::string, std::string>> expected;
   const int kNumUpdate = 10000;
   expected.resize(kNumUpdate);
@@ -3818,6 +3824,7 @@ TEST_F(WBWIMemTableTest, ReadFromWBWIMemtable) {
     // See comment for WBWIMemTable for sequence number assignment method.
     expected_seqno[idx]++;
   }
+  AssertWBWICountEQWBCount(*wbwi);
   // Get a non-existing key
   found_final_value = false;
   ASSERT_EQ("NOT_FOUND", Get("foo", wbwi_mem, visible_seq, &found_final_value));
@@ -3999,7 +4006,6 @@ TEST_F(WBWIMemTableTest, IterEmitSingleDelete) {
 
   auto wbwi = std::make_shared<WriteBatchWithIndex>(
       cmp, 0, /*overwrite_key=*/true, 0, 0);
-  wbwi->SetTrackPerCFStat(true);
 
   ASSERT_OK(wbwi->Put(DBTestBase::Key(0), "val0"));
   ASSERT_OK(wbwi->SingleDelete(DBTestBase::Key(0)));
@@ -4153,7 +4159,6 @@ TEST_F(WBWIMemTableTest, WBWIMemTableWithMerge) {
 
   auto wbwi = std::make_shared<WriteBatchWithIndex>(
       cmp, 0, /*overwrite_key=*/true, 0, 0);
-  wbwi->SetTrackPerCFStat(true);
   std::unique_ptr<WBWIMemTable> wbwi_mem{
       new WBWIMemTable(wbwi, cmp,
                        /*cf_id=*/0, &immutable_opts, &mutable_cf_options,

@@ -22,7 +22,10 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
                   Temperature src_temp_hint,
                   std::unique_ptr<WritableFileWriter>& dest_writer,
                   uint64_t size, bool use_fsync,
-                  const std::shared_ptr<IOTracer>& io_tracer) {
+                  const std::shared_ptr<IOTracer>& io_tracer,
+                  uint64_t max_read_buffer_size,
+                  const std::optional<IOOptions>& readIOOptions,
+                  const std::optional<IOOptions>& writeIOOptions) {
   FileOptions soptions;
   IOStatus io_s;
   std::unique_ptr<SequentialFileReader> src_reader;
@@ -38,7 +41,8 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
 
     if (size == 0) {
       // default argument means copy everything
-      io_s = fs->GetFileSize(source, opts, &size, nullptr);
+      io_s =
+          fs->GetFileSize(source, readIOOptions.value_or(opts), &size, nullptr);
       if (!io_s.ok()) {
         return io_s;
       }
@@ -47,14 +51,23 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
         new SequentialFileReader(std::move(srcfile), source, io_tracer));
   }
 
-  char buffer[4096];
+  const size_t read_buffer_size = std::max(
+      static_cast<size_t>(4096), static_cast<size_t>(max_read_buffer_size));
+  std::unique_ptr<char[]> buffer;
+  buffer.reset(new char[read_buffer_size]);
+
+  Env::IOPriority read_rate_limiter_priority = Env::IO_TOTAL;
+  if (readIOOptions.has_value()) {
+    read_rate_limiter_priority = readIOOptions.value().rate_limiter_priority;
+  }
   Slice slice;
   while (size > 0) {
-    size_t bytes_to_read = std::min(sizeof(buffer), static_cast<size_t>(size));
+    size_t bytes_to_read = std::min(static_cast<size_t>(read_buffer_size),
+                                    static_cast<size_t>(size));
     // TODO: rate limit copy file
-    io_s = status_to_io_status(
-        src_reader->Read(bytes_to_read, &slice, buffer,
-                         Env::IO_TOTAL /* rate_limiter_priority */));
+    io_s = status_to_io_status(src_reader->Read(
+        bytes_to_read, &slice, buffer.get(),
+        read_rate_limiter_priority /* rate_limiter_priority */));
     if (!io_s.ok()) {
       return io_s;
     }
@@ -65,19 +78,22 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
           std::to_string(dest_writer->GetFileSize()));
     }
 
-    io_s = dest_writer->Append(opts, slice);
+    io_s = dest_writer->Append(writeIOOptions.value_or(opts), slice);
     if (!io_s.ok()) {
       return io_s;
     }
     size -= slice.size();
   }
-  return dest_writer->Sync(opts, use_fsync);
+  return dest_writer->Sync(writeIOOptions.value_or(opts), use_fsync);
 }
 
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
                   Temperature src_temp_hint, const std::string& destination,
                   Temperature dst_temp, uint64_t size, bool use_fsync,
-                  const std::shared_ptr<IOTracer>& io_tracer) {
+                  const std::shared_ptr<IOTracer>& io_tracer,
+                  uint64_t max_read_buffer_size,
+                  const std::optional<IOOptions>& readIOOptions,
+                  const std::optional<IOOptions>& writeIOOptions) {
   FileOptions options;
   IOStatus io_s;
   std::unique_ptr<WritableFileWriter> dest_writer;
@@ -96,7 +112,8 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
   }
 
   return CopyFile(fs, source, src_temp_hint, dest_writer, size, use_fsync,
-                  io_tracer);
+                  io_tracer, max_read_buffer_size, readIOOptions,
+                  writeIOOptions);
 }
 
 // Utility function to create a file with the provided contents
@@ -230,15 +247,16 @@ IOStatus GenerateOneFileChecksum(
   Slice slice;
   uint64_t offset = 0;
   IOOptions opts;
-  io_s = reader->PrepareIOOptions(read_options, opts);
+  IODebugContext dbg;
+  io_s = reader->PrepareIOOptions(read_options, opts, &dbg);
   if (!io_s.ok()) {
     return io_s;
   }
   while (size > 0) {
     size_t bytes_to_read =
         static_cast<size_t>(std::min(uint64_t{readahead_size}, size));
-    io_s =
-        reader->Read(opts, offset, bytes_to_read, &slice, buf.get(), nullptr);
+    io_s = reader->Read(opts, offset, bytes_to_read, &slice, buf.get(), nullptr,
+                        &dbg);
     if (!io_s.ok()) {
       return IOStatus::Corruption("file read failed with error: " +
                                   io_s.ToString());

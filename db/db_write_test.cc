@@ -987,7 +987,7 @@ TEST_P(DBWriteTest, RecycleLogToggleTest) {
 
   options.recycle_log_file_num = 1;
   Reopen(options);
-  // 1.log is added to alive_log_files_
+  // 1.log is added to alive_wal_files_
   ASSERT_OK(Put(Key(2), "val1"));
   ASSERT_OK(Flush());
   // 1.log should be deleted and not recycled, since it
@@ -998,6 +998,80 @@ TEST_P(DBWriteTest, RecycleLogToggleTest) {
   options.recycle_log_file_num = 1;
   Reopen(options);
   ASSERT_EQ(Get(Key(1)), "val2");
+}
+
+TEST_P(DBWriteTest, IngestWriteBatchWithIndex) {
+  if (GetParam() == kPipelinedWrite) {
+    return;
+  }
+
+  Options options = GetOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  Options cf_options = GetOptions();
+  cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  CreateColumnFamilies({"cf1", "cf2"}, cf_options);
+  ReopenWithColumnFamilies({"default", "cf1", "cf2"},
+                           {options, cf_options, cf_options});
+
+  // default cf
+  auto wbwi1 = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
+                                                     /*overwrite_key=*/true);
+  ASSERT_OK(wbwi1->Put("key1", "value1"));
+  ASSERT_OK(wbwi1->Put("key2", "value2"));
+  if (GetParam() == kPipelinedWrite) {
+    ASSERT_TRUE(db_->IngestWriteBatchWithIndex({}, wbwi1).IsNotSupported());
+    return;
+  }
+  // Test disableWAL=false
+  ASSERT_TRUE(db_->IngestWriteBatchWithIndex({}, wbwi1).IsNotSupported());
+
+  WriteOptions wo;
+  wo.disableWAL = true;
+  ASSERT_OK(db_->IngestWriteBatchWithIndex(wo, wbwi1));
+  ASSERT_EQ("value1", Get("key1"));
+  ASSERT_EQ("value2", Get("key2"));
+
+  // Test with overwrites
+  auto wbwi = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
+                                                    /*overwrite_key=*/true);
+  ASSERT_OK(wbwi->Put("key2", "value3"));
+  ASSERT_OK(wbwi->Delete("key1"));  // Delete an existing key
+  ASSERT_OK(db_->IngestWriteBatchWithIndex(wo, wbwi));
+  ASSERT_EQ("NOT_FOUND", Get("key1"));
+  ASSERT_EQ("value3", Get("key2"));
+
+  auto wbwi2 = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
+                                                     /*overwrite_key=*/true);
+  ASSERT_OK(wbwi2->Put(handles_[1], "cf1_key1", "cf1_value1"));
+  ASSERT_OK(wbwi2->Delete(handles_[1], "cf1_key2"));
+  // Test ingestion with column family
+  ASSERT_OK(db_->IngestWriteBatchWithIndex(wo, wbwi2));
+  ASSERT_EQ("cf1_value1", Get(1, "cf1_key1"));
+  ASSERT_EQ("NOT_FOUND", Get(1, "cf1_key2"));
+
+  auto wbwi3 = std::make_shared<WriteBatchWithIndex>(options.comparator, 0,
+                                                     /*overwrite_key=*/true);
+  ASSERT_OK(wbwi3->Merge(handles_[2], "cf2_key1", "cf2_value1"));
+  ASSERT_OK(wbwi3->Merge(handles_[2], "cf2_key1", "cf2_value2"));
+  // Test ingestion with merge operations
+  ASSERT_OK(db_->IngestWriteBatchWithIndex(wo, wbwi3));
+  ASSERT_EQ("cf2_value1,cf2_value2", Get(2, "cf2_key1"));
+
+  // Test with overwrite_key = false
+  auto wbwi_no_overwrite = std::make_shared<WriteBatchWithIndex>(
+      options.comparator, 0, /*overwrite_key=*/false);
+  ASSERT_OK(wbwi_no_overwrite->Put("key1", "value1"));
+  Status s = db_->IngestWriteBatchWithIndex(wo, wbwi_no_overwrite);
+  ASSERT_TRUE(s.IsNotSupported());
+
+  auto empty_wbwi = std::make_shared<WriteBatchWithIndex>(
+      options.comparator, 0, /*overwrite_key=*/true);
+  ASSERT_OK(db_->IngestWriteBatchWithIndex(wo, empty_wbwi));
+
+  DestroyAndReopen(options);
+  // Should fail when trying to ingest to non-existent column family
+  ASSERT_NOK(db_->IngestWriteBatchWithIndex(wo, wbwi2));
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,

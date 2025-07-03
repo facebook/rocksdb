@@ -87,6 +87,8 @@ class BlockBasedTableFactory : public TableFactory {
     return &shared_state_->tail_prefetch_stats;
   }
 
+  static constexpr int kMinSupportedFormatVersion = 2;
+
  protected:
   const void* GetOptionsPtr(const std::string& name) const override;
   Status ParseOption(const ConfigOptions& config_options,

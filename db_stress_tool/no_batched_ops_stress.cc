@@ -72,9 +72,20 @@ class NonBatchedOpsStressTest : public StressTest {
       constexpr int num_methods =
           static_cast<int>(VerificationMethod::kNumberOfMethods);
 
-      const VerificationMethod method =
+      VerificationMethod method =
           static_cast<VerificationMethod>(thread->rand.Uniform(
               (FLAGS_user_timestamp_size > 0) ? num_methods - 1 : num_methods));
+
+      if (method == VerificationMethod::kGetEntity && !FLAGS_use_get_entity) {
+        method = VerificationMethod::kGet;
+      }
+      if (method == VerificationMethod::kMultiGetEntity &&
+          !FLAGS_use_multi_get_entity) {
+        method = VerificationMethod::kMultiGet;
+      }
+      if (method == VerificationMethod::kMultiGet && !FLAGS_use_multiget) {
+        method = VerificationMethod::kGet;
+      }
 
       if (method == VerificationMethod::kIterator) {
         std::unique_ptr<ManagedSnapshot> snapshot = nullptr;
@@ -222,6 +233,13 @@ class NonBatchedOpsStressTest : public StressTest {
           }
 
           Status s = secondary_db_->TryCatchUpWithPrimary();
+#ifndef NDEBUG
+          uint64_t manifest_num = static_cast_with_check<DBImpl>(secondary_db_)
+                                      ->TEST_Current_Manifest_FileNo();
+#else
+          uint64_t manifest_num = 0;
+#endif
+
           if (!s.ok()) {
             VerificationAbort(shared,
                               "Secondary failed to catch up to the primary");
@@ -256,9 +274,11 @@ class NonBatchedOpsStressTest : public StressTest {
             assert(!pre_read_expected_values.empty() &&
                    static_cast<size_t>(i - start) <
                        pre_read_expected_values.size());
-            VerifyValueRange(static_cast<int>(cf), i, options, shared, from_db,
-                             /* msg_prefix */ "Secondary get verification", s,
-                             pre_read_expected_values[i - start]);
+            VerifyValueRange(
+                static_cast<int>(cf), i, options, shared, from_db,
+                /* msg_prefix */ "Secondary get verification, manifest: " +
+                    std::to_string(manifest_num),
+                s, pre_read_expected_values[i - start]);
           }
         }
       } else if (method == VerificationMethod::kGetEntity) {
@@ -1589,12 +1609,6 @@ class NonBatchedOpsStressTest : public StressTest {
     Slice ub_slice;
     ReadOptions ro_copy = read_opts;
 
-    // There is a narrow window in iterator auto refresh run where injected read
-    // errors are simply untraceable, ex. failure to delete file as a part of
-    // superversion cleanup callback invoked by the DBIter destructor.
-    bool ignore_injected_read_error_in_iter =
-        ro_copy.auto_refresh_iterator_with_snapshot;
-
     // Randomly test with `iterate_upper_bound` and `prefix_same_as_start`
     //
     // Get the next prefix first and then see if we want to set it to be the
@@ -1687,8 +1701,7 @@ class NonBatchedOpsStressTest : public StressTest {
               FaultInjectionIOType::kRead),
           fault_fs_guard->GetAndResetInjectedThreadLocalErrorCount(
               FaultInjectionIOType::kMetadataRead));
-      if (!ignore_injected_read_error_in_iter &&
-          !SharedState::ignore_read_error && injected_error_count > 0 &&
+      if (!SharedState::ignore_read_error && injected_error_count > 0 &&
           s.ok()) {
         // Grab mutex so multiple thread don't try to print the
         // stack trace at the same time
@@ -1841,7 +1854,17 @@ class NonBatchedOpsStressTest : public StressTest {
       } else if (FLAGS_use_merge) {
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
-            s = db_->Merge(write_opts, cfh, k, v);
+            if (FLAGS_ingest_wbwi_one_in &&
+                thread->rand.OneIn(FLAGS_ingest_wbwi_one_in)) {
+              auto wbwi = std::make_shared<WriteBatchWithIndex>(
+                  options_.comparator, 0, /*overwrite_key=*/true);
+              s = wbwi->Merge(cfh, k, v);
+              if (s.ok()) {
+                s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              }
+            } else {
+              s = db_->Merge(write_opts, cfh, k, v);
+            }
           } else {
             s = db_->Merge(write_opts, cfh, k, write_ts, v);
           }
@@ -1853,7 +1876,17 @@ class NonBatchedOpsStressTest : public StressTest {
       } else {
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
-            s = db_->Put(write_opts, cfh, k, v);
+            if (FLAGS_ingest_wbwi_one_in &&
+                thread->rand.OneIn(FLAGS_ingest_wbwi_one_in)) {
+              auto wbwi = std::make_shared<WriteBatchWithIndex>(
+                  options_.comparator, 0, /*overwrite_key=*/true);
+              s = wbwi->Put(cfh, k, v);
+              if (s.ok()) {
+                s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              }
+            } else {
+              s = db_->Put(write_opts, cfh, k, v);
+            }
           } else {
             s = db_->Put(write_opts, cfh, k, write_ts, v);
           }
@@ -1945,7 +1978,17 @@ class NonBatchedOpsStressTest : public StressTest {
         }
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
-            s = db_->Delete(write_opts, cfh, key);
+            if (FLAGS_ingest_wbwi_one_in &&
+                thread->rand.OneIn(FLAGS_ingest_wbwi_one_in)) {
+              auto wbwi = std::make_shared<WriteBatchWithIndex>(
+                  options_.comparator, 0, /*overwrite_key=*/true);
+              s = wbwi->Delete(cfh, key);
+              if (s.ok()) {
+                s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              }
+            } else {
+              s = db_->Delete(write_opts, cfh, key);
+            }
           } else {
             s = db_->Delete(write_opts, cfh, key, write_ts);
           }
@@ -2002,7 +2045,17 @@ class NonBatchedOpsStressTest : public StressTest {
         }
         if (!FLAGS_use_txn) {
           if (FLAGS_user_timestamp_size == 0) {
-            s = db_->SingleDelete(write_opts, cfh, key);
+            if (FLAGS_ingest_wbwi_one_in &&
+                thread->rand.OneIn(FLAGS_ingest_wbwi_one_in)) {
+              auto wbwi = std::make_shared<WriteBatchWithIndex>(
+                  options_.comparator, 0, /*overwrite_key=*/true);
+              s = wbwi->SingleDelete(cfh, key);
+              if (s.ok()) {
+                s = db_->IngestWriteBatchWithIndex(write_opts, wbwi);
+              }
+            } else {
+              s = db_->SingleDelete(write_opts, cfh, key);
+            }
           } else {
             s = db_->SingleDelete(write_opts, cfh, key, write_ts);
           }

@@ -88,6 +88,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/memtable_list.cc",
         "db/merge_helper.cc",
         "db/merge_operator.cc",
+        "db/multi_scan.cc",
         "db/output_validator.cc",
         "db/periodic_task_scheduler.cc",
         "db/range_del_aggregator.cc",
@@ -214,7 +215,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "table/cuckoo/cuckoo_table_builder.cc",
         "table/cuckoo/cuckoo_table_factory.cc",
         "table/cuckoo/cuckoo_table_reader.cc",
-        "table/external_table_reader.cc",
+        "table/external_table.cc",
         "table/format.cc",
         "table/get_context.cc",
         "table/iterator.cc",
@@ -249,6 +250,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "trace_replay/trace_record_result.cc",
         "trace_replay/trace_replay.cc",
         "util/async_file_reader.cc",
+        "util/auto_tune_compressor.cc",
         "util/build_version.cc",
         "util/cleanable.cc",
         "util/coding.cc",
@@ -267,6 +269,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "util/random.cc",
         "util/rate_limiter.cc",
         "util/ribbon_config.cc",
+        "util/simple_mixed_compressor.cc",
         "util/slice.cc",
         "util/status.cc",
         "util/stderr_logger.cc",
@@ -4705,6 +4708,12 @@ cpp_unittest_wrapper(name="comparator_db_test",
 
 cpp_unittest_wrapper(name="compressed_secondary_cache_test",
             srcs=["cache/compressed_secondary_cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="compression_test",
+            srcs=["util/compression_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

@@ -233,7 +233,7 @@ class BlobDBTest : public testing::Test {
     DB *db = blob_db_->GetRootDB();
     const size_t kMaxKeys = 10000;
     std::vector<KeyVersion> versions;
-    ASSERT_OK(GetAllKeyVersions(db, "", "", kMaxKeys, &versions));
+    ASSERT_OK(GetAllKeyVersions(db, {}, {}, kMaxKeys, &versions));
     ASSERT_EQ(expected_versions.size(), versions.size());
     size_t i = 0;
     for (auto &key_version : expected_versions) {
@@ -259,7 +259,7 @@ class BlobDBTest : public testing::Test {
     const size_t kMaxKeys = 10000;
     std::vector<KeyVersion> versions;
     ASSERT_OK(
-        GetAllKeyVersions(blob_db_->GetRootDB(), "", "", kMaxKeys, &versions));
+        GetAllKeyVersions(blob_db_->GetRootDB(), {}, {}, kMaxKeys, &versions));
     ASSERT_EQ(versions.size(), expected_versions.size());
 
     size_t i = 0;
@@ -1595,7 +1595,7 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
   // Verify expired blob index are filtered.
   std::vector<KeyVersion> versions;
   const size_t kMaxKeys = 10000;
-  ASSERT_OK(GetAllKeyVersions(blob_db_, "", "", kMaxKeys, &versions));
+  ASSERT_OK(GetAllKeyVersions(blob_db_, {}, {}, kMaxKeys, &versions));
   ASSERT_EQ(data_after_compact.size(), versions.size());
   for (auto &version : versions) {
     ASSERT_TRUE(data_after_compact.count(version.user_key) > 0);
@@ -1629,14 +1629,14 @@ TEST_F(BlobDBTest, FilterFileNotAvailable) {
 
   DB *base_db = blob_db_->GetRootDB();
   std::vector<KeyVersion> versions;
-  ASSERT_OK(GetAllKeyVersions(base_db, "", "", kMaxKeys, &versions));
+  ASSERT_OK(GetAllKeyVersions(base_db, {}, {}, kMaxKeys, &versions));
   ASSERT_EQ(2, versions.size());
   ASSERT_EQ("bar", versions[0].user_key);
   ASSERT_EQ("foo", versions[1].user_key);
   VerifyDB({{"bar", "v2"}, {"foo", "v1"}});
 
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_OK(GetAllKeyVersions(base_db, "", "", kMaxKeys, &versions));
+  ASSERT_OK(GetAllKeyVersions(base_db, {}, {}, kMaxKeys, &versions));
   ASSERT_EQ(2, versions.size());
   ASSERT_EQ("bar", versions[0].user_key);
   ASSERT_EQ("foo", versions[1].user_key);
@@ -1646,7 +1646,7 @@ TEST_F(BlobDBTest, FilterFileNotAvailable) {
   blob_db_impl()->TEST_ObsoleteBlobFile(blob_files[0]);
   blob_db_impl()->TEST_DeleteObsoleteFiles();
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_OK(GetAllKeyVersions(base_db, "", "", kMaxKeys, &versions));
+  ASSERT_OK(GetAllKeyVersions(base_db, {}, {}, kMaxKeys, &versions));
   ASSERT_EQ(1, versions.size());
   ASSERT_EQ("bar", versions[0].user_key);
   VerifyDB({{"bar", "v2"}});
@@ -1655,7 +1655,7 @@ TEST_F(BlobDBTest, FilterFileNotAvailable) {
   blob_db_impl()->TEST_ObsoleteBlobFile(blob_files[1]);
   blob_db_impl()->TEST_DeleteObsoleteFiles();
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_OK(GetAllKeyVersions(base_db, "", "", kMaxKeys, &versions));
+  ASSERT_OK(GetAllKeyVersions(base_db, {}, {}, kMaxKeys, &versions));
   ASSERT_EQ(0, versions.size());
   VerifyDB({});
 }

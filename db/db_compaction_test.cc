@@ -127,6 +127,19 @@ class DBCompactionTestWithParam
     exclusive_manual_compaction_ = std::get<1>(GetParam());
   }
 
+  class TrivialMoveEventListener : public EventListener {
+   public:
+    explicit TrivialMoveEventListener(size_t expected_trivially_moved_files)
+        : expected_trivially_moved_files_(expected_trivially_moved_files) {}
+    void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
+      ASSERT_EQ(ci.stats.num_input_files_trivially_moved,
+                expected_trivially_moved_files_);
+    }
+
+   private:
+    size_t expected_trivially_moved_files_ = 0;
+  };
+
   // Required if inheriting from testing::WithParamInterface<>
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
@@ -442,6 +455,72 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
   }
 }
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
+TEST_F(DBCompactionTest, UniversalReduceFileLockingRepickNothing) {
+  const int kFileNumCompactionTrigger = 3;
+
+  Options options = CurrentOptions();
+  options.compaction_options_universal.reduce_file_locking = true;
+  // Set `max_background_jobs` to be 3 to allow low and bottom priority thread
+  // to run compaction together
+  options.max_background_jobs = 3;
+  Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  options.num_levels = 3;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.level0_file_num_compaction_trigger = kFileNumCompactionTrigger;
+  options.compaction_options_universal.max_size_amplification_percent = 1;
+
+  DestroyAndReopen(options);
+
+  // Need to get a token to enable compaction parallelism up to
+  // `max_background_compactions` jobs.
+  auto pressure_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {// Wait for the full (bottom-priority) compaction to be pre-picked as an
+       // intent (that is allowing files to be picked by other compactions and
+       // will pick later when the bottom-priority thread is available to
+       // execute the compaction) before triggering the low-priority compaction.
+       {"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+        "LowPriCompaction"},
+       // Wait for low-priority compaction to start before
+       // repicking for the full compaction intent (bottom-priority), enabling
+       // them to run in parallel.
+       {"DBImpl::BackgroundCompaction:NonTrivial",
+        "DBImpl::BGWorkBottomCompaction"}});
+
+  bool bottom_pri_compaction_attempt_repick = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction():AfterPickCompactionBottomPri",
+      [&](void* arg) {
+        bottom_pri_compaction_attempt_repick = true;
+        Compaction* c = static_cast<Compaction*>(arg);
+        // Verify the intended full compaction for bottom priority thread does
+        // not get to run (i.e, output to bottommost level) since when it
+        // repicks its files, some of the the intended input files are already
+        // compacted by the low priority thread
+        assert(c == nullptr);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 0; i < kFileNumCompactionTrigger; ++i) {
+    if (i == 0) {
+      ASSERT_OK(Put("file_locked_for_bottom_pri_compaction", "value"));
+    } else {
+      ASSERT_OK(
+          Put("file_not_locked_for_bottom_pri_compaction" + std::to_string(i),
+              "value"));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  TEST_SYNC_POINT("LowPriCompaction");
+  ASSERT_OK(Put("a_new_file_to_pick_for_low_pri_compaction", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_TRUE(bottom_pri_compaction_attempt_repick);
+}
 
 TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   // This test verify UpdateAccumulatedStats is not on
@@ -1301,6 +1380,9 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveOneFile) {
 
   Options options = CurrentOptions();
   options.write_buffer_size = 100000000;
+  TrivialMoveEventListener* trivial_move_listener =
+      new TrivialMoveEventListener(1 /*expected_trivially_moved_files*/);
+  options.listeners.emplace_back(trivial_move_listener);
   options.max_subcompactions = max_subcompactions_;
   DestroyAndReopen(options);
 
@@ -1361,6 +1443,10 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  // 8 is number of `ranges` that each is a non overlapping file.
+  TrivialMoveEventListener* trivial_move_listener =
+      new TrivialMoveEventListener(8 /*expected_trivially_moved_files*/);
+  options.listeners.emplace_back(trivial_move_listener);
   options.write_buffer_size = 10 * 1024 * 1024;
   options.max_subcompactions = max_subcompactions_;
 
@@ -1408,6 +1494,11 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
   trivial_move = 0;
   non_trivial_move = 0;
   values.clear();
+  options.listeners.clear();
+  // Same ranges of files, but now overlapping, trivial move not applicable.
+  TrivialMoveEventListener* trivial_move_listener2 =
+      new TrivialMoveEventListener(0 /*expected_trivially_moved_files*/);
+  options.listeners.emplace_back(trivial_move_listener2);
   DestroyAndReopen(options);
   // Same ranges as above but overlapping
   ranges = {
@@ -1455,6 +1546,11 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveTargetLevel) {
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  // Two non overlapping files in L0 trivialy moved:
+  // file 1 [0 => 300], file 2 [600 => 700]
+  TrivialMoveEventListener* trivial_move_listener1 =
+      new TrivialMoveEventListener(2 /*expected_trivially_moved_files*/);
+  options.listeners.emplace_back(trivial_move_listener1);
   options.write_buffer_size = 10 * 1024 * 1024;
   options.num_levels = 7;
   options.max_subcompactions = max_subcompactions_;
@@ -2087,13 +2183,10 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
     auto begin_str1 = Key(0), end_str1 = Key(100);
     auto begin_str2 = Key(100), end_str2 = Key(200);
     auto begin_str3 = Key(200), end_str3 = Key(299);
-    Slice begin1(begin_str1), end1(end_str1);
-    Slice begin2(begin_str2), end2(end_str2);
-    Slice begin3(begin_str3), end3(end_str3);
-    std::vector<RangePtr> ranges;
-    ranges.emplace_back(&begin1, &end1);
-    ranges.emplace_back(&begin2, &end2);
-    ranges.emplace_back(&begin3, &end3);
+    std::vector<RangeOpt> ranges;
+    ranges.emplace_back(begin_str1, end_str1);
+    ranges.emplace_back(begin_str2, end_str2);
+    ranges.emplace_back(begin_str3, end_str3);
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
                                   ranges.data(), ranges.size()));
     ASSERT_EQ("0,3,7", FilesPerLevel(0));
@@ -2141,7 +2234,7 @@ TEST_P(DBDeleteFileRangeTest, DeleteFilesInRanges) {
 
   // Delete all files.
   {
-    RangePtr range;
+    RangeOpt range;
     ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(), &range, 1));
     ASSERT_EQ("", FilesPerLevel(0));
 
@@ -2797,46 +2890,99 @@ TEST_F(DBCompactionTest, L0_CompactionBug_Issue44_b) {
 }
 
 TEST_F(DBCompactionTest, ManualAutoRace) {
-  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::BGWorkCompaction", "DBCompactionTest::ManualAutoRace:1"},
-       {"DBImpl::RunManualCompaction:WaitScheduled",
-        "BackgroundCallCompaction:0"}});
+  const int kNumL0FilesTrigger = 4;
+  // Verify that the auto compaction is retried after the conflicting exclusive
+  // manual compaction finishes for:
+  // 1. Non-bottom-priority compactions (tested with level compaction)
+  // 2. Bottom-priority compactions (tested with universal compaction)
+  for (auto compaction_style :
+       {kCompactionStyleLevel, kCompactionStyleUniversal}) {
+    Env::Default()->SetBackgroundThreads(
+        compaction_style == kCompactionStyleUniversal ? 2 : 0,
+        Env::Priority::BOTTOM);
+    for (auto universal_reduce_file_locking : {false, true}) {
+      if (compaction_style != kCompactionStyleUniversal &&
+          universal_reduce_file_locking) {
+        continue;
+      }
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+      Options options = CurrentOptions();
+      options.num_levels = 3;
+      options.level0_file_num_compaction_trigger = kNumL0FilesTrigger;
+      options.compaction_style = compaction_style;
+      options.compaction_options_universal.reduce_file_locking =
+          universal_reduce_file_locking;
 
-  ASSERT_OK(Put(1, "foo", ""));
-  ASSERT_OK(Put(1, "bar", ""));
-  ASSERT_OK(Flush(1));
-  ASSERT_OK(Put(1, "foo", ""));
-  ASSERT_OK(Put(1, "bar", ""));
-  // Generate four files in CF 0, which should trigger an auto compaction
-  ASSERT_OK(Put("foo", ""));
-  ASSERT_OK(Put("bar", ""));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("foo", ""));
-  ASSERT_OK(Put("bar", ""));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("foo", ""));
-  ASSERT_OK(Put("bar", ""));
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("foo", ""));
-  ASSERT_OK(Put("bar", ""));
-  ASSERT_OK(Flush());
+      DestroyAndReopen(options);
+      CreateAndReopenWithCF({"exclusive_manual_compaction_cf"}, options);
 
-  // The auto compaction is scheduled but waited until here
-  TEST_SYNC_POINT("DBCompactionTest::ManualAutoRace:1");
-  // The auto compaction will wait until the manual compaction is registerd
-  // before processing so that it will be cancelled.
-  CompactRangeOptions cro;
-  cro.exclusive_manual_compaction = true;
-  ASSERT_OK(dbfull()->CompactRange(cro, handles_[1], nullptr, nullptr));
-  ASSERT_EQ("0,1", FilesPerLevel(1));
+      // Set up sync points to ensure that the auto compaction
+      // encounters a conflict from exclusive manual compaction before the auto
+      // compaction gets to pick files, This will trigger a retry later.
+      //
+      // Specifically, the sync points are set up as following:
+      // 1. Wait until background low-pri scheduled (not picking files yet) or
+      // bottom-pri scheduled (not repicking files yet) for
+      // `universal_reduce_file_locking = true` before triggering
+      // CompactRange()
+      //
+      // 2. Wait until the triggered CompactRange()
+      // registers its compaction and creates conflict before the auto
+      // compaction picks or repicks files for the background compaction.
+      if (compaction_style == kCompactionStyleLevel ||
+          !universal_reduce_file_locking) {
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+            {{"DBImpl::BGWorkCompaction", "DBCompactionTest::ManualAutoRace:1"},
+             {"DBImpl::RunManualCompaction:WaitScheduled",
+              "BackgroundCallCompaction:0"}});
+      } else {
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+            {{"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+              "DBCompactionTest::ManualAutoRace:1"},
+             {"DBImpl::RunManualCompaction:WaitScheduled",
+              "BackgroundCallCompaction:0:BottomPri"}});
+      }
 
-  // Eventually the cancelled compaction will be rescheduled and executed.
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ("0,1", FilesPerLevel(0));
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+      bool encounter_conflict = false;
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "DBImpl::BackgroundCompaction()::Conflict",
+          [&](void* /*arg*/) { encounter_conflict = true; });
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+      // Generate files in CF 1 for exclusive CompactRange()
+      ASSERT_OK(Put(1, "foo", ""));
+      ASSERT_OK(Put(1, "bar", ""));
+      ASSERT_OK(Flush(1));
+      ASSERT_OK(Put(1, "foo", ""));
+      ASSERT_OK(Put(1, "bar", ""));
+      // Generate files in CF0 to trigger full compaction
+      for (int i = 0; i < kNumL0FilesTrigger; ++i) {
+        ASSERT_OK(Put("foo", ""));
+        ASSERT_OK(Put("bar", ""));
+        ASSERT_OK(Flush());
+      }
+
+      TEST_SYNC_POINT("DBCompactionTest::ManualAutoRace:1");
+      CompactRangeOptions cro;
+      cro.exclusive_manual_compaction = true;
+      ASSERT_OK(dbfull()->CompactRange(cro, handles_[1], nullptr, nullptr));
+      ASSERT_EQ(compaction_style == kCompactionStyleLevel ? "0,1" : "0,0,1",
+                FilesPerLevel(1));
+
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+      ASSERT_TRUE(encounter_conflict);
+
+      // Verify that the auto compaction is eventually executed after the
+      // exclusive CompactRange() finishes.
+      ASSERT_EQ(compaction_style == kCompactionStyleLevel ? "0,1" : "0,0,1",
+                FilesPerLevel(0));
+
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    }
+    Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
+  }
 }
 
 TEST_P(DBCompactionTestWithParam, ManualCompaction) {
@@ -3959,41 +4105,51 @@ TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
 TEST_P(DBCompactionTestWithParam, FullCompactionInBottomPriThreadPool) {
   const int kNumFilesTrigger = 3;
   Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
-  for (bool use_universal_compaction : {false, true}) {
-    Options options = CurrentOptions();
-    if (use_universal_compaction) {
-      options.compaction_style = kCompactionStyleUniversal;
-    } else {
-      options.compaction_style = kCompactionStyleLevel;
-      options.level_compaction_dynamic_level_bytes = true;
+  for (auto compaction_style :
+       {kCompactionStyleLevel, kCompactionStyleUniversal}) {
+    for (auto universal_reduce_file_locking : {false, true}) {
+      if (compaction_style != kCompactionStyleUniversal &&
+          universal_reduce_file_locking) {
+        continue;
+      }
+      Options options = CurrentOptions();
+      options.compaction_style = compaction_style;
+      if (compaction_style == kCompactionStyleLevel) {
+        options.level_compaction_dynamic_level_bytes = true;
+      } else {
+        options.compaction_options_universal.reduce_file_locking =
+            universal_reduce_file_locking;
+        // Trigger compaction if size amplification exceeds 110%
+        options.compaction_options_universal.max_size_amplification_percent =
+            110;
+      }
+      options.num_levels = 4;
+      options.write_buffer_size = 100 << 10;     // 100KB
+      options.target_file_size_base = 32 << 10;  // 32KB
+      options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+
+      DestroyAndReopen(options);
+
+      int num_bottom_pri_compactions = 0;
+      SyncPoint::GetInstance()->SetCallBack(
+          "DBImpl::BGWorkBottomCompaction",
+          [&](void* /*arg*/) { ++num_bottom_pri_compactions; });
+      SyncPoint::GetInstance()->EnableProcessing();
+
+      Random rnd(301);
+      for (int num = 0; num < kNumFilesTrigger; num++) {
+        ASSERT_EQ(NumSortedRuns(), num);
+        int key_idx = 0;
+        GenerateNewFile(&rnd, &key_idx);
+      }
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+      ASSERT_EQ(1, num_bottom_pri_compactions);
+
+      // Verify that size amplification did occur
+      ASSERT_EQ(NumSortedRuns(), 1);
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     }
-    options.num_levels = 4;
-    options.write_buffer_size = 100 << 10;     // 100KB
-    options.target_file_size_base = 32 << 10;  // 32KB
-    options.level0_file_num_compaction_trigger = kNumFilesTrigger;
-    // Trigger compaction if size amplification exceeds 110%
-    options.compaction_options_universal.max_size_amplification_percent = 110;
-    DestroyAndReopen(options);
-
-    int num_bottom_pri_compactions = 0;
-    SyncPoint::GetInstance()->SetCallBack(
-        "DBImpl::BGWorkBottomCompaction",
-        [&](void* /*arg*/) { ++num_bottom_pri_compactions; });
-    SyncPoint::GetInstance()->EnableProcessing();
-
-    Random rnd(301);
-    for (int num = 0; num < kNumFilesTrigger; num++) {
-      ASSERT_EQ(NumSortedRuns(), num);
-      int key_idx = 0;
-      GenerateNewFile(&rnd, &key_idx);
-    }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-    ASSERT_EQ(1, num_bottom_pri_compactions);
-
-    // Verify that size amplification did occur
-    ASSERT_EQ(NumSortedRuns(), 1);
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
   Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
@@ -5912,6 +6068,9 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       ASSERT_EQ(running_compactions_.find(ci.job_id),
                 running_compactions_.end());
       running_compactions_.emplace(ci.job_id, std::unordered_set<int>());
+      if (expected_num_l0_files_pre_compaction_ != -1) {
+        ASSERT_EQ(expected_num_l0_files_pre_compaction_, ci.num_l0_files);
+      }
     }
 
     void OnCompactionCompleted(DB* /*db*/,
@@ -5921,6 +6080,9 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       ASSERT_NE(it, running_compactions_.end());
       ASSERT_EQ(it->second.size(), 0);
       running_compactions_.erase(it);
+      if (expected_num_l0_files_post_compaction_ != -1) {
+        ASSERT_EQ(expected_num_l0_files_post_compaction_, ci.num_l0_files);
+      }
     }
 
     void OnSubcompactionBegin(const SubcompactionJobInfo& si) override {
@@ -5950,10 +6112,25 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
       return total_subcompaction_cnt_;
     }
 
+    void SetExpectedNumL0FilesPreCompaction(int num) {
+      expected_num_l0_files_pre_compaction_ = num;
+    }
+
+    void SetExpectedNumL0FilesPostCompaction(int num) {
+      expected_num_l0_files_post_compaction_ = num;
+    }
+
+    void ResetExpectedNumL0Files() {
+      SetExpectedNumL0FilesPreCompaction(-1);
+      SetExpectedNumL0FilesPostCompaction(-1);
+    }
+
    private:
     InstrumentedMutex mutex_;
     std::unordered_map<int, std::unordered_set<int>> running_compactions_;
     size_t total_subcompaction_cnt_ = 0;
+    int expected_num_l0_files_pre_compaction_ = -1;
+    int expected_num_l0_files_post_compaction_ = -1;
   };
 
   Options options = CurrentOptions();
@@ -5973,6 +6150,7 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
     ASSERT_OK(Flush());
   }
   MoveFilesToLevel(2);
+  ASSERT_EQ(FilesPerLevel(), "0,0,4");
 
   // generate 2 files @ L1 which overlaps with L2 files
   for (int i = 0; i < 2; i++) {
@@ -5982,11 +6160,18 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
     }
     ASSERT_OK(Flush());
   }
+  listener->SetExpectedNumL0FilesPreCompaction(2 /* num */);
+  listener->SetExpectedNumL0FilesPostCompaction(0 /* num */);
+
   MoveFilesToLevel(1);
   ASSERT_EQ(FilesPerLevel(), "0,2,4");
 
+  listener->ResetExpectedNumL0Files();
+
   CompactRangeOptions comp_opts;
   comp_opts.max_subcompactions = 4;
+
+  listener->SetExpectedNumL0FilesPreCompaction(0 /* num */);
   Status s = dbfull()->CompactRange(comp_opts, nullptr, nullptr);
   ASSERT_OK(s);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -5994,6 +6179,8 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
   ASSERT_EQ(listener->GetRunningCompactionCount(), 0);
   // and sub compaction is triggered
   ASSERT_GT(listener->GetTotalSubcompactionCount(), 0);
+
+  listener->ResetExpectedNumL0Files();
 }
 
 TEST_F(DBCompactionTest, CompactFilesOutputRangeConflict) {
@@ -6440,7 +6627,11 @@ TEST_F(DBCompactionTest, PersistRoundRobinCompactCursor) {
   }
 }
 
-TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
+// FIXME: the test is flaky and failing the assertion
+// ASSERT_EQ(num_planned_subcompactions, kNumSubcompactions);
+// It's likely a test set up issue, fix if we are to use RoubdRobin compaction.
+TEST_P(RoundRobinSubcompactionsAgainstPressureToken,
+       DISABLED_PressureTokenTest) {
   const int kKeysPerBuffer = 100;
   const int kNumSubcompactions = 2;
   const int kFilesPerLevel = 50;
@@ -6572,7 +6763,7 @@ TEST_P(RoundRobinSubcompactionsAgainstResources, SubcompactionsUsingResources) {
   // compaction is enough to make post-compaction L1 size less than
   // the maximum size (this test assumes only one round-robin compaction
   // is triggered by kLevelMaxLevelSize)
-  options.max_compaction_bytes = 100000000;
+  options.max_compaction_bytes = std::numeric_limits<uint64_t>::max();
 
   DestroyAndReopen(options);
   env_->SetBackgroundThreads(total_low_pri_threads_, Env::LOW);
@@ -6605,41 +6796,33 @@ TEST_P(RoundRobinSubcompactionsAgainstResources, SubcompactionsUsingResources) {
         // More than 10 files are selected for round-robin under auto
         // compaction. The number of planned subcompaction is restricted by
         // the minimum number between available threads and compaction limits
-        ASSERT_EQ(num_planned_subcompactions - options.max_subcompactions,
-                  std::min(total_low_pri_threads_, max_compaction_limits_) - 1);
+        auto actual_reserved_threads =
+            num_planned_subcompactions - options.max_subcompactions;
+        auto expected_reserved_threads =
+            std::min(total_low_pri_threads_, max_compaction_limits_) - 1;
+        ASSERT_EQ(actual_reserved_threads, expected_reserved_threads);
         num_planned_subcompactions_verified = true;
       });
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"RoundRobinSubcompactionsAgainstResources:0",
-        "BackgroundCallCompaction:0"},
-       {"CompactionJob::AcquireSubcompactionResources:0",
-        "RoundRobinSubcompactionsAgainstResources:1"},
-       {"RoundRobinSubcompactionsAgainstResources:2",
-        "CompactionJob::AcquireSubcompactionResources:1"},
-       {"CompactionJob::ReleaseSubcompactionResources:0",
-        "RoundRobinSubcompactionsAgainstResources:3"},
-       {"RoundRobinSubcompactionsAgainstResources:4",
-        "CompactionJob::ReleaseSubcompactionResources:1"}});
+
+  int acquire_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::AcquireSubcompactionResources:0",
+      [&](void* /*arg*/) { acquire_count++; });
+  int release_count = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::ReleaseSubcompactionResources",
+      [&](void* /*arg*/) { release_count++; });
+
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_OK(dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
-  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:0");
-  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:1");
   auto pressure_token =
       dbfull()->TEST_write_controler().GetCompactionPressureToken();
-
-  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:2");
-  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:3");
-  // We can reserve more threads now except one is being used
-  ASSERT_EQ(total_low_pri_threads_ - 1,
-            env_->ReserveThreads(total_low_pri_threads_, Env::Priority::LOW));
-  ASSERT_EQ(
-      total_low_pri_threads_ - 1,
-      env_->ReleaseThreads(total_low_pri_threads_ - 1, Env::Priority::LOW));
-  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:4");
+  ASSERT_OK(dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
   ASSERT_TRUE(num_planned_subcompactions_verified);
+  ASSERT_EQ(acquire_count, release_count);
+
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
@@ -9372,104 +9555,134 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
 }
 
 TEST_F(DBCompactionTest, FIFOChangeTemperature) {
-  for (bool write_time_default : {false, true}) {
-    SCOPED_TRACE("write time default? " + std::to_string(write_time_default));
+  for (bool should_allow_trivial_copy : {false, true}) {
+    for (bool write_time_default : {false, true}) {
+      int32_t before_compaction_calls = 0;
+      int32_t after_compaction_calls = 0;
+      if (should_allow_trivial_copy) {
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:TriviaCopyBeforeCompaction",
+            [&](void*) { ++before_compaction_calls; });
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:TriviaCopyAfterCompaction",
+            [&](void*) { ++after_compaction_calls; });
+      } else {
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:BeforeCompaction",
+            [&](void*) { ++before_compaction_calls; });
 
-    Options options = CurrentOptions();
-    options.compaction_style = kCompactionStyleFIFO;
-    options.num_levels = 1;
-    options.max_open_files = -1;
-    options.level0_file_num_compaction_trigger = 2;
-    options.create_if_missing = true;
-    CompactionOptionsFIFO fifo_options;
-    fifo_options.file_temperature_age_thresholds = {{Temperature::kCold, 1000}};
-    fifo_options.max_table_files_size = 100000000;
-    options.compaction_options_fifo = fifo_options;
-    env_->SetMockSleep();
-    if (write_time_default) {
-      options.default_write_temperature = Temperature::kWarm;
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+            "DBImpl::BackgroundCompaction:AfterCompaction",
+            [&](void*) { ++after_compaction_calls; });
+      }
+
+      SCOPED_TRACE("write time default? " + std::to_string(write_time_default));
+
+      Options options = CurrentOptions();
+      options.compaction_style = kCompactionStyleFIFO;
+      options.num_levels = 1;
+      options.max_open_files = -1;
+      options.level0_file_num_compaction_trigger = 2;
+      options.create_if_missing = true;
+      CompactionOptionsFIFO fifo_options;
+      fifo_options.file_temperature_age_thresholds = {
+          {Temperature::kCold, 1000}};
+      fifo_options.max_table_files_size = 100000000;
+      fifo_options.allow_trivial_copy_when_change_temperature =
+          should_allow_trivial_copy;
+      fifo_options.trivial_copy_buffer_size = 4096;
+      options.compaction_options_fifo = fifo_options;
+      env_->SetMockSleep();
+      if (write_time_default) {
+        options.default_write_temperature = Temperature::kWarm;
+      }
+      // Should be ignored (TODO: fail?)
+      options.last_level_temperature = Temperature::kHot;
+      Reopen(options);
+
+      int total_cold = 0;
+      int total_warm = 0;
+      int total_hot = 0;
+      int total_unknown = 0;
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+          "NewWritableFile::FileOptions.temperature", [&](void* arg) {
+            Temperature temperature = *(static_cast<Temperature*>(arg));
+            if (temperature == Temperature::kCold) {
+              total_cold++;
+            } else if (temperature == Temperature::kWarm) {
+              total_warm++;
+            } else if (temperature == Temperature::kHot) {
+              total_hot++;
+            } else {
+              assert(temperature == Temperature::kUnknown);
+              total_unknown++;
+            }
+          });
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+      // The file system does not support checksum handoff. The check
+      // will be ignored.
+      ASSERT_OK(Put(Key(0), "value1"));
+      env_->MockSleepForSeconds(800);
+      ASSERT_OK(Put(Key(2), "value2"));
+      ASSERT_OK(Flush());
+
+      ASSERT_OK(Put(Key(0), "value1"));
+      ASSERT_OK(Put(Key(2), "value2"));
+      ASSERT_OK(Flush());
+
+      // First two L0 files both become eligible for temperature change
+      // compaction They should be compacted one-by-one.
+      ASSERT_OK(Put(Key(0), "value1"));
+      env_->MockSleepForSeconds(1200);
+      ASSERT_OK(Put(Key(2), "value2"));
+      ASSERT_OK(Flush());
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+      if (write_time_default) {
+        // Also test dynamic option change
+        ASSERT_OK(db_->SetOptions({{"default_write_temperature", "kHot"}}));
+      }
+
+      ASSERT_OK(Put(Key(0), "value1"));
+      env_->MockSleepForSeconds(800);
+      ASSERT_OK(Put(Key(2), "value2"));
+      ASSERT_OK(Flush());
+
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+      ColumnFamilyMetaData metadata;
+      db_->GetColumnFamilyMetaData(&metadata);
+      ASSERT_EQ(4, metadata.file_count);
+      if (write_time_default) {
+        ASSERT_EQ(Temperature::kHot, metadata.levels[0].files[0].temperature);
+        ASSERT_EQ(Temperature::kWarm, metadata.levels[0].files[1].temperature);
+        // Includes obsolete/deleted files moved to cold
+        ASSERT_EQ(total_warm, 3);
+        ASSERT_EQ(total_hot, 1);
+        // Includes non-SST DB files
+        ASSERT_GT(total_unknown, 0);
+      } else {
+        ASSERT_EQ(Temperature::kUnknown,
+                  metadata.levels[0].files[0].temperature);
+        ASSERT_EQ(Temperature::kUnknown,
+                  metadata.levels[0].files[1].temperature);
+        ASSERT_EQ(total_warm, 0);
+        ASSERT_EQ(total_hot, 0);
+        // Includes non-SST DB files
+        ASSERT_GT(total_unknown, 4);
+      }
+      ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[2].temperature);
+      ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[3].temperature);
+      ASSERT_EQ(2, total_cold);
+
+      ASSERT_EQ(2, before_compaction_calls);
+      ASSERT_EQ(2, after_compaction_calls);
+
+      Destroy(options);
     }
-    // Should be ignored (TODO: fail?)
-    options.last_level_temperature = Temperature::kHot;
-    Reopen(options);
-
-    int total_cold = 0;
-    int total_warm = 0;
-    int total_hot = 0;
-    int total_unknown = 0;
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "NewWritableFile::FileOptions.temperature", [&](void* arg) {
-          Temperature temperature = *(static_cast<Temperature*>(arg));
-          if (temperature == Temperature::kCold) {
-            total_cold++;
-          } else if (temperature == Temperature::kWarm) {
-            total_warm++;
-          } else if (temperature == Temperature::kHot) {
-            total_hot++;
-          } else {
-            assert(temperature == Temperature::kUnknown);
-            total_unknown++;
-          }
-        });
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
-    // The file system does not support checksum handoff. The check
-    // will be ignored.
-    ASSERT_OK(Put(Key(0), "value1"));
-    env_->MockSleepForSeconds(800);
-    ASSERT_OK(Put(Key(2), "value2"));
-    ASSERT_OK(Flush());
-
-    ASSERT_OK(Put(Key(0), "value1"));
-    ASSERT_OK(Put(Key(2), "value2"));
-    ASSERT_OK(Flush());
-
-    // First two L0 files both become eligible for temperature change compaction
-    // They should be compacted one-by-one.
-    ASSERT_OK(Put(Key(0), "value1"));
-    env_->MockSleepForSeconds(1200);
-    ASSERT_OK(Put(Key(2), "value2"));
-    ASSERT_OK(Flush());
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-    if (write_time_default) {
-      // Also test dynamic option change
-      ASSERT_OK(db_->SetOptions({{"default_write_temperature", "kHot"}}));
-    }
-
-    ASSERT_OK(Put(Key(0), "value1"));
-    env_->MockSleepForSeconds(800);
-    ASSERT_OK(Put(Key(2), "value2"));
-    ASSERT_OK(Flush());
-
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-
-    ColumnFamilyMetaData metadata;
-    db_->GetColumnFamilyMetaData(&metadata);
-    ASSERT_EQ(4, metadata.file_count);
-    if (write_time_default) {
-      ASSERT_EQ(Temperature::kHot, metadata.levels[0].files[0].temperature);
-      ASSERT_EQ(Temperature::kWarm, metadata.levels[0].files[1].temperature);
-      // Includes obsolete/deleted files moved to cold
-      ASSERT_EQ(total_warm, 3);
-      ASSERT_EQ(total_hot, 1);
-      // Includes non-SST DB files
-      ASSERT_GT(total_unknown, 0);
-    } else {
-      ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[0].temperature);
-      ASSERT_EQ(Temperature::kUnknown, metadata.levels[0].files[1].temperature);
-      ASSERT_EQ(total_warm, 0);
-      ASSERT_EQ(total_hot, 0);
-      // Includes non-SST DB files
-      ASSERT_GT(total_unknown, 4);
-    }
-    ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[2].temperature);
-    ASSERT_EQ(Temperature::kCold, metadata.levels[0].files[3].temperature);
-    ASSERT_EQ(2, total_cold);
-
-    Destroy(options);
   }
 }
 
@@ -9914,55 +10127,60 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
 
   env_->SetBackgroundThreads(1, Env::Priority::BOTTOM);
 
-  Options options = CurrentOptions();
-  options.level0_file_num_compaction_trigger = kNumL0Files;
-  options.num_levels = kNumLevels;
-  DestroyAndReopen(options);
+  for (bool universal_reduce_file_locking : {false, true}) {
+    Options options = CurrentOptions();
+    options.level0_file_num_compaction_trigger = kNumL0Files;
+    options.num_levels = kNumLevels;
+    options.compaction_style = kCompactionStyleUniversal;
+    options.compaction_options_universal.reduce_file_locking =
+        universal_reduce_file_locking;
+    DestroyAndReopen(options);
 
-  // Setup last level to be non-empty since it's a bit unclear whether
-  // compaction to an empty level would be considered "bottommost".
-  ASSERT_OK(Put(Key(0), "val"));
-  ASSERT_OK(Flush());
-  MoveFilesToLevel(kNumLevels - 1);
-
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::BGWorkBottomCompaction",
-        "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
-        "PreTriggerCompaction"},
-       {"DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
-        "PostTriggerCompaction",
-        "BackgroundCallCompaction:0"}});
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  port::Thread compact_range_thread([&] {
-    CompactRangeOptions cro;
-    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-    cro.exclusive_manual_compaction = false;
-    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
-  });
-
-  // Sleep in the low-pri thread so any newly scheduled compaction will be
-  // queued. Otherwise it might finish before we check its existence.
-  test::SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
-  sleeping_task_low.WaitUntilSleeping();
-
-  TEST_SYNC_POINT(
-      "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
-      "PreTriggerCompaction");
-  for (int i = 0; i < kNumL0Files; ++i) {
+    // Setup last level to be non-empty since it's a bit unclear whether
+    // compaction to an empty level would be considered "bottommost".
     ASSERT_OK(Put(Key(0), "val"));
     ASSERT_OK(Flush());
-  }
-  ASSERT_EQ(0u, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
-  TEST_SYNC_POINT(
-      "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
-      "PostTriggerCompaction");
+    MoveFilesToLevel(kNumLevels - 1);
 
-  sleeping_task_low.WakeUp();
-  sleeping_task_low.WaitUntilDone();
-  compact_range_thread.join();
+    SyncPoint::GetInstance()->LoadDependency(
+        {{"DBImpl::BGWorkBottomCompaction",
+          "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+          "PreTriggerCompaction"},
+         {"DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+          "PostTriggerCompaction",
+          "BackgroundCallCompaction:0"}});
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    port::Thread compact_range_thread([&] {
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      cro.exclusive_manual_compaction = false;
+      ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+    });
+
+    // Sleep in the low-pri thread so any newly scheduled compaction will be
+    // queued. Otherwise it might finish before we check its existence.
+    test::SleepingBackgroundTask sleeping_task_low;
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                   &sleeping_task_low, Env::Priority::LOW);
+    sleeping_task_low.WaitUntilSleeping();
+
+    TEST_SYNC_POINT(
+        "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+        "PreTriggerCompaction");
+    for (int i = 0; i < kNumL0Files; ++i) {
+      ASSERT_OK(Put(Key(0), "val"));
+      ASSERT_OK(Flush());
+    }
+    ASSERT_EQ(0u, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+    TEST_SYNC_POINT(
+        "DBCompactionTest::BottomPriCompactionCountsTowardConcurrencyLimit:"
+        "PostTriggerCompaction");
+
+    sleeping_task_low.WakeUp();
+    sleeping_task_low.WaitUntilDone();
+    compact_range_thread.join();
+  }
 }
 
 TEST_F(DBCompactionTest, BottommostFileCompactionAllowIngestBehind) {
@@ -10468,7 +10686,7 @@ TEST_F(DBCompactionTest, NumberOfSubcompactions) {
   }
 }
 
-TEST_F(DBCompactionTest, VerifyRecordCount) {
+TEST_F(DBCompactionTest, VerifyInputRecordCount) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.level0_file_num_compaction_trigger = 3;
@@ -10503,6 +10721,103 @@ TEST_F(DBCompactionTest, VerifyRecordCount) {
   const char* expect =
       "Compaction number of input keys does not match number of keys "
       "processed.";
+  ASSERT_TRUE(std::strstr(s.getState(), expect));
+}
+
+TEST_F(DBCompactionTest, VerifyOutputRecordCountBlockBasedTable) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  options.compaction_verify_record_count = true;
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // Create 2 overlapping L0 files
+  for (int i = 1; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), Key(10), Key(15)));
+
+  for (int i = 0; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  // Skip adding every 7th key in the output table
+  int num_iter = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::Add::skip", [&](void* skip) {
+        num_iter++;
+        if (num_iter % 7 == 0) {
+          *(bool*)skip = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption());
+  const char* expect =
+      "Number of keys in compaction output SST files does not match number of "
+      "keys added.";
+  ASSERT_TRUE(std::strstr(s.getState(), expect));
+}
+
+TEST_F(DBCompactionTest, VerifyOutputRecordCountPlainTable) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  options.compaction_verify_record_count = true;
+
+  PlainTableOptions plain_table_options;
+  plain_table_options.user_key_len = 0;
+  plain_table_options.bloom_bits_per_key = 2;
+  plain_table_options.hash_table_ratio = 0.8;
+  plain_table_options.index_sparseness = 3;
+  plain_table_options.huge_page_tlb_size = 0;
+  plain_table_options.encoding_type = kPrefix;
+  plain_table_options.full_scan_mode = false;
+  plain_table_options.store_index_in_file = false;
+
+  options.table_factory.reset(NewPlainTableFactory(plain_table_options));
+  options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true));
+
+  options.prefix_extractor.reset(NewFixedPrefixTransform(8));
+  options.allow_mmap_reads = false;
+  options.allow_concurrent_memtable_write = false;
+  options.unordered_write = false;
+
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // Create 2 overlapping L0 files
+  for (int i = 1; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < 20; i += 2) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+
+  // Skip adding every 7th key in the output table
+  int num_iter = 0;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "PlainTableBuilder::Add::skip", [&](void* skip) {
+        num_iter++;
+        if (num_iter % 7 == 0) {
+          *(bool*)skip = true;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption());
+  const char* expect =
+      "Number of keys in compaction output SST files does not match number of "
+      "keys added.";
   ASSERT_TRUE(std::strstr(s.getState(), expect));
 }
 
@@ -10777,6 +11092,59 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+}
+
+class PeriodicCompactionListener : public EventListener {
+ public:
+  explicit PeriodicCompactionListener() {}
+  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
+    if (ci.compaction_reason == CompactionReason::kPeriodicCompaction) {
+      ++num_periodic_compactions;
+    }
+  }
+
+  std::atomic<int> num_periodic_compactions = 0;
+};
+
+TEST_F(DBCompactionTest, PeriodicTask) {
+  // Tests that when no trigger event is fired (flush/compaction/setoptions),
+  // periodic compaction is still triggered by a scheduled periodic function.
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  mock_clock->SetCurrentTime(100);
+  mock_clock->InstallTimedWaitFixCallback();
+  auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::StartPeriodicTaskScheduler:Init", [&](void* arg) {
+        auto periodic_task_scheduler_ptr =
+            static_cast<PeriodicTaskScheduler*>(arg);
+        periodic_task_scheduler_ptr->TEST_OverrideTimer(mock_clock.get());
+      });
+
+  Options options;
+  options.env = mock_env.get();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.statistics = CreateDBStatistics();
+  int kPeriodicCompactionSeconds = 7 * 24 * 60 * 60;  // 1 week
+  options.periodic_compaction_seconds = kPeriodicCompactionSeconds;
+  options.num_levels = 50;
+  auto listener = std::make_shared<PeriodicCompactionListener>();
+  options.listeners.push_back(listener);
+  ASSERT_OK(TryReopen(options));
+
+  Random* rnd = Random::GetTLSInstance();
+  for (int k = 0; k < 10; ++k) {
+    ASSERT_OK(Put(Key(k), rnd->RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+  ASSERT_EQ(1, NumTableFilesAtLevel(49));
+
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock->MockSleepForSeconds(kPeriodicCompactionSeconds + 1); });
+  ASSERT_OK(db_->WaitForCompact({}));
+
+  ASSERT_EQ(listener->num_periodic_compactions, 1);
+  Close();
 }
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -75,15 +75,14 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
   } else {
     CompressionOptions opts;
     CompressionContext context(compression, opts);
-    constexpr uint64_t sample_for_compression = 0;
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                         compression, sample_for_compression);
+                         compression);
 
     constexpr uint32_t compression_format_version = 2;
 
     for (size_t i = 0; i < num; ++i) {
-      ASSERT_TRUE(CompressData(blobs[i], info, compression_format_version,
-                               &compressed_blobs[i]));
+      ASSERT_TRUE(OLD_CompressData(blobs[i], info, compression_format_version,
+                                   &compressed_blobs[i]));
       blobs_to_write[i] = compressed_blobs[i];
       blob_sizes[i] = compressed_blobs[i].size();
     }

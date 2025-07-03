@@ -551,9 +551,6 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
 
     if (LIKELY(!s.IsTryAgain())) {
       last_was_try_again = false;
-      tag = 0;
-      column_family = 0;  // default
-
       s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
                                    &blob, &xid, &write_unix_time);
       if (!s.ok()) {
@@ -815,6 +812,12 @@ WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(
         s = Status::InvalidArgument("Default cf timestamp size mismatch");
       }
     }
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+    if (cfd && cfd->ioptions().disallow_memtable_writes) {
+      s = Status::InvalidArgument(
+          "This column family has disallow_memtable_writes=true");
+    }
   } else if (b->default_cf_ts_sz_ > 0) {
     ts_sz = b->default_cf_ts_sz_;
   }
@@ -835,6 +838,12 @@ Status CheckColumnFamilyTimestampSize(ColumnFamilyHandle* column_family,
   }
   if (cf_ts_sz != ts.size()) {
     return Status::InvalidArgument("timestamp size mismatch");
+  }
+  auto* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
+  if (cfd && cfd->ioptions().disallow_memtable_writes) {
+    return Status::InvalidArgument(
+        "This column family has disallow_memtable_writes=true");
   }
   return Status::OK();
 }
@@ -1885,7 +1894,6 @@ Status WriteBatch::VerifyChecksum() const {
     // ReadRecordFromWriteBatch
     key.clear();
     value.clear();
-    column_family = 0;
     s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
                                  &blob, &xid, /*write_unix_time=*/nullptr);
     if (!s.ok()) {
@@ -2185,6 +2193,13 @@ class MemTableInserter : public WriteBatch::Handler {
       }
       return false;
     }
+    auto* current = cf_mems_->current();
+    if (current && current->ioptions().disallow_memtable_writes) {
+      *s = Status::InvalidArgument(
+          "This column family has disallow_memtable_writes=true");
+      return false;
+    }
+
     if (recovering_log_number_ != 0 &&
         recovering_log_number_ < cf_mems_->GetLogNumber()) {
       // This is true only in recovery environment (recovering_log_number_ is
@@ -3195,11 +3210,11 @@ Status WriteBatchInternal::InsertInto(
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
     TrimHistoryScheduler* trim_history_scheduler,
     bool ignore_missing_column_families, uint64_t recovery_log_number, DB* db,
-    bool concurrent_memtable_writes, bool seq_per_batch, bool batch_per_txn) {
+    bool seq_per_batch, bool batch_per_txn) {
   MemTableInserter inserter(
       sequence, memtables, flush_scheduler, trim_history_scheduler,
       ignore_missing_column_families, recovery_log_number, db,
-      concurrent_memtable_writes, nullptr /* prot_info */,
+      /*concurrent_memtable_writes=*/false, nullptr /* prot_info */,
       nullptr /*has_valid_writes*/, seq_per_batch, batch_per_txn);
   for (auto w : write_group) {
     if (w->CallbackFailed()) {

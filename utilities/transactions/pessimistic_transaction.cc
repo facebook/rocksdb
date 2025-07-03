@@ -105,13 +105,15 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   commit_timestamp_ = kMaxTxnTimestamp;
 
   if (txn_options.commit_bypass_memtable) {
-    commit_bypass_memtable_threshold_ = 0;
+    // No need to optimize for empty transction
+    commit_bypass_memtable_threshold_ = 1;
   } else {
     commit_bypass_memtable_threshold_ =
-        db_options.txn_commit_bypass_memtable_threshold;
+        txn_options.large_txn_commit_optimize_threshold;
   }
-  write_batch_.SetTrackPerCFStat(commit_bypass_memtable_threshold_ <
-                                 std::numeric_limits<uint32_t>::max());
+
+  commit_bypass_memtable_byte_threshold_ =
+      txn_options.large_txn_commit_optimize_byte_threshold;
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
@@ -811,7 +813,7 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
   }
   auto s = db_impl_->WriteImpl(
       write_options_, wb,
-      /*callback*/ nullptr, /*user_write_cb=*/nullptr, /*log_used*/ nullptr,
+      /*callback*/ nullptr, /*user_write_cb=*/nullptr, /*wal_used*/ nullptr,
       /*log_ref*/ 0, /*disable_memtable*/ false, &seq_used, /*batch_cnt=*/0,
       /*pre_release_callback=*/nullptr, post_mem_cb);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
@@ -825,7 +827,7 @@ Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch, size_t) {
   uint64_t seq_used = kMaxSequenceNumber;
   auto s = db_impl_->WriteImpl(write_options_, batch, /*callback*/ nullptr,
                                /*user_write_cb=*/nullptr,
-                               /*log_used*/ nullptr, /*log_ref*/ 0,
+                               /*wal_used*/ nullptr, /*log_ref*/ 0,
                                /*disable_memtable*/ false, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
@@ -852,8 +854,8 @@ Status WriteCommittedTxn::CommitInternal() {
   if (!needs_ts) {
     s = WriteBatchInternal::MarkCommit(working_batch, name_);
   } else {
-    assert(commit_bypass_memtable_threshold_ ==
-           std::numeric_limits<uint32_t>::max());
+    assert(!commit_bypass_memtable_threshold_);
+    assert(!commit_bypass_memtable_byte_threshold_);
     assert(commit_timestamp_ != kMaxTxnTimestamp);
     char commit_ts_buf[sizeof(kMaxTxnTimestamp)];
     EncodeFixed64(commit_ts_buf, commit_timestamp_);
@@ -889,7 +891,39 @@ Status WriteCommittedTxn::CommitInternal() {
   // any operations appended to this working_batch will be ignored from WAL
   working_batch->MarkWalTerminationPoint();
 
-  bool bypass_memtable = wb->Count() > commit_bypass_memtable_threshold_;
+  uint32_t wb_count = wb->Count();
+  RecordInHistogram(db_impl_->immutable_db_options_.stats,
+                    NUM_OP_PER_TRANSACTION, wb_count);
+  bool bypass_memtable = false;
+  if (!needs_ts) {
+    if (commit_bypass_memtable_threshold_ &&
+        wb_count >= commit_bypass_memtable_threshold_) {
+      if (wbwi->GetWBWIOpCount() != wb_count) {
+        ROCKS_LOG_WARN(
+            db_impl_->immutable_db_options().info_log,
+            "Transaction %s qualifies for commit optimization due to update "
+            "count. However, it will commit normally due to wbwi and wb record "
+            "count mismatch. Some updates were added directly to the "
+            "transaction's underlying write batch.",
+            GetName().c_str());
+      } else {
+        bypass_memtable = true;
+      }
+    } else if (commit_bypass_memtable_byte_threshold_ &&
+               wb->GetDataSize() >= commit_bypass_memtable_byte_threshold_) {
+      if (wbwi->GetWBWIOpCount() != wb_count) {
+        ROCKS_LOG_WARN(
+            db_impl_->immutable_db_options().info_log,
+            "Transaction %s qualifies for commit optimization due to write "
+            "batch size. However, it will commit normally due to wbwi and wb "
+            "record count mismatch. Some updates were added directly to the "
+            "transaction's underlying write batch.",
+            GetName().c_str());
+      } else {
+        bypass_memtable = true;
+      }
+    }
+  }
   if (!bypass_memtable) {
     // insert prepared batch into Memtable only skipping WAL.
     // Memtable will ignore BeginPrepare/EndPrepare markers
@@ -914,14 +948,17 @@ Status WriteCommittedTxn::CommitInternal() {
   TEST_SYNC_POINT_CALLBACK("WriteCommittedTxn::CommitInternal:bypass_memtable",
                            static_cast<void*>(&bypass_memtable));
   if (bypass_memtable) {
+    // Used for differentiating commiting WBWI vs directly ingesting WBWI
+    // see (IngestWriteBatchWithIndex())
+    assert(working_batch->HasCommit());
     s = db_impl_->WriteImpl(
         write_options_, working_batch, /*callback*/ nullptr,
         /*user_write_cb=*/nullptr,
-        /*log_used*/ nullptr, /*log_ref*/ log_number_,
+        /*wal_used*/ nullptr, /*log_ref*/ log_number_,
         /*disable_memtable*/ false, &seq_used,
         /*batch_cnt=*/0, /*pre_release_callback=*/nullptr, post_mem_cb,
-        /*wbwi=*/std::make_shared<WriteBatchWithIndex>(std::move(write_batch_)),
-        /*min_prep_log=*/log_number_);
+        /*wbwi=*/
+        std::make_shared<WriteBatchWithIndex>(std::move(write_batch_)));
     // Reset write_batch_ since it's accessed in transaction clean up and
     // might be used for transaction reuse.
     write_batch_ = WriteBatchWithIndex(cmp_, 0, true, 0,
@@ -929,7 +966,7 @@ Status WriteCommittedTxn::CommitInternal() {
   } else {
     s = db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
                             /*user_write_cb=*/nullptr,
-                            /*log_used*/ nullptr, /*log_ref*/ log_number_,
+                            /*wal_used*/ nullptr, /*log_ref*/ log_number_,
                             /*disable_memtable*/ false, &seq_used,
                             /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
                             post_mem_cb);

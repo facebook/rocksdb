@@ -5273,6 +5273,8 @@ class TickerTypeJni {
         return -0x56;
       case ROCKSDB_NAMESPACE::Tickers::FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT:
         return -0x57;
+      case ROCKSDB_NAMESPACE::Tickers::FIFO_CHANGE_TEMPERATURE_COMPACTIONS:
+        return -0x58;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5735,6 +5737,8 @@ class TickerTypeJni {
       case -0x57:
         return ROCKSDB_NAMESPACE::Tickers::
             FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT;
+      case -0x58:
+        return ROCKSDB_NAMESPACE::Tickers::FIFO_CHANGE_TEMPERATURE_COMPACTIONS;
       case -0x54:
         // -0x54 is the max value at this time. Since these values are exposed
         // directly to Java clients, we'll keep the value the same till the next
@@ -5889,8 +5893,11 @@ class HistogramTypeJni {
         return 0x3C;
       case ROCKSDB_NAMESPACE::Histograms::TABLE_OPEN_PREFETCH_TAIL_READ_BYTES:
         return 0x3D;
+      case ROCKSDB_NAMESPACE::Histograms::COMPACTION_PREFETCH_BYTES:
+        return 0x3F;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
-        // 0x3D for backwards compatibility on current minor version.
+        // 0x3E is reserved for backwards compatibility on current minor
+        // version.
         return 0x3E;
       default:
         // undefined/default
@@ -6033,8 +6040,11 @@ class HistogramTypeJni {
       case 0x3D:
         return ROCKSDB_NAMESPACE::Histograms::
             TABLE_OPEN_PREFETCH_TAIL_READ_BYTES;
+      case 0x3F:
+        return ROCKSDB_NAMESPACE::Histograms::COMPACTION_PREFETCH_BYTES;
       case 0x3E:
-        // 0x1F for backwards compatibility on current minor version.
+        // 0x3E is reserved for backwards compatibility on current minor
+        // version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
 
       default:

@@ -24,9 +24,16 @@ class SecondaryIndex;
 class TransactionDBMutexFactory;
 
 enum TxnDBWritePolicy {
-  WRITE_COMMITTED = 0,  // write only the committed data
-  WRITE_PREPARED,       // write data after the prepare phase of 2pc
-  WRITE_UNPREPARED      // write data before the prepare phase of 2pc
+  // Write data at transaction commit time
+  WRITE_COMMITTED = 0,
+
+  // EXPERIMENTAL: The remaining write policies are not as mature, well
+  // validated, nor as compatible with other features as WRITE_COMMITTED.
+
+  // Write data after the prepare phase of 2pc
+  WRITE_PREPARED,
+  // Write data before the prepare phase of 2pc
+  WRITE_UNPREPARED
 };
 
 constexpr uint32_t kInitialMaxDeadlocks = 5;
@@ -247,10 +254,12 @@ struct TransactionDBOptions {
   // for more details.
   std::vector<std::shared_ptr<SecondaryIndex>> secondary_indices;
 
-  // EXPERIMENTAL, SUBJECT TO CHANGE
+  // Deprecated, this option has no effect and may be removed in the future.
+  // Use TransactionOptions::large_txn_commit_optimize_threshold instead.
+  //
   // This option is only valid for write committed. If the number of updates in
-  // a transaction exceeds this threshold, then the transaction commit will skip
-  // insertions into memtable as an optimization to reduce commit latency.
+  // a transaction is at least this threshold, then the transaction commit will
+  // skip insertions into memtable as an optimization to reduce commit latency.
   // See comment for TransactionOptions::commit_bypass_memtable for more detail.
   // Setting TransactionOptions::commit_bypass_memtable to true takes precedence
   // over this option.
@@ -357,10 +366,28 @@ struct TransactionOptions {
   // DeleteRange, SingleDelete.
   bool write_batch_track_timestamp_size = false;
 
+  // The following three options enable optimizations for large transaction
+  // commit to bypass memtable write.
+  // - If any transaction's commit should bybass memtable write,
+  //  set commit_bypass_memtable to true.
+  // - If only bypass memtable write for transactions with >= n operations,
+  //  set commit_bypass_memtable to false,
+  //  large_txn_commit_optimize_threshold to n, and
+  //  large_txn_commit_optimize_byte_threshold to 0.
+  //  Similarly for only optimize when a transaction's write batch size is >= n.
+  // - If bypass memtable write for transactions with >= n operations or >= x
+  // bytes,
+  //  set commit_bypass_memtable to false,
+  //  large_txn_commit_optimize_threshold to n, and
+  //  large_txn_commit_optimize_byte_threshold to x.
+  //
+  //
   // EXPERIMENTAL, SUBJECT TO CHANGE
   // Only supports write-committed policy. If set to true, the transaction will
   // skip memtable write and ingest into the DB directly during Commit(). This
   // makes Commit() much faster for transactions with many operations.
+  // Transaction neeeds to call Prepare() before Commit() for this option to
+  // take effect.
   // Transactions with Merge() or PutEntity() is not supported yet.
   //
   // Note that the transaction will be ingested as an immutable memtable for
@@ -369,15 +396,31 @@ struct TransactionOptions {
   // due to too many memtables.
   // Note that the ingestion relies on the transaction's underlying index,
   // (WriteBatchWithIndex), so updates that are added to the transaction
-  // without indexing (e.g. added directly to the transaction underlying
+  // without indexing (i.e. added directly to the transaction underlying
   // write batch through Transaction::GetWriteBatch()->GetWriteBatch())
-  // are not supported. They will not be applied to the DB.
+  // are not supported, and the optimization will not apply in that case.
   //
   // NOTE: since WBWI keep track of the most recent update per key, a Put
   // followed by a SingleDelete will be written to DB as a SingleDelete. This
   // can cause flush/compaction to report `num_single_del_mismatch` due to
   // consecutive SingleDeletes.
   bool commit_bypass_memtable = false;
+
+  // EXPERIMENTAL, SUBJECT TO CHANGE
+  // When the number of updates in a transaction is at least this threshold,
+  // we will enable optimizations for commiting a large transaction. See
+  // comment for `commit_bypass_memtable` for more optimization detail.
+  //
+  // Default: 0 (disabled).
+  uint32_t large_txn_commit_optimize_threshold = 0;
+
+  // EXPERIMENTAL, SUBJECT TO CHANGE
+  // When the size of a transaction's write batch is at least this threshold,
+  // we will enable optimizations for commiting a large transaction. See
+  // comment for `commit_bypass_memtable` for more optimization detail.
+  //
+  // Default: 0 (disabled).
+  uint64_t large_txn_commit_optimize_byte_threshold = 0;
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB

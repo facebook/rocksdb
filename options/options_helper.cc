@@ -153,8 +153,6 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.allow_2pc = immutable_db_options.allow_2pc;
   options.row_cache = immutable_db_options.row_cache;
   options.wal_filter = immutable_db_options.wal_filter;
-  options.fail_if_options_file_error =
-      immutable_db_options.fail_if_options_file_error;
   options.dump_malloc_stats = immutable_db_options.dump_malloc_stats;
   options.avoid_flush_during_recovery =
       immutable_db_options.avoid_flush_during_recovery;
@@ -199,6 +197,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.metadata_write_temperature;
   options.wal_write_temperature = immutable_db_options.wal_write_temperature;
   options.compaction_service = immutable_db_options.compaction_service;
+  options.calculate_sst_write_lifetime_hint_set =
+      immutable_db_options.calculate_sst_write_lifetime_hint_set;
 }
 
 ColumnFamilyOptions BuildColumnFamilyOptions(
@@ -293,12 +293,17 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->compression_opts = moptions.compression_opts;
   cf_opts->bottommost_compression = moptions.bottommost_compression;
   cf_opts->bottommost_compression_opts = moptions.bottommost_compression_opts;
+  cf_opts->compression_manager = moptions.compression_manager;
   cf_opts->sample_for_compression = moptions.sample_for_compression;
   cf_opts->compression_per_level = moptions.compression_per_level;
   cf_opts->last_level_temperature = moptions.last_level_temperature;
   cf_opts->default_write_temperature = moptions.default_write_temperature;
   cf_opts->memtable_max_range_deletions = moptions.memtable_max_range_deletions;
   cf_opts->uncache_aggressiveness = moptions.uncache_aggressiveness;
+  cf_opts->memtable_op_scan_flush_trigger =
+      moptions.memtable_op_scan_flush_trigger;
+  cf_opts->memtable_avg_op_scan_flush_trigger =
+      moptions.memtable_avg_op_scan_flush_trigger;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
@@ -311,8 +316,6 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->compaction_filter_factory = ioptions.compaction_filter_factory;
   cf_opts->min_write_buffer_number_to_merge =
       ioptions.min_write_buffer_number_to_merge;
-  cf_opts->max_write_buffer_number_to_maintain =
-      ioptions.max_write_buffer_number_to_maintain;
   cf_opts->max_write_buffer_size_to_maintain =
       ioptions.max_write_buffer_size_to_maintain;
   cf_opts->inplace_update_support = ioptions.inplace_update_support;
@@ -326,6 +329,7 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->num_levels = ioptions.num_levels;
   cf_opts->optimize_filters_for_hits = ioptions.optimize_filters_for_hits;
   cf_opts->force_consistency_checks = ioptions.force_consistency_checks;
+  cf_opts->disallow_memtable_writes = ioptions.disallow_memtable_writes;
   cf_opts->memtable_insert_with_hint_prefix_extractor =
       ioptions.memtable_insert_with_hint_prefix_extractor;
   cf_opts->cf_paths = ioptions.cf_paths;
@@ -382,40 +386,176 @@ std::unordered_map<std::string, CompressionType>
         {"kLZ4HCCompression", kLZ4HCCompression},
         {"kXpressCompression", kXpressCompression},
         {"kZSTD", kZSTD},
+        {"kCustomCompression80", kCustomCompression80},
+        {"kCustomCompression81", kCustomCompression81},
+        {"kCustomCompression82", kCustomCompression82},
+        {"kCustomCompression83", kCustomCompression83},
+        {"kCustomCompression84", kCustomCompression84},
+        {"kCustomCompression85", kCustomCompression85},
+        {"kCustomCompression86", kCustomCompression86},
+        {"kCustomCompression87", kCustomCompression87},
+        {"kCustomCompression88", kCustomCompression88},
+        {"kCustomCompression89", kCustomCompression89},
+        {"kCustomCompression8A", kCustomCompression8A},
+        {"kCustomCompression8B", kCustomCompression8B},
+        {"kCustomCompression8C", kCustomCompression8C},
+        {"kCustomCompression8D", kCustomCompression8D},
+        {"kCustomCompression8E", kCustomCompression8E},
+        {"kCustomCompression8F", kCustomCompression8F},
+        {"kCustomCompression90", kCustomCompression90},
+        {"kCustomCompression91", kCustomCompression91},
+        {"kCustomCompression92", kCustomCompression92},
+        {"kCustomCompression93", kCustomCompression93},
+        {"kCustomCompression94", kCustomCompression94},
+        {"kCustomCompression95", kCustomCompression95},
+        {"kCustomCompression96", kCustomCompression96},
+        {"kCustomCompression97", kCustomCompression97},
+        {"kCustomCompression98", kCustomCompression98},
+        {"kCustomCompression99", kCustomCompression99},
+        {"kCustomCompression9A", kCustomCompression9A},
+        {"kCustomCompression9B", kCustomCompression9B},
+        {"kCustomCompression9C", kCustomCompression9C},
+        {"kCustomCompression9D", kCustomCompression9D},
+        {"kCustomCompression9E", kCustomCompression9E},
+        {"kCustomCompression9F", kCustomCompression9F},
+        {"kCustomCompressionA0", kCustomCompressionA0},
+        {"kCustomCompressionA1", kCustomCompressionA1},
+        {"kCustomCompressionA2", kCustomCompressionA2},
+        {"kCustomCompressionA3", kCustomCompressionA3},
+        {"kCustomCompressionA4", kCustomCompressionA4},
+        {"kCustomCompressionA5", kCustomCompressionA5},
+        {"kCustomCompressionA6", kCustomCompressionA6},
+        {"kCustomCompressionA7", kCustomCompressionA7},
+        {"kCustomCompressionA8", kCustomCompressionA8},
+        {"kCustomCompressionA9", kCustomCompressionA9},
+        {"kCustomCompressionAA", kCustomCompressionAA},
+        {"kCustomCompressionAB", kCustomCompressionAB},
+        {"kCustomCompressionAC", kCustomCompressionAC},
+        {"kCustomCompressionAD", kCustomCompressionAD},
+        {"kCustomCompressionAE", kCustomCompressionAE},
+        {"kCustomCompressionAF", kCustomCompressionAF},
+        {"kCustomCompressionB0", kCustomCompressionB0},
+        {"kCustomCompressionB1", kCustomCompressionB1},
+        {"kCustomCompressionB2", kCustomCompressionB2},
+        {"kCustomCompressionB3", kCustomCompressionB3},
+        {"kCustomCompressionB4", kCustomCompressionB4},
+        {"kCustomCompressionB5", kCustomCompressionB5},
+        {"kCustomCompressionB6", kCustomCompressionB6},
+        {"kCustomCompressionB7", kCustomCompressionB7},
+        {"kCustomCompressionB8", kCustomCompressionB8},
+        {"kCustomCompressionB9", kCustomCompressionB9},
+        {"kCustomCompressionBA", kCustomCompressionBA},
+        {"kCustomCompressionBB", kCustomCompressionBB},
+        {"kCustomCompressionBC", kCustomCompressionBC},
+        {"kCustomCompressionBD", kCustomCompressionBD},
+        {"kCustomCompressionBE", kCustomCompressionBE},
+        {"kCustomCompressionBF", kCustomCompressionBF},
+        {"kCustomCompressionC0", kCustomCompressionC0},
+        {"kCustomCompressionC1", kCustomCompressionC1},
+        {"kCustomCompressionC2", kCustomCompressionC2},
+        {"kCustomCompressionC3", kCustomCompressionC3},
+        {"kCustomCompressionC4", kCustomCompressionC4},
+        {"kCustomCompressionC5", kCustomCompressionC5},
+        {"kCustomCompressionC6", kCustomCompressionC6},
+        {"kCustomCompressionC7", kCustomCompressionC7},
+        {"kCustomCompressionC8", kCustomCompressionC8},
+        {"kCustomCompressionC9", kCustomCompressionC9},
+        {"kCustomCompressionCA", kCustomCompressionCA},
+        {"kCustomCompressionCB", kCustomCompressionCB},
+        {"kCustomCompressionCC", kCustomCompressionCC},
+        {"kCustomCompressionCD", kCustomCompressionCD},
+        {"kCustomCompressionCE", kCustomCompressionCE},
+        {"kCustomCompressionCF", kCustomCompressionCF},
+        {"kCustomCompressionD0", kCustomCompressionD0},
+        {"kCustomCompressionD1", kCustomCompressionD1},
+        {"kCustomCompressionD2", kCustomCompressionD2},
+        {"kCustomCompressionD3", kCustomCompressionD3},
+        {"kCustomCompressionD4", kCustomCompressionD4},
+        {"kCustomCompressionD5", kCustomCompressionD5},
+        {"kCustomCompressionD6", kCustomCompressionD6},
+        {"kCustomCompressionD7", kCustomCompressionD7},
+        {"kCustomCompressionD8", kCustomCompressionD8},
+        {"kCustomCompressionD9", kCustomCompressionD9},
+        {"kCustomCompressionDA", kCustomCompressionDA},
+        {"kCustomCompressionDB", kCustomCompressionDB},
+        {"kCustomCompressionDC", kCustomCompressionDC},
+        {"kCustomCompressionDD", kCustomCompressionDD},
+        {"kCustomCompressionDE", kCustomCompressionDE},
+        {"kCustomCompressionDF", kCustomCompressionDF},
+        {"kCustomCompressionE0", kCustomCompressionE0},
+        {"kCustomCompressionE1", kCustomCompressionE1},
+        {"kCustomCompressionE2", kCustomCompressionE2},
+        {"kCustomCompressionE3", kCustomCompressionE3},
+        {"kCustomCompressionE4", kCustomCompressionE4},
+        {"kCustomCompressionE5", kCustomCompressionE5},
+        {"kCustomCompressionE6", kCustomCompressionE6},
+        {"kCustomCompressionE7", kCustomCompressionE7},
+        {"kCustomCompressionE8", kCustomCompressionE8},
+        {"kCustomCompressionE9", kCustomCompressionE9},
+        {"kCustomCompressionEA", kCustomCompressionEA},
+        {"kCustomCompressionEB", kCustomCompressionEB},
+        {"kCustomCompressionEC", kCustomCompressionEC},
+        {"kCustomCompressionED", kCustomCompressionED},
+        {"kCustomCompressionEE", kCustomCompressionEE},
+        {"kCustomCompressionEF", kCustomCompressionEF},
+        {"kCustomCompressionF0", kCustomCompressionF0},
+        {"kCustomCompressionF1", kCustomCompressionF1},
+        {"kCustomCompressionF2", kCustomCompressionF2},
+        {"kCustomCompressionF3", kCustomCompressionF3},
+        {"kCustomCompressionF4", kCustomCompressionF4},
+        {"kCustomCompressionF5", kCustomCompressionF5},
+        {"kCustomCompressionF6", kCustomCompressionF6},
+        {"kCustomCompressionF7", kCustomCompressionF7},
+        {"kCustomCompressionF8", kCustomCompressionF8},
+        {"kCustomCompressionF9", kCustomCompressionF9},
+        {"kCustomCompressionFA", kCustomCompressionFA},
+        {"kCustomCompressionFB", kCustomCompressionFB},
+        {"kCustomCompressionFC", kCustomCompressionFC},
+        {"kCustomCompressionFD", kCustomCompressionFD},
+        {"kCustomCompressionFE", kCustomCompressionFE},
         {"kDisableCompressionOption", kDisableCompressionOption}};
 
-std::vector<CompressionType> GetSupportedCompressions() {
-  // std::set internally to deduplicate potential name aliases
-  std::set<CompressionType> supported_compressions;
-  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
-    CompressionType t = comp_to_name.second;
-    if (t != kDisableCompressionOption && CompressionTypeSupported(t)) {
-      supported_compressions.insert(t);
+const std::vector<CompressionType>& GetSupportedCompressions() {
+  static std::vector<CompressionType> supported_compressions = []() {
+    // std::set internally to deduplicate potential name aliases
+    std::set<CompressionType> comp_set;
+    for (const auto& comp_to_name :
+         OptionsHelper::compression_type_string_map) {
+      CompressionType t = comp_to_name.second;
+      if (t != kDisableCompressionOption && CompressionTypeSupported(t)) {
+        comp_set.insert(t);
+      }
     }
-  }
-  return std::vector<CompressionType>(supported_compressions.begin(),
-                                      supported_compressions.end());
+    return std::vector<CompressionType>(comp_set.begin(), comp_set.end());
+  }();
+  return supported_compressions;
 }
 
-std::vector<CompressionType> GetSupportedDictCompressions() {
-  std::set<CompressionType> dict_compression_types;
-  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
-    CompressionType t = comp_to_name.second;
-    if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
-      dict_compression_types.insert(t);
+const std::vector<CompressionType>& GetSupportedDictCompressions() {
+  static std::vector<CompressionType> supported_dict_compressions = []() {
+    std::set<CompressionType> comp_set;
+    for (const auto& comp_to_name :
+         OptionsHelper::compression_type_string_map) {
+      CompressionType t = comp_to_name.second;
+      if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
+        comp_set.insert(t);
+      }
     }
-  }
-  return std::vector<CompressionType>(dict_compression_types.begin(),
-                                      dict_compression_types.end());
+    return std::vector<CompressionType>(comp_set.begin(), comp_set.end());
+  }();
+  return supported_dict_compressions;
 }
 
-std::vector<ChecksumType> GetSupportedChecksums() {
-  std::set<ChecksumType> checksum_types;
-  for (const auto& e : OptionsHelper::checksum_type_string_map) {
-    checksum_types.insert(e.second);
-  }
-  return std::vector<ChecksumType>(checksum_types.begin(),
-                                   checksum_types.end());
+const std::vector<ChecksumType>& GetSupportedChecksums() {
+  static std::vector<ChecksumType> supported_checksums = []() {
+    std::set<ChecksumType> checksum_types;
+    for (const auto& e : OptionsHelper::checksum_type_string_map) {
+      checksum_types.insert(e.second);
+    }
+    return std::vector<ChecksumType>(checksum_types.begin(),
+                                     checksum_types.end());
+  }();
+  return supported_checksums;
 }
 
 static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
@@ -555,7 +695,6 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       return SerializeEnum<CompressionType>(
           compression_type_string_map,
           *(static_cast<const CompressionType*>(opt_address)), value);
-      break;
     case OptionType::kChecksumType:
       return SerializeEnum<ChecksumType>(
           checksum_type_string_map,
@@ -898,7 +1037,7 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
                                        : value;
 
     if (opt_ptr == nullptr) {
-      return Status::NotFound("Could not find option", opt_name);
+      return Status::NotFound("Nullptr option", opt_name);
     } else if (parse_func_ != nullptr) {
       ConfigOptions copy = config_options;
       copy.invoke_prepare_options = false;
