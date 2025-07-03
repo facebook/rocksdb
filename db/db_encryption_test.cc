@@ -17,9 +17,9 @@ class DBEncryptionTest : public DBTestBase {
  public:
   DBEncryptionTest()
       : DBTestBase("db_encryption_test", /*env_do_fsync=*/true) {}
-  Env* GetTargetEnv() {
+  Env* GetNonEncryptedEnv() {
     if (encrypted_env_ != nullptr) {
-      return (static_cast<EnvWrapper*>(encrypted_env_))->target();
+      return (dynamic_cast<CompositeEnvWrapper*>(encrypted_env_))->env_target();
     } else {
       return env_;
     }
@@ -38,7 +38,7 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
   auto status = env_->GetChildren(dbname_, &fileNames);
   ASSERT_OK(status);
 
-  Env* target = GetTargetEnv();
+  Env* target = GetNonEncryptedEnv();
   int hits = 0;
   for (auto it = fileNames.begin(); it != fileNames.end(); ++it) {
     if (*it == "LOCK") {
@@ -89,7 +89,7 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
 }
 
 TEST_F(DBEncryptionTest, ReadEmptyFile) {
-  auto defaultEnv = GetTargetEnv();
+  auto defaultEnv = GetNonEncryptedEnv();
 
   // create empty file for reading it back in later
   auto envOptions = EnvOptions(CurrentOptions());
@@ -114,6 +114,31 @@ TEST_F(DBEncryptionTest, ReadEmptyFile) {
   ASSERT_OK(status);
 
   ASSERT_TRUE(data.empty());
+}
+
+TEST_F(DBEncryptionTest, NotSupportedGetFileSize) {
+  // Validate envrypted env does not support GetFileSize.
+  if (!encrypted_env_) {
+    return;
+  }
+
+  auto fs = encrypted_env_->GetFileSystem();
+
+  // create empty file for reading it back in later
+  auto filePath = dbname_ + "/empty.empty";
+
+  // Create empty file
+  CreateFile(fs.get(), filePath, "", false);
+
+  // Open it for reading footer
+  std::unique_ptr<FSRandomAccessFile> randomAccessFile;
+  auto status = fs->NewRandomAccessFile(filePath, FileOptions(),
+                                        &randomAccessFile, nullptr);
+  ASSERT_OK(status);
+
+  uint64_t fileSize;
+  status = randomAccessFile->GetFileSize(&fileSize);
+  ASSERT_TRUE(status.IsNotSupported());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

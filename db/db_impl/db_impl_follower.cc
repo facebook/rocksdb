@@ -70,9 +70,6 @@ Status DBImplFollower::Recover(
     }
     return s;
   }
-  if (immutable_db_options_.paranoid_checks && s.ok()) {
-    s = CheckConsistency();
-  }
   if (s.ok()) {
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);

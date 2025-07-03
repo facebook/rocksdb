@@ -155,6 +155,8 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
 
   size_t GetUniqueId(char* id, size_t max_size) const override;
 
+  IOStatus GetFileSize(uint64_t* file_size) override;
+
  private:
   std::unique_ptr<FSRandomAccessFile> target_;
   FaultInjectionTestFS* fs_;
@@ -218,7 +220,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
             DeleteThreadLocalErrorContext),
         ingest_data_corruption_before_write_(false),
         checksum_handoff_func_type_(kCRC32c),
-        fail_get_file_unique_id_(false) {}
+        fail_get_file_unique_id_(false),
+        fail_get_file_size_(false) {}
   virtual ~FaultInjectionTestFS() override { fs_error_.PermitUncheckedError(); }
 
   static const char* kClassName() { return "FaultInjectionTestFS"; }
@@ -477,6 +480,16 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     return fail_get_file_unique_id_;
   }
 
+  void SetFailGetFileSize(bool flag) {
+    MutexLock l(&mutex_);
+    fail_get_file_size_ = flag;
+  }
+
+  bool ShouldFailGetFileSize() {
+    MutexLock l(&mutex_);
+    return fail_get_file_size_;
+  }
+
   // Specify what the operation, so we can inject the right type of error
   enum ErrorOperation : char {
     kRead = 0,
@@ -636,6 +649,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   bool ingest_data_corruption_before_write_;
   ChecksumType checksum_handoff_func_type_;
   bool fail_get_file_unique_id_;
+  bool fail_get_file_size_;
 
   // Inject an error. For a READ operation, a status of IOError(), a
   // corruption in the contents of scratch, or truncation of slice
