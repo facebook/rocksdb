@@ -62,6 +62,9 @@ class PointLockManagerTest : public testing::Test {
   }
 
   void TearDown() override {
+    // Validate no lock was held at the end of the test
+    ASSERT_TRUE(locker_->GetPointLockStatus().empty());
+
     delete db_;
     EXPECT_OK(DestroyDir(env_, db_dir_));
   }

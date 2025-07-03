@@ -205,11 +205,6 @@ class PointLockManager : public LockManager {
                             const std::string& key, Env* env, int64_t timeout,
                             const LockInfo& lock_info);
 
-  Status AcquireLockIfUnderLimit(LockMap* lock_map, LockMapStripe* stripe,
-                                 const std::string& key,
-                                 const LockInfo& txn_lock_info,
-                                 LockInfo* lock_info);
-
   Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
                        const std::string& key, Env* env,
                        const LockInfo& lock_info, uint64_t* wait_time,

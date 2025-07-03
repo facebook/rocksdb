@@ -109,6 +109,10 @@ struct KeyLockWaiter {
   };
 
   bool ready;
+  // TODO(Xingbo), Switch to std::binary_semaphore, once we have c++20
+  // semaphore is likely more performant than mutex + cv.
+  // Although we will also need to implement TransactionDBSemaphore, which would
+  // be required if external system wants to do instrumented lock wait tracking
   std::shared_ptr<TransactionDBMutex> mutex;
   std::shared_ptr<TransactionDBCondVar> cv;
   // used for returning mutex back to the pool
@@ -214,11 +218,23 @@ struct LockMapStripe {
 
     std::list<std::unique_ptr<KeyLockWaiter>>::iterator lock_waiter;
     if (isUpgrade) {
-      // if transaction is upgrading a shared lock to exclusive lock, put it
-      // at the front of the queue. This reduces the chance of deadlock,
-      // which makes transaction run more efficiently
-      waiter_queue->emplace_front(GetKeyLockWaiterFromPool(id, exclusive));
-      lock_waiter = waiter_queue->begin();
+      // If transaction is upgrading a shared lock to exclusive lock, prioritize
+      // it by moving its exclusive lock request to the left of the first
+      // exclusive lock in the queue if there is one, or end of the queue if
+      // not exist. It will be able to acquire the lock after the shared
+      // locks waiters at the front of queue acquired locks. This reduces the
+      // chance of deadlock, which makes transaction run more efficiently
+      auto it = waiter_queue->begin();
+      while (true) {
+        if (it == waiter_queue->end() || (*it)->exclusive) {
+          // insert waiter either at the end of the queue or before the first
+          // exlusive lock waiter.
+          lock_waiter =
+              waiter_queue->insert(it, GetKeyLockWaiterFromPool(id, exclusive));
+          break;
+        }
+        it++;
+      }
     } else {
       // Otherwise, follow FIFO.
       waiter_queue->emplace_back(GetKeyLockWaiterFromPool(id, exclusive));
@@ -278,8 +294,9 @@ struct LockMap {
   const size_t num_stripes_;
 
   // Count of keys that are currently locked in this column family.
+  // Note that multiple shared locks on the same key is counted as 1 lock.
   // (Only maintained if PointLockManager::max_num_locks_ is positive.)
-  std::atomic<int64_t> lock_cnt{0};
+  std::atomic<int64_t> locked_key_cnt{0};
 
   std::vector<LockMapStripe*> lock_map_stripes_;
 
@@ -679,46 +696,6 @@ bool PointLockManager::IncrementWaiters(
   return true;
 }
 
-// Helper function for AcquireLocked().
-Status PointLockManager::AcquireLockIfUnderLimit(LockMap* lock_map,
-                                                 LockMapStripe* stripe,
-                                                 const std::string& key,
-                                                 const LockInfo& txn_lock_info,
-                                                 LockInfo* lock_info) {
-  if (max_num_locks_ > 0 &&
-      lock_map->lock_cnt.load(std::memory_order_acquire) >= max_num_locks_) {
-    // TODO(Xingbo): Support FIFO order when lock limit, as it is not used.
-    // Currently, the current transaction will be placed at the end of the wait
-    // queue, which violate FIFO order. In addition, when the lock limit is
-    // reached, lock requests in the wait queue will wait until timeout, where
-    // they have another chance to acquire the lock again.
-
-    // Ideally, the current transaction lock request should be placed at the
-    // head of the waiter queue. Meantime, when other locks are released, waiter
-    // should be woken up again to resume the lock request.
-    return Status::LockLimit();
-  } else {
-    // acquire lock
-    if (lock_info == nullptr) {
-      // create a new entry, if not exist
-      stripe->keys.emplace(
-          key, std::make_unique<LockInfo>(txn_lock_info.txn_ids[0],
-                                          txn_lock_info.expiration_time,
-                                          txn_lock_info.exclusive));
-    } else {
-      lock_info->txn_ids = txn_lock_info.txn_ids;
-      lock_info->exclusive = txn_lock_info.exclusive;
-      lock_info->expiration_time = txn_lock_info.expiration_time;
-    }
-
-    // Maintain lock count if there is a limit on the number of locks
-    if (max_num_locks_) {
-      lock_map->lock_cnt++;
-    }
-    return Status::OK();
-  }
-}
-
 // Try to lock this key after we have acquired the mutex.
 // Sets *expire_time to the expiration time in microseconds
 //  or 0 if no expiration.
@@ -730,6 +707,8 @@ Status PointLockManager::AcquireLockIfUnderLimit(LockMap* lock_map,
 // reaching per CF limit on the number of locks.
 //
 // REQUIRED:  Stripe mutex must be held. txn_ids must be empty.
+// TODO Xingbo move the new implementation to a subclass, so we can switch
+// between the 2 implementations
 Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
                                        const std::string& key, Env* env,
                                        const LockInfo& txn_lock_info,
@@ -741,150 +720,183 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
 
   *isUpgrade = false;
 
-  // Check if this key is already locked
   auto stripe_iter = stripe->keys.find(key);
-  if (stripe_iter != stripe->keys.end()) {
-    auto& lock_info = *(stripe_iter->second);
+  if (stripe_iter == stripe->keys.end()) {
+    // No lock nor waiter on this key, so we can acquire it
+    if (max_num_locks_ > 0 &&
+        lock_map->locked_key_cnt.load(std::memory_order_acquire) >=
+            max_num_locks_) {
+      return Status::LockLimit();
+    } else {
+      // acquire lock
+      // create a new entry, if not exist
+      stripe->keys.emplace(
+          key, std::make_unique<LockInfo>(txn_lock_info.txn_ids[0],
+                                          txn_lock_info.expiration_time,
+                                          txn_lock_info.exclusive));
 
-    auto follow_fifo_order = fifo && (lock_info.waiter_queue != nullptr) &&
-                             (!lock_info.waiter_queue->empty());
+      // Maintain lock count if there is a limit on the number of locks
+      if (max_num_locks_) {
+        lock_map->locked_key_cnt++;
+      }
 
-    if (!lock_info.txn_ids.empty()) {
-      assert((lock_info.txn_ids.size() == 1) || (!lock_info.exclusive));
+      return Status::OK();
+    }
+  }
 
-      // TODO : rewrite this block based on whether it is fifo, instead of
-      // whether it is upgrade
-      // Lock downgrade has to work, as caller uses it and it should always
-      // succeed
+  auto& lock_info = *(stripe_iter->second);
+  auto locked = !lock_info.txn_ids.empty();
+  auto solo_lock_owner = (lock_info.txn_ids.size() == 1) &&
+                         (lock_info.txn_ids[0] == txn_lock_info.txn_ids[0]);
 
-      if (lock_info.exclusive || txn_lock_info.exclusive) {
-        if (lock_info.txn_ids.size() == 1 &&
-            lock_info.txn_ids[0] == txn_lock_info.txn_ids[0] &&
-            // Either not follow fifo, which means it is the turn of this thread
-            // to take lock. Or follow fifo, but the first transaction is X
-            // lock.
-            // TODO : Explicitly handle lock downgrade
-            (!follow_fifo_order ||
-             lock_info.waiter_queue->front()->exclusive)) {
-          // The list contains one txn and we're it, so just take it.
-          lock_info.exclusive = txn_lock_info.exclusive;
-          lock_info.expiration_time = txn_lock_info.expiration_time;
-          return Status::OK();
-        } else {
-          // Check if it's expired. Skips over txn_lock_info.txn_ids[0] in case
-          // it's there for a shared lock with multiple holders which was not
-          // caught in the first case.
-          if (!follow_fifo_order &&
-              IsLockExpired(txn_lock_info.txn_ids[0], lock_info, env,
-                            expire_time)) {
-            // If lock is expired and it is its turn to take the lock, steal it.
-            lock_info.txn_ids = txn_lock_info.txn_ids;
-            lock_info.exclusive = txn_lock_info.exclusive;
-            lock_info.expiration_time = txn_lock_info.expiration_time;
-            // lock_cnt does not change
-            return Status::OK();
-          } else {
-            for (auto id : lock_info.txn_ids) {
-              // A transaction is not blocked by itself
-              if (id != txn_lock_info.txn_ids[0]) {
-                txn_ids->push_back(id);
-              } else {
-                // Itself is already holding a lock, which must be a shared
-                // lock. If it was a exclusive lock, it has been handled above,
-                // as exclusive lock only have one holder. In addition, it is
-                // must requesting an exlusive lock, other wise it will be
-                // handled below.
-                assert(!lock_info.exclusive && txn_lock_info.exclusive);
-                *isUpgrade = true;
-              }
-            }
-            // Add the waiter txn ids to the blocking txn id list for better
-            // deadlock detection.
-            if (lock_info.waiter_queue != nullptr) {
-              for (auto& waiter : *lock_info.waiter_queue) {
-                if (*isUpgrade && waiter->exclusive) {
-                  // For upgrade locks, it will be placed at the beginning of
-                  // the queue. However, for shared lock waiters that are at the
-                  // beginning of the queue that got waked up but haven't taken
-                  // the lock yet, they should still be added to the blocking
-                  // txn id list.
-                  break;
-                }
-                txn_ids->push_back(waiter->id);
-              }
-            }
-            return Status::TimedOut(Status::SubCode::kLockTimeout);
+  // Handle lock downgrade and reentrant first, it should always succeed
+  if (locked) {
+    if (solo_lock_owner && !(!lock_info.exclusive && txn_lock_info.exclusive)) {
+      // Lock is already owned by itself. If it is not lock upgrade, grant it
+      // immediately
+      lock_info.exclusive = txn_lock_info.exclusive;
+      lock_info.expiration_time = txn_lock_info.expiration_time;
+      return Status::OK();
+    }
+    // handle read reentrant lock
+    if (!txn_lock_info.exclusive && !lock_info.exclusive) {
+      auto lock_it =
+          std::find(lock_info.txn_ids.begin(), lock_info.txn_ids.end(),
+                    txn_lock_info.txn_ids[0]);
+      if (lock_it != lock_info.txn_ids.end()) {
+        lock_info.expiration_time =
+            std::max(lock_info.expiration_time, txn_lock_info.expiration_time);
+        return Status::OK();
+      }
+    }
+  }
+
+  auto prepare_txn_wait_ids_with_locked_txn_ids = [&lock_info, &txn_lock_info,
+                                                   &txn_ids, &isUpgrade]() {
+    for (auto id : lock_info.txn_ids) {
+      // A transaction is not blocked by itself
+      if (id != txn_lock_info.txn_ids[0]) {
+        txn_ids->push_back(id);
+      } else {
+        // Itself is already holding a lock, so it is either an upgrade or
+        // downgrade. Downgrade has already been handled above. Assert it is
+        // an upgrade here.
+        assert(!lock_info.exclusive && txn_lock_info.exclusive);
+        *isUpgrade = true;
+      }
+    }
+  };
+
+  auto has_waiter =
+      (lock_info.waiter_queue != nullptr) && (!lock_info.waiter_queue->empty());
+
+  if (fifo && has_waiter) {
+    // handle fifo and has waiter in the queue
+    {
+      // handle shared lock request on a shared lock with only shared lock
+      // waiters
+      if (!txn_lock_info.exclusive &&
+          (!locked || (locked && !lock_info.exclusive))) {
+        bool has_exclusive_waiter = false;
+        // check whether there is X waiter
+        for (auto& waiter : *lock_info.waiter_queue) {
+          has_exclusive_waiter |= waiter->exclusive;
+          if (has_exclusive_waiter) {
+            break;
           }
         }
-      } else {
-        // It is requesting shared access on a shared lock.
-        // If respect the FIFO order, check whether there is any waiter in the
-        // waiter queue
-        if (follow_fifo_order) {
-          // There is a waiter in the queue, follow FIFO order. Return TimedOut.
-          for (auto id : lock_info.txn_ids) {
-            // Caller should not request another shared lock on the same key,
-            // if it has already hold a shared lock, as caller is suppose to
-            // track what lock is being held.
-            assert(id != txn_lock_info.txn_ids[0]);
-            txn_ids->push_back(id);
-          }
-          // Add the waiter txn ids to the blocking txn id list for better
-          // deadlock detection
-          if (lock_info.waiter_queue != nullptr) {
-            for (auto& waiter_id : *lock_info.waiter_queue) {
-              txn_ids->push_back(waiter_id->id);
-            }
-          }
-          return Status::TimedOut(Status::SubCode::kLockTimeout);
-        } else {
+        if (!has_exclusive_waiter) {
+          // no X waiter, so we can acquire the lock without waiting
           lock_info.txn_ids.push_back(txn_lock_info.txn_ids[0]);
+          lock_info.exclusive = false;
           // Using std::max means that expiration time never goes down even
-          // when a transaction is removed from the list. The correct solution
-          // would be to track expiry for every transaction, but this would
-          // also work for now.
+          // when a transaction is removed from the list. The correct
+          // solution would be to track expiry for every transaction, but
+          // this would also work for now.
           lock_info.expiration_time = std::max(lock_info.expiration_time,
                                                txn_lock_info.expiration_time);
           return Status::OK();
         }
       }
-    } else {
-      if (follow_fifo_order) {
-        // If the requested lock type is shared, and all of the waiters are
-        // shared lock types, take a lock directly. There is no need to wait in
-        // the queue. In addition, it will not be woken up until all of the
-        // shared locks are released.
-        if (!txn_lock_info.exclusive) {
-          bool all_shared = true;
-          for (auto& waiter : *lock_info.waiter_queue) {
-            if (waiter->exclusive) {
-              all_shared = false;
-              break;
-            }
-          }
-          if (all_shared) {
-            return AcquireLockIfUnderLimit(lock_map, stripe, key, txn_lock_info,
-                                           &lock_info);
-          }
-        }
+    }
 
-        // There are waiters in the queue, follow FIFO order. Return TimedOut.
-        for (auto& waiter : *lock_info.waiter_queue) {
-          txn_ids->push_back(waiter->id);
+    // For other cases with fifo and lock waiter, try to wait in the queue
+    // and fill the waiting txn list
+    prepare_txn_wait_ids_with_locked_txn_ids();
+
+    // Add the waiter txn ids to the blocking txn id list for better
+    // deadlock detection
+    if (lock_info.waiter_queue != nullptr) {
+      for (auto& waiter : *lock_info.waiter_queue) {
+        if (*isUpgrade && waiter->exclusive) {
+          // For upgrade locks, it will be placed at the beginning of
+          // the queue. However, for shared lock waiters that are at
+          // the beginning of the queue that got waked up but haven't
+          // taken the lock yet, they should still be added to the
+          // blocking txn id list.
+          break;
         }
-        return Status::TimedOut(Status::SubCode::kLockTimeout);
-      } else {
-        // Lock not held, try to take it. This could happen when next waiter get
-        // woke up to take the lock after the previous owner released the lock.
-        return AcquireLockIfUnderLimit(lock_map, stripe, key, txn_lock_info,
-                                       &lock_info);
+        txn_ids->push_back(waiter->id);
       }
     }
+
+    if (*isUpgrade && txn_ids->empty()) {
+      // During lock upgrade, if no wait transaction is found, upgrade it now.
+      lock_info.exclusive = txn_lock_info.exclusive;
+      lock_info.expiration_time = txn_lock_info.expiration_time;
+      return Status::OK();
+    }
+    return Status::TimedOut(Status::SubCode::kLockTimeout);
   } else {
-    // Lock not held, try to take it. This happens when no transaction has tried
-    // to lock the key.
-    return AcquireLockIfUnderLimit(lock_map, stripe, key, txn_lock_info,
-                                   nullptr);
+    // there is no waiter or it is its turn to take the lock
+    // For handle lock expiration
+    if (!locked) {
+      // no lock on this key, acquire it directly
+      lock_info.txn_ids = txn_lock_info.txn_ids;
+      lock_info.exclusive = txn_lock_info.exclusive;
+      lock_info.expiration_time = txn_lock_info.expiration_time;
+      return Status::OK();
+    }
+
+    if (IsLockExpired(txn_lock_info.txn_ids[0], lock_info, env, expire_time)) {
+      // current lock is expired, steal it, no need to check lock limit
+      lock_info.txn_ids = txn_lock_info.txn_ids;
+      lock_info.exclusive = txn_lock_info.exclusive;
+      lock_info.expiration_time = txn_lock_info.expiration_time;
+      return Status::OK();
+    }
+
+    // Check lock compatibility
+    if (txn_lock_info.exclusive) {
+      // handle lock upgrade
+      if (solo_lock_owner) {
+        // Itself is already holding a lock, so it is either an upgrade or
+        // downgrade. Downgrade has already been handled above. Assert it is
+        // an upgrade here. Acquire the lock directly
+        assert(!lock_info.exclusive && txn_lock_info.exclusive);
+        lock_info.exclusive = txn_lock_info.exclusive;
+        lock_info.expiration_time = txn_lock_info.expiration_time;
+        return Status::OK();
+      } else {
+        // lock is already owned by other transactions
+        prepare_txn_wait_ids_with_locked_txn_ids();
+        return Status::TimedOut(Status::SubCode::kLockTimeout);
+      }
+    } else {
+      // handle shared lock request
+      if (lock_info.exclusive) {
+        // lock is already owned by other exclusive lock
+        prepare_txn_wait_ids_with_locked_txn_ids();
+        return Status::TimedOut(Status::SubCode::kLockTimeout);
+      } else {
+        // lock is on shared lock state, acquire it
+        lock_info.txn_ids.push_back(txn_lock_info.txn_ids[0]);
+        // update the expiration time
+        lock_info.expiration_time =
+            std::max(lock_info.expiration_time, txn_lock_info.expiration_time);
+        return Status::OK();
+      }
+    }
   }
 }
 
@@ -913,38 +925,46 @@ void PointLockManager::UnLockKey(PessimisticTransaction* txn,
         txns.pop_back();
       };
 
-      auto handle_last_transaction_holding_the_lock = [&stripe_iter, &stripe,
-                                                       &erase_current_txn]() {
-        // check whether there is other waiting transactions
-        if (stripe_iter->second->waiter_queue == nullptr ||
-            stripe_iter->second->waiter_queue->empty()) {
-          stripe->keys.erase(stripe_iter);
-        } else {
-          // there are waiters in the queue, so we need to wake the next one up
-          erase_current_txn();
-          // loop through the waiter queue and wake up all the shared lock
-          // waiters until the first exclusive lock waiter, or wake up the first
-          // waiter, if it is waiting for an exclusive lock.
-          bool first_waiter = true;
-          for (auto& waiter : *stripe_iter->second->waiter_queue) {
-            if (waiter->exclusive) {
-              if (first_waiter) {
-                // the first waiter is an exclusive lock waiter, wake it up
-                // Note that they are only notified, but not removed from the
-                // waiter queue. This allows new transaction to be aware that
-                // there are waiters ahead of them.
-                waiter->Notify();
+      auto handle_last_transaction_holding_the_lock =
+          [this, &stripe_iter, &stripe, &erase_current_txn, &lock_map]() {
+            // check whether there is other waiting transactions
+            if (stripe_iter->second->waiter_queue == nullptr ||
+                stripe_iter->second->waiter_queue->empty()) {
+              stripe->keys.erase(stripe_iter);
+              if (max_num_locks_ > 0) {
+                // Maintain lock count if there is a limit on the number of
+                // locks.
+                assert(lock_map->locked_key_cnt.load(
+                           std::memory_order_relaxed) > 0);
+                lock_map->locked_key_cnt--;
               }
-              // found the first exclusive lock waiter, stop
-              break;
             } else {
-              // wake up the shared lock waiter
-              waiter->Notify();
+              // there are waiters in the queue, so we need to wake the next
+              // one up
+              erase_current_txn();
+              // loop through the waiter queue and wake up all the shared lock
+              // waiters until the first exclusive lock waiter, or wake up the
+              // first waiter, if it is waiting for an exclusive lock.
+              bool first_waiter = true;
+              for (auto& waiter : *stripe_iter->second->waiter_queue) {
+                if (waiter->exclusive) {
+                  if (first_waiter) {
+                    // the first waiter is an exclusive lock waiter, wake it
+                    // up Note that they are only notified, but not removed
+                    // from the waiter queue. This allows new transaction to
+                    // be aware that there are waiters ahead of them.
+                    waiter->Notify();
+                  }
+                  // found the first exclusive lock waiter, stop
+                  break;
+                } else {
+                  // wake up the shared lock waiter
+                  waiter->Notify();
+                }
+                first_waiter = false;
+              }
             }
-            first_waiter = false;
-          }
-        }
-      };
+          };
 
       // If the lock was held in exclusive mode, only one transaction should
       // holding it.
@@ -952,8 +972,8 @@ void PointLockManager::UnLockKey(PessimisticTransaction* txn,
         assert(txns.size() == 1);
         handle_last_transaction_holding_the_lock();
       } else {
-        // In shared mode, it is possible that another transaction is holding a
-        // shared lock and is waiting to upgrade the lock to exclusive.
+        // In shared mode, it is possible that another transaction is holding
+        // a shared lock and is waiting to upgrade the lock to exclusive.
         assert(txns.size() >= 1);
         if (txns.size() > 2) {
           // Including the current transaction, if there are more than 2
@@ -977,12 +997,6 @@ void PointLockManager::UnLockKey(PessimisticTransaction* txn,
           // Current transaction is the only one holding the shared lock
           handle_last_transaction_holding_the_lock();
         }
-      }
-
-      if (max_num_locks_ > 0) {
-        // Maintain lock count if there is a limit on the number of locks.
-        assert(lock_map->lock_cnt.load(std::memory_order_relaxed) > 0);
-        lock_map->lock_cnt--;
       }
     }
   } else {
@@ -1039,7 +1053,8 @@ void PointLockManager::UnLock(PessimisticTransaction* txn,
       keys_by_stripe[stripe_num].push_back(&key);
     }
 
-    // For each stripe, grab the stripe mutex and unlock all keys in this stripe
+    // For each stripe, grab the stripe mutex and unlock all keys in this
+    // stripe
     for (auto& stripe_iter : keys_by_stripe) {
       size_t stripe_num = stripe_iter.first;
       auto& stripe_keys = stripe_iter.second;
