@@ -252,7 +252,8 @@ struct LockMapStripe {
       ret = (*lock_waiter)->WaitFor(timeout_us);
     }
 
-    TEST_SYNC_POINT("LockMapStrpe::WaitOnKeyInternal:AfterWokenUp");
+    TEST_SYNC_POINT_CALLBACK("LockMapStrpe::WaitOnKeyInternal:AfterWokenUp",
+                             &id);
     TEST_SYNC_POINT("LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock");
 
     // Re-acquire the stripe mutex, as the lock waiter need to be removed from
@@ -751,12 +752,27 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
 
   // Handle lock downgrade and reentrant first, it should always succeed
   if (locked) {
-    if (solo_lock_owner && !(!lock_info.exclusive && txn_lock_info.exclusive)) {
-      // Lock is already owned by itself. If it is not lock upgrade, grant it
-      // immediately
-      lock_info.exclusive = txn_lock_info.exclusive;
-      lock_info.expiration_time = txn_lock_info.expiration_time;
-      return Status::OK();
+    if (solo_lock_owner) {
+      // Lock is already owned by itself.
+      if (lock_info.exclusive && !txn_lock_info.exclusive) {
+        // For downgrade, wake up all the shared lock waiters at the front of
+        // the queue
+        if (lock_info.waiter_queue != nullptr) {
+          for (auto& waiter : *lock_info.waiter_queue) {
+            if (waiter->exclusive) {
+              break;
+            }
+            waiter->Notify();
+          }
+        }
+      }
+
+      if (!(!lock_info.exclusive && txn_lock_info.exclusive)) {
+        // If it is not lock upgrade, grant it immediately
+        lock_info.exclusive = txn_lock_info.exclusive;
+        lock_info.expiration_time = txn_lock_info.expiration_time;
+        return Status::OK();
+      }
     }
     // handle read reentrant lock
     if (!txn_lock_info.exclusive && !lock_info.exclusive) {

@@ -1242,41 +1242,211 @@ TEST_F(PointLockManagerTest, UpgradeLockRaceCondition) {
   delete txn1;
 }
 
-// TODO add test case for this specific failure
-// Bug : When Thd 1 release S lock, it wakes up the next waiter in line, which
-// is X lock Thd 5. This is a bug. Instead, X5 should be placed at the end of
-// the shared lock, instead of the head of the queue
-// TODO add a new test.
+TEST_F(PointLockManagerTest, Catch22) {
+  // Benchmark the overhead of one transaction depends on another in a circle
+  // repeatedly
 
-// Test lock upgrade race condition.
-// Txn1 X lock
-// Txn2,3,4 try S lock
-// Txn1 unlock
-// Txn2,3 take S lock
-// Txn2 try X lock
-// Txn3 release S lock
-// Txn2 should not take X lock, but wait until Txn4 take the shared lock first.
-// Txn4 take S lock
-// Txn4 release S lock
-// Txn2 upgraded to X lock
-// Txn2 release lock
-// clean up
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
+  TransactionOptions txn_opt;
+  txn_opt.deadlock_detect = true;
+  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.expiration = kLongTxnTimeoutUs;
 
-// TODO add a way to reduce stripe size in the test case to cause more
-// contention defined in include/rocksdb/utilities/transaction_db.h
+  auto txn1 = NewTxn(txn_opt);
+  auto txn2 = NewTxn(txn_opt);
+
+  // use a wait count to count the number of times the lock is waited inside
+  // transaction lock
+  std::atomic_int wait_count(0);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      wait_sync_point_name_, [&wait_count](void* /*arg*/) { wait_count++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // txn1 X lock
+  ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
+
+  std::mutex coordinator_mutex;
+
+  // txn1 try to lock X lock in a loop
+  auto t1 = port::Thread([this, &txn1, &wait_count, &coordinator_mutex]() {
+    while (wait_count.load() < 100000) {
+      // spin wait until the other thread enters the lock waiter queue.
+      while (wait_count.load() % 2 == 0);
+      // unlock the lock, so that the other thread can acquire the lock
+      locker_->UnLock(txn1, 1, "k1", env_);
+      {
+        // Use the coordinator mutex to make sure the other thread has been
+        // waked up and acquired the lock, before this thread try to acquire
+        // the lock again.
+        std::scoped_lock<std::mutex> lock(coordinator_mutex);
+        ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
+      }
+    }
+    locker_->UnLock(txn1, 1, "k1", env_);
+  });
+
+  // txn2 try to lock X lock in a loop
+  auto t2 = port::Thread([this, &txn2, &wait_count, &coordinator_mutex]() {
+    while (wait_count.load() < 100000) {
+      {
+        // Use the coordinator mutex to make sure the other thread has been
+        // waked up and acquired the lock, before this thread try to acquire
+        // the lock again.
+        std::scoped_lock<std::mutex> lock(coordinator_mutex);
+        ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
+      }
+      // spin wait until the other thread enters the lock waiter queue.
+      while (wait_count.load() % 2 == 1);
+      // unlock the lock, so that the other thread can acquire the lock
+      locker_->UnLock(txn2, 1, "k1", env_);
+    }
+  });
+
+  // clean up
+  t1.join();
+  t2.join();
+
+  delete txn2;
+  delete txn1;
+}
+
+TEST_F(PointLockManagerTest, LockUpgradeOrdering) {
+  // When lock is upgraded, verify that it will only upgrade its lock after all
+  // the shared lock that are before the first exclusive lock in the lock wait
+  // queue.
+
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
+  TransactionOptions txn_opt;
+  txn_opt.deadlock_detect = true;
+  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.expiration = kLongTxnTimeoutUs;
+
+  auto txn1 = NewTxn(txn_opt);
+  auto txn2 = NewTxn(txn_opt);
+  auto txn3 = NewTxn(txn_opt);
+  auto txn4 = NewTxn(txn_opt);
+
+  std::mutex txn4_mutex;
+  std::unique_lock<std::mutex> txn4_lock(txn4_mutex);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "LockMapStrpe::WaitOnKeyInternal:AfterWokenUp",
+      [&txn4, &txn4_mutex](void* arg) {
+        auto transaction_id = *(static_cast<TransactionID*>(arg));
+        if (transaction_id == txn4->GetId()) {
+          // wait for txn4 mutex to be released, so that this thread will be
+          // blocked.
+          std::scoped_lock<std::mutex> lock(txn4_mutex);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Txn1 X lock
+  ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
+
+  // Txn2,3,4 try S lock
+  auto t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn2]() {
+    ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
+  });
+  auto t2 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn3]() {
+    ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, false));
+  });
+  auto t3 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn4]() {
+    ASSERT_OK(locker_->TryLock(txn4, 1, "k1", env_, false));
+  });
+
+  // Txn1 unlock
+  locker_->UnLock(txn1, 1, "k1", env_);
+
+  // Txn2,3 take S lock
+  t1.join();
+  t2.join();
+
+  // Txn2 try X lock
+  std::atomic_bool txn2_exclusive_lock_acquired(false);
+  auto t4 = BlockUntilWaitingTxn(
+      wait_sync_point_name_, [this, &txn2, &txn2_exclusive_lock_acquired]() {
+        ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
+        txn2_exclusive_lock_acquired.store(true);
+      });
+
+  // Txn3 release S lock
+  locker_->UnLock(txn3, 1, "k1", env_);
+
+  // Txn4 take S lock
+  t3.join();
+
+  // Validate Txn2 has not acquired the lock yet
+  ASSERT_FALSE(txn2_exclusive_lock_acquired.load());
+
+  // Txn4 release S lock Txn2 upgraded to X lock Txn2
+  locker_->UnLock(txn4, 1, "k1", env_);
+  t4.join();
+  ASSERT_TRUE(txn2_exclusive_lock_acquired.load());
+
+  // release lock clean up
+  locker_->UnLock(txn2, 1, "k1", env_);
+
+  delete txn4;
+  delete txn3;
+  delete txn2;
+  delete txn1;
+}
+
+// // TODO Add test downgrade bug
+// Thd 3 acquired lock 1 type exclusive
+// {X3}
+// Thd 2 try to acquire lock 1 type shared
+// {X3}, {S2}
+//
+// // BUG
+// When X3 downgrade to S3, it should notify all the waiters in the queue to
+// take the lock.
+//
+// Thd 3 try to acquire lock 1 type shared
+// {S3}, {S2}
+// Thd 1 try to acquire lock 1 type shared
+// Thd 1 acquired lock 1 type shared
+// {S3, S1}, {S2}
+// Thd 1 release lock 1
+// {S3}, {S2}
+// Thd 1 try to acquire lock 1 type shared
+// Thd 1 acquired lock 1 type shared
+// {S3, S1}, {S2}
+// Thd 1 try to acquire lock 1 type exclusive
+// {S3, S1}, {S2, X1}
+// Thd 3 acquired lock 1 type shared
+// Thd 3 release lock 1
+// {S1}, {S2, X1}
+// Thd 0 try to acquire lock 1 type exclusive
+
+// #define DEBUG_POINT_LOCK_MANAGER_TEST
 #ifdef DEBUG_POINT_LOCK_MANAGER_TEST
 #define DEBUG_LOG(...)            \
   do {                            \
     fprintf(stderr, __VA_ARGS__); \
+    fflush(stderr);               \
   } while (0)
 #else
 #define DEBUG_LOG(...)
 #endif
 
+enum class LockTypeToTest : int8_t {
+  EXCLUSIVE_ONLY = 0,
+  SHARED_ONLY = 1,
+  EXCLUSIVE_AND_SHARED = 2,
+};
+
 struct PointLockCorrectnessCheckTestParam {
   size_t thread_count;
   size_t key_count;
   size_t execution_time_sec;
+  LockTypeToTest lock_type;
   int64_t lock_timeout_us;
   int64_t lock_expiration_us;
   bool allow_non_deadlock_error;
@@ -1328,7 +1498,7 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
   }
 
   // shutdown flag
-  std::atomic_bool shutdown = 0;
+  std::atomic_bool shutdown = false;
 
   for (size_t thd_idx = 0; thd_idx < param.thread_count; thd_idx++) {
     threads.emplace_back([this, &txn_opt, &shutdown, &num_of_locks_acquired,
@@ -1340,99 +1510,131 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
       while (!shutdown) {
         DEBUG_LOG("Thd %lu new txn\n", thd_idx);
         auto txn = NewTxn(txn_opt);
-        std::vector<std::pair<std::string, bool>> locked_key_with_types;
+        std::vector<std::pair<uint32_t, bool>> locked_key_with_types;
         // try to grab a random number of locks
         auto num_key_to_lock =
             Random::GetTLSInstance()->Uniform(param.key_count / 2) + 1;
         Status s;
+
         for (uint32_t j = 0; j < num_key_to_lock; j++) {
-          auto key = std::to_string(
-              Random::GetTLSInstance()->Uniform(param.key_count));
+          uint32_t key = 0;
+          key = Random::GetTLSInstance()->Uniform(param.key_count);
+          auto key_str = std::to_string(key);
+          bool isUpgrade = false;
+          bool isDowngrade = false;
+
+          // Decide lock type
           auto exclusive_lock_type = Random::GetTLSInstance()->OneIn(2);
           // check whether a lock on the same key is already held
-          auto it = std::find_if(locked_key_with_types.begin(),
-                                 locked_key_with_types.end(),
-                                 [&key](std::pair<std::string, bool>& e) {
-                                   return e.first == key;
-                                 });
-          bool isUpgrade = false;
+          auto it = std::find_if(
+              locked_key_with_types.begin(), locked_key_with_types.end(),
+              [&key](std::pair<uint32_t, bool>& e) { return e.first == key; });
           if (it != locked_key_with_types.end()) {
             // a lock on the same key is already held.
-            if (it->second == false) {
-              // If it is a shared lock, switch to an exclusive lock
-              exclusive_lock_type = true;
-              isUpgrade = true;
+            if (param.lock_type == LockTypeToTest::EXCLUSIVE_AND_SHARED) {
+              // if test both shared and exclusive locks, switch their type
+              if (it->second == false) {
+                // If it is a shared lock, switch to an exclusive lock
+                exclusive_lock_type = true;
+                isUpgrade = true;
+              } else {
+                // If it is an exclusive lock, downgrade to a shared lock
+                exclusive_lock_type = false;
+                isDowngrade = true;
+              }
             } else {
-              // If it is an exclusive lock, skip it
+              // try to lock a different key
               j--;
               continue;
             }
           }
+          if (param.lock_type != LockTypeToTest::EXCLUSIVE_AND_SHARED) {
+            // if only one type of locks to be acquired, update its type
+            exclusive_lock_type =
+                (param.lock_type == LockTypeToTest::EXCLUSIVE_ONLY);
+          }
+
+          if (!param.allow_non_deadlock_error) {
+            if (isDowngrade) {
+              // Before downgrade, validate the lock is in exlusive status
+              // This could not be done after downgrade, as another thread could
+              // take a shared lock and update lock status
+              ASSERT_TRUE(exclusive_lock_status[key])
+                  << "Thd " << thd_idx << " key " << key;
+              ASSERT_EQ(*shared_lock_count[key], 0)
+                  << "Thd " << thd_idx << " key " << key;
+            }
+          }
+
           // try to acquire the lock
-          DEBUG_LOG("Thd %lu try to acquire lock %s type %s\n", thd_idx,
-                    key.c_str(), exclusive_lock_type ? "exclusive" : "shared");
-          s = locker_->TryLock(txn, 1, key, env_, exclusive_lock_type);
+          DEBUG_LOG("Thd %lu try to acquire lock %u type %s\n", thd_idx, key,
+                    exclusive_lock_type ? "exclusive" : "shared");
+          s = locker_->TryLock(txn, 1, key_str, env_, exclusive_lock_type);
           if (s.ok()) {
-            DEBUG_LOG("Thd %lu acquired lock %s type %s\n", thd_idx,
-                      key.c_str(),
+            DEBUG_LOG("Thd %lu acquired lock %u type %s\n", thd_idx, key,
                       exclusive_lock_type ? "exclusive" : "shared");
+
+            // update local lock status
+            if (exclusive_lock_type) {
+              if (isUpgrade) {
+                it->second = true;
+              } else {
+                locked_key_with_types.emplace_back(key, exclusive_lock_type);
+              }
+              num_of_exclusive_locks_acquired++;
+            } else {
+              if (isDowngrade) {
+                it->second = false;
+              } else {
+                // Could not validate status was not in exclusive status, as
+                // the lock could be downgraded by another thread.
+                locked_key_with_types.emplace_back(key, exclusive_lock_type);
+              }
+              num_of_shared_locks_acquired++;
+            }
+            num_of_locks_acquired++;
+
+            // Check and update global lock status
             if (!param.allow_non_deadlock_error) {
               // Validate lock status, if deadlock is the only allowed error.
               // otherwise, lock could be expired and stolen
-              auto key_idx = std::stoi(key);
               if (exclusive_lock_type) {
+                // validate the lock is not in exclusive status
+                ASSERT_FALSE(exclusive_lock_status[key])
+                    << "Thd " << thd_idx << " key " << key;
                 if (isUpgrade) {
                   // validate the lock is in shared status and only had one
                   // shared lock
-                  ASSERT_FALSE(exclusive_lock_status[key_idx])
+                  ASSERT_EQ(*shared_lock_count[key], 1)
                       << "Thd " << thd_idx << " key " << key;
-                  ASSERT_EQ(*shared_lock_count[key_idx], 1)
-                      << "Thd " << thd_idx << " key " << key;
-                  shared_lock_count[key_idx]->fetch_sub(1);
+                  shared_lock_count[key]->fetch_sub(1);
                 } else {
-                  // validate the lock is in unlocked status
-                  ASSERT_FALSE(exclusive_lock_status[key_idx])
-                      << "Thd " << thd_idx << " key " << key;
-                  ASSERT_EQ(*shared_lock_count[key_idx], 0)
+                  ASSERT_EQ(*shared_lock_count[key], 0)
                       << "Thd " << thd_idx << " key " << key;
                 }
                 // update the lock status
-                exclusive_lock_status[key_idx] = 1;
+                exclusive_lock_status[key] = 1;
               } else {
-                // validate the lock is not in exclusive status
-                ASSERT_FALSE(exclusive_lock_status[key_idx])
-                    << "Thd " << thd_idx << " key " << key;
-                // update the lock status
-                shared_lock_count[key_idx]->fetch_add(1);
+                shared_lock_count[key]->fetch_add(1);
+                exclusive_lock_status[key] = 0;
               }
-            }
-            num_of_locks_acquired++;
-            if (exclusive_lock_type) {
-              num_of_exclusive_locks_acquired++;
-            } else {
-              num_of_shared_locks_acquired++;
-            }
-            if (!isUpgrade) {
-              locked_key_with_types.emplace_back(key, exclusive_lock_type);
-            } else {
-              it->second = true;
             }
           } else {
             if (!param.allow_non_deadlock_error) {
               ASSERT_TRUE(s.IsDeadlock());
             }
             if (s.IsDeadlock()) {
-              DEBUG_LOG("Thd %lu detected deadlock on key %s, abort\n", thd_idx,
-                        key.c_str());
+              DEBUG_LOG("Thd %lu detected deadlock on key %u, abort\n", thd_idx,
+                        key);
               num_of_deadlock_detected++;
               // for deadlock, release all locks acquired
               break;
             } else {
               // for other errors, try again
               DEBUG_LOG(
-                  "Thd %lu failed to acquire lock on key %s, due to %s, "
+                  "Thd %lu failed to acquire lock on key %u, due to %s, "
                   "abort\n",
-                  thd_idx, key.c_str(), s.ToString().c_str());
+                  thd_idx, key, s.ToString().c_str());
             }
           }
         }
@@ -1450,43 +1652,41 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
         // release all locks
         for (auto& key_type : locked_key_with_types) {
           auto key = key_type.first;
-          auto key_idx = std::stoi(key);
-          ASSERT_TRUE(key_idx >= 0 &&
-                      key_idx < static_cast<int>(param.key_count));
-          ASSERT_EQ(counters[key_idx]->load(), values[key_idx])
-              << "Thd " << thd_idx << " key " << key;
-          auto exclusive = key_type.second;
-          if (exclusive) {
-            // exclusive lock
-            // bump the value by 1
-            (*counters[key_idx])++;
-            values[key_idx]++;
-            DEBUG_LOG("Thd %lu bump key %s by 1 to %d\n", thd_idx,
-                      key_type.first.c_str(), values[key_idx]);
-            ASSERT_EQ(counters[key_idx]->load(), values[key_idx])
-                << "Thd " << thd_idx << " key " << key_idx;
-          }
+          ASSERT_TRUE(key < param.key_count);
+          // Check global lock status
           if (!param.allow_non_deadlock_error) {
+            ASSERT_EQ(counters[key]->load(), values[key])
+                << "Thd " << thd_idx << " key " << key;
+            auto exclusive = key_type.second;
+            if (exclusive) {
+              // exclusive lock
+              // bump the value by 1
+              (*counters[key])++;
+              values[key]++;
+              DEBUG_LOG("Thd %lu bump key %u by 1 to %d\n", thd_idx, key,
+                        values[key]);
+              ASSERT_EQ(counters[key]->load(), values[key])
+                  << "Thd " << thd_idx << " key " << key;
+            }
             // Validate lock status, if deadlock is the only allowed error.
             // otherwise, lock could be expired and stolen
             if (exclusive) {
               // exclusive lock
-              ASSERT_TRUE(exclusive_lock_status[key_idx])
+              ASSERT_TRUE(exclusive_lock_status[key])
                   << "Thd " << thd_idx << " key " << key;
-              ASSERT_EQ(*shared_lock_count[key_idx], 0)
+              ASSERT_EQ(*shared_lock_count[key], 0)
                   << "Thd " << thd_idx << " key " << key;
-              exclusive_lock_status[key_idx] = 0;
+              exclusive_lock_status[key] = 0;
             } else {
               // shared lock
-              ASSERT_FALSE(exclusive_lock_status[key_idx])
+              ASSERT_FALSE(exclusive_lock_status[key])
                   << "Thd " << thd_idx << " key " << key;
-              ASSERT_GE(shared_lock_count[key_idx]->fetch_sub(1), 1)
+              ASSERT_GE(shared_lock_count[key]->fetch_sub(1), 1)
                   << "Thd " << thd_idx << " key " << key;
             }
           }
-          DEBUG_LOG("Thd %lu release lock %s\n", thd_idx,
-                    key_type.first.c_str());
-          locker_->UnLock(txn, 1, key_type.first, env_);
+          DEBUG_LOG("Thd %lu release lock %u\n", thd_idx, key);
+          locker_->UnLock(txn, 1, std::to_string(key), env_);
         }
         delete txn;
       }
@@ -1495,10 +1695,11 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
 
   // run test for a few seconds
   // print progress
+  auto prev_num_of_locks_acquired = num_of_locks_acquired.load();
   for (size_t i = 0; i < param.execution_time_sec; i++) {
-    // TODO Xingbo assert we are making progress, otherwise, fail the test
-    // TODO move print to a function, so we can reuse
     std::this_thread::sleep_for(std::chrono::seconds(1));
+    ASSERT_GT(num_of_locks_acquired.load(), prev_num_of_locks_acquired);
+    prev_num_of_locks_acquired = num_of_locks_acquired.load();
     printf("num_of_locks_acquired: %d\n", num_of_locks_acquired.load());
     printf("num_of_exclusive_locks_acquired: %d\n",
            num_of_exclusive_locks_acquired.load());
@@ -1519,22 +1720,22 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
     ASSERT_EQ(counters[i]->load(), values[i]);
   }
 
-  printf("num_of_locks_acquired: %d\n", num_of_locks_acquired.load());
-  printf("num_of_exclusive_locks_acquired: %d\n",
-         num_of_exclusive_locks_acquired.load());
-  printf("num_of_shared_locks_acquired: %d\n",
-         num_of_shared_locks_acquired.load());
-  printf("num_of_deadlock_detected: %d\n", num_of_deadlock_detected.load());
-  ASSERT_TRUE(num_of_locks_acquired.load() > 0);
+  ASSERT_GE(num_of_locks_acquired.load(), 0);
 }
 
 INSTANTIATE_TEST_CASE_P(
     PointLockCorrectnessCheckTestSuite, PointLockCorrectnessCheckTest,
     ::testing::ValuesIn(std::vector<PointLockCorrectnessCheckTestParam>{
         // short timeout and expiration
-        {64, 16, 10, 10, 10, true, true},
+        {64, 16, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 10, 10, true, true},
+        {64, 16, 10, LockTypeToTest::SHARED_ONLY, 10, 10, true, true},
         // long timeout and expiration
-        {64, 16, 10, kLongTxnTimeoutUs, kLongTxnTimeoutUs, false, false},
+        {64, 16, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, kLongTxnTimeoutUs,
+         kLongTxnTimeoutUs, false, false},
+        {64, 16, 10, LockTypeToTest::EXCLUSIVE_ONLY, kLongTxnTimeoutUs,
+         kLongTxnTimeoutUs, false, false},
+        {64, 16, 10, LockTypeToTest::SHARED_ONLY, kLongTxnTimeoutUs,
+         kLongTxnTimeoutUs, false, false},
     }));
 
 INSTANTIATE_TEST_CASE_P(PointLockManager, AnyLockManagerTest,
