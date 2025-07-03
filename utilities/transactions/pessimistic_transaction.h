@@ -71,18 +71,26 @@ class PessimisticTransaction : public TransactionBaseImpl {
                                             std::string* key) const override {
     std::lock_guard<std::mutex> lock(wait_mutex_);
     std::vector<TransactionID> ids(waiting_txn_ids_.size());
-    if (key) *key = waiting_key_ ? *waiting_key_ : "";
+    if (enable_get_waiting_txn_after_timeout_ && timed_out_key_.has_value()) {
+      if (key) *key = timed_out_key_.value();
+    } else {
+      if (key) *key = waiting_key_ ? *waiting_key_ : "";
+    }
     if (column_family_id) *column_family_id = waiting_cf_id_;
     std::copy(waiting_txn_ids_.begin(), waiting_txn_ids_.end(), ids.begin());
     return ids;
   }
 
   void SetWaitingTxn(autovector<TransactionID> ids, uint32_t column_family_id,
-                     const std::string* key) {
+                     const std::string* key, bool is_timed_out = false) {
     std::lock_guard<std::mutex> lock(wait_mutex_);
     waiting_txn_ids_ = ids;
     waiting_cf_id_ = column_family_id;
-    waiting_key_ = key;
+    if (is_timed_out) {
+      timed_out_key_ = key ? *key : "";
+    } else {
+      waiting_key_ = key;
+    }
   }
 
   void ClearWaitingTxn() {
@@ -113,6 +121,10 @@ class PessimisticTransaction : public TransactionBaseImpl {
   bool IsDeadlockDetect() const override { return deadlock_detect_; }
 
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
+
+  bool EnableGetWaitingTxnAfterTimeout() const {
+    return enable_get_waiting_txn_after_timeout_;
+  }
 
   Status GetRangeLock(ColumnFamilyHandle* column_family,
                       const Endpoint& start_key,
@@ -182,7 +194,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   // IDs for the transactions that are blocking the current transaction.
   //
-  // empty if current transaction is not waiting.
+  // empty if current transaction is not waiting or has timed out
   autovector<TransactionID> waiting_txn_ids_;
 
   // The following two represents the (cf, key) that a transaction is waiting
@@ -196,6 +208,9 @@ class PessimisticTransaction : public TransactionBaseImpl {
   uint32_t waiting_cf_id_;
   const std::string* waiting_key_;
 
+  // Waiting key with lifetime of the txn so it can be accessed after timeouts
+  std::optional<std::string> timed_out_key_;
+
   // Mutex protecting waiting_txn_ids_, waiting_cf_id_ and waiting_key_.
   mutable std::mutex wait_mutex_;
 
@@ -207,6 +222,10 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   // Whether to perform deadlock detection or not.
   int64_t deadlock_detect_depth_;
+
+  // Whether to update waiting transaction information on timeout so
+  // GetWaitingTxns() returns non-zero values
+  bool enable_get_waiting_txn_after_timeout_;
 
   // Refer to TransactionOptions::skip_concurrency_control
   bool skip_concurrency_control_;
