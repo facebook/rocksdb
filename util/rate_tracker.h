@@ -242,4 +242,5 @@ class AtomicRateTracker {
   std::atomic<double> rate_;
   std::atomic<uint64_t> previous_timestamp_us_;
 };
+
 }  // namespace ROCKSDB_NAMESPACE

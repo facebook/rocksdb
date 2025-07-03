@@ -78,6 +78,7 @@
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
 #include "tools/simulated_hybrid_file_system.h"
+#include "util/auto_tune_compressor.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -4703,6 +4704,11 @@ class Benchmark {
           std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "costpredictor")) {
+      auto ratelimiter_throughput = options.rate_limiter->GetBytesPerSecond();
+      auto io_usage_limit = 0.99 * ratelimiter_throughput;
+      int64_t cpu_usage_limit = 0.9 * 1000000;
+      auto budget_factory =
+          DefaultBudgetFactory(cpu_usage_limit, io_usage_limit, 10000, options);
       mgr = CreateCostAwareCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();
