@@ -31,6 +31,13 @@ public class NativeLibraryLoader {
   private static final String tempFileSuffix = Environment.getJniLibraryExtension();
 
   /**
+   * If you set the System Property ROCKS_JAVA_DEBUG_NLL can be to true
+   * messages about attempts to load the native library will be printed
+   * to std out.
+   */
+  private static boolean DEBUG_LOADING = "true".equals(System.getProperty("ROCKS_JAVA_DEBUG_NLL", "false"));
+
+  /**
    * Get a reference to the NativeLibraryLoader
    *
    * @return The NativeLibraryLoader
@@ -63,6 +70,9 @@ public class NativeLibraryLoader {
       return;
     } catch (final UnsatisfiedLinkError ule) {
       // ignore - try from static library
+      if (DEBUG_LOADING) {
+        System.out.println("Unable to load shared dynamic library: " + sharedLibraryName);
+      }
     }
 
     try {
@@ -71,6 +81,9 @@ public class NativeLibraryLoader {
       return;
     } catch (final UnsatisfiedLinkError ule) {
       // ignore - then try static library fallback or from jar
+      if (DEBUG_LOADING) {
+        System.out.println("Unable to load shared static library: " + jniLibraryName);
+      }
     }
 
     if (fallbackJniLibraryName != null) {
@@ -80,6 +93,9 @@ public class NativeLibraryLoader {
         return;
       } catch (final UnsatisfiedLinkError ule) {
         // ignore - then try from jar
+        if (DEBUG_LOADING) {
+          System.out.println("Unable to load shared static fallback library: " + fallbackJniLibraryName);
+        }
       }
     }
 
@@ -144,6 +160,10 @@ public class NativeLibraryLoader {
         final File temp = createTemp(tmpDir, jniLibraryFileName);
         Files.copy(is, temp.toPath(), StandardCopyOption.REPLACE_EXISTING);
         return temp;
+      } else {
+        if (DEBUG_LOADING) {
+          System.out.println("Unable to find: " + jniLibraryFileName + " on the classpath");
+        }
       }
     }
 
@@ -157,6 +177,10 @@ public class NativeLibraryLoader {
         final File temp = createTemp(tmpDir, fallbackJniLibraryFileName);
         Files.copy(is, temp.toPath(), StandardCopyOption.REPLACE_EXISTING);
         return temp;
+      } else {
+        if (DEBUG_LOADING) {
+          System.out.println("Unable to find fallback: " + fallbackJniLibraryFileName + " on the classpath");
+        }
       }
     }
 
