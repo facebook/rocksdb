@@ -358,7 +358,8 @@ sample: java
 	$(AM_V_at)$(JAVAC_CMD) $(JAVAC_ARGS) -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/RocksDBSample.java
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni_not_found
-	$(JAVA_CMD) $(JAVA_ARGS) -Djava.library.path=target -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) RocksDBSample /tmp/rocksdbjni
+	$(AM_V_GEN)ls -la target/
+	$(JAVA_CMD) $(JAVA_ARGS) -Djava.library.path=target -DROCKS_JAVA_DEBUG_NLL=true -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) RocksDBSample /tmp/rocksdbjni
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni_not_found
 
