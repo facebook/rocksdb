@@ -148,7 +148,8 @@ public class NativeLibraryLoader {
     }
 
     if (fallbackJniLibraryFileName == null) {
-      throw new RuntimeException(fallbackJniLibraryFileName + " was not found inside JAR.");
+      throw new RuntimeException(
+          jniLibraryFileName + " was not found inside JAR, and there is no fallback.");
     }
 
     try (InputStream is =
@@ -160,7 +161,8 @@ public class NativeLibraryLoader {
       }
     }
 
-    throw new RuntimeException(jniLibraryFileName + " was not found inside JAR.");
+    throw new RuntimeException("Neither " + jniLibraryFileName + " or " + fallbackJniLibraryFileName
+        + " were found inside the JAR, and there is no fallback.");
   }
 
   /**
