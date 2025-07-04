@@ -205,7 +205,7 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
   }
 
   // Check budget availability before compression
-  if (cpu_budget_ && !cpu_budget_->TryConsume(1)) {
+  if (cpu_budget_ != nullptr && cpu_budget_->GetAvailableBudget() <= 0) {
     // CPU budget exhausted, skip compression
     *out_compression_type = kNoCompression;
     return Status::OK();
@@ -317,6 +317,8 @@ Status CostAwareCompressor::CompressBlockAndRecord(
   auto cpu_time = measured_data.first;
   predictor->CPUPredictor.Record(cpu_time);
   predictor->IOPredictor.Record(output_length);
+  if (cpu_budget_) cpu_budget_->TryConsume(cpu_time);
+  if (io_budget_) io_budget_->TryConsume(output_length);
   TEST_SYNC_POINT_CALLBACK(
       "CostAwareCompressor::CompressBlockAndRecord::GetPredictor",
       wa->cost_predictors_[choosen_compression_type][compression_level_ptr]);

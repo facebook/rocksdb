@@ -195,7 +195,7 @@ class CostAwareCompressorManager : public CompressionManagerWrapper {
  public:
   explicit CostAwareCompressorManager(
       std::shared_ptr<CompressionManager> wrapped,
-      std::shared_ptr<CPUIOBudgetFactory> budget_factory = nullptr)
+      std::shared_ptr<CPUIOBudgetFactory> budget_factory)
       : CompressionManagerWrapper(wrapped), budget_factory_(budget_factory) {}
 
   const char* Name() const override;
@@ -224,12 +224,5 @@ class DefaultBudgetFactory : public CPUIOBudgetFactory {
   size_t io_budget_;
   size_t per_time_;
 };
-
-// Factory functions
-std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
-    std::shared_ptr<CompressionManager> wrapped);
-std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
-    std::shared_ptr<CompressionManager> wrapped,
-    std::shared_ptr<CPUIOBudgetFactory> budget_factory);
 
 };  // namespace ROCKSDB_NAMESPACE

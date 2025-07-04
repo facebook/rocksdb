@@ -98,6 +98,13 @@ class AutoRefillBudget {
       if (next_refill_us_.compare_exchange_strong(next_refill, new_next_refill,
                                                   std::memory_order_acq_rel,
                                                   std::memory_order_acquire)) {
+        // logging for debugging
+        auto available_budget =
+            available_budget_.load(std::memory_order_relaxed);
+        fprintf(stderr,
+                "Refilling budget at time: %ld used budget: %ld available "
+                "budget: %ld\n",
+                now_us, refill_amount_ - available_budget, available_budget);
         available_budget_.store(refill_amount_, std::memory_order_release);
       }
     }

@@ -2416,7 +2416,9 @@ class Stats {
             auto total_bytes_through =
                 opts_.rate_limiter->GetTotalBytesThrough();
             auto drain_request =
-                dbstats->getTickerCount(NUMBER_RATE_LIMITER_DRAINS);
+                (dbstats != nullptr)
+                    ? dbstats->getTickerCount(NUMBER_RATE_LIMITER_DRAINS)
+                    : -1;
             struct rusage usage;
             getrusage(RUSAGE_SELF, &usage);
             double cpu_time_used =
@@ -4704,12 +4706,14 @@ class Benchmark {
           std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "costpredictor")) {
-      auto ratelimiter_throughput = options.rate_limiter->GetBytesPerSecond();
+      auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
+      // options.rate_limiter->GetBytesPerSecond();
       auto io_usage_limit = 0.99 * ratelimiter_throughput;
       int64_t cpu_usage_limit = 0.9 * 1000000;
-      auto budget_factory =
-          DefaultBudgetFactory(cpu_usage_limit, io_usage_limit, 10000, options);
-      mgr = CreateCostAwareCompressionManager();
+      std::shared_ptr<CPUIOBudgetFactory> budget_factory =
+          std::make_shared<DefaultBudgetFactory>(
+              cpu_usage_limit, io_usage_limit, 10000, options);
+      mgr = CreateCostAwareCompressionManager(nullptr, budget_factory);
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
