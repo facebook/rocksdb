@@ -84,12 +84,14 @@ public class RocksDB extends RocksObject {
       return;
     }
 
-    while (libraryLoaded.get() == LibraryState.LOADING) {
-      try {
-        Thread.sleep(10);
-      } catch(final InterruptedException e) {
-        //ignore
+    try {
+      while (libraryLoaded.get() == LibraryState.LOADING) {
+          Thread.sleep(10);
       }
+    } catch (final InterruptedException e) {
+      // restore interrupted status
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("Interrupted whilst trying to load the RocksDB shared library", e);
     }
   }
 
@@ -146,12 +148,14 @@ public class RocksDB extends RocksObject {
       return;
     }
 
-    while (libraryLoaded.get() == LibraryState.LOADING) {
-      try {
-        Thread.sleep(10);
-      } catch(final InterruptedException e) {
-        //ignore
+    try {
+      while (libraryLoaded.get() == LibraryState.LOADING) {
+          Thread.sleep(10);
       }
+    } catch (final InterruptedException e) {
+      // restore interrupted status
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("Interrupted whilst trying to load the RocksDB shared library", e);
     }
   }
 
