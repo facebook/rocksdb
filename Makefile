@@ -2470,8 +2470,8 @@ jtest_run:
 jtest: rocksdbjava
 	cd java;$(MAKE) sample test
 
-jpmd: rocksdbjava rocksdbjavageneratepom
-	cd java;$(MAKE) pmd
+jpmd: rocksdbjavageneratepom
+	cd java;$(MAKE) java java_test pmd
 
 jdb_bench:
 	cd java;$(MAKE) db_bench;
