@@ -49,10 +49,10 @@ class PointLockManagerTest : public testing::Test {
     Options opt;
     opt.create_if_missing = true;
     // Reduce the number of stripes to 4 to increase contention in test
-    txn_opt_.num_stripes = 4;
-    txn_opt_.transaction_lock_timeout = 0;
+    txndb_opt_.num_stripes = 4;
+    txndb_opt_.transaction_lock_timeout = 0;
 
-    ASSERT_OK(TransactionDB::Open(opt, txn_opt_, db_dir_, &db_));
+    ASSERT_OK(TransactionDB::Open(opt, txndb_opt_, db_dir_, &db_));
 
     wait_sync_point_name_ = "PointLockManager::AcquireWithTimeout:WaitingTxn";
   }
@@ -62,7 +62,7 @@ class PointLockManagerTest : public testing::Test {
     // CAUTION: This test creates a separate lock manager object (right, NOT
     // the one that the TransactionDB is using!), and runs tests on it.
     locker_.reset(new PointLockManager(
-        static_cast<PessimisticTransactionDB*>(db_), txn_opt_));
+        static_cast<PessimisticTransactionDB*>(db_), txndb_opt_));
   }
 
   void TearDown() override {
@@ -97,7 +97,7 @@ class PointLockManagerTest : public testing::Test {
 
  protected:
   Env* env_;
-  TransactionDBOptions txn_opt_;
+  TransactionDBOptions txndb_opt_;
   std::shared_ptr<LockManager> locker_;
   const char* wait_sync_point_name_;
   friend void PointLockManagerTestExternalSetup(PointLockManagerTest*);
