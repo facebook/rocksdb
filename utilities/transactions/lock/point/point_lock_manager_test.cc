@@ -10,9 +10,28 @@ namespace ROCKSDB_NAMESPACE {
 constexpr auto kLongTxnTimeoutUs = 10000000;
 constexpr auto kShortTxnTimeoutUs = 100;
 
+// including test for both PointLockManager and PerKeyPointLockManager
+class SpotLockManagerTest : public PointLockManagerTest,
+                            public testing::WithParamInterface<bool> {
+ public:
+  void SetUp() override {
+    init();
+    // If a custom setup function was provided, use it. Otherwise, use what we
+    // have inherited.
+    auto per_key_lock_manager = GetParam();
+    if (per_key_lock_manager) {
+      locker_.reset(new PerKeyPointLockManager(
+          static_cast<PessimisticTransactionDB*>(db_), txn_opt_));
+    } else {
+      locker_.reset(new PointLockManager(
+          static_cast<PessimisticTransactionDB*>(db_), txn_opt_));
+    }
+  }
+};
+
 // This test is not applicable for Range Lock manager as Range Lock Manager
 // operates on Column Families, not their ids.
-TEST_F(PointLockManagerTest, LockNonExistingColumnFamily) {
+TEST_P(SpotLockManagerTest, LockNonExistingColumnFamily) {
   MockColumnFamilyHandle cf(1024);
   locker_->RemoveColumnFamily(&cf);
   auto txn = NewTxn();
@@ -22,7 +41,7 @@ TEST_F(PointLockManagerTest, LockNonExistingColumnFamily) {
   delete txn;
 }
 
-TEST_F(PointLockManagerTest, LockStatus) {
+TEST_P(SpotLockManagerTest, LockStatus) {
   MockColumnFamilyHandle cf1(1024), cf2(2048);
   locker_->AddColumnFamily(&cf1);
   locker_->AddColumnFamily(&cf2);
@@ -64,7 +83,7 @@ TEST_F(PointLockManagerTest, LockStatus) {
   delete txn2;
 }
 
-TEST_F(PointLockManagerTest, UnlockExclusive) {
+TEST_P(SpotLockManagerTest, UnlockExclusive) {
   MockColumnFamilyHandle cf(1);
   locker_->AddColumnFamily(&cf);
 
@@ -82,7 +101,7 @@ TEST_F(PointLockManagerTest, UnlockExclusive) {
   delete txn2;
 }
 
-TEST_F(PointLockManagerTest, UnlockShared) {
+TEST_P(SpotLockManagerTest, UnlockShared) {
   MockColumnFamilyHandle cf(1);
   locker_->AddColumnFamily(&cf);
 
@@ -103,7 +122,7 @@ TEST_F(PointLockManagerTest, UnlockShared) {
 // This test doesn't work with Range Lock Manager, because Range Lock Manager
 // doesn't support deadlock_detect_depth.
 
-TEST_F(PointLockManagerTest, DeadlockDepthExceeded) {
+TEST_P(SpotLockManagerTest, DeadlockDepthExceeded) {
   // Tests that when detecting deadlock, if the detection depth is exceeded,
   // it's also viewed as deadlock.
   MockColumnFamilyHandle cf(1);
@@ -163,7 +182,7 @@ TEST_F(PointLockManagerTest, DeadlockDepthExceeded) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, PrioritizedLockUpgradeWithExclusiveLock) {
+TEST_P(SpotLockManagerTest, PrioritizedLockUpgradeWithExclusiveLock) {
   // Tests that a lock upgrade request is prioritized over other lock requests.
 
   // txn1 acquires shared lock on k1.
@@ -201,7 +220,7 @@ TEST_F(PointLockManagerTest, PrioritizedLockUpgradeWithExclusiveLock) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest,
+TEST_P(SpotLockManagerTest,
        PrioritizedLockUpgradeWithExclusiveLockAndSharedLock) {
   // Tests that lock upgrade is prioritized when mixed with shared and exclusive
   // locks requests
@@ -257,7 +276,7 @@ TEST_F(PointLockManagerTest,
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, Deadlock_MultipleUpgrade) {
+TEST_P(SpotLockManagerTest, Deadlock_MultipleUpgrade) {
   // Tests that deadlock can be detected for shared locks and exclusive locks
   // mixed Deadlock scenario:
 
@@ -313,7 +332,7 @@ TEST_F(PointLockManagerTest, Deadlock_MultipleUpgrade) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, Deadlock_MultipleUpgradeInterleaveExclusive) {
+TEST_P(SpotLockManagerTest, Deadlock_MultipleUpgradeInterleaveExclusive) {
   // Tests that deadlock can be detected for shared locks and exclusive locks
   // mixed Deadlock scenario:
 
@@ -390,7 +409,18 @@ TEST_F(PointLockManagerTest, Deadlock_MultipleUpgradeInterleaveExclusive) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, LockEfficiency) {
+class PerKeyPointLockManagerTest : public PointLockManagerTest {
+ public:
+  void SetUp() override {
+    init();
+    // CAUTION: This test creates a separate lock manager object (right, NOT
+    // the one that the TransactionDB is using!), and runs tests on it.
+    locker_.reset(new PerKeyPointLockManager(
+        static_cast<PessimisticTransactionDB*>(db_), txn_opt_));
+  }
+};
+
+TEST_F(PerKeyPointLockManagerTest, LockEfficiency) {
   // Create multiple transactions, each acquire exclusive lock on the same key
   MockColumnFamilyHandle cf(1);
   locker_->AddColumnFamily(&cf);
@@ -461,7 +491,7 @@ TEST_F(PointLockManagerTest, LockEfficiency) {
   }
 }
 
-TEST_F(PointLockManagerTest, LockFairness) {
+TEST_F(PerKeyPointLockManagerTest, LockFairness) {
   // Create multiple transactions requesting locks on the same key, validate
   // that they are executed in FIFO order
 
@@ -589,7 +619,7 @@ TEST_F(PointLockManagerTest, LockFairness) {
   }
 }
 
-TEST_F(PointLockManagerTest, FIFO) {
+TEST_F(PerKeyPointLockManagerTest, FIFO) {
   // validate S, X, S lock order would be executed in FIFO order
   // txn1 acquires shared lock on k1.
   // txn2 acquires exclusive lock on k1.
@@ -677,7 +707,7 @@ TEST_F(PointLockManagerTest, FIFO) {
   }
 }
 
-TEST_F(PointLockManagerTest, LockDownGradeWithOtherLockRequests) {
+TEST_P(SpotLockManagerTest, LockDownGradeWithOtherLockRequests) {
   // Test lock down grade always succeeds, even if there are other lock requests
   // waiting for the same lock.
   MockColumnFamilyHandle cf(1);
@@ -710,7 +740,7 @@ TEST_F(PointLockManagerTest, LockDownGradeWithOtherLockRequests) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, LockTimeout) {
+TEST_P(SpotLockManagerTest, LockTimeout) {
   // Test lock timeout
   // txn1 acquires an exclusive lock on k1 successfully.
   // txn2 try to acquire a lock on k1, but timedout.
@@ -736,7 +766,7 @@ TEST_F(PointLockManagerTest, LockTimeout) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, SharedLockTimeoutInTheMiddle) {
+TEST_F(PerKeyPointLockManagerTest, SharedLockTimeoutInTheMiddle) {
   // There are multiple transactions waiting for the same lock.
   // txn1 acquires a shared lock on k1 successfully.
   // txn2 try to acquire an exclusive lock on k1.
@@ -822,7 +852,7 @@ TEST_F(PointLockManagerTest, SharedLockTimeoutInTheMiddle) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, ExclusiveLockTimeoutInTheMiddle) {
+TEST_F(PerKeyPointLockManagerTest, ExclusiveLockTimeoutInTheMiddle) {
   // There are multiple transactions waiting for the same lock.
   // txn1 acquires an exclusive lock on k1 successfully.
   // txn2 try to acquire a shared lock on k1.
@@ -881,7 +911,7 @@ TEST_F(PointLockManagerTest, ExclusiveLockTimeoutInTheMiddle) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, ExpiredLockStolenAfterTimeout) {
+TEST_P(SpotLockManagerTest, ExpiredLockStolenAfterTimeout) {
   // validate an expired lock can be stolen by another transaction that timed
   // out on the lock.
   // txn1 acquires an exclusive lock on k1 successfully with a short expiration
@@ -916,7 +946,7 @@ TEST_F(PointLockManagerTest, ExpiredLockStolenAfterTimeout) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, LockStealAfterTimeoutExclusive) {
+TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutExclusive) {
   // There are multiple transactions waiting for the same lock.
   // txn1 acquires an exclusive lock on k1 successfully with a short expiration
   // time.
@@ -968,7 +998,7 @@ TEST_F(PointLockManagerTest, LockStealAfterTimeoutExclusive) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, LockStealAfterTimeoutShared) {
+TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutShared) {
   // There are multiple transactions waiting for the same lock.
   // txn1 acquires a shared lock on k1 successfully with a short expiration
   // time.
@@ -1020,7 +1050,7 @@ TEST_F(PointLockManagerTest, LockStealAfterTimeoutShared) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, DeadLockOnWaiter) {
+TEST_F(PerKeyPointLockManagerTest, DeadLockOnWaiter) {
   // Txn1 acquires exclusive lock on k1
   // Txn3 acquires shared lock on k2
   // Txn2 tries to acquire exclusive lock on k1, waiting in the waiter queue.
@@ -1068,7 +1098,7 @@ TEST_F(PointLockManagerTest, DeadLockOnWaiter) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, SharedLockRaceCondition) {
+TEST_F(PerKeyPointLockManagerTest, SharedLockRaceCondition) {
   // Verify a shared lock race condition is handled properly.
   // When there are waiters in the queue, and all of them are shared waiters,
   // and no one has taken the lock and all of them just got woken up and not yet
@@ -1090,9 +1120,9 @@ TEST_F(PointLockManagerTest, SharedLockRaceCondition) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency(
       {{"LockMapStrpe::WaitOnKeyInternal:AfterWokenUp",
-        "PointLockManagerTest::SharedLockRaceCondition:"
+        "PerKeyPointLockManagerTest::SharedLockRaceCondition:"
         "BeforeNewSharedLockRequest"},
-       {"PointLockManagerTest::SharedLockRaceCondition:"
+       {"PerKeyPointLockManagerTest::SharedLockRaceCondition:"
         "AfterNewSharedLockRequest",
         "LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock"}});
 
@@ -1123,14 +1153,14 @@ TEST_F(PointLockManagerTest, SharedLockRaceCondition) {
   // txn3 tries to take the lock right after txn2 is woken up, but before it
   // takes the lock
   TEST_SYNC_POINT(
-      "PointLockManagerTest::SharedLockRaceCondition:"
+      "PerKeyPointLockManagerTest::SharedLockRaceCondition:"
       "BeforeNewSharedLockRequest");
 
   // txn3 try to acquire a shared lock on k1, and get granted immediately
   ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, false));
 
   TEST_SYNC_POINT(
-      "PointLockManagerTest::SharedLockRaceCondition:"
+      "PerKeyPointLockManagerTest::SharedLockRaceCondition:"
       "AfterNewSharedLockRequest");
 
   // validate txn2 is woken up and takes the lock
@@ -1145,7 +1175,7 @@ TEST_F(PointLockManagerTest, SharedLockRaceCondition) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, UpgradeLockRaceCondition) {
+TEST_F(PerKeyPointLockManagerTest, UpgradeLockRaceCondition) {
   // Verify an upgrade lock race condition is handled properly.
   // When a key is locked in exlusive mode, shared lock waiters will be enqueued
   // as waiters. When the exclusive lock holder release the lock. The shared
@@ -1171,9 +1201,9 @@ TEST_F(PointLockManagerTest, UpgradeLockRaceCondition) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency(
       {{"LockMapStrpe::WaitOnKeyInternal:AfterWokenUp",
-        "PointLockManagerTest::UpgradeLockRaceCondition:"
+        "PerKeyPointLockManagerTest::UpgradeLockRaceCondition:"
         "BeforeNewSharedLockRequest"},
-       {"PointLockManagerTest::UpgradeLockRaceCondition:"
+       {"PerKeyPointLockManagerTest::UpgradeLockRaceCondition:"
         "AfterNewSharedLockRequest",
         "LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock"}});
 
@@ -1204,7 +1234,7 @@ TEST_F(PointLockManagerTest, UpgradeLockRaceCondition) {
   // txn3 tries to take the lock right after txn2 is woken up, but before it
   // takes the lock
   TEST_SYNC_POINT(
-      "PointLockManagerTest::UpgradeLockRaceCondition:"
+      "PerKeyPointLockManagerTest::UpgradeLockRaceCondition:"
       "BeforeNewSharedLockRequest");
 
   // txn3 try to acquire a shared lock on k1, and get granted immediately
@@ -1221,7 +1251,7 @@ TEST_F(PointLockManagerTest, UpgradeLockRaceCondition) {
   }
 
   TEST_SYNC_POINT(
-      "PointLockManagerTest::UpgradeLockRaceCondition:"
+      "PerKeyPointLockManagerTest::UpgradeLockRaceCondition:"
       "AfterNewSharedLockRequest");
 
   // validate txn2 is woken up and takes the shared lock
@@ -1242,7 +1272,7 @@ TEST_F(PointLockManagerTest, UpgradeLockRaceCondition) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, Catch22) {
+TEST_P(SpotLockManagerTest, Catch22) {
   // Benchmark the overhead of one transaction depends on another in a circle
   // repeatedly
 
@@ -1313,7 +1343,7 @@ TEST_F(PointLockManagerTest, Catch22) {
   delete txn1;
 }
 
-TEST_F(PointLockManagerTest, LockUpgradeOrdering) {
+TEST_F(PerKeyPointLockManagerTest, LockUpgradeOrdering) {
   // When lock is upgraded, verify that it will only upgrade its lock after all
   // the shared lock that are before the first exclusive lock in the lock wait
   // queue.
@@ -1443,6 +1473,7 @@ enum class LockTypeToTest : int8_t {
 };
 
 struct PointLockCorrectnessCheckTestParam {
+  bool is_per_key_point_lock_manager;
   size_t thread_count;
   size_t key_count;
   size_t execution_time_sec;
@@ -1456,7 +1487,20 @@ struct PointLockCorrectnessCheckTestParam {
 
 class PointLockCorrectnessCheckTest
     : public PointLockManagerTest,
-      public testing::WithParamInterface<PointLockCorrectnessCheckTestParam> {};
+      public testing::WithParamInterface<PointLockCorrectnessCheckTestParam> {
+ public:
+  void SetUp() override {
+    init();
+    auto per_key_lock_manager = GetParam().is_per_key_point_lock_manager;
+    if (per_key_lock_manager) {
+      locker_.reset(new PerKeyPointLockManager(
+          static_cast<PessimisticTransactionDB*>(db_), txn_opt_));
+    } else {
+      locker_.reset(new PointLockManager(
+          static_cast<PessimisticTransactionDB*>(db_), txn_opt_));
+    }
+  }
+};
 
 TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
   // Verify lock guarantee. Exclusive lock provide unique access guarantee.
@@ -1727,19 +1771,47 @@ INSTANTIATE_TEST_CASE_P(
     PointLockCorrectnessCheckTestSuite, PointLockCorrectnessCheckTest,
     ::testing::ValuesIn(std::vector<PointLockCorrectnessCheckTestParam>{
         // short timeout and expiration
-        {64, 16, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 10, 10, true, true},
-        {64, 16, 10, LockTypeToTest::SHARED_ONLY, 10, 10, true, true},
+        {true, 64, 16, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 10, 10, true,
+         true},
+        {true, 64, 16, 10, LockTypeToTest::SHARED_ONLY, 10, 10, true, true},
         // long timeout and expiration
-        {64, 16, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, kLongTxnTimeoutUs,
+        {true, 64, 16, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED,
+         kLongTxnTimeoutUs, kLongTxnTimeoutUs, false, false},
+        {true, 64, 16, 10, LockTypeToTest::EXCLUSIVE_ONLY, kLongTxnTimeoutUs,
          kLongTxnTimeoutUs, false, false},
-        {64, 16, 10, LockTypeToTest::EXCLUSIVE_ONLY, kLongTxnTimeoutUs,
+        {true, 64, 16, 10, LockTypeToTest::SHARED_ONLY, kLongTxnTimeoutUs,
          kLongTxnTimeoutUs, false, false},
-        {64, 16, 10, LockTypeToTest::SHARED_ONLY, kLongTxnTimeoutUs,
+        {false, 64, 16, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 10, 10, true,
+         true},
+        {false, 64, 16, 10, LockTypeToTest::SHARED_ONLY, 10, 10, true, true},
+        // long timeout and expiration
+        {false, 64, 16, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED,
+         kLongTxnTimeoutUs, kLongTxnTimeoutUs, false, false},
+        {false, 64, 16, 10, LockTypeToTest::EXCLUSIVE_ONLY, kLongTxnTimeoutUs,
+         kLongTxnTimeoutUs, false, false},
+        {false, 64, 16, 10, LockTypeToTest::SHARED_ONLY, kLongTxnTimeoutUs,
          kLongTxnTimeoutUs, false, false},
     }));
 
+// Run AnyLockManagerTest with PointLockManager
 INSTANTIATE_TEST_CASE_P(PointLockManager, AnyLockManagerTest,
                         ::testing::Values(nullptr));
+
+// Run AnyLockManagerTest with PerKeyPointLockManager
+void PerLockPointLockManagerAnyLockManagerTestSetup(
+    PointLockManagerTest* self) {
+  self->init();
+  self->locker_.reset(new PerKeyPointLockManager(
+      static_cast<PessimisticTransactionDB*>(self->db_), self->txn_opt_));
+}
+
+INSTANTIATE_TEST_CASE_P(
+    PerLockPointLockManager, AnyLockManagerTest,
+    ::testing::Values(PerLockPointLockManagerAnyLockManagerTestSetup));
+
+// Run PointLockManagerTest with PerLockPointLockManager and PointLockManager
+INSTANTIATE_TEST_CASE_P(PointLockCorrectnessCheckTestSuite, SpotLockManagerTest,
+                        ::testing::ValuesIn(std::vector<bool>{true, false}));
 
 }  // namespace ROCKSDB_NAMESPACE
 

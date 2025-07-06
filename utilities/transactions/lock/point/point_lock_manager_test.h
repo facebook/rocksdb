@@ -41,26 +41,28 @@ class MockColumnFamilyHandle : public ColumnFamilyHandle {
 
 class PointLockManagerTest : public testing::Test {
  public:
-  void SetUp() override {
+  void init() {
     env_ = Env::Default();
     db_dir_ = test::PerThreadDBPath("point_lock_manager_test");
     ASSERT_OK(env_->CreateDir(db_dir_));
 
     Options opt;
     opt.create_if_missing = true;
-    TransactionDBOptions txn_opt;
     // Reduce the number of stripes to 4 to increase contention in test
-    txn_opt.num_stripes = 4;
-    txn_opt.transaction_lock_timeout = 0;
+    txn_opt_.num_stripes = 4;
+    txn_opt_.transaction_lock_timeout = 0;
 
-    ASSERT_OK(TransactionDB::Open(opt, txn_opt, db_dir_, &db_));
+    ASSERT_OK(TransactionDB::Open(opt, txn_opt_, db_dir_, &db_));
 
+    wait_sync_point_name_ = "PointLockManager::AcquireWithTimeout:WaitingTxn";
+  }
+
+  void SetUp() override {
+    init();
     // CAUTION: This test creates a separate lock manager object (right, NOT
     // the one that the TransactionDB is using!), and runs tests on it.
     locker_.reset(new PointLockManager(
-        static_cast<PessimisticTransactionDB*>(db_), txn_opt));
-
-    wait_sync_point_name_ = "PointLockManager::AcquireWithTimeout:WaitingTxn";
+        static_cast<PessimisticTransactionDB*>(db_), txn_opt_));
   }
 
   void TearDown() override {
@@ -95,11 +97,13 @@ class PointLockManagerTest : public testing::Test {
 
  protected:
   Env* env_;
+  TransactionDBOptions txn_opt_;
   std::shared_ptr<LockManager> locker_;
   const char* wait_sync_point_name_;
   friend void PointLockManagerTestExternalSetup(PointLockManagerTest*);
+  friend void PerLockPointLockManagerAnyLockManagerTestSetup(
+      PointLockManagerTest*);
 
- private:
   std::string db_dir_;
   TransactionDB* db_;
 };
@@ -143,6 +147,12 @@ TEST_P(AnyLockManagerTest, ReentrantSharedLock) {
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, false));
 
   // Cleanup
+  if (dynamic_cast<PointLockManager*>(locker_.get()) != nullptr &&
+      dynamic_cast<PerKeyPointLockManager*>(locker_.get()) == nullptr) {
+    // PointLockManager would create 2 entries in the lock manager, so it needs
+    // to unlock it twice.
+    locker_->UnLock(txn, 1, "k", env_);
+  }
   locker_->UnLock(txn, 1, "k", env_);
 
   delete txn;

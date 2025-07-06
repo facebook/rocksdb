@@ -139,7 +139,10 @@ struct LockInfo {
 struct LockMapStripe {
   explicit LockMapStripe(std::shared_ptr<TransactionDBMutexFactory> factory) {
     stripe_mutex = factory->AllocateMutex();
+    stripe_cv = factory->AllocateCondVar();
+
     assert(stripe_mutex);
+    assert(stripe_cv);
 
     mutex_factory_ = std::move(factory);
     FillKeyCVPool();
@@ -180,6 +183,9 @@ struct LockMapStripe {
 
   // Mutex must be held before modifying keys map
   std::shared_ptr<TransactionDBMutex> stripe_mutex;
+
+  // Condition Variable per stripe for waiting on a lock
+  std::shared_ptr<TransactionDBCondVar> stripe_cv;
 
   // Locked keys mapped to the info about the transactions that locked them.
   // TODO(agiardullo): Explore performance of other data structures.
@@ -252,8 +258,7 @@ struct LockMapStripe {
       ret = (*lock_waiter)->WaitFor(timeout_us);
     }
 
-    TEST_SYNC_POINT_CALLBACK("LockMapStrpe::WaitOnKeyInternal:AfterWokenUp",
-                             &id);
+    TEST_SYNC_POINT("LockMapStrpe::WaitOnKeyInternal:AfterWokenUp");
     TEST_SYNC_POINT("LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock");
 
     // Re-acquire the stripe mutex, as the lock waiter need to be removed from
@@ -487,9 +492,8 @@ Status PointLockManager::AcquireWithTimeout(
   // Acquire lock if we are able to
   uint64_t expire_time_hint = 0;
   autovector<TransactionID> wait_ids;
-  bool isUpgrade;
   result = AcquireLocked(lock_map, stripe, key, env, lock_info,
-                         &expire_time_hint, &wait_ids, &isUpgrade, true);
+                         &expire_time_hint, &wait_ids);
   if (!result.ok() && timeout != 0) {
     PERF_TIMER_GUARD(key_lock_wait_time);
     PERF_COUNTER_ADD(key_lock_wait_count, 1);
@@ -526,8 +530,7 @@ Status PointLockManager::AcquireWithTimeout(
       TEST_SYNC_POINT("PointLockManager::AcquireWithTimeout:WaitingTxn");
       if (cv_end_time < 0) {
         // Wait indefinitely
-        result = stripe->WaitOnKey(key, lock_info.txn_ids[0],
-                                   lock_info.exclusive, isUpgrade);
+        result = stripe->stripe_cv->Wait(stripe->stripe_mutex);
         cv_wait_fail = !result.ok();
       } else {
         // FIXME: in this case, cv_end_time could be `expire_time_hint` from the
@@ -539,9 +542,8 @@ Status PointLockManager::AcquireWithTimeout(
           // This may be invoked multiple times since we divide
           // the time into smaller intervals.
           (void)ROCKSDB_THREAD_YIELD_CHECK_ABORT();
-          result = stripe->WaitOnKeyFor(key, lock_info.txn_ids[0],
-                                        lock_info.exclusive, isUpgrade,
-                                        cv_end_time - now);
+          result = stripe->stripe_cv->WaitFor(stripe->stripe_mutex,
+                                              cv_end_time - now);
           cv_wait_fail = !result.ok() && !result.IsTimedOut();
         } else {
           // now >= cv_end_time, we already timed out
@@ -567,17 +569,144 @@ Status PointLockManager::AcquireWithTimeout(
       }
       assert(result.ok() || result.IsTimedOut());
       wait_ids.clear();
-      // If wait is timed out, respect the FIFO order. Otherwise, it is
-      // its turn to acquire the lock.
-      result =
-          AcquireLocked(lock_map, stripe, key, env, lock_info,
-                        &expire_time_hint, &wait_ids, &isUpgrade, timed_out);
+      result = AcquireLocked(lock_map, stripe, key, env, lock_info,
+                             &expire_time_hint, &wait_ids);
     } while (!result.ok() && !timed_out);
   }
 
   stripe->stripe_mutex->UnLock();
 
   return result;
+}
+
+// Try to lock this key after we have acquired the mutex.
+// Sets *expire_time to the expiration time in microseconds
+//  or 0 if no expiration.
+//
+// Returns Status::TimeOut if the lock cannot be acquired due to it being
+// held by other transactions, `txn_ids` will be populated with the id of
+// transactions that hold the lock, excluding lock_info.txn_ids[0].
+// Returns Status::Aborted(kLockLimit) if the lock cannot be acquired due to
+// reaching per CF limit on the number of locks.
+//
+// REQUIRED:  Stripe mutex must be held. txn_ids must be empty.
+Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
+                                       const std::string& key, Env* env,
+                                       const LockInfo& txn_lock_info,
+                                       uint64_t* expire_time,
+                                       autovector<TransactionID>* txn_ids,
+                                       bool* isUpgrade, bool fifo) {
+  assert(txn_lock_info.txn_ids.size() == 1);
+  assert(txn_ids && txn_ids->empty());
+
+  // unused
+  (void)isUpgrade;
+  (void)fifo;
+
+  Status result;
+  // Check if this key is already locked
+  auto stripe_iter = stripe->keys.find(key);
+  if (stripe_iter != stripe->keys.end()) {
+    // Lock already held
+    auto& lock_info = *(stripe_iter->second);
+    assert(lock_info.txn_ids.size() == 1 || !lock_info.exclusive);
+
+    if (lock_info.exclusive || txn_lock_info.exclusive) {
+      if (lock_info.txn_ids.size() == 1 &&
+          lock_info.txn_ids[0] == txn_lock_info.txn_ids[0]) {
+        // The list contains one txn and we're it, so just take it.
+        lock_info.exclusive = txn_lock_info.exclusive;
+        lock_info.expiration_time = txn_lock_info.expiration_time;
+      } else {
+        // Check if it's expired. Skips over txn_lock_info.txn_ids[0] in case
+        // it's there for a shared lock with multiple holders which was not
+        // caught in the first case.
+        if (IsLockExpired(txn_lock_info.txn_ids[0], lock_info, env,
+                          expire_time)) {
+          // lock is expired, can steal it
+          lock_info.txn_ids = txn_lock_info.txn_ids;
+          lock_info.exclusive = txn_lock_info.exclusive;
+          lock_info.expiration_time = txn_lock_info.expiration_time;
+          // lock_cnt does not change
+        } else {
+          result = Status::TimedOut(Status::SubCode::kLockTimeout);
+          for (auto id : lock_info.txn_ids) {
+            // A transaction is not blocked by itself
+            if (id != txn_lock_info.txn_ids[0]) {
+              txn_ids->push_back(id);
+            }
+          }
+        }
+      }
+    } else {
+      // We are requesting shared access to a shared lock, so just grant it.
+      lock_info.txn_ids.push_back(txn_lock_info.txn_ids[0]);
+      // Using std::max means that expiration time never goes down even when
+      // a transaction is removed from the list. The correct solution would be
+      // to track expiry for every transaction, but this would also work for
+      // now.
+      lock_info.expiration_time =
+          std::max(lock_info.expiration_time, txn_lock_info.expiration_time);
+    }
+  } else {  // Lock not held.
+    // Check lock limit
+    if (max_num_locks_ > 0 &&
+        lock_map->locked_key_cnt.load(std::memory_order_acquire) >=
+            max_num_locks_) {
+      result = Status::LockLimit();
+    } else {
+      // acquire lock
+      stripe->keys.emplace(
+          key, std::make_unique<LockInfo>(txn_lock_info.txn_ids[0],
+                                          txn_lock_info.expiration_time,
+                                          txn_lock_info.exclusive));
+
+      // Maintain lock count if there is a limit on the number of locks
+      if (max_num_locks_) {
+        lock_map->locked_key_cnt++;
+      }
+    }
+  }
+
+  return result;
+}
+
+void PointLockManager::UnLockKey(PessimisticTransaction* txn,
+                                 const std::string& key, LockMapStripe* stripe,
+                                 LockMap* lock_map, Env* env) {
+#ifdef NDEBUG
+  (void)env;
+#endif
+  TransactionID txn_id = txn->GetID();
+
+  auto stripe_iter = stripe->keys.find(key);
+  if (stripe_iter != stripe->keys.end()) {
+    auto& txns = stripe_iter->second->txn_ids;
+    auto txn_it = std::find(txns.begin(), txns.end(), txn_id);
+    // Found the key we locked.  unlock it.
+    if (txn_it != txns.end()) {
+      if (txns.size() == 1) {
+        stripe->keys.erase(stripe_iter);
+      } else {
+        auto last_it = txns.end() - 1;
+        if (txn_it != last_it) {
+          *txn_it = *last_it;
+        }
+        txns.pop_back();
+      }
+
+      if (max_num_locks_ > 0) {
+        // Maintain lock count if there is a limit on the number of locks.
+        assert(lock_map->locked_key_cnt.load(std::memory_order_relaxed) > 0);
+        lock_map->locked_key_cnt--;
+      }
+    }
+  } else {
+    // This key is either not locked or locked by someone else.  This should
+    // only happen if the unlocking transaction has expired.
+    assert(txn->GetExpirationTime() > 0 &&
+           txn->GetExpirationTime() < env->NowMicros());
+  }
 }
 
 void PointLockManager::DecrementWaiters(
@@ -697,6 +826,272 @@ bool PointLockManager::IncrementWaiters(
   return true;
 }
 
+void PointLockManager::UnLock(PessimisticTransaction* txn,
+                              ColumnFamilyId column_family_id,
+                              const std::string& key, Env* env) {
+  std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(column_family_id);
+  LockMap* lock_map = lock_map_ptr.get();
+  if (lock_map == nullptr) {
+    // Column Family must have been dropped.
+    return;
+  }
+
+  // Lock the mutex for the stripe that this key hashes to
+  size_t stripe_num = lock_map->GetStripe(key);
+  assert(lock_map->lock_map_stripes_.size() > stripe_num);
+  LockMapStripe* stripe = lock_map->lock_map_stripes_.at(stripe_num);
+
+  stripe->stripe_mutex->Lock().PermitUncheckedError();
+  UnLockKey(txn, key, stripe, lock_map, env);
+  stripe->stripe_mutex->UnLock();
+
+  // Signal waiting threads to retry locking
+  stripe->stripe_cv->NotifyAll();
+}
+
+void PointLockManager::UnLock(PessimisticTransaction* txn,
+                              const LockTracker& tracker, Env* env) {
+  std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
+      tracker.GetColumnFamilyIterator());
+  assert(cf_it != nullptr);
+  while (cf_it->HasNext()) {
+    ColumnFamilyId cf = cf_it->Next();
+    std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(cf);
+    LockMap* lock_map = lock_map_ptr.get();
+    if (!lock_map) {
+      // Column Family must have been dropped.
+      return;
+    }
+
+    // Bucket keys by lock_map_ stripe
+    UnorderedMap<size_t, std::vector<const std::string*>> keys_by_stripe(
+        lock_map->num_stripes_);
+    std::unique_ptr<LockTracker::KeyIterator> key_it(
+        tracker.GetKeyIterator(cf));
+    assert(key_it != nullptr);
+    while (key_it->HasNext()) {
+      const std::string& key = key_it->Next();
+      size_t stripe_num = lock_map->GetStripe(key);
+      keys_by_stripe[stripe_num].push_back(&key);
+    }
+
+    // For each stripe, grab the stripe mutex and unlock all keys in this stripe
+    for (auto& stripe_iter : keys_by_stripe) {
+      size_t stripe_num = stripe_iter.first;
+      auto& stripe_keys = stripe_iter.second;
+
+      assert(lock_map->lock_map_stripes_.size() > stripe_num);
+      LockMapStripe* stripe = lock_map->lock_map_stripes_.at(stripe_num);
+
+      stripe->stripe_mutex->Lock().PermitUncheckedError();
+
+      for (const std::string* key : stripe_keys) {
+        UnLockKey(txn, *key, stripe, lock_map, env);
+      }
+
+      stripe->stripe_mutex->UnLock();
+
+      // Signal waiting threads to retry locking
+      stripe->stripe_cv->NotifyAll();
+    }
+  }
+}
+
+PointLockManager::PointLockStatus PointLockManager::GetPointLockStatus() {
+  PointLockStatus data;
+  // Lock order here is important. The correct order is lock_map_mutex_, then
+  // for every column family ID in ascending order lock every stripe in
+  // ascending order.
+  InstrumentedMutexLock l(&lock_map_mutex_);
+
+  std::vector<uint32_t> cf_ids;
+  for (const auto& map : lock_maps_) {
+    cf_ids.push_back(map.first);
+  }
+  std::sort(cf_ids.begin(), cf_ids.end());
+
+  for (auto i : cf_ids) {
+    const auto& stripes = lock_maps_[i]->lock_map_stripes_;
+    // Iterate and lock all stripes in ascending order.
+    for (const auto& j : stripes) {
+      j->stripe_mutex->Lock().PermitUncheckedError();
+      for (const auto& it : j->keys) {
+        struct KeyLockInfo info;
+        info.exclusive = it.second->exclusive;
+        info.key = it.first;
+        for (const auto& id : it.second->txn_ids) {
+          info.ids.push_back(id);
+        }
+        data.insert({i, info});
+      }
+    }
+  }
+
+  // Unlock everything. Unlocking order is not important.
+  for (auto i : cf_ids) {
+    const auto& stripes = lock_maps_[i]->lock_map_stripes_;
+    for (const auto& j : stripes) {
+      j->stripe_mutex->UnLock();
+    }
+  }
+
+  return data;
+}
+
+std::vector<DeadlockPath> PointLockManager::GetDeadlockInfoBuffer() {
+  return dlock_buffer_.PrepareBuffer();
+}
+
+void PointLockManager::Resize(uint32_t target_size) {
+  dlock_buffer_.Resize(target_size);
+}
+
+PointLockManager::RangeLockStatus PointLockManager::GetRangeLockStatus() {
+  return {};
+}
+
+Status PointLockManager::TryLock(PessimisticTransaction* /* txn */,
+                                 ColumnFamilyId /* cf_id */,
+                                 const Endpoint& /* start */,
+                                 const Endpoint& /* end */, Env* /* env */,
+                                 bool /* exclusive */) {
+  return Status::NotSupported(
+      "PointLockManager does not support range locking");
+}
+
+void PointLockManager::UnLock(PessimisticTransaction* /* txn */,
+                              ColumnFamilyId /* cf_id */,
+                              const Endpoint& /* start */,
+                              const Endpoint& /* end */, Env* /* env */) {
+  // no-op
+}
+
+// PerKeyPointLockManager implementation
+PerKeyPointLockManager::PerKeyPointLockManager(PessimisticTransactionDB* db,
+                                               const TransactionDBOptions& opt)
+    : PointLockManager(db, opt) {}
+
+// Helper function for TryLock().
+Status PerKeyPointLockManager::AcquireWithTimeout(
+    PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
+    ColumnFamilyId column_family_id, const std::string& key, Env* env,
+    int64_t timeout, const LockInfo& lock_info) {
+  Status result;
+  uint64_t end_time = 0;
+
+  if (timeout > 0) {
+    uint64_t start_time = env->NowMicros();
+    end_time = start_time + timeout;
+  }
+
+  if (timeout < 0) {
+    // If timeout is negative, we wait indefinitely to acquire the lock
+    result = stripe->stripe_mutex->Lock();
+  } else {
+    result = stripe->stripe_mutex->TryLockFor(timeout);
+  }
+
+  if (!result.ok()) {
+    // failed to acquire mutex
+    return result;
+  }
+
+  // Acquire lock if we are able to
+  uint64_t expire_time_hint = 0;
+  autovector<TransactionID> wait_ids;
+  bool isUpgrade;
+  result = AcquireLocked(lock_map, stripe, key, env, lock_info,
+                         &expire_time_hint, &wait_ids, &isUpgrade, true);
+  if (!result.ok() && timeout != 0) {
+    PERF_TIMER_GUARD(key_lock_wait_time);
+    PERF_COUNTER_ADD(key_lock_wait_count, 1);
+    // If we weren't able to acquire the lock, we will keep retrying as long
+    // as the timeout allows.
+    bool timed_out = false;
+    bool cv_wait_fail = false;
+    do {
+      // Decide how long to wait
+      int64_t cv_end_time = -1;
+      if (expire_time_hint > 0 && end_time > 0) {
+        cv_end_time = std::min(expire_time_hint, end_time);
+      } else if (expire_time_hint > 0) {
+        cv_end_time = expire_time_hint;
+      } else if (end_time > 0) {
+        cv_end_time = end_time;
+      }
+      assert(result.IsLockLimit() == wait_ids.empty());
+
+      // We are dependent on a transaction to finish, so perform deadlock
+      // detection.
+      if (wait_ids.size() != 0) {
+        if (txn->IsDeadlockDetect()) {
+          if (IncrementWaiters(txn, wait_ids, key, column_family_id,
+                               lock_info.exclusive, env)) {
+            result = Status::Busy(Status::SubCode::kDeadlock);
+            stripe->stripe_mutex->UnLock();
+            return result;
+          }
+        }
+        txn->SetWaitingTxn(wait_ids, column_family_id, &key);
+      }
+
+      TEST_SYNC_POINT("PointLockManager::AcquireWithTimeout:WaitingTxn");
+      if (cv_end_time < 0) {
+        // Wait indefinitely
+        result = stripe->WaitOnKey(key, lock_info.txn_ids[0],
+                                   lock_info.exclusive, isUpgrade);
+        cv_wait_fail = !result.ok();
+      } else {
+        // FIXME: in this case, cv_end_time could be `expire_time_hint` from the
+        // current lock holder, a time out does not mean we reached the current
+        // transaction's timeout, and we should continue to retry locking
+        // instead of exiting this while loop below.
+        uint64_t now = env->NowMicros();
+        if (static_cast<uint64_t>(cv_end_time) > now) {
+          // This may be invoked multiple times since we divide
+          // the time into smaller intervals.
+          (void)ROCKSDB_THREAD_YIELD_CHECK_ABORT();
+          result = stripe->WaitOnKeyFor(key, lock_info.txn_ids[0],
+                                        lock_info.exclusive, isUpgrade,
+                                        cv_end_time - now);
+          cv_wait_fail = !result.ok() && !result.IsTimedOut();
+        } else {
+          // now >= cv_end_time, we already timed out
+          result = Status::TimedOut(Status::SubCode::kLockTimeout);
+        }
+      }
+
+      if (wait_ids.size() != 0) {
+        txn->ClearWaitingTxn();
+        if (txn->IsDeadlockDetect()) {
+          DecrementWaiters(txn, wait_ids);
+        }
+      }
+      if (cv_wait_fail) {
+        break;
+      }
+
+      if (result.IsTimedOut()) {
+        timed_out = true;
+        // Even though we timed out, we will still make one more attempt to
+        // acquire lock below (it is possible the lock expired and we
+        // were never signaled).
+      }
+      assert(result.ok() || result.IsTimedOut());
+      wait_ids.clear();
+      // If wait is timed out, respect the FIFO order. Otherwise, it is
+      // its turn to acquire the lock.
+      result =
+          AcquireLocked(lock_map, stripe, key, env, lock_info,
+                        &expire_time_hint, &wait_ids, &isUpgrade, timed_out);
+    } while (!result.ok() && !timed_out);
+  }
+
+  stripe->stripe_mutex->UnLock();
+
+  return result;
+}
+
 // Try to lock this key after we have acquired the mutex.
 // Sets *expire_time to the expiration time in microseconds
 //  or 0 if no expiration.
@@ -710,12 +1105,10 @@ bool PointLockManager::IncrementWaiters(
 // REQUIRED:  Stripe mutex must be held. txn_ids must be empty.
 // TODO Xingbo move the new implementation to a subclass, so we can switch
 // between the 2 implementations
-Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
-                                       const std::string& key, Env* env,
-                                       const LockInfo& txn_lock_info,
-                                       uint64_t* expire_time,
-                                       autovector<TransactionID>* txn_ids,
-                                       bool* isUpgrade, bool fifo) {
+Status PerKeyPointLockManager::AcquireLocked(
+    LockMap* lock_map, LockMapStripe* stripe, const std::string& key, Env* env,
+    const LockInfo& txn_lock_info, uint64_t* expire_time,
+    autovector<TransactionID>* txn_ids, bool* isUpgrade, bool fifo) {
   assert(txn_lock_info.txn_ids.size() == 1);
   assert(txn_ids && txn_ids->empty());
 
@@ -773,16 +1166,16 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
         lock_info.expiration_time = txn_lock_info.expiration_time;
         return Status::OK();
       }
-    }
-    // handle read reentrant lock
-    if (!txn_lock_info.exclusive && !lock_info.exclusive) {
-      auto lock_it =
-          std::find(lock_info.txn_ids.begin(), lock_info.txn_ids.end(),
-                    txn_lock_info.txn_ids[0]);
-      if (lock_it != lock_info.txn_ids.end()) {
-        lock_info.expiration_time =
-            std::max(lock_info.expiration_time, txn_lock_info.expiration_time);
-        return Status::OK();
+      // handle read reentrant lock
+      if (!txn_lock_info.exclusive && !lock_info.exclusive) {
+        auto lock_it =
+            std::find(lock_info.txn_ids.begin(), lock_info.txn_ids.end(),
+                      txn_lock_info.txn_ids[0]);
+        if (lock_it != lock_info.txn_ids.end()) {
+          lock_info.expiration_time = std::max(lock_info.expiration_time,
+                                               txn_lock_info.expiration_time);
+          return Status::OK();
+        }
       }
     }
   }
@@ -842,6 +1235,7 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
 
     // Add the waiter txn ids to the blocking txn id list for better
     // deadlock detection
+    // TODO : Dedup the txn_ids, as there could be duplicates
     if (lock_info.waiter_queue != nullptr) {
       for (auto& waiter : *lock_info.waiter_queue) {
         if (*isUpgrade && waiter->exclusive) {
@@ -916,9 +1310,10 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
   }
 }
 
-void PointLockManager::UnLockKey(PessimisticTransaction* txn,
-                                 const std::string& key, LockMapStripe* stripe,
-                                 LockMap* lock_map, Env* env) {
+void PerKeyPointLockManager::UnLockKey(PessimisticTransaction* txn,
+                                       const std::string& key,
+                                       LockMapStripe* stripe, LockMap* lock_map,
+                                       Env* env) {
 #ifdef NDEBUG
   (void)env;
 #endif
@@ -1023,9 +1418,9 @@ void PointLockManager::UnLockKey(PessimisticTransaction* txn,
   }
 }
 
-void PointLockManager::UnLock(PessimisticTransaction* txn,
-                              ColumnFamilyId column_family_id,
-                              const std::string& key, Env* env) {
+void PerKeyPointLockManager::UnLock(PessimisticTransaction* txn,
+                                    ColumnFamilyId column_family_id,
+                                    const std::string& key, Env* env) {
   std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(column_family_id);
   LockMap* lock_map = lock_map_ptr.get();
   if (lock_map == nullptr) {
@@ -1043,8 +1438,8 @@ void PointLockManager::UnLock(PessimisticTransaction* txn,
   stripe->stripe_mutex->UnLock();
 }
 
-void PointLockManager::UnLock(PessimisticTransaction* txn,
-                              const LockTracker& tracker, Env* env) {
+void PerKeyPointLockManager::UnLock(PessimisticTransaction* txn,
+                                    const LockTracker& tracker, Env* env) {
   std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
       tracker.GetColumnFamilyIterator());
   assert(cf_it != nullptr);
@@ -1089,72 +1484,10 @@ void PointLockManager::UnLock(PessimisticTransaction* txn,
   }
 }
 
-PointLockManager::PointLockStatus PointLockManager::GetPointLockStatus() {
-  PointLockStatus data;
-  // Lock order here is important. The correct order is lock_map_mutex_, then
-  // for every column family ID in ascending order lock every stripe in
-  // ascending order.
-  InstrumentedMutexLock l(&lock_map_mutex_);
-
-  std::vector<uint32_t> cf_ids;
-  for (const auto& map : lock_maps_) {
-    cf_ids.push_back(map.first);
-  }
-  std::sort(cf_ids.begin(), cf_ids.end());
-
-  for (auto i : cf_ids) {
-    const auto& stripes = lock_maps_[i]->lock_map_stripes_;
-    // Iterate and lock all stripes in ascending order.
-    for (const auto& j : stripes) {
-      j->stripe_mutex->Lock().PermitUncheckedError();
-      for (const auto& it : j->keys) {
-        struct KeyLockInfo info;
-        info.exclusive = it.second->exclusive;
-        info.key = it.first;
-        for (const auto& id : it.second->txn_ids) {
-          info.ids.push_back(id);
-        }
-        data.insert({i, info});
-      }
-    }
-  }
-
-  // Unlock everything. Unlocking order is not important.
-  for (auto i : cf_ids) {
-    const auto& stripes = lock_maps_[i]->lock_map_stripes_;
-    for (const auto& j : stripes) {
-      j->stripe_mutex->UnLock();
-    }
-  }
-
-  return data;
-}
-
-std::vector<DeadlockPath> PointLockManager::GetDeadlockInfoBuffer() {
-  return dlock_buffer_.PrepareBuffer();
-}
-
-void PointLockManager::Resize(uint32_t target_size) {
-  dlock_buffer_.Resize(target_size);
-}
-
-PointLockManager::RangeLockStatus PointLockManager::GetRangeLockStatus() {
-  return {};
-}
-
-Status PointLockManager::TryLock(PessimisticTransaction* /* txn */,
-                                 ColumnFamilyId /* cf_id */,
-                                 const Endpoint& /* start */,
-                                 const Endpoint& /* end */, Env* /* env */,
-                                 bool /* exclusive */) {
-  return Status::NotSupported(
-      "PointLockManager does not support range locking");
-}
-
-void PointLockManager::UnLock(PessimisticTransaction* /* txn */,
-                              ColumnFamilyId /* cf_id */,
-                              const Endpoint& /* start */,
-                              const Endpoint& /* end */, Env* /* env */) {
+void PerKeyPointLockManager::UnLock(PessimisticTransaction* /* txn */,
+                                    ColumnFamilyId /* cf_id */,
+                                    const Endpoint& /* start */,
+                                    const Endpoint& /* end */, Env* /* env */) {
   // no-op
 }
 
