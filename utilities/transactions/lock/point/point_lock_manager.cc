@@ -1103,8 +1103,6 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
 // reaching per CF limit on the number of locks.
 //
 // REQUIRED:  Stripe mutex must be held. txn_ids must be empty.
-// TODO Xingbo move the new implementation to a subclass, so we can switch
-// between the 2 implementations
 Status PerKeyPointLockManager::AcquireLocked(
     LockMap* lock_map, LockMapStripe* stripe, const std::string& key, Env* env,
     const LockInfo& txn_lock_info, uint64_t* expire_time,
@@ -1235,7 +1233,8 @@ Status PerKeyPointLockManager::AcquireLocked(
 
     // Add the waiter txn ids to the blocking txn id list for better
     // deadlock detection
-    // TODO : Dedup the txn_ids, as there could be duplicates
+    // Duplicate txn ids will only happen if there are waiters in the queue.
+    auto dedup_txn_ids = false;
     if (lock_info.waiter_queue != nullptr) {
       for (auto& waiter : *lock_info.waiter_queue) {
         if (*isUpgrade && waiter->exclusive) {
@@ -1247,7 +1246,15 @@ Status PerKeyPointLockManager::AcquireLocked(
           break;
         }
         txn_ids->push_back(waiter->id);
+        dedup_txn_ids = true;
       }
+    }
+
+    if (dedup_txn_ids) {
+      // dedup the txn ids
+      std::sort(txn_ids->begin(), txn_ids->end());
+      auto new_end = std::unique(txn_ids->begin(), txn_ids->end());
+      txn_ids->resize(txn_ids->size() - (txn_ids->end() - new_end));
     }
 
     if (*isUpgrade && txn_ids->empty()) {
