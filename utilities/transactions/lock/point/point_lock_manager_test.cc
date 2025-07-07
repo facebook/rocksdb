@@ -1567,14 +1567,16 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
         auto txn = NewTxn(txn_opt_);
         std::vector<std::pair<uint32_t, bool>> locked_key_with_types;
         // try to grab a random number of locks
-        auto num_key_to_lock = Random::GetTLSInstance()->Uniform(
-                                   param.max_num_keys_to_lock_per_txn) +
-                               1;
+        auto num_key_to_lock =
+            Random::GetTLSInstance()->Uniform(
+                static_cast<uint32_t>(param.max_num_keys_to_lock_per_txn)) +
+            1;
         Status s;
 
         for (uint32_t j = 0; j < num_key_to_lock; j++) {
           uint32_t key = 0;
-          key = Random::GetTLSInstance()->Uniform(param.key_count);
+          key = Random::GetTLSInstance()->Uniform(
+              static_cast<uint32_t>(param.key_count));
           auto key_str = std::to_string(key);
           bool isUpgrade = false;
           bool isDowngrade = false;
@@ -1701,7 +1703,8 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
           // the lock expires
           auto sleep_time_us =
               param.lock_expiration_us / 2 +
-              Random::GetTLSInstance()->Uniform(param.lock_expiration_us);
+              Random::GetTLSInstance()->Uniform(
+                  static_cast<uint32_t>(param.lock_expiration_us));
           std::this_thread::sleep_for(std::chrono::microseconds(sleep_time_us));
         }
 
