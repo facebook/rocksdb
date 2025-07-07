@@ -69,16 +69,10 @@ class TransactionDBCondVarImpl : public TransactionDBCondVar {
   TransactionDBCondVarImpl() = default;
   ~TransactionDBCondVarImpl() override = default;
 
-  // Note that the behaivor of Wait and WaitFor are different from
-  // std::condition_variable It does not internall lock the mutex, nor release
-  // it when it is woken up. Instead, it assumes that the mutex is already
-  // locked before calling Wait, and it is caller's responsibility to release it
-  // after Wait returns.
-  Status Wait(std::shared_ptr<TransactionDBMutex> mutex,
-              std::function<bool()>* predicate) override;
+  Status Wait(std::shared_ptr<TransactionDBMutex> mutex) override;
+
   Status WaitFor(std::shared_ptr<TransactionDBMutex> mutex,
-                 int64_t timeout_time,
-                 std::function<bool()>* predicate) override;
+                 int64_t timeout_time) override;
 
   void Notify() override { cv_.notify_one(); }
 
@@ -131,20 +125,13 @@ Status TransactionDBMutexImpl::TryLockFor(int64_t timeout_time) {
   return Status::OK();
 }
 
-Status TransactionDBCondVarImpl::Wait(std::shared_ptr<TransactionDBMutex> mutex,
-                                      std::function<bool()>* predicate) {
+Status TransactionDBCondVarImpl::Wait(
+    std::shared_ptr<TransactionDBMutex> mutex) {
   auto mutex_impl = static_cast<TransactionDBMutexImpl*>(mutex.get());
 
   std::unique_lock<std::mutex> lock(mutex_impl->mutex_, std::adopt_lock);
-  logLockEventOnThread(&mutex_impl->mutex_, true);
-
   logLockEventOnThread(&mutex_impl->mutex_, false);
-  // If timeout is negative, do not use a timeout
-  if (predicate != nullptr) {
-    cv_.wait(lock, *predicate);
-  } else {
-    cv_.wait(lock);
-  }
+  cv_.wait(lock);
   logLockEventOnThread(&mutex_impl->mutex_, true);
 
   // Make sure unique_lock doesn't unlock mutex when it destructs
@@ -154,38 +141,27 @@ Status TransactionDBCondVarImpl::Wait(std::shared_ptr<TransactionDBMutex> mutex,
 }
 
 Status TransactionDBCondVarImpl::WaitFor(
-    std::shared_ptr<TransactionDBMutex> mutex, int64_t timeout_time,
-    std::function<bool()>* predicate) {
+    std::shared_ptr<TransactionDBMutex> mutex, int64_t timeout_time) {
   Status s;
 
   auto mutex_impl = static_cast<TransactionDBMutexImpl*>(mutex.get());
   std::unique_lock<std::mutex> lock(mutex_impl->mutex_, std::adopt_lock);
 
   logLockEventOnThread(&mutex_impl->mutex_, false);
+
   if (timeout_time < 0) {
     // If timeout is negative, do not use a timeout
-    if (predicate != nullptr) {
-      cv_.wait(lock, *predicate);
-    } else {
-      cv_.wait(lock);
-    }
+    cv_.wait(lock);
   } else {
     auto duration = std::chrono::microseconds(timeout_time);
-    if (predicate != nullptr) {
-      if (!(*predicate)()) {
-        auto cv_status = cv_.wait_for(lock, duration, *predicate);
-        if (!cv_status) {
-          s = Status::TimedOut(Status::SubCode::kMutexTimeout);
-        }
-      }
-    } else {
-      auto cv_status = cv_.wait_for(lock, duration);
-      // Check if the wait stopped due to timing out.
-      if (cv_status == std::cv_status::timeout) {
-        s = Status::TimedOut(Status::SubCode::kMutexTimeout);
-      }
+    auto cv_status = cv_.wait_for(lock, duration);
+
+    // Check if the wait stopped due to timing out.
+    if (cv_status == std::cv_status::timeout) {
+      s = Status::TimedOut(Status::SubCode::kMutexTimeout);
     }
   }
+
   logLockEventOnThread(&mutex_impl->mutex_, true);
 
   // Make sure unique_lock doesn't unlock mutex when it destructs

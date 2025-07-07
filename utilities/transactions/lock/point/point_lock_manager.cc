@@ -25,100 +25,79 @@ namespace ROCKSDB_NAMESPACE {
 // also contains other metadata about the waiter such as transaction id, lock
 // type etc.
 struct KeyLockWaiter {
-  KeyLockWaiter(
-      std::shared_ptr<TransactionDBMutex> m,
-      std::shared_ptr<TransactionDBCondVar> c, TransactionID i, bool ex,
-      std::stack<std::pair<std::shared_ptr<TransactionDBMutex>,
-                           std::shared_ptr<TransactionDBCondVar>>>& pool)
-      : id(i),
-        exclusive(ex),
-        ready(false),
-        mutex(std::move(m)),
-        cv(std::move(c)),
-        key_cv_pool(pool) {}
+  KeyLockWaiter(std::shared_ptr<TransactionDBCondVar> c, TransactionID i,
+                bool ex)
+      : id(i), exclusive(ex), ready(false), cv(std::move(c)) {}
 
-  ~KeyLockWaiter() {
-    // return key_cv to the pool
-    key_cv_pool.emplace(std::move(mutex), std::move(cv));
-  }
-
-  // disable copy constructor and assignment operator, move and move assignment
+  // disable copy constructor and assignment operator, move and move
+  // assignment
   KeyLockWaiter(const KeyLockWaiter&) = delete;
   KeyLockWaiter& operator=(const KeyLockWaiter&) = delete;
   KeyLockWaiter(KeyLockWaiter&&) = delete;
   KeyLockWaiter& operator=(KeyLockWaiter&&) = delete;
 
+  // Reset the waiter to be used again
+  void Reset(TransactionID i, bool e) {
+    id = i;
+    exclusive = e;
+    ready = false;
+  }
+
   // Wait until it is the turn for this waiter to take the lock forever
-  Status Wait() {
-    std::function<bool()> check_ready = [this]() -> bool { return ready; };
-    // Wait() does not take the lock, so it has to be taken before the call
-    // and released after
-    LockHolder lock_holder(mutex);
-    auto ret = cv->Wait(mutex, &check_ready);
-    return ret;
+  Status Wait(std::shared_ptr<TransactionDBMutex>& mutex) {
+    // Mutex is already locked by caller
+    // Check ready flag before wait
+    if (ready) {
+      return Status::OK();
+    }
+    auto ret = cv->Wait(mutex);
+    return AfterWait();
   }
 
   // Wait until it is the turn for this waiter to take the lock within
   // timeout_us
-  Status WaitFor(int64_t timeout_us) {
-    std::function<bool()> check_ready = [this]() -> bool { return ready; };
-    // WaitFor() does not take the lock, so it has to be taken before the call
-    // and released after
-    LockHolder lock_holder(mutex);
-    auto ret = cv->WaitFor(mutex, timeout_us, &check_ready);
-    return ret;
+  Status WaitFor(std::shared_ptr<TransactionDBMutex>& mutex,
+                 int64_t timeout_us) {
+    // Mutex is already locked by caller
+    // Check ready flag before wait
+    if (ready) {
+      return Status::OK();
+    }
+    auto ret = cv->WaitFor(mutex, timeout_us);
+    return AfterWait();
   }
 
   // Notify the waiter that it is their turn to take the lock
   void Notify() {
-    {
-      // hold the lock before update ready
-      LockHolder lock_holder(mutex);
-      ready = true;
-    }
+    // Mutex is already locked by caller
+    ready = true;
     cv->NotifyAll();
   }
 
-  const TransactionID id;
-  const bool exclusive;
+  TransactionID id;
+  bool exclusive;
 
  private:
-  // A lock holder class that acquires the mutex when constructed and releases
-  // it when destructed automatically.
-  class LockHolder {
-   public:
-    explicit LockHolder(std::shared_ptr<TransactionDBMutex>& m) : mutex_(m) {
-      auto s = mutex_->Lock();
-      // This mutex is only used for waiting and wake up between a pair of
-      // threads, which holds it for a very short amount of time, so it is ok to
-      // just call Lock, instead of TryLock.
-      // Assert s.ok() to mute the status check
-      assert(s.ok());
+  Status AfterWait() {
+    // check ready again after wake up.
+    if (ready) {
+      return Status::OK();
+    } else {
+      return Status::TimedOut(Status::SubCode::kMutexTimeout);
     }
-    ~LockHolder() { mutex_->UnLock(); }
-
-    // disable copy constructor and assignment operator, move and move
-    // assignment
-    LockHolder(const LockHolder&) = delete;
-    LockHolder& operator=(const LockHolder&) = delete;
-    LockHolder(LockHolder&&) = delete;
-    LockHolder& operator=(LockHolder&&) = delete;
-
-   private:
-    std::shared_ptr<TransactionDBMutex>& mutex_;
-  };
+  }
 
   bool ready;
   // TODO(Xingbo), Switch to std::binary_semaphore, once we have c++20
   // semaphore is likely more performant than mutex + cv.
   // Although we will also need to implement TransactionDBSemaphore, which would
   // be required if external system wants to do instrumented lock wait tracking
-  std::shared_ptr<TransactionDBMutex> mutex;
   std::shared_ptr<TransactionDBCondVar> cv;
-  // used for returning mutex back to the pool
-  std::stack<std::pair<std::shared_ptr<TransactionDBMutex>,
-                       std::shared_ptr<TransactionDBCondVar>>>& key_cv_pool;
 };
+
+// Thread local variable for KeyLockWaiter. As one thread could only need one
+// KeyLockWaiter Lazy init on first time usage
+thread_local std::unique_ptr<KeyLockWaiter> key_lock_waiter = nullptr;
 
 struct LockInfo {
   bool exclusive;
@@ -133,7 +112,7 @@ struct LockInfo {
   }
 
   // waiter queue for this key
-  std::unique_ptr<std::list<std::unique_ptr<KeyLockWaiter>>> waiter_queue;
+  std::unique_ptr<std::list<KeyLockWaiter*>> waiter_queue;
 };
 
 struct LockMapStripe {
@@ -145,26 +124,6 @@ struct LockMapStripe {
     assert(stripe_cv);
 
     mutex_factory_ = std::move(factory);
-    FillKeyCVPool();
-  }
-
-  // Allocate a batch of mutex and conditional variable pairs to minimize memory
-  // fragmentation
-  void FillKeyCVPool() {
-    // get number of CPU count
-    int num_cpu = std::thread::hardware_concurrency();
-    if (num_cpu == 0) {
-      // if hardware_concurrency() returns 0, use 32 as default
-      num_cpu = 32;
-    }
-
-    // 8 threads per CPU is probably a good upper bound for batch fill to reduce
-    // fragmentation.
-    constexpr int kThreadPerCPU = 8;
-    for (int i = 0; i < kThreadPerCPU * num_cpu; i++) {
-      key_cv_pool.emplace(mutex_factory_->AllocateMutex(),
-                          mutex_factory_->AllocateCondVar());
-    }
   }
 
   // Wait until it is the turn for this waiter to take the lock of this key
@@ -192,17 +151,16 @@ struct LockMapStripe {
   UnorderedMap<std::string, std::unique_ptr<LockInfo>> keys;
 
  private:
-  std::unique_ptr<KeyLockWaiter> GetKeyLockWaiterFromPool(TransactionID id,
-                                                          bool exclusive) {
-    std::unique_ptr<KeyLockWaiter> waiter;
-    if (key_cv_pool.empty()) {
-      FillKeyCVPool();
+  KeyLockWaiter* GetKeyLockWaiterFromPool(TransactionID id, bool exclusive) {
+    if (!key_lock_waiter) {
+      // create key lock waiter
+      key_lock_waiter = std::make_unique<KeyLockWaiter>(
+          mutex_factory_->AllocateCondVar(), id, exclusive);
+      // return the waiter to the pool
+    } else {
+      key_lock_waiter->Reset(id, exclusive);
     }
-    waiter = std::make_unique<KeyLockWaiter>(
-        std::move(key_cv_pool.top().first), std::move(key_cv_pool.top().second),
-        id, exclusive, key_cv_pool);
-    key_cv_pool.pop();
-    return waiter;
+    return key_lock_waiter.get();
   }
 
   Status WaitOnKeyInternal(const std::string& key, TransactionID id,
@@ -217,12 +175,12 @@ struct LockMapStripe {
     if (lock_info_iter->second->waiter_queue == nullptr) {
       // no waiter, create a new one
       lock_info_iter->second->waiter_queue =
-          std::make_unique<std::list<std::unique_ptr<KeyLockWaiter>>>();
+          std::make_unique<std::list<KeyLockWaiter*>>();
     }
 
     auto& waiter_queue = lock_info_iter->second->waiter_queue;
 
-    std::list<std::unique_ptr<KeyLockWaiter>>::iterator lock_waiter;
+    std::list<KeyLockWaiter*>::iterator lock_waiter;
     if (isUpgrade) {
       // If transaction is upgrading a shared lock to exclusive lock, prioritize
       // it by moving its exclusive lock request to the left of the first
@@ -247,33 +205,20 @@ struct LockMapStripe {
       lock_waiter = --waiter_queue->end();
     }
 
-    // it is safe to unlock stripe_mutex here because no one could remove the
-    // lock waiter except the current transaction itself
-    stripe_mutex->UnLock();
-
     Status ret;
     if (timeout_us == 0) {
-      ret = (*lock_waiter)->Wait();
+      ret = (*lock_waiter)->Wait(stripe_mutex);
     } else {
-      ret = (*lock_waiter)->WaitFor(timeout_us);
+      ret = (*lock_waiter)->WaitFor(stripe_mutex, timeout_us);
     }
 
     TEST_SYNC_POINT("LockMapStrpe::WaitOnKeyInternal:AfterWokenUp");
     TEST_SYNC_POINT("LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock");
 
-    // Re-acquire the stripe mutex, as the lock waiter need to be removed from
-    // the waiter queue
-    auto s = stripe_mutex->Lock();
-    // we have to take the stripe mutex to remove the lock waiter from the queue
-    assert(s.ok());
     waiter_queue->erase(lock_waiter);
 
     return ret;
   }
-
-  std::stack<std::pair<std::shared_ptr<TransactionDBMutex>,
-                       std::shared_ptr<TransactionDBCondVar>>>
-      key_cv_pool;
 
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
 };
