@@ -221,16 +221,32 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
   }
 
   auto local_wa = static_cast<CostAwareWorkingArea*>(wa->get());
+  // exploration
+  bool exploration =
+      Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
+  TEST_SYNC_POINT_CALLBACK(
+      "CostAwareCompressor::CompressBlock::exploitOrExplore", &exploration);
+  if (exploration) {
+    std::pair<size_t, size_t> choosen_index =
+        allcompressors_index_[Random::GetTLSInstance()->Uniform(
+            allcompressors_index_.size())];
+    size_t choosen_compression_type = choosen_index.first;
+    size_t compresion_level_ptr = choosen_index.second;
 
-  // Choose compression type and level based on budget availability
-  std::pair<size_t, size_t> choosen_index =
-      SelectCompressionBasedOnBudget(local_wa);
-  size_t choosen_compression_type = choosen_index.first;
-  size_t compresion_level_ptr = choosen_index.second;
+    return CompressBlockAndRecord(
+        choosen_compression_type, compresion_level_ptr, uncompressed_data,
+        compressed_output, out_compression_type, local_wa);
+  } else {
+    // Choose compression type and level based on budget availability
+    std::pair<size_t, size_t> choosen_index =
+        SelectCompressionBasedOnBudget(local_wa);
+    size_t choosen_compression_type = choosen_index.first;
+    size_t compresion_level_ptr = choosen_index.second;
 
-  return CompressBlockAndRecord(choosen_compression_type, compresion_level_ptr,
-                                uncompressed_data, compressed_output,
-                                out_compression_type, local_wa);
+    return CompressBlockAndRecord(
+        choosen_compression_type, compresion_level_ptr, uncompressed_data,
+        compressed_output, out_compression_type, local_wa);
+  }
 }
 
 Compressor::ManagedWorkingArea CostAwareCompressor::ObtainWorkingArea() {
