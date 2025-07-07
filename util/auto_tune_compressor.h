@@ -149,7 +149,8 @@ class CostAwareCompressor : public Compressor {
  public:
   explicit CostAwareCompressor(const CompressionOptions& opts,
                                IOBudget* io_budget = nullptr,
-                               CPUBudget* cpu_budget = nullptr);
+                               CPUBudget* cpu_budget = nullptr,
+                               RateLimiter* rate_limiter = nullptr);
   const char* Name() const override;
   size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
   Slice GetSerializedDict() const override;
@@ -172,9 +173,10 @@ class CostAwareCompressor : public Compressor {
                                 CostAwareWorkingArea* wa);
 
   // Select compression type and level based on budget availability
-  std::pair<size_t, size_t> SelectCompressionBasedOnBudget(
+  std::pair<size_t, size_t> SelectCompressionBasedOnGoal(
       CostAwareWorkingArea* wa);
-
+  std::pair<size_t, size_t> SelectCompressionInDirectionOfBudget(
+      CostAwareWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   // This is the vector containing the list of compression levels that
@@ -189,14 +191,17 @@ class CostAwareCompressor : public Compressor {
   // Budget references for cost-aware compression decisions
   IOBudget* io_budget_;
   CPUBudget* cpu_budget_;
+  RateLimiter* rate_limiter_;
 };
 
 class CostAwareCompressorManager : public CompressionManagerWrapper {
  public:
   explicit CostAwareCompressorManager(
       std::shared_ptr<CompressionManager> wrapped,
-      std::shared_ptr<CPUIOBudgetFactory> budget_factory)
-      : CompressionManagerWrapper(wrapped), budget_factory_(budget_factory) {}
+      std::shared_ptr<CPUIOBudgetFactory> budget_factory, Options* opt)
+      : CompressionManagerWrapper(wrapped),
+        budget_factory_(budget_factory),
+        opts_(opt) {}
 
   const char* Name() const override;
   std::unique_ptr<Compressor> GetCompressorForSST(
@@ -205,6 +210,7 @@ class CostAwareCompressorManager : public CompressionManagerWrapper {
 
  private:
   std::shared_ptr<CPUIOBudgetFactory> budget_factory_;
+  Options* opts_;
 };
 
 class DefaultBudgetFactory : public CPUIOBudgetFactory {
@@ -216,6 +222,7 @@ class DefaultBudgetFactory : public CPUIOBudgetFactory {
         io_budget_(io_budget),
         per_time_(per_time) {}
   std::pair<IOBudget*, CPUBudget*> GetBudget() override;
+  Options GetOptions() override { return opt_; };
   ~DefaultBudgetFactory() override {}
 
  private:

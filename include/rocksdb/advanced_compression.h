@@ -14,6 +14,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/data_structure.h"
+#include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
 // This is defined in auto_refill_budget.h
@@ -601,5 +602,6 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
 // EXPERIMENTAL
 std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
     std::shared_ptr<CompressionManager> wrapped = nullptr,
-    std::shared_ptr<CPUIOBudgetFactory> budget_factory = nullptr);
+    std::shared_ptr<CPUIOBudgetFactory> budget_factory = nullptr,
+    Options* opt = nullptr);
 }  // namespace ROCKSDB_NAMESPACE

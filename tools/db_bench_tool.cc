@@ -4750,11 +4750,12 @@ class Benchmark {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
       // options.rate_limiter->GetBytesPerSecond();
       auto io_usage_limit = 0.99 * ratelimiter_throughput;
-      int64_t cpu_usage_limit = 0.9 * 1000000;
+      int64_t onesec = 1000000;
+      int64_t cpu_usage_limit = 0.9 * onesec;
       std::shared_ptr<CPUIOBudgetFactory> budget_factory =
           std::make_shared<DefaultBudgetFactory>(
-              cpu_usage_limit, io_usage_limit, 10000, options);
-      mgr = CreateCostAwareCompressionManager(nullptr, budget_factory);
+              cpu_usage_limit, io_usage_limit, onesec, options);
+      mgr = CreateCostAwareCompressionManager(nullptr, budget_factory, opts);
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {

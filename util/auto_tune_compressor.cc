@@ -134,8 +134,12 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
 
 CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts,
                                          IOBudget* io_budget,
-                                         CPUBudget* cpu_budget)
-    : opts_(opts), io_budget_(io_budget), cpu_budget_(cpu_budget) {
+                                         CPUBudget* cpu_budget,
+                                         RateLimiter* rate_limiter)
+    : opts_(opts),
+      io_budget_(io_budget),
+      cpu_budget_(cpu_budget),
+      rate_limiter_(rate_limiter) {
   // Creates compressor supporting all the compression types and levels as per
   // the compression levels set in vector CompressionLevels
   auto builtInManager = GetBuiltinV2CompressionManager();
@@ -239,10 +243,19 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
   } else {
     // Choose compression type and level based on budget availability
     std::pair<size_t, size_t> choosen_index =
-        SelectCompressionBasedOnBudget(local_wa);
+        SelectCompressionInDirectionOfBudget(local_wa);
+    // std::pair<size_t, size_t> choosen_index =
+    //     SelectCompressionBasedOnGoal(local_wa);
     size_t choosen_compression_type = choosen_index.first;
     size_t compresion_level_ptr = choosen_index.second;
-
+    // Check if the chosen compression type and level are available
+    // if not, skip the compression
+    if (choosen_compression_type >= allcompressors_.size() ||
+        compresion_level_ptr >=
+            allcompressors_[choosen_compression_type].size()) {
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
     return CompressBlockAndRecord(
         choosen_compression_type, compresion_level_ptr, uncompressed_data,
         compressed_output, out_compression_type, local_wa);
@@ -280,8 +293,7 @@ void CostAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   }
   delete static_cast<CostAwareWorkingArea*>(wa);
 }
-
-std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnBudget(
+std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
     CostAwareWorkingArea* wa) {
   // If no budgets are available, use default choice
   if (!cpu_budget_ || !io_budget_) {
@@ -308,6 +320,45 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnBudget(
     }
   }
   return std::make_pair(0, 0);
+}
+std::pair<size_t, size_t>
+CostAwareCompressor::SelectCompressionInDirectionOfBudget(
+    CostAwareWorkingArea* wa) {
+  // If no budgets are available, use default choice
+  if (!cpu_budget_ || !io_budget_) {
+    std::pair<size_t, size_t> default_choice(6, 2);
+    return default_choice;
+  }
+  // Select compression whose cpu cost and io cost are within budget
+  // Return the first compression type and level that fits within budget
+  // Get available budgets
+  size_t available_cpu = cpu_budget_->GetAvailableBudget();
+  size_t available_io = io_budget_->GetAvailableBudget();
+  std::pair<size_t, size_t> best_choice(std::numeric_limits<size_t>::max(),
+                                        std::numeric_limits<size_t>::max());
+  if (available_cpu <= 0) {
+    return best_choice;
+  }
+  float total = sqrt(static_cast<double>(available_cpu * available_cpu +
+                                         available_io * available_io));
+  float min_cosine_distance = std::numeric_limits<float>::max();
+  auto cosine_distance = [&](int64_t cpu_cost, int64_t io_cost) {
+    return available_cpu / total * cpu_cost + available_io / total * io_cost;
+  };
+  for (const auto& choice : allcompressors_index_) {
+    size_t comp_type = choice.first;
+    size_t comp_level = choice.second;
+    auto predicted_cpu_cost =
+        wa->cost_predictors_[comp_type][comp_level]->CPUPredictor.Predict();
+    auto predicted_io_cost =
+        wa->cost_predictors_[comp_type][comp_level]->IOPredictor.Predict();
+    auto distance = cosine_distance(predicted_cpu_cost, predicted_io_cost);
+    if (distance < min_cosine_distance) {
+      min_cosine_distance = distance;
+      best_choice = choice;
+    }
+  }
+  return best_choice;
 }
 
 Status CostAwareCompressor::CompressBlockAndRecord(
@@ -347,8 +398,8 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
       wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped);
 }
 const char* CostAwareCompressorManager::Name() const {
-  // should have returned "CostAwareCompressorManager" but we currently have an
-  // error so for now returning name of the wrapped container
+  // should have returned "CostAwareCompressorManager" but we currently have
+  // an error so for now returning name of the wrapped container
   return wrapped_->Name();
 }
 
@@ -362,21 +413,24 @@ std::unique_ptr<Compressor> CostAwareCompressorManager::GetCompressorForSST(
   // Get budgets from budget factory if available
   IOBudget* io_budget = nullptr;
   CPUBudget* cpu_budget = nullptr;
+  RateLimiter* rate_limiter = nullptr;
   if (budget_factory_) {
     auto budgets = budget_factory_->GetBudget();
     io_budget = budgets.first;
     cpu_budget = budgets.second;
+    rate_limiter = budget_factory_->GetOptions().rate_limiter.get();
   }
 
-  return std::make_unique<CostAwareCompressor>(opts, io_budget, cpu_budget);
+  return std::make_unique<CostAwareCompressor>(opts, io_budget, cpu_budget,
+                                               rate_limiter);
 }
 
 std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
     std::shared_ptr<CompressionManager> wrapped,
-    std::shared_ptr<CPUIOBudgetFactory> budget_factory) {
+    std::shared_ptr<CPUIOBudgetFactory> budget_factory, Options* opt) {
   return std::make_shared<CostAwareCompressorManager>(
       wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped,
-      budget_factory);
+      budget_factory, opt);
 }
 
 std::pair<IOBudget*, CPUBudget*> DefaultBudgetFactory::GetBudget() {
