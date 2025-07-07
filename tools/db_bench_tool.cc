@@ -2020,6 +2020,39 @@ static void AppendWithSpace(std::string* str, Slice msg) {
   str->append(msg.data(), msg.size());
 }
 
+class RequestRateLimiter {
+ private:
+  // Use AutoRefillBudget to track requests per second
+  std::unique_ptr<AutoRefillBudget<size_t>> request_budget_;
+
+ public:
+  // Constructor: requests_per_second is the maximum allowed requests per second
+  explicit RequestRateLimiter(size_t requests_per_second) {
+    // Refill period of 1 second (1,000,000 microseconds)
+    // Refill amount equals the requests per second limit
+    request_budget_ = std::make_unique<AutoRefillBudget<size_t>>(
+        requests_per_second, 1000000 /* 1 second in microseconds */);
+  }
+
+  // Try to process a request - returns true if allowed, false if rate limited
+  bool TryProcessRequest(size_t request_cost = 1) {
+    return request_budget_->TryConsume(request_cost);
+  }
+
+  // Get current available request budget
+  size_t GetAvailableRequests() {
+    return request_budget_->GetAvailableBudget();
+  }
+
+  // Update rate limit parameters
+  void UpdateRateLimit(size_t new_requests_per_second) {
+    request_budget_->SetRefillParameters(new_requests_per_second, 1000000);
+  }
+
+  // Reset the budget (useful for testing or manual resets)
+  void Reset() { request_budget_->Reset(); }
+};
+
 struct DBWithColumnFamilies {
   std::vector<ColumnFamilyHandle*> cfh;
   DB* db;
@@ -2848,6 +2881,7 @@ class Benchmark {
   bool use_blob_db_;    // Stacked BlobDB
   bool read_operands_;  // read via GetMergeOperands()
   std::vector<std::string> keys_;
+  std::shared_ptr<RequestRateLimiter> req_rate_limit_;
 
   class ErrorHandlerListener : public EventListener {
    public:
@@ -3391,6 +3425,10 @@ class Benchmark {
     listener_.reset(new ErrorHandlerListener());
     if (user_timestamp_size_ > 0) {
       mock_app_clock_.reset(new TimestampEmulator());
+    }
+    req_rate_limit_ = nullptr;
+    if (true) {
+      req_rate_limit_ = std::make_shared<RequestRateLimiter>(5000);
     }
   }
 
@@ -5430,8 +5468,9 @@ class Benchmark {
 
       batch.Clear();
       int64_t batch_bytes = 0;
-
-      for (int64_t j = 0; j < entries_per_batch_; j++) {
+      int64_t req_count = 0;
+      // for (int64_t j = 0; j < entries_per_batch_; j++) {
+      for (; req_count < entries_per_batch_; req_count++) {
         int64_t rand_num = 0;
         if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {
           if ((inserted_key_window.size() > 0) &&
@@ -5544,6 +5583,15 @@ class Benchmark {
         } else {
           val = gen.Generate();
         }
+        // Get the request token or else exit from the for loop
+        if (req_rate_limit_ != nullptr) {
+          if (req_rate_limit_->GetAvailableRequests() > 0) {
+            req_rate_limit_->TryProcessRequest();
+          } else {
+            // fprintf(stdout, "Request exceeded\n");
+            break;
+          }
+        }
         if (use_blob_db_) {
           // Stacked BlobDB
           blob_db::BlobDB* blobdb =
@@ -5649,8 +5697,10 @@ class Benchmark {
         // Not stacked BlobDB
         s = db_with_cfh->db->Write(write_options_, &batch);
       }
-      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
-                                entries_per_batch_, kWrite);
+      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, req_count,
+                                kWrite);
+      // thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
+      // entries_per_batch_, kWrite);
       if (FLAGS_sine_write_rate) {
         uint64_t now = FLAGS_env->NowMicros();
 
