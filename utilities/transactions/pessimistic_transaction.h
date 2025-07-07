@@ -71,7 +71,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
                                             std::string* key) const override {
     std::lock_guard<std::mutex> lock(wait_mutex_);
     std::vector<TransactionID> ids(waiting_txn_ids_.size());
-    if (enable_get_waiting_txn_after_timeout_ && timed_out_key_.has_value()) {
+    if (timed_out_key_.has_value()) {
       if (key) *key = timed_out_key_.value();
     } else {
       if (key) *key = waiting_key_ ? *waiting_key_ : "";
@@ -121,10 +121,6 @@ class PessimisticTransaction : public TransactionBaseImpl {
   bool IsDeadlockDetect() const override { return deadlock_detect_; }
 
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
-
-  bool EnableGetWaitingTxnAfterTimeout() const {
-    return enable_get_waiting_txn_after_timeout_;
-  }
 
   Status GetRangeLock(ColumnFamilyHandle* column_family,
                       const Endpoint& start_key,
@@ -222,10 +218,6 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   // Whether to perform deadlock detection or not.
   int64_t deadlock_detect_depth_;
-
-  // Whether to update waiting transaction information on timeout so
-  // GetWaitingTxns() returns non-zero values
-  bool enable_get_waiting_txn_after_timeout_;
 
   // Refer to TransactionOptions::skip_concurrency_control
   bool skip_concurrency_control_;

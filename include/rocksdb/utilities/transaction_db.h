@@ -421,11 +421,6 @@ struct TransactionOptions {
   //
   // Default: 0 (disabled).
   uint64_t large_txn_commit_optimize_byte_threshold = 0;
-
-  // EXPERIMENTAL, SUBJECT TO CHANGE
-  // Determines if we update waiting transaction information on timeout so
-  // GetWaitingTxns() returns non-zero values
-  bool enable_get_waiting_txn_after_timeout = false;
 };
 
 // The per-write optimizations that do not involve transactions. TransactionDB

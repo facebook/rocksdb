@@ -355,12 +355,14 @@ Status PointLockManager::AcquireWithTimeout(
       result = AcquireLocked(lock_map, stripe, key, env, lock_info,
                              &expire_time_hint, &wait_ids);
     } while (!result.ok() && !timed_out);
-    if (txn->EnableGetWaitingTxnAfterTimeout() && timed_out && !result.ok()) {
-      txn->SetWaitingTxn(wait_ids, column_family_id, &key, true);
-    }
   }
 
   stripe->stripe_mutex->UnLock();
+
+  // On timeout, persist the lock information so we can debug the contention
+  if (result.IsTimedOut()) {
+    txn->SetWaitingTxn(wait_ids, column_family_id, &key, true);
+  }
 
   return result;
 }
