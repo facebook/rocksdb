@@ -212,12 +212,8 @@ struct LockMapStripe {
       ret = (*lock_waiter)->WaitFor(stripe_mutex, timeout_us);
     }
 
-#ifndef NDEBUG
-    stripe_mutex->UnLock();
     TEST_SYNC_POINT("LockMapStrpe::WaitOnKeyInternal:AfterWokenUp");
     TEST_SYNC_POINT("LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock");
-    stripe_mutex->Lock();
-#endif
 
     waiter_queue->erase(lock_waiter);
 
