@@ -8,6 +8,7 @@
 #include <atomic>
 #include <memory>
 
+#include "rocksdb/options.h"
 #include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -101,11 +102,13 @@ class AutoRefillBudget {
         // logging for debugging
         auto available_budget =
             available_budget_.load(std::memory_order_relaxed);
+        auto refill_amount = refill_amount_.load(std::memory_order_relaxed);
         fprintf(stderr,
-                "Refilling budget at time: %ld used budget: %ld available "
-                "budget: %ld\n",
-                now_us, refill_amount_ - available_budget, available_budget);
-        available_budget_.store(refill_amount_, std::memory_order_release);
+                "Refilling budget at time: %ld used_budget: %ld "
+                "available_budget: %ld refill_budget: %ld\n",
+                now_us, refill_amount - available_budget, available_budget,
+                refill_amount);
+        available_budget_.store(refill_amount, std::memory_order_release);
       }
     }
   }
@@ -133,5 +136,6 @@ class CPUIOBudgetFactory {
   // Create a new IOBudget instance
   virtual std::pair<IOBudget*, CPUBudget*> GetBudget() = 0;
   virtual ~CPUIOBudgetFactory() = default;
+  virtual Options GetOptions() = 0;
 };
 }  // namespace ROCKSDB_NAMESPACE
