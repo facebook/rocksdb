@@ -16,6 +16,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+constexpr auto kLongTxnTimeoutUs = 10000000;
+constexpr auto kShortTxnTimeoutUs = 100;
+
 class MockColumnFamilyHandle : public ColumnFamilyHandle {
  public:
   explicit MockColumnFamilyHandle(ColumnFamilyId cf_id) : cf_id_(cf_id) {}

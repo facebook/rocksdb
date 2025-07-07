@@ -5379,6 +5379,12 @@ cpp_unittest_wrapper(name="point_lock_manager_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="point_lock_manager_stress_test",
+            srcs=["utilities/transactions/lock/point/point_lock_manager_stress_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="prefetch_test",
             srcs=["file/prefetch_test.cc"],
             deps=[":rocksdb_test_lib"],
