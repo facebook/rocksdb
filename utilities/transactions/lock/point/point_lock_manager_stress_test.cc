@@ -158,6 +158,9 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
                   << "Thd " << thd_idx << " key " << key;
               ASSERT_EQ(*shared_lock_count_[key], 0)
                   << "Thd " << thd_idx << " key " << key;
+              // for downgrade, update the lock status before acquiring the
+              // lock, as afterwards, it will not have exclusive access to it
+              exclusive_lock_status_[key] = 0;
             }
           }
 
@@ -211,7 +214,8 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
                 exclusive_lock_status_[key] = 1;
               } else {
                 shared_lock_count_[key]->fetch_add(1);
-                exclusive_lock_status_[key] = 0;
+                ASSERT_FALSE(exclusive_lock_status_[key])
+                    << "Thd " << thd_idx << " key " << key;
               }
             }
           } else {

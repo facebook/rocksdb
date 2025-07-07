@@ -1296,42 +1296,44 @@ TEST_P(SpotLockManagerTest, Catch22) {
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
 
   std::mutex coordinator_mutex;
-  constexpr auto iteration_count = 10000;
+  int iteration_count = 10000;
 
   // txn1 try to lock X lock in a loop
-  auto t1 = port::Thread([this, &txn1, &wait_count, &coordinator_mutex]() {
-    while (wait_count.load() < iteration_count) {
-      // spin wait until the other thread enters the lock waiter queue.
-      while (wait_count.load() % 2 == 0);
-      // unlock the lock, so that the other thread can acquire the lock
-      locker_->UnLock(txn1, 1, "k1", env_);
-      {
-        // Use the coordinator mutex to make sure the other thread has been
-        // waked up and acquired the lock, before this thread try to acquire
-        // the lock again.
-        std::scoped_lock<std::mutex> lock(coordinator_mutex);
-        ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
-      }
-    }
-    locker_->UnLock(txn1, 1, "k1", env_);
-  });
+  auto t1 = port::Thread(
+      [this, &txn1, &wait_count, &coordinator_mutex, &iteration_count]() {
+        while (wait_count.load() < iteration_count) {
+          // spin wait until the other thread enters the lock waiter queue.
+          while (wait_count.load() % 2 == 0);
+          // unlock the lock, so that the other thread can acquire the lock
+          locker_->UnLock(txn1, 1, "k1", env_);
+          {
+            // Use the coordinator mutex to make sure the other thread has been
+            // waked up and acquired the lock, before this thread try to acquire
+            // the lock again.
+            std::scoped_lock<std::mutex> lock(coordinator_mutex);
+            ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
+          }
+        }
+        locker_->UnLock(txn1, 1, "k1", env_);
+      });
 
   // txn2 try to lock X lock in a loop
-  auto t2 = port::Thread([this, &txn2, &wait_count, &coordinator_mutex]() {
-    while (wait_count.load() < iteration_count) {
-      {
-        // Use the coordinator mutex to make sure the other thread has been
-        // waked up and acquired the lock, before this thread try to acquire
-        // the lock again.
-        std::scoped_lock<std::mutex> lock(coordinator_mutex);
-        ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
-      }
-      // spin wait until the other thread enters the lock waiter queue.
-      while (wait_count.load() % 2 == 1);
-      // unlock the lock, so that the other thread can acquire the lock
-      locker_->UnLock(txn2, 1, "k1", env_);
-    }
-  });
+  auto t2 = port::Thread(
+      [this, &txn2, &wait_count, &coordinator_mutex, &iteration_count]() {
+        while (wait_count.load() < iteration_count) {
+          {
+            // Use the coordinator mutex to make sure the other thread has been
+            // waked up and acquired the lock, before this thread try to acquire
+            // the lock again.
+            std::scoped_lock<std::mutex> lock(coordinator_mutex);
+            ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
+          }
+          // spin wait until the other thread enters the lock waiter queue.
+          while (wait_count.load() % 2 == 1);
+          // unlock the lock, so that the other thread can acquire the lock
+          locker_->UnLock(txn2, 1, "k1", env_);
+        }
+      });
 
   // clean up
   t1.join();
@@ -1406,11 +1408,12 @@ TEST_F(PerKeyPointLockManagerTest, LockUpgradeOrdering) {
   // Txn3 release S lock
   locker_->UnLock(txn3, 1, "k1", env_);
 
-  // Txn4 take S lock
-  t3.join();
-
   // Validate Txn2 has not acquired the lock yet
   ASSERT_FALSE(txn2_exclusive_lock_acquired.load());
+
+  // Txn4 take S lock
+  txn4_lock.unlock();
+  t3.join();
 
   // Txn4 release S lock Txn2 upgraded to X lock Txn2
   locker_->UnLock(txn4, 1, "k1", env_);

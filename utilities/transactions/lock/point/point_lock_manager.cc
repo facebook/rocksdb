@@ -50,8 +50,7 @@ struct KeyLockWaiter {
     if (ready) {
       return Status::OK();
     }
-    auto ret = cv->Wait(mutex);
-    return AfterWait();
+    return AfterWait(cv->Wait(mutex));
   }
 
   // Wait until it is the turn for this waiter to take the lock within
@@ -63,8 +62,7 @@ struct KeyLockWaiter {
     if (ready) {
       return Status::OK();
     }
-    auto ret = cv->WaitFor(mutex, timeout_us);
-    return AfterWait();
+    return AfterWait(cv->WaitFor(mutex, timeout_us));
   }
 
   // Notify the waiter that it is their turn to take the lock
@@ -78,12 +76,16 @@ struct KeyLockWaiter {
   bool exclusive;
 
  private:
-  Status AfterWait() {
-    // check ready again after wake up.
-    if (ready) {
-      return Status::OK();
+  Status AfterWait(Status wait_result) {
+    if (wait_result.ok() || wait_result.IsTimedOut()) {
+      // check ready again after wake up.
+      if (ready) {
+        return Status::OK();
+      } else {
+        return Status::TimedOut(Status::SubCode::kMutexTimeout);
+      }
     } else {
-      return Status::TimedOut(Status::SubCode::kMutexTimeout);
+      return wait_result;
     }
   }
 
@@ -216,7 +218,8 @@ struct LockMapStripe {
     stripe_mutex->UnLock();
     TEST_SYNC_POINT("LockMapStrpe::WaitOnKeyInternal:AfterWokenUp");
     TEST_SYNC_POINT("LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock");
-    stripe_mutex->Lock();
+    auto lock_status = stripe_mutex->Lock();
+    assert(lock_status.ok());
 #endif
 
     waiter_queue->erase(lock_waiter);
