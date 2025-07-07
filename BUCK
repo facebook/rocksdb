@@ -5373,14 +5373,14 @@ cpp_unittest_wrapper(name="plain_table_db_test",
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="point_lock_manager_test",
-            srcs=["utilities/transactions/lock/point/point_lock_manager_test.cc"],
+cpp_unittest_wrapper(name="point_lock_manager_stress_test",
+            srcs=["utilities/transactions/lock/point/point_lock_manager_stress_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="point_lock_manager_stress_test",
-            srcs=["utilities/transactions/lock/point/point_lock_manager_stress_test.cc"],
+cpp_unittest_wrapper(name="point_lock_manager_test",
+            srcs=["utilities/transactions/lock/point/point_lock_manager_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
