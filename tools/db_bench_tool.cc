@@ -1510,6 +1510,8 @@ DEFINE_uint64(write_thread_slow_yield_usec, 3,
               "The threshold at which a slow yield is considered a signal that "
               "other processes or threads want the core.");
 
+DEFINE_uint64(req_rate_limit_per_sec, 0,
+              "No of request per sec. 0 signifies no request rate limit");
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
 DEFINE_int64(rate_limiter_refill_period_us, 100 * 1000,
@@ -3427,8 +3429,9 @@ class Benchmark {
       mock_app_clock_.reset(new TimestampEmulator());
     }
     req_rate_limit_ = nullptr;
-    if (true) {
-      req_rate_limit_ = std::make_shared<RequestRateLimiter>(5000);
+    if (FLAGS_req_rate_limit_per_sec > 0) {
+      req_rate_limit_ =
+          std::make_shared<RequestRateLimiter>(FLAGS_req_rate_limit_per_sec);
     }
   }
 
