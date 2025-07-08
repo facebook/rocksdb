@@ -370,6 +370,13 @@ default_params = {
     "enable_sst_partitioner_factory": lambda: random.choice([0, 1]),
     "enable_do_not_compress_roles": lambda: random.choice([0, 1]),
     "block_align": lambda: random.choice([0, 1]),
+    "super_block_align": lambda: random.choice([0, 1]),
+    "super_block_alignment_size": lambda: random.choice(
+        [128 * 1024, 512 * 1024, 2 * 1024 * 1024]
+    ),
+    "super_block_alignment_max_padding_size": lambda: random.choice(
+        [4 * 1024, 32 * 1024]
+    ),
     "lowest_used_cache_tier": lambda: random.choice([0, 1, 2]),
     "enable_custom_split_merge": lambda: random.choice([0, 1]),
     "adm_policy": lambda: random.choice([0, 1, 2, 3]),

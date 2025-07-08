@@ -4318,6 +4318,11 @@ void InitializeOptionsFromFlags(
       static_cast<BlockBasedTableOptions::IndexShorteningMode>(
           FLAGS_index_shortening);
   block_based_options.block_align = FLAGS_block_align;
+  block_based_options.super_block_align = fLB::FLAGS_super_block_align;
+  block_based_options.super_block_alignment_size =
+      fLU64::FLAGS_super_block_alignment_size;
+  block_based_options.super_block_alignment_max_padding_size =
+      fLU64::FLAGS_super_block_alignment_max_padding_size;
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
   options.db_write_buffer_size = FLAGS_db_write_buffer_size;
   options.write_buffer_size = FLAGS_write_buffer_size;

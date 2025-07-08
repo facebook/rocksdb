@@ -195,7 +195,6 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
                                              size_t buffer_size) {
   assert(!finished_);
   assert(counter_ <= block_restart_interval_);
-  assert(!use_value_delta_encoding_ || delta_value);
   std::string key_buf;
   std::string last_key_buf;
   const Slice key_to_persist = MaybeStripTimestampFromKey(&key_buf, key);
@@ -211,7 +210,7 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
     restarts_.push_back(static_cast<uint32_t>(buffer_size));
     estimate_ += sizeof(uint32_t);
     counter_ = 0;
-  } else if (use_delta_encoding_) {
+  } else if (use_delta_encoding_ && (delta_value != nullptr)) {
     // See how much sharing to do with previous string
     shared = key_to_persist.difference_offset(last_key_persisted);
   }
@@ -235,6 +234,7 @@ inline void BlockBuilder::AddWithLastKeyImpl(const Slice& key,
   // simplify the decoding, where it can figure which decoding to use simply by
   // looking at the shared bytes size.
   if (shared != 0 && use_value_delta_encoding_) {
+    assert(delta_value != nullptr);
     buffer_.append(delta_value->data(), delta_value->size());
   } else {
     buffer_.append(value.data(), value.size());
