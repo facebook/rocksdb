@@ -429,7 +429,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: evolvedbinary/rocksjava:centos6_x64-be
+      image: evolvedbinary/rocksjava:centos7_x64-be
       options: --shm-size=16gb
     steps:
     # The docker image is intentionally based on an OS that has an older GLIBC version.
@@ -457,7 +457,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: evolvedbinary/rocksjava:centos6_x64-be
+      image: evolvedbinary/rocksjava:centos7_x64-be
       options: --shm-size=16gb
     steps:
     # The docker image is intentionally based on an OS that has an older GLIBC version.
@@ -552,7 +552,7 @@ jobs:
     runs-on:
       labels: 4-core-ubuntu
     container:
-      image: evolvedbinary/rocksjava:rockylinux8_x64-be
+      image: evolvedbinary/rocksjava:alpine3_x64-be
       options: --shm-size=16gb
     steps:
     - uses: actions/checkout@v4.1.0

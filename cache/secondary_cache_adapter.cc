@@ -489,12 +489,10 @@ const char* CacheWithSecondaryAdapter::Name() const {
 // as well. At the moment, we don't have a good way of handling the case
 // where the new capacity < total cache reservations.
 void CacheWithSecondaryAdapter::SetCapacity(size_t capacity) {
-  size_t sec_capacity = static_cast<size_t>(
-      capacity * (distribute_cache_res_ ? sec_cache_res_ratio_ : 0.0));
-  size_t old_sec_capacity = 0;
-
   if (distribute_cache_res_) {
     MutexLock m(&cache_res_mutex_);
+    size_t sec_capacity = static_cast<size_t>(capacity * sec_cache_res_ratio_);
+    size_t old_sec_capacity = 0;
 
     Status s = secondary_cache_->GetCapacity(old_sec_capacity);
     if (!s.ok()) {

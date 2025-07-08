@@ -2741,9 +2741,10 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT,
                      mget_tasks.size());
           // Collect all results so far
-          std::vector<Status> statuses = folly::coro::blockingWait(
-              folly::coro::collectAllRange(std::move(mget_tasks))
-                  .scheduleOn(&range->context()->executor()));
+          std::vector<Status> statuses =
+              folly::coro::blockingWait(co_withExecutor(
+                  &range->context()->executor(),
+                  folly::coro::collectAllRange(std::move(mget_tasks))));
           if (s.ok()) {
             for (Status stat : statuses) {
               if (!stat.ok()) {
@@ -3028,9 +3029,10 @@ Status Version::MultiGetAsync(
         assert(waiting.size());
         RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT, mget_tasks.size());
         // Collect all results so far
-        std::vector<Status> statuses = folly::coro::blockingWait(
-            folly::coro::collectAllRange(std::move(mget_tasks))
-                .scheduleOn(&range->context()->executor()));
+        std::vector<Status> statuses =
+            folly::coro::blockingWait(co_withExecutor(
+                &range->context()->executor(),
+                folly::coro::collectAllRange(std::move(mget_tasks))));
         mget_tasks.clear();
         if (s.ok()) {
           for (Status stat : statuses) {
