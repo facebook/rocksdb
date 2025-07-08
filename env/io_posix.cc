@@ -608,7 +608,6 @@ PosixRandomAccessFile::PosixRandomAccessFile(
 PosixRandomAccessFile::~PosixRandomAccessFile() { close(fd_); }
 
 IOStatus PosixRandomAccessFile::GetFileSize(uint64_t* result) {
-  // TODO cache file size
   struct stat sbuf {};
   if (fstat(fd_, &sbuf) != 0) {
     *result = 0;

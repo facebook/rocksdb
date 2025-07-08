@@ -979,15 +979,12 @@ class PosixFileSystem : public FileSystem {
   IOStatus GetFileSizeOnOpenedFile(const int fd, const std::string& name,
                                    uint64_t* size) {
     struct stat sb {};
+    *size = 0;
     // Get file information using fstat
     if (fstat(fd, &sb) == -1) {
-      *size = 0;
-      constexpr int MAX_ERR_MSG_LEN = 128;
-      char err_msg[MAX_ERR_MSG_LEN];
-      snprintf(err_msg, MAX_ERR_MSG_LEN,
-               "while fstat a file for size with fd %d", fd);
-
-      return IOError(err_msg, name, errno);
+      return IOError(
+          "while fstat a file for size with fd " + std::to_string(fd), name,
+          errno);
     }
     *size = sb.st_size;
     return IOStatus::OK();

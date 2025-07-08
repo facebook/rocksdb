@@ -118,6 +118,15 @@ TEST_F(DBEncryptionTest, ReadEmptyFile) {
 
 TEST_F(DBEncryptionTest, NotSupportedGetFileSize) {
   // Validate envrypted env does not support GetFileSize.
+  // The goal of the test is to validate the encrypted env/fs does not support
+  // GetFileSize API on FSRandomAccessFile interface.
+  // This test combined with the rest of the integration tests validate that
+  // the new API GetFileSize on FSRandomAccessFile interface is not required to
+  // be supported for database to work properly.
+  // The GetFileSize API is used in ReadFooterFromFile() API to get the file
+  // size. When GetFileSize API is not supported, the ReadFooterFromFile() API
+  // will use FileSystem GetFileSize API as fallback. Refer to the
+  // EncryptedRandomAccessFile class definition for more details.
   if (!encrypted_env_) {
     return;
   }

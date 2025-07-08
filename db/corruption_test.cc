@@ -617,6 +617,9 @@ TEST_F(CorruptionTest, DBOpenWithWrongFileSize) {
 
   // Validate the default column family is corrupted
   Check(0, 0);
+  s = db_->Get(ReadOptions(), cfhs[0], "k1", &v);
+  ASSERT_TRUE(s.IsCorruption());
+
   delete cfhs[1];
   delete cfhs[0];
 }
@@ -647,10 +650,13 @@ TEST_F(CorruptionTest, TableFileWrongSize) {
   Reopen();
   // As footer could not be extraced, file is completely unreadable
   Check(0, 0);
+  std::string v;
+  auto s = db_->Get(ReadOptions(), "k1", &v);
+  ASSERT_TRUE(s.IsCorruption());
 
   // But reports the issue with paranoid checks
   options_.paranoid_checks = true;
-  Status s = TryReopen();
+  s = TryReopen();
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(s.ToString().find("file size mismatch") != std::string::npos);
 

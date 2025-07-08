@@ -608,7 +608,9 @@ struct DBOptions {
   // checksums. True also enters a read-only mode when a DB write fails;
   // see DB::Resume().
   //
-  // When set to true, the DB will fail to open if any of the file corrupted.
+  // When set to true, the DB will fail to open if any SST files fail to open
+  // e.g. due to incorrect file size or corrupted footer.
+  //
   // When set to false, when there are files corrupted, the DB will still be
   // opened, and the healthy ones could still be accessed, while corrupted one
   // will not
