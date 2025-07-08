@@ -210,7 +210,6 @@ IOStatus WritableFileWriter::Pad(const IOOptions& opts,
     return GetWriterHasPreviousErrorStatus();
   }
   const IOOptions io_options = FinalizeIOOptions(opts);
-  assert(pad_bytes < kDefaultPageSize);
   size_t left = pad_bytes;
   size_t cap = buf_.Capacity() - buf_.CurrentSize();
 
