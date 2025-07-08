@@ -1319,7 +1319,9 @@ void BlockBasedTableBuilder::EmitBlock(std::string& uncompressed,
                                              r->get_offset());
     r->pc_rep->EmitBlock(block_rep);
   } else {
-    WriteBlock(uncompressed, &r->pending_handle, BlockType::kData);
+    bool should_add_restart_point_on_index_block = false;
+    WriteBlock(uncompressed, &r->pending_handle, BlockType::kData,
+               &should_add_restart_point_on_index_block);
     if (ok()) {
       // We do not emit the index entry for a block until we have seen the
       // first key for the next data block.  This allows us to use shorter
@@ -1330,14 +1332,14 @@ void BlockBasedTableBuilder::EmitBlock(std::string& uncompressed,
       // blocks.
       r->index_builder->AddIndexEntry(
           last_key_in_current_block, first_key_in_next_block, r->pending_handle,
-          &r->index_separator_scratch);
+          &r->index_separator_scratch, should_add_restart_point_on_index_block);
     }
   }
 }
 
-void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
-                                        BlockHandle* handle,
-                                        BlockType block_type) {
+void BlockBasedTableBuilder::WriteBlock(
+    const Slice& uncompressed_block_data, BlockHandle* handle,
+    BlockType block_type, bool* should_add_restart_point_on_index_block) {
   Rep* r = rep_;
   assert(r->state == Rep::State::kUnbuffered);
   CompressionType type;
@@ -1358,7 +1360,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& uncompressed_block_data,
   WriteMaybeCompressedBlock(type == kNoCompression
                                 ? uncompressed_block_data
                                 : Slice(r->single_threaded_compressed_output),
-                            type, handle, block_type, &uncompressed_block_data);
+                            type, handle, block_type, &uncompressed_block_data,
+                            should_add_restart_point_on_index_block);
   r->single_threaded_compressed_output.Reset();
   if (is_data_block) {
     r->props.data_size = r->get_offset();
@@ -1489,13 +1492,17 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
 
 void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
     const Slice& block_contents, CompressionType comp_type, BlockHandle* handle,
-    BlockType block_type, const Slice* uncompressed_block_data) {
+    BlockType block_type, const Slice* uncompressed_block_data,
+    bool* should_add_restart_point_on_index_block) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
   //    compression_type: uint8
   //    checksum: uint32
   Rep* r = rep_;
   bool is_data_block = block_type == BlockType::kData;
+  if (should_add_restart_point_on_index_block != nullptr) {
+    *should_add_restart_point_on_index_block = false;
+  }
   IOOptions io_options;
   IOStatus io_s =
       WritableFileWriter::PrepareIOOptions(r->write_options, io_options);
@@ -1505,7 +1512,37 @@ void BlockBasedTableBuilder::WriteMaybeCompressedBlock(
   }
   // Old, misleading name of this function: WriteRawBlock
   StopWatch sw(r->ioptions.clock, r->ioptions.stats, WRITE_RAW_BLOCK_MICROS);
-  const uint64_t offset = r->get_offset();
+
+  uint64_t offset = r->get_offset();
+  // try to align the page to the super alignment size, if enabled
+  if (r->table_options.super_block_align && is_data_block) {
+    auto super_block_alignment_mask =
+        r->table_options.super_block_alignment_size - 1;
+    if ((offset & (~super_block_alignment_mask)) !=
+        ((offset + block_contents.size()) & (~super_block_alignment_mask))) {
+      // new block would cross the super block boundary
+      auto pad_bytes = r->table_options.super_block_alignment_size -
+                       (offset & super_block_alignment_mask);
+      if (pad_bytes <=
+          r->table_options.super_block_alignment_max_padding_size) {
+        io_s = r->file->Pad(io_options, pad_bytes);
+        if (!io_s.ok()) {
+          r->SetIOStatus(io_s);
+          return;
+        }
+        r->pre_compression_size += pad_bytes;
+        offset += pad_bytes;
+        r->set_offset(offset);
+        if (should_add_restart_point_on_index_block != nullptr) {
+          *should_add_restart_point_on_index_block = true;
+        }
+        TEST_SYNC_POINT(
+            "BlockBasedTableBuilder::WriteMaybeCompressedBlock:"
+            "SuperBlockAlignment");
+      }
+    }
+  }
+
   handle->set_offset(offset);
   handle->set_size(block_contents.size());
   assert(status().ok());
