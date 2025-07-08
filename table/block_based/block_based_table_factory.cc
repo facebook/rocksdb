@@ -683,6 +683,24 @@ Status BlockBasedTableFactory::ValidateOptions(
     return Status::InvalidArgument(
         "block size exceeds maximum number (4GiB) allowed");
   }
+  if (table_options_.super_block_align &&
+      (table_options_.super_block_alignment_size &
+       (table_options_.super_block_alignment_size - 1))) {
+    return Status::InvalidArgument(
+        "Super Block alignment requested but super block alignment size is not "
+        "a power of 2");
+  }
+  if (table_options_.super_block_alignment_size >
+      std::numeric_limits<uint32_t>::max()) {
+    return Status::InvalidArgument(
+        "Super block alignment size exceeds maximum number (4GiB) allowed");
+  }
+  if (table_options_.super_block_alignment_max_padding_size >
+      table_options_.super_block_alignment_size) {
+    return Status::InvalidArgument(
+        "Super block alignment max padding size exceeds super block alignment "
+        "size");
+  }
   if (table_options_.data_block_index_type ==
           BlockBasedTableOptions::kDataBlockBinaryAndHash &&
       table_options_.data_block_hash_table_util_ratio <= 0) {
