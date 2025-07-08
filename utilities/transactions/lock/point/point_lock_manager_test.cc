@@ -127,7 +127,7 @@ TEST_P(SpotLockManagerTest, DeadlockDepthExceeded) {
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
   txn_opt.deadlock_detect_depth = 1;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
   auto txn3 = NewTxn(txn_opt);
@@ -190,7 +190,7 @@ TEST_P(SpotLockManagerTest, PrioritizedLockUpgradeWithExclusiveLock) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
 
@@ -232,7 +232,7 @@ TEST_P(SpotLockManagerTest,
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
   auto txn3 = NewTxn(txn_opt);
@@ -286,7 +286,7 @@ TEST_P(SpotLockManagerTest, Deadlock_MultipleUpgrade) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
 
@@ -344,7 +344,7 @@ TEST_P(SpotLockManagerTest, Deadlock_MultipleUpgradeInterleaveExclusive) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
   auto txn3 = NewTxn(txn_opt);
@@ -423,7 +423,7 @@ TEST_F(PerKeyPointLockManagerTest, LockEfficiency) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   std::vector<PessimisticTransaction*> txns;
   std::vector<port::Thread> blockingThreads;
 
@@ -507,7 +507,7 @@ TEST_F(PerKeyPointLockManagerTest, LockFairness) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   std::vector<PessimisticTransaction*> txns;
   std::vector<port::Thread> blockingThreads;
 
@@ -626,7 +626,7 @@ TEST_F(PerKeyPointLockManagerTest, FIFO) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   std::vector<PessimisticTransaction*> txns;
   std::vector<port::Thread> blockingThreads;
 
@@ -711,7 +711,7 @@ TEST_P(SpotLockManagerTest, LockDownGradeWithOtherLockRequests) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
 
@@ -746,7 +746,7 @@ TEST_P(SpotLockManagerTest, LockTimeout) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kShortTxnTimeoutUs;
+  txn_opt.lock_timeout = kShortTxnTimeoutMs;
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
 
@@ -776,12 +776,12 @@ TEST_F(PerKeyPointLockManagerTest, SharedLockTimeoutInTheMiddle) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
-  txn_opt.lock_timeout = kShortTxnTimeoutUs;
+  txn_opt.lock_timeout = kShortTxnTimeoutMs;
   auto txn3 = NewTxn(txn_opt);
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   auto txn4 = NewTxn(txn_opt);
 
   // Count the total number of wait sync point calls
@@ -862,12 +862,12 @@ TEST_F(PerKeyPointLockManagerTest, ExclusiveLockTimeoutInTheMiddle) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
-  txn_opt.lock_timeout = kShortTxnTimeoutUs;
+  txn_opt.lock_timeout = kShortTxnTimeoutMs;
   auto txn3 = NewTxn(txn_opt);
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   auto txn4 = NewTxn(txn_opt);
 
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
@@ -921,8 +921,8 @@ TEST_P(SpotLockManagerTest, ExpiredLockStolenAfterTimeout) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.expiration = kShortTxnTimeoutUs;
-  txn_opt.lock_timeout = kShortTxnTimeoutUs * 2;
+  txn_opt.expiration = kShortTxnTimeoutMs;
+  txn_opt.lock_timeout = kShortTxnTimeoutMs * 2;
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
 
@@ -957,10 +957,10 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutExclusive) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
-  txn_opt.expiration = kShortTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
+  txn_opt.expiration = kShortTxnTimeoutMs;
   auto txn1 = NewTxn(txn_opt);
-  txn_opt.expiration = -1;
+  txn_opt.expiration = kLongTxnTimeoutMs;
   auto txn2 = NewTxn(txn_opt);
   auto txn3 = NewTxn(txn_opt);
 
@@ -970,9 +970,6 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutExclusive) {
     // block because txn1 is holding an exclusive lock on k1.
     ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
   });
-
-  // wait until txn1 lock expired
-  std::this_thread::sleep_for(std::chrono::milliseconds(kShortTxnTimeoutUs));
 
   // txn3 try to acquire an exclusive lock on k1, FIFO order is respected.
   auto t2 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn3]() {
@@ -1009,8 +1006,8 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutShared) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
-  txn_opt.expiration = kShortTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
+  txn_opt.expiration = kShortTxnTimeoutMs;
   auto txn1 = NewTxn(txn_opt);
   txn_opt.expiration = -1;
   auto txn2 = NewTxn(txn_opt);
@@ -1024,7 +1021,7 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutShared) {
   });
 
   // wait until txn1 lock expired
-  std::this_thread::sleep_for(std::chrono::milliseconds(kShortTxnTimeoutUs));
+  std::this_thread::sleep_for(std::chrono::milliseconds(kShortTxnTimeoutMs));
 
   // txn3 try to acquire an exclusive lock on k1, FIFO order is respected.
   auto t2 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn3]() {
@@ -1061,7 +1058,7 @@ TEST_F(PerKeyPointLockManagerTest, DeadLockOnWaiter) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
   auto txn3 = NewTxn(txn_opt);
@@ -1107,8 +1104,8 @@ TEST_F(PerKeyPointLockManagerTest, SharedLockRaceCondition) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
-  txn_opt.expiration = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
+  txn_opt.expiration = kLongTxnTimeoutMs;
 
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
@@ -1188,8 +1185,8 @@ TEST_F(PerKeyPointLockManagerTest, UpgradeLockRaceCondition) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
-  txn_opt.expiration = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
+  txn_opt.expiration = kLongTxnTimeoutMs;
 
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
@@ -1277,8 +1274,8 @@ TEST_P(SpotLockManagerTest, Catch22) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
-  txn_opt.expiration = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
+  txn_opt.expiration = kLongTxnTimeoutMs;
 
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
@@ -1352,8 +1349,8 @@ TEST_F(PerKeyPointLockManagerTest, LockUpgradeOrdering) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
-  txn_opt.expiration = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
+  txn_opt.expiration = kLongTxnTimeoutMs;
 
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
@@ -1437,8 +1434,8 @@ TEST_F(PerKeyPointLockManagerTest, LockDownGradeRaceCondition) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutUs;
-  txn_opt.expiration = kLongTxnTimeoutUs;
+  txn_opt.lock_timeout = kLongTxnTimeoutMs;
+  txn_opt.expiration = kLongTxnTimeoutMs;
 
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);

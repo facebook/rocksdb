@@ -1033,9 +1033,12 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
       wait_ids.clear();
       // If wait is timed out, respect the FIFO order. Otherwise, it is
       // its turn to acquire the lock.
-      result =
-          AcquireLocked(lock_map, stripe, key, env, lock_info,
-                        &expire_time_hint, &wait_ids, &isUpgrade, timed_out);
+      result = AcquireLocked(
+          lock_map, stripe, key, env, lock_info, &expire_time_hint, &wait_ids,
+          &isUpgrade,
+          /* When result is ok, it means it is its turn to take the lock, so it
+             does not need to follow FIFO order. */
+          !result.ok());
     } while (!result.ok() && !timed_out);
   }
 
@@ -1094,38 +1097,36 @@ Status PerKeyPointLockManager::AcquireLocked(
                          (lock_info.txn_ids[0] == txn_lock_info.txn_ids[0]);
 
   // Handle lock downgrade and reentrant first, it should always succeed
-  if (locked) {
-    if (solo_lock_owner) {
-      // Lock is already owned by itself.
-      if (lock_info.exclusive && !txn_lock_info.exclusive) {
-        // For downgrade, wake up all the shared lock waiters at the front of
-        // the queue
-        if (lock_info.waiter_queue != nullptr) {
-          for (auto& waiter : *lock_info.waiter_queue) {
-            if (waiter->exclusive) {
-              break;
-            }
-            waiter->Notify();
+  if (locked && solo_lock_owner) {
+    // Lock is already owned by itself.
+    if (lock_info.exclusive && !txn_lock_info.exclusive) {
+      // For downgrade, wake up all the shared lock waiters at the front of
+      // the queue
+      if (lock_info.waiter_queue != nullptr) {
+        for (auto& waiter : *lock_info.waiter_queue) {
+          if (waiter->exclusive) {
+            break;
           }
+          waiter->Notify();
         }
       }
+    }
 
-      if (!(!lock_info.exclusive && txn_lock_info.exclusive)) {
-        // If it is not lock upgrade, grant it immediately
-        lock_info.exclusive = txn_lock_info.exclusive;
-        lock_info.expiration_time = txn_lock_info.expiration_time;
+    if (!(!lock_info.exclusive && txn_lock_info.exclusive)) {
+      // If it is not lock upgrade, grant it immediately
+      lock_info.exclusive = txn_lock_info.exclusive;
+      lock_info.expiration_time = txn_lock_info.expiration_time;
+      return Status::OK();
+    }
+    // handle read reentrant lock
+    if (!txn_lock_info.exclusive && !lock_info.exclusive) {
+      auto lock_it =
+          std::find(lock_info.txn_ids.begin(), lock_info.txn_ids.end(),
+                    txn_lock_info.txn_ids[0]);
+      if (lock_it != lock_info.txn_ids.end()) {
+        lock_info.expiration_time =
+            std::max(lock_info.expiration_time, txn_lock_info.expiration_time);
         return Status::OK();
-      }
-      // handle read reentrant lock
-      if (!txn_lock_info.exclusive && !lock_info.exclusive) {
-        auto lock_it =
-            std::find(lock_info.txn_ids.begin(), lock_info.txn_ids.end(),
-                      txn_lock_info.txn_ids[0]);
-        if (lock_it != lock_info.txn_ids.end()) {
-          lock_info.expiration_time = std::max(lock_info.expiration_time,
-                                               txn_lock_info.expiration_time);
-          return Status::OK();
-        }
       }
     }
   }
@@ -1185,8 +1186,6 @@ Status PerKeyPointLockManager::AcquireLocked(
 
     // Add the waiter txn ids to the blocking txn id list for better
     // deadlock detection
-    // Duplicate txn ids will only happen if there are waiters in the queue.
-    auto dedup_txn_ids = false;
     if (lock_info.waiter_queue != nullptr) {
       for (auto& waiter : *lock_info.waiter_queue) {
         if (*isUpgrade && waiter->exclusive) {
@@ -1198,15 +1197,7 @@ Status PerKeyPointLockManager::AcquireLocked(
           break;
         }
         txn_ids->push_back(waiter->id);
-        dedup_txn_ids = true;
       }
-    }
-
-    if (dedup_txn_ids) {
-      // dedup the txn ids
-      std::sort(txn_ids->begin(), txn_ids->end());
-      auto new_end = std::unique(txn_ids->begin(), txn_ids->end());
-      txn_ids->resize(txn_ids->size() - (txn_ids->end() - new_end));
     }
 
     if (*isUpgrade && txn_ids->empty()) {
