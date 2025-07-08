@@ -1218,7 +1218,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         s = RunManualCompaction(
             cfd, first_overlapped_level, first_overlapped_level, options, begin,
             end, exclusive, true /* disallow_trivial_move */,
-            std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
+            std::numeric_limits<uint64_t>::max() /* min_file_num_to_ignore */,
             trim_ts);
         final_output_level = first_overlapped_level;
       } else {
@@ -1260,12 +1260,12 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
               level == 0) {
             output_level = ColumnFamilyData::kCompactToBaseLevel;
           }
-          // Use max value for `max_file_num_to_ignore` to always compact
+          // Use max value for `min_file_num_to_ignore` to always compact
           // files down.
           s = RunManualCompaction(
               cfd, level, output_level, options, begin, end, exclusive,
               !trim_ts.empty() /* disallow_trivial_move */,
-              std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
+              std::numeric_limits<uint64_t>::max() /* min_file_num_to_ignore */,
               trim_ts,
               output_level == ColumnFamilyData::kCompactToBaseLevel
                   ? &base_level
@@ -1294,13 +1294,13 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                   BottommostLevelCompaction::kForceOptimized ||
               options.bottommost_level_compaction ==
                   BottommostLevelCompaction::kForce) {
-            // Use `next_file_number` as `max_file_num_to_ignore` to avoid
+            // Use `next_file_number` as `min_file_num_to_ignore` to avoid
             // rewriting newly compacted files when it is kForceOptimized
             // or kIfHaveCompactionFilter with compaction filter set.
             s = RunManualCompaction(
                 cfd, final_output_level, final_output_level, options, begin,
                 end, exclusive, true /* disallow_trivial_move */,
-                next_file_number /* max_file_num_to_ignore */, trim_ts);
+                next_file_number /* min_file_num_to_ignore */, trim_ts);
           }
         }
       }
@@ -2014,7 +2014,7 @@ Status DBImpl::RunManualCompaction(
     ColumnFamilyData* cfd, int input_level, int output_level,
     const CompactRangeOptions& compact_range_options, const Slice* begin,
     const Slice* end, bool exclusive, bool disallow_trivial_move,
-    uint64_t max_file_num_to_ignore, const std::string& trim_ts,
+    uint64_t min_file_num_to_ignore, const std::string& trim_ts,
     int* final_output_level) {
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
@@ -2126,7 +2126,7 @@ Status DBImpl::RunManualCompaction(
                manual.cfd->GetLatestMutableCFOptions(), mutable_db_options_,
                manual.input_level, manual.output_level, compact_range_options,
                manual.begin, manual.end, &manual.manual_end, &manual_conflict,
-               max_file_num_to_ignore, trim_ts)) == nullptr &&
+               min_file_num_to_ignore, trim_ts)) == nullptr &&
           manual_conflict))) {
       if (!manual.done) {
         bg_cv_.Wait();
