@@ -717,6 +717,20 @@ DEFINE_bool(block_align,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions().block_align,
             "Align data blocks on page size");
 
+DEFINE_bool(super_block_align,
+            ROCKSDB_NAMESPACE::BlockBasedTableOptions().super_block_align,
+            "Prevent blocks span Super blocks for remote storage optimization");
+
+DEFINE_uint64(
+    super_block_alignment_size,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().super_block_alignment_size,
+    "Configure super block size");
+
+DEFINE_uint64(super_block_alignment_max_padding_size,
+              ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+                  .super_block_alignment_max_padding_size,
+              "Configure max amount of bytes padded for super block alignment");
+
 DEFINE_int64(prepopulate_block_cache, 0,
              "Pre-populate hot/warm blocks in block cache. 0 to disable and 1 "
              "to insert during flush");

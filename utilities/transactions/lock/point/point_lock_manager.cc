@@ -782,9 +782,7 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
 void PointLockManager::UnLockKey(PessimisticTransaction* txn,
                                  const std::string& key, LockMapStripe* stripe,
                                  LockMap* lock_map, Env* env) {
-#ifdef NDEBUG
   (void)env;
-#endif
   TransactionID txn_id = txn->GetID();
 
   auto stripe_iter = stripe->keys.find(key);

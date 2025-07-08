@@ -227,13 +227,15 @@ void PartitionedIndexBuilder::MaybeFlush(const Slice& index_key,
 }
 
 void PartitionedIndexBuilder::FinishIndexEntry(const BlockHandle& block_handle,
-                                               PreparedIndexEntry* base_entry) {
+                                               PreparedIndexEntry* base_entry,
+                                               bool skip_delta_encoding) {
   using SPIE = ShortenedIndexBuilder::ShortenedPreparedIndexEntry;
   SPIE* entry = static_cast<SPIE*>(base_entry);
 
   MaybeFlush(entry->separator_with_seq, block_handle);
 
-  sub_index_builder_->FinishIndexEntry(block_handle, base_entry);
+  sub_index_builder_->FinishIndexEntry(block_handle, base_entry,
+                                       skip_delta_encoding);
   std::swap(entries_.back().key, entry->separator_with_seq);
 
   if (!must_use_separator_with_seq_ && entry->must_use_separator_with_seq) {
@@ -248,16 +250,16 @@ void PartitionedIndexBuilder::FinishIndexEntry(const BlockHandle& block_handle,
 Slice PartitionedIndexBuilder::AddIndexEntry(
     const Slice& last_key_in_current_block,
     const Slice* first_key_in_next_block, const BlockHandle& block_handle,
-    std::string* separator_scratch) {
+    std::string* separator_scratch, bool skip_delta_encoding) {
   // At least when running without parallel compression, maintain behavior of
   // avoiding a last index partition with just one entry
   if (first_key_in_next_block) {
     MaybeFlush(last_key_in_current_block, block_handle);
   }
 
-  auto sep = sub_index_builder_->AddIndexEntry(last_key_in_current_block,
-                                               first_key_in_next_block,
-                                               block_handle, separator_scratch);
+  auto sep = sub_index_builder_->AddIndexEntry(
+      last_key_in_current_block, first_key_in_next_block, block_handle,
+      separator_scratch, skip_delta_encoding);
   entries_.back().key.assign(sep.data(), sep.size());
 
   if (!must_use_separator_with_seq_ &&
