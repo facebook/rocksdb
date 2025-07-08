@@ -46,6 +46,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/trace_record.h"
+#include "rocksdb/user_defined_index.h"
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -2745,6 +2746,10 @@ BlockType BlockBasedTable::GetBlockTypeForMetaBlockByName(
 
   if (meta_block_name == kIndexBlockName) {
     return BlockType::kIndex;
+  }
+
+  if (meta_block_name.starts_with(kUserDefinedIndexPrefix)) {
+    return BlockType::kUserDefinedIndex;
   }
 
   if (meta_block_name.starts_with(kObsoleteFilterBlockPrefix)) {

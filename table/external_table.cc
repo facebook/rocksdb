@@ -303,7 +303,7 @@ class ExternalTableBuilderAdapter : public TableBuilder {
         properties_.num_entries++;
         properties_.raw_key_size += key.size();
         properties_.raw_value_size += value.size();
-        NotifyCollectTableCollectorsOnAdd(key, value, /*offset=*/0,
+        NotifyCollectTableCollectorsOnAdd(key, value, /*file_size=*/0,
                                           table_properties_collectors_,
                                           ioptions_.logger);
       }
