@@ -16,7 +16,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-constexpr auto kLongTxnTimeoutMs = 10000000;
+constexpr auto kLongTxnTimeoutMs = 100000;
 constexpr auto kShortTxnTimeoutMs = 100;
 
 class MockColumnFamilyHandle : public ColumnFamilyHandle {
