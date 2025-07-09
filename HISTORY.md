@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
+## 10.4.2 (07/09/2025)
+### Bug Fixes
+* Fix a race condition between concurrent DB::Open sharing the same SstFileManager instance.
+
 ## 10.4.1 (07/01/2025)
 ### Behavior Changes
 * RocksDB now triggers eligible compactions every 12 hours when periodic compaction is configured. This solves a limitation of the compaction trigger mechanism, which would only trigger compaction after specific events like flush, compaction, or SetOptions.
