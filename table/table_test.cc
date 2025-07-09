@@ -29,6 +29,7 @@
 #include "db/write_batch_internal.h"
 #include "memtable/stl_wrappers.h"
 #include "monitoring/statistics_impl.h"
+#include "options/cf_options.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -51,6 +52,7 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/trace_record.h"
 #include "rocksdb/unique_id.h"
+#include "rocksdb/user_defined_index.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_builder.h"
@@ -7397,6 +7399,241 @@ TEST_F(ExternalTableTest, IngestionTest) {
   ASSERT_OK(db->Close());
 }
 
+class UserDefinedIndexTest : public BlockBasedTableTestBase {
+ public:
+  class CustomFlushBlockPolicy : public FlushBlockPolicy {
+   public:
+    explicit CustomFlushBlockPolicy(int keys_per_block)
+        : keys_in_current_block_(0), keys_per_block_(keys_per_block) {}
+
+    bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
+      keys_in_current_block_++;
+      if (keys_in_current_block_ >= keys_per_block_) {
+        keys_in_current_block_ = 0;
+        return true;
+      }
+      return false;
+    }
+
+   private:
+    int keys_in_current_block_;
+    int keys_per_block_;
+  };
+
+  class CustomFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+   public:
+    CustomFlushBlockPolicyFactory(int keys_per_block = 3)
+        : keys_per_block_(keys_per_block) {}
+    const char* Name() const override { return "CustomFlushBlockPolicy"; }
+    FlushBlockPolicy* NewFlushBlockPolicy(const BlockBasedTableOptions&,
+                                          const BlockBuilder&) const override {
+      return new CustomFlushBlockPolicy(keys_per_block_);
+    }
+    int keys_per_block_;
+  };
+
+ public:
+  class TestUserDefinedIndexBuilder : public UserDefinedIndexBuilder {
+   public:
+    TestUserDefinedIndexBuilder() : entries_added_(0), keys_added_(0) {}
+
+    Slice AddIndexEntry(const Slice& last_key_in_current_block,
+                        const Slice* first_key_in_next_block,
+                        const BlockHandle& block_handle,
+                        std::string* separator_scratch) override {
+      // Unused parameters
+      (void)first_key_in_next_block;
+      (void)separator_scratch;
+      entries_added_++;
+      // Store the block handle for each key
+      PutFixed64(&index_data_[last_key_in_current_block.ToString()],
+                 block_handle.offset);
+      PutFixed64(&index_data_[last_key_in_current_block.ToString()],
+                 block_handle.size);
+      PutFixed32(&index_data_[last_key_in_current_block.ToString()],
+                 keys_added_);
+      keys_added_ = 0;
+      return last_key_in_current_block;
+    }
+
+    void OnKeyAdded(const Slice& /*key*/, ValueType /*value*/,
+                    const Slice& /*value*/) override {
+      // Track keys added to the index
+      keys_added_++;
+    }
+
+    Status Finish(Slice* index_contents) override {
+      // Serialize the index data
+      std::string result;
+      for (const auto& entry : index_data_) {
+        PutLengthPrefixedSlice(&result, entry.first);
+        result.append(entry.second);
+      }
+      index_contents_data_ = result;
+      *index_contents = index_contents_data_;
+      return Status::OK();
+    }
+
+    int GetEntriesAdded() const { return entries_added_; }
+
+   private:
+    int entries_added_;
+    std::map<std::string, std::string> index_data_;
+    uint32_t keys_added_;
+    std::string index_contents_data_;
+  };
+
+  class TestUserDefinedIndexFactory : public UserDefinedIndexFactory {
+   public:
+    const char* Name() const override { return "test_index"; }
+    UserDefinedIndexBuilder* NewBuilder() const override {
+      return new TestUserDefinedIndexBuilder();
+    }
+  };
+};
+
+TEST_F(UserDefinedIndexTest, BasicTest) {
+  Options options;
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  // Set up the user-defined index factory
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  table_options.user_defined_index_factory = user_defined_index_factory;
+
+  // Set up custom flush block policy that flushes every 3 keys
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+
+  // Add 100 keys instead of just 5
+  for (int i = 0; i < 100; i++) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    std::string key = "key" + ss.str();
+    std::string value = "value" + ss.str();
+    ASSERT_OK(writer->Put(key, value));
+  }
+  ASSERT_OK(writer->Finish());
+  writer.reset();
+
+  ImmutableOptions ioptions(options);
+  MutableCFOptions moptions((ColumnFamilyOptions(options)));
+  EnvOptions eoptions(options);
+  TableReaderOptions toptions(
+      ioptions, moptions.prefix_extractor, /*compression_manager*/ nullptr,
+      eoptions, ioptions.internal_comparator,
+      moptions.block_protection_bytes_per_key,
+      /*skip_filters*/ false, /*immortal*/ false,
+      /*force_direct_prefetch*/ false, /*level*/ -1,
+      /*block_cache_tracer*/ nullptr,
+      /*max_file_size_for_l0_meta_pin*/ 0, /*cur_db_session_id*/ "",
+      /*cur_file_num*/ 0,
+      /* unique_id */ {}, /* largest_seqno */ 0,
+      /* tail_size */ 0, ioptions.persist_user_defined_timestamps);
+  // Verify that the user-defined index was created
+  std::string meta_block_name = kUserDefinedIndexPrefix + "test_index";
+  BlockHandle block_handle;
+  uint64_t file_size = 0;
+  std::unique_ptr<FSRandomAccessFile> file;
+  std::unique_ptr<RandomAccessFileReader> file_reader;
+  const auto& fs = options.env->GetFileSystem();
+  ASSERT_OK(fs->GetFileSize(ingest_file, IOOptions(), &file_size, nullptr));
+  ASSERT_OK(fs->NewRandomAccessFile(ingest_file, eoptions, &file, nullptr));
+  file_reader.reset(new RandomAccessFileReader(std::move(file), ingest_file));
+  ASSERT_OK(FindMetaBlockInFile(file_reader.get(), file_size,
+                                kBlockBasedTableMagicNumber, ioptions,
+                                ReadOptions(), meta_block_name, &block_handle));
+  file_reader.reset();
+  // With our custom flush policy that flushes every 3 keys,
+  // we expect around 34 data blocks (100/3 rounded up)
+  // Verify the number of entries in the user-defined index
+  // Each data block should have an entry in the index
+  // With our flush policy of 3 keys per block, we expect around 34 entries
+  int expected_entries = (100 + 2) / 3;  // Ceiling of 100/3
+  ASSERT_GE(block_handle.size(),
+            expected_entries);  // At least this many entries
+
+  std::unique_ptr<SstFileReader> reader(new SstFileReader(options));
+  ASSERT_OK(reader->Open(ingest_file));
+
+  ReadOptions ro;
+  std::unique_ptr<Iterator> iter(reader->NewIterator(ro));
+  ASSERT_NE(iter, nullptr);
+
+  // Test that we can read all the keys
+  int key_count = 0;
+  for (iter->SeekToFirst(); iter->Valid() && iter->status().ok();
+       iter->Next()) {
+    key_count++;
+  }
+  ASSERT_EQ(key_count, 100);  // We added 100 keys
+  ASSERT_OK(iter->status());
+}
+
+TEST_F(UserDefinedIndexTest, InvalidArgumentTest1) {
+  Options options;
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  // Set up the user-defined index factory
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  table_options.user_defined_index_factory = user_defined_index_factory;
+
+  // Set up custom flush block policy that flushes every 3 keys
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.compression_opts.parallel_threads = 10;
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+
+  std::string key = "foo";
+  std::string value = "bar";
+  ASSERT_EQ(writer->Put(key, value), Status::InvalidArgument());
+  ASSERT_EQ(writer->Finish(), Status::InvalidArgument());
+  writer.reset();
+}
+
+TEST_F(UserDefinedIndexTest, InvalidArgumentTest2) {
+  Options options;
+  BlockBasedTableOptions table_options;
+  std::string dbname = test::PerThreadDBPath("user_defined_index_test");
+  std::string ingest_file = dbname + "test.sst";
+
+  // Set up the user-defined index factory
+  auto user_defined_index_factory =
+      std::make_shared<TestUserDefinedIndexFactory>();
+  table_options.user_defined_index_factory = user_defined_index_factory;
+
+  // Set up custom flush block policy that flushes every 3 keys
+  table_options.flush_block_policy_factory =
+      std::make_shared<CustomFlushBlockPolicyFactory>();
+
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  std::unique_ptr<SstFileWriter> writer;
+  writer.reset(new SstFileWriter(EnvOptions(), options));
+  ASSERT_OK(writer->Open(ingest_file));
+
+  std::string key = "foo";
+  std::string value = "bar";
+  ASSERT_OK(writer->Merge(key, value));
+  ASSERT_EQ(writer->Finish(), Status::InvalidArgument());
+  writer.reset();
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

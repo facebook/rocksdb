@@ -1,0 +1,1 @@
+* PessimisticTransaction::GetWaitingTxns now returns waiting transaction information even if the current transaction has timed out. This allows the information to be surfaced to users for debugging purposes once it is known that the timeout has occured.
