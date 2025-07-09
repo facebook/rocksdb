@@ -5,10 +5,14 @@
 
 #pragma once
 
+#include <sys/resource.h>
+
 #include <atomic>
 #include <chrono>
 #include <memory>
 
+#include "rocksdb/options.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -77,6 +81,7 @@ class RateTracker {
 
     return rate_;
   }
+  float GetRate() { return rate_; }
 
   // Get the last recorded value
   // Returns the default value of T if no data has been recorded
@@ -233,6 +238,8 @@ class AtomicRateTracker {
     clock_ = std::move(clock);
   }
 
+  double GetRate() const { return rate_.load(std::memory_order_acquire); }
+
  private:
   uint64_t GetCurrentTimeMicros() { return clock_->NowMicros(); }
 
@@ -243,4 +250,58 @@ class AtomicRateTracker {
   std::atomic<uint64_t> previous_timestamp_us_;
 };
 
+class CPUIOUtilizationTracker {
+ public:
+  explicit CPUIOUtilizationTracker(const std::shared_ptr<SystemClock>& clock,
+                                   size_t min_wait_us, DBOptions opt)
+      : clock_(clock ? clock : SystemClock::Default()),
+        min_wait_us_(min_wait_us),
+        cpu_usage_(0.0),
+        io_utilization_(0.0),
+        next_record_time_us_(0),
+        opt_(opt) {
+    RecordCPUUsage();
+    RecordIOUtilization();
+  }
+  // True -> Recorded Prediction changed
+  // False -> wait time is not long enough
+  bool Record() {
+    uint64_t current_timestamp_us = GetCurrentTimeMicros();
+    if (current_timestamp_us < next_record_time_us_) {
+      return false;
+    }
+    next_record_time_us_ = current_timestamp_us + min_wait_us_;
+    // Calculate time delta
+    RecordCPUUsage();
+    RecordIOUtilization();
+    return true;
+  }
+  float GetCpuUtilization() { return cpu_usage_; }
+  float GetIoUtilization() { return io_utilization_; }
+
+ private:
+  void RecordCPUUsage() {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    double cpu_time_used =
+        (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
+        (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
+    cpu_usage_ = cpu_usage_rate_.Record(cpu_time_used);
+  }
+  void RecordIOUtilization() {
+    io_utilization_ = rate_limiter_bytes_rate_.Record(
+        opt_.rate_limiter->GetTotalBytesThrough());
+  }
+  std::shared_ptr<SystemClock> clock_;
+  size_t min_wait_us_;
+  AtomicRateTracker<size_t> rate_limiter_bytes_rate_;
+  AtomicRateTracker<size_t> cpu_usage_rate_;
+  float cpu_usage_;
+  float io_utilization_;
+  size_t next_record_time_us_;
+  DBOptions opt_;
+
+ private:
+  uint64_t GetCurrentTimeMicros() { return clock_->NowMicros(); };
+};
 }  // namespace ROCKSDB_NAMESPACE
