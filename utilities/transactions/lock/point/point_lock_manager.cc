@@ -1031,14 +1031,33 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
       }
       assert(result.ok() || result.IsTimedOut());
       wait_ids.clear();
-      // If wait is timed out, respect the FIFO order. Otherwise, it is
-      // its turn to acquire the lock.
-      result = AcquireLocked(
-          lock_map, stripe, key, env, lock_info, &expire_time_hint, &wait_ids,
-          &isUpgrade,
-          /* When result is ok, it means it is its turn to take the lock, so it
-             does not need to follow FIFO order. */
-          !result.ok());
+      // Wait timeout could be due to its own lock wait timeout or previous lock
+      // holder timeout.  Combined with lock upgrade prioritization, the
+      // situation could be quite complicated. In this case, FIFO order is not
+      // always guaranteed.
+      //
+      // E.g.
+      // 1. txn0 and txn1 owns a S lock with expiration T1
+      // 2. txn2 try to take X lock, and wait until expiration T1
+      // 3. txn1 try to upgrade to X lock. It is prioritized over other X lock
+      // request, so it is moved to the head of the wait queue.
+      // 4. txn0 unlock, and notify txn1 to take the lock.
+      // 5. T1 passed, txn2 is waked up and try to take the lock. At this point,
+      // txn1 S lock is expired, so txn2 is free to steal the lock.
+      // 6. txn1 wake up and try to take the lock, but found its shared lock has
+      // been stolen.
+      //
+      // The above example showed that even if a transaction is in ready state,
+      // it is not guaranteed to successfully take the lock. It also showed
+      // lock upgrade could fail due to its current S lock expiration.
+      //
+      // It is fairly complicated to handle all the above cases to achieve
+      // perfect FIFO. To simplify and increase the successful chance of
+      // acquiring a lock, give the current transaction another chance to grab
+      // the lock without following fifo order as it is too complicated to
+      // achieve it.
+      result = AcquireLocked(lock_map, stripe, key, env, lock_info,
+                             &expire_time_hint, &wait_ids, &isUpgrade, false);
     } while (!result.ok() && !timed_out);
   }
 

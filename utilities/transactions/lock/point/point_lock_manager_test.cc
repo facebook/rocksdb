@@ -763,151 +763,6 @@ TEST_P(SpotLockManagerTest, LockTimeout) {
   delete txn1;
 }
 
-TEST_F(PerKeyPointLockManagerTest, SharedLockTimeoutInTheMiddle) {
-  // There are multiple transactions waiting for the same lock.
-  // txn1 acquires a shared lock on k1 successfully.
-  // txn2 try to acquire an exclusive lock on k1.
-  // txn3 try to acquire a shared lock on k1 with a very short timeout.
-  // Verify timeout is returned.
-  // txn4 try to acquire an exclusive lock on k1.
-  // unlock txn1, both txn2 and txn4 should proceed.
-
-  MockColumnFamilyHandle cf(1);
-  locker_->AddColumnFamily(&cf);
-  TransactionOptions txn_opt;
-  txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  auto txn1 = NewTxn(txn_opt);
-  auto txn2 = NewTxn(txn_opt);
-  txn_opt.lock_timeout = kShortTxnTimeoutMs;
-  auto txn3 = NewTxn(txn_opt);
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  auto txn4 = NewTxn(txn_opt);
-
-  // Count the total number of wait sync point calls
-  std::atomic_int wait_sync_point_times = 0;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      wait_sync_point_name_,
-      [&wait_sync_point_times](void* /*arg*/) { wait_sync_point_times++; });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
-  auto wait_for_txn_to_be_blocked = [&](int expected_sync_point_call_times) {
-    while (wait_sync_point_times.load() < expected_sync_point_call_times) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    ASSERT_EQ(wait_sync_point_times.load(), expected_sync_point_call_times);
-  };
-
-  // txn1 acquire a shared lock on k1
-  ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, false));
-
-  auto t1 = port::Thread([this, &txn2]() {
-    // block because txn1 is holding a shared lock on k1.
-    ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
-  });
-
-  wait_for_txn_to_be_blocked(1);
-
-  auto t2 = port::Thread([this, &txn3]() {
-    // block due to txn2 is trying to acquire an exclusive lock on k1.
-    // respect FIFO order.
-    auto s = locker_->TryLock(txn3, 1, "k1", env_, false);
-    ASSERT_TRUE(s.IsTimedOut());
-  });
-
-  wait_for_txn_to_be_blocked(2);
-
-  auto t3 = port::Thread([this, &txn4]() {
-    // block because txn1 is holding a shared lock on k1.
-    ASSERT_OK(locker_->TryLock(txn4, 1, "k1", env_, true));
-  });
-
-  wait_for_txn_to_be_blocked(3);
-
-  // wait until t2 finished
-  t2.join();
-
-  // unlock txn1, so txn2 could proceed
-  locker_->UnLock(txn1, 1, "k1", env_);
-  t1.join();
-
-  // unlock txn2, so txn4 could proceed
-  locker_->UnLock(txn2, 1, "k1", env_);
-  t3.join();
-
-  // clean up
-  locker_->UnLock(txn4, 1, "k1", env_);
-
-  // Validate wait sync point didn't get called again
-  ASSERT_EQ(wait_sync_point_times.load(), 3);
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
-
-  delete txn4;
-  delete txn3;
-  delete txn2;
-  delete txn1;
-}
-
-TEST_F(PerKeyPointLockManagerTest, ExclusiveLockTimeoutInTheMiddle) {
-  // There are multiple transactions waiting for the same lock.
-  // txn1 acquires an exclusive lock on k1 successfully.
-  // txn2 try to acquire a shared lock on k1.
-  // txn3 try to acquire an exclusive lock on k1 with short timeout.
-  // txn4 try to acquire a shared lock on k1.
-  // Verify lock are granted in FIFO order and only one exclusive lock waiter is
-  // woken up at a time.
-
-  MockColumnFamilyHandle cf(1);
-  locker_->AddColumnFamily(&cf);
-  TransactionOptions txn_opt;
-  txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  auto txn1 = NewTxn(txn_opt);
-  auto txn2 = NewTxn(txn_opt);
-  txn_opt.lock_timeout = kShortTxnTimeoutMs;
-  auto txn3 = NewTxn(txn_opt);
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  auto txn4 = NewTxn(txn_opt);
-
-  ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
-
-  auto t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn2]() {
-    // block because txn1 is holding an exclusive lock on k1.
-    ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
-  });
-
-  auto t2 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn3]() {
-    // block because txn1 is holding an exclusive lock on k1.
-    auto s = locker_->TryLock(txn3, 1, "k1", env_, true);
-    ASSERT_TRUE(s.IsTimedOut());
-  });
-
-  auto t3 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn4]() {
-    // block because txn1 is holding an exclusive lock on k1.
-    ASSERT_OK(locker_->TryLock(txn4, 1, "k1", env_, false));
-  });
-
-  // wait until t2 finished
-  t2.join();
-
-  // unlock txn1, so txn2 and txn4 could proceed
-  locker_->UnLock(txn1, 1, "k1", env_);
-
-  // wait until t1 and t3 finished
-  t1.join();
-  t3.join();
-
-  // clean up
-  locker_->UnLock(txn2, 1, "k1", env_);
-  locker_->UnLock(txn4, 1, "k1", env_);
-
-  delete txn4;
-  delete txn3;
-  delete txn2;
-  delete txn1;
-}
-
 TEST_P(SpotLockManagerTest, ExpiredLockStolenAfterTimeout) {
   // validate an expired lock can be stolen by another transaction that timed
   // out on the lock.
@@ -921,8 +776,8 @@ TEST_P(SpotLockManagerTest, ExpiredLockStolenAfterTimeout) {
   locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
-  txn_opt.expiration = kShortTxnTimeoutMs;
-  txn_opt.lock_timeout = kShortTxnTimeoutMs * 2;
+  txn_opt.expiration = 1000;
+  txn_opt.lock_timeout = 1000 * 2;
   auto txn1 = NewTxn(txn_opt);
   auto txn2 = NewTxn(txn_opt);
 
@@ -958,7 +813,7 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutExclusive) {
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
   txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  txn_opt.expiration = kShortTxnTimeoutMs;
+  txn_opt.expiration = 1000;
   auto txn1 = NewTxn(txn_opt);
   txn_opt.expiration = kLongTxnTimeoutMs;
   auto txn2 = NewTxn(txn_opt);
@@ -1007,9 +862,9 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutShared) {
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
   txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  txn_opt.expiration = kShortTxnTimeoutMs;
+  txn_opt.expiration = 1000;
   auto txn1 = NewTxn(txn_opt);
-  txn_opt.expiration = -1;
+  txn_opt.expiration = kLongTxnTimeoutMs;
   auto txn2 = NewTxn(txn_opt);
   auto txn3 = NewTxn(txn_opt);
 
@@ -1019,9 +874,6 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutShared) {
     // block because txn1 is holding an exclusive lock on k1.
     ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
   });
-
-  // wait until txn1 lock expired
-  std::this_thread::sleep_for(std::chrono::milliseconds(kShortTxnTimeoutMs));
 
   // txn3 try to acquire an exclusive lock on k1, FIFO order is respected.
   auto t2 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn3]() {
