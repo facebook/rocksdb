@@ -172,6 +172,7 @@ CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts,
       allcompressors_.push_back(std::move(compressors_diff_levels));
     }
   }
+  MeasureUtilization();
 }
 
 const char* CostAwareCompressor::Name() const { return "CostAwareCompressor"; }
@@ -282,6 +283,15 @@ Compressor::ManagedWorkingArea CostAwareCompressor::ObtainWorkingArea() {
     }
   }
   return ManagedWorkingArea(wa, this);
+}
+void CostAwareCompressor::MeasureUtilization() {
+  io_tracker_.Record(rate_limiter_->GetTotalBytesThrough());
+  struct rusage usage;
+  getrusage(RUSAGE_SELF, &usage);
+  double cpu_time_used =
+      (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
+      (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
+  cpu_tracker_.Record(cpu_time_used);
 }
 void CostAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   // remove all created cost predictors
