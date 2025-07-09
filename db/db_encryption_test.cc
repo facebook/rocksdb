@@ -19,7 +19,8 @@ class DBEncryptionTest : public DBTestBase {
       : DBTestBase("db_encryption_test", /*env_do_fsync=*/true) {}
   Env* GetNonEncryptedEnv() {
     if (encrypted_env_ != nullptr) {
-      return (dynamic_cast<CompositeEnvWrapper*>(encrypted_env_))->env_target();
+      return (static_cast_with_check<CompositeEnvWrapper>(encrypted_env_))
+          ->env_target();
     } else {
       return env_;
     }
