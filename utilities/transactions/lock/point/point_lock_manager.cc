@@ -549,13 +549,9 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
                                        const LockInfo& txn_lock_info,
                                        uint64_t* expire_time,
                                        autovector<TransactionID>* txn_ids,
-                                       bool* isUpgrade, bool fifo) {
+                                       bool* /*isUpgrade*/, bool /*fifo*/) {
   assert(txn_lock_info.txn_ids.size() == 1);
   assert(txn_ids && txn_ids->empty());
-
-  // unused
-  (void)isUpgrade;
-  (void)fifo;
 
   Status result;
   // Check if this key is already locked
