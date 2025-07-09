@@ -353,7 +353,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
       }
     }
   }
-  return false;
+  __builtin_unreachable();
 }
 
 void Reader::MaybeVerifyPredecessorWALInfo(
