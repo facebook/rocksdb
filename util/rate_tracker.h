@@ -81,6 +81,7 @@ class RateTracker {
 
     return rate_;
   }
+  float GetRate() { return rate_; }
 
   // Get the last recorded value
   // Returns the default value of T if no data has been recorded

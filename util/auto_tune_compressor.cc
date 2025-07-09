@@ -173,6 +173,7 @@ CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts,
     }
   }
   MeasureUtilization();
+  cur_comp_idx_ = allcompressors_index_.back();
 }
 
 const char* CostAwareCompressor::Name() const { return "CostAwareCompressor"; }
@@ -243,10 +244,10 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
         compressed_output, out_compression_type, local_wa);
   } else {
     // Choose compression type and level based on budget availability
-    std::pair<size_t, size_t> choosen_index =
-        SelectCompressionInDirectionOfBudget(local_wa);
     // std::pair<size_t, size_t> choosen_index =
-    //     SelectCompressionBasedOnGoal(local_wa);
+    //     SelectCompressionInDirectionOfBudget(local_wa);
+    std::pair<size_t, size_t> choosen_index =
+        SelectCompressionBasedOnGoal(local_wa);
     size_t choosen_compression_type = choosen_index.first;
     size_t compresion_level_ptr = choosen_index.second;
     // Check if the chosen compression type and level are available
@@ -310,26 +311,67 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
     std::pair<size_t, size_t> default_choice(6, 2);
     return default_choice;
   }
+  if ((block_count_ % 100) != 0) {
+    block_count_++;
+    return cur_comp_idx_;
+  }
+  MeasureUtilization();
+  auto cpu_util = cpu_tracker_.GetRate();
+  auto io_util = io_tracker_.GetRate();
   // Select compression whose cpu cost and io cost are within budget
   // Return the first compression type and level that fits within budget
   // Get available budgets
-  size_t available_cpu = cpu_budget_->GetAvailableBudget();
-  size_t available_io = io_budget_->GetAvailableBudget();
-  // Define compression choices in order of preference (CPU cost, IO benefit)
-  // Lower CPU cost and better compression ratio preferred when budgets are l
-  for (const auto& choice : allcompressors_index_) {
-    size_t comp_type = choice.first;
-    size_t comp_level = choice.second;
-    auto predicted_cpu_cost =
-        wa->cost_predictors_[comp_type][comp_level]->CPUPredictor.Predict();
-    auto predicted_io_cost =
-        wa->cost_predictors_[comp_type][comp_level]->IOPredictor.Predict();
-    if (available_cpu >= predicted_cpu_cost &&
-        available_io >= predicted_io_cost) {
-      return choice;
-    }
+  auto cpu_budget = cpu_budget_->GetRate();
+  auto io_budget = io_budget_->GetRate();
+  size_t cur_cpu_cost = 0;
+  size_t cur_io_cost = 0;
+  if (cur_comp_idx_.first >= allcompressors_.size() ||
+      cur_comp_idx_.second >= allcompressors_[cur_comp_idx_.first].size()) {
+    cur_cpu_cost = 0;
+    cur_io_cost = std::numeric_limits<size_t>::max();
+  } else {
+    cur_cpu_cost =
+        wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
+            ->CPUPredictor.Predict();
+    cur_io_cost =
+        wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
+            ->IOPredictor.Predict();
   }
-  return std::make_pair(0, 0);
+  if (io_util < io_budget) {
+    if (cpu_util < cpu_budget) {
+      return cur_comp_idx_;
+    } else {
+      for (const auto& choice : allcompressors_index_) {
+        size_t comp_type = choice.first;
+        size_t comp_level = choice.second;
+        auto predicted_cpu_cost =
+            wa->cost_predictors_[comp_type][comp_level]->CPUPredictor.Predict();
+        if (predicted_cpu_cost < cur_cpu_cost) {
+          cur_comp_idx_ = choice;
+          return cur_comp_idx_;
+        }
+      }
+      // no compression algorithm found to be within cpu utilization budget
+      cur_comp_idx_ = {std::numeric_limits<size_t>::max(),
+                       std::numeric_limits<size_t>::max()};
+      return cur_comp_idx_;
+    }
+  } else {
+    for (const auto& choice : allcompressors_index_) {
+      size_t comp_type = choice.first;
+      size_t comp_level = choice.second;
+      auto predicted_io_cost =
+          wa->cost_predictors_[comp_type][comp_level]->IOPredictor.Predict();
+      if (predicted_io_cost < cur_io_cost) {
+        cur_comp_idx_ = choice;
+        return cur_comp_idx_;
+      }
+    }
+    // no compression algorithm found to be within io utilization budget
+    cur_comp_idx_ = {std::numeric_limits<size_t>::max(),
+                     std::numeric_limits<size_t>::max()};
+    return cur_comp_idx_;
+  }
 }
 std::pair<size_t, size_t>
 CostAwareCompressor::SelectCompressionInDirectionOfBudget(

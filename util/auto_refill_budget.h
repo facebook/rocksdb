@@ -50,7 +50,7 @@ class AutoRefillBudget {
     }
     return false;
   }
-
+  float GetRate() { return refill_amount_ / refill_period_us_ / 1000000.0; }
   // Get current available budget
   T GetAvailableBudget() {
     RefillBudgetIfNeeded();
@@ -92,7 +92,8 @@ class AutoRefillBudget {
     int64_t next_refill = next_refill_us_.load(std::memory_order_acquire);
 
     if (now_us >= next_refill) {
-      // Try to update next_refill_us_ atomically to claim the refill operation
+      // Try to update next_refill_us_ atomically to claim the refill
+      // operation
       int64_t refill_period = refill_period_us_.load(std::memory_order_relaxed);
       int64_t new_next_refill = now_us + refill_period;
 

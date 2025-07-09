@@ -196,6 +196,9 @@ class CostAwareCompressor : public Compressor {
   RateLimiter* rate_limiter_;
   RateTracker<size_t> io_tracker_;
   RateTracker<size_t> cpu_tracker_;
+  // Will servers as a logical clock to decide when to update the decision
+  int block_count_;
+  std::pair<size_t, size_t> cur_comp_idx_;
 };
 
 class CostAwareCompressorManager : public CompressionManagerWrapper {
