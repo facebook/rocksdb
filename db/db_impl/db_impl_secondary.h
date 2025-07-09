@@ -248,12 +248,6 @@ class DBImplSecondary : public DBImpl {
   Status MaybeInitLogReader(uint64_t log_number,
                             log::FragmentBufferedReader** log_reader);
 
-  // Check if all live files exist on file system and that their file sizes
-  // matche to the in-memory records. It is possible that some live files may
-  // have been deleted by the primary. In this case, CheckConsistency() does
-  // not flag the missing file as inconsistency.
-  Status CheckConsistency() override;
-
 #ifndef NDEBUG
   Status TEST_CompactWithoutInstallation(const OpenAndCompactOptions& options,
                                          ColumnFamilyHandle* cfh,

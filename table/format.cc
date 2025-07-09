@@ -482,15 +482,42 @@ bool& TEST_AllowUnsupportedFormatVersion() {
   return allow;
 }
 
-static Status ReadFooterFromFileInternal(const IOOptions& opts,
-                                         RandomAccessFileReader* file,
-                                         FileSystem& fs,
-                                         FilePrefetchBuffer* prefetch_buffer,
-                                         uint64_t file_size, Footer* footer,
-                                         uint64_t enforce_table_magic_number) {
-  if (file_size < Footer::kMinEncodedLength) {
+static Status ReadFooterFromFileInternal(
+    const IOOptions& opts, RandomAccessFileReader* file, FileSystem& fs,
+    FilePrefetchBuffer* prefetch_buffer, uint64_t expected_file_size,
+    Footer* footer, uint64_t enforce_table_magic_number) {
+  uint64_t file_size_from_file_system = 0;
+  Status s;
+  s = file->file()->GetFileSize(&file_size_from_file_system);
+  if (!s.ok()) {
+    auto corrupted_status =
+        Status::Corruption("Failed to get file size: " + s.ToString() +
+                           " for file " + file->file_name());
+    if (s.IsNotSupported()) {
+      // If file handle does not support GetFileSize, try File System API
+      s = fs.GetFileSize(file->file_name(), IOOptions(),
+                         &file_size_from_file_system, nullptr);
+      if (!s.ok()) {
+        return corrupted_status;
+      }
+    } else {
+      return corrupted_status;
+    }
+  }
+
+  if (expected_file_size != file_size_from_file_system) {
+    // When file is opened during DB Open, the expected file size is from
+    // manifest. Otherwise it is not guaranteed.
+    return Status::Corruption("Sst file size mismatch between expected " +
+                              std::to_string(expected_file_size) +
+                              " and file system " +
+                              std::to_string(file_size_from_file_system) +
+                              " sstable: " + file->file_name());
+  }
+
+  if (expected_file_size < Footer::kMinEncodedLength) {
     return Status::Corruption("file is too short (" +
-                              std::to_string(file_size) +
+                              std::to_string(expected_file_size) +
                               " bytes) to be an "
                               "sstable: " +
                               file->file_name());
@@ -499,10 +526,9 @@ static Status ReadFooterFromFileInternal(const IOOptions& opts,
   std::array<char, Footer::kMaxEncodedLength + 1> footer_buf;
   AlignedBuf internal_buf;
   Slice footer_input;
-  uint64_t read_offset = (file_size > Footer::kMaxEncodedLength)
-                             ? file_size - Footer::kMaxEncodedLength
+  uint64_t read_offset = (expected_file_size > Footer::kMaxEncodedLength)
+                             ? expected_file_size - Footer::kMaxEncodedLength
                              : 0;
-  Status s;
   // TODO: Need to pass appropriate deadline to TryReadFromCache(). Right now,
   // there is no readahead for point lookups, so TryReadFromCache will fail if
   // the required data is not in the prefetch buffer. Once deadline is enabled
@@ -527,23 +553,14 @@ static Status ReadFooterFromFileInternal(const IOOptions& opts,
 
   TEST_SYNC_POINT_CALLBACK("ReadFooterFromFileInternal:0", &footer_input);
 
-  // Check that we actually read the whole footer from the file. It may be
-  // that size isn't correct.
+  // Check that we actually read the whole footer from the file.
   if (footer_input.size() < Footer::kMinEncodedLength) {
-    uint64_t size_on_disk = 0;
-    if (fs.GetFileSize(file->file_name(), IOOptions(), &size_on_disk, nullptr)
-            .ok()) {
-      // Similar to CheckConsistency message, but not completely sure the
-      // expected size always came from manifest.
-      return Status::Corruption("Sst file size mismatch: " + file->file_name() +
-                                ". Expected " + std::to_string(file_size) +
-                                ", actual size " +
-                                std::to_string(size_on_disk) + "\n");
-    } else {
-      return Status::Corruption(
-          "Missing SST footer data in file " + file->file_name() +
-          " File too short? Expected size: " + std::to_string(file_size));
-    }
+    return Status::Corruption(
+        "The number of bytes read for Footer input " +
+        std::to_string(footer_input.size()) +
+        " is smaller than minimum footer encoded length: " +
+        std::to_string(Footer::kMinEncodedLength) + " for file " +
+        file->file_name() + "\n");
   }
 
   s = footer->DecodeFrom(footer_input, read_offset, enforce_table_magic_number);
@@ -556,20 +573,21 @@ static Status ReadFooterFromFileInternal(const IOOptions& opts,
 
 Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           FileSystem& fs, FilePrefetchBuffer* prefetch_buffer,
-                          uint64_t file_size, Footer* footer,
+                          uint64_t expected_file_size, Footer* footer,
                           uint64_t enforce_table_magic_number,
                           Statistics* stats) {
-  Status s =
-      ReadFooterFromFileInternal(opts, file, fs, prefetch_buffer, file_size,
-                                 footer, enforce_table_magic_number);
+  Status s = ReadFooterFromFileInternal(opts, file, fs, prefetch_buffer,
+                                        expected_file_size, footer,
+                                        enforce_table_magic_number);
   if (s.IsCorruption() &&
       CheckFSFeatureSupport(&fs, FSSupportedOps::kVerifyAndReconstructRead)) {
     IOOptions new_opts = opts;
     new_opts.verify_and_reconstruct_read = true;
     footer->Reset();
     s = ReadFooterFromFileInternal(new_opts, file, fs,
-                                   /*prefetch_buffer=*/nullptr, file_size,
-                                   footer, enforce_table_magic_number);
+                                   /*prefetch_buffer=*/nullptr,
+                                   expected_file_size, footer,
+                                   enforce_table_magic_number);
     RecordTick(stats, FILE_READ_CORRUPTION_RETRY_COUNT);
     if (s.ok()) {
       RecordTick(stats, FILE_READ_CORRUPTION_RETRY_SUCCESS_COUNT);

@@ -562,6 +562,14 @@ size_t TestFSRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   }
 }
 
+IOStatus TestFSRandomAccessFile::GetFileSize(uint64_t* file_size) {
+  if (fs_->ShouldFailGetFileSize()) {
+    return IOStatus::IOError("GetFileSize failed");
+  } else {
+    return target_->GetFileSize(file_size);
+  }
+}
+
 namespace {
 // Modifies `result` to start at the beginning of `scratch` if not already,
 // copying data there if needed.
