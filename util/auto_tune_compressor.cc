@@ -12,12 +12,21 @@
 #include "util/random.h"
 #include "util/stop_watch.h"
 namespace ROCKSDB_NAMESPACE {
+// const std::vector<std::vector<int>> CostAwareCompressor::kCompressionLevels{
+//     {0},         // KSnappyCompression
+//     {},          // kZlibCompression
+//     {},          // kBZip2Compression
+//     {1, 4, 9},   // kLZ4Compression
+//     {1, 4, 9},   // klZ4HCCompression
+//     {},          // kXpressCompression
+//     {1, 15, 22}  // kZSTD
+// };
 const std::vector<std::vector<int>> CostAwareCompressor::kCompressionLevels{
-    {0},         // KSnappyCompression
+    {},          // KSnappyCompression
     {},          // kZlibCompression
     {},          // kBZip2Compression
-    {1, 4, 9},   // kLZ4Compression
-    {1, 4, 9},   // klZ4HCCompression
+    {},          // kLZ4Compression
+    {},          // klZ4HCCompression
     {},          // kXpressCompression
     {1, 15, 22}  // kZSTD
 };
@@ -334,16 +343,20 @@ CostAwareCompressor::SelectCompressionInDirectionOfBudget(
   // Get available budgets
   size_t available_cpu = cpu_budget_->GetAvailableBudget();
   size_t available_io = io_budget_->GetAvailableBudget();
+  size_t total_cpu = cpu_budget_->GetTotalBudget();
+  size_t total_io = io_budget_->GetTotalBudget();
   std::pair<size_t, size_t> best_choice(std::numeric_limits<size_t>::max(),
                                         std::numeric_limits<size_t>::max());
   if (available_cpu <= 0) {
     return best_choice;
   }
-  float total = sqrt(static_cast<double>(available_cpu * available_cpu +
-                                         available_io * available_io));
+  float total = sqrt(
+      static_cast<double>(available_cpu) * static_cast<double>(available_cpu) +
+      static_cast<double>(available_io) * static_cast<double>(available_io));
   float min_cosine_distance = std::numeric_limits<float>::max();
   auto cosine_distance = [&](int64_t cpu_cost, int64_t io_cost) {
-    return available_cpu / total * cpu_cost + available_io / total * io_cost;
+    return available_cpu / total * cpu_cost / total_cpu +
+           available_io / total * io_cost / total_io;
   };
   for (const auto& choice : allcompressors_index_) {
     size_t comp_type = choice.first;

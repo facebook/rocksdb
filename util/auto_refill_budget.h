@@ -57,6 +57,9 @@ class AutoRefillBudget {
     return available_budget_.load(std::memory_order_acquire);
   }
 
+  // Get total set budget
+  T GetTotalBudget() { return refill_amount_.load(std::memory_order_relaxed); }
+
   // Get refill amount per period
   T GetRefillAmount() const {
     return refill_amount_.load(std::memory_order_relaxed);

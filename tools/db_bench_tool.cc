@@ -4751,7 +4751,8 @@ class Benchmark {
       // options.rate_limiter->GetBytesPerSecond();
       auto io_usage_limit = 0.99 * ratelimiter_throughput;
       int64_t onesec = 1000000;
-      int64_t cpu_usage_limit = 0.9 * onesec;
+      // int64_t cpu_usage_limit = 0.9 * onesec;
+      int64_t cpu_usage_limit = 0.5 * onesec;
       std::shared_ptr<CPUIOBudgetFactory> budget_factory =
           std::make_shared<DefaultBudgetFactory>(
               cpu_usage_limit, io_usage_limit, onesec, options);
