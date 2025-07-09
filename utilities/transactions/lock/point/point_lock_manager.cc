@@ -113,6 +113,8 @@ struct LockInfo {
     txn_ids.push_back(id);
   }
 
+  DECLARE_DEFAULT_MOVES(LockInfo);
+
   // waiter queue for this key
   std::unique_ptr<std::list<KeyLockWaiter*>> waiter_queue;
 };
@@ -150,7 +152,7 @@ struct LockMapStripe {
 
   // Locked keys mapped to the info about the transactions that locked them.
   // TODO(agiardullo): Explore performance of other data structures.
-  UnorderedMap<std::string, std::unique_ptr<LockInfo>> keys;
+  UnorderedMap<std::string, LockInfo> keys;
 
  private:
   KeyLockWaiter* GetKeyLockWaiterFromPool(TransactionID id, bool exclusive) {
@@ -174,13 +176,13 @@ struct LockMapStripe {
     // on it.
     assert(lock_info_iter != keys.end());
 
-    if (lock_info_iter->second->waiter_queue == nullptr) {
+    if (lock_info_iter->second.waiter_queue == nullptr) {
       // no waiter, create a new one
-      lock_info_iter->second->waiter_queue =
+      lock_info_iter->second.waiter_queue =
           std::make_unique<std::list<KeyLockWaiter*>>();
     }
 
-    auto& waiter_queue = lock_info_iter->second->waiter_queue;
+    auto& waiter_queue = lock_info_iter->second.waiter_queue;
 
     std::list<KeyLockWaiter*>::iterator lock_waiter;
     if (isUpgrade) {
@@ -560,7 +562,7 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
   auto stripe_iter = stripe->keys.find(key);
   if (stripe_iter != stripe->keys.end()) {
     // Lock already held
-    auto& lock_info = *(stripe_iter->second);
+    auto& lock_info = stripe_iter->second;
     assert(lock_info.txn_ids.size() == 1 || !lock_info.exclusive);
 
     if (lock_info.exclusive || txn_lock_info.exclusive) {
@@ -609,9 +611,8 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
     } else {
       // acquire lock
       stripe->keys.emplace(
-          key, std::make_unique<LockInfo>(txn_lock_info.txn_ids[0],
-                                          txn_lock_info.expiration_time,
-                                          txn_lock_info.exclusive));
+          key, LockInfo(txn_lock_info.txn_ids[0], txn_lock_info.expiration_time,
+                        txn_lock_info.exclusive));
 
       // Maintain lock count if there is a limit on the number of locks
       if (max_num_locks_) {
@@ -633,7 +634,7 @@ void PointLockManager::UnLockKey(PessimisticTransaction* txn,
 
   auto stripe_iter = stripe->keys.find(key);
   if (stripe_iter != stripe->keys.end()) {
-    auto& txns = stripe_iter->second->txn_ids;
+    auto& txns = stripe_iter->second.txn_ids;
     auto txn_it = std::find(txns.begin(), txns.end(), txn_id);
     // Found the key we locked.  unlock it.
     if (txn_it != txns.end()) {
@@ -869,9 +870,9 @@ PointLockManager::PointLockStatus PointLockManager::GetPointLockStatus() {
       j->stripe_mutex->Lock().PermitUncheckedError();
       for (const auto& it : j->keys) {
         struct KeyLockInfo info;
-        info.exclusive = it.second->exclusive;
+        info.exclusive = it.second.exclusive;
         info.key = it.first;
-        for (const auto& id : it.second->txn_ids) {
+        for (const auto& id : it.second.txn_ids) {
           info.ids.push_back(id);
         }
         data.insert({i, info});
@@ -1097,9 +1098,8 @@ Status PerKeyPointLockManager::AcquireLocked(
       // acquire lock
       // create a new entry, if not exist
       stripe->keys.emplace(
-          key, std::make_unique<LockInfo>(txn_lock_info.txn_ids[0],
-                                          txn_lock_info.expiration_time,
-                                          txn_lock_info.exclusive));
+          key, LockInfo(txn_lock_info.txn_ids[0], txn_lock_info.expiration_time,
+                        txn_lock_info.exclusive));
 
       // Maintain lock count if there is a limit on the number of locks
       if (max_num_locks_) {
@@ -1110,7 +1110,7 @@ Status PerKeyPointLockManager::AcquireLocked(
     }
   }
 
-  auto& lock_info = *(stripe_iter->second);
+  auto& lock_info = stripe_iter->second;
   auto locked = !lock_info.txn_ids.empty();
   auto solo_lock_owner = (lock_info.txn_ids.size() == 1) &&
                          (lock_info.txn_ids[0] == txn_lock_info.txn_ids[0]);
@@ -1290,7 +1290,7 @@ void PerKeyPointLockManager::UnLockKey(PessimisticTransaction* txn,
 
   auto stripe_iter = stripe->keys.find(key);
   if (stripe_iter != stripe->keys.end()) {
-    auto& txns = stripe_iter->second->txn_ids;
+    auto& txns = stripe_iter->second.txn_ids;
     auto txn_it = std::find(txns.begin(), txns.end(), txn_id);
 
     // Found the key we locked.  unlock it.
@@ -1308,8 +1308,8 @@ void PerKeyPointLockManager::UnLockKey(PessimisticTransaction* txn,
       auto handle_last_transaction_holding_the_lock =
           [this, &stripe_iter, &stripe, &erase_current_txn, &lock_map]() {
             // check whether there is other waiting transactions
-            if (stripe_iter->second->waiter_queue == nullptr ||
-                stripe_iter->second->waiter_queue->empty()) {
+            if (stripe_iter->second.waiter_queue == nullptr ||
+                stripe_iter->second.waiter_queue->empty()) {
               stripe->keys.erase(stripe_iter);
               if (max_num_locks_ > 0) {
                 // Maintain lock count if there is a limit on the number of
@@ -1326,7 +1326,7 @@ void PerKeyPointLockManager::UnLockKey(PessimisticTransaction* txn,
               // waiters until the first exclusive lock waiter, or wake up the
               // first waiter, if it is waiting for an exclusive lock.
               bool first_waiter = true;
-              for (auto& waiter : *stripe_iter->second->waiter_queue) {
+              for (auto& waiter : *stripe_iter->second.waiter_queue) {
                 if (waiter->exclusive) {
                   if (first_waiter) {
                     // the first waiter is an exclusive lock waiter, wake it
@@ -1348,7 +1348,8 @@ void PerKeyPointLockManager::UnLockKey(PessimisticTransaction* txn,
 
       // If the lock was held in exclusive mode, only one transaction should
       // holding it.
-      if (stripe_iter->second->exclusive) {
+      auto& lock_info = stripe_iter->second;
+      if (lock_info.exclusive) {
         assert(txns.size() == 1);
         handle_last_transaction_holding_the_lock();
       } else {
@@ -1366,12 +1367,12 @@ void PerKeyPointLockManager::UnLockKey(PessimisticTransaction* txn,
           erase_current_txn();
           // Check whether the one remained is trying to upgrade the lock by
           // checking whether its id matches.
-          if (stripe_iter->second->waiter_queue != nullptr &&
-              !stripe_iter->second->waiter_queue->empty() &&
-              stripe_iter->second->waiter_queue->front()->id == txns[0]) {
+          auto& waiter_queue = lock_info.waiter_queue;
+          if (waiter_queue != nullptr && !waiter_queue->empty() &&
+              waiter_queue->front()->id == txns[0]) {
             // There are waiters in the queue and the next one is same as the
             // one that is holding the shared lock wake it up
-            stripe_iter->second->waiter_queue->front()->Notify();
+            waiter_queue->front()->Notify();
           }
         } else {
           // Current transaction is the only one holding the shared lock
