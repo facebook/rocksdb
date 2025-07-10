@@ -224,22 +224,28 @@ TEST_P(AnyLockManagerTest, LockConflict) {
   delete txn2;
 }
 
-port::Thread BlockUntilWaitingTxn(const char* sync_point_name,
-                                  std::function<void()> f) {
+void BlockUntilWaitingTxn(const char* sync_point_name, port::Thread& t,
+                          std::function<void()> f) {
   std::atomic<bool> reached(false);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       sync_point_name, [&](void* /*arg*/) { reached.store(true); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  port::Thread t(f);
+  t = port::Thread(f);
 
-  while (!reached.load()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // timeout after 30 seconds, so test does not hang forever
+  // 30 seconds should be enough for the test to reach the expected state
+  // without causing too much flakiness
+  for (int i = 0; i < 3000; i++) {
+    if (reached.load()) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
+
+  ASSERT_TRUE(reached.load());
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
-
-  return t;
 }
 
 TEST_P(AnyLockManagerTest, SharedLocks) {
@@ -276,7 +282,8 @@ TEST_P(AnyLockManagerTest, Deadlock) {
   ASSERT_OK(locker_->TryLock(txn2, 1, "k2", env_, true));
 
   // txn1 tries to lock k2, will block forever.
-  port::Thread t = BlockUntilWaitingTxn(wait_sync_point_name_, [&]() {
+  port::Thread t;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t, [&]() {
     // block because txn2 is holding a lock on k2.
     ASSERT_OK(locker_->TryLock(txn1, 1, "k2", env_, true));
   });
@@ -324,7 +331,8 @@ TEST_P(AnyLockManagerTest, GetWaitingTxns_MultipleTxns) {
 
   auto txn3 = NewTxn();
   txn3->SetLockTimeout(10000);
-  port::Thread t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [&]() {
+  port::Thread t1;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t1, [&]() {
     ASSERT_OK(locker_->TryLock(txn3, 1, "k", env_, true));
     locker_->UnLock(txn3, 1, "k", env_);
   });

@@ -143,7 +143,8 @@ TEST_P(SpotLockManagerTest, DeadlockDepthExceeded) {
   // it must have another txn waiting on it, which is txn4 in this case.
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
 
-  port::Thread t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [&]() {
+  port::Thread t1;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t1, [&]() {
     ASSERT_OK(locker_->TryLock(txn2, 1, "k2", env_, true));
     // block because txn1 is holding a lock on k1.
     ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
@@ -151,7 +152,8 @@ TEST_P(SpotLockManagerTest, DeadlockDepthExceeded) {
 
   ASSERT_OK(locker_->TryLock(txn3, 1, "k3", env_, true));
 
-  port::Thread t2 = BlockUntilWaitingTxn(wait_sync_point_name_, [&]() {
+  port::Thread t2;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t2, [&]() {
     // block because txn3 is holding a lock on k1.
     ASSERT_OK(locker_->TryLock(txn4, 1, "k3", env_, true));
   });
@@ -197,7 +199,8 @@ TEST_P(SpotLockManagerTest, PrioritizedLockUpgradeWithExclusiveLock) {
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, false));
 
   // txn2 tries to lock k1 exclusively, will block forever.
-  port::Thread t = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn2]() {
+  port::Thread t;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t, [this, &txn2]() {
     // block because txn1 is holding a shared lock on k1.
     ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
   });
@@ -241,20 +244,20 @@ TEST_P(SpotLockManagerTest,
   ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
 
   // txn3 tries to lock k1 exclusively, will block forever.
-  port::Thread txn3_thread =
-      BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn3]() {
-        // block because txn1 and txn2 are holding a shared lock on k1.
-        ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, true));
-      });
+  port::Thread txn3_thread;
+  BlockUntilWaitingTxn(wait_sync_point_name_, txn3_thread, [this, &txn3]() {
+    // block because txn1 and txn2 are holding a shared lock on k1.
+    ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, true));
+  });
   // Verify txn3 is blocked
   ASSERT_TRUE(txn3_thread.joinable());
 
   // txn1 tries to lock k1 exclusively, will block forever.
-  port::Thread txn1_thread =
-      BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn1]() {
-        // block because txn1 and txn2 are holding a shared lock on k1.
-        ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
-      });
+  port::Thread txn1_thread;
+  BlockUntilWaitingTxn(wait_sync_point_name_, txn1_thread, [this, &txn1]() {
+    // block because txn1 and txn2 are holding a shared lock on k1.
+    ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
+  });
   // Verify txn1 is blocked
   ASSERT_TRUE(txn1_thread.joinable());
 
@@ -294,7 +297,8 @@ TEST_P(SpotLockManagerTest, Deadlock_MultipleUpgrade) {
   ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
 
   // txn1 tries to lock k1 exclusively, will block forever.
-  port::Thread t = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn1]() {
+  port::Thread t;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t, [this, &txn1]() {
     // block because txn2 is holding a shared lock on k1.
     ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
   });
@@ -353,20 +357,20 @@ TEST_P(SpotLockManagerTest, Deadlock_MultipleUpgradeInterleaveExclusive) {
   ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
 
   // txn3 tries to lock k1 exclusively, will block forever.
-  port::Thread txn3_thread =
-      BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn3]() {
-        // block because txn1 and txn2 are holding a shared lock on k1.
-        ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, true));
-      });
+  port::Thread txn3_thread;
+  BlockUntilWaitingTxn(wait_sync_point_name_, txn3_thread, [this, &txn3]() {
+    // block because txn1 and txn2 are holding a shared lock on k1.
+    ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, true));
+  });
   // Verify txn3 is blocked
   ASSERT_TRUE(txn3_thread.joinable());
 
   // txn1 tries to lock k1 exclusively, will block forever.
-  port::Thread txn1_thread =
-      BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn1]() {
-        // block because txn1 and txn2 are holding a shared lock on k1.
-        ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
-      });
+  port::Thread txn1_thread;
+  BlockUntilWaitingTxn(wait_sync_point_name_, txn1_thread, [this, &txn1]() {
+    // block because txn1 and txn2 are holding a shared lock on k1.
+    ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
+  });
   // Verify txn1 is blocked
   ASSERT_TRUE(txn1_thread.joinable());
 
@@ -410,20 +414,25 @@ class PerKeyPointLockManagerTest : public PointLockManagerTest {
  public:
   void SetUp() override {
     init();
+    cf_ = std::make_unique<MockColumnFamilyHandle>(1);
+    txn_opt_.deadlock_detect = true;
+    // by default use long timeout and disable expiration
+    txn_opt_.lock_timeout = kLongTxnTimeoutMs;
+    txn_opt_.expiration = -1;
+
     // CAUTION: This test creates a separate lock manager object (right, NOT
     // the one that the TransactionDB is using!), and runs tests on it.
     locker_.reset(new PerKeyPointLockManager(
         static_cast<PessimisticTransactionDB*>(db_), txndb_opt_));
+    locker_->AddColumnFamily(cf_.get());
   }
+
+  TransactionOptions txn_opt_;
+  std::unique_ptr<MockColumnFamilyHandle> cf_;
 };
 
 TEST_F(PerKeyPointLockManagerTest, LockEfficiency) {
   // Create multiple transactions, each acquire exclusive lock on the same key
-  MockColumnFamilyHandle cf(1);
-  locker_->AddColumnFamily(&cf);
-  TransactionOptions txn_opt;
-  txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   std::vector<PessimisticTransaction*> txns;
   std::vector<port::Thread> blockingThreads;
 
@@ -438,7 +447,7 @@ TEST_F(PerKeyPointLockManagerTest, LockEfficiency) {
   // create 10 transactions, each of them try to acquire exclusive lock on the
   // same key
   for (int i = 0; i < num_of_txn; i++) {
-    auto txn = NewTxn(txn_opt);
+    auto txn = NewTxn(txn_opt_);
     txns.push_back(txn);
 
     if (i == 0) {
@@ -503,11 +512,6 @@ TEST_F(PerKeyPointLockManagerTest, LockFairness) {
   // txn8 acquires shared lock on k1.
   // txn9 acquires exclusive lock on k1.
 
-  MockColumnFamilyHandle cf(1);
-  locker_->AddColumnFamily(&cf);
-  TransactionOptions txn_opt;
-  txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   std::vector<PessimisticTransaction*> txns;
   std::vector<port::Thread> blockingThreads;
 
@@ -524,7 +528,7 @@ TEST_F(PerKeyPointLockManagerTest, LockFairness) {
   // create 10 transactions, each of them try to acquire exclusive lock on the
   // same key
   for (int i = 0; i < num_of_txn; i++) {
-    auto txn = NewTxn(txn_opt);
+    auto txn = NewTxn(txn_opt_);
     txns.push_back(txn);
 
     if (i == 0) {
@@ -622,11 +626,6 @@ TEST_F(PerKeyPointLockManagerTest, FIFO) {
   // txn2 acquires exclusive lock on k1.
   // txn3 acquires shared lock on k1.
 
-  MockColumnFamilyHandle cf(1);
-  locker_->AddColumnFamily(&cf);
-  TransactionOptions txn_opt;
-  txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
   std::vector<PessimisticTransaction*> txns;
   std::vector<port::Thread> blockingThreads;
 
@@ -642,7 +641,7 @@ TEST_F(PerKeyPointLockManagerTest, FIFO) {
   // create 3 transactions, each of them try to acquire exclusive lock on the
   // same key
   for (int i = 0; i < num_of_txn; i++) {
-    auto txn = NewTxn(txn_opt);
+    auto txn = NewTxn(txn_opt_);
     txns.push_back(txn);
 
     if (i == 0) {
@@ -718,11 +717,11 @@ TEST_P(SpotLockManagerTest, LockDownGradeWithOtherLockRequests) {
   for (bool exclusive : {true, false}) {
     ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
 
-    auto t =
-        BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn2, exclusive]() {
-          // block because txn1 is holding a exclusive lock on k1.
-          ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, exclusive));
-        });
+    port::Thread t;
+    BlockUntilWaitingTxn(wait_sync_point_name_, t, [this, &txn2, exclusive]() {
+      // block because txn1 is holding a exclusive lock on k1.
+      ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, exclusive));
+    });
 
     // txn1 downgrades the lock to shared lock, so txn2 could proceed
     ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, false));
@@ -783,7 +782,8 @@ TEST_P(SpotLockManagerTest, ExpiredLockStolenAfterTimeout) {
 
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
 
-  auto t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn2]() {
+  port::Thread t1;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t1, [this, &txn2]() {
     // block because txn1 is holding an exclusive lock on k1.
     ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
   });
@@ -798,7 +798,7 @@ TEST_P(SpotLockManagerTest, ExpiredLockStolenAfterTimeout) {
   delete txn1;
 }
 
-TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutExclusive) {
+TEST_F(PerKeyPointLockManagerTest, LockStealAfterExpirationExclusive) {
   // There are multiple transactions waiting for the same lock.
   // txn1 acquires an exclusive lock on k1 successfully with a short expiration
   // time.
@@ -808,26 +808,23 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutExclusive) {
   // order is respected.
   // txn2 is woken up and takes the lock. unlock txn2, txn3 should proceed.
 
-  MockColumnFamilyHandle cf(1);
-  locker_->AddColumnFamily(&cf);
-  TransactionOptions txn_opt;
-  txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  txn_opt.expiration = 1000;
-  auto txn1 = NewTxn(txn_opt);
-  txn_opt.expiration = kLongTxnTimeoutMs;
-  auto txn2 = NewTxn(txn_opt);
-  auto txn3 = NewTxn(txn_opt);
+  txn_opt_.expiration = 1000;
+  auto txn1 = NewTxn(txn_opt_);
+  txn_opt_.expiration = -1;
+  auto txn2 = NewTxn(txn_opt_);
+  auto txn3 = NewTxn(txn_opt_);
 
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
 
-  auto t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn2]() {
+  port::Thread t1;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t1, [this, &txn2]() {
     // block because txn1 is holding an exclusive lock on k1.
     ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
   });
 
   // txn3 try to acquire an exclusive lock on k1, FIFO order is respected.
-  auto t2 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn3]() {
+  port::Thread t2;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t2, [this, &txn3]() {
     // block because txn1 is holding an exclusive lock on k1.
     ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, true));
   });
@@ -847,7 +844,7 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutExclusive) {
   delete txn1;
 }
 
-TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutShared) {
+TEST_F(PerKeyPointLockManagerTest, LockStealAfterExpirationShared) {
   // There are multiple transactions waiting for the same lock.
   // txn1 acquires a shared lock on k1 successfully with a short expiration
   // time.
@@ -857,26 +854,23 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterTimeoutShared) {
   // order is respected.
   // txn2 is woken up and takes the lock. unlock txn2, txn3 should proceed.
 
-  MockColumnFamilyHandle cf(1);
-  locker_->AddColumnFamily(&cf);
-  TransactionOptions txn_opt;
-  txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  txn_opt.expiration = 1000;
-  auto txn1 = NewTxn(txn_opt);
-  txn_opt.expiration = kLongTxnTimeoutMs;
-  auto txn2 = NewTxn(txn_opt);
-  auto txn3 = NewTxn(txn_opt);
+  txn_opt_.expiration = 1000;
+  auto txn1 = NewTxn(txn_opt_);
+  txn_opt_.expiration = -1;
+  auto txn2 = NewTxn(txn_opt_);
+  auto txn3 = NewTxn(txn_opt_);
 
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, false));
 
-  auto t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn2]() {
+  port::Thread t1;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t1, [this, &txn2]() {
     // block because txn1 is holding an exclusive lock on k1.
     ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
   });
 
   // txn3 try to acquire an exclusive lock on k1, FIFO order is respected.
-  auto t2 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn3]() {
+  port::Thread t2;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t2, [this, &txn3]() {
     // block because txn1 is holding an exclusive lock on k1.
     ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, false));
   });
@@ -906,25 +900,22 @@ TEST_F(PerKeyPointLockManagerTest, DeadLockOnWaiter) {
   // Now Txn2 depends on Txn3.
   // Deadlock is detected, and Txn2 is aborted.
 
-  MockColumnFamilyHandle cf(1);
-  locker_->AddColumnFamily(&cf);
-  TransactionOptions txn_opt;
-  txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  auto txn1 = NewTxn(txn_opt);
-  auto txn2 = NewTxn(txn_opt);
-  auto txn3 = NewTxn(txn_opt);
+  auto txn1 = NewTxn(txn_opt_);
+  auto txn2 = NewTxn(txn_opt_);
+  auto txn3 = NewTxn(txn_opt_);
 
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
   ASSERT_OK(locker_->TryLock(txn3, 1, "k2", env_, false));
 
-  auto t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn2]() {
+  port::Thread t1;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t1, [this, &txn2]() {
     ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
     auto s = locker_->TryLock(txn2, 1, "k2", env_, true);
     ASSERT_TRUE(s.IsDeadlock());
   });
 
-  auto t2 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn3]() {
+  port::Thread t2;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t2, [this, &txn3]() {
     ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, true));
   });
 
@@ -952,16 +943,9 @@ TEST_F(PerKeyPointLockManagerTest, SharedLockRaceCondition) {
   // directly, without wait in the queue. If it did, It would not be woken up
   // until the last shared lock is released.
 
-  MockColumnFamilyHandle cf(1);
-  locker_->AddColumnFamily(&cf);
-  TransactionOptions txn_opt;
-  txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  txn_opt.expiration = kLongTxnTimeoutMs;
-
-  auto txn1 = NewTxn(txn_opt);
-  auto txn2 = NewTxn(txn_opt);
-  auto txn3 = NewTxn(txn_opt);
+  auto txn1 = NewTxn(txn_opt_);
+  auto txn2 = NewTxn(txn_opt_);
+  auto txn3 = NewTxn(txn_opt_);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency(
@@ -1033,16 +1017,9 @@ TEST_F(PerKeyPointLockManagerTest, UpgradeLockRaceCondition) {
   // in the queue that are ready to take the lock. Later, when one of the reader
   // lock want to also upgrade its lock, it will detect a dead lock and abort.
 
-  MockColumnFamilyHandle cf(1);
-  locker_->AddColumnFamily(&cf);
-  TransactionOptions txn_opt;
-  txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  txn_opt.expiration = kLongTxnTimeoutMs;
-
-  auto txn1 = NewTxn(txn_opt);
-  auto txn2 = NewTxn(txn_opt);
-  auto txn3 = NewTxn(txn_opt);
+  auto txn1 = NewTxn(txn_opt_);
+  auto txn2 = NewTxn(txn_opt_);
+  auto txn3 = NewTxn(txn_opt_);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency(
@@ -1197,17 +1174,10 @@ TEST_F(PerKeyPointLockManagerTest, LockUpgradeOrdering) {
   // the shared lock that are before the first exclusive lock in the lock wait
   // queue.
 
-  MockColumnFamilyHandle cf(1);
-  locker_->AddColumnFamily(&cf);
-  TransactionOptions txn_opt;
-  txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  txn_opt.expiration = kLongTxnTimeoutMs;
-
-  auto txn1 = NewTxn(txn_opt);
-  auto txn2 = NewTxn(txn_opt);
-  auto txn3 = NewTxn(txn_opt);
-  auto txn4 = NewTxn(txn_opt);
+  auto txn1 = NewTxn(txn_opt_);
+  auto txn2 = NewTxn(txn_opt_);
+  auto txn3 = NewTxn(txn_opt_);
+  auto txn4 = NewTxn(txn_opt_);
 
   std::mutex txn4_mutex;
   std::unique_lock<std::mutex> txn4_lock(txn4_mutex);
@@ -1229,13 +1199,16 @@ TEST_F(PerKeyPointLockManagerTest, LockUpgradeOrdering) {
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
 
   // Txn2,3,4 try S lock
-  auto t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn2]() {
+  port::Thread t1;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t1, [this, &txn2]() {
     ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
   });
-  auto t2 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn3]() {
+  port::Thread t2;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t2, [this, &txn3]() {
     ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, false));
   });
-  auto t3 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn4]() {
+  port::Thread t3;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t3, [this, &txn4]() {
     ASSERT_OK(locker_->TryLock(txn4, 1, "k1", env_, false));
   });
 
@@ -1248,11 +1221,12 @@ TEST_F(PerKeyPointLockManagerTest, LockUpgradeOrdering) {
 
   // Txn2 try X lock
   std::atomic_bool txn2_exclusive_lock_acquired(false);
-  auto t4 = BlockUntilWaitingTxn(
-      wait_sync_point_name_, [this, &txn2, &txn2_exclusive_lock_acquired]() {
-        ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
-        txn2_exclusive_lock_acquired.store(true);
-      });
+  port::Thread t4;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t4,
+                       [this, &txn2, &txn2_exclusive_lock_acquired]() {
+                         ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
+                         txn2_exclusive_lock_acquired.store(true);
+                       });
 
   // Txn3 release S lock
   locker_->UnLock(txn3, 1, "k1", env_);
@@ -1282,21 +1256,15 @@ TEST_F(PerKeyPointLockManagerTest, LockDownGradeRaceCondition) {
   // When a lock is downgraded, it should notify all the shared waiters in the
   // queue to take the lock.
 
-  MockColumnFamilyHandle cf(1);
-  locker_->AddColumnFamily(&cf);
-  TransactionOptions txn_opt;
-  txn_opt.deadlock_detect = true;
-  txn_opt.lock_timeout = kLongTxnTimeoutMs;
-  txn_opt.expiration = kLongTxnTimeoutMs;
-
-  auto txn1 = NewTxn(txn_opt);
-  auto txn2 = NewTxn(txn_opt);
+  auto txn1 = NewTxn(txn_opt_);
+  auto txn2 = NewTxn(txn_opt_);
 
   // Txn1 X lock
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
 
   // Txn2 try S lock
-  auto t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [this, &txn2]() {
+  port::Thread t1;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t1, [this, &txn2]() {
     ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
   });
 
