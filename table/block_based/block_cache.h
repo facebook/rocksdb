@@ -67,6 +67,16 @@ class Block_kMetaIndex : public Block {
   static constexpr BlockType kBlockType = BlockType::kMetaIndex;
 };
 
+class Block_kUserDefinedIndex : public BlockContents {
+ public:
+  static constexpr CacheEntryRole kCacheEntryRole = CacheEntryRole::kIndexBlock;
+  static constexpr BlockType kBlockType = BlockType::kUserDefinedIndex;
+
+  explicit Block_kUserDefinedIndex(BlockContents&& other)
+      : BlockContents(std::move(other)) {}
+  const Slice& ContentSlice() const { return data; }
+};
+
 struct BlockCreateContext : public Cache::CreateContext {
   BlockCreateContext() {}
   BlockCreateContext(const BlockBasedTableOptions* _table_options,
@@ -125,6 +135,8 @@ struct BlockCreateContext : public Cache::CreateContext {
   void Create(std::unique_ptr<Block_kRangeDeletion>* parsed_out,
               BlockContents&& block);
   void Create(std::unique_ptr<Block_kMetaIndex>* parsed_out,
+              BlockContents&& block);
+  void Create(std::unique_ptr<Block_kUserDefinedIndex>* parsed_out,
               BlockContents&& block);
   void Create(std::unique_ptr<ParsedFullFilterBlock>* parsed_out,
               BlockContents&& block);
