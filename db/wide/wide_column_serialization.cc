@@ -24,6 +24,22 @@ Status WideColumnSerialization::Serialize(const WideColumns& columns,
     return Status::InvalidArgument("Too many wide columns");
   }
 
+  size_t total_size = 0;
+  total_size += VarintLength(kCurrentVersion);
+  total_size += VarintLength(num_columns);
+
+  for (const auto& column : columns) {
+    total_size += VarintLength(column.name().size());
+    total_size += column.name().size();
+    total_size += VarintLength(column.value().size());
+  }
+
+  for (const auto& column : columns) {
+    total_size += column.value().size();
+  }
+
+  output.reserve(output.size() + total_size);
+
   PutVarint32(&output, kCurrentVersion);
 
   PutVarint32(&output, static_cast<uint32_t>(num_columns));
