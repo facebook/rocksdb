@@ -20,10 +20,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// KeyLockWaiter represents a waiter for a key lock. It contains a pair of
-// mutex and conditional variable to allow waiter to wait for the key lock. It
-// also contains other metadata about the waiter such as transaction id, lock
-// type etc.
+// KeyLockWaiter represents a waiter for a key lock. It contains a conditional
+// variable to allow waiter to wait for the key lock. It also contains other
+// metadata about the waiter such as transaction id, lock type etc.
 struct KeyLockWaiter {
   KeyLockWaiter(std::shared_ptr<TransactionDBCondVar> c, TransactionID i,
                 bool ex)
@@ -97,10 +96,6 @@ struct KeyLockWaiter {
   std::shared_ptr<TransactionDBCondVar> cv;
 };
 
-// Thread local variable for KeyLockWaiter. As one thread could only need one
-// KeyLockWaiter Lazy init on first time usage
-thread_local std::unique_ptr<KeyLockWaiter> key_lock_waiter = nullptr;
-
 struct LockInfo {
   bool exclusive;
   autovector<TransactionID> txn_ids;
@@ -120,14 +115,14 @@ struct LockInfo {
 };
 
 struct LockMapStripe {
-  explicit LockMapStripe(std::shared_ptr<TransactionDBMutexFactory> factory) {
-    stripe_mutex = factory->AllocateMutex();
-    stripe_cv = factory->AllocateCondVar();
+  explicit LockMapStripe(std::shared_ptr<TransactionDBMutexFactory> factory,
+                         ThreadLocalPtr& key_lock_waiter)
+      : mutex_factory_(std::move(factory)), key_lock_waiter_(key_lock_waiter) {
+    stripe_mutex = mutex_factory_->AllocateMutex();
+    stripe_cv = mutex_factory_->AllocateCondVar();
 
     assert(stripe_mutex);
     assert(stripe_cv);
-
-    mutex_factory_ = std::move(factory);
   }
 
   // Wait until it is the turn for this waiter to take the lock of this key
@@ -156,15 +151,17 @@ struct LockMapStripe {
 
  private:
   KeyLockWaiter* GetKeyLockWaiterFromPool(TransactionID id, bool exclusive) {
-    if (!key_lock_waiter) {
+    KeyLockWaiter* ret = nullptr;
+    if (key_lock_waiter_.Get() == nullptr) {
       // create key lock waiter
-      key_lock_waiter = std::make_unique<KeyLockWaiter>(
-          mutex_factory_->AllocateCondVar(), id, exclusive);
-      // return the waiter to the pool
+      key_lock_waiter_.Swap(
+          new KeyLockWaiter(mutex_factory_->AllocateCondVar(), id, exclusive));
+      ret = static_cast_with_check<KeyLockWaiter>(key_lock_waiter_.Get());
     } else {
-      key_lock_waiter->Reset(id, exclusive);
+      ret = static_cast_with_check<KeyLockWaiter>(key_lock_waiter_.Get());
+      ret->Reset(id, exclusive);
     }
-    return key_lock_waiter.get();
+    return ret;
   }
 
   Status WaitOnKeyInternal(const std::string& key, TransactionID id,
@@ -230,16 +227,18 @@ struct LockMapStripe {
   }
 
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
+  ThreadLocalPtr& key_lock_waiter_;
 };
 
 // Map of #num_stripes LockMapStripes
 struct LockMap {
   explicit LockMap(size_t num_stripes,
-                   std::shared_ptr<TransactionDBMutexFactory> factory)
-      : num_stripes_(num_stripes) {
+                   std::shared_ptr<TransactionDBMutexFactory> factory,
+                   ThreadLocalPtr& key_lock_waiter)
+      : num_stripes_(num_stripes), key_lock_waiter_(key_lock_waiter) {
     lock_map_stripes_.reserve(num_stripes);
     for (size_t i = 0; i < num_stripes; i++) {
-      LockMapStripe* stripe = new LockMapStripe(factory);
+      LockMapStripe* stripe = new LockMapStripe(factory, key_lock_waiter_);
       lock_map_stripes_.push_back(stripe);
     }
   }
@@ -252,6 +251,7 @@ struct LockMap {
 
   // Number of sepearate LockMapStripes to create, each with their own Mutex
   const size_t num_stripes_;
+  ThreadLocalPtr& key_lock_waiter_;
 
   // Count of keys that are currently locked in this column family.
   // Note that multiple shared locks on the same key is counted as 1 lock.
@@ -267,8 +267,13 @@ namespace {
 void UnrefLockMapsCache(void* ptr) {
   // Called when a thread exits or a ThreadLocalPtr gets destroyed.
   auto lock_maps_cache =
-      static_cast<UnorderedMap<uint32_t, std::shared_ptr<LockMap>>*>(ptr);
+      static_cast_with_check<UnorderedMap<uint32_t, std::shared_ptr<LockMap>>>(
+          ptr);
   delete lock_maps_cache;
+}
+void UnrefKeyLockWaiter(void* ptr) {
+  auto key_lock_waiter = static_cast_with_check<KeyLockWaiter>(ptr);
+  delete key_lock_waiter;
 }
 }  // anonymous namespace
 
@@ -278,6 +283,7 @@ PointLockManager::PointLockManager(PessimisticTransactionDB* txn_db,
       default_num_stripes_(opt.num_stripes),
       max_num_locks_(opt.max_num_locks),
       lock_maps_cache_(new ThreadLocalPtr(&UnrefLockMapsCache)),
+      key_lock_waiter_(&UnrefKeyLockWaiter),
       dlock_buffer_(opt.max_num_deadlocks),
       mutex_factory_(opt.custom_mutex_factory
                          ? opt.custom_mutex_factory
@@ -293,7 +299,8 @@ void PointLockManager::AddColumnFamily(const ColumnFamilyHandle* cf) {
 
   if (lock_maps_.find(cf->GetID()) == lock_maps_.end()) {
     lock_maps_.emplace(cf->GetID(), std::make_shared<LockMap>(
-                                        default_num_stripes_, mutex_factory_));
+                                        default_num_stripes_, mutex_factory_,
+                                        key_lock_waiter_));
   } else {
     // column_family already exists in lock map
     assert(false);

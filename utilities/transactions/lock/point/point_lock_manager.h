@@ -183,6 +183,10 @@ class PointLockManager : public LockManager {
   // to avoid acquiring a mutex in order to look up a LockMap
   std::unique_ptr<ThreadLocalPtr> lock_maps_cache_;
 
+  // Thread local variable for KeyLockWaiter. As one thread could only need one
+  // KeyLockWaiter Lazy init on first time usage
+  ThreadLocalPtr key_lock_waiter_;
+
   // Must be held when modifying wait_txn_map_ and rev_wait_txn_map_.
   std::mutex wait_txn_map_mutex_;
 

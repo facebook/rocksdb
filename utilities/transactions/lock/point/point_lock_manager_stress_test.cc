@@ -1,15 +1,17 @@
 #include "utilities/transactions/lock/point/point_lock_manager_test.h"
 
 namespace ROCKSDB_NAMESPACE {
-#ifdef DEBUG_POINT_LOCK_MANAGER_TEST
-#define DEBUG_LOG(...)            \
-  do {                            \
-    fprintf(stderr, __VA_ARGS__); \
-    fflush(stderr);               \
-  } while (0)
-#else
-#define DEBUG_LOG(...)
-#endif
+
+void DEBUG_LOG(const char* format, ...) {
+  constexpr bool kDebugLog = false;
+  if (kDebugLog) {
+    va_list args;
+    va_start(args, format);
+    fprintf(stderr, format, args);
+    va_end(args);
+    fflush(stderr);
+  }
+}
 
 enum class LockTypeToTest : int8_t {
   EXCLUSIVE_ONLY = 0,

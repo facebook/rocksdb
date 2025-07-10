@@ -8,10 +8,8 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
-#ifdef DEBUG_MUTEX_IN_TRX_DB_MUTEX
 #include <sstream>
 #include <thread>
-#endif
 
 #include "rocksdb/utilities/transaction_db_mutex.h"
 
@@ -19,29 +17,26 @@ namespace ROCKSDB_NAMESPACE {
 
 // Helper function to log lock/unlock events on a mutex for debugging purposes
 void logLockEventOnThread(std::mutex* mutex, bool isLock, bool success = true) {
-#ifdef DEBUG_MUTEX_IN_TRX_DB_MUTEX
-  // get thread id
-  std::thread::id this_id = std::this_thread::get_id();
-  std::stringstream ss;
-  ss << this_id;
-  std::string thread_id = ss.str();
-  if (isLock) {
-    if (success) {
-      fprintf(stderr, "Locking mutex %p, thread id %s\n", mutex,
-              thread_id.c_str());
+  constexpr bool kDebugMutexInTrxDbMutex = false;
+  if (kDebugMutexInTrxDbMutex) {
+    // get thread id
+    std::thread::id this_id = std::this_thread::get_id();
+    std::stringstream ss;
+    ss << this_id;
+    std::string thread_id = ss.str();
+    if (isLock) {
+      if (success) {
+        fprintf(stderr, "Locking mutex %p, thread id %s\n", mutex,
+                thread_id.c_str());
+      } else {
+        fprintf(stderr, "Failed to lock mutex %p, thread id %s\n", mutex,
+                thread_id.c_str());
+      }
     } else {
-      fprintf(stderr, "Failed to lock mutex %p, thread id %s\n", mutex,
+      fprintf(stderr, "Unlocking mutex %p, thread id %s\n", mutex,
               thread_id.c_str());
     }
-  } else {
-    fprintf(stderr, "Unlocking mutex %p, thread id %s\n", mutex,
-            thread_id.c_str());
   }
-#else
-  (void)mutex;
-  (void)isLock;
-  (void)success;
-#endif
 }
 
 class TransactionDBMutexImpl : public TransactionDBMutex {
