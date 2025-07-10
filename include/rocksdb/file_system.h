@@ -606,6 +606,14 @@ class FileSystem : public Customizable {
         "LinkFile is not supported for this FileSystem");
   }
 
+  // Open Sync and Close the file to flush the file content to file system
+  virtual IOStatus SyncFile(const std::string& /*fname*/,
+                            const FileOptions& /*options*/, bool /*use_fsync*/,
+                            IODebugContext* /*dbg*/) {
+    return IOStatus::NotSupported(
+        "SyncFile is not supported for this FileSystem");
+  }
+
   virtual IOStatus NumFileLinks(const std::string& /*fname*/,
                                 const IOOptions& /*options*/,
                                 uint64_t* /*count*/, IODebugContext* /*dbg*/) {
@@ -1590,6 +1598,11 @@ class FileSystemWrapper : public FileSystem {
   IOStatus LinkFile(const std::string& s, const std::string& t,
                     const IOOptions& options, IODebugContext* dbg) override {
     return target_->LinkFile(s, t, options, dbg);
+  }
+
+  IOStatus SyncFile(const std::string& fname, const FileOptions& options,
+                    bool use_fsync, IODebugContext* dbg) override {
+    return target_->SyncFile(fname, options, use_fsync, dbg);
   }
 
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& options,

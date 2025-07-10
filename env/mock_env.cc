@@ -957,6 +957,13 @@ IOStatus MockFileSystem::LinkFile(const std::string& src,
   return IOStatus::OK();
 }
 
+IOStatus MockFileSystem::SyncFile(const std::string& /*fname*/,
+                                  const FileOptions& /*options*/,
+                                  bool /*use_fsync*/, IODebugContext* /*dbg*/) {
+  // Noop
+  return IOStatus::OK();
+}
+
 IOStatus MockFileSystem::NewLogger(const std::string& fname,
                                    const IOOptions& io_opts,
                                    std::shared_ptr<Logger>* result,

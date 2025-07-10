@@ -528,6 +528,11 @@ class LegacyFileSystemWrapper : public FileSystem {
     return status_to_io_status(target_->LinkFile(s, t));
   }
 
+  IOStatus SyncFile(const std::string& fname, const FileOptions& options,
+                    bool use_fsync, IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->SyncFile(fname, options, use_fsync));
+  }
+
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& /*options*/,
                         uint64_t* count, IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->NumFileLinks(fname, count));

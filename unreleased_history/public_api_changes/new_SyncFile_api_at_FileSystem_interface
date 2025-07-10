@@ -1,0 +1,1 @@
+A new API SyncFile is added to FileSystem interface class. It internally opens the file, sync it and close it. It is mostly used with LinkFile to help sync file content to disk after LinkFikle. This function is not immediately required, but might be required in the future for FileSystem implementation outside of the RocksDB code base.
