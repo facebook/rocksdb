@@ -199,6 +199,8 @@ class CostAwareCompressor : public Compressor {
   // Will servers as a logical clock to decide when to update the decision
   int block_count_;
   std::pair<size_t, size_t> cur_comp_idx_;
+  float io_util_;
+  float cpu_util_;
 };
 
 class CostAwareCompressorManager : public CompressionManagerWrapper {
@@ -227,7 +229,7 @@ class DefaultBudgetFactory : public CPUIOBudgetFactory {
       : opt_(options),
         cpu_budget_(cpu_budget),
         io_budget_(io_budget),
-        per_time_(per_time) {}
+        us_per_time_(per_time) {}
   std::pair<IOBudget*, CPUBudget*> GetBudget() override;
   Options GetOptions() override { return opt_; };
   ~DefaultBudgetFactory() override {}
@@ -236,7 +238,7 @@ class DefaultBudgetFactory : public CPUIOBudgetFactory {
   Options opt_;
   size_t cpu_budget_;
   size_t io_budget_;
-  size_t per_time_;
+  size_t us_per_time_;
 };
 
 };  // namespace ROCKSDB_NAMESPACE

@@ -3814,14 +3814,17 @@ class Benchmark {
       } else if (name == "fillseekseq") {
         method = &Benchmark::WriteSeqSeekSeq;
       } else if (name == "compact") {
+        fprintf(stdout, "Running compact\n");
         method = &Benchmark::Compact;
       } else if (name == "compactall") {
+        fprintf(stdout, "Detected compactall\n");
         CompactAll();
       } else if (name == "compact0") {
         CompactLevel(0);
       } else if (name == "compact1") {
         CompactLevel(1);
       } else if (name == "waitforcompaction") {
+        fprintf(stdout, "Detected waitforcompaction\n");
         WaitForCompaction();
       } else if (name == "flush") {
         Flush();
@@ -4750,12 +4753,14 @@ class Benchmark {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
       // options.rate_limiter->GetBytesPerSecond();
       auto io_usage_limit = 0.99 * ratelimiter_throughput;
-      int64_t onesec = 1000000;
-      // int64_t cpu_usage_limit = 0.9 * onesec;
-      int64_t cpu_usage_limit = 0.5 * onesec;
+      int64_t us_in_onesec = 1000000;
+      int64_t cpu_usage_limit = 0.9 * us_in_onesec;
+      fprintf(stdout, "us in 1 second: %ld cpu_usage_limit: %ld", us_in_onesec,
+              cpu_usage_limit);
+      // int64_t cpu_usage_limit = 0.5 * onesec;
       std::shared_ptr<CPUIOBudgetFactory> budget_factory =
           std::make_shared<DefaultBudgetFactory>(
-              cpu_usage_limit, io_usage_limit, onesec, options);
+              cpu_usage_limit, io_usage_limit, us_in_onesec, options);
       mgr = CreateCostAwareCompressionManager(nullptr, budget_factory, opts);
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();

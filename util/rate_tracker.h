@@ -64,6 +64,7 @@ class RateTracker {
     uint64_t time_delta_us = current_timestamp_us - previous_timestamp_us_;
     if (time_delta_us == 0) {
       // No time has passed, return 0 rate to avoid division by zero
+      fprintf(stderr, "time_delta_us is 0, return 0.0\n");
       return 0.0;
     }
 
@@ -190,6 +191,7 @@ class AtomicRateTracker {
       }
       // If CAS failed, another thread set the initial values, continue with
       // rate calculation
+      return 0.0;
     }
 
     // Load previous values atomically
@@ -200,6 +202,8 @@ class AtomicRateTracker {
     // Calculate time delta
     uint64_t time_delta_us = current_timestamp_us - prev_timestamp;
     if (time_delta_us == 0) {
+      // No time has passed, return 0 rate to avoid division by zero
+      printf("time_delta_us is 0, return previous rate\n");
       return rate_;
     }
 
@@ -212,7 +216,7 @@ class AtomicRateTracker {
     previous_timestamp_us_.store(current_timestamp_us,
                                  std::memory_order_release);
     has_previous_data_.store(true, std::memory_order_release);
-
+    printf("current_value: %lu rate_ = %f\n", value, rate_.load());
     return rate_;
   }
 
