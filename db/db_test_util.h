@@ -452,6 +452,10 @@ class SpecialEnv : public EnvWrapper {
         return s;
       }
 
+      Status GetFileSize(uint64_t* s) override {
+        return target_->GetFileSize(s);
+      }
+
      private:
       std::unique_ptr<RandomAccessFile> target_;
       anon::AtomicCounter* counter_;
@@ -476,6 +480,10 @@ class SpecialEnv : public EnvWrapper {
 
       Status Prefetch(uint64_t offset, size_t n) override {
         return target_->Prefetch(offset, n);
+      }
+
+      Status GetFileSize(uint64_t* s) override {
+        return target_->GetFileSize(s);
       }
 
      private:

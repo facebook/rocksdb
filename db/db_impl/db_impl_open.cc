@@ -191,12 +191,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
                    "wal_compression is disabled since only zstd is supported");
   }
 
-  if (!result.paranoid_checks) {
-    result.skip_checking_sst_file_sizes_on_db_open = true;
-    ROCKS_LOG_INFO(result.info_log,
-                   "file size check will be skipped during open.");
-  }
-
   return result;
 }
 
@@ -694,9 +688,6 @@ Status DBImpl::Recover(
     s = MaybeUpdateNextFileNumber(recovery_ctx);
   }
 
-  if (immutable_db_options_.paranoid_checks && s.ok()) {
-    s = CheckConsistency();
-  }
   if (s.ok() && !read_only) {
     // TODO: share file descriptors (FSDirectory) with SetDirectories above
     std::map<std::string, std::shared_ptr<FSDirectory>> created_dirs;

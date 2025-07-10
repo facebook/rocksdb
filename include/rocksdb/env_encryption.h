@@ -240,6 +240,15 @@ class EncryptedRandomAccessFile : public FSRandomAccessFile {
   size_t GetRequiredBufferAlignment() const override;
 
   IOStatus InvalidateCache(size_t offset, size_t length) override;
+
+  // Intentionally leave GetFileSize not overridden here, so that it inherits
+  // the default implementation from its parent class, which is Not Supported.
+  //
+  // As GetFileSize API is not required to be implemented yet, we use encrypted
+  // file system in unit test to validate the rest of the system could continue
+  // working with the Not Supported behavior.
+  //
+  // IOStatus GetFileSize(uint64_t* /*result*/) override;
 };
 
 class EncryptedWritableFile : public FSWritableFile {
