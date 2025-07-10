@@ -959,6 +959,16 @@ IOStatus FaultInjectionTestFS::ReuseWritableFile(
   return NewWritableFile(fname, file_opts, result, dbg);
 }
 
+IOStatus FaultInjectionTestFS::SyncFile(const std::string& /*fname*/,
+                                        const FileOptions& /*options*/,
+                                        bool /*use_fsync*/,
+                                        IODebugContext* /*dbg*/) {
+  if (!IsFilesystemActive()) {
+    return GetError();
+  }
+  return IOStatus::OK();
+}
+
 IOStatus FaultInjectionTestFS::NewRandomRWFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSRandomRWFile>* result, IODebugContext* dbg) {
