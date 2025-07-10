@@ -814,13 +814,31 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterExpirationExclusive) {
   auto txn2 = NewTxn(txn_opt_);
   auto txn3 = NewTxn(txn_opt_);
 
-  ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
-
   port::Thread t1;
-  BlockUntilWaitingTxn(wait_sync_point_name_, t1, [this, &txn2]() {
-    // block because txn1 is holding an exclusive lock on k1.
-    ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
-  });
+  auto retry_times = 10;
+
+  // Use a loop to reduce test flakiness.
+  // that the test is flaky because the txn2 thread start could be delayed until
+  // txn1 lock expired. In that case, txn2 will not enter into wait state, which
+  // will defeat the test purpose. Use a loop to retry a few times, until it is
+  // able to enter into wait state.
+  while (retry_times--) {
+    ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
+    if (TryBlockUntilWaitingTxn(wait_sync_point_name_, t1,
+                                std::packaged_task<void()>([this, &txn2]() {
+                                  // block because txn1 is holding a shared
+                                  // lock on k1.
+                                  ASSERT_OK(locker_->TryLock(txn2, 1, "k1",
+                                                             env_, true));
+                                }))) {
+      break;
+    }
+    // failed, retry again
+    locker_->UnLock(txn1, 1, "k1", env_);
+    locker_->UnLock(txn2, 1, "k1", env_);
+  }
+  // make sure txn2 is able to reach the wait state before proceed
+  ASSERT_GT(retry_times, 0);
 
   // txn3 try to acquire an exclusive lock on k1, FIFO order is respected.
   port::Thread t2;
@@ -860,13 +878,31 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterExpirationShared) {
   auto txn2 = NewTxn(txn_opt_);
   auto txn3 = NewTxn(txn_opt_);
 
-  ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, false));
-
   port::Thread t1;
-  BlockUntilWaitingTxn(wait_sync_point_name_, t1, [this, &txn2]() {
-    // block because txn1 is holding an exclusive lock on k1.
-    ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
-  });
+  auto retry_times = 10;
+
+  // Use a loop to reduce test flakiness.
+  // that the test is flaky because the txn2 thread start could be delayed until
+  // txn1 lock expired. In that case, txn2 will not enter into wait state, which
+  // will defeat the test purpose. Use a loop to retry a few times, until it is
+  // able to enter into wait state.
+  while (retry_times--) {
+    ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, false));
+    if (TryBlockUntilWaitingTxn(wait_sync_point_name_, t1,
+                                std::packaged_task<void()>([this, &txn2]() {
+                                  // block because txn1 is holding an exclusive
+                                  // lock on k1.
+                                  ASSERT_OK(locker_->TryLock(txn2, 1, "k1",
+                                                             env_, true));
+                                }))) {
+      break;
+    }
+    // failed, retry again
+    locker_->UnLock(txn1, 1, "k1", env_);
+    locker_->UnLock(txn2, 1, "k1", env_);
+  }
+  // make sure txn2 is able to reach the wait state before proceed
+  ASSERT_GT(retry_times, 0);
 
   // txn3 try to acquire an exclusive lock on k1, FIFO order is respected.
   port::Thread t2;

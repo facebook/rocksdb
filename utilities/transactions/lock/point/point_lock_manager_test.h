@@ -4,6 +4,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <future>
+
 #include "file/file_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -222,6 +224,36 @@ TEST_P(AnyLockManagerTest, LockConflict) {
 
   delete txn1;
   delete txn2;
+}
+
+// Try to block until transaction enters waiting state.
+// However due to timing, it could fail, so return true if succeeded, false
+// otherwise.
+bool TryBlockUntilWaitingTxn(const char* sync_point_name, port::Thread& t,
+                             std::packaged_task<void()> f) {
+  std::atomic<bool> reached(false);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      sync_point_name, [&](void* /*arg*/) { reached.store(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  auto future = f.get_future();
+  t = port::Thread(std::move(f));
+
+  while (true) {
+    bool task_complete = future.wait_for(std::chrono::microseconds(1)) ==
+                         std::future_status::ready;
+    if (task_complete) {
+      t.join();
+      return false;
+    }
+    if (reached.load()) {
+      return true;
+    }
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  return false;
 }
 
 void BlockUntilWaitingTxn(const char* sync_point_name, port::Thread& t,
