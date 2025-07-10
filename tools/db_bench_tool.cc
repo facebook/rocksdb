@@ -6394,6 +6394,9 @@ class Benchmark {
       std::vector<ScanOptions> opts;
       std::vector<std::unique_ptr<const char[]>> guards;
       opts.reserve(multiscan_size);
+      // We create 1 random start, and then multiscan will start from that random start point
+      // And create a set of scans of `scan_size` in size with `multiscan_stride` space between each scan
+      // 0...[ FLAGS_seek_nexts ]{ FLAGS_multiscan_stride }[ FLAGS_seek_nexts ]...FLAGS_num
       uint64_t range = static_cast<uint64_t>(FLAGS_num) -
                        ((scan_size + FLAGS_multiscan_stride) * multiscan_size);
       uint64_t start_key = thread->rand.Uniform(range);
