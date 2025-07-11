@@ -104,14 +104,14 @@ class AutoRefillBudget {
                                                   std::memory_order_acq_rel,
                                                   std::memory_order_acquire)) {
         // logging for debugging
-        auto available_budget =
-            available_budget_.load(std::memory_order_relaxed);
+        // auto available_budget =
+        //     available_budget_.load(std::memory_order_relaxed);
         auto refill_amount = refill_amount_.load(std::memory_order_relaxed);
-        fprintf(stderr,
-                "Refilling budget at time: %ld used_budget: %ld "
-                "available_budget: %ld refill_budget: %ld\n",
-                now_us, refill_amount - available_budget, available_budget,
-                refill_amount);
+        // fprintf(stderr,
+        //         "Refilling budget at time: %ld used_budget: %ld "
+        //         "available_budget: %ld refill_budget: %ld\n",
+        //         now_us, refill_amount - available_budget, available_budget,
+        //         refill_amount);
         available_budget_.store(refill_amount, std::memory_order_release);
       }
     }

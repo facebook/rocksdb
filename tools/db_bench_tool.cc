@@ -2263,7 +2263,9 @@ class Stats {
   uint64_t bytes_;
   uint64_t last_op_finish_;
   uint64_t last_report_finish_;
-  AtomicRateTracker<size_t> io_rate_, cpu_usage_, req_drain_rate_;
+  AtomicRateTracker<size_t> io_rate_, req_drain_rate_;
+  AtomicRateTracker<double> cpu_usage_;
+  ProcSysCPUUtilizationTracker proc_cpu_usage_;
   std::unordered_map<OperationType, std::shared_ptr<HistogramImpl>,
                      std::hash<unsigned char>>
       hist_;
@@ -2470,12 +2472,15 @@ class Stats {
             auto bytes_throughput = io_rate_.Record(total_bytes_through);
             auto req_drain_throughput = req_drain_rate_.Record(drain_request);
             auto cpu_usage = cpu_usage_.Record(cpu_time_used);
+            proc_cpu_usage_.Record();
+            auto proc_cpu_usage = proc_cpu_usage_.GetCpuUtilization();
             fprintf(stderr,
                     "UsageRateStats: %s rate_limiter_bytes_through: %f "
                     "drain_request: %f "
-                    "cpu_time: %f\n",
+                    "cpu_time: %f proc_cpu_time: %f\n",
                     clock_->TimeToString(now / 1000000).c_str(),
-                    bytes_throughput, req_drain_throughput, cpu_usage);
+                    bytes_throughput, req_drain_throughput, cpu_usage,
+                    proc_cpu_usage);
           }
           if (dbstats != nullptr &&
               FLAGS_stats_per_interval_block_compression) {

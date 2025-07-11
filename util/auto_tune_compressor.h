@@ -152,6 +152,7 @@ class CostAwareCompressor : public Compressor {
                                IOBudget* io_budget = nullptr,
                                CPUBudget* cpu_budget = nullptr,
                                RateLimiter* rate_limiter = nullptr);
+  ~CostAwareCompressor();
   const char* Name() const override;
   size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
   Slice GetSerializedDict() const override;
@@ -195,7 +196,7 @@ class CostAwareCompressor : public Compressor {
   CPUBudget* cpu_budget_;
   RateLimiter* rate_limiter_;
   RateTracker<size_t> io_tracker_;
-  RateTracker<size_t> cpu_tracker_;
+  RateTracker<double> cpu_tracker_;
   // Will servers as a logical clock to decide when to update the decision
   int block_count_;
   std::pair<size_t, size_t> cur_comp_idx_;

@@ -183,9 +183,12 @@ CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts,
   }
   MeasureUtilization();
   block_count_ = 0;
-  cur_comp_idx_ = allcompressors_index_.back();
+  cur_comp_idx_ = {6, 0};
+  // cur_comp_idx_ = allcompressors_index_.back();
 }
-
+CostAwareCompressor::~CostAwareCompressor() {
+  fprintf(stderr, "CostAwareCompressor destructor %d\n", block_count_);
+}
 const char* CostAwareCompressor::Name() const { return "CostAwareCompressor"; }
 size_t CostAwareCompressor::GetMaxSampleSizeIfWantDict(
     CacheEntryRole block_type) const {
@@ -230,7 +233,7 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
   if (wa == nullptr || wa->owner() != this) {
     // highest compression level of Zstd
     size_t choosen_compression_type = 6;
-    size_t compression_level_ptr = 2;
+    size_t compression_level_ptr = 0;
     return allcompressors_[choosen_compression_type][compression_level_ptr]
         ->CompressBlock(uncompressed_data, compressed_output,
                         out_compression_type, wa);
@@ -260,8 +263,8 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
         SelectCompressionBasedOnGoal(local_wa);
     size_t choosen_compression_type = choosen_index.first;
     size_t compresion_level_ptr = choosen_index.second;
-    fprintf(stderr, "choosen compression type: %lu level: %lu\n",
-            choosen_compression_type, compresion_level_ptr);
+    // fprintf(stderr, "choosen compression type: %lu level: %lu\n",
+    //         choosen_compression_type, compresion_level_ptr);
     // Check if the chosen compression type and level are available
     // if not, skip the compression
     if (choosen_compression_type >= allcompressors_.size() ||
@@ -306,11 +309,10 @@ void CostAwareCompressor::MeasureUtilization() {
       (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
       (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
   cpu_util_ = cpu_tracker_.Record(cpu_time_used);
-  // fprintf(stderr,
-  //         "Measuring at block: %d total bytes: %lu cpu_time_used: %f io_rate:
-  //         "
-  //         "%f cpu_rate: %f\n",
-  //         block_count_, total_bytes, cpu_time_used, io_util_, cpu_util_);
+  fprintf(stderr,
+          "Measuring at block: %d total bytes: %lu cpu_time_used: %f io_rate: "
+          "%f cpu_rate: %f\n",
+          block_count_, total_bytes, cpu_time_used, io_util_, cpu_util_);
 }
 void CostAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   // remove all created cost predictors
@@ -326,7 +328,7 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
     CostAwareWorkingArea* wa) {
   // If no budgets are available, use default choice
   if (!cpu_budget_ || !io_budget_) {
-    std::pair<size_t, size_t> default_choice(6, 2);
+    std::pair<size_t, size_t> default_choice(6, 0);
     return default_choice;
   }
   block_count_++;
@@ -341,8 +343,10 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
   // Get available budgets
   auto cpu_goal = cpu_budget_->GetRate() / 1000000.0;
   auto io_goal = io_budget_->GetRate();
-  fprintf(stderr, "cpu_util: %f io_util: %f cpu_goal: %f io_goal: %f\n",
-          cpu_util, io_util, cpu_goal, io_goal);
+  fprintf(
+      stderr,
+      "cpu_util: %f io_util: %f cpu_goal: %f io_goal: %f block_number: %d\n",
+      cpu_util, io_util, cpu_goal, io_goal, block_count_);
   size_t cur_cpu_cost = 0;
   size_t cur_io_cost = 0;
   if (cur_comp_idx_.first >= allcompressors_.size() ||
@@ -368,6 +372,9 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
           wa->cost_predictors_[comp_type][comp_level]->IOPredictor.Predict();
       if (predicted_io_cost > cur_io_cost) {
         cur_comp_idx_ = choice;
+        fprintf(stderr,
+                "choosing compression type: %lu level: %lu block_count: %d\n",
+                cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
         return cur_comp_idx_;
       }
     }
@@ -383,13 +390,16 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
       size_t comp_level = choice.second;
       auto predicted_io_cost =
           wa->cost_predictors_[comp_type][comp_level]->IOPredictor.Predict();
-      if (predicted_io_cost > cur_io_cost) {
+      if (predicted_io_cost < cur_io_cost) {
         cur_comp_idx_ = choice;
+        fprintf(stderr,
+                "changing compression type: %lu level: %lu block_count: %d\n",
+                cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
         return cur_comp_idx_;
       }
     }
   } else {
-    if (cpu_util < (0.9 * cpu_goal)) {
+    if (cpu_util < (0.8 * cpu_goal)) {
       // increase cpu utilization
       for (const auto& choice : allcompressors_index_) {
         size_t comp_type = choice.first;
@@ -398,6 +408,9 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
             wa->cost_predictors_[comp_type][comp_level]->CPUPredictor.Predict();
         if (predicted_cpu_cost > cur_cpu_cost) {
           cur_comp_idx_ = choice;
+          fprintf(stderr,
+                  "changing compression type: %lu level: %lu block_count: %d\n",
+                  cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
           return cur_comp_idx_;
         }
       }
@@ -414,6 +427,9 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
             wa->cost_predictors_[comp_type][comp_level]->CPUPredictor.Predict();
         if (predicted_cpu_cost < cur_cpu_cost) {
           cur_comp_idx_ = choice;
+          fprintf(stderr,
+                  "changing compression type: %lu level: %lu block_count: %d\n",
+                  cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
           return cur_comp_idx_;
         }
       }
@@ -551,8 +567,8 @@ std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
 std::pair<IOBudget*, CPUBudget*> DefaultBudgetFactory::GetBudget() {
   static IOBudget io_budget(io_budget_, us_per_time_);
   static CPUBudget cpu_budget(cpu_budget_, us_per_time_);
-  fprintf(stdout, "io_budget: %f cpu_budget: %f\n", io_budget.GetRate(),
-          cpu_budget.GetRate());
+  // fprintf(stderr, "io_budget: %f cpu_budget: %f\n", io_budget.GetRate(),
+  // cpu_budget.GetRate());
   return std::pair<IOBudget*, CPUBudget*>(&io_budget, &cpu_budget);
 }
 }  // namespace ROCKSDB_NAMESPACE
