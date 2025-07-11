@@ -107,7 +107,7 @@ class Iterator : public IteratorBase {
   // If Prepare() is called, it overrides the iterate_upper_bound in
   // ReadOptions
   virtual void Prepare(const std::vector<ScanOptions>& /*scan_opts*/,
-                       IOExecutor* /*io_executor*/) {}
+                       [[maybe_unused]] IOExecutor* io_executor = nullptr) {}
 };
 
 // Return an empty iterator (yields nothing).

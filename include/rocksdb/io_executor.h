@@ -3,23 +3,36 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-// IOExecutor controls the execution of async IO operations. It is used to
-// control the amount specific operation (i.e., scans) prefetch.
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <vector>
+
+#include "rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
+struct PrefetchJob {};
+
+// IOExecutor controls the execution of async IO operations. It is used to
+// control the amount specific operation (i.e., scans) prefetch.
+
 class IOExecutor {
  public:
-  IOExecutor(size_t max_inflight_bytes, size_t max_inflight_ops)
-      : max_inflight_ops_(max_inflight_ops),
-        max_bytes_inflight_(max_inflight_bytes) {}
+  using Ticket = int64_t;
+  using Priority = int;
 
- private:
-  size_t max_inflight_ops_;
-  size_t max_bytes_inflight_;
+  IOExecutor(){};
+  ~IOExecutor() = default;
+
+  // I propose we do a ticket system for IO, meaning submitters will submit
+  // their jobs, in which they will recieve a ticket for each IO job they
+  // submitted (which will be continuous), if they want to know if their IO is
+  // done, they can query IOExecutor
+  virtual Ticket submit(Priority pri, std::vector<PrefetchJob> jobs) = 0;
+
+  virtual bool job_done(Ticket job) = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -15,6 +15,7 @@
 #include "memory/arena.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
+#include "rocksdb/io_executor.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/wide_columns.h"
 #include "table/iterator_wrapper.h"
@@ -240,7 +241,8 @@ class DBIter final : public Iterator {
 
   bool PrepareValue() override;
 
-  void Prepare(const std::vector<ScanOptions>& scan_opts) override {
+  void Prepare(const std::vector<ScanOptions>& scan_opts,
+               [[maybe_unused]] IOExecutor* io_executor = nullptr) override {
     std::optional<std::vector<ScanOptions>> new_scan_opts;
     new_scan_opts.emplace(scan_opts);
     scan_opts_.swap(new_scan_opts);
