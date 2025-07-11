@@ -6423,6 +6423,7 @@ class Benchmark {
         for (auto it __attribute__((__unused__)) : rng) {
           keys++;
         }
+        assert(keys > 0);
         count_hist->Add(1);
       }
 
