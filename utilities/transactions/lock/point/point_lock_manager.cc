@@ -156,9 +156,9 @@ struct LockMapStripe {
       // create key lock waiter
       key_lock_waiter_.Swap(
           new KeyLockWaiter(mutex_factory_->AllocateCondVar(), id, exclusive));
-      ret = static_cast_with_check<KeyLockWaiter>(key_lock_waiter_.Get());
+      ret = static_cast<KeyLockWaiter*>(key_lock_waiter_.Get());
     } else {
-      ret = static_cast_with_check<KeyLockWaiter>(key_lock_waiter_.Get());
+      ret = static_cast<KeyLockWaiter*>(key_lock_waiter_.Get());
       ret->Reset(id, exclusive);
     }
     return ret;
@@ -215,7 +215,8 @@ struct LockMapStripe {
 
 #ifndef NDEBUG
     stripe_mutex->UnLock();
-    TEST_SYNC_POINT("LockMapStrpe::WaitOnKeyInternal:AfterWokenUp");
+    TEST_SYNC_POINT_CALLBACK("LockMapStrpe::WaitOnKeyInternal:AfterWokenUp",
+                             &id);
     TEST_SYNC_POINT("LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock");
     auto lock_status = stripe_mutex->Lock();
     assert(lock_status.ok());
@@ -267,12 +268,11 @@ namespace {
 void UnrefLockMapsCache(void* ptr) {
   // Called when a thread exits or a ThreadLocalPtr gets destroyed.
   auto lock_maps_cache =
-      static_cast_with_check<UnorderedMap<uint32_t, std::shared_ptr<LockMap>>>(
-          ptr);
+      static_cast<UnorderedMap<uint32_t, std::shared_ptr<LockMap>>*>(ptr);
   delete lock_maps_cache;
 }
 void UnrefKeyLockWaiter(void* ptr) {
-  auto key_lock_waiter = static_cast_with_check<KeyLockWaiter>(ptr);
+  auto key_lock_waiter = static_cast<KeyLockWaiter*>(ptr);
   delete key_lock_waiter;
 }
 }  // anonymous namespace
@@ -1209,16 +1209,35 @@ Status PerKeyPointLockManager::AcquireLocked(
     // Add the waiter txn ids to the blocking txn id list for better
     // deadlock detection
     if (lock_info.waiter_queue != nullptr) {
-      for (auto& waiter : *lock_info.waiter_queue) {
-        if (*isUpgrade && waiter->exclusive) {
-          // For upgrade locks, it will be placed at the beginning of
-          // the queue. However, for shared lock waiters that are at
-          // the beginning of the queue that got waked up but haven't
-          // taken the lock yet, they should still be added to the
-          // blocking txn id list.
-          break;
+      if (txn_lock_info.exclusive) {
+        // For exclusive lock, it traverse the queue from front to back to
+        // handle upgrade
+        for (auto& waiter : *lock_info.waiter_queue) {
+          if (*isUpgrade && waiter->exclusive) {
+            // For upgrade locks, it will be placed at the beginning of
+            // the queue. However, for shared lock waiters that are at
+            // the beginning of the queue that got waked up but haven't
+            // taken the lock yet, they should still be added to the
+            // blocking txn id list.
+            break;
+          }
+          txn_ids->push_back(waiter->id);
         }
-        txn_ids->push_back(waiter->id);
+      } else {
+        // For shared lock, skip the S lock waiters at the end of the queue.
+        // Therefore, it traverse the queue from from back to front.
+        bool skip_shared_lock_waiter = true;
+        for (auto it = lock_info.waiter_queue->rbegin();
+             it != lock_info.waiter_queue->rend(); ++it) {
+          if ((*it)->exclusive) {
+            skip_shared_lock_waiter = false;
+          } else {
+            if (skip_shared_lock_waiter) {
+              continue;
+            }
+          }
+          txn_ids->push_back((*it)->id);
+        }
       }
     }
 

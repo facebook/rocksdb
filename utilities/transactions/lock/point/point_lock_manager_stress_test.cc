@@ -266,7 +266,7 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
               (*counters_[key])++;
               values_[key]++;
               DEBUG_LOG("Thd %lu bump key %u by 1 to %d\n", thd_idx, key,
-                        values[key]);
+                        values_[key]);
               ASSERT_EQ(counters_[key]->load(), values_[key])
                   << "Thd " << thd_idx << " key " << key;
             }

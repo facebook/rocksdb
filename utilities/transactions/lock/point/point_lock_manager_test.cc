@@ -438,10 +438,10 @@ TEST_F(PerKeyPointLockManagerTest, LockEfficiency) {
 
   // Count the total number of wait sync point calls
   std::atomic_int wait_sync_point_times = 0;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       wait_sync_point_name_,
       [&wait_sync_point_times](void* /*arg*/) { wait_sync_point_times++; });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  SyncPoint::GetInstance()->EnableProcessing();
 
   constexpr auto num_of_txn = 10;
   // create 10 transactions, each of them try to acquire exclusive lock on the
@@ -489,8 +489,8 @@ TEST_F(PerKeyPointLockManagerTest, LockEfficiency) {
   }
 
   ASSERT_EQ(wait_sync_point_times.load(), num_of_blocking_thread);
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 
   for (int i = 0; i < num_of_txn; i++) {
     delete txns[num_of_txn - i - 1];
@@ -517,10 +517,10 @@ TEST_F(PerKeyPointLockManagerTest, LockFairness) {
 
   // Count the total number of wait sync point calls
   std::atomic_int wait_sync_point_times = 0;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       wait_sync_point_name_,
       [&wait_sync_point_times](void* /*arg*/) { wait_sync_point_times++; });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  SyncPoint::GetInstance()->EnableProcessing();
 
   constexpr auto num_of_txn = 10;
   std::vector<bool> txn_lock_types = {true, false, false, true,  false,
@@ -612,8 +612,8 @@ TEST_F(PerKeyPointLockManagerTest, LockFairness) {
   unlockTxn();
 
   ASSERT_EQ(wait_sync_point_times.load(), num_of_blocking_thread);
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 
   for (int i = 0; i < num_of_txn; i++) {
     delete txns[num_of_txn - i - 1];
@@ -631,10 +631,10 @@ TEST_F(PerKeyPointLockManagerTest, FIFO) {
 
   // Count the total number of wait sync point calls
   std::atomic_int wait_sync_point_times = 0;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       wait_sync_point_name_,
       [&wait_sync_point_times](void* /*arg*/) { wait_sync_point_times++; });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  SyncPoint::GetInstance()->EnableProcessing();
 
   constexpr auto num_of_txn = 3;
   std::vector<bool> txn_lock_types = {false, true, false};
@@ -695,8 +695,8 @@ TEST_F(PerKeyPointLockManagerTest, FIFO) {
   unlockTxn();
 
   ASSERT_EQ(wait_sync_point_times.load(), num_of_blocking_thread);
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 
   for (int i = 0; i < num_of_txn; i++) {
     delete txns[num_of_txn - i - 1];
@@ -993,7 +993,7 @@ TEST_F(PerKeyPointLockManagerTest, SharedLockRaceCondition) {
         "LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock"}});
 
   std::atomic<bool> reached(false);
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       wait_sync_point_name_,
       [&reached](void* /*arg*/) { reached.store(true); });
 
@@ -1067,7 +1067,7 @@ TEST_F(PerKeyPointLockManagerTest, UpgradeLockRaceCondition) {
         "LockMapStrpe::WaitOnKeyInternal:BeforeTakeLock"}});
 
   std::atomic<bool> reached(false);
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       wait_sync_point_name_,
       [&reached](void* /*arg*/) { reached.store(true); });
 
@@ -1150,7 +1150,7 @@ TEST_P(SpotLockManagerTest, Catch22) {
   std::atomic_int wait_count(0);
 
   SyncPoint::GetInstance()->DisableProcessing();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       wait_sync_point_name_, [&wait_count](void* /*arg*/) { wait_count++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1217,16 +1217,23 @@ TEST_F(PerKeyPointLockManagerTest, LockUpgradeOrdering) {
 
   std::mutex txn4_mutex;
   std::unique_lock<std::mutex> txn4_lock(txn4_mutex);
+  std::atomic_bool txn4_waked_up(false);
+  std::atomic_int wait_count(0);
 
   SyncPoint::GetInstance()->DisableProcessing();
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
+      wait_sync_point_name_, [&wait_count](void* /*arg*/) { wait_count++; });
+  SyncPoint::GetInstance()->SetCallBack(
       "LockMapStrpe::WaitOnKeyInternal:AfterWokenUp",
-      [&txn4, &txn4_mutex](void* arg) {
+      [&txn4, &txn4_mutex, &txn4_waked_up](void* arg) {
         auto transaction_id = *(static_cast<TransactionID*>(arg));
-        if (transaction_id == txn4->GetId()) {
-          // wait for txn4 mutex to be released, so that this thread will be
-          // blocked.
-          std::scoped_lock<std::mutex> lock(txn4_mutex);
+        if (transaction_id == txn4->GetID()) {
+          txn4_waked_up.store(true);
+          {
+            // wait for txn4 mutex to be released, so that this thread will be
+            // blocked.
+            std::scoped_lock<std::mutex> lock(txn4_mutex);
+          }
         }
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -1235,18 +1242,20 @@ TEST_F(PerKeyPointLockManagerTest, LockUpgradeOrdering) {
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
 
   // Txn2,3,4 try S lock
-  port::Thread t1;
-  BlockUntilWaitingTxn(wait_sync_point_name_, t1, [this, &txn2]() {
+  port::Thread t1([this, &txn2]() {
     ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, false));
   });
-  port::Thread t2;
-  BlockUntilWaitingTxn(wait_sync_point_name_, t2, [this, &txn3]() {
+  port::Thread t2([this, &txn3]() {
     ASSERT_OK(locker_->TryLock(txn3, 1, "k1", env_, false));
   });
-  port::Thread t3;
-  BlockUntilWaitingTxn(wait_sync_point_name_, t3, [this, &txn4]() {
+  port::Thread t3([this, &txn4]() {
     ASSERT_OK(locker_->TryLock(txn4, 1, "k1", env_, false));
   });
+
+  // wait for all 3 transactions to enter wait state
+  while (wait_count.load() < 3) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
 
   // Txn1 unlock
   locker_->UnLock(txn1, 1, "k1", env_);
@@ -1255,14 +1264,22 @@ TEST_F(PerKeyPointLockManagerTest, LockUpgradeOrdering) {
   t1.join();
   t2.join();
 
+  // wait for txn4 to be woken up, otherwise txn2 will get deadlock
+  while (!txn4_waked_up.load()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
   // Txn2 try X lock
   std::atomic_bool txn2_exclusive_lock_acquired(false);
-  port::Thread t4;
-  BlockUntilWaitingTxn(wait_sync_point_name_, t4,
-                       [this, &txn2, &txn2_exclusive_lock_acquired]() {
-                         ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
-                         txn2_exclusive_lock_acquired.store(true);
-                       });
+  port::Thread t4([this, &txn2, &txn2_exclusive_lock_acquired]() {
+    ASSERT_OK(locker_->TryLock(txn2, 1, "k1", env_, true));
+    txn2_exclusive_lock_acquired.store(true);
+  });
+
+  // wait for txn2 to enter wait state
+  while (wait_count.load() < 4) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
 
   // Txn3 release S lock
   locker_->UnLock(txn3, 1, "k1", env_);
