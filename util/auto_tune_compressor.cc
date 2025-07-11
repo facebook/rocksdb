@@ -21,15 +21,6 @@ const std::vector<std::vector<int>> CostAwareCompressor::kCompressionLevels{
     {},          // kXpressCompression
     {1, 15, 22}  // kZSTD
 };
-// const std::vector<std::vector<int>> CostAwareCompressor::kCompressionLevels{
-//     {},          // KSnappyCompression
-//     {},          // kZlibCompression
-//     {},          // kBZip2Compression
-//     {},          // kLZ4Compression
-//     {},          // klZ4HCCompression
-//     {},          // kXpressCompression
-//     {1, 15, 22}  // kZSTD
-// };
 
 int CompressionRejectionProbabilityPredictor::Predict() const {
   return pred_rejection_prob_percentage_;
@@ -303,12 +294,21 @@ Compressor::ManagedWorkingArea CostAwareCompressor::ObtainWorkingArea() {
 void CostAwareCompressor::MeasureUtilization() {
   auto total_bytes = rate_limiter_->GetTotalBytesThrough();
   io_util_ = io_tracker_.Record(total_bytes);
+
+#if defined(_WIN32)
+  // Windows implementation
+  fprintf(stderr, "Windows implementation not supported\n");
+  sysexit(1);
+#else
+  // Unix/Linux implementation - use getrusage
   struct rusage usage;
   getrusage(RUSAGE_SELF, &usage);
   double cpu_time_used =
       (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
       (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
   cpu_util_ = cpu_tracker_.Record(cpu_time_used);
+#endif
+
   // fprintf(stderr,
   //         "Measuring at block: %d total bytes: %lld cpu_time_used: %f
   //         io_rate:
@@ -531,8 +531,7 @@ std::unique_ptr<Compressor> CostAwareCompressorManager::GetCompressorForSST(
 
 std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
     std::shared_ptr<CompressionManager> wrapped,
-    std::shared_ptr<CPUIOBudgetFactory> budget_factory, Options* opt) {
-  (void)opt;
+    std::shared_ptr<CPUIOBudgetFactory> budget_factory) {
   return std::make_shared<CostAwareCompressorManager>(
       wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped,
       budget_factory);

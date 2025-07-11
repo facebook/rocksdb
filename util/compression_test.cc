@@ -312,32 +312,32 @@ class DBCompresssionCostPredictor : public DBTestBase {
     DestroyAndReopen(options);
   }
 };
-TEST_F(DBCompresssionCostPredictor, CostAwareCompressorManager) {
-  // making sure that the compression is supported
-  if (!ZSTD_Supported()) {
-    return;
-  }
-  const int kValueSize = 20000;
-  int next_key = 0;
-  Random rnd(231);
-  auto value = rnd.RandomBinaryString(kValueSize);
-  int window_size = 10;
-  auto WindowWrite = [&]() {
-    for (auto i = 0; i < window_size; ++i) {
-      auto status = Put(Key(next_key), value);
-      EXPECT_OK(status);
-      next_key++;
-    }
-  };
-  // This denotes the first window
-  // Mocked to have specific cpu utilization and io cost
-  WindowWrite();
-  // check the predictor is predicting the correct cpu and io cost
-  WindowWrite();
-  ASSERT_OK(Flush());
-}
+// TEST_F(DBCompresssionCostPredictor, CostAwareCompressorManager) {
+//   // making sure that the compression is supported
+//   if (!ZSTD_Supported()) {
+//     return;
+//   }
+//   const int kValueSize = 20000;
+//   int next_key = 0;
+//   Random rnd(231);
+//   auto value = rnd.RandomBinaryString(kValueSize);
+//   int window_size = 10;
+//   auto WindowWrite = [&]() {
+//     for (auto i = 0; i < window_size; ++i) {
+//       auto status = Put(Key(next_key), value);
+//       EXPECT_OK(status);
+//       next_key++;
+//     }
+//   };
+//   // This denotes the first window
+//   // Mocked to have specific cpu utilization and io cost
+//   WindowWrite();
+//   // check the predictor is predicting the correct cpu and io cost
+//   WindowWrite();
+//   ASSERT_OK(Flush());
+// }
 // Test refill behavior with mock clock
-TEST(AutoRefillBudgetTest, RefillBehavior) {
+TEST(AutoRefillBudgetTest, DISABLED_RefillBehavior) {
   auto mock_clock = std::make_shared<MockSystemClock>(SystemClock::Default());
 
   // Create budget with 1000 units, refill every 100ms

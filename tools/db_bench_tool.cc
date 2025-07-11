@@ -2456,11 +2456,14 @@ class Stats {
                 (dbstats != nullptr)
                     ? dbstats->getTickerCount(NUMBER_RATE_LIMITER_DRAINS)
                     : -1;
+#if defined(_WIN32)
+#else
             struct rusage usage;
             getrusage(RUSAGE_SELF, &usage);
             double cpu_time_used =
                 (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
                 (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
+
             // double total_time = clock_->NowMicros() / 1e6;
             // fprintf(stderr,
             //         "UsageStats: %s rate_limiter_bytes_through: %lu "
@@ -2481,6 +2484,7 @@ class Stats {
                     clock_->TimeToString(now / 1000000).c_str(),
                     bytes_throughput, req_drain_throughput, cpu_usage,
                     proc_cpu_usage);
+#endif
           }
           if (dbstats != nullptr &&
               FLAGS_stats_per_interval_block_compression) {
@@ -4761,12 +4765,13 @@ class Benchmark {
       int64_t us_in_onesec = 1000000;
       // int64_t cpu_usage_limit = 0.9 * us_in_onesec;
       int64_t cpu_usage_limit = 0.5 * us_in_onesec;
-      fprintf(stdout, "us in 1 second: %ld cpu_usage_limit: %ld", us_in_onesec,
-              cpu_usage_limit);
+      // fprintf(stdout, "us in 1 second: %ld cpu_usage_limit: %ld",
+      // us_in_onesec,
+      //         cpu_usage_limit);
       std::shared_ptr<CPUIOBudgetFactory> budget_factory =
           std::make_shared<DefaultBudgetFactory>(
               cpu_usage_limit, io_usage_limit, us_in_onesec, options);
-      mgr = CreateCostAwareCompressionManager(nullptr, budget_factory, opts);
+      mgr = CreateCostAwareCompressionManager(nullptr, budget_factory);
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
