@@ -359,6 +359,11 @@ Status PointLockManager::AcquireWithTimeout(
 
   stripe->stripe_mutex->UnLock();
 
+  // On timeout, persist the lock information so we can debug the contention
+  if (result.IsTimedOut()) {
+    txn->SetWaitingTxn(wait_ids, column_family_id, &key, true);
+  }
+
   return result;
 }
 

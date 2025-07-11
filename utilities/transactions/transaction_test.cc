@@ -561,6 +561,16 @@ TEST_P(TransactionTest, WaitingTxn) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
+  // We expect GetWaitingTxns still returns the waiting values as it would
+  // normally before timeout
+  std::string key;
+  uint32_t cf_id;
+  std::vector<TransactionID> wait = txn2->GetWaitingTxns(&cf_id, &key);
+  ASSERT_EQ(key, "foo");
+  ASSERT_EQ(wait.size(), 1);
+  ASSERT_EQ(wait[0], id1);
+  ASSERT_EQ(cf_id, 0U);
+
   delete cfa;
   delete txn1;
   delete txn2;

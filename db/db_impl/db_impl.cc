@@ -253,6 +253,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   periodic_task_functions_.emplace(
       PeriodicTaskType::kRecordSeqnoTime,
       [this]() { this->RecordSeqnoToTimeMapping(); });
+  periodic_task_functions_.emplace(
+      PeriodicTaskType::kTriggerCompaction,
+      [this]() { this->TriggerPeriodicCompaction(); });
 
   versions_.reset(new VersionSet(
       dbname_, &immutable_db_options_, file_options_, table_cache_.get(),
@@ -787,7 +790,8 @@ Status DBImpl::StartPeriodicTaskScheduler() {
     Status s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kDumpStats,
         periodic_task_functions_.at(PeriodicTaskType::kDumpStats),
-        mutable_db_options_.stats_dump_period_sec);
+        mutable_db_options_.stats_dump_period_sec,
+        /*run_immediately=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -796,7 +800,8 @@ Status DBImpl::StartPeriodicTaskScheduler() {
     Status s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kPersistStats,
         periodic_task_functions_.at(PeriodicTaskType::kPersistStats),
-        mutable_db_options_.stats_persist_period_sec);
+        mutable_db_options_.stats_persist_period_sec,
+        /*run_immediately=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -804,7 +809,15 @@ Status DBImpl::StartPeriodicTaskScheduler() {
 
   Status s = periodic_task_scheduler_.Register(
       PeriodicTaskType::kFlushInfoLog,
-      periodic_task_functions_.at(PeriodicTaskType::kFlushInfoLog));
+      periodic_task_functions_.at(PeriodicTaskType::kFlushInfoLog),
+      /*run_immediately=*/true);
+
+  if (s.ok()) {
+    s = periodic_task_scheduler_.Register(
+        PeriodicTaskType::kTriggerCompaction,
+        periodic_task_functions_.at(PeriodicTaskType::kTriggerCompaction),
+        /*run_immediately=*/false);
+  }
 
   return s;
 }
@@ -855,7 +868,7 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
     s = periodic_task_scheduler_.Register(
         PeriodicTaskType::kRecordSeqnoTime,
         periodic_task_functions_.at(PeriodicTaskType::kRecordSeqnoTime),
-        seqno_time_cadence);
+        seqno_time_cadence, /*run_immediately=*/true);
   }
 
   return s;
@@ -1365,7 +1378,7 @@ Status DBImpl::SetDBOptions(
         s = periodic_task_scheduler_.Register(
             PeriodicTaskType::kDumpStats,
             periodic_task_functions_.at(PeriodicTaskType::kDumpStats),
-            new_options.stats_dump_period_sec);
+            new_options.stats_dump_period_sec, /*run_immediately=*/true);
       }
       if (new_options.max_total_wal_size !=
           mutable_db_options_.max_total_wal_size) {
@@ -1380,7 +1393,7 @@ Status DBImpl::SetDBOptions(
           s = periodic_task_scheduler_.Register(
               PeriodicTaskType::kPersistStats,
               periodic_task_functions_.at(PeriodicTaskType::kPersistStats),
-              new_options.stats_persist_period_sec);
+              new_options.stats_persist_period_sec, /*run_immediately=*/true);
         }
       }
       mutex_.Lock();
@@ -3823,10 +3836,8 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
 std::unique_ptr<MultiScan> DBImpl::NewMultiScan(
     const ReadOptions& _read_options, ColumnFamilyHandle* column_family,
     const std::vector<ScanOptions>& scan_opts) {
-  std::unique_ptr<Iterator> iter(NewIterator(_read_options, column_family));
-  iter->Prepare(scan_opts);
-  std::unique_ptr<MultiScan> ms_iter =
-      std::make_unique<MultiScan>(scan_opts, std::move(iter));
+  std::unique_ptr<MultiScan> ms_iter = std::make_unique<MultiScan>(
+      _read_options, scan_opts, this, column_family);
   return ms_iter;
 }
 
@@ -5041,85 +5052,6 @@ void DBImpl::GetAllColumnFamilyMetaData(
       metadata->emplace_back();
       cfd->current()->GetColumnFamilyMetaData(&metadata->back());
     }
-  }
-}
-
-Status DBImpl::CheckConsistency() {
-  mutex_.AssertHeld();
-  std::vector<LiveFileMetaData> metadata;
-  versions_->GetLiveFilesMetaData(&metadata);
-  TEST_SYNC_POINT("DBImpl::CheckConsistency:AfterGetLiveFilesMetaData");
-
-  std::string corruption_messages;
-
-  if (immutable_db_options_.skip_checking_sst_file_sizes_on_db_open) {
-    // Instead of calling GetFileSize() for each expected file, call
-    // GetChildren() for the DB directory and check that all expected files
-    // are listed, without checking their sizes.
-    // Since sst files might be in different directories, do it for each
-    // directory separately.
-    std::map<std::string, std::vector<std::string>> files_by_directory;
-    for (const auto& md : metadata) {
-      // md.name has a leading "/". Remove it.
-      std::string fname = md.name;
-      if (!fname.empty() && fname[0] == '/') {
-        fname = fname.substr(1);
-      }
-      files_by_directory[md.db_path].push_back(fname);
-    }
-
-    IOOptions io_opts;
-    io_opts.do_not_recurse = true;
-    for (const auto& dir_files : files_by_directory) {
-      std::string directory = dir_files.first;
-      std::vector<std::string> existing_files;
-      Status s = fs_->GetChildren(directory, io_opts, &existing_files,
-                                  /*IODebugContext*=*/nullptr);
-      if (!s.ok()) {
-        corruption_messages +=
-            "Can't list files in " + directory + ": " + s.ToString() + "\n";
-        continue;
-      }
-      std::sort(existing_files.begin(), existing_files.end());
-
-      for (const std::string& fname : dir_files.second) {
-        if (!std::binary_search(existing_files.begin(), existing_files.end(),
-                                fname) &&
-            !std::binary_search(existing_files.begin(), existing_files.end(),
-                                Rocks2LevelTableFileName(fname))) {
-          corruption_messages +=
-              "Missing sst file " + fname + " in " + directory + "\n";
-        }
-      }
-    }
-  } else {
-    for (const auto& md : metadata) {
-      // md.name has a leading "/".
-      std::string file_path = md.db_path + md.name;
-
-      uint64_t fsize = 0;
-      TEST_SYNC_POINT("DBImpl::CheckConsistency:BeforeGetFileSize");
-      Status s = env_->GetFileSize(file_path, &fsize);
-      if (!s.ok() &&
-          env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok()) {
-        s = Status::OK();
-      }
-      if (!s.ok()) {
-        corruption_messages +=
-            "Can't access " + md.name + ": " + s.ToString() + "\n";
-      } else if (fsize != md.size) {
-        corruption_messages += "Sst file size mismatch: " + file_path +
-                               ". Size recorded in manifest " +
-                               std::to_string(md.size) + ", actual size " +
-                               std::to_string(fsize) + "\n";
-      }
-    }
-  }
-
-  if (corruption_messages.size() == 0) {
-    return Status::OK();
-  } else {
-    return Status::Corruption(corruption_messages);
   }
 }
 
@@ -6882,6 +6814,35 @@ void DBImpl::RecordSeqnoToTimeMapping() {
 
   // clean up & report outside db mutex
   sv_context.Clean();
+}
+
+void DBImpl::TriggerPeriodicCompaction() {
+  TEST_SYNC_POINT("DBImpl::TriggerPeriodicCompaction:StartRunning");
+  {
+    InstrumentedMutexLock l(&mutex_);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Running the periodic task to trigger compactions.");
+
+    for (ColumnFamilyData* cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      if (cfd->GetLatestCFOptions().periodic_compaction_seconds &&
+          !cfd->queued_for_compaction()) {
+        cfd->current()->storage_info()->ComputeCompactionScore(
+            cfd->ioptions(), cfd->GetLatestMutableCFOptions());
+        EnqueuePendingCompaction(cfd);
+        if (cfd->queued_for_compaction()) {
+          ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                         "Periodic task to trigger compaction queued Column "
+                         "family [%s] for compaction.",
+                         cfd->GetName().c_str());
+        }
+      }
+    }
+    MaybeScheduleFlushOrCompaction();
+    bg_cv_.SignalAll();
+  }
 }
 
 void DBImpl::TrackOrUntrackFiles(

@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <functional>
+#include <iomanip>
+#include <iostream>
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
@@ -4138,6 +4140,190 @@ TEST_P(DBIteratorTest, AverageMemtableOpsScanFlushTriggerByOverwrites) {
   ASSERT_OK(Put(Key(0), "dummy write"));
   ASSERT_OK(db_->WaitForCompact({}));
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
+}
+
+class DBMultiScanIteratorTest : public DBTestBase {
+ public:
+  DBMultiScanIteratorTest()
+      : DBTestBase("db_multi_scan_iterator_test", /*env_do_fsync=*/true) {}
+};
+
+TEST_F(DBMultiScanIteratorTest, BasicTest) {
+  // Create a file
+  for (int i = 0; i < 100; ++i) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    ASSERT_OK(Put("k" + ss.str(), "val" + ss.str()));
+  }
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
+  ReadOptions ro;
+  std::vector<ScanOptions> scan_options(
+      {ScanOptions(key_ranges[0], key_ranges[1]),
+       ScanOptions(key_ranges[2], key_ranges[3])});
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  try {
+    int idx = 0;
+    int count = 0;
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_GE(it.first.ToString().compare(key_ranges[idx]), 0);
+        ASSERT_LT(it.first.ToString().compare(key_ranges[idx + 1]), 0);
+        count++;
+      }
+      idx += 2;
+    }
+    ASSERT_EQ(count, 32);
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+  iter.reset();
+
+  // Test the overlapping scan case
+  key_ranges[1] = "k30";
+  scan_options[0] = ScanOptions(key_ranges[0], key_ranges[1]);
+  iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
+  try {
+    int idx = 0;
+    int count = 0;
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_GE(it.first.ToString().compare(key_ranges[idx]), 0);
+        ASSERT_LT(it.first.ToString().compare(key_ranges[idx + 1]), 0);
+        count++;
+      }
+      idx += 2;
+    }
+    ASSERT_EQ(count, 52);
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+  iter.reset();
+
+  // Test the no limit scan case
+  scan_options[0] = ScanOptions(key_ranges[0]);
+  scan_options[1] = ScanOptions(key_ranges[2]);
+  iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
+  try {
+    int idx = 0;
+    int count = 0;
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_GE(it.first.ToString().compare(key_ranges[idx]), 0);
+        if (it.first.ToString().compare(key_ranges[idx + 1]) == 0) {
+          break;
+        }
+        count++;
+      }
+      idx += 2;
+    }
+    ASSERT_EQ(count, 52);
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+  iter.reset();
+}
+
+TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
+  // Create a file
+  for (int i = 0; i < 100; ++i) {
+    std::stringstream ss;
+    ss << std::setw(2) << std::setfill('0') << i;
+    ASSERT_OK(Put("k" + ss.str(), "val" + ss.str()));
+  }
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> key_ranges(
+      {"k03", "k10", "k25", "k50", "k75", "k90"});
+  ReadOptions ro;
+  std::vector<ScanOptions> scan_options(
+      {ScanOptions(key_ranges[0], key_ranges[1]), ScanOptions(key_ranges[2]),
+       ScanOptions(key_ranges[4], key_ranges[5])});
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  try {
+    int idx = 0;
+    int count = 0;
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_GE(it.first.ToString().compare(
+                      scan_options[idx].range.start->ToString()),
+                  0);
+        if (scan_options[idx].range.limit) {
+          ASSERT_LT(it.first.ToString().compare(
+                        scan_options[idx].range.limit->ToString()),
+                    0);
+        }
+        count++;
+      }
+      idx++;
+    }
+    ASSERT_EQ(count, 97);
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+  iter.reset();
+
+  scan_options[0] = ScanOptions(key_ranges[0]);
+  scan_options[1] = ScanOptions(key_ranges[2], key_ranges[3]);
+  scan_options[2] = ScanOptions(key_ranges[4]);
+  iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
+  try {
+    int idx = 0;
+    int count = 0;
+    for (auto range : *iter) {
+      for (auto it : range) {
+        ASSERT_GE(it.first.ToString().compare(
+                      scan_options[idx].range.start->ToString()),
+                  0);
+        if (scan_options[idx].range.limit) {
+          ASSERT_LT(it.first.ToString().compare(
+                        scan_options[idx].range.limit->ToString()),
+                    0);
+        }
+        count++;
+      }
+      idx++;
+    }
+    ASSERT_EQ(count, 147);
+  } catch (MultiScanException& ex) {
+    // Make sure exception contains the status
+    ASSERT_NOK(ex.status());
+    std::cerr << "Iterator returned status " << ex.what();
+    abort();
+  } catch (std::logic_error& ex) {
+    std::cerr << "Iterator returned logic error " << ex.what();
+    abort();
+  }
+  iter.reset();
 }
 }  // namespace ROCKSDB_NAMESPACE
 
