@@ -228,11 +228,15 @@ class BlockBasedTable : public TableReader {
 
     // Create an iterator for index access. If iter is null, then a new object
     // is created on the heap, and the callee will have the ownership.
-    // If a non-null iter is passed in, it will be used, and the returned value
-    // is either the same as iter or a new on-heap object that
-    // wraps the passed iter. In the latter case the return value points
-    // to a different object then iter, and the callee has the ownership of the
-    // returned object.
+    // If a non-null iter is passed in, it may be used, and the returned value
+    // is either the same as iter or a new on-heap object.
+    // In the latter case the return value points to a different object then
+    // iter, and the callee has the ownership of the returned object.
+    //
+    // Under all circumstances, the caller MUST use the returned iterator
+    // for further operations. If the returned iterator != iter, then the
+    // caller MUST ensure that iter stays in scope until the returned
+    // iterator is destroyed.
     virtual InternalIteratorBase<IndexValue>* NewIterator(
         const ReadOptions& read_options, bool disable_prefix_seek,
         IndexBlockIter* iter, GetContext* get_context,
@@ -544,6 +548,12 @@ class BlockBasedTable : public TableReader {
 
   bool TimestampMayMatch(const ReadOptions& read_options) const;
 
+  bool BlockTypeMaybeCompressed(BlockType type) const {
+    return type != BlockType::kFilter &&
+           type != BlockType::kCompressionDictionary &&
+           type != BlockType::kUserDefinedIndex;
+  }
+
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
   static constexpr size_t kMultiGetReadStackBufSize = 8192;
@@ -688,6 +698,8 @@ struct BlockBasedTable::Rep {
 
   std::unique_ptr<CacheReservationManager::CacheReservationHandle>
       table_reader_cache_res_handle = nullptr;
+
+  CachableEntry<Block_kUserDefinedIndex> udi_block;
 
   SequenceNumber get_global_seqno(BlockType block_type) const {
     return (block_type == BlockType::kFilterPartitionIndex ||
