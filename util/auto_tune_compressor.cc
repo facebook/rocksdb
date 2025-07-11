@@ -306,10 +306,11 @@ void CostAwareCompressor::MeasureUtilization() {
       (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
       (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
   cpu_util_ = cpu_tracker_.Record(cpu_time_used);
-  fprintf(stderr,
-          "Measuring at block: %d total bytes: %lu cpu_time_used: %f io_rate: "
-          "%f cpu_rate: %f\n",
-          block_count_, total_bytes, cpu_time_used, io_util_, cpu_util_);
+  // fprintf(stderr,
+  //         "Measuring at block: %d total bytes: %lu cpu_time_used: %f io_rate:
+  //         "
+  //         "%f cpu_rate: %f\n",
+  //         block_count_, total_bytes, cpu_time_used, io_util_, cpu_util_);
 }
 void CostAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   // remove all created cost predictors
@@ -329,7 +330,7 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
     return default_choice;
   }
   block_count_++;
-  if ((block_count_ % 500) != 0) {
+  if ((block_count_ % 2000) != 0) {
     return cur_comp_idx_;
   }
   MeasureUtilization();
@@ -358,6 +359,7 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
   }
   // Check if we need to increase or decrease io utilization
   if (io_util < (0.9 * io_goal)) {
+    fprintf(stderr, "trying to increase io utilization\n");
     // increase io utilization
     for (const auto& choice : allcompressors_index_) {
       size_t comp_type = choice.first;
@@ -375,6 +377,7 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
     return cur_comp_idx_;
   } else if (io_util > (1 * io_goal)) {
     // decrease io utilization
+    fprintf(stderr, "trying to decrease io utilization\n");
     for (const auto& choice : allcompressors_index_) {
       size_t comp_type = choice.first;
       size_t comp_level = choice.second;

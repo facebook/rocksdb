@@ -28,26 +28,11 @@ typedef struct {
   unsigned long iowait;
   unsigned long irq;
   unsigned long softirq;
-} cpu_stats;
+} proc_cpu_stats;
 
 // Function to read CPU statistics from /proc/stat
-void read_cpu_stats(cpu_stats* stats) {
-  FILE* file = fopen("/proc/stat", "r");
-  if (!file) {
-    perror("Error opening /proc/stat");
-    exit(1);
-  }
-
-  char line[256];
-  fgets(line, sizeof(line), file);
-
-  // Parse the first line, which contains overall CPU statistics
-  sscanf(line, "cpu %lu %lu %lu %lu %lu %lu %lu", &stats->user, &stats->nice,
-         &stats->system, &stats->idle, &stats->iowait, &stats->irq,
-         &stats->softirq);
-
-  fclose(file);
-}
+// Implementation moved to rate_tracker.cc to avoid multiple definition errors
+void read_cpu_stats(proc_cpu_stats* stats);
 
 // RateTracker is a template class that tracks the rate of change of values
 // over time. It records data points with timestamps and calculates the rate
@@ -248,7 +233,7 @@ class AtomicRateTracker {
     previous_timestamp_us_.store(current_timestamp_us,
                                  std::memory_order_release);
     has_previous_data_.store(true, std::memory_order_release);
-    printf("current_value: %lu rate_ = %f\n", value, rate_.load());
+    // fprintf(stderr, "current_value: %lu rate_ = %f\n", value, rate_.load());
     return rate_;
   }
 
@@ -286,48 +271,25 @@ class AtomicRateTracker {
   std::atomic<uint64_t> previous_timestamp_us_;
 };
 
+// Class to track CPU and IO utilization
+// Implementation moved to rate_tracker.cc
 class CPUIOUtilizationTracker {
  public:
   explicit CPUIOUtilizationTracker(const std::shared_ptr<SystemClock>& clock,
-                                   size_t min_wait_us, DBOptions opt)
-      : clock_(clock ? clock : SystemClock::Default()),
-        min_wait_us_(min_wait_us),
-        cpu_usage_(0.0),
-        io_utilization_(0.0),
-        next_record_time_us_(0),
-        opt_(opt) {
-    RecordCPUUsage();
-    RecordIOUtilization();
-  }
+                                   size_t min_wait_us, DBOptions opt);
+
   // True -> Recorded Prediction changed
   // False -> wait time is not long enough
-  bool Record() {
-    uint64_t current_timestamp_us = GetCurrentTimeMicros();
-    if (current_timestamp_us < next_record_time_us_) {
-      return false;
-    }
-    next_record_time_us_ = current_timestamp_us + min_wait_us_;
-    // Calculate time delta
-    RecordCPUUsage();
-    RecordIOUtilization();
-    return true;
-  }
-  float GetCpuUtilization() { return cpu_usage_; }
-  float GetIoUtilization() { return io_utilization_; }
+  bool Record();
+
+  float GetCpuUtilization();
+  float GetIoUtilization();
 
  private:
-  void RecordCPUUsage() {
-    struct rusage usage;
-    getrusage(RUSAGE_SELF, &usage);
-    double cpu_time_used =
-        (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
-        (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
-    cpu_usage_ = cpu_usage_rate_.Record(cpu_time_used);
-  }
-  void RecordIOUtilization() {
-    io_utilization_ = rate_limiter_bytes_rate_.Record(
-        opt_.rate_limiter->GetTotalBytesThrough());
-  }
+  void RecordCPUUsage();
+  void RecordIOUtilization();
+  uint64_t GetCurrentTimeMicros();
+
   std::shared_ptr<SystemClock> clock_;
   size_t min_wait_us_;
   AtomicRateTracker<size_t> rate_limiter_bytes_rate_;
@@ -336,16 +298,13 @@ class CPUIOUtilizationTracker {
   float io_utilization_;
   size_t next_record_time_us_;
   DBOptions opt_;
-
- private:
-  uint64_t GetCurrentTimeMicros() { return clock_->NowMicros(); };
 };
 // Thread-safe version of RateTracker using atomic operations
 template <typename T>
 class AtomicRateTrackerWithY {
  public:
   explicit AtomicRateTrackerWithY()
-      : has_previous_data_(false), rate_(0.0), previous_x_(0), previous_y_(0) {}
+      : has_previous_data_(false), previous_x_(0), previous_y_(0), rate_(0.0) {}
   virtual ~AtomicRateTrackerWithY() = default;
   // Explicitly delete copy constructor and copy assignment operator
   // since atomic members make the class non-copyable
@@ -434,4 +393,15 @@ class AtomicRateTrackerWithY {
   std::atomic<double> rate_;
 };
 
+// Class to track CPU utilization using /proc/stat
+// Implementation moved to rate_tracker.cc
+class ProcSysCPUUtilizationTracker {
+ public:
+  explicit ProcSysCPUUtilizationTracker();
+  bool Record();
+  float GetCpuUtilization();
+
+ private:
+  AtomicRateTrackerWithY<size_t> cpu_usage_rate_;
+};
 }  // namespace ROCKSDB_NAMESPACE
