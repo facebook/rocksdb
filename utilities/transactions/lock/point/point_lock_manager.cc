@@ -179,7 +179,9 @@ struct LockMapStripe {
           std::make_unique<std::list<KeyLockWaiter*>>();
     }
 
-    auto& waiter_queue = lock_info_iter->second.waiter_queue;
+    // the unique_ptr might get moved, when the container moves elements around,
+    // but the pointer unique_ptr held is stable.
+    auto waiter_queue = lock_info_iter->second.waiter_queue.get();
 
     std::list<KeyLockWaiter*>::iterator lock_waiter;
     if (isUpgrade) {

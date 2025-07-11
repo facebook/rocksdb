@@ -2,16 +2,16 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-void DEBUG_LOG(const char* format, ...) {
-  constexpr bool kDebugLog = false;
-  if (kDebugLog) {
-    va_list args;
-    va_start(args, format);
-    fprintf(stderr, format, args);
-    va_end(args);
-    fflush(stderr);
+constexpr bool kDebugLog = false;
+
+#define DEBUG_LOG(...)            \
+  if (kDebugLog) {                \
+    fprintf(stderr, __VA_ARGS__); \
+    fflush(stderr);               \
   }
-}
+
+#define DEBUG_LOG_PREFIX(format, ...) \
+  DEBUG_LOG("Thd %lu Txn %lu " format, thd_idx, txn_id, ##__VA_ARGS__);
 
 enum class LockTypeToTest : int8_t {
   EXCLUSIVE_ONLY = 0,
@@ -85,6 +85,9 @@ class PointLockCorrectnessCheckTest
   std::atomic_bool shutdown_ = false;
 };
 
+#define ASSERT_INFO(X) \
+  ASSERT_##X << "Thd " << thd_idx << " Txn " << txn_id << " key " << key;
+
 TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
   // Verify lock guarantee. Exclusive lock provide unique access guarantee.
   // Shared lock provide shared access guarantee.
@@ -102,8 +105,9 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
   for (size_t thd_idx = 0; thd_idx < param.thread_count; thd_idx++) {
     threads_.emplace_back([this, &param, thd_idx]() {
       while (!shutdown_) {
-        DEBUG_LOG("Thd %lu new txn\n", thd_idx);
         auto txn = NewTxn(txn_opt_);
+        auto txn_id = txn->GetID();
+        DEBUG_LOG_PREFIX("new txn\n");
         std::vector<std::pair<uint32_t, bool>> locked_key_with_types;
         // try to grab a random number of locks
         auto num_key_to_lock =
@@ -156,10 +160,8 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
               // Before downgrade, validate the lock is in exlusive status
               // This could not be done after downgrade, as another thread could
               // take a shared lock and update lock status
-              ASSERT_TRUE(exclusive_lock_status_[key])
-                  << "Thd " << thd_idx << " key " << key;
-              ASSERT_EQ(*shared_lock_count_[key], 0)
-                  << "Thd " << thd_idx << " key " << key;
+              ASSERT_INFO(TRUE(exclusive_lock_status_[key]))
+              ASSERT_INFO(EQ(*shared_lock_count_[key], 0))
               // for downgrade, update the lock status before acquiring the
               // lock, as afterwards, it will not have exclusive access to it
               exclusive_lock_status_[key] = 0;
@@ -167,12 +169,12 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
           }
 
           // try to acquire the lock
-          DEBUG_LOG("Thd %lu try to acquire lock %u type %s\n", thd_idx, key,
-                    exclusive_lock_type ? "exclusive" : "shared");
+          DEBUG_LOG_PREFIX("try to acquire lock %u type %s\n", key,
+                           exclusive_lock_type ? "exclusive" : "shared");
           s = locker_->TryLock(txn, 1, key_str, env_, exclusive_lock_type);
           if (s.ok()) {
-            DEBUG_LOG("Thd %lu acquired lock %u type %s\n", thd_idx, key,
-                      exclusive_lock_type ? "exclusive" : "shared");
+            DEBUG_LOG_PREFIX("acquired lock %u type %s\n", key,
+                             exclusive_lock_type ? "exclusive" : "shared");
 
             // update local lock status
             if (exclusive_lock_type) {
@@ -200,42 +202,38 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
               // otherwise, lock could be expired and stolen
               if (exclusive_lock_type) {
                 // validate the lock is not in exclusive status
-                ASSERT_FALSE(exclusive_lock_status_[key])
-                    << "Thd " << thd_idx << " key " << key;
+                ASSERT_INFO(FALSE(exclusive_lock_status_[key]));
                 if (isUpgrade) {
                   // validate the lock is in shared status and only had one
                   // shared lock
-                  ASSERT_EQ(*shared_lock_count_[key], 1)
-                      << "Thd " << thd_idx << " key " << key;
+                  ASSERT_INFO(EQ(*shared_lock_count_[key], 1));
                   shared_lock_count_[key]->fetch_sub(1);
                 } else {
-                  ASSERT_EQ(*shared_lock_count_[key], 0)
-                      << "Thd " << thd_idx << " key " << key;
+                  ASSERT_INFO(EQ(*shared_lock_count_[key], 0));
                 }
                 // update the lock status
                 exclusive_lock_status_[key] = 1;
               } else {
                 shared_lock_count_[key]->fetch_add(1);
-                ASSERT_FALSE(exclusive_lock_status_[key])
-                    << "Thd " << thd_idx << " key " << key;
+                ASSERT_INFO(FALSE(exclusive_lock_status_[key]));
               }
             }
           } else {
             if (!param.allow_non_deadlock_error) {
-              ASSERT_TRUE(s.IsDeadlock());
+              ASSERT_INFO(TRUE(s.IsDeadlock()));
             }
             if (s.IsDeadlock()) {
-              DEBUG_LOG("Thd %lu detected deadlock on key %u, abort\n", thd_idx,
-                        key);
+              DEBUG_LOG_PREFIX("detected deadlock on key %u, abort\n", key);
               num_of_deadlock_detected_++;
               // for deadlock, release all locks acquired
               break;
             } else {
               // for other errors, try again
-              DEBUG_LOG(
-                  "Thd %lu failed to acquire lock on key %u, due to %s, "
+              DEBUG_LOG_PREFIX(
+                  "failed to acquire lock on key %u, due to "
+                  "%s, "
                   "abort\n",
-                  thd_idx, key, s.ToString().c_str());
+                  key, s.ToString().c_str());
             }
           }
         }
@@ -254,40 +252,33 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
         // release all locks
         for (auto& key_type : locked_key_with_types) {
           auto key = key_type.first;
-          ASSERT_TRUE(key < param.key_count);
+          ASSERT_INFO(TRUE(key < param.key_count));
           // Check global lock status
           if (!param.allow_non_deadlock_error) {
-            ASSERT_EQ(counters_[key]->load(), values_[key])
-                << "Thd " << thd_idx << " key " << key;
+            ASSERT_INFO(EQ(counters_[key]->load(), values_[key]));
             auto exclusive = key_type.second;
             if (exclusive) {
               // exclusive lock
               // bump the value by 1
               (*counters_[key])++;
               values_[key]++;
-              DEBUG_LOG("Thd %lu bump key %u by 1 to %d\n", thd_idx, key,
-                        values_[key]);
-              ASSERT_EQ(counters_[key]->load(), values_[key])
-                  << "Thd " << thd_idx << " key " << key;
+              DEBUG_LOG_PREFIX("bump key %u by 1 to %d\n", key, values_[key]);
+              ASSERT_INFO(EQ(counters_[key]->load(), values_[key]));
             }
             // Validate lock status, if deadlock is the only allowed error.
             // otherwise, lock could be expired and stolen
             if (exclusive) {
               // exclusive lock
-              ASSERT_TRUE(exclusive_lock_status_[key])
-                  << "Thd " << thd_idx << " key " << key;
-              ASSERT_EQ(*shared_lock_count_[key], 0)
-                  << "Thd " << thd_idx << " key " << key;
+              ASSERT_INFO(TRUE(exclusive_lock_status_[key]));
+              ASSERT_INFO(EQ(*shared_lock_count_[key], 0));
               exclusive_lock_status_[key] = 0;
             } else {
               // shared lock
-              ASSERT_FALSE(exclusive_lock_status_[key])
-                  << "Thd " << thd_idx << " key " << key;
-              ASSERT_GE(shared_lock_count_[key]->fetch_sub(1), 1)
-                  << "Thd " << thd_idx << " key " << key;
+              ASSERT_INFO(FALSE(exclusive_lock_status_[key]));
+              ASSERT_INFO(GE(shared_lock_count_[key]->fetch_sub(1), 1));
             }
           }
-          DEBUG_LOG("Thd %lu release lock %u\n", thd_idx, key);
+          DEBUG_LOG_PREFIX("release lock %u\n", key);
           locker_->UnLock(txn, 1, std::to_string(key), env_);
         }
         delete txn;
