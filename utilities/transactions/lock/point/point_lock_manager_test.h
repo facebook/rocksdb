@@ -4,6 +4,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <future>
+
 #include "file/file_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -15,6 +17,9 @@
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+constexpr auto kLongTxnTimeoutMs = 100000;
+constexpr auto kShortTxnTimeoutMs = 100;
 
 class MockColumnFamilyHandle : public ColumnFamilyHandle {
  public:
@@ -41,27 +46,50 @@ class MockColumnFamilyHandle : public ColumnFamilyHandle {
 
 class PointLockManagerTest : public testing::Test {
  public:
-  void SetUp() override {
+  void init() {
     env_ = Env::Default();
     db_dir_ = test::PerThreadDBPath("point_lock_manager_test");
     ASSERT_OK(env_->CreateDir(db_dir_));
 
     Options opt;
     opt.create_if_missing = true;
-    TransactionDBOptions txn_opt;
-    txn_opt.transaction_lock_timeout = 0;
+    // Reduce the number of stripes to 4 to increase contention in test
+    txndb_opt_.num_stripes = 4;
+    txndb_opt_.transaction_lock_timeout = 0;
 
-    ASSERT_OK(TransactionDB::Open(opt, txn_opt, db_dir_, &db_));
-
-    // CAUTION: This test creates a separate lock manager object (right, NOT
-    // the one that the TransactionDB is using!), and runs tests on it.
-    locker_.reset(new PointLockManager(
-        static_cast<PessimisticTransactionDB*>(db_), txn_opt));
+    ASSERT_OK(TransactionDB::Open(opt, txndb_opt_, db_dir_, &db_));
 
     wait_sync_point_name_ = "PointLockManager::AcquireWithTimeout:WaitingTxn";
   }
 
+  void SetUp() override {
+    init();
+    // CAUTION: This test creates a separate lock manager object (right, NOT
+    // the one that the TransactionDB is using!), and runs tests on it.
+    locker_.reset(new PointLockManager(
+        static_cast<PessimisticTransactionDB*>(db_), txndb_opt_));
+  }
+
   void TearDown() override {
+    // Validate no lock was held at the end of the test
+    auto lock_status = locker_->GetPointLockStatus();
+    // print the lock status for debugging
+    std::stringstream ss;
+    for (auto& s : lock_status) {
+      ss << "id " << s.first;
+      ss << " key " << s.second.key;
+      ss << " type " << (s.second.exclusive ? "exclusive" : "shared");
+      ss << " txn ids [";
+      for (auto& t : s.second.ids) {
+        ss << t << ",";
+      }
+      ss << "]";
+      ss << std::endl;
+    }
+    ASSERT_TRUE(lock_status.empty())
+        << lock_status.size() << " locks were held at the end of the test"
+        << ss.str();
+
     delete db_;
     EXPECT_OK(DestroyDir(env_, db_dir_));
   }
@@ -74,11 +102,13 @@ class PointLockManagerTest : public testing::Test {
 
  protected:
   Env* env_;
+  TransactionDBOptions txndb_opt_;
   std::shared_ptr<LockManager> locker_;
   const char* wait_sync_point_name_;
   friend void PointLockManagerTestExternalSetup(PointLockManagerTest*);
+  friend void PerLockPointLockManagerAnyLockManagerTestSetup(
+      PointLockManagerTest*);
 
- private:
   std::string db_dir_;
   TransactionDB* db_;
 };
@@ -122,6 +152,12 @@ TEST_P(AnyLockManagerTest, ReentrantSharedLock) {
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, false));
 
   // Cleanup
+  if (dynamic_cast<PointLockManager*>(locker_.get()) != nullptr &&
+      dynamic_cast<PerKeyPointLockManager*>(locker_.get()) == nullptr) {
+    // PointLockManager would create 2 entries in the lock manager, so it needs
+    // to unlock it twice.
+    locker_->UnLock(txn, 1, "k", env_);
+  }
   locker_->UnLock(txn, 1, "k", env_);
 
   delete txn;
@@ -190,22 +226,58 @@ TEST_P(AnyLockManagerTest, LockConflict) {
   delete txn2;
 }
 
-port::Thread BlockUntilWaitingTxn(const char* sync_point_name,
-                                  std::function<void()> f) {
+// Try to block until transaction enters waiting state.
+// However due to timing, it could fail, so return true if succeeded, false
+// otherwise.
+bool TryBlockUntilWaitingTxn(const char* sync_point_name, port::Thread& t,
+                             std::packaged_task<void()> f) {
   std::atomic<bool> reached(false);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       sync_point_name, [&](void* /*arg*/) { reached.store(true); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  port::Thread t(f);
+  auto future = f.get_future();
+  t = port::Thread(std::move(f));
 
-  while (!reached.load()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  while (true) {
+    bool task_complete = future.wait_for(std::chrono::microseconds(1)) ==
+                         std::future_status::ready;
+    if (task_complete) {
+      t.join();
+      return false;
+    }
+    if (reached.load()) {
+      return true;
+    }
   }
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  return false;
+}
 
-  return t;
+void BlockUntilWaitingTxn(const char* sync_point_name, port::Thread& t,
+                          std::function<void()> f) {
+  std::atomic<bool> reached(false);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      sync_point_name, [&](void* /*arg*/) { reached.store(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  t = port::Thread(f);
+
+  // timeout after 30 seconds, so test does not hang forever
+  // 30 seconds should be enough for the test to reach the expected state
+  // without causing too much flakiness
+  for (int i = 0; i < 3000; i++) {
+    if (reached.load()) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  ASSERT_TRUE(reached.load());
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_P(AnyLockManagerTest, SharedLocks) {
@@ -242,7 +314,8 @@ TEST_P(AnyLockManagerTest, Deadlock) {
   ASSERT_OK(locker_->TryLock(txn2, 1, "k2", env_, true));
 
   // txn1 tries to lock k2, will block forever.
-  port::Thread t = BlockUntilWaitingTxn(wait_sync_point_name_, [&]() {
+  port::Thread t;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t, [&]() {
     // block because txn2 is holding a lock on k2.
     ASSERT_OK(locker_->TryLock(txn1, 1, "k2", env_, true));
   });
@@ -290,7 +363,8 @@ TEST_P(AnyLockManagerTest, GetWaitingTxns_MultipleTxns) {
 
   auto txn3 = NewTxn();
   txn3->SetLockTimeout(10000);
-  port::Thread t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [&]() {
+  port::Thread t1;
+  BlockUntilWaitingTxn(wait_sync_point_name_, t1, [&]() {
     ASSERT_OK(locker_->TryLock(txn3, 1, "k", env_, true));
     locker_->UnLock(txn3, 1, "k", env_);
   });

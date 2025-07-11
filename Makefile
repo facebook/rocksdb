@@ -1878,6 +1878,9 @@ heap_test: $(OBJ_DIR)/util/heap_test.o $(TEST_LIBRARY) $(LIBRARY)
 point_lock_manager_test: utilities/transactions/lock/point/point_lock_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+point_lock_manager_stress_test: utilities/transactions/lock/point/point_lock_manager_stress_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 transaction_test: $(OBJ_DIR)/utilities/transactions/transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
