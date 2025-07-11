@@ -129,6 +129,7 @@ DEFINE_string(
     "compact1,"
     "waitforcompaction,"
     "multireadrandom,"
+    "multiscan,"
     "mixgraph,"
     "readseq,"
     "readtorowcache,"
@@ -332,6 +333,13 @@ DEFINE_int64(max_scan_distance, 0,
 DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
 
 DEFINE_int64(batch_size, 1, "Batch size");
+
+DEFINE_int64(multiscan_size, 10,
+             "MultiScan size - number of multiscans of size `batch_size`");
+
+DEFINE_int64(
+    multiscan_stride, 100,
+    "The amount of keys between two successive Scan operations in multiscan");
 
 static bool ValidateKeySize(const char* /*flagname*/, int32_t /*value*/) {
   return true;
@@ -2190,7 +2198,8 @@ enum OperationType : unsigned char {
   kUncompress,
   kCrc,
   kHash,
-  kOthers
+  kOthers,
+  kMultiScan
 };
 
 static std::unordered_map<OperationType, std::string, std::hash<unsigned char>>
@@ -2199,7 +2208,7 @@ static std::unordered_map<OperationType, std::string, std::hash<unsigned char>>
                            {kMerge, "merge"},       {kUpdate, "update"},
                            {kCompress, "compress"}, {kCompress, "uncompress"},
                            {kCrc, "crc"},           {kHash, "hash"},
-                           {kOthers, "op"}};
+                           {kOthers, "op"},         {kMultiScan, "multiscan"}};
 
 class CombinedStats;
 class Stats {
@@ -3641,6 +3650,10 @@ class Benchmark {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
+      } else if (name == "multiscan") {
+        fprintf(stderr, "multiscan_size = %" PRIi64 "\n", FLAGS_multiscan_size);
+        fprintf(stderr, "seek_nexts = %" PRIi32 "\n", FLAGS_seek_nexts);
+        method = &Benchmark::MultiScan;
       } else if (name == "multireadwhilewriting") {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
@@ -6367,6 +6380,59 @@ class Benchmark {
              read);
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
+  }
+
+  void MultiScan(ThreadState* thread) {
+    const int64_t scan_size = FLAGS_seek_nexts ? FLAGS_seek_nexts : 50;
+    const int64_t multiscan_size = FLAGS_multiscan_size;
+    auto count_hist = std::make_shared<HistogramImpl>();
+    ReadOptions options = read_options_;
+
+    Duration duration(FLAGS_duration, reads_);
+    while (!duration.Done(1)) {
+      DB* db = SelectDB(thread);
+      std::vector<ScanOptions> opts;
+      std::vector<std::unique_ptr<const char[]>> guards;
+      opts.reserve(multiscan_size);
+      // We create 1 random start, and then multiscan will start from that
+      // random start point And create a set of scans of `scan_size` in size
+      // with `multiscan_stride` space between each scan.
+      uint64_t range = static_cast<uint64_t>(FLAGS_num) -
+                       ((scan_size + FLAGS_multiscan_stride) * multiscan_size);
+      uint64_t start_key = thread->rand.Uniform(range);
+      for (int64_t i = 0; i < multiscan_size; i++) {
+        std::unique_ptr<const char[]> skey_guard;
+        Slice skey = AllocateKey(&skey_guard);
+        guards.push_back(std::move(skey_guard));
+        std::unique_ptr<const char[]> ekey_guard;
+        Slice ekey = AllocateKey(&ekey_guard);
+        guards.push_back(std::move(ekey_guard));
+
+        GenerateKeyFromInt(start_key, FLAGS_num, &skey);
+        uint64_t end_key = start_key + scan_size;
+        GenerateKeyFromInt(end_key, FLAGS_num, &ekey);
+
+        opts.emplace_back(skey, ekey);
+        start_key += scan_size + FLAGS_multiscan_stride;
+      }
+
+      auto iter =
+          db->NewMultiScan(read_options_, db->DefaultColumnFamily(), opts);
+      for (auto rng : *iter) {
+        size_t keys = 0;
+        for (auto it __attribute__((__unused__)) : rng) {
+          keys++;
+        }
+        assert(keys > 0);
+        count_hist->Add(1);
+      }
+
+      thread->stats.FinishedOps(nullptr, db, 1, kMultiScan);
+    }
+
+    thread->stats.AddMessage("\nReported entry count stats (expected " +
+                             std::to_string(scan_size) + "):");
+    thread->stats.AddMessage("\n" + count_hist->ToString());
   }
 
   void ApproximateMemtableStats(ThreadState* thread) {
