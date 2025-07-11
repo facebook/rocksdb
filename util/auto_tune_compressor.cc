@@ -12,24 +12,24 @@
 #include "util/random.h"
 #include "util/stop_watch.h"
 namespace ROCKSDB_NAMESPACE {
-// const std::vector<std::vector<int>> CostAwareCompressor::kCompressionLevels{
-//     {0},         // KSnappyCompression
-//     {},          // kZlibCompression
-//     {},          // kBZip2Compression
-//     {1, 4, 9},   // kLZ4Compression
-//     {1, 4, 9},   // klZ4HCCompression
-//     {},          // kXpressCompression
-//     {1, 15, 22}  // kZSTD
-// };
 const std::vector<std::vector<int>> CostAwareCompressor::kCompressionLevels{
-    {},          // KSnappyCompression
+    {0},         // KSnappyCompression
     {},          // kZlibCompression
     {},          // kBZip2Compression
-    {},          // kLZ4Compression
-    {},          // klZ4HCCompression
+    {1, 4, 9},   // kLZ4Compression
+    {1, 4, 9},   // klZ4HCCompression
     {},          // kXpressCompression
     {1, 15, 22}  // kZSTD
 };
+// const std::vector<std::vector<int>> CostAwareCompressor::kCompressionLevels{
+//     {},          // KSnappyCompression
+//     {},          // kZlibCompression
+//     {},          // kBZip2Compression
+//     {},          // kLZ4Compression
+//     {},          // klZ4HCCompression
+//     {},          // kXpressCompression
+//     {1, 15, 22}  // kZSTD
+// };
 
 int CompressionRejectionProbabilityPredictor::Predict() const {
   return pred_rejection_prob_percentage_;
@@ -187,7 +187,7 @@ CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts,
   // cur_comp_idx_ = allcompressors_index_.back();
 }
 CostAwareCompressor::~CostAwareCompressor() {
-  fprintf(stderr, "CostAwareCompressor destructor %d\n", block_count_);
+  //   fprintf(stderr, "CostAwareCompressor destructor %d\n", block_count_);
 }
 const char* CostAwareCompressor::Name() const { return "CostAwareCompressor"; }
 size_t CostAwareCompressor::GetMaxSampleSizeIfWantDict(
@@ -309,10 +309,11 @@ void CostAwareCompressor::MeasureUtilization() {
       (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
       (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
   cpu_util_ = cpu_tracker_.Record(cpu_time_used);
-  fprintf(stderr,
-          "Measuring at block: %d total bytes: %lu cpu_time_used: %f io_rate: "
-          "%f cpu_rate: %f\n",
-          block_count_, total_bytes, cpu_time_used, io_util_, cpu_util_);
+  // fprintf(stderr,
+  //         "Measuring at block: %d total bytes: %lu cpu_time_used: %f io_rate:
+  //         "
+  //         "%f cpu_rate: %f\n",
+  //         block_count_, total_bytes, cpu_time_used, io_util_, cpu_util_);
 }
 void CostAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   // remove all created cost predictors
@@ -343,108 +344,79 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
   // Get available budgets
   auto cpu_goal = cpu_budget_->GetRate() / 1000000.0;
   auto io_goal = io_budget_->GetRate();
-  fprintf(
-      stderr,
-      "cpu_util: %f io_util: %f cpu_goal: %f io_goal: %f block_number: %d\n",
-      cpu_util, io_util, cpu_goal, io_goal, block_count_);
+  // fprintf(
+  //     stderr,
+  //     "cpu_util: %f io_util: %f cpu_goal: %f io_goal: %f block_number: %d\n",
+  //     cpu_util, io_util, cpu_goal, io_goal, block_count_);
+
+  // Check if we need to increase or decrease io utilization
+  bool increase_io = io_util < (0.9 * io_goal);
+  bool decrease_io = io_util > (1 * io_goal);
+  bool increase_cpu = cpu_util < (0.8 * cpu_goal);
+  bool decrease_cpu = cpu_util > (1 * cpu_goal);
+  if (!increase_io && !increase_cpu && !decrease_io && !decrease_cpu) {
+    return cur_comp_idx_;
+  } else if (cur_comp_idx_.first >= allcompressors_.size() ||
+             cur_comp_idx_.second >=
+                 allcompressors_[cur_comp_idx_.first].size()) {
+    if (decrease_io && increase_cpu) {
+      // We can't decrease io compare to no compression
+      cur_comp_idx_ = allcompressors_index_.front();
+      return cur_comp_idx_;
+    }
+    return cur_comp_idx_;
+  }
+
   size_t cur_cpu_cost = 0;
   size_t cur_io_cost = 0;
-  if (cur_comp_idx_.first >= allcompressors_.size() ||
-      cur_comp_idx_.second >= allcompressors_[cur_comp_idx_.first].size()) {
-    cur_cpu_cost = 0;
-    cur_io_cost = std::numeric_limits<size_t>::max();
-  } else {
-    cur_cpu_cost =
-        wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
-            ->CPUPredictor.Predict();
-    cur_io_cost =
-        wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
-            ->IOPredictor.Predict();
-  }
-  // Check if we need to increase or decrease io utilization
-  if (io_util < (0.9 * io_goal)) {
-    fprintf(stderr, "trying to increase io utilization\n");
-    // increase io utilization
-    for (const auto& choice : allcompressors_index_) {
-      size_t comp_type = choice.first;
-      size_t comp_level = choice.second;
-      auto predicted_io_cost =
-          wa->cost_predictors_[comp_type][comp_level]->IOPredictor.Predict();
-      if (predicted_io_cost > cur_io_cost) {
-        cur_comp_idx_ = choice;
-        fprintf(stderr,
-                "choosing compression type: %lu level: %lu block_count: %d\n",
-                cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
-        return cur_comp_idx_;
+  cur_cpu_cost = wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
+                     ->CPUPredictor.Predict();
+  cur_io_cost = wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
+                    ->IOPredictor.Predict();
+  for (const auto& choice : allcompressors_index_) {
+    size_t comp_type = choice.first;
+    size_t comp_level = choice.second;
+    auto predicted_io_cost =
+        wa->cost_predictors_[comp_type][comp_level]->IOPredictor.Predict();
+    auto predicted_cpu_cost =
+        wa->cost_predictors_[comp_type][comp_level]->CPUPredictor.Predict();
+    bool flag = true;
+    if (increase_io) {
+      if (predicted_io_cost <= cur_io_cost) {
+        flag = false;
       }
     }
-    // no compression algorithm found to be within cpu utilization budget
+    if (decrease_io) {
+      if (predicted_io_cost >= cur_io_cost) {
+        flag = false;
+      }
+    }
+    if (increase_cpu) {
+      if (predicted_cpu_cost <= cur_cpu_cost) {
+        flag = false;
+      }
+    }
+    if (decrease_cpu) {
+      if (predicted_cpu_cost >= cur_cpu_cost) {
+        flag = false;
+      }
+    }
+    if (flag) {
+      cur_comp_idx_ = choice;
+      // fprintf(stderr,
+      //         "choosing compression type: %lu level: %lu block_count: %d\n",
+      //         cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
+      return cur_comp_idx_;
+    }
+  }
+
+  if (increase_io && decrease_cpu) {
     cur_comp_idx_ = {std::numeric_limits<size_t>::max(),
                      std::numeric_limits<size_t>::max()};
-    return cur_comp_idx_;
-  } else if (io_util > (1 * io_goal)) {
-    // decrease io utilization
-    fprintf(stderr, "trying to decrease io utilization\n");
-    for (const auto& choice : allcompressors_index_) {
-      size_t comp_type = choice.first;
-      size_t comp_level = choice.second;
-      auto predicted_io_cost =
-          wa->cost_predictors_[comp_type][comp_level]->IOPredictor.Predict();
-      if (predicted_io_cost < cur_io_cost) {
-        cur_comp_idx_ = choice;
-        fprintf(stderr,
-                "changing compression type: %lu level: %lu block_count: %d\n",
-                cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
-        return cur_comp_idx_;
-      }
-    }
-  } else {
-    if (cpu_util < (0.8 * cpu_goal)) {
-      // increase cpu utilization
-      for (const auto& choice : allcompressors_index_) {
-        size_t comp_type = choice.first;
-        size_t comp_level = choice.second;
-        auto predicted_cpu_cost =
-            wa->cost_predictors_[comp_type][comp_level]->CPUPredictor.Predict();
-        if (predicted_cpu_cost > cur_cpu_cost) {
-          cur_comp_idx_ = choice;
-          fprintf(stderr,
-                  "changing compression type: %lu level: %lu block_count: %d\n",
-                  cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
-          return cur_comp_idx_;
-        }
-      }
-      // no compression algorithm found to be within cpu utilization budget
-      cur_comp_idx_ = {std::numeric_limits<size_t>::max(),
-                       std::numeric_limits<size_t>::max()};
-      return cur_comp_idx_;
-    } else if (cpu_util > (1 * cpu_goal)) {
-      // decrease cpu utilization
-      for (const auto& choice : allcompressors_index_) {
-        size_t comp_type = choice.first;
-        size_t comp_level = choice.second;
-        auto predicted_cpu_cost =
-            wa->cost_predictors_[comp_type][comp_level]->CPUPredictor.Predict();
-        if (predicted_cpu_cost < cur_cpu_cost) {
-          cur_comp_idx_ = choice;
-          fprintf(stderr,
-                  "changing compression type: %lu level: %lu block_count: %d\n",
-                  cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
-          return cur_comp_idx_;
-        }
-      }
-      // no compression algorithm found to be within cpu utilization budget
-      cur_comp_idx_ = {std::numeric_limits<size_t>::max(),
-                       std::numeric_limits<size_t>::max()};
-      return cur_comp_idx_;
-    } else {
-      // no change in cpu and io utilization
-      return cur_comp_idx_;
-    }
   }
-  // no compression algorithm found to be within io utilization budget
-  cur_comp_idx_ = {std::numeric_limits<size_t>::max(),
-                   std::numeric_limits<size_t>::max()};
+  // fprintf(stderr, "choosing compression type: %lu level: %lu block_count:
+  // %d\n",
+  //         cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
   return cur_comp_idx_;
 }
 std::pair<size_t, size_t>

@@ -2461,14 +2461,14 @@ class Stats {
             double cpu_time_used =
                 (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
                 (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
-            double total_time = clock_->NowMicros() / 1e6;
-            fprintf(stderr,
-                    "UsageStats: %s rate_limiter_bytes_through: %lu "
-                    "drain_request: %lu "
-                    "cpu_time: %lf total_time: %lf\n",
-                    clock_->TimeToString(now / 1000000).c_str(),
-                    total_bytes_through, drain_request, cpu_time_used,
-                    total_time);
+            // double total_time = clock_->NowMicros() / 1e6;
+            // fprintf(stderr,
+            //         "UsageStats: %s rate_limiter_bytes_through: %lu "
+            //         "drain_request: %lu "
+            //         "cpu_time: %lf total_time: %lf\n",
+            //         clock_->TimeToString(now / 1000000).c_str(),
+            //         total_bytes_through, drain_request, cpu_time_used,
+            //         total_time);
             auto bytes_throughput = io_rate_.Record(total_bytes_through);
             auto req_drain_throughput = req_drain_rate_.Record(drain_request);
             auto cpu_usage = cpu_usage_.Record(cpu_time_used);
@@ -4759,10 +4759,10 @@ class Benchmark {
       // options.rate_limiter->GetBytesPerSecond();
       auto io_usage_limit = 0.99 * ratelimiter_throughput;
       int64_t us_in_onesec = 1000000;
-      int64_t cpu_usage_limit = 0.9 * us_in_onesec;
+      // int64_t cpu_usage_limit = 0.9 * us_in_onesec;
+      int64_t cpu_usage_limit = 0.5 * us_in_onesec;
       fprintf(stdout, "us in 1 second: %ld cpu_usage_limit: %ld", us_in_onesec,
               cpu_usage_limit);
-      // int64_t cpu_usage_limit = 0.5 * onesec;
       std::shared_ptr<CPUIOBudgetFactory> budget_factory =
           std::make_shared<DefaultBudgetFactory>(
               cpu_usage_limit, io_usage_limit, us_in_onesec, options);

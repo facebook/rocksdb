@@ -12,6 +12,11 @@ namespace ROCKSDB_NAMESPACE {
 
 // Implementation of read_cpu_stats moved from header to source file
 void read_cpu_stats(proc_cpu_stats* stats) {
+#if defined(_WIN32)
+  fprintf(stderr, "read_cpu_stats not implemented on Windows\n");
+  exit(1);
+#else
+  // Unix/Linux implementation - read from /proc/stat
   FILE* file = fopen("/proc/stat", "r");
   if (!file) {
     perror("Error opening /proc/stat");
@@ -19,14 +24,18 @@ void read_cpu_stats(proc_cpu_stats* stats) {
   }
 
   char line[256];
-  fgets(line, sizeof(line), file);
+
+  if (fgets(line, sizeof(line), file) == nullptr) {
+    perror("Error reading /proc/stat");
+    exit(1);
+  }
 
   // Parse the first line, which contains overall CPU statistics
   sscanf(line, "cpu %lu %lu %lu %lu %lu %lu %lu", &stats->user, &stats->nice,
          &stats->system, &stats->idle, &stats->iowait, &stats->irq,
          &stats->softirq);
-
   fclose(file);
+#endif
 }
 
 // Implementation of CPUIOUtilizationTracker methods
@@ -61,12 +70,19 @@ float CPUIOUtilizationTracker::GetCpuUtilization() { return cpu_usage_; }
 float CPUIOUtilizationTracker::GetIoUtilization() { return io_utilization_; }
 
 void CPUIOUtilizationTracker::RecordCPUUsage() {
+#if defined(_WIN32)
+  // Windows implementation
+  fprintf(stderr, "RecordCPUUsage not implemented on Windows\n");
+  exit(1);
+#else
+  // Unix/Linux implementation - use getrusage
   struct rusage usage;
   getrusage(RUSAGE_SELF, &usage);
   double cpu_time_used =
       (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
       (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
   cpu_usage_ = cpu_usage_rate_.Record(cpu_time_used);
+#endif
 }
 
 void CPUIOUtilizationTracker::RecordIOUtilization() {

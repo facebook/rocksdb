@@ -7,8 +7,13 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+
+#if defined(_WIN32)
+#else
+// Unix/Linux-specific headers
 #include <sys/resource.h>
 #include <unistd.h>
+#endif
 
 #include <atomic>
 #include <chrono>
