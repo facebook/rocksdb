@@ -248,7 +248,7 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
   if (exploration) {
     std::pair<size_t, size_t> choosen_index =
         allcompressors_index_[Random::GetTLSInstance()->Uniform(
-            allcompressors_index_.size())];
+            static_cast<int>(allcompressors_index_.size()))];
     size_t choosen_compression_type = choosen_index.first;
     size_t compresion_level_ptr = choosen_index.second;
 
@@ -310,7 +310,8 @@ void CostAwareCompressor::MeasureUtilization() {
       (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
   cpu_util_ = cpu_tracker_.Record(cpu_time_used);
   // fprintf(stderr,
-  //         "Measuring at block: %d total bytes: %lu cpu_time_used: %f io_rate:
+  //         "Measuring at block: %d total bytes: %lld cpu_time_used: %f
+  //         io_rate:
   //         "
   //         "%f cpu_rate: %f\n",
   //         block_count_, total_bytes, cpu_time_used, io_util_, cpu_util_);
@@ -531,9 +532,10 @@ std::unique_ptr<Compressor> CostAwareCompressorManager::GetCompressorForSST(
 std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
     std::shared_ptr<CompressionManager> wrapped,
     std::shared_ptr<CPUIOBudgetFactory> budget_factory, Options* opt) {
+  (void)opt;
   return std::make_shared<CostAwareCompressorManager>(
       wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped,
-      budget_factory, opt);
+      budget_factory);
 }
 
 std::pair<IOBudget*, CPUBudget*> DefaultBudgetFactory::GetBudget() {

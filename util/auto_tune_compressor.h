@@ -208,10 +208,12 @@ class CostAwareCompressorManager : public CompressionManagerWrapper {
  public:
   explicit CostAwareCompressorManager(
       std::shared_ptr<CompressionManager> wrapped,
-      std::shared_ptr<CPUIOBudgetFactory> budget_factory, Options* opt)
+      std::shared_ptr<CPUIOBudgetFactory> budget_factory)
+      // std::shared_ptr<CPUIOBudgetFactory> budget_factory, Options* opt)
       : CompressionManagerWrapper(wrapped),
-        budget_factory_(budget_factory),
-        opts_(opt) {}
+        budget_factory_(budget_factory)
+  // ,opts_(opt)
+  {}
 
   const char* Name() const override;
   std::unique_ptr<Compressor> GetCompressorForSST(
@@ -220,7 +222,7 @@ class CostAwareCompressorManager : public CompressionManagerWrapper {
 
  private:
   std::shared_ptr<CPUIOBudgetFactory> budget_factory_;
-  Options* opts_;
+  // Options* opts_;
 };
 
 class DefaultBudgetFactory : public CPUIOBudgetFactory {
