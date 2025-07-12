@@ -200,6 +200,7 @@ class CostAwareCompressor : public Compressor {
   // Will servers as a logical clock to decide when to update the decision
   std::atomic<int> block_count_;
   std::pair<size_t, size_t> cur_comp_idx_;
+  static constexpr int kDecideEveryNBlocks = 2000;
 };
 
 class CostAwareCompressorManager : public CompressionManagerWrapper {

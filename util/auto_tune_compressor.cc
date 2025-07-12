@@ -321,8 +321,9 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
     std::pair<size_t, size_t> default_choice = allcompressors_index_.front();
     return default_choice;
   }
-  block_count_++;
-  if ((block_count_ % 2000) != 0) {
+  if ((block_count_.fetch_add(1, std::memory_order_relaxed)) %
+          kDecideEveryNBlocks !=
+      0) {
     return cur_comp_idx_;
   }
   MeasureUtilization();
@@ -333,26 +334,34 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
   // Get available budgets
   auto cpu_goal = cpu_budget_->GetRate() / kMicrosInSecond;
   auto io_goal = io_budget_->GetRate();
-
-  // Check if we need to increase or decrease io utilization
-  bool increase_io = io_util < (0.9 * io_goal);
-  bool decrease_io = io_util > (1 * io_goal);
-  bool increase_cpu = cpu_util < (0.8 * cpu_goal);
-  bool decrease_cpu = cpu_util > (1 * cpu_goal);
+  static constexpr double kAcceptableLowCpuGoal = 0.8;
+  static constexpr double kAcceptableLowIOGoal = 0.9;
+  // Detect the 4 quadrant that we want to explore
+  // Stable region is between the (kAcceptableLowCpuGoal * cpu_goal) to cpu_goal
+  // and  and (kAcceptableLowIOGoal * io_goal) to io_goal
+  bool increase_io = io_util < (kAcceptableLowIOGoal * io_goal);
+  bool decrease_io = io_util > io_goal;
+  bool increase_cpu = cpu_util < (kAcceptableLowCpuGoal * cpu_goal);
+  bool decrease_cpu = cpu_util > cpu_goal;
+  // If we are in the stable region, then we just go ahead with the current
+  // compression type and level
   if (!increase_io && !increase_cpu && !decrease_io && !decrease_cpu) {
     return cur_comp_idx_;
   } else if (cur_comp_idx_.first >= allcompressors_.size() ||
              cur_comp_idx_.second >=
                  allcompressors_[cur_comp_idx_.first].size()) {
+    // If the current compression type and level are not available i.e.
+    // Compression is disabled We can switch from no compression if we can
+    // decrease io and increase cpu usage else we current no compression is the
+    // best we can do
     if (decrease_io && increase_cpu) {
-      // if we switch from no compression to compression, then we need to use
-      // more cpu and than may lead to less io
       cur_comp_idx_ = allcompressors_index_.front();
       return cur_comp_idx_;
     }
     return cur_comp_idx_;
   }
-
+  // If we are in the unstable region, then we need to explore the other which
+  // is in the right quadrant where we want to move to
   auto cur_cpu_cost =
       wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
           ->CPUPredictor.Predict();
@@ -392,7 +401,10 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
       return cur_comp_idx_;
     }
   }
-
+  // if we did not find any other compression type and level on our intended
+  // quadrant we want to move to then we may choose not to compress if we aim to
+  // increase io and decrease cpu usage else current compression type and level
+  // is the best we can do
   if (increase_io && decrease_cpu) {
     cur_comp_idx_ = {std::numeric_limits<size_t>::max(),
                      std::numeric_limits<size_t>::max()};
