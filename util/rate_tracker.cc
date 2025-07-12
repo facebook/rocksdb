@@ -38,24 +38,17 @@ void read_cpu_stats(proc_cpu_stats* stats) {
 }
 
 CPUIOUtilizationTracker::CPUIOUtilizationTracker(
-    const std::shared_ptr<SystemClock>& clock, size_t min_wait_us,
-    DBOptions opt)
+    const std::shared_ptr<SystemClock>& clock, RateLimiter* rate_limiter)
     : clock_(clock ? clock : SystemClock::Default()),
-      min_wait_us_(min_wait_us),
       cpu_usage_(0.0),
       io_utilization_(0.0),
       next_record_time_us_(0),
-      opt_(opt) {
+      rate_limiter_(rate_limiter) {
   RecordCPUUsage();
   RecordIOUtilization();
 }
 
 bool CPUIOUtilizationTracker::Record() {
-  uint64_t current_timestamp_us = GetCurrentTimeMicros();
-  if (current_timestamp_us < next_record_time_us_) {
-    return false;
-  }
-  next_record_time_us_ = current_timestamp_us + min_wait_us_;
   RecordCPUUsage();
   RecordIOUtilization();
   return true;
@@ -82,8 +75,10 @@ void CPUIOUtilizationTracker::RecordCPUUsage() {
 }
 
 void CPUIOUtilizationTracker::RecordIOUtilization() {
-  io_utilization_ = rate_limiter_bytes_rate_.Record(
-      opt_.rate_limiter->GetTotalBytesThrough());
+  if (rate_limiter_ != nullptr) {
+    io_utilization_ =
+        rate_limiter_bytes_rate_.Record(rate_limiter_->GetTotalBytesThrough());
+  }
 }
 
 uint64_t CPUIOUtilizationTracker::GetCurrentTimeMicros() {

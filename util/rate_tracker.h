@@ -254,11 +254,11 @@ class AtomicRateTrackerWithY {
   std::atomic<T> previous_x_, previous_y_;
   std::atomic<double> rate_;
 };
-// Class to track CPU and IO utilization using /proc/stat
+// Class to track CPU and IO utilization
 class CPUIOUtilizationTracker {
  public:
   explicit CPUIOUtilizationTracker(const std::shared_ptr<SystemClock>& clock,
-                                   size_t min_wait_us, DBOptions opt);
+                                   RateLimiter* rate_limiter);
 
   bool Record();
   float GetCpuUtilization();
@@ -272,11 +272,11 @@ class CPUIOUtilizationTracker {
   std::shared_ptr<SystemClock> clock_;
   size_t min_wait_us_;
   AtomicRateTracker<size_t> rate_limiter_bytes_rate_;
-  AtomicRateTracker<size_t> cpu_usage_rate_;
+  AtomicRateTracker<double> cpu_usage_rate_;
   float cpu_usage_;
   float io_utilization_;
   size_t next_record_time_us_;
-  DBOptions opt_;
+  RateLimiter* rate_limiter_;
 };
 
 // Class to track CPU utilization using /proc/stat
