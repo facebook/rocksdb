@@ -254,8 +254,6 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
         SelectCompressionBasedOnGoal(local_wa);
     size_t choosen_compression_type = choosen_index.first;
     size_t compresion_level_ptr = choosen_index.second;
-    // fprintf(stderr, "choosen compression type: %lu level: %lu\n",
-    //         choosen_compression_type, compresion_level_ptr);
     // Check if the chosen compression type and level are available
     // if not, skip the compression
     if (choosen_compression_type >= allcompressors_.size() ||
@@ -293,12 +291,12 @@ Compressor::ManagedWorkingArea CostAwareCompressor::ObtainWorkingArea() {
 }
 void CostAwareCompressor::MeasureUtilization() {
   auto total_bytes = rate_limiter_->GetTotalBytesThrough();
-  io_util_ = io_tracker_.Record(total_bytes);
+  io_tracker_.Record(total_bytes);
 
 #if defined(_WIN32)
   // Windows implementation
   fprintf(stderr, "Windows implementation not supported\n");
-  sysexit(1);
+  exit(1);
 #else
   // Unix/Linux implementation - use getrusage
   struct rusage usage;
@@ -306,15 +304,8 @@ void CostAwareCompressor::MeasureUtilization() {
   double cpu_time_used =
       (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
       (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
-  cpu_util_ = cpu_tracker_.Record(cpu_time_used);
+  cpu_tracker_.Record(cpu_time_used);
 #endif
-
-  // fprintf(stderr,
-  //         "Measuring at block: %d total bytes: %lld cpu_time_used: %f
-  //         io_rate:
-  //         "
-  //         "%f cpu_rate: %f\n",
-  //         block_count_, total_bytes, cpu_time_used, io_util_, cpu_util_);
 }
 void CostAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   // remove all created cost predictors
@@ -345,11 +336,6 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
   // Get available budgets
   auto cpu_goal = cpu_budget_->GetRate() / 1000000.0;
   auto io_goal = io_budget_->GetRate();
-  // fprintf(
-  //     stderr,
-  //     "cpu_util: %f io_util: %f cpu_goal: %f io_goal: %f block_number: %d\n",
-  //     cpu_util, io_util, cpu_goal, io_goal, block_count_);
-
   // Check if we need to increase or decrease io utilization
   bool increase_io = io_util < (0.9 * io_goal);
   bool decrease_io = io_util > (1 * io_goal);
@@ -404,9 +390,6 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
     }
     if (flag) {
       cur_comp_idx_ = choice;
-      // fprintf(stderr,
-      //         "choosing compression type: %lu level: %lu block_count: %d\n",
-      //         cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
       return cur_comp_idx_;
     }
   }
@@ -415,9 +398,6 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
     cur_comp_idx_ = {std::numeric_limits<size_t>::max(),
                      std::numeric_limits<size_t>::max()};
   }
-  // fprintf(stderr, "choosing compression type: %lu level: %lu block_count:
-  // %d\n",
-  //         cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
   return cur_comp_idx_;
 }
 std::pair<size_t, size_t>
