@@ -24,7 +24,7 @@
 #include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
-static constexpr uint64_t kMicrosInSecond = 1000000;
+constexpr uint64_t kMicrosInSecond = 1000000;
 // Structure to hold CPU statistics
 typedef struct {
   unsigned long user;

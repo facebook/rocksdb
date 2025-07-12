@@ -2462,7 +2462,8 @@ class Stats {
             getrusage(RUSAGE_SELF, &usage);
             double cpu_time_used =
                 (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
-                (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / kMicrosInSecond;
+                (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) /
+                    kMicrosInSecond;
             auto bytes_throughput = io_rate_.Record(total_bytes_through);
             auto req_drain_throughput = req_drain_rate_.Record(drain_request);
             auto cpu_usage = cpu_usage_.Record(cpu_time_used);
@@ -4749,7 +4750,6 @@ class Benchmark {
                            "costpredictor")) {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
       auto io_usage_limit = 0.99 * ratelimiter_throughput;
-      int64_t us_in_onesec = 1000000;
       int64_t cpu_usage_limit = 0.9 * kMicrosInSecond;
       // int64_t cpu_usage_limit = 0.5 * kMicrosInSecond;
       // int64_t cpu_usage_limit = 0.05 * kMicrosInSecond;
