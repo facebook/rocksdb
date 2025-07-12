@@ -10,6 +10,7 @@
 #include "rocksdb/advanced_compression.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
+#include "util/rate_tracker.h"
 #include "util/stop_watch.h"
 namespace ROCKSDB_NAMESPACE {
 const std::vector<std::vector<int>> CostAwareCompressor::kCompressionLevels{
@@ -220,9 +221,9 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
 
   if (wa == nullptr || wa->owner() != this) {
     // highest compression level of Zstd
-    size_t choosen_compression_type = 6;
+    size_t chosen_compression_type = 6;
     size_t compression_level_ptr = 0;
-    return allcompressors_[choosen_compression_type][compression_level_ptr]
+    return allcompressors_[chosen_compression_type][compression_level_ptr]
         ->CompressBlock(uncompressed_data, compressed_output,
                         out_compression_type, wa);
   }
@@ -234,11 +235,11 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
     std::pair<size_t, size_t> choosen_index =
         allcompressors_index_[Random::GetTLSInstance()->Uniform(
             static_cast<int>(allcompressors_index_.size()))];
-    size_t choosen_compression_type = choosen_index.first;
-    size_t compresion_level_ptr = choosen_index.second;
+    size_t chosen_compression_type = choosen_index.first;
+    size_t compression_level_ptr = choosen_index.second;
 
     return CompressBlockAndRecord(
-        choosen_compression_type, compresion_level_ptr, uncompressed_data,
+        chosen_compression_type, compression_level_ptr, uncompressed_data,
         compressed_output, out_compression_type, local_wa);
   } else {
     // Switching to planned approach using following method for the choosing
@@ -248,18 +249,18 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
     // based on goal
     std::pair<size_t, size_t> choosen_index =
         SelectCompressionBasedOnGoal(local_wa);
-    size_t choosen_compression_type = choosen_index.first;
-    size_t compresion_level_ptr = choosen_index.second;
+    size_t chosen_compression_type = choosen_index.first;
+    size_t compression_level_ptr = choosen_index.second;
     // Check if the chosen compression type and level are available
     // if not, skip the compression
-    if (choosen_compression_type >= allcompressors_.size() ||
-        compresion_level_ptr >=
-            allcompressors_[choosen_compression_type].size()) {
+    if (chosen_compression_type >= allcompressors_.size() ||
+        compression_level_ptr >=
+            allcompressors_[chosen_compression_type].size()) {
       *out_compression_type = kNoCompression;
       return Status::OK();
     }
     return CompressBlockAndRecord(
-        choosen_compression_type, compresion_level_ptr, uncompressed_data,
+        chosen_compression_type, compression_level_ptr, uncompressed_data,
         compressed_output, out_compression_type, local_wa);
   }
 }
@@ -443,24 +444,24 @@ CostAwareCompressor::SelectCompressionInDirectionOfBudget(
 }
 
 Status CostAwareCompressor::CompressBlockAndRecord(
-    size_t choosen_compression_type, size_t compression_level_ptr,
+    size_t chosen_compression_type, size_t compression_level_ptr,
     Slice uncompressed_data, std::string* compressed_output,
     CompressionType* out_compression_type, CostAwareWorkingArea* wa) {
-  assert(choosen_compression_type < allcompressors_.size());
+  assert(chosen_compression_type < allcompressors_.size());
   assert(compression_level_ptr <
-         allcompressors_[choosen_compression_type].size());
-  assert(choosen_compression_type < wa->cost_predictors_.size());
+         allcompressors_[chosen_compression_type].size());
+  assert(chosen_compression_type < wa->cost_predictors_.size());
   assert(compression_level_ptr <
-         wa->cost_predictors_[choosen_compression_type].size());
+         wa->cost_predictors_[chosen_compression_type].size());
   StopWatchNano<> timer(Env::Default()->GetSystemClock().get(), true);
   Status status =
-      allcompressors_[choosen_compression_type][compression_level_ptr]
+      allcompressors_[chosen_compression_type][compression_level_ptr]
           ->CompressBlock(uncompressed_data, compressed_output,
                           out_compression_type, &(wa->wrapped_));
   std::pair<size_t, size_t> measured_data(timer.ElapsedMicros(),
                                           compressed_output->size());
   auto predictor =
-      wa->cost_predictors_[choosen_compression_type][compression_level_ptr];
+      wa->cost_predictors_[chosen_compression_type][compression_level_ptr];
   auto output_length = measured_data.second;
   auto cpu_time = measured_data.first;
   predictor->CPUPredictor.Record(cpu_time);

@@ -16,7 +16,6 @@
 #endif
 
 #include <atomic>
-#include <chrono>
 #include <memory>
 
 #include "rocksdb/options.h"
