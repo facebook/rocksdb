@@ -195,8 +195,8 @@ class CostAwareCompressor : public Compressor {
   IOBudget* io_budget_;
   CPUBudget* cpu_budget_;
   RateLimiter* rate_limiter_;
-  RateTracker<size_t> io_tracker_;
-  RateTracker<double> cpu_tracker_;
+  AtomicRateTracker<size_t> io_tracker_;
+  AtomicRateTracker<double> cpu_tracker_;
   // Will servers as a logical clock to decide when to update the decision
   int block_count_;
   std::pair<size_t, size_t> cur_comp_idx_;
@@ -209,10 +209,8 @@ class CostAwareCompressorManager : public CompressionManagerWrapper {
   explicit CostAwareCompressorManager(
       std::shared_ptr<CompressionManager> wrapped,
       std::shared_ptr<CPUIOBudgetFactory> budget_factory)
-      // std::shared_ptr<CPUIOBudgetFactory> budget_factory, Options* opt)
       : CompressionManagerWrapper(wrapped),
         budget_factory_(budget_factory)
-  // ,opts_(opt)
   {}
 
   const char* Name() const override;
@@ -222,7 +220,6 @@ class CostAwareCompressorManager : public CompressionManagerWrapper {
 
  private:
   std::shared_ptr<CPUIOBudgetFactory> budget_factory_;
-  // Options* opts_;
 };
 
 class DefaultBudgetFactory : public CPUIOBudgetFactory {

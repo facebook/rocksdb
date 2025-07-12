@@ -174,12 +174,9 @@ CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts,
   }
   MeasureUtilization();
   block_count_ = 0;
-  cur_comp_idx_ = {6, 0};
-  // cur_comp_idx_ = allcompressors_index_.back();
+  cur_comp_idx_ = allcompressors_index_.front();
 }
-CostAwareCompressor::~CostAwareCompressor() {
-  //   fprintf(stderr, "CostAwareCompressor destructor %d\n", block_count_);
-}
+CostAwareCompressor::~CostAwareCompressor() {}
 const char* CostAwareCompressor::Name() const { return "CostAwareCompressor"; }
 size_t CostAwareCompressor::GetMaxSampleSizeIfWantDict(
     CacheEntryRole block_type) const {
@@ -231,11 +228,8 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
   }
 
   auto local_wa = static_cast<CostAwareWorkingArea*>(wa->get());
-  // exploration
   bool exploration =
       Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
-  TEST_SYNC_POINT_CALLBACK(
-      "CostAwareCompressor::CompressBlock::exploitOrExplore", &exploration);
   if (exploration) {
     std::pair<size_t, size_t> choosen_index =
         allcompressors_index_[Random::GetTLSInstance()->Uniform(
@@ -247,15 +241,15 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
         choosen_compression_type, compresion_level_ptr, uncompressed_data,
         compressed_output, out_compression_type, local_wa);
   } else {
-    // Choose compression type and level based on budget availability
-    // std::pair<size_t, size_t> choosen_index =
+    // Switching to planned approach using following method for the choosing
+    // compression level std::pair<size_t, size_t> choosen_index =
     //     SelectCompressionInDirectionOfBudget(local_wa);
+    // Reactive approach to select compression algorithm to compression level
+    // based on goal
     std::pair<size_t, size_t> choosen_index =
         SelectCompressionBasedOnGoal(local_wa);
     size_t choosen_compression_type = choosen_index.first;
     size_t compresion_level_ptr = choosen_index.second;
-    // fprintf(stderr, "choosen compression type: %lu level: %lu\n",
-    //         choosen_compression_type, compresion_level_ptr);
     // Check if the chosen compression type and level are available
     // if not, skip the compression
     if (choosen_compression_type >= allcompressors_.size() ||
@@ -308,13 +302,6 @@ void CostAwareCompressor::MeasureUtilization() {
       (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
   cpu_util_ = cpu_tracker_.Record(cpu_time_used);
 #endif
-
-  // fprintf(stderr,
-  //         "Measuring at block: %d total bytes: %lld cpu_time_used: %f
-  //         io_rate:
-  //         "
-  //         "%f cpu_rate: %f\n",
-  //         block_count_, total_bytes, cpu_time_used, io_util_, cpu_util_);
 }
 void CostAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   // remove all created cost predictors
@@ -330,7 +317,7 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
     CostAwareWorkingArea* wa) {
   // If no budgets are available, use default choice
   if (!cpu_budget_ || !io_budget_) {
-    std::pair<size_t, size_t> default_choice(6, 0);
+    std::pair<size_t, size_t> default_choice = allcompressors_index_.front();
     return default_choice;
   }
   block_count_++;
@@ -343,12 +330,8 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
   // Select compression whose cpu cost and io cost are within budget
   // Return the first compression type and level that fits within budget
   // Get available budgets
-  auto cpu_goal = cpu_budget_->GetRate() / 1000000.0;
+  auto cpu_goal = cpu_budget_->GetRate() / kMicrosInSecond;
   auto io_goal = io_budget_->GetRate();
-  // fprintf(
-  //     stderr,
-  //     "cpu_util: %f io_util: %f cpu_goal: %f io_goal: %f block_number: %d\n",
-  //     cpu_util, io_util, cpu_goal, io_goal, block_count_);
 
   // Check if we need to increase or decrease io utilization
   bool increase_io = io_util < (0.9 * io_goal);
@@ -361,19 +344,20 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
              cur_comp_idx_.second >=
                  allcompressors_[cur_comp_idx_.first].size()) {
     if (decrease_io && increase_cpu) {
-      // We can't decrease io compare to no compression
+      // if we switch from no compression to compression, then we need to use
+      // more cpu and than may lead to less io
       cur_comp_idx_ = allcompressors_index_.front();
       return cur_comp_idx_;
     }
     return cur_comp_idx_;
   }
 
-  size_t cur_cpu_cost = 0;
-  size_t cur_io_cost = 0;
-  cur_cpu_cost = wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
-                     ->CPUPredictor.Predict();
-  cur_io_cost = wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
-                    ->IOPredictor.Predict();
+  auto cur_cpu_cost =
+      wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
+          ->CPUPredictor.Predict();
+  auto cur_io_cost =
+      wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
+          ->IOPredictor.Predict();
   for (const auto& choice : allcompressors_index_) {
     size_t comp_type = choice.first;
     size_t comp_level = choice.second;
@@ -404,9 +388,6 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
     }
     if (flag) {
       cur_comp_idx_ = choice;
-      // fprintf(stderr,
-      //         "choosing compression type: %lu level: %lu block_count: %d\n",
-      //         cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
       return cur_comp_idx_;
     }
   }
@@ -415,9 +396,6 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
     cur_comp_idx_ = {std::numeric_limits<size_t>::max(),
                      std::numeric_limits<size_t>::max()};
   }
-  // fprintf(stderr, "choosing compression type: %lu level: %lu block_count:
-  // %d\n",
-  //         cur_comp_idx_.first, cur_comp_idx_.second, block_count_);
   return cur_comp_idx_;
 }
 std::pair<size_t, size_t>
@@ -425,7 +403,7 @@ CostAwareCompressor::SelectCompressionInDirectionOfBudget(
     CostAwareWorkingArea* wa) {
   // If no budgets are available, use default choice
   if (!cpu_budget_ || !io_budget_) {
-    std::pair<size_t, size_t> default_choice(6, 2);
+    std::pair<size_t, size_t> default_choice = allcompressors_index_.front();
     return default_choice;
   }
   // Select compression whose cpu cost and io cost are within budget
@@ -490,9 +468,6 @@ Status CostAwareCompressor::CompressBlockAndRecord(
   // Consume the budget in the planned approach
   // if (cpu_budget_) cpu_budget_->TryConsume(cpu_time);
   // if (io_budget_) io_budget_->TryConsume(output_length);
-  TEST_SYNC_POINT_CALLBACK(
-      "CostAwareCompressor::CompressBlockAndRecord::GetPredictor",
-      wa->cost_predictors_[choosen_compression_type][compression_level_ptr]);
   return status;
 }
 

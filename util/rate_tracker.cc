@@ -10,7 +10,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Implementation of read_cpu_stats moved from header to source file
 void read_cpu_stats(proc_cpu_stats* stats) {
 #if defined(_WIN32)
   fprintf(stderr, "read_cpu_stats not implemented on Windows\n");
@@ -38,8 +37,6 @@ void read_cpu_stats(proc_cpu_stats* stats) {
 #endif
 }
 
-// Implementation of CPUIOUtilizationTracker methods
-
 CPUIOUtilizationTracker::CPUIOUtilizationTracker(
     const std::shared_ptr<SystemClock>& clock, size_t min_wait_us,
     DBOptions opt)
@@ -59,7 +56,6 @@ bool CPUIOUtilizationTracker::Record() {
     return false;
   }
   next_record_time_us_ = current_timestamp_us + min_wait_us_;
-  // Calculate time delta
   RecordCPUUsage();
   RecordIOUtilization();
   return true;
@@ -71,7 +67,7 @@ float CPUIOUtilizationTracker::GetIoUtilization() { return io_utilization_; }
 
 void CPUIOUtilizationTracker::RecordCPUUsage() {
 #if defined(_WIN32)
-  // Windows implementation
+  // Windows implementation: not implemented
   fprintf(stderr, "RecordCPUUsage not implemented on Windows\n");
   exit(1);
 #else
@@ -94,8 +90,6 @@ uint64_t CPUIOUtilizationTracker::GetCurrentTimeMicros() {
   return clock_->NowMicros();
 }
 
-// Implementation of ProcSysCPUUtilizationTracker methods
-
 ProcSysCPUUtilizationTracker::ProcSysCPUUtilizationTracker() {}
 
 bool ProcSysCPUUtilizationTracker::Record() {
@@ -110,7 +104,7 @@ bool ProcSysCPUUtilizationTracker::Record() {
   return true;
 }
 
-float ProcSysCPUUtilizationTracker::GetCpuUtilization() {
+double ProcSysCPUUtilizationTracker::GetCpuUtilization() {
   return cpu_usage_rate_.GetRate();
 }
 
