@@ -23,21 +23,6 @@
 #include "util/auto_refill_budget.h"
 
 namespace ROCKSDB_NAMESPACE {
-constexpr uint64_t kMicrosInSecond = 1000000;
-// Structure to hold CPU statistics
-typedef struct {
-  unsigned long user;
-  unsigned long nice;
-  unsigned long system;
-  unsigned long idle;
-  unsigned long iowait;
-  unsigned long irq;
-  unsigned long softirq;
-} proc_cpu_stats;
-
-// Function to read CPU statistics from /proc/stat
-// Implementation moved to rate_tracker.cc to avoid multiple definition errors
-void read_cpu_stats(proc_cpu_stats* stats);
 
 // AtomicRateTracker is a template class that tracks the rate of change of
 // values over time. It records data points with timestamps and calculates the
@@ -158,102 +143,6 @@ class AtomicRateTracker {
   std::atomic<double> rate_;
   std::atomic<uint64_t> previous_timestamp_us_;
 };
-
-// RateTrackerWithY is a template class that tracks the rate of change of x with
-// respect to y it stores the last x and y values and calculates the rate of
-// change between consecutive recordings.
-template <typename T>
-class AtomicRateTrackerWithY {
- public:
-  explicit AtomicRateTrackerWithY()
-      : has_previous_data_(false), previous_x_(0), previous_y_(0), rate_(0.0) {}
-  virtual ~AtomicRateTrackerWithY() = default;
-  // Explicitly delete copy constructor and copy assignment operator
-  // since atomic members make the class non-copyable
-  AtomicRateTrackerWithY(const AtomicRateTrackerWithY&) = delete;
-  AtomicRateTrackerWithY& operator=(const AtomicRateTrackerWithY&) = delete;
-
-  // Move constructor and move assignment operator
-  AtomicRateTrackerWithY(AtomicRateTrackerWithY&& other) noexcept
-      : has_previous_data_(other.has_previous_data_.load()),
-        previous_x_(other.previous_x_.load()),
-        previous_y_(other.previous_x_.load()),
-        rate_(other.rate_.load()) {}
-
-  AtomicRateTrackerWithY& operator=(AtomicRateTrackerWithY&& other) noexcept {
-    if (this != &other) {
-      has_previous_data_.store(other.has_previous_data_.load());
-      previous_x_.store(other.previous_x_.load());
-      previous_y_.store(other.previous_y_.load());
-      rate_.store(other.rate_.load());
-    }
-    return *this;
-  }
-
-  // Thread-safe version of Record
-  double Record(T xvalue, T yvalue) {
-    // Use atomic operations to ensure thread safety
-    bool had_previous_data = has_previous_data_.load(std::memory_order_acquire);
-    if (!had_previous_data) {
-      // First recording - try to set the initial values atomically
-      T expected_value = T{};
-
-      if (previous_x_.compare_exchange_strong(expected_value, xvalue,
-                                              std::memory_order_acq_rel) &&
-          previous_y_.compare_exchange_strong(expected_value, yvalue,
-                                              std::memory_order_acq_rel)) {
-        has_previous_data_.store(true, std::memory_order_release);
-        return 0.0;
-      }
-      // If CAS failed, another thread set the initial values, continue with
-      // rate calculation
-      return 0.0;
-    }
-
-    // Load previous values atomically
-    T prev_x = previous_x_.load(std::memory_order_acquire);
-    T prev_y = previous_y_.load(std::memory_order_acquire);
-
-    // Calculate time delta
-    uint64_t y_delta = yvalue - prev_y;
-    if (y_delta == 0) {
-      // No time has passed, return 0 rate to avoid division by zero
-      printf("y_delta_us is 0, return previous rate\n");
-      return rate_;
-    }
-
-    T x_delta = xvalue - prev_x;
-    rate_ = static_cast<double>(x_delta) / y_delta;
-
-    // Update stored values atomically
-    previous_x_.store(xvalue, std::memory_order_release);
-    previous_y_.store(yvalue, std::memory_order_release);
-    has_previous_data_.store(true, std::memory_order_release);
-    return rate_;
-  }
-
-  std::pair<T, T> GetLastValue() const {
-    return {previous_x_.load(std::memory_order_acquire),
-            previous_y_.load(std::memory_order_acquire)};
-  }
-
-  bool HasData() const {
-    return has_previous_data_.load(std::memory_order_acquire);
-  }
-
-  void Reset() {
-    has_previous_data_.store(false, std::memory_order_release);
-    previous_x_.store(T{}, std::memory_order_release);
-    previous_y_.store(0, std::memory_order_release);
-  }
-
-  double GetRate() const { return rate_.load(std::memory_order_acquire); }
-
- private:
-  std::atomic<bool> has_previous_data_;
-  std::atomic<T> previous_x_, previous_y_;
-  std::atomic<double> rate_;
-};
 // Class to track CPU and IO utilization
 class CPUIOUtilizationTracker {
  public:
@@ -278,20 +167,11 @@ class CPUIOUtilizationTracker {
   AtomicRateTracker<double> cpu_usage_rate_;
 };
 
-// Class to track CPU utilization using /proc/stat
-class ProcSysCPUUtilizationTracker {
- public:
-  explicit ProcSysCPUUtilizationTracker();
-  bool Record();
-  double GetCpuUtilization();
-
- private:
-  AtomicRateTrackerWithY<size_t> cpu_usage_rate_;
-};
 class RequestRateLimiter {
  private:
   // Use AutoRefillBudget to track requests per second
   std::unique_ptr<AutoRefillBudget<size_t>> request_budget_;
+  static constexpr uint64_t kMicrosInSecond = 1000000;
 
  public:
   explicit RequestRateLimiter(size_t requests_per_second);

@@ -181,6 +181,7 @@ class CostAwareCompressor : public Compressor {
   std::pair<size_t, size_t> SelectCompressionInDirectionOfBudget(
       CostAwareWorkingArea* wa);
   void MeasureUtilization();
+  static constexpr uint64_t kMicrosInSecond = 1000000;
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   // This is the vector containing the list of compression levels that

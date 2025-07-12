@@ -9,33 +9,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-void read_cpu_stats(proc_cpu_stats* stats) {
-#if defined(_WIN32)
-  fprintf(stderr, "read_cpu_stats not implemented on Windows\n");
-  exit(1);
-#else
-  // Unix/Linux implementation - read from /proc/stat
-  FILE* file = fopen("/proc/stat", "r");
-  if (!file) {
-    perror("Error opening /proc/stat");
-    exit(1);
-  }
-
-  char line[256];
-
-  if (fgets(line, sizeof(line), file) == nullptr) {
-    perror("Error reading /proc/stat");
-    exit(1);
-  }
-
-  // Parse the first line, which contains overall CPU statistics
-  sscanf(line, "cpu %lu %lu %lu %lu %lu %lu %lu", &stats->user, &stats->nice,
-         &stats->system, &stats->idle, &stats->iowait, &stats->irq,
-         &stats->softirq);
-  fclose(file);
-#endif
-}
-
 CPUIOUtilizationTracker::CPUIOUtilizationTracker(
     const std::shared_ptr<RateLimiter>& rate_limiter,
     const std::shared_ptr<SystemClock>& clock)
@@ -82,24 +55,6 @@ void CPUIOUtilizationTracker::RecordIOUtilization() {
 
 uint64_t CPUIOUtilizationTracker::GetCurrentTimeMicros() {
   return clock_->NowMicros();
-}
-
-ProcSysCPUUtilizationTracker::ProcSysCPUUtilizationTracker() {}
-
-bool ProcSysCPUUtilizationTracker::Record() {
-  proc_cpu_stats current_stats;
-  read_cpu_stats(&current_stats);
-  auto total_time = current_stats.user + current_stats.nice +
-                    current_stats.system + current_stats.idle +
-                    current_stats.iowait + current_stats.irq +
-                    current_stats.softirq;
-  auto cpu_time = total_time - current_stats.idle;
-  cpu_usage_rate_.Record(cpu_time, total_time);
-  return true;
-}
-
-double ProcSysCPUUtilizationTracker::GetCpuUtilization() {
-  return cpu_usage_rate_.GetRate();
 }
 
 RequestRateLimiter::RequestRateLimiter(size_t requests_per_second) {
