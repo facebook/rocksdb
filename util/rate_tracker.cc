@@ -102,4 +102,23 @@ double ProcSysCPUUtilizationTracker::GetCpuUtilization() {
   return cpu_usage_rate_.GetRate();
 }
 
+RequestRateLimiter::RequestRateLimiter(size_t requests_per_second) {
+  request_budget_ = std::make_unique<AutoRefillBudget<size_t>>(
+      requests_per_second, kMicrosInSecond);
+}
+
+bool RequestRateLimiter::TryProcessRequest(size_t request_cost) {
+  return request_budget_->TryConsume(request_cost);
+}
+
+size_t RequestRateLimiter::GetAvailableRequests() {
+  return request_budget_->GetAvailableBudget();
+}
+
+void RequestRateLimiter::UpdateRateLimit(size_t new_requests_per_second) {
+  request_budget_->SetRefillParameters(new_requests_per_second, 1000000);
+}
+
+void RequestRateLimiter::Reset() { request_budget_->Reset(); }
+
 }  // namespace ROCKSDB_NAMESPACE

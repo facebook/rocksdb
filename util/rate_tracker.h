@@ -20,6 +20,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/system_clock.h"
+#include "util/auto_refill_budget.h"
 
 namespace ROCKSDB_NAMESPACE {
 constexpr uint64_t kMicrosInSecond = 1000000;
@@ -286,5 +287,17 @@ class ProcSysCPUUtilizationTracker {
 
  private:
   AtomicRateTrackerWithY<size_t> cpu_usage_rate_;
+};
+class RequestRateLimiter {
+ private:
+  // Use AutoRefillBudget to track requests per second
+  std::unique_ptr<AutoRefillBudget<size_t>> request_budget_;
+
+ public:
+  explicit RequestRateLimiter(size_t requests_per_second);
+  bool TryProcessRequest(size_t request_cost = 1);
+  size_t GetAvailableRequests();
+  void UpdateRateLimit(size_t new_requests_per_second);
+  void Reset();
 };
 }  // namespace ROCKSDB_NAMESPACE
