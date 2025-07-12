@@ -133,14 +133,15 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
       wrapped_->GetCompressorForSST(context, opts, preferred), opts);
 }
 
-CostAwareCompressor::CostAwareCompressor(const CompressionOptions& opts,
-                                         IOBudget* io_budget,
-                                         CPUBudget* cpu_budget,
-                                         RateLimiter* rate_limiter)
+CostAwareCompressor::CostAwareCompressor(
+    const CompressionOptions& opts, std::shared_ptr<IOBudget> io_budget,
+    std::shared_ptr<CPUBudget> cpu_budget,
+    std::shared_ptr<RateLimiter> rate_limiter)
     : opts_(opts),
       io_budget_(io_budget),
       cpu_budget_(cpu_budget),
-      rate_limiter_(rate_limiter) {
+      rate_limiter_(rate_limiter),
+      usage_tracker_(rate_limiter) {
   // Creates compressor supporting all the compression types and levels as per
   // the compression levels set in vector CompressionLevels
   auto builtInManager = GetBuiltinV2CompressionManager();
@@ -286,24 +287,7 @@ Compressor::ManagedWorkingArea CostAwareCompressor::ObtainWorkingArea() {
   }
   return ManagedWorkingArea(wa, this);
 }
-void CostAwareCompressor::MeasureUtilization() {
-  auto total_bytes = rate_limiter_->GetTotalBytesThrough();
-  io_tracker_.Record(total_bytes);
-
-#if defined(_WIN32)
-  // Windows implementation
-  fprintf(stderr, "Windows implementation not supported\n");
-  exit(1);
-#else
-  // Unix/Linux implementation - use getrusage
-  struct rusage usage;
-  getrusage(RUSAGE_SELF, &usage);
-  double cpu_time_used =
-      (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
-      (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
-  cpu_tracker_.Record(cpu_time_used);
-#endif
-}
+void CostAwareCompressor::MeasureUtilization() { usage_tracker_.Record(); }
 void CostAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   // remove all created cost predictors
   for (auto& prdictors_diff_levels :
@@ -327,8 +311,10 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
     return cur_comp_idx_;
   }
   MeasureUtilization();
-  auto cpu_util = cpu_tracker_.GetRate();
-  auto io_util = io_tracker_.GetRate();
+  auto cpu_util = usage_tracker_.GetCpuUtilization();
+  auto io_util = usage_tracker_.GetIoUtilization();
+  // auto cpu_util = cpu_tracker_.GetRate();
+  // auto io_util = io_tracker_.GetRate();
   // Select compression whose cpu cost and io cost are within budget
   // Return the first compression type and level that fits within budget
   // Get available budgets
@@ -503,14 +489,14 @@ std::unique_ptr<Compressor> CostAwareCompressorManager::GetCompressorForSST(
   (void)preferred;
 
   // Get budgets from budget factory if available
-  IOBudget* io_budget = nullptr;
-  CPUBudget* cpu_budget = nullptr;
-  RateLimiter* rate_limiter = nullptr;
+  std::shared_ptr<IOBudget> io_budget = nullptr;
+  std::shared_ptr<CPUBudget> cpu_budget = nullptr;
+  std::shared_ptr<RateLimiter> rate_limiter = nullptr;
   if (budget_factory_) {
     auto budgets = budget_factory_->GetBudget();
     io_budget = budgets.first;
     cpu_budget = budgets.second;
-    rate_limiter = budget_factory_->GetOptions().rate_limiter.get();
+    rate_limiter = budget_factory_->GetOptions().rate_limiter;
   }
 
   return std::make_unique<CostAwareCompressor>(opts, io_budget, cpu_budget,
@@ -525,11 +511,12 @@ std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
       budget_factory);
 }
 
-std::pair<IOBudget*, CPUBudget*> DefaultBudgetFactory::GetBudget() {
-  static IOBudget io_budget(io_budget_, us_per_time_);
-  static CPUBudget cpu_budget(cpu_budget_, us_per_time_);
-  // fprintf(stderr, "io_budget: %f cpu_budget: %f\n", io_budget.GetRate(),
-  // cpu_budget.GetRate());
-  return std::pair<IOBudget*, CPUBudget*>(&io_budget, &cpu_budget);
+std::pair<std::shared_ptr<IOBudget>, std::shared_ptr<CPUBudget>>
+DefaultBudgetFactory::GetBudget() {
+  static std::shared_ptr<IOBudget> io_budget =
+      std::make_shared<IOBudget>(io_budget_, us_per_time_);
+  static std::shared_ptr<CPUBudget> cpu_budget =
+      std::make_shared<CPUBudget>(cpu_budget_, us_per_time_);
+  return {io_budget, cpu_budget};
 }
 }  // namespace ROCKSDB_NAMESPACE

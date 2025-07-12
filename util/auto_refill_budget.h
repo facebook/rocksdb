@@ -103,15 +103,7 @@ class AutoRefillBudget {
       if (next_refill_us_.compare_exchange_strong(next_refill, new_next_refill,
                                                   std::memory_order_acq_rel,
                                                   std::memory_order_acquire)) {
-        // logging for debugging
-        // auto available_budget =
-        //     available_budget_.load(std::memory_order_relaxed);
         auto refill_amount = refill_amount_.load(std::memory_order_relaxed);
-        // fprintf(stderr,
-        //         "Refilling budget at time: %ld used_budget: %ld "
-        //         "available_budget: %ld refill_budget: %ld\n",
-        //         now_us, refill_amount - available_budget, available_budget,
-        //         refill_amount);
         available_budget_.store(refill_amount, std::memory_order_release);
       }
     }
@@ -138,7 +130,8 @@ using CPUBudget = AutoRefillBudget<size_t>;
 class CPUIOBudgetFactory {
  public:
   // Create a new IOBudget instance
-  virtual std::pair<IOBudget*, CPUBudget*> GetBudget() = 0;
+  virtual std::pair<std::shared_ptr<IOBudget>, std::shared_ptr<CPUBudget>>
+  GetBudget() = 0;
   virtual ~CPUIOBudgetFactory() = default;
   virtual Options GetOptions() = 0;
 };

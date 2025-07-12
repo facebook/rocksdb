@@ -148,10 +148,11 @@ class CostAwareWorkingArea : public Compressor::WorkingArea {
 
 class CostAwareCompressor : public Compressor {
  public:
-  explicit CostAwareCompressor(const CompressionOptions& opts,
-                               IOBudget* io_budget = nullptr,
-                               CPUBudget* cpu_budget = nullptr,
-                               RateLimiter* rate_limiter = nullptr);
+  explicit CostAwareCompressor(
+      const CompressionOptions& opts,
+      std::shared_ptr<IOBudget> io_budget = nullptr,
+      std::shared_ptr<CPUBudget> cpu_budget = nullptr,
+      std::shared_ptr<RateLimiter> rate_limiter = nullptr);
   ~CostAwareCompressor();
   const char* Name() const override;
   size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
@@ -192,11 +193,10 @@ class CostAwareCompressor : public Compressor {
   std::vector<std::pair<size_t, size_t>> allcompressors_index_;
 
   // Budget references for cost-aware compression decisions
-  IOBudget* io_budget_;
-  CPUBudget* cpu_budget_;
-  RateLimiter* rate_limiter_;
-  AtomicRateTracker<size_t> io_tracker_;
-  AtomicRateTracker<double> cpu_tracker_;
+  std::shared_ptr<IOBudget> io_budget_;
+  std::shared_ptr<CPUBudget> cpu_budget_;
+  std::shared_ptr<RateLimiter> rate_limiter_;
+  CPUIOUtilizationTracker usage_tracker_;
   // Will servers as a logical clock to decide when to update the decision
   std::atomic<int> block_count_;
   std::pair<size_t, size_t> cur_comp_idx_;
@@ -227,7 +227,8 @@ class DefaultBudgetFactory : public CPUIOBudgetFactory {
         cpu_budget_(cpu_budget),
         io_budget_(io_budget),
         us_per_time_(per_time) {}
-  std::pair<IOBudget*, CPUBudget*> GetBudget() override;
+  std::pair<std::shared_ptr<IOBudget>, std::shared_ptr<CPUBudget>> GetBudget()
+      override;
   Options GetOptions() override { return opt_; };
   ~DefaultBudgetFactory() override {}
 
