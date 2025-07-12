@@ -420,10 +420,10 @@ CostAwareCompressor::SelectCompressionInDirectionOfBudget(
   if (available_cpu <= 0) {
     return best_choice;
   }
-  float total = sqrt(
+  double total = sqrt(
       static_cast<double>(available_cpu) * static_cast<double>(available_cpu) +
       static_cast<double>(available_io) * static_cast<double>(available_io));
-  float min_cosine_distance = std::numeric_limits<float>::max();
+  double min_cosine_distance = std::numeric_limits<double>::max();
   auto cosine_distance = [&](int64_t cpu_cost, int64_t io_cost) {
     return available_cpu / total * cpu_cost / total_cpu +
            available_io / total * io_cost / total_io;

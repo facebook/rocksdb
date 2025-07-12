@@ -104,7 +104,7 @@ class RateTracker {
 
     return rate_;
   }
-  float GetRate() { return rate_; }
+  double GetRate() { return rate_; }
 
   // Get the last recorded value
   // Returns the default value of T if no data has been recorded
@@ -299,8 +299,8 @@ class CPUIOUtilizationTracker {
   size_t min_wait_us_;
   AtomicRateTracker<size_t> rate_limiter_bytes_rate_;
   AtomicRateTracker<size_t> cpu_usage_rate_;
-  float cpu_usage_;
-  float io_utilization_;
+  double cpu_usage_;
+  double io_utilization_;
   size_t next_record_time_us_;
   DBOptions opt_;
 };
