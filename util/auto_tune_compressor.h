@@ -12,6 +12,9 @@
 #include <memory>
 
 #include "rocksdb/advanced_compression.h"
+#include "rocksdb/options.h"
+#include "util/auto_refill_budget.h"
+#include "util/rate_tracker.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Auto Skip Compression Components
@@ -145,7 +148,11 @@ class CostAwareWorkingArea : public Compressor::WorkingArea {
 
 class CostAwareCompressor : public Compressor {
  public:
-  explicit CostAwareCompressor(const CompressionOptions& opts);
+  explicit CostAwareCompressor(const CompressionOptions& opts,
+                               IOBudget* io_budget = nullptr,
+                               CPUBudget* cpu_budget = nullptr,
+                               RateLimiter* rate_limiter = nullptr);
+  ~CostAwareCompressor();
   const char* Name() const override;
   size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
   Slice GetSerializedDict() const override;
@@ -166,6 +173,13 @@ class CostAwareCompressor : public Compressor {
                                 std::string* compressed_output,
                                 CompressionType* out_compression_type,
                                 CostAwareWorkingArea* wa);
+
+  // Select compression type and level based on budget availability
+  std::pair<size_t, size_t> SelectCompressionBasedOnGoal(
+      CostAwareWorkingArea* wa);
+  std::pair<size_t, size_t> SelectCompressionInDirectionOfBudget(
+      CostAwareWorkingArea* wa);
+  void MeasureUtilization();
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   // This is the vector containing the list of compression levels that
@@ -176,14 +190,51 @@ class CostAwareCompressor : public Compressor {
   const CompressionOptions opts_;
   std::vector<std::vector<std::unique_ptr<Compressor>>> allcompressors_;
   std::vector<std::pair<size_t, size_t>> allcompressors_index_;
+
+  // Budget references for cost-aware compression decisions
+  IOBudget* io_budget_;
+  CPUBudget* cpu_budget_;
+  RateLimiter* rate_limiter_;
+  AtomicRateTracker<size_t> io_tracker_;
+  AtomicRateTracker<double> cpu_tracker_;
+  // Will servers as a logical clock to decide when to update the decision
+  int block_count_;
+  std::pair<size_t, size_t> cur_comp_idx_;
 };
 
 class CostAwareCompressorManager : public CompressionManagerWrapper {
-  using CompressionManagerWrapper::CompressionManagerWrapper;
+ public:
+  explicit CostAwareCompressorManager(
+      std::shared_ptr<CompressionManager> wrapped,
+      std::shared_ptr<CPUIOBudgetFactory> budget_factory)
+      : CompressionManagerWrapper(wrapped), budget_factory_(budget_factory) {}
+
   const char* Name() const override;
   std::unique_ptr<Compressor> GetCompressorForSST(
       const FilterBuildingContext& context, const CompressionOptions& opts,
       CompressionType preferred) override;
+
+ private:
+  std::shared_ptr<CPUIOBudgetFactory> budget_factory_;
 };
 
-}  // namespace ROCKSDB_NAMESPACE
+class DefaultBudgetFactory : public CPUIOBudgetFactory {
+ public:
+  DefaultBudgetFactory(const size_t cpu_budget, const size_t io_budget,
+                       size_t per_time, const Options& options)
+      : opt_(options),
+        cpu_budget_(cpu_budget),
+        io_budget_(io_budget),
+        us_per_time_(per_time) {}
+  std::pair<IOBudget*, CPUBudget*> GetBudget() override;
+  Options GetOptions() override { return opt_; };
+  ~DefaultBudgetFactory() override {}
+
+ private:
+  Options opt_;
+  size_t cpu_budget_;
+  size_t io_budget_;
+  size_t us_per_time_;
+};
+
+};  // namespace ROCKSDB_NAMESPACE

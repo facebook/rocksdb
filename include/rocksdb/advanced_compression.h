@@ -16,7 +16,8 @@
 #include "rocksdb/data_structure.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+// This is defined in auto_refill_budget.h
+class CPUIOBudgetFactory;
 // TODO: alias/adapt for compression
 struct FilterBuildingContext;
 
@@ -598,5 +599,6 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
 // strategy
 // EXPERIMENTAL
 std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
-    std::shared_ptr<CompressionManager> wrapped = nullptr);
+    std::shared_ptr<CompressionManager> wrapped = nullptr,
+    std::shared_ptr<CPUIOBudgetFactory> budget_factory = nullptr);
 }  // namespace ROCKSDB_NAMESPACE

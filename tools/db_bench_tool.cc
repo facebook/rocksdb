@@ -27,6 +27,8 @@
 #ifdef __FreeBSD__
 #include <sys/sysctl.h>
 #endif
+#include <sys/resource.h>
+
 #include <atomic>
 #include <cinttypes>
 #include <condition_variable>
@@ -76,6 +78,7 @@
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
 #include "tools/simulated_hybrid_file_system.h"
+#include "util/auto_tune_compressor.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -83,6 +86,7 @@
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/rate_tracker.h"
 #include "util/simple_mixed_compressor.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
@@ -1430,7 +1434,15 @@ DEFINE_int64(stats_interval, 0,
 DEFINE_int64(stats_interval_seconds, 0,
              "Report stats every N seconds. This overrides stats_interval when"
              " both are > 0.");
-
+DEFINE_int32(
+    stats_per_interval_block_compression, 0,
+    "Reports additional block compression stats per interval when this "
+    "is greater than "
+    "0.");
+DEFINE_int32(stats_per_interval_cpuio_usage, 0,
+             "Reports additional cpu and io usage stats per interval when this "
+             "is greater than "
+             "0.");
 DEFINE_int32(stats_per_interval, 0,
              "Reports additional stats per interval when this is greater than "
              "0.");
@@ -1498,6 +1510,8 @@ DEFINE_uint64(write_thread_slow_yield_usec, 3,
               "The threshold at which a slow yield is considered a signal that "
               "other processes or threads want the core.");
 
+DEFINE_uint64(req_rate_limit_per_sec, 0,
+              "No of request per sec. 0 signifies no request rate limit");
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
 DEFINE_int64(rate_limiter_refill_period_us, 100 * 1000,
@@ -2008,6 +2022,39 @@ static void AppendWithSpace(std::string* str, Slice msg) {
   str->append(msg.data(), msg.size());
 }
 
+class RequestRateLimiter {
+ private:
+  // Use AutoRefillBudget to track requests per second
+  std::unique_ptr<AutoRefillBudget<size_t>> request_budget_;
+
+ public:
+  // Constructor: requests_per_second is the maximum allowed requests per second
+  explicit RequestRateLimiter(size_t requests_per_second) {
+    // Refill period of 1 second (1,000,000 microseconds)
+    // Refill amount equals the requests per second limit
+    request_budget_ = std::make_unique<AutoRefillBudget<size_t>>(
+        requests_per_second, 1000000 /* 1 second in microseconds */);
+  }
+
+  // Try to process a request - returns true if allowed, false if rate limited
+  bool TryProcessRequest(size_t request_cost = 1) {
+    return request_budget_->TryConsume(request_cost);
+  }
+
+  // Get current available request budget
+  size_t GetAvailableRequests() {
+    return request_budget_->GetAvailableBudget();
+  }
+
+  // Update rate limit parameters
+  void UpdateRateLimit(size_t new_requests_per_second) {
+    request_budget_->SetRefillParameters(new_requests_per_second, 1000000);
+  }
+
+  // Reset the budget (useful for testing or manual resets)
+  void Reset() { request_budget_->Reset(); }
+};
+
 struct DBWithColumnFamilies {
   std::vector<ColumnFamilyHandle*> cfh;
   DB* db;
@@ -2216,16 +2263,23 @@ class Stats {
   uint64_t bytes_;
   uint64_t last_op_finish_;
   uint64_t last_report_finish_;
+  AtomicRateTracker<size_t> io_rate_, req_drain_rate_;
+  AtomicRateTracker<double> cpu_usage_;
+  ProcSysCPUUtilizationTracker proc_cpu_usage_;
   std::unordered_map<OperationType, std::shared_ptr<HistogramImpl>,
                      std::hash<unsigned char>>
       hist_;
   std::string message_;
   bool exclude_from_merge_;
   ReporterAgent* reporter_agent_;  // does not own
+  Options opts_;
   friend class CombinedStats;
 
  public:
-  Stats() : clock_(FLAGS_env->GetSystemClock().get()) { Start(-1); }
+  Stats(Options option)
+      : clock_(FLAGS_env->GetSystemClock().get()), opts_(option) {
+    Start(-1);
+  }
 
   void SetReporterAgent(ReporterAgent* reporter_agent) {
     reporter_agent_ = reporter_agent;
@@ -2394,7 +2448,46 @@ class Stats {
                   done_ / ((now - start_) / 1000000.0),
                   (now - last_report_finish_) / 1000000.0,
                   (now - start_) / 1000000.0);
-
+          if (id_ == 0 && FLAGS_stats_per_interval_cpuio_usage &&
+              opts_.rate_limiter) {
+            auto total_bytes_through =
+                opts_.rate_limiter->GetTotalBytesThrough();
+            auto drain_request =
+                (dbstats != nullptr)
+                    ? dbstats->getTickerCount(NUMBER_RATE_LIMITER_DRAINS)
+                    : -1;
+#if defined(_WIN32)
+#else
+            struct rusage usage;
+            getrusage(RUSAGE_SELF, &usage);
+            double cpu_time_used =
+                (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
+                (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) /
+                    kMicrosInSecond;
+            auto bytes_throughput = io_rate_.Record(total_bytes_through);
+            auto req_drain_throughput = req_drain_rate_.Record(drain_request);
+            auto cpu_usage = cpu_usage_.Record(cpu_time_used);
+            fprintf(stderr,
+                    "UsageRateStats: %s rate_limiter_bytes_through: %f "
+                    "drain_request: %f "
+                    "cpu_time: %f\n",
+                    clock_->TimeToString(now / 1000000).c_str(),
+                    bytes_throughput, req_drain_throughput, cpu_usage);
+#endif
+          }
+          if (dbstats != nullptr &&
+              FLAGS_stats_per_interval_block_compression) {
+            auto compressed = dbstats->getTickerCount(NUMBER_BLOCK_COMPRESSED);
+            auto rejected =
+                dbstats->getTickerCount(NUMBER_BLOCK_COMPRESSION_REJECTED);
+            auto bypassed =
+                dbstats->getTickerCount(NUMBER_BLOCK_COMPRESSION_BYPASSED);
+            fprintf(stderr,
+                    "%s ... thread %d: compressed: %" PRIu64
+                    " rejected: %" PRIu64 " bypassed: %" PRIu64 "\n",
+                    clock_->TimeToString(now / 1000000).c_str(), id_,
+                    compressed, rejected, bypassed);
+          };
           if (id_ == 0 && FLAGS_stats_per_interval) {
             std::string stats;
 
@@ -2711,8 +2804,8 @@ struct ThreadState {
   Stats stats;
   SharedState* shared;
 
-  explicit ThreadState(int index, int my_seed)
-      : tid(index), rand(*seed_base + my_seed) {}
+  explicit ThreadState(int index, int my_seed, Options option)
+      : tid(index), rand(*seed_base + my_seed), stats(option) {}
 };
 
 class Duration {
@@ -2788,6 +2881,7 @@ class Benchmark {
   bool use_blob_db_;    // Stacked BlobDB
   bool read_operands_;  // read via GetMergeOperands()
   std::vector<std::string> keys_;
+  std::shared_ptr<RequestRateLimiter> req_rate_limit_;
 
   class ErrorHandlerListener : public EventListener {
    public:
@@ -3332,6 +3426,11 @@ class Benchmark {
     if (user_timestamp_size_ > 0) {
       mock_app_clock_.reset(new TimestampEmulator());
     }
+    req_rate_limit_ = nullptr;
+    if (FLAGS_req_rate_limit_per_sec > 0) {
+      req_rate_limit_ =
+          std::make_shared<RequestRateLimiter>(FLAGS_req_rate_limit_per_sec);
+    }
   }
 
   void DeleteDBs() {
@@ -3713,14 +3812,17 @@ class Benchmark {
       } else if (name == "fillseekseq") {
         method = &Benchmark::WriteSeqSeekSeq;
       } else if (name == "compact") {
+        fprintf(stdout, "Running compact\n");
         method = &Benchmark::Compact;
       } else if (name == "compactall") {
+        fprintf(stdout, "Detected compactall\n");
         CompactAll();
       } else if (name == "compact0") {
         CompactLevel(0);
       } else if (name == "compact1") {
         CompactLevel(1);
       } else if (name == "waitforcompaction") {
+        fprintf(stdout, "Detected waitforcompaction\n");
         WaitForCompaction();
       } else if (name == "flush") {
         Flush();
@@ -4064,7 +4166,7 @@ class Benchmark {
       arg[i].method = method;
       arg[i].shared = &shared;
       total_thread_count_++;
-      arg[i].thread = new ThreadState(i, total_thread_count_);
+      arg[i].thread = new ThreadState(i, total_thread_count_, open_options_);
       arg[i].thread->stats.SetReporterAgent(reporter_agent.get());
       arg[i].thread->shared = &shared;
       FLAGS_env->StartThread(ThreadBody, &arg[i]);
@@ -4083,7 +4185,7 @@ class Benchmark {
     shared.mu.Unlock();
 
     // Stats for some threads can be excluded.
-    Stats merge_stats;
+    Stats merge_stats(open_options_);
     for (int i = 0; i < n; i++) {
       merge_stats.Merge(arg[i].thread->stats);
     }
@@ -4646,7 +4748,15 @@ class Benchmark {
           std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "costpredictor")) {
-      mgr = CreateCostAwareCompressionManager();
+      auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
+      auto io_usage_limit = 0.99 * ratelimiter_throughput;
+      int64_t cpu_usage_limit = 0.9 * kMicrosInSecond;
+      // int64_t cpu_usage_limit = 0.5 * kMicrosInSecond;
+      // int64_t cpu_usage_limit = 0.05 * kMicrosInSecond;
+      std::shared_ptr<CPUIOBudgetFactory> budget_factory =
+          std::make_shared<DefaultBudgetFactory>(
+              cpu_usage_limit, io_usage_limit, kMicrosInSecond, options);
+      mgr = CreateCostAwareCompressionManager(nullptr, budget_factory);
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
@@ -5363,8 +5473,9 @@ class Benchmark {
 
       batch.Clear();
       int64_t batch_bytes = 0;
-
-      for (int64_t j = 0; j < entries_per_batch_; j++) {
+      int64_t req_count = 0;
+      // for (int64_t j = 0; j < entries_per_batch_; j++) {
+      for (; req_count < entries_per_batch_; req_count++) {
         int64_t rand_num = 0;
         if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {
           if ((inserted_key_window.size() > 0) &&
@@ -5477,6 +5588,15 @@ class Benchmark {
         } else {
           val = gen.Generate();
         }
+        // Get the request token or else exit from the for loop
+        if (req_rate_limit_ != nullptr) {
+          if (req_rate_limit_->GetAvailableRequests() > 0) {
+            req_rate_limit_->TryProcessRequest();
+          } else {
+            // fprintf(stdout, "Request exceeded\n");
+            break;
+          }
+        }
         if (use_blob_db_) {
           // Stacked BlobDB
           blob_db::BlobDB* blobdb =
@@ -5582,8 +5702,10 @@ class Benchmark {
         // Not stacked BlobDB
         s = db_with_cfh->db->Write(write_options_, &batch);
       }
-      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
-                                entries_per_batch_, kWrite);
+      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, req_count,
+                                kWrite);
+      // thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
+      // entries_per_batch_, kWrite);
       if (FLAGS_sine_write_rate) {
         uint64_t now = FLAGS_env->NowMicros();
 

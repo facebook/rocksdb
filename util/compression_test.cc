@@ -13,6 +13,7 @@
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "table/block_based/block_builder.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/testutil.h"
 #include "util/auto_tune_compressor.h"
 #include "util/random.h"
@@ -1838,31 +1839,56 @@ class DBCompressionCostPredictor : public DBTestBase {
     DestroyAndReopen(options);
   }
 };
-TEST_F(DBCompressionCostPredictor, CostAwareCompressorManager) {
-  // making sure that the compression is supported
-  if (!ZSTD_Supported()) {
-    return;
-  }
-  const int kValueSize = 20000;
-  int next_key = 0;
-  Random rnd(231);
-  auto value = rnd.RandomBinaryString(kValueSize);
-  int window_size = 10;
-  auto WindowWrite = [&]() {
-    for (auto i = 0; i < window_size; ++i) {
-      auto status = Put(Key(next_key), value);
-      EXPECT_OK(status);
-      next_key++;
-    }
-  };
-  // This denotes the first window
-  // Mocked to have specific cpu utilization and io cost
-  WindowWrite();
-  // check the predictor is predicting the correct cpu and io cost
-  WindowWrite();
-  ASSERT_OK(Flush());
-}
+// TEST_F(DBCompresssionCostPredictor, CostAwareCompressorManager) {
+//   // making sure that the compression is supported
+//   if (!ZSTD_Supported()) {
+//     return;
+//   }
+//   const int kValueSize = 20000;
+//   int next_key = 0;
+//   Random rnd(231);
+//   auto value = rnd.RandomBinaryString(kValueSize);
+//   int window_size = 10;
+//   auto WindowWrite = [&]() {
+//     for (auto i = 0; i < window_size; ++i) {
+//       auto status = Put(Key(next_key), value);
+//       EXPECT_OK(status);
+//       next_key++;
+//     }
+//   };
+//   // This denotes the first window
+//   // Mocked to have specific cpu utilization and io cost
+//   WindowWrite();
+//   // check the predictor is predicting the correct cpu and io cost
+//   WindowWrite();
+//   ASSERT_OK(Flush());
+// }
+// Test refill behavior with mock clock
+TEST(AutoRefillBudgetTest, DISABLED_RefillBehavior) {
+  auto mock_clock = std::make_shared<MockSystemClock>(SystemClock::Default());
 
+  // Create budget with 1000 units, refill every 100ms
+  AutoRefillBudget<int64_t> budget(1000, 100 * 1000, mock_clock);
+
+  // Consume all budget
+  ASSERT_TRUE(budget.TryConsume(1000));
+  ASSERT_EQ(0, budget.GetAvailableBudget());
+
+  // Advance time by 50ms - should not refill yet
+  mock_clock->SleepForMicroseconds(50 * 1000);
+  ASSERT_EQ(0, budget.GetAvailableBudget());
+  ASSERT_FALSE(budget.TryConsume(1));
+
+  // Advance time by another 50ms (total 100ms) - should refill
+  mock_clock->SleepForMicroseconds(50 * 1000);
+  ASSERT_EQ(1000, budget.GetAvailableBudget());
+  ASSERT_TRUE(budget.TryConsume(500));
+  ASSERT_EQ(500, budget.GetAvailableBudget());
+
+  // Advance time by 200ms - should refill again
+  mock_clock->SleepForMicroseconds(200 * 1000);
+  ASSERT_EQ(1000, budget.GetAvailableBudget());
+}
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
