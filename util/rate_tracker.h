@@ -24,7 +24,7 @@
 #include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
-  static constexpr uint64_t kMicrosInSecond = 1000000;
+static constexpr uint64_t kMicrosInSecond = 1000000;
 // Structure to hold CPU statistics
 typedef struct {
   unsigned long user;
@@ -40,9 +40,9 @@ typedef struct {
 // Implementation moved to rate_tracker.cc to avoid multiple definition errors
 void read_cpu_stats(proc_cpu_stats* stats);
 
-// AtomicRateTracker is a template class that tracks the rate of change of values
-// over time. It records data points with timestamps and calculates the rate
-// of change between consecutive recordings.
+// AtomicRateTracker is a template class that tracks the rate of change of
+// values over time. It records data points with timestamps and calculates the
+// rate of change between consecutive recordings.
 //
 // Template parameter T should be a numeric type that supports arithmetic
 // operations (addition, subtraction, division).
@@ -160,8 +160,9 @@ class AtomicRateTracker {
   std::atomic<uint64_t> previous_timestamp_us_;
 };
 
-// RateTrackerWithY is a template class that tracks the rate of change of x with respect to y
-// it stores the last x and y values and calculates the rate of change between consecutive recordings.
+// RateTrackerWithY is a template class that tracks the rate of change of x with
+// respect to y it stores the last x and y values and calculates the rate of
+// change between consecutive recordings.
 template <typename T>
 class AtomicRateTrackerWithY {
  public:
@@ -285,6 +286,7 @@ class ProcSysCPUUtilizationTracker {
   explicit ProcSysCPUUtilizationTracker();
   bool Record();
   double GetCpuUtilization();
+
  private:
   AtomicRateTrackerWithY<size_t> cpu_usage_rate_;
 };

@@ -200,8 +200,6 @@ class CostAwareCompressor : public Compressor {
   // Will servers as a logical clock to decide when to update the decision
   int block_count_;
   std::pair<size_t, size_t> cur_comp_idx_;
-  float io_util_;
-  float cpu_util_;
 };
 
 class CostAwareCompressorManager : public CompressionManagerWrapper {

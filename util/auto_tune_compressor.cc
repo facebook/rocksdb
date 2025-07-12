@@ -287,12 +287,12 @@ Compressor::ManagedWorkingArea CostAwareCompressor::ObtainWorkingArea() {
 }
 void CostAwareCompressor::MeasureUtilization() {
   auto total_bytes = rate_limiter_->GetTotalBytesThrough();
-  io_util_ = io_tracker_.Record(total_bytes);
+  io_tracker_.Record(total_bytes);
 
 #if defined(_WIN32)
   // Windows implementation
   fprintf(stderr, "Windows implementation not supported\n");
-  sysexit(1);
+  exit(1);
 #else
   // Unix/Linux implementation - use getrusage
   struct rusage usage;
@@ -300,7 +300,7 @@ void CostAwareCompressor::MeasureUtilization() {
   double cpu_time_used =
       (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
       (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
-  cpu_util_ = cpu_tracker_.Record(cpu_time_used);
+  cpu_tracker_.Record(cpu_time_used);
 #endif
 }
 void CostAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
@@ -418,10 +418,10 @@ CostAwareCompressor::SelectCompressionInDirectionOfBudget(
   if (available_cpu <= 0) {
     return best_choice;
   }
-  float total = sqrt(
+  double total = sqrt(
       static_cast<double>(available_cpu) * static_cast<double>(available_cpu) +
       static_cast<double>(available_io) * static_cast<double>(available_io));
-  float min_cosine_distance = std::numeric_limits<float>::max();
+  double min_cosine_distance = std::numeric_limits<double>::max();
   auto cosine_distance = [&](int64_t cpu_cost, int64_t io_cost) {
     return available_cpu / total * cpu_cost / total_cpu +
            available_io / total * io_cost / total_io;
