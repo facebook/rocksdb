@@ -38,12 +38,12 @@ void read_cpu_stats(proc_cpu_stats* stats) {
 }
 
 CPUIOUtilizationTracker::CPUIOUtilizationTracker(
-    const std::shared_ptr<SystemClock>& clock, RateLimiter* rate_limiter)
-    : clock_(clock ? clock : SystemClock::Default()),
-      cpu_usage_(0.0),
+    const std::shared_ptr<RateLimiter>& rate_limiter,
+    const std::shared_ptr<SystemClock>& clock)
+    : rate_limiter_(rate_limiter),
+      clock_(clock ? clock : SystemClock::Default()),
       io_utilization_(0.0),
-      next_record_time_us_(0),
-      rate_limiter_(rate_limiter) {
+      cpu_usage_(0.0) {
   RecordCPUUsage();
   RecordIOUtilization();
 }

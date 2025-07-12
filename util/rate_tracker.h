@@ -257,8 +257,9 @@ class AtomicRateTrackerWithY {
 // Class to track CPU and IO utilization
 class CPUIOUtilizationTracker {
  public:
-  explicit CPUIOUtilizationTracker(const std::shared_ptr<SystemClock>& clock,
-                                   RateLimiter* rate_limiter);
+  explicit CPUIOUtilizationTracker(
+      const std::shared_ptr<RateLimiter>& rate_limiter,
+      const std::shared_ptr<SystemClock>& clock = nullptr);
 
   bool Record();
   float GetCpuUtilization();
@@ -269,14 +270,12 @@ class CPUIOUtilizationTracker {
   void RecordIOUtilization();
   uint64_t GetCurrentTimeMicros();
 
+  std::shared_ptr<RateLimiter> rate_limiter_;
   std::shared_ptr<SystemClock> clock_;
-  size_t min_wait_us_;
+  double io_utilization_;
+  double cpu_usage_;
   AtomicRateTracker<size_t> rate_limiter_bytes_rate_;
   AtomicRateTracker<double> cpu_usage_rate_;
-  float cpu_usage_;
-  float io_utilization_;
-  size_t next_record_time_us_;
-  RateLimiter* rate_limiter_;
 };
 
 // Class to track CPU utilization using /proc/stat

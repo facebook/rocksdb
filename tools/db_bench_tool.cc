@@ -2263,8 +2263,8 @@ class Stats {
   uint64_t bytes_;
   uint64_t last_op_finish_;
   uint64_t last_report_finish_;
-  AtomicRateTracker<size_t> io_rate_, req_drain_rate_;
-  AtomicRateTracker<double> cpu_usage_;
+  CPUIOUtilizationTracker usage_tracker_;
+  AtomicRateTracker<size_t> req_drain_rate_;
   ProcSysCPUUtilizationTracker proc_cpu_usage_;
   std::unordered_map<OperationType, std::shared_ptr<HistogramImpl>,
                      std::hash<unsigned char>>
@@ -2277,7 +2277,9 @@ class Stats {
 
  public:
   Stats(Options option)
-      : clock_(FLAGS_env->GetSystemClock().get()), opts_(option) {
+      : clock_(FLAGS_env->GetSystemClock().get()),
+        usage_tracker_(option.rate_limiter),
+        opts_(option) {
     Start(-1);
   }
 
@@ -2450,23 +2452,16 @@ class Stats {
                   (now - start_) / 1000000.0);
           if (id_ == 0 && FLAGS_stats_per_interval_cpuio_usage &&
               opts_.rate_limiter) {
-            auto total_bytes_through =
-                opts_.rate_limiter->GetTotalBytesThrough();
             auto drain_request =
                 (dbstats != nullptr)
                     ? dbstats->getTickerCount(NUMBER_RATE_LIMITER_DRAINS)
                     : -1;
 #if defined(_WIN32)
 #else
-            struct rusage usage;
-            getrusage(RUSAGE_SELF, &usage);
-            double cpu_time_used =
-                (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
-                (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) /
-                    kMicrosInSecond;
-            auto bytes_throughput = io_rate_.Record(total_bytes_through);
+            usage_tracker_.Record();
+            auto cpu_usage = usage_tracker_.GetCpuUtilization();
+            auto bytes_throughput = usage_tracker_.GetIoUtilization();
             auto req_drain_throughput = req_drain_rate_.Record(drain_request);
-            auto cpu_usage = cpu_usage_.Record(cpu_time_used);
             fprintf(stderr,
                     "UsageRateStats: %s rate_limiter_bytes_through: %f "
                     "drain_request: %f "
