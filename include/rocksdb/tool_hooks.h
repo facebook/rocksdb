@@ -69,6 +69,7 @@ class ToolHooks {
   virtual Status Open(const Options& options,
                       const blob_db::BlobDBOptions& bdb_options,
                       const std::string& dbname, blob_db::BlobDB** blob_db) = 0;
+  static void Exit(int status) { exit(status); }
 };
 
 class DefaultHooks : public ToolHooks {
