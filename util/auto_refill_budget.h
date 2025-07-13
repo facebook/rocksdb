@@ -50,7 +50,7 @@ class AutoRefillBudget {
     }
     return false;
   }
-  float GetRate() { return refill_amount_ / (refill_period_us_ / 1000000.0); }
+  double GetRate() { return refill_amount_ / (refill_period_us_ / 1000000.0); }
   // Get current available budget
   T GetAvailableBudget() {
     RefillBudgetIfNeeded();

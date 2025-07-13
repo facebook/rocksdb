@@ -151,8 +151,8 @@ class CPUIOUtilizationTracker {
       const std::shared_ptr<SystemClock>& clock = nullptr);
 
   bool Record();
-  float GetCpuUtilization();
-  float GetIoUtilization();
+  double GetCpuUtilization();
+  double GetIoUtilization();
 
  private:
   void RecordCPUUsage();

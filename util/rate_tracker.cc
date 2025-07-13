@@ -26,9 +26,9 @@ bool CPUIOUtilizationTracker::Record() {
   return true;
 }
 
-float CPUIOUtilizationTracker::GetCpuUtilization() { return cpu_usage_; }
+double CPUIOUtilizationTracker::GetCpuUtilization() { return cpu_usage_; }
 
-float CPUIOUtilizationTracker::GetIoUtilization() { return io_utilization_; }
+double CPUIOUtilizationTracker::GetIoUtilization() { return io_utilization_; }
 
 void CPUIOUtilizationTracker::RecordCPUUsage() {
 #if defined(_WIN32)
