@@ -34,10 +34,10 @@ void CPUIOUtilizationTracker::RecordCPUUsage() {
 #if defined(_WIN32)
   // Windows implementation: not implemented
   fprintf(stderr, "RecordCPUUsage not implemented on Windows\n");
-  exit(1);
+  return;
 #else
   // Unix/Linux implementation - use getrusage
-  struct rusage usage;
+  struct rusage usage {};
   getrusage(RUSAGE_SELF, &usage);
   double cpu_time_used =
       (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +

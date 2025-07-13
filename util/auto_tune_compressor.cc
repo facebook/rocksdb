@@ -313,8 +313,6 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
   MeasureUtilization();
   auto cpu_util = usage_tracker_.GetCpuUtilization();
   auto io_util = usage_tracker_.GetIoUtilization();
-  // auto cpu_util = cpu_tracker_.GetRate();
-  // auto io_util = io_tracker_.GetRate();
   // Select compression whose cpu cost and io cost are within budget
   // Return the first compression type and level that fits within budget
   // Get available budgets
@@ -417,7 +415,7 @@ CostAwareCompressor::SelectCompressionInDirectionOfBudget(
   if (available_cpu <= 0) {
     return best_choice;
   }
-  double total = sqrt(
+  double total = std::sqrt(
       static_cast<double>(available_cpu) * static_cast<double>(available_cpu) +
       static_cast<double>(available_io) * static_cast<double>(available_io));
   double min_cosine_distance = std::numeric_limits<double>::max();

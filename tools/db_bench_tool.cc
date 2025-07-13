@@ -2418,7 +2418,7 @@ class Stats {
             auto drain_request =
                 (dbstats != nullptr)
                     ? dbstats->getTickerCount(NUMBER_RATE_LIMITER_DRAINS)
-                    : -1;
+                    : 0;
 #if defined(_WIN32)
 #else
             usage_tracker_.Record();
@@ -2762,7 +2762,7 @@ struct ThreadState {
   Stats stats;
   SharedState* shared;
 
-  explicit ThreadState(int index, int my_seed, Options option)
+  explicit ThreadState(int index, int my_seed, const Options& option)
       : tid(index), rand(*seed_base + my_seed), stats(option) {}
 };
 

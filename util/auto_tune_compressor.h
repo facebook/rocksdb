@@ -153,7 +153,7 @@ class CostAwareCompressor : public Compressor {
       std::shared_ptr<IOBudget> io_budget = nullptr,
       std::shared_ptr<CPUBudget> cpu_budget = nullptr,
       std::shared_ptr<RateLimiter> rate_limiter = nullptr);
-  ~CostAwareCompressor();
+  ~CostAwareCompressor() override;
   const char* Name() const override;
   size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
   Slice GetSerializedDict() const override;
@@ -228,10 +228,19 @@ class DefaultBudgetFactory : public CPUIOBudgetFactory {
         cpu_budget_(cpu_budget),
         io_budget_(io_budget),
         us_per_time_(per_time) {}
+
+  // Delete copy constructor and copy assignment operator
+  DefaultBudgetFactory(const DefaultBudgetFactory&) = delete;
+  DefaultBudgetFactory& operator=(const DefaultBudgetFactory&) = delete;
+
+  // Delete move constructor and move assignment operator
+  DefaultBudgetFactory(DefaultBudgetFactory&&) = delete;
+  DefaultBudgetFactory& operator=(DefaultBudgetFactory&&) = delete;
+
   std::pair<std::shared_ptr<IOBudget>, std::shared_ptr<CPUBudget>> GetBudget()
       override;
-  Options GetOptions() override { return opt_; };
-  ~DefaultBudgetFactory() override {}
+  Options GetOptions() override { return opt_; }
+  ~DefaultBudgetFactory() override = default;
 
  private:
   Options opt_;

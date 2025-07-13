@@ -34,8 +34,6 @@ class AutoRefillBudget {
 
   virtual ~AutoRefillBudget() = default;
 
-  // Try to consume 'amount' from the budget
-  // Returns true if successful, false if insufficient budget
   bool TryConsume(T amount) {
     RefillBudgetIfNeeded();
 
@@ -46,42 +44,29 @@ class AutoRefillBudget {
               std::memory_order_acq_rel, std::memory_order_acquire)) {
         return true;
       }
-      // current_budget is updated by compare_exchange_weak on failure
     }
     return false;
   }
   double GetRate() { return refill_amount_ / (refill_period_us_ / 1000000.0); }
-  // Get current available budget
   T GetAvailableBudget() {
     RefillBudgetIfNeeded();
     return available_budget_.load(std::memory_order_acquire);
   }
-
-  // Get total set budget
   T GetTotalBudget() { return refill_amount_.load(std::memory_order_relaxed); }
-
-  // Get refill amount per period
   T GetRefillAmount() const {
     return refill_amount_.load(std::memory_order_relaxed);
   }
-
-  // Get refill period in microseconds
   int64_t GetRefillPeriodUs() const {
     return refill_period_us_.load(std::memory_order_relaxed);
   }
-
-  // Update refill parameters
   void SetRefillParameters(T refill_amount, int64_t refill_period_us) {
     refill_amount_.store(refill_amount, std::memory_order_relaxed);
     refill_period_us_.store(refill_period_us, std::memory_order_relaxed);
   }
-
-  // Reset budget to full capacity
   void Reset() {
     available_budget_.store(refill_amount_, std::memory_order_release);
     next_refill_us_.store(NowMicrosMonotonic(), std::memory_order_release);
   }
-
   // For testing purposes
   void TEST_SetClock(std::shared_ptr<SystemClock> clock) {
     clock_ = std::move(clock);
@@ -111,11 +96,8 @@ class AutoRefillBudget {
 
   uint64_t NowMicrosMonotonic() { return clock_->NowNanos() / std::milli::den; }
 
-  // Configuration (atomic for thread-safe updates)
   std::atomic<T> refill_amount_;
   std::atomic<int64_t> refill_period_us_;
-
-  // State (atomic for lock-free access)
   std::atomic<T> available_budget_;
   std::atomic<int64_t> next_refill_us_;
 
