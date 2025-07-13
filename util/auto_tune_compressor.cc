@@ -69,7 +69,7 @@ Status AutoSkipCompressorWrapper::CompressBlock(
   // Check if the managed working area is provided or owned by this object.
   // If not, bypass auto-skip logic since the working area lacks a predictor to
   // record or make necessary decisions to compress or bypass compression of the
-  // block
+  // block.
   if (wa == nullptr || wa->owner() != this) {
     return wrapped_->CompressBlock(uncompressed_data, compressed_output,
                                    out_compression_type, wa);
@@ -142,8 +142,8 @@ CostAwareCompressor::CostAwareCompressor(
       cpu_budget_(cpu_budget),
       rate_limiter_(rate_limiter),
       usage_tracker_(rate_limiter) {
-  // Creates compressor supporting all the compression types and levels as per
-  // the compression levels set in vector CompressionLevels
+  // Create compressors supporting all the compression types and levels as per
+  // the compression levels set in vector CompressionLevels.
   auto builtInManager = GetBuiltinV2CompressionManager();
   const auto& compressions = GetSupportedCompressions();
   for (size_t i = 0; i < kCompressionLevels.size(); i++) {
@@ -155,8 +155,8 @@ CostAwareCompressor::CostAwareCompressor(
       allcompressors_.emplace_back();
       continue;
     } else {
-      // if the compression type is not supported, then skip and remove
-      // compression levels from the supported compression level list
+      // If the compression type is not supported, then skip and remove
+      // compression levels from the supported compression level list.
       if (std::find(compressions.begin(), compressions.end(), type) ==
           compressions.end()) {
         allcompressors_.emplace_back();
@@ -208,7 +208,7 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
                                           CompressionType* out_compression_type,
                                           ManagedWorkingArea* wa) {
   // Check if the managed working area is provided or owned by this object.
-  // If not, bypass compressor logic since the working area lacks a predictor
+  // If not, bypass compressor logic since the working area lacks a predictor.
   if (allcompressors_.size() == 0) {
     return Status::NotSupported("No compression type supported");
   }
@@ -385,10 +385,10 @@ std::pair<size_t, size_t> CostAwareCompressor::SelectCompressionBasedOnGoal(
       return cur_comp_idx_;
     }
   }
-  // if we did not find any other compression type and level on our intended
-  // quadrant we want to move to then we may choose not to compress if we aim to
-  // increase io and decrease cpu usage else current compression type and level
-  // is the best we can do
+  // If we did not find any other compression type and level in our intended
+  // quadrant, we may choose not to compress if we aim to increase IO and
+  // decrease CPU usage. Otherwise, the current compression type and level
+  // is the best we can do.
   if (increase_io && decrease_cpu) {
     cur_comp_idx_ = {std::numeric_limits<size_t>::max(),
                      std::numeric_limits<size_t>::max()};

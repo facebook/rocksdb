@@ -74,14 +74,14 @@ class AutoRefillBudget {
   }
 
  private:
-  // Refill budget based on elapsed time using atomic operations
+  // Refill budget based on elapsed time using atomic operations.
   void RefillBudgetIfNeeded() {
     int64_t now_us = NowMicrosMonotonic();
     int64_t next_refill = next_refill_us_.load(std::memory_order_acquire);
 
     if (now_us >= next_refill) {
       // Try to update next_refill_us_ atomically to claim the refill
-      // operation
+      // operation.
       int64_t refill_period = refill_period_us_.load(std::memory_order_relaxed);
       int64_t new_next_refill = now_us + refill_period;
 

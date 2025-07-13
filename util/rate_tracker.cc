@@ -36,7 +36,7 @@ void CPUIOUtilizationTracker::RecordCPUUsage() {
   fprintf(stderr, "RecordCPUUsage not implemented on Windows\n");
   return;
 #else
-  // Unix/Linux implementation - use getrusage
+  // Unix/Linux implementation - use getrusage.
   struct rusage usage {};
   getrusage(RUSAGE_SELF, &usage);
   double cpu_time_used =
