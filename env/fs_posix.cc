@@ -716,21 +716,6 @@ class PosixFileSystem : public FileSystem {
     return IOStatus::OK();
   }
 
-  IOStatus SyncFile(const std::string& fname, const FileOptions& options,
-                    bool use_fsync, IODebugContext* /*dbg*/) override {
-    std::unique_ptr<FSRandomRWFile> file_to_sync;
-    Status s = NewRandomRWFile(fname, options, &file_to_sync, nullptr);
-    TEST_SYNC_POINT_CALLBACK("FileSystem::SyncFile:Open", &s);
-    if (s.ok()) {
-      if (use_fsync) {
-        s = file_to_sync->Fsync(IOOptions(), nullptr);
-      } else {
-        s = file_to_sync->Sync(IOOptions(), nullptr);
-      }
-    }
-    return status_to_io_status(std::move(s));
-  }
-
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& /*opts*/,
                         uint64_t* count, IODebugContext* /*dbg*/) override {
     struct stat s;

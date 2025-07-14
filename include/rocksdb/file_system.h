@@ -607,12 +607,9 @@ class FileSystem : public Customizable {
   }
 
   // Open Sync and Close the file to flush the file content to file system
-  virtual IOStatus SyncFile(const std::string& /*fname*/,
-                            const FileOptions& /*options*/, bool /*use_fsync*/,
-                            IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported(
-        "SyncFile is not supported for this FileSystem");
-  }
+  virtual IOStatus SyncFile(const std::string& fname,
+                            const FileOptions& options, bool use_fsync,
+                            IODebugContext* dbg);
 
   virtual IOStatus NumFileLinks(const std::string& /*fname*/,
                                 const IOOptions& /*options*/,
