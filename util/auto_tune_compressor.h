@@ -5,8 +5,8 @@
 //
 // Defines auto skip compressor wrapper which intelligently decides bypassing
 // compression based on past data
-// Defines CostAwareCompressor which currently tries to predict the cpu and io
-// cost of the compression
+// Defines AutoCompressionAlgoLevelSelector which currently tries to predict the
+// cpu and io cost of the compression
 
 #pragma once
 #include <memory>
@@ -146,14 +146,14 @@ class CostAwareWorkingArea : public Compressor::WorkingArea {
   std::vector<std::vector<IOCPUCostPredictor*>> cost_predictors_;
 };
 
-class CostAwareCompressor : public Compressor {
+class AutoCompressionAlgoLevelSelector : public Compressor {
  public:
-  explicit CostAwareCompressor(
+  explicit AutoCompressionAlgoLevelSelector(
       const CompressionOptions& opts,
       std::shared_ptr<IOBudget> io_budget = nullptr,
       std::shared_ptr<CPUBudget> cpu_budget = nullptr,
       std::shared_ptr<RateLimiter> rate_limiter = nullptr);
-  ~CostAwareCompressor() override;
+  ~AutoCompressionAlgoLevelSelector() override;
   const char* Name() const override;
   size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
   Slice GetSerializedDict() const override;
@@ -178,16 +178,14 @@ class CostAwareCompressor : public Compressor {
   // Select compression type and level based on budget availability
   std::pair<size_t, size_t> SelectCompressionBasedOnGoal(
       CostAwareWorkingArea* wa);
-  std::pair<size_t, size_t> SelectCompressionInDirectionOfBudget(
-      CostAwareWorkingArea* wa);
   void MeasureUtilization();
   static constexpr uint64_t kMicrosInSecond = 1000000;
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   // This is the vector containing the list of compression levels that
-  // CostAwareCompressor will use create compressor and predicts the cost
-  // The vector contains list of compression level for compression algorithm in
-  // the order defined by enum CompressionType
+  // AutoCompressionAlgoLevelSelector will use create compressor and predicts
+  // the cost The vector contains list of compression level for compression
+  // algorithm in the order defined by enum CompressionType
   static const std::vector<std::vector<int>> kCompressionLevels;
   const CompressionOptions opts_;
   std::vector<std::vector<std::unique_ptr<Compressor>>> allcompressors_;
@@ -204,9 +202,10 @@ class CostAwareCompressor : public Compressor {
   static constexpr int kDecideEveryNBlocks = 2000;
 };
 
-class CostAwareCompressorManager : public CompressionManagerWrapper {
+class AutoCompressionAlgoLevelSelectorManager
+    : public CompressionManagerWrapper {
  public:
-  explicit CostAwareCompressorManager(
+  explicit AutoCompressionAlgoLevelSelectorManager(
       std::shared_ptr<CompressionManager> wrapped,
       std::shared_ptr<CPUIOBudgetFactory> budget_factory)
       : CompressionManagerWrapper(wrapped), budget_factory_(budget_factory) {}
