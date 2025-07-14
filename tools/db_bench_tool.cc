@@ -1299,7 +1299,7 @@ ROCKSDB_NAMESPACE::ToolHooks* hooks_ = nullptr;
   hooks_->Exit(status);
 
   // We should exit here but in case they don't we exit anyway.
-  exit(-1);
+  exit(EXIT_FAILURE);
 };
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
