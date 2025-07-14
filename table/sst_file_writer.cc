@@ -497,9 +497,9 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   }
   if (!s.ok()) {
     Status status = r->ioptions.env->DeleteFile(r->file_info.file_path);
-    // Silence ASSERT_STATUS_CHECKED warning
-    assert(status.ok());
-    ;
+    // Silence ASSERT_STATUS_CHECKED warning, since DeleteFile may fail under
+    // some error injection, and we can just ignore the failure
+    status.PermitUncheckedError();
   }
 
   if (file_info != nullptr) {
