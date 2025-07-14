@@ -1613,6 +1613,12 @@ if(WITH_BENCHMARK_TOOLS)
     utilities/persistent_cache/hash_table_bench.cc)
   target_link_libraries(hash_table_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
+
+  add_executable(point_lock_bench${ARTIFACT_SUFFIX}
+    utilities/transactions/lock/point/point_lock_bench.cc
+    utilities/transactions/lock/point/point_lock_bench_tool.cc)
+  target_link_libraries(point_lock_bench${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 endif()
 
 option(WITH_TRACE_TOOLS "build with trace tools" ON)
