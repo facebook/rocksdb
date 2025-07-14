@@ -156,10 +156,6 @@ Status ExternalSstFileIngestionJob::Prepare(
         // It is unsafe to assume application had sync the file and file
         // directory before ingest the file. For integrity of RocksDB we need
         // to sync the file.
-        // Use FSRandomRWFile instead of FSWritableFile, as in encrypted file
-        // system the FSWritableFile will append a new prefix to the end of the
-        // file when the file exists, which causes file corruption. On the
-        // contrary, FSRandomRWFile handles an existing file correctly.
 
         // TODO(xingbo), We should in general be moving away from production
         // uses of ReuseWritableFile (except explicitly for WAL recycling),
@@ -168,9 +164,9 @@ Status ExternalSstFileIngestionJob::Prepare(
         // re-open+sync+close combo but can (a) be reused easily, and (b) be
         // overridden to do that more cleanly, e.g. in EncryptedEnv.
         // https://github.com/facebook/rocksdb/issues/13741
-        std::unique_ptr<FSRandomRWFile> file_to_sync;
-        Status s = fs_->NewRandomRWFile(path_inside_db, env_options_,
-                                        &file_to_sync, nullptr);
+        std::unique_ptr<FSWritableFile> file_to_sync;
+        Status s = fs_->ReopenWritableFile(path_inside_db, env_options_,
+                                           &file_to_sync, nullptr);
         TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:Reopen",
                                  &s);
         // Some file systems (especially remote/distributed) don't support
