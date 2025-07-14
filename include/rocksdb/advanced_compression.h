@@ -50,6 +50,10 @@ struct FilterBuildingContext;
 // a number of built-in CompressionTypes that ignore any dictionary block in
 // the file; therefore they cannot accommodate dictionary compression in the
 // future without a schema change / extension.)
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class Compressor {
  public:
   Compressor() = default;
@@ -134,15 +138,15 @@ class Compressor {
   // EXTENSIBLE or reinterpret_cast-able by custom Compressor implementations
   struct WorkingArea {};
 
- protected:
   // To allow for flexible re-use / reclaimation, we have explicit Get and
   // Release functions, and usually wrap in a special RAII smart pointer.
   // For example, a WorkingArea could be saved/recycled in thread-local or
   // core-local storage, or heap managed, etc., though an explicit WorkingArea
   // is only advised for repeated compression (by a single thread).
+  // ReleaseWorkingArea() in not intended to be called directly, but used by
+  // ManagedWorkingArea.
   virtual void ReleaseWorkingArea(WorkingArea*) {}
 
- public:
   using ManagedWorkingArea =
       ManagedPtr<WorkingArea, Compressor, &Compressor::ReleaseWorkingArea>;
 
@@ -221,6 +225,10 @@ class Compressor {
 // decompressed into part of a single buffer allocated to hold a block's
 // uncompressed contents along with an in-memory object representation of the
 // block (to reduce fragmentation and other overheads of separate objects).
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class Decompressor {
  public:
   Decompressor() = default;
@@ -278,6 +286,9 @@ class Decompressor {
   // supported for this kind of Decompressor. Corruption - dictionary is
   // malformed (though many implementations will accept any data as a
   // dictionary)
+  //
+  // RocksDB promises not to call this function with an empty dictionary slice
+  // (equivalent to no dictionary).
   virtual Status MaybeCloneForDict(const Slice& /*serialized_dict*/,
                                    std::unique_ptr<Decompressor>* /*out*/) {
     return Status::NotSupported(
@@ -339,6 +350,10 @@ class Decompressor {
 //   (because that would break backward compatibility, potential quiet
 //   corruption)
 // TODO: consider adding optional streaming compression support (low priority)
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class CompressionManager
     : public std::enable_shared_from_this<CompressionManager>,
       public Customizable {
@@ -466,6 +481,10 @@ class CompressorWrapper : public Compressor {
     return wrapped_->ObtainWorkingArea();
   }
 
+  // NOTE: Don't need to override ReleaseWorkingArea() here because
+  // ManagedWorkingArea takes care of calling it on the Compressor that created
+  // the WorkingArea.
+
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* working_area) override {
@@ -490,6 +509,10 @@ class DecompressorWrapper : public Decompressor {
   void ReleaseWorkingArea(WorkingArea* wa) override {
     wrapped_->ReleaseWorkingArea(wa);
   }
+
+  // NOTE: Don't need to override ReleaseWorkingArea() here because
+  // ManagedWorkingArea takes care of calling it on the Decompressor that
+  // created the WorkingArea.
 
   ManagedWorkingArea ObtainWorkingArea(CompressionType preferred) override {
     return wrapped_->ObtainWorkingArea(preferred);

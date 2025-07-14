@@ -746,6 +746,8 @@ class BuiltinDecompressorV2WithDict : public BuiltinDecompressorV2 {
 
 Status BuiltinDecompressorV2::MaybeCloneForDict(
     const Slice& dict, std::unique_ptr<Decompressor>* out) {
+  // Check RocksDB-promised precondition
+  assert(dict.size() > 0);
   // Because of unfortunate decisions in handling built-in compression types,
   // all the compression types before ZSTD that do not actually support
   // dictionary compression pretend to support it. Specifically, we have to be
