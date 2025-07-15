@@ -3651,6 +3651,8 @@ class Benchmark {
                 entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
       } else if (name == "multiscan") {
+        fprintf(stderr, "multiscan_stride = %" PRIi64 "\n",
+                FLAGS_multiscan_stride);
         fprintf(stderr, "multiscan_size = %" PRIi64 "\n", FLAGS_multiscan_size);
         fprintf(stderr, "seek_nexts = %" PRIi32 "\n", FLAGS_seek_nexts);
         method = &Benchmark::MultiScan;
