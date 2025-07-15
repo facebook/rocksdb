@@ -453,6 +453,27 @@ void PointLockManagerBenchmark::BenchmarkPointLockManager() {
 int point_lock_bench_tool(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
 
+  // Iterate through all flags and print their values
+  std::vector<gflags::CommandLineFlagInfo> all_flags;
+  gflags::GetAllFlags(&all_flags);  // Get information about all flags
+
+  for (const auto& flag : all_flags) {
+    if (flag.filename.find("point_lock_bench_tool.cc") != std::string::npos) {
+      std::cout << "-" << flag.name << "=";
+      if (flag.type == "bool") {
+        std::cout << (gflags::GetCommandLineFlagInfoOrDie(flag.name.c_str())
+                                  .current_value == "true"
+                          ? "true"
+                          : "false");
+      } else {
+        std::cout << gflags::GetCommandLineFlagInfoOrDie(flag.name.c_str())
+                         .current_value;
+      }
+      std::cout << " ";
+    }
+  }
+  std::cout << std::endl;
+
   PointLockManagerBenchmark benchmark;
 
   benchmark.SetUp();
