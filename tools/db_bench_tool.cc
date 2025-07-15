@@ -599,7 +599,8 @@ static enum ROCKSDB_NAMESPACE::CompressionType
         ROCKSDB_NAMESPACE::kLZ4Compression;
 
 DEFINE_string(compression_manager, "none",
-              "Set the compression manager type to mixed(roundrobin) or other "
+              "Set the compression manager type to mixed(roundrobin), "
+              "autoskip, autocompalgoselector "
               "type. None for BuilInCompressor");
 DEFINE_int32(compressed_secondary_cache_compression_level,
              ROCKSDB_NAMESPACE::CompressionOptions().level,
@@ -4694,7 +4695,7 @@ class Benchmark {
       mgr =
           std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
-                           "costpredictor")) {
+                           "autocompalgoselector")) {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
       auto io_usage_limit = 0.99 * ratelimiter_throughput;
       int64_t cpu_usage_limit = 0.9 * kMicrosInSecond;
