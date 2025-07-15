@@ -240,15 +240,25 @@ struct DecompressorDict {
 
  private:
   void Populate(Decompressor& from_decompressor, Slice dict) {
-    Status s = from_decompressor.MaybeCloneForDict(dict, &decompressor_);
-    if (decompressor_ == nullptr) {
+    if (UNLIKELY(dict.empty())) {
       dict_str_ = {};
       dict_allocation_ = {};
-      assert(!s.ok());
-      decompressor_ = std::make_unique<FailureDecompressor>(std::move(s));
+      // Appropriately reject bad files with empty dictionary block.
+      // It is longstanding not to write an empty dictionary block:
+      // https://github.com/facebook/rocksdb/blame/10.2.fb/table/block_based/block_based_table_builder.cc#L1841
+      decompressor_ = std::make_unique<FailureDecompressor>(
+          Status::Corruption("Decompression dictionary is empty"));
     } else {
-      assert(s.ok());
-      assert(decompressor_->GetSerializedDict() == dict);
+      Status s = from_decompressor.MaybeCloneForDict(dict, &decompressor_);
+      if (decompressor_ == nullptr) {
+        dict_str_ = {};
+        dict_allocation_ = {};
+        assert(!s.ok());
+        decompressor_ = std::make_unique<FailureDecompressor>(std::move(s));
+      } else {
+        assert(s.ok());
+        assert(decompressor_->GetSerializedDict() == dict);
+      }
     }
 
     memory_usage_ = sizeof(struct DecompressorDict);

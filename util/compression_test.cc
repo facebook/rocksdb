@@ -1124,6 +1124,27 @@ TEST_F(DBCompressionTest, CompressionManagerWrapper) {
                                        out_compression_type, working_area);
       }
     }
+
+    // Also check WorkingArea handling
+    struct MyWorkingArea : public WorkingArea {
+      explicit MyWorkingArea(ManagedWorkingArea&& wrapped)
+          : wrapped_(std::move(wrapped)) {}
+      ManagedWorkingArea wrapped_;
+    };
+    ManagedWorkingArea ObtainWorkingArea() override {
+      ManagedWorkingArea rv{
+          new MyWorkingArea{CompressorWrapper::ObtainWorkingArea()}, this};
+      if (GetPreferredCompressionType() == kZSTD) {
+        // ZSTD should always use WorkingArea, so this is our chance to ensure
+        // CompressorWrapper::ObtainWorkingArea() is properly connected
+        assert(rv.get() != nullptr);
+      }
+      return rv;
+    }
+
+    void ReleaseWorkingArea(WorkingArea* wa) override {
+      delete static_cast<MyWorkingArea*>(wa);
+    }
   };
   struct MyManager : public CompressionManagerWrapper {
     using CompressionManagerWrapper::CompressionManagerWrapper;
