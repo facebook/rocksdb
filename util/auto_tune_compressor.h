@@ -13,7 +13,6 @@
 
 #include "rocksdb/advanced_compression.h"
 #include "rocksdb/options.h"
-#include "util/budget.h"
 #include "util/rate_tracker.h"
 #include "util/simple_mixed_compressor.h"
 
@@ -215,11 +214,14 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
 
 class DefaultBudgetFactory : public CPUIOBudgetFactory {
  public:
-  DefaultBudgetFactory(const size_t cpu_budget, const size_t io_budget,
+  DefaultBudgetFactory(const size_t cpu_budget, const size_t io_goal,
+                       const size_t cpu_minbudget, const size_t io_mingoal,
                        size_t per_time, const Options& options)
       : opt_(options),
         cpu_budget_(cpu_budget),
-        io_budget_(io_budget),
+        cpu_minbudget_(cpu_minbudget),
+        io_goal_(io_goal),
+        io_mingoal_(io_mingoal),
         us_per_time_(per_time) {}
 
   // Delete copy constructor and copy assignment operator
@@ -238,7 +240,9 @@ class DefaultBudgetFactory : public CPUIOBudgetFactory {
  private:
   Options opt_;
   size_t cpu_budget_;
-  size_t io_budget_;
+  size_t cpu_minbudget_;
+  size_t io_goal_;
+  size_t io_mingoal_;
   size_t us_per_time_;
 };
 

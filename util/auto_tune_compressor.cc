@@ -263,16 +263,16 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   // Select compression whose cpu cost and io cost are within budget
   // Return the first compression type and level that fits within budget
   // Get available budgets
-  auto cpu_goal = cpu_budget_->GetRate() / kMicrosInSecond;
-  auto io_goal = io_goal_->GetRate();
-  static constexpr double kAcceptableLowCpuGoal = 0.8;
-  static constexpr double kAcceptableLowIOGoal = 0.9;
+  auto cpu_goal = cpu_budget_->GetMaxRate() / kMicrosInSecond;
+  auto io_goal = io_goal_->GetMaxRate();
+  auto cpu_mingoal = cpu_budget_->GetMinRate();
+  auto io_mingoal = io_goal_->GetMinRate();
   // Detect the 4 quadrant that we want to explore
-  // Stable region is between the (kAcceptableLowCpuGoal * cpu_goal) to cpu_goal
-  // and  and (kAcceptableLowIOGoal * io_goal) to io_goal
-  bool increase_io = io_util < (kAcceptableLowIOGoal * io_goal);
+  // Stable region is between the cpu_mingoal to cpu_goal
+  // and  and io_mingoal to io_goal
+  bool increase_io = io_util < io_mingoal;
   bool decrease_io = io_util > io_goal;
-  bool increase_cpu = cpu_util < (kAcceptableLowCpuGoal * cpu_goal);
+  bool increase_cpu = cpu_util < cpu_mingoal;
   bool decrease_cpu = cpu_util > cpu_goal;
   // If we are in the stable region, then we just go ahead with the current
   // compression type and level
@@ -398,10 +398,10 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
 
 std::pair<std::shared_ptr<IOGoal>, std::shared_ptr<CPUBudget>>
 DefaultBudgetFactory::GetBudget() {
-  static std::shared_ptr<IOGoal> io_budget =
-      std::make_shared<IOGoal>(io_budget_, us_per_time_);
+  static std::shared_ptr<IOGoal> io_goal =
+      std::make_shared<IOGoal>(io_goal_, us_per_time_, io_mingoal_);
   static std::shared_ptr<CPUBudget> cpu_budget =
-      std::make_shared<CPUBudget>(cpu_budget_, us_per_time_);
-  return {io_budget, cpu_budget};
+      std::make_shared<CPUBudget>(cpu_budget_, us_per_time_, cpu_minbudget_);
+  return {io_goal, cpu_budget};
 }
 }  // namespace ROCKSDB_NAMESPACE

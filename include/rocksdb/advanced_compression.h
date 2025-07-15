@@ -21,12 +21,14 @@ namespace ROCKSDB_NAMESPACE {
 template <typename T>
 class Budget {
  public:
-  Budget(T amount, int64_t period_us)
-      : amount_(amount), period_us_(period_us){};
-  double GetRate() { return amount_ / (period_us_ / 1000000.0); }
+  Budget(T amount, int64_t period_us, T min_amount)
+      : amount_(amount), min_amount_(min_amount), period_us_(period_us){};
+  double GetMaxRate() { return amount_ / (period_us_ / 1000000.0); }
+  double GetMinRate() { return min_amount_ / (period_us_ / 1000000.0); }
 
  private:
   T amount_;
+  T min_amount_;
   int64_t period_us_;
 };
 using IOGoal = Budget<size_t>;
