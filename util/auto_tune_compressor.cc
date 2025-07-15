@@ -134,11 +134,11 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
 }
 
 AutoTuneCompressor::AutoTuneCompressor(
-    const CompressionOptions& opts, std::shared_ptr<IOBudget> io_budget,
+    const CompressionOptions& opts, std::shared_ptr<IOGoal> io_goal,
     std::shared_ptr<CPUBudget> cpu_budget,
     std::shared_ptr<RateLimiter> rate_limiter)
     : opts_(opts),
-      io_budget_(io_budget),
+      io_goal_(io_goal),
       cpu_budget_(cpu_budget),
       rate_limiter_(rate_limiter),
       usage_tracker_(rate_limiter) {
@@ -211,7 +211,7 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
                                   compressed_output, out_compression_type,
                                   local_wa);
   } else {
-    auto chosen_index = SelectCompressionBasedOnGoal(local_wa);
+    auto chosen_index = SelectCompressionBasedOnIOGoalCPUBudget(local_wa);
     // Check if the chosen compression type and level are available
     // if not, skip the compression
     if (chosen_index >= compressors_.size()) {
@@ -245,10 +245,10 @@ void AutoTuneCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   }
   delete static_cast<CostAwareWorkingArea*>(wa);
 }
-size_t AutoTuneCompressor::SelectCompressionBasedOnGoal(
+size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
     CostAwareWorkingArea* wa) {
   // If no budgets are available, use default choice
-  if (!cpu_budget_ || !io_budget_) {
+  if (!cpu_budget_ || !io_goal_) {
     size_t default_choice = 0;
     return default_choice;
   }
@@ -264,7 +264,7 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnGoal(
   // Return the first compression type and level that fits within budget
   // Get available budgets
   auto cpu_goal = cpu_budget_->GetRate() / kMicrosInSecond;
-  auto io_goal = io_budget_->GetRate();
+  auto io_goal = io_goal_->GetRate();
   static constexpr double kAcceptableLowCpuGoal = 0.8;
   static constexpr double kAcceptableLowIOGoal = 0.9;
   // Detect the 4 quadrant that we want to explore
@@ -374,7 +374,7 @@ std::unique_ptr<Compressor> AutoTuneCompressorManager::GetCompressorForSST(
   (void)preferred;
 
   // Get budgets from budget factory if available
-  std::shared_ptr<IOBudget> io_budget = nullptr;
+  std::shared_ptr<IOGoal> io_budget = nullptr;
   std::shared_ptr<CPUBudget> cpu_budget = nullptr;
   std::shared_ptr<RateLimiter> rate_limiter = nullptr;
   if (budget_factory_) {
@@ -396,10 +396,10 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
       budget_factory);
 }
 
-std::pair<std::shared_ptr<IOBudget>, std::shared_ptr<CPUBudget>>
+std::pair<std::shared_ptr<IOGoal>, std::shared_ptr<CPUBudget>>
 DefaultBudgetFactory::GetBudget() {
-  static std::shared_ptr<IOBudget> io_budget =
-      std::make_shared<IOBudget>(io_budget_, us_per_time_);
+  static std::shared_ptr<IOGoal> io_budget =
+      std::make_shared<IOGoal>(io_budget_, us_per_time_);
   static std::shared_ptr<CPUBudget> cpu_budget =
       std::make_shared<CPUBudget>(cpu_budget_, us_per_time_);
   return {io_budget, cpu_budget};

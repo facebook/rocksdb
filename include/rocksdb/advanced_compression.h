@@ -11,13 +11,37 @@
 
 #pragma once
 
+#include "advanced_compression.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/data_structure.h"
+#include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
-// This is defined in budget.h
-class CPUIOBudgetFactory;
+template <typename T>
+class Budget {
+ public:
+  Budget(T amount, int64_t period_us)
+      : amount_(amount), period_us_(period_us){};
+  double GetRate() { return amount_ / (period_us_ / 1000000.0); }
+
+ private:
+  T amount_;
+  int64_t period_us_;
+};
+using IOGoal = Budget<size_t>;
+using CPUBudget = Budget<size_t>;
+
+// CPUIOBudgetFactory for the autotunecompresor
+class CPUIOBudgetFactory {
+ public:
+  // Create a new IOBudget instance
+  virtual std::pair<std::shared_ptr<IOGoal>, std::shared_ptr<CPUBudget>>
+  GetBudget() = 0;
+  virtual ~CPUIOBudgetFactory() = default;
+  virtual Options GetOptions() = 0;
+};
+
 // TODO: alias/adapt for compression
 struct FilterBuildingContext;
 

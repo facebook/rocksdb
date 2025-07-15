@@ -151,7 +151,7 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
  public:
   explicit AutoTuneCompressor(
       const CompressionOptions& opts,
-      std::shared_ptr<IOBudget> io_budget = nullptr,
+      std::shared_ptr<IOGoal> io_budget = nullptr,
       std::shared_ptr<CPUBudget> cpu_budget = nullptr,
       std::shared_ptr<RateLimiter> rate_limiter = nullptr);
   ~AutoTuneCompressor() override;
@@ -173,7 +173,7 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
                                 CostAwareWorkingArea* wa);
 
   // Select compression type and level based on budget availability
-  size_t SelectCompressionBasedOnGoal(CostAwareWorkingArea* wa);
+  size_t SelectCompressionBasedOnIOGoalCPUBudget(CostAwareWorkingArea* wa);
   void MeasureUtilization();
   static constexpr uint64_t kMicrosInSecond = 1000000;
   static constexpr int kExplorationPercentage = 10;
@@ -186,7 +186,7 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
   const CompressionOptions opts_;
 
   // Budget references for cost-aware compression decisions
-  std::shared_ptr<IOBudget> io_budget_;
+  std::shared_ptr<IOGoal> io_goal_;
   std::shared_ptr<CPUBudget> cpu_budget_;
   std::shared_ptr<RateLimiter> rate_limiter_;
   CPUIOUtilizationTracker usage_tracker_;
@@ -230,7 +230,7 @@ class DefaultBudgetFactory : public CPUIOBudgetFactory {
   DefaultBudgetFactory(DefaultBudgetFactory&&) = delete;
   DefaultBudgetFactory& operator=(DefaultBudgetFactory&&) = delete;
 
-  std::pair<std::shared_ptr<IOBudget>, std::shared_ptr<CPUBudget>> GetBudget()
+  std::pair<std::shared_ptr<IOGoal>, std::shared_ptr<CPUBudget>> GetBudget()
       override;
   Options GetOptions() override { return opt_; }
   ~DefaultBudgetFactory() override = default;

@@ -600,8 +600,16 @@ static enum ROCKSDB_NAMESPACE::CompressionType
 
 DEFINE_string(compression_manager, "none",
               "Set the compression manager type to mixed(roundrobin), "
-              "autoskip, autocompalgoselector "
+              "autoskip, autotune "
               "type. None for BuilInCompressor");
+
+DEFINE_double(autotune_iogoal, 0.99,
+              "ratio of rate_limiter budget to set as io goal for autotune "
+              "compression manager");
+DEFINE_double(
+    autotune_cpubudget, 0.9,
+    "autotune compression manager tries to use cpu under the given cpubudget");
+
 DEFINE_int32(compressed_secondary_cache_compression_level,
              ROCKSDB_NAMESPACE::CompressionOptions().level,
              "Compression level. The meaning of this value is library-"
@@ -4697,8 +4705,8 @@ class Benchmark {
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "autotunecompression")) {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
-      auto io_usage_limit = 0.99 * ratelimiter_throughput;
-      int64_t cpu_usage_limit = 0.9 * kMicrosInSecond;
+      auto io_usage_limit = FLAGS_autotune_iogoal * ratelimiter_throughput;
+      int64_t cpu_usage_limit = FLAGS_autotune_cpubudget * kMicrosInSecond;
       std::shared_ptr<CPUIOBudgetFactory> budget_factory =
           std::make_shared<DefaultBudgetFactory>(
               cpu_usage_limit, io_usage_limit, kMicrosInSecond, options);
