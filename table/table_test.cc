@@ -73,7 +73,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/coding_lean.h"
+#include "util/coding.h"
 #include "util/compression.h"
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
@@ -7483,11 +7483,120 @@ class UserDefinedIndexTest : public BlockBasedTableTestBase {
     std::string index_contents_data_;
   };
 
+  class TestUserDefinedIndexReader : public UserDefinedIndexReader {
+   public:
+    explicit TestUserDefinedIndexReader(Slice& index_block) {
+      Slice block = index_block;
+      while (!block.empty()) {
+        Slice key;
+        uint64_t offset = 0;
+        uint64_t size = 0;
+        uint32_t num_keys = 0;
+        EXPECT_TRUE(GetLengthPrefixedSlice(&block, &key));
+        EXPECT_TRUE(GetFixed64(&block, &offset));
+        EXPECT_TRUE(GetFixed64(&block, &size));
+        EXPECT_TRUE(GetFixed32(&block, &num_keys));
+
+        UserDefinedIndexBuilder::BlockHandle handle{0, 0};
+        handle.offset = offset;
+        handle.size = size;
+        index_data_[key.ToString()] =
+            std::make_pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>(
+                std::move(handle), std::move(num_keys));
+      }
+    }
+
+    std::unique_ptr<UserDefinedIndexIterator> NewIterator(
+        const ReadOptions& ro) override {
+      return std::make_unique<TestUserDefinedIndexIterator>(ro, index_data_);
+    }
+
+    size_t ApproximateMemoryUsage() const override { return 0; }
+
+   private:
+    class TestUserDefinedIndexIterator : public UserDefinedIndexIterator {
+     public:
+      TestUserDefinedIndexIterator(
+          const ReadOptions& ro,
+          std::map<std::string,
+                   std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>>&
+              index)
+          : ro_(ro), index_(index), iter_(index_.end()) {}
+
+      Status SeekAndGetResult(const Slice& key,
+                              IterateResult* result) override {
+        Status s;
+        TEST_SYNC_POINT_CALLBACK("TestUserDefinedIndexIterator::Seek", &s);
+        if (!s.ok()) {
+          return s;
+        }
+        iter_ = index_.lower_bound(key.ToString());
+        if (iter_ != index_.end()) {
+          result->bound_check_result = IterBoundCheck::kInbound;
+          result->key = Slice(iter_->first);
+        } else {
+          result->bound_check_result = IterBoundCheck::kOutOfBound;
+          result->key = Slice();
+        }
+        return Status::OK();
+      }
+
+      Status NextAndGetResult(IterateResult* result) override {
+        Status s;
+        TEST_SYNC_POINT_CALLBACK("TestUserDefinedIndexIterator::Next", &s);
+        if (!s.ok()) {
+          return s;
+        }
+        if (ro_.iterate_upper_bound) {
+          if (iter_->first.compare(ro_.iterate_upper_bound->ToString()) >= 0) {
+            result->bound_check_result = IterBoundCheck::kOutOfBound;
+            result->key = Slice();
+            return Status::OK();
+          }
+        }
+        iter_++;
+        if (iter_ != index_.end()) {
+          result->bound_check_result = IterBoundCheck::kInbound;
+          result->key = Slice(iter_->first);
+        } else {
+          // EOF
+          result->bound_check_result = IterBoundCheck::kUnknown;
+          result->key = Slice();
+        }
+        return Status::OK();
+      }
+
+      UserDefinedIndexBuilder::BlockHandle value() override {
+        UserDefinedIndexBuilder::BlockHandle handle{0, 0};
+        handle.offset = iter_->second.first.offset;
+        handle.size = iter_->second.first.size;
+        return handle;
+      }
+
+     private:
+      const ReadOptions& ro_;
+      std::map<std::string,
+               std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>>&
+          index_;
+      std::map<std::string, std::pair<UserDefinedIndexBuilder::BlockHandle,
+                                      uint32_t>>::iterator iter_;
+    };
+
+    std::map<std::string,
+             std::pair<UserDefinedIndexBuilder::BlockHandle, uint32_t>>
+        index_data_;
+  };
+
   class TestUserDefinedIndexFactory : public UserDefinedIndexFactory {
    public:
     const char* Name() const override { return "test_index"; }
     UserDefinedIndexBuilder* NewBuilder() const override {
       return new TestUserDefinedIndexBuilder();
+    }
+
+    std::unique_ptr<UserDefinedIndexReader> NewReader(
+        Slice& index_block) const override {
+      return std::make_unique<TestUserDefinedIndexReader>(index_block);
     }
   };
 };
@@ -7528,8 +7637,8 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   MutableCFOptions moptions((ColumnFamilyOptions(options)));
   EnvOptions eoptions(options);
   TableReaderOptions toptions(
-      ioptions, moptions.prefix_extractor, /*compression_manager*/ nullptr,
-      eoptions, ioptions.internal_comparator,
+      ioptions, moptions.prefix_extractor,
+      /*_compression_manager=*/nullptr, eoptions, ioptions.internal_comparator,
       moptions.block_protection_bytes_per_key,
       /*skip_filters*/ false, /*immortal*/ false,
       /*force_direct_prefetch*/ false, /*level*/ -1,
@@ -7576,6 +7685,61 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   }
   ASSERT_EQ(key_count, 100);  // We added 100 keys
   ASSERT_OK(iter->status());
+  iter.reset();
+
+  ro.table_index_factory = user_defined_index_factory.get();
+  iter.reset(reader->NewIterator(ro));
+  ASSERT_NE(iter, nullptr);
+
+  // Test that we can read all the keys
+  key_count = 0;
+  for (iter->Seek("key09"); iter->Valid(); iter->Next()) {
+    key_count++;
+  }
+  ASSERT_EQ(key_count, 91);
+  ASSERT_OK(iter->status());
+
+  Slice ub("key75");
+  ro.iterate_upper_bound = &ub;
+  iter.reset(reader->NewIterator(ro));
+  ASSERT_NE(iter, nullptr);
+
+  // Test that we can read all the keys
+  key_count = 0;
+  for (iter->Seek("key09"); iter->Valid(); iter->Next()) {
+    key_count++;
+  }
+  ASSERT_EQ(key_count, 66);
+  ASSERT_OK(iter->status());
+
+  SyncPoint::GetInstance()->SetCallBack("TestUserDefinedIndexIterator::Seek",
+                                        [](void* arg) {
+                                          Status* s = static_cast<Status*>(arg);
+                                          *s = Status::IOError();
+                                        });
+  SyncPoint::GetInstance()->EnableProcessing();
+  iter.reset(reader->NewIterator(ro));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("key09");
+  ASSERT_NOK(iter->status());
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  SyncPoint::GetInstance()->SetCallBack("TestUserDefinedIndexIterator::Next",
+                                        [](void* arg) {
+                                          Status* s = static_cast<Status*>(arg);
+                                          *s = Status::IOError();
+                                        });
+  SyncPoint::GetInstance()->EnableProcessing();
+  iter.reset(reader->NewIterator(ro));
+  ASSERT_NE(iter, nullptr);
+  iter->Seek("key09");
+  ASSERT_OK(iter->status());
+  iter->Next();
+  iter->Next();
+  ASSERT_NOK(iter->status());
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(UserDefinedIndexTest, InvalidArgumentTest1) {
