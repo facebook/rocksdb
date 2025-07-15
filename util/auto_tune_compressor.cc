@@ -203,12 +203,6 @@ Status AutoCompressionAlgoLevelSelector::CompressBlock(
   if (compressors_.size() == 0) {
     return Status::NotSupported("No compression type supported");
   }
-  // Check budget availability before compression
-  if (cpu_budget_ != nullptr && cpu_budget_->GetAvailableBudget() <= 0) {
-    // CPU budget exhausted, skip compression
-    *out_compression_type = kNoCompression;
-    return Status::OK();
-  }
 
   auto local_wa = static_cast<CostAwareWorkingArea*>(wa->get());
   bool exploration =

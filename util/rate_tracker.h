@@ -171,17 +171,4 @@ class CPUIOUtilizationTracker {
   AtomicRateTracker<double> cpu_usage_rate_;
 };
 
-class RequestRateLimiter {
- private:
-  // Use AutoRefillBudget to track requests per second
-  std::unique_ptr<AutoRefillBudget<size_t>> request_budget_;
-  static constexpr uint64_t kMicrosInSecond = 1000000;
-
- public:
-  explicit RequestRateLimiter(size_t requests_per_second);
-  bool TryProcessRequest(size_t request_cost = 1);
-  size_t GetAvailableRequests();
-  void UpdateRateLimit(size_t new_requests_per_second);
-  void Reset();
-};
 }  // namespace ROCKSDB_NAMESPACE

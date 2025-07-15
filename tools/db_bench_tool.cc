@@ -1508,8 +1508,6 @@ DEFINE_uint64(write_thread_slow_yield_usec, 3,
               "The threshold at which a slow yield is considered a signal that "
               "other processes or threads want the core.");
 
-DEFINE_uint64(req_rate_limit_per_sec, 0,
-              "No of request per sec. 0 signifies no request rate limit");
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
 DEFINE_int64(rate_limiter_refill_period_us, 100 * 1000,
@@ -2839,7 +2837,6 @@ class Benchmark {
   bool use_blob_db_;    // Stacked BlobDB
   bool read_operands_;  // read via GetMergeOperands()
   std::vector<std::string> keys_;
-  std::shared_ptr<RequestRateLimiter> req_rate_limit_;
 
   class ErrorHandlerListener : public EventListener {
    public:
@@ -3383,11 +3380,6 @@ class Benchmark {
     listener_.reset(new ErrorHandlerListener());
     if (user_timestamp_size_ > 0) {
       mock_app_clock_.reset(new TimestampEmulator());
-    }
-    req_rate_limit_ = nullptr;
-    if (FLAGS_req_rate_limit_per_sec > 0) {
-      req_rate_limit_ =
-          std::make_shared<RequestRateLimiter>(FLAGS_req_rate_limit_per_sec);
     }
   }
 
@@ -5539,14 +5531,6 @@ class Benchmark {
           num_unique_keys++;
         } else {
           val = gen.Generate();
-        }
-        // Get the request token or else exit from the for loop
-        if (req_rate_limit_ != nullptr) {
-          if (req_rate_limit_->GetAvailableRequests() > 0) {
-            req_rate_limit_->TryProcessRequest();
-          } else {
-            break;
-          }
         }
         if (use_blob_db_) {
           // Stacked BlobDB
