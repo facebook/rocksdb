@@ -138,8 +138,7 @@ AutoCompressionAlgoLevelSelector::AutoCompressionAlgoLevelSelector(
     const CompressionOptions& opts, std::shared_ptr<IOBudget> io_budget,
     std::shared_ptr<CPUBudget> cpu_budget,
     std::shared_ptr<RateLimiter> rate_limiter)
-    : MultiCompressorWrapper(opts),
-      opts_(opts),
+    : opts_(opts),
       io_budget_(io_budget),
       cpu_budget_(cpu_budget),
       rate_limiter_(rate_limiter),
