@@ -13,16 +13,15 @@
 #include "util/rate_tracker.h"
 #include "util/stop_watch.h"
 namespace ROCKSDB_NAMESPACE {
-const std::vector<std::vector<int>>
-    AutoCompressionAlgoLevelSelector::kCompressionLevels{
-        {0},         // KSnappyCompression
-        {},          // kZlibCompression
-        {},          // kBZip2Compression
-        {1, 4, 9},   // kLZ4Compression
-        {1, 4, 9},   // klZ4HCCompression
-        {},          // kXpressCompression
-        {1, 15, 22}  // kZSTD
-    };
+const std::vector<std::vector<int>> AutoTuneCompressor::kCompressionLevels{
+    {0},         // KSnappyCompression
+    {},          // kZlibCompression
+    {},          // kBZip2Compression
+    {1, 4, 9},   // kLZ4Compression
+    {1, 4, 9},   // klZ4HCCompression
+    {},          // kXpressCompression
+    {1, 15, 22}  // kZSTD
+};
 
 int CompressionRejectionProbabilityPredictor::Predict() const {
   return pred_rejection_prob_percentage_;
@@ -134,7 +133,7 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
       wrapped_->GetCompressorForSST(context, opts, preferred), opts);
 }
 
-AutoCompressionAlgoLevelSelector::AutoCompressionAlgoLevelSelector(
+AutoTuneCompressor::AutoTuneCompressor(
     const CompressionOptions& opts, std::shared_ptr<IOBudget> io_budget,
     std::shared_ptr<CPUBudget> cpu_budget,
     std::shared_ptr<RateLimiter> rate_limiter)
@@ -174,12 +173,9 @@ AutoCompressionAlgoLevelSelector::AutoCompressionAlgoLevelSelector(
   block_count_ = 0;
   cur_compressor_idx_ = 0;
 }
-AutoCompressionAlgoLevelSelector::~AutoCompressionAlgoLevelSelector() {}
-const char* AutoCompressionAlgoLevelSelector::Name() const {
-  return "AutoCompressionAlgoLevelSelector";
-}
-std::unique_ptr<Compressor>
-AutoCompressionAlgoLevelSelector::MaybeCloneSpecialized(
+AutoTuneCompressor::~AutoTuneCompressor() {}
+const char* AutoTuneCompressor::Name() const { return "AutoTuneCompressor"; }
+std::unique_ptr<Compressor> AutoTuneCompressor::MaybeCloneSpecialized(
     CacheEntryRole block_type, DictSampleArgs&& dict_samples) {
   // TODO: full dictionary compression support. Currently this just falls
   // back on a non-multi compressor when asked to use a dictionary.
@@ -188,9 +184,10 @@ AutoCompressionAlgoLevelSelector::MaybeCloneSpecialized(
   return compressors_[idx]->MaybeCloneSpecialized(block_type,
                                                   std::move(dict_samples));
 }
-Status AutoCompressionAlgoLevelSelector::CompressBlock(
-    Slice uncompressed_data, std::string* compressed_output,
-    CompressionType* out_compression_type, ManagedWorkingArea* wa) {
+Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
+                                         std::string* compressed_output,
+                                         CompressionType* out_compression_type,
+                                         ManagedWorkingArea* wa) {
   // Check if the managed working area is provided or owned by this object.
   // If not, bypass compressor logic since the working area lacks a predictor.
   if (wa == nullptr || wa->owner() != this) {
@@ -227,8 +224,7 @@ Status AutoCompressionAlgoLevelSelector::CompressBlock(
   }
 }
 
-Compressor::ManagedWorkingArea
-AutoCompressionAlgoLevelSelector::ObtainWorkingArea() {
+Compressor::ManagedWorkingArea AutoTuneCompressor::ObtainWorkingArea() {
   auto wrap_wa = compressors_.back()->ObtainWorkingArea();
   auto wa = new CostAwareWorkingArea(std::move(wrap_wa));
   // Create cost predictors for each compression type and level
@@ -240,10 +236,8 @@ AutoCompressionAlgoLevelSelector::ObtainWorkingArea() {
   }
   return ManagedWorkingArea(wa, this);
 }
-void AutoCompressionAlgoLevelSelector::MeasureUtilization() {
-  usage_tracker_.Record();
-}
-void AutoCompressionAlgoLevelSelector::ReleaseWorkingArea(WorkingArea* wa) {
+void AutoTuneCompressor::MeasureUtilization() { usage_tracker_.Record(); }
+void AutoTuneCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   // remove all created cost predictors
   for (auto& predictor :
        static_cast<CostAwareWorkingArea*>(wa)->cost_predictors_) {
@@ -251,7 +245,7 @@ void AutoCompressionAlgoLevelSelector::ReleaseWorkingArea(WorkingArea* wa) {
   }
   delete static_cast<CostAwareWorkingArea*>(wa);
 }
-size_t AutoCompressionAlgoLevelSelector::SelectCompressionBasedOnGoal(
+size_t AutoTuneCompressor::SelectCompressionBasedOnGoal(
     CostAwareWorkingArea* wa) {
   // If no budgets are available, use default choice
   if (!cpu_budget_ || !io_budget_) {
@@ -342,18 +336,18 @@ size_t AutoCompressionAlgoLevelSelector::SelectCompressionBasedOnGoal(
   return cur_compressor_idx_;
 }
 
-Status AutoCompressionAlgoLevelSelector::CompressBlockAndRecord(
-    size_t chosen_index, Slice uncompressed_data,
+Status AutoTuneCompressor::CompressBlockAndRecord(
+    size_t compressor_index, Slice uncompressed_data,
     std::string* compressed_output, CompressionType* out_compression_type,
     CostAwareWorkingArea* wa) {
-  assert(chosen_index < compressors_.size());
+  assert(compressor_index < compressors_.size());
   StopWatchNano<> timer(Env::Default()->GetSystemClock().get(), true);
-  Status status = compressors_[chosen_index]->CompressBlock(
+  Status status = compressors_[compressor_index]->CompressBlock(
       uncompressed_data, compressed_output, out_compression_type,
       &(wa->wrapped_));
   std::pair<size_t, size_t> measured_data(timer.ElapsedMicros(),
                                           compressed_output->size());
-  auto predictor = wa->cost_predictors_[chosen_index];
+  auto predictor = wa->cost_predictors_[compressor_index];
   auto output_length = measured_data.second;
   auto cpu_time = measured_data.first;
   predictor->CPUPredictor.Record(cpu_time);
@@ -366,14 +360,13 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
   return std::make_shared<AutoSkipCompressorManager>(
       wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped);
 }
-const char* AutoCompressionAlgoLevelSelectorManager::Name() const {
-  // should have returned "AutoCompressionAlgoLevelSelectorManager" but we
+const char* AutoTuneCompressorManager::Name() const {
+  // should have returned "AutoTuneCompressorManager" but we
   // currently have an error so for now returning name of the wrapped container
   return wrapped_->Name();
 }
 
-std::unique_ptr<Compressor>
-AutoCompressionAlgoLevelSelectorManager::GetCompressorForSST(
+std::unique_ptr<Compressor> AutoTuneCompressorManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,
     CompressionType preferred) {
   assert(GetSupportedCompressions().size() > 1);
@@ -391,15 +384,14 @@ AutoCompressionAlgoLevelSelectorManager::GetCompressorForSST(
     rate_limiter = budget_factory_->GetOptions().rate_limiter;
   }
 
-  return std::make_unique<AutoCompressionAlgoLevelSelector>(
-      opts, io_budget, cpu_budget, rate_limiter);
+  return std::make_unique<AutoTuneCompressor>(opts, io_budget, cpu_budget,
+                                              rate_limiter);
 }
 
-std::shared_ptr<CompressionManagerWrapper>
-CreateAutoCompressionAlgoLevelSelectingManager(
+std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     std::shared_ptr<CompressionManager> wrapped,
     std::shared_ptr<CPUIOBudgetFactory> budget_factory) {
-  return std::make_shared<AutoCompressionAlgoLevelSelectorManager>(
+  return std::make_shared<AutoTuneCompressorManager>(
       wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped,
       budget_factory);
 }

@@ -622,8 +622,7 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
 // strategy that selects compression algorithm based on the io goal and the cpu
 // budget
 // EXPERIMENTAL
-std::shared_ptr<CompressionManagerWrapper>
-CreateAutoCompressionAlgoLevelSelectingManager(
+std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     std::shared_ptr<CompressionManager> wrapped = nullptr,
     std::shared_ptr<CPUIOBudgetFactory> budget_factory = nullptr);
 }  // namespace ROCKSDB_NAMESPACE

@@ -5,8 +5,8 @@
 //
 // Defines auto skip compressor wrapper which intelligently decides bypassing
 // compression based on past data
-// Defines AutoCompressionAlgoLevelSelector which currently tries to predict the
-// cpu and io cost of the compression
+// Defines AutoTuneCompressor which tries to select compression algorithm based
+// on predicted cpu and io cost of the compression
 
 #pragma once
 #include <memory>
@@ -147,14 +147,14 @@ class CostAwareWorkingArea : public Compressor::WorkingArea {
   std::vector<IOCPUCostPredictor*> cost_predictors_;
 };
 
-class AutoCompressionAlgoLevelSelector : public MultiCompressorWrapper {
+class AutoTuneCompressor : public MultiCompressorWrapper {
  public:
-  explicit AutoCompressionAlgoLevelSelector(
+  explicit AutoTuneCompressor(
       const CompressionOptions& opts,
       std::shared_ptr<IOBudget> io_budget = nullptr,
       std::shared_ptr<CPUBudget> cpu_budget = nullptr,
       std::shared_ptr<RateLimiter> rate_limiter = nullptr);
-  ~AutoCompressionAlgoLevelSelector() override;
+  ~AutoTuneCompressor() override;
   const char* Name() const override;
   ManagedWorkingArea ObtainWorkingArea() override;
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
@@ -166,7 +166,8 @@ class AutoCompressionAlgoLevelSelector : public MultiCompressorWrapper {
   void ReleaseWorkingArea(WorkingArea* wa) override;
 
  private:
-  Status CompressBlockAndRecord(size_t choosen_index, Slice uncompressed_data,
+  Status CompressBlockAndRecord(size_t compressor_index,
+                                Slice uncompressed_data,
                                 std::string* compressed_output,
                                 CompressionType* out_compression_type,
                                 CostAwareWorkingArea* wa);
@@ -178,7 +179,7 @@ class AutoCompressionAlgoLevelSelector : public MultiCompressorWrapper {
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
   // This is the vector containing the list of compression levels that
-  // AutoCompressionAlgoLevelSelector will use create compressor and predicts
+  // AutoTuneCompressor will use create compressor and predicts
   // the cost The vector contains list of compression level for compression
   // algorithm in the order defined by enum CompressionType
   static const std::vector<std::vector<int>> kCompressionLevels;
@@ -196,10 +197,9 @@ class AutoCompressionAlgoLevelSelector : public MultiCompressorWrapper {
   static constexpr int kWindow = 10;
 };
 
-class AutoCompressionAlgoLevelSelectorManager
-    : public CompressionManagerWrapper {
+class AutoTuneCompressorManager : public CompressionManagerWrapper {
  public:
-  explicit AutoCompressionAlgoLevelSelectorManager(
+  explicit AutoTuneCompressorManager(
       std::shared_ptr<CompressionManager> wrapped,
       std::shared_ptr<CPUIOBudgetFactory> budget_factory)
       : CompressionManagerWrapper(wrapped), budget_factory_(budget_factory) {}

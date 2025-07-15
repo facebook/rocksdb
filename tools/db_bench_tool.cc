@@ -4695,15 +4695,14 @@ class Benchmark {
       mgr =
           std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
-                           "autocompalgoselector")) {
+                           "autotunecompression")) {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
       auto io_usage_limit = 0.99 * ratelimiter_throughput;
       int64_t cpu_usage_limit = 0.9 * kMicrosInSecond;
       std::shared_ptr<CPUIOBudgetFactory> budget_factory =
           std::make_shared<DefaultBudgetFactory>(
               cpu_usage_limit, io_usage_limit, kMicrosInSecond, options);
-      mgr = CreateAutoCompressionAlgoLevelSelectingManager(nullptr,
-                                                           budget_factory);
+      mgr = CreateAutoTuneCompressionManager(nullptr, budget_factory);
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
