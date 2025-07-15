@@ -18,21 +18,19 @@
 #include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
-template <typename T>
 class Budget {
  public:
-  Budget(T amount, int64_t period_us, T min_amount)
-      : amount_(amount), min_amount_(min_amount), period_us_(period_us){};
-  double GetMaxRate() { return amount_ / (period_us_ / 1000000.0); }
-  double GetMinRate() { return min_amount_ / (period_us_ / 1000000.0); }
+  Budget(double max_rate, double min_rate)
+      : max_rate_(max_rate), min_rate_(min_rate){};
+  double GetMaxRate() { return max_rate_; }
+  double GetMinRate() { return min_rate_; }
 
  private:
-  T amount_;
-  T min_amount_;
-  int64_t period_us_;
+  double max_rate_;
+  double min_rate_;
 };
-using IOGoal = Budget<size_t>;
-using CPUBudget = Budget<size_t>;
+using IOGoal = Budget;
+using CPUBudget = Budget;
 
 // CPUIOBudgetFactory for the autotunecompresor
 class CPUIOBudgetFactory {

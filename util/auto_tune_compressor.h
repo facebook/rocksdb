@@ -214,15 +214,14 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
 
 class DefaultBudgetFactory : public CPUIOBudgetFactory {
  public:
-  DefaultBudgetFactory(const size_t cpu_budget, const size_t io_goal,
-                       const size_t cpu_minbudget, const size_t io_mingoal,
-                       size_t per_time, const Options& options)
+  DefaultBudgetFactory(const double cpu_budget, const double io_goal,
+                       const double cpu_minbudget, const double io_mingoal,
+                       const Options& options)
       : opt_(options),
         cpu_budget_(cpu_budget),
         cpu_minbudget_(cpu_minbudget),
         io_goal_(io_goal),
-        io_mingoal_(io_mingoal),
-        us_per_time_(per_time) {}
+        io_mingoal_(io_mingoal) {}
 
   // Delete copy constructor and copy assignment operator
   DefaultBudgetFactory(const DefaultBudgetFactory&) = delete;
@@ -239,11 +238,10 @@ class DefaultBudgetFactory : public CPUIOBudgetFactory {
 
  private:
   Options opt_;
-  size_t cpu_budget_;
-  size_t cpu_minbudget_;
-  size_t io_goal_;
-  size_t io_mingoal_;
-  size_t us_per_time_;
+  double cpu_budget_;
+  double cpu_minbudget_;
+  double io_goal_;
+  double io_mingoal_;
 };
 
 };  // namespace ROCKSDB_NAMESPACE

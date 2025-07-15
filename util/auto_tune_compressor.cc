@@ -399,9 +399,9 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
 std::pair<std::shared_ptr<IOGoal>, std::shared_ptr<CPUBudget>>
 DefaultBudgetFactory::GetBudget() {
   static std::shared_ptr<IOGoal> io_goal =
-      std::make_shared<IOGoal>(io_goal_, us_per_time_, io_mingoal_);
+      std::make_shared<IOGoal>(io_goal_, io_mingoal_);
   static std::shared_ptr<CPUBudget> cpu_budget =
-      std::make_shared<CPUBudget>(cpu_budget_, us_per_time_, cpu_minbudget_);
+      std::make_shared<CPUBudget>(cpu_budget_, cpu_minbudget_);
   return {io_goal, cpu_budget};
 }
 }  // namespace ROCKSDB_NAMESPACE
