@@ -16,7 +16,7 @@
 #include "rocksdb/data_structure.h"
 
 namespace ROCKSDB_NAMESPACE {
-// This is defined in auto_refill_budget.h
+// This is defined in budget.h
 class CPUIOBudgetFactory;
 // TODO: alias/adapt for compression
 struct FilterBuildingContext;
