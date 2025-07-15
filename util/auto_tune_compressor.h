@@ -15,6 +15,7 @@
 #include "rocksdb/options.h"
 #include "util/auto_refill_budget.h"
 #include "util/rate_tracker.h"
+#include "util/simple_mixed_compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Auto Skip Compression Components
@@ -146,7 +147,7 @@ class CostAwareWorkingArea : public Compressor::WorkingArea {
   std::vector<IOCPUCostPredictor*> cost_predictors_;
 };
 
-class AutoCompressionAlgoLevelSelector : public Compressor {
+class AutoCompressionAlgoLevelSelector : public MultiCompressorWrapper {
  public:
   explicit AutoCompressionAlgoLevelSelector(
       const CompressionOptions& opts,
@@ -155,9 +156,6 @@ class AutoCompressionAlgoLevelSelector : public Compressor {
       std::shared_ptr<RateLimiter> rate_limiter = nullptr);
   ~AutoCompressionAlgoLevelSelector() override;
   const char* Name() const override;
-  size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
-  Slice GetSerializedDict() const override;
-  CompressionType GetPreferredCompressionType() const override;
   ManagedWorkingArea ObtainWorkingArea() override;
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
       CacheEntryRole block_type, DictSampleArgs&& dict_samples) override;
@@ -185,7 +183,6 @@ class AutoCompressionAlgoLevelSelector : public Compressor {
   // algorithm in the order defined by enum CompressionType
   static const std::vector<std::vector<int>> kCompressionLevels;
   const CompressionOptions opts_;
-  std::vector<std::unique_ptr<Compressor>> allcompressors_;
 
   // Budget references for cost-aware compression decisions
   std::shared_ptr<IOBudget> io_budget_;

@@ -2239,7 +2239,7 @@ class Stats {
   friend class CombinedStats;
 
  public:
-  Stats(Options option)
+  explicit Stats(const Options& option)
       : clock_(FLAGS_env->GetSystemClock().get()),
         usage_tracker_(option.rate_limiter),
         opts_(option) {
@@ -4706,8 +4706,6 @@ class Benchmark {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
       auto io_usage_limit = 0.99 * ratelimiter_throughput;
       int64_t cpu_usage_limit = 0.9 * kMicrosInSecond;
-      // int64_t cpu_usage_limit = 0.5 * kMicrosInSecond;
-      // int64_t cpu_usage_limit = 0.05 * kMicrosInSecond;
       std::shared_ptr<CPUIOBudgetFactory> budget_factory =
           std::make_shared<DefaultBudgetFactory>(
               cpu_usage_limit, io_usage_limit, kMicrosInSecond, options);
