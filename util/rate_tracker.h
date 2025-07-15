@@ -24,7 +24,6 @@
 #include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/system_clock.h"
-#include "util/auto_refill_budget.h"
 
 namespace ROCKSDB_NAMESPACE {
 

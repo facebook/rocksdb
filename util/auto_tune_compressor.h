@@ -13,7 +13,7 @@
 
 #include "rocksdb/advanced_compression.h"
 #include "rocksdb/options.h"
-#include "util/auto_refill_budget.h"
+#include "util/budget.h"
 #include "util/rate_tracker.h"
 #include "util/simple_mixed_compressor.h"
 
