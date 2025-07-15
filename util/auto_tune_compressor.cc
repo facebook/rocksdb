@@ -153,31 +153,26 @@ AutoCompressionAlgoLevelSelector::AutoCompressionAlgoLevelSelector(
       continue;
     }
     if (kCompressionLevels[type - 1].size() == 0) {
-      allcompressors_.emplace_back();
       continue;
     } else {
       // If the compression type is not supported, then skip and remove
       // compression levels from the supported compression level list.
       if (std::find(compressions.begin(), compressions.end(), type) ==
           compressions.end()) {
-        allcompressors_.emplace_back();
         continue;
       }
-      std::vector<std::unique_ptr<Compressor>> compressors_diff_levels;
       for (size_t j = 0; j < kCompressionLevels[type - 1].size(); j++) {
         auto level = kCompressionLevels[type - 1][j];
         CompressionOptions new_opts = opts;
         new_opts.level = level;
-        compressors_diff_levels.push_back(
+        allcompressors_.emplace_back(
             builtInManager->GetCompressor(new_opts, type));
-        allcompressors_index_.emplace_back(i, j);
       }
-      allcompressors_.push_back(std::move(compressors_diff_levels));
     }
   }
   MeasureUtilization();
   block_count_ = 0;
-  cur_comp_idx_ = allcompressors_index_.front();
+  cur_compressor_idx_ = 0;
 }
 AutoCompressionAlgoLevelSelector::~AutoCompressionAlgoLevelSelector() {}
 const char* AutoCompressionAlgoLevelSelector::Name() const {
@@ -185,14 +180,15 @@ const char* AutoCompressionAlgoLevelSelector::Name() const {
 }
 size_t AutoCompressionAlgoLevelSelector::GetMaxSampleSizeIfWantDict(
     CacheEntryRole block_type) const {
-  auto idx = allcompressors_index_.back();
-  return allcompressors_[idx.first][idx.second]->GetMaxSampleSizeIfWantDict(
-      block_type);
+  assert(allcompressors_.size() > 0);
+  auto idx = allcompressors_.size() - 1;
+  return allcompressors_[idx]->GetMaxSampleSizeIfWantDict(block_type);
 }
 
 Slice AutoCompressionAlgoLevelSelector::GetSerializedDict() const {
-  auto idx = allcompressors_index_.back();
-  return allcompressors_[idx.first][idx.second]->GetSerializedDict();
+  assert(allcompressors_.size() > 0);
+  auto idx = allcompressors_.size() - 1;
+  return allcompressors_[idx]->GetSerializedDict();
 }
 
 CompressionType AutoCompressionAlgoLevelSelector::GetPreferredCompressionType()
@@ -204,9 +200,10 @@ AutoCompressionAlgoLevelSelector::MaybeCloneSpecialized(
     CacheEntryRole block_type, DictSampleArgs&& dict_samples) {
   // TODO: full dictionary compression support. Currently this just falls
   // back on a non-multi compressor when asked to use a dictionary.
-  auto idx = allcompressors_index_.back();
-  return allcompressors_[idx.first][idx.second]->MaybeCloneSpecialized(
-      block_type, std::move(dict_samples));
+  assert(allcompressors_.size() > 0);
+  auto idx = allcompressors_.size() - 1;
+  return allcompressors_[idx]->MaybeCloneSpecialized(block_type,
+                                                     std::move(dict_samples));
 }
 Status AutoCompressionAlgoLevelSelector::CompressBlock(
     Slice uncompressed_data, std::string* compressed_output,
@@ -226,68 +223,45 @@ Status AutoCompressionAlgoLevelSelector::CompressBlock(
 
   if (wa == nullptr || wa->owner() != this) {
     // highest compression level of Zstd
-    size_t chosen_compression_type = 6;
-    size_t compression_level_ptr = 0;
-    return allcompressors_[chosen_compression_type][compression_level_ptr]
-        ->CompressBlock(uncompressed_data, compressed_output,
-                        out_compression_type, wa);
+    assert(allcompressors_.size() > 0);
+    auto idx = 0;
+    return allcompressors_[idx]->CompressBlock(
+        uncompressed_data, compressed_output, out_compression_type, wa);
   }
 
   auto local_wa = static_cast<CostAwareWorkingArea*>(wa->get());
   bool exploration =
       Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
   if (exploration) {
-    std::pair<size_t, size_t> choosen_index =
-        allcompressors_index_[Random::GetTLSInstance()->Uniform(
-            static_cast<int>(allcompressors_index_.size()))];
-    size_t chosen_compression_type = choosen_index.first;
-    size_t compression_level_ptr = choosen_index.second;
+    size_t choosen_index = Random::GetTLSInstance()->Uniform(
+        static_cast<int>(allcompressors_.size()));
 
-    return CompressBlockAndRecord(
-        chosen_compression_type, compression_level_ptr, uncompressed_data,
-        compressed_output, out_compression_type, local_wa);
+    return CompressBlockAndRecord(choosen_index, uncompressed_data,
+                                  compressed_output, out_compression_type,
+                                  local_wa);
   } else {
-    // Switching to planned approach using following method for the choosing
-    // compression level std::pair<size_t, size_t> choosen_index =
-    //     SelectCompressionInDirectionOfBudget(local_wa);
-    // Reactive approach to select compression algorithm to compression level
-    // based on goal
-    std::pair<size_t, size_t> choosen_index =
-        SelectCompressionBasedOnGoal(local_wa);
-    size_t chosen_compression_type = choosen_index.first;
-    size_t compression_level_ptr = choosen_index.second;
+    auto chosen_index = SelectCompressionBasedOnGoal(local_wa);
     // Check if the chosen compression type and level are available
     // if not, skip the compression
-    if (chosen_compression_type >= allcompressors_.size() ||
-        compression_level_ptr >=
-            allcompressors_[chosen_compression_type].size()) {
+    if (chosen_index >= allcompressors_.size()) {
       *out_compression_type = kNoCompression;
       return Status::OK();
     }
-    return CompressBlockAndRecord(
-        chosen_compression_type, compression_level_ptr, uncompressed_data,
-        compressed_output, out_compression_type, local_wa);
+    return CompressBlockAndRecord(chosen_index, uncompressed_data,
+                                  compressed_output, out_compression_type,
+                                  local_wa);
   }
 }
 
 Compressor::ManagedWorkingArea
 AutoCompressionAlgoLevelSelector::ObtainWorkingArea() {
-  auto wrap_wa = allcompressors_.back().back()->ObtainWorkingArea();
+  auto wrap_wa = allcompressors_.back()->ObtainWorkingArea();
   auto wa = new CostAwareWorkingArea(std::move(wrap_wa));
   // Create cost predictors for each compression type and level
   wa->cost_predictors_.reserve(allcompressors_.size());
-  for (size_t i = 0; i < allcompressors_.size(); i++) {
-    CompressionType type = static_cast<CompressionType>(i + 1);
-    if (allcompressors_[type - 1].size() == 0) {
-      wa->cost_predictors_.emplace_back();
-      continue;
-    } else {
-      std::vector<IOCPUCostPredictor*> predictors_diff_levels;
-      predictors_diff_levels.reserve(kCompressionLevels[type - 1].size());
-      for (size_t j = 0; j < kCompressionLevels[type - 1].size(); j++) {
-        predictors_diff_levels.emplace_back(new IOCPUCostPredictor(10));
-      }
-      wa->cost_predictors_.emplace_back(std::move(predictors_diff_levels));
+  for (size_t i = 0; i < kCompressionLevels.size(); i++) {
+    for (size_t j = 0; j < kCompressionLevels[i].size(); j++) {
+      wa->cost_predictors_.emplace_back(new IOCPUCostPredictor(kWindow));
     }
   }
   return ManagedWorkingArea(wa, this);
@@ -297,26 +271,23 @@ void AutoCompressionAlgoLevelSelector::MeasureUtilization() {
 }
 void AutoCompressionAlgoLevelSelector::ReleaseWorkingArea(WorkingArea* wa) {
   // remove all created cost predictors
-  for (auto& prdictors_diff_levels :
+  for (auto& predictor :
        static_cast<CostAwareWorkingArea*>(wa)->cost_predictors_) {
-    for (auto& predictor : prdictors_diff_levels) {
-      delete predictor;
-    }
+    delete predictor;
   }
   delete static_cast<CostAwareWorkingArea*>(wa);
 }
-std::pair<size_t, size_t>
-AutoCompressionAlgoLevelSelector::SelectCompressionBasedOnGoal(
+size_t AutoCompressionAlgoLevelSelector::SelectCompressionBasedOnGoal(
     CostAwareWorkingArea* wa) {
   // If no budgets are available, use default choice
   if (!cpu_budget_ || !io_budget_) {
-    std::pair<size_t, size_t> default_choice = allcompressors_index_.front();
+    size_t default_choice = 0;
     return default_choice;
   }
   if ((block_count_.fetch_add(1, std::memory_order_relaxed)) %
           kDecideEveryNBlocks !=
       0) {
-    return cur_comp_idx_;
+    return cur_compressor_idx_;
   }
   MeasureUtilization();
   auto cpu_util = usage_tracker_.GetCpuUtilization();
@@ -338,35 +309,29 @@ AutoCompressionAlgoLevelSelector::SelectCompressionBasedOnGoal(
   // If we are in the stable region, then we just go ahead with the current
   // compression type and level
   if (!increase_io && !increase_cpu && !decrease_io && !decrease_cpu) {
-    return cur_comp_idx_;
-  } else if (cur_comp_idx_.first >= allcompressors_.size() ||
-             cur_comp_idx_.second >=
-                 allcompressors_[cur_comp_idx_.first].size()) {
+    return cur_compressor_idx_;
+  } else if (cur_compressor_idx_ >= allcompressors_.size()) {
     // If the current compression type and level are not available i.e.
     // Compression is disabled We can switch from no compression if we can
     // decrease io and increase cpu usage else we current no compression is the
     // best we can do
     if (decrease_io && increase_cpu) {
-      cur_comp_idx_ = allcompressors_index_.front();
-      return cur_comp_idx_;
+      cur_compressor_idx_ = 0;
+      return cur_compressor_idx_;
     }
-    return cur_comp_idx_;
+    return cur_compressor_idx_;
   }
   // If we are in the unstable region, then we need to explore the other which
   // is in the right quadrant where we want to move to
   auto cur_cpu_cost =
-      wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
-          ->CPUPredictor.Predict();
+      wa->cost_predictors_[cur_compressor_idx_]->CPUPredictor.Predict();
   auto cur_io_cost =
-      wa->cost_predictors_[cur_comp_idx_.first][cur_comp_idx_.second]
-          ->IOPredictor.Predict();
-  for (const auto& choice : allcompressors_index_) {
-    size_t comp_type = choice.first;
-    size_t comp_level = choice.second;
+      wa->cost_predictors_[cur_compressor_idx_]->IOPredictor.Predict();
+  for (size_t choice = 0; choice < allcompressors_.size(); choice++) {
     auto predicted_io_cost =
-        wa->cost_predictors_[comp_type][comp_level]->IOPredictor.Predict();
+        wa->cost_predictors_[choice]->IOPredictor.Predict();
     auto predicted_cpu_cost =
-        wa->cost_predictors_[comp_type][comp_level]->CPUPredictor.Predict();
+        wa->cost_predictors_[choice]->CPUPredictor.Predict();
     bool flag = true;
     if (increase_io) {
       if (predicted_io_cost <= cur_io_cost) {
@@ -389,8 +354,8 @@ AutoCompressionAlgoLevelSelector::SelectCompressionBasedOnGoal(
       }
     }
     if (flag) {
-      cur_comp_idx_ = choice;
-      return cur_comp_idx_;
+      cur_compressor_idx_ = choice;
+      return cur_compressor_idx_;
     }
   }
   // If we did not find any other compression type and level in our intended
@@ -398,31 +363,23 @@ AutoCompressionAlgoLevelSelector::SelectCompressionBasedOnGoal(
   // decrease CPU usage. Otherwise, the current compression type and level
   // is the best we can do.
   if (increase_io && decrease_cpu) {
-    cur_comp_idx_ = {std::numeric_limits<size_t>::max(),
-                     std::numeric_limits<size_t>::max()};
+    cur_compressor_idx_ = std::numeric_limits<size_t>::max();
   }
-  return cur_comp_idx_;
+  return cur_compressor_idx_;
 }
 
 Status AutoCompressionAlgoLevelSelector::CompressBlockAndRecord(
-    size_t chosen_compression_type, size_t compression_level_ptr,
-    Slice uncompressed_data, std::string* compressed_output,
-    CompressionType* out_compression_type, CostAwareWorkingArea* wa) {
-  assert(chosen_compression_type < allcompressors_.size());
-  assert(compression_level_ptr <
-         allcompressors_[chosen_compression_type].size());
-  assert(chosen_compression_type < wa->cost_predictors_.size());
-  assert(compression_level_ptr <
-         wa->cost_predictors_[chosen_compression_type].size());
+    size_t chosen_index, Slice uncompressed_data,
+    std::string* compressed_output, CompressionType* out_compression_type,
+    CostAwareWorkingArea* wa) {
+  assert(chosen_index < allcompressors_.size());
   StopWatchNano<> timer(Env::Default()->GetSystemClock().get(), true);
-  Status status =
-      allcompressors_[chosen_compression_type][compression_level_ptr]
-          ->CompressBlock(uncompressed_data, compressed_output,
-                          out_compression_type, &(wa->wrapped_));
+  Status status = allcompressors_[chosen_index]->CompressBlock(
+      uncompressed_data, compressed_output, out_compression_type,
+      &(wa->wrapped_));
   std::pair<size_t, size_t> measured_data(timer.ElapsedMicros(),
                                           compressed_output->size());
-  auto predictor =
-      wa->cost_predictors_[chosen_compression_type][compression_level_ptr];
+  auto predictor = wa->cost_predictors_[chosen_index];
   auto output_length = measured_data.second;
   auto cpu_time = measured_data.first;
   predictor->CPUPredictor.Record(cpu_time);

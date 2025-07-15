@@ -143,7 +143,7 @@ class CostAwareWorkingArea : public Compressor::WorkingArea {
     return *this;
   }
   Compressor::ManagedWorkingArea wrapped_;
-  std::vector<std::vector<IOCPUCostPredictor*>> cost_predictors_;
+  std::vector<IOCPUCostPredictor*> cost_predictors_;
 };
 
 class AutoCompressionAlgoLevelSelector : public Compressor {
@@ -168,16 +168,13 @@ class AutoCompressionAlgoLevelSelector : public Compressor {
   void ReleaseWorkingArea(WorkingArea* wa) override;
 
  private:
-  Status CompressBlockAndRecord(size_t choosen_compression_type,
-                                size_t compresion_level_ptr,
-                                Slice uncompressed_data,
+  Status CompressBlockAndRecord(size_t choosen_index, Slice uncompressed_data,
                                 std::string* compressed_output,
                                 CompressionType* out_compression_type,
                                 CostAwareWorkingArea* wa);
 
   // Select compression type and level based on budget availability
-  std::pair<size_t, size_t> SelectCompressionBasedOnGoal(
-      CostAwareWorkingArea* wa);
+  size_t SelectCompressionBasedOnGoal(CostAwareWorkingArea* wa);
   void MeasureUtilization();
   static constexpr uint64_t kMicrosInSecond = 1000000;
   static constexpr int kExplorationPercentage = 10;
@@ -188,8 +185,7 @@ class AutoCompressionAlgoLevelSelector : public Compressor {
   // algorithm in the order defined by enum CompressionType
   static const std::vector<std::vector<int>> kCompressionLevels;
   const CompressionOptions opts_;
-  std::vector<std::vector<std::unique_ptr<Compressor>>> allcompressors_;
-  std::vector<std::pair<size_t, size_t>> allcompressors_index_;
+  std::vector<std::unique_ptr<Compressor>> allcompressors_;
 
   // Budget references for cost-aware compression decisions
   std::shared_ptr<IOBudget> io_budget_;
@@ -198,8 +194,9 @@ class AutoCompressionAlgoLevelSelector : public Compressor {
   CPUIOUtilizationTracker usage_tracker_;
   // Will servers as a logical clock to decide when to update the decision
   std::atomic<int> block_count_;
-  std::pair<size_t, size_t> cur_comp_idx_;
+  std::atomic<size_t> cur_compressor_idx_;
   static constexpr int kDecideEveryNBlocks = 2000;
+  static constexpr int kWindow = 10;
 };
 
 class AutoCompressionAlgoLevelSelectorManager
