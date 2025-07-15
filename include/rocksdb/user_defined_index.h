@@ -89,6 +89,10 @@ class UserDefinedIndexIterator {
  public:
   virtual ~UserDefinedIndexIterator() = default;
 
+  // Prepare the iterator for a series of scans. The iterator should use
+  // this as an opportunity to do any prefetching and buffering of results.
+  virtual void Prepare(const ScanOptions scan_opts[], size_t num_opts) = 0;
+
   // Given the target key, position the index iterator at the index entry
   // with the smallest key >= target. The result must be updated with the
   // index key, and the bound_check_result. The bound_check_result should
