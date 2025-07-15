@@ -399,10 +399,10 @@ IOStatus TestFSWritableFile::RangeSync(uint64_t offset, uint64_t nbytes,
   return io_s;
 }
 
-TestFSRandomRWFile::TestFSRandomRWFile(const std::string& /*fname*/,
+TestFSRandomRWFile::TestFSRandomRWFile(const std::string& fname,
                                        std::unique_ptr<FSRandomRWFile>&& f,
                                        FaultInjectionTestFS* fs)
-    : target_(std::move(f)), file_opened_(true), fs_(fs) {
+    : fname_(fname), target_(std::move(f)), file_opened_(true), fs_(fs) {
   assert(target_ != nullptr);
 }
 
@@ -433,6 +433,7 @@ IOStatus TestFSRandomRWFile::Read(uint64_t offset, size_t n,
 
 IOStatus TestFSRandomRWFile::Close(const IOOptions& options,
                                    IODebugContext* dbg) {
+  fs_->RandomRWFileClosed(fname_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -1271,6 +1272,13 @@ IOStatus FaultInjectionTestFS::Poll(std::vector<void*>& io_handles,
 
 IOStatus FaultInjectionTestFS::AbortIO(std::vector<void*>& io_handles) {
   return target()->AbortIO(io_handles);
+}
+
+void FaultInjectionTestFS::RandomRWFileClosed(const std::string& fname) {
+  MutexLock l(&mutex_);
+  if (open_managed_files_.find(fname) != open_managed_files_.end()) {
+    open_managed_files_.erase(fname);
+  }
 }
 
 void FaultInjectionTestFS::WritableFileClosed(const FSFileState& state) {

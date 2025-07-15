@@ -21,15 +21,19 @@
 // An entry for a particular key-value pair has the form:
 //     shared_bytes: varint32
 //     unshared_bytes: varint32
-//     value_length: varint32
+//     value_length: varint32 (NOTE1)
 //     key_delta: char[unshared_bytes]
 //     value: char[value_length]
-// shared_bytes == 0 for restart points.
+// shared_bytes == 0 (explicitly stored) for restart points.
 //
 // The trailer of the block has the form:
 //     restarts: uint32[num_restarts]
 //     num_restarts: uint32
 // restarts[i] contains the offset within the block of the ith restart point.
+//
+// NOTE1: omitted for format_version >= 4 index blocks, because the value is
+// composed of one (shared_bytes > 0) or two (shared_bytes == 0) varints, whose
+// length is self-describing.
 
 #include "table/block_based/block_builder.h"
 
