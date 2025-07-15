@@ -396,7 +396,8 @@ AutoCompressionAlgoLevelSelectorManager::GetCompressorForSST(
       opts, io_budget, cpu_budget, rate_limiter);
 }
 
-std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
+std::shared_ptr<CompressionManagerWrapper>
+CreateAutoCompressionAlgoLevelSelectingManager(
     std::shared_ptr<CompressionManager> wrapped,
     std::shared_ptr<CPUIOBudgetFactory> budget_factory) {
   return std::make_shared<AutoCompressionAlgoLevelSelectorManager>(

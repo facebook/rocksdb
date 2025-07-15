@@ -4701,7 +4701,8 @@ class Benchmark {
       std::shared_ptr<CPUIOBudgetFactory> budget_factory =
           std::make_shared<DefaultBudgetFactory>(
               cpu_usage_limit, io_usage_limit, kMicrosInSecond, options);
-      mgr = CreateCostAwareCompressionManager(nullptr, budget_factory);
+      mgr = CreateAutoCompressionAlgoLevelSelectingManager(nullptr,
+                                                           budget_factory);
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
