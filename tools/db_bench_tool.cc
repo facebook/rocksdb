@@ -4717,9 +4717,9 @@ class Benchmark {
       double cpu_usage_limit = FLAGS_autotune_cpubudget;
       double cpu_minusage_limit = FLAGS_autotune_mincpubudget;
       std::shared_ptr<CPUIOBudgetFactory> budget_factory =
-          std::make_shared<DefaultBudgetFactory>(
-              cpu_usage_limit, io_usage_limit, cpu_minusage_limit,
-              io_minusage_limit, options);
+          makeDefaultBudgetFactory(cpu_usage_limit, io_usage_limit,
+                                   cpu_minusage_limit, io_minusage_limit,
+                                   options);
       mgr = CreateAutoTuneCompressionManager(nullptr, budget_factory);
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();

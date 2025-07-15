@@ -649,4 +649,8 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     std::shared_ptr<CompressionManager> wrapped = nullptr,
     std::shared_ptr<CPUIOBudgetFactory> budget_factory = nullptr);
+
+std::shared_ptr<CPUIOBudgetFactory> makeDefaultBudgetFactory(
+    double cpu_budget, double io_goal, double cpu_minbudget, double io_mingoal,
+    Options opt);
 }  // namespace ROCKSDB_NAMESPACE

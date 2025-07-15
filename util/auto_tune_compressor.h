@@ -158,7 +158,6 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
   ManagedWorkingArea ObtainWorkingArea() override;
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
       CacheEntryRole block_type, DictSampleArgs&& dict_samples) override;
-
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;

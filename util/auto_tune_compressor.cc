@@ -404,4 +404,11 @@ DefaultBudgetFactory::GetBudget() {
       std::make_shared<CPUBudget>(cpu_budget_, cpu_minbudget_);
   return {io_goal, cpu_budget};
 }
+
+std::shared_ptr<CPUIOBudgetFactory> makeDefaultBudgetFactory(
+    double cpu_budget, double io_goal, double cpu_minbudget, double io_mingoal,
+    Options opt) {
+  return std::make_shared<DefaultBudgetFactory>(cpu_budget, io_goal,
+                                                cpu_minbudget, io_mingoal, opt);
+}
 }  // namespace ROCKSDB_NAMESPACE
