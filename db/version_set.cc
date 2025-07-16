@@ -1010,7 +1010,7 @@ class LevelIterator final : public InternalIterator {
       *range_tombstone_iter_ptr_ = &range_tombstone_iter_;
     }
 
-    prepared_iters.reserve(file_index_);
+    prepared_iters.reserve(file_index_ + 1);
   }
 
   ~LevelIterator() override { delete file_iter_.Set(nullptr); }
