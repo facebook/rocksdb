@@ -196,7 +196,8 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
                                          ManagedWorkingArea* wa) {
   // Check if the managed working area is provided or owned by this object.
   // If not, bypass compressor logic since the working area lacks a predictor.
-  if (wa == nullptr || wa->owner() != this || compressors_.size() == 0) {
+  if (wa == nullptr || wa->owner() != this || compressors_.size() == 0 ||
+      rate_limiter_ == nullptr) {
     return default_compressor_->CompressBlock(
         uncompressed_data, compressed_output, out_compression_type, wa);
   }
@@ -216,11 +217,11 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
                                   local_wa);
   } else {
     auto chosen_compressor = SelectCompressionBasedOnIOGoalCPUBudget(local_wa);
-    // Check if the chosen compression type and level are available
-    // if not, skip the compression
     TEST_SYNC_POINT_CALLBACK(
         "AutoTuneCompressorWrapper::CompressBlock::GetSelection",
         &chosen_compressor);
+    // Check if the chosen compression type and level are available
+    // if not, skip the compression
     if (chosen_compressor >= compressors_.size()) {
       *out_compression_type = kNoCompression;
       return Status::OK();
@@ -269,8 +270,6 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   auto io_util = usage_tracker_.GetIoUtilization();
   TEST_SYNC_POINT_CALLBACK("AutoTuneCompressorWrapper::SetCPUUsage", &cpu_util);
   TEST_SYNC_POINT_CALLBACK("AutoTuneCompressorWrapper::SetIOUsage", &io_util);
-  // Select compression whose cpu cost and io cost are within budget
-  // Return the first compression type and level that fits within budget
   // Get available budgets
   auto cpu_goal = cpu_budget_->GetMaxRate();
   auto io_goal = io_goal_->GetMaxRate();
@@ -278,7 +277,7 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   auto io_mingoal = io_goal_->GetMinRate();
   // Detect the 4 quadrant that we want to explore
   // Stable region is between the cpu_mingoal to cpu_goal
-  // and  and io_mingoal to io_goal
+  // and io_mingoal to io_goal
   bool increase_io = io_util < io_mingoal;
   bool decrease_io = io_util > io_goal;
   bool increase_cpu = cpu_util < cpu_mingoal;
@@ -302,8 +301,10 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   TEST_SYNC_POINT_CALLBACK(
       "AutoTuneCompressorWrapper::CompressBlock::GetPredictors",
       &(wa->cost_predictors_));
-  // If we are in the unstable region, then we need to explore the other which
-  // is in the right quadrant where we want to move to
+  // If we are not in the stable region, then we need to explore the other
+  // compression algorithm and level which is in the right quadrant where we
+  // want to move to based on whether we want to increase or decrease the cpu
+  // and io usage
   auto cur_cpu_cost =
       wa->cost_predictors_[cur_compressor_idx_]->CPUPredictor.Predict();
   auto cur_io_cost =
@@ -344,6 +345,8 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   // decrease CPU usage. Otherwise, the current compression type and level
   // is the best we can do.
   if (increase_io && decrease_cpu) {
+    // index that is above the size of created compressors is treated as signal
+    // for no compression
     cur_compressor_idx_ = std::numeric_limits<size_t>::max();
   }
   return cur_compressor_idx_;

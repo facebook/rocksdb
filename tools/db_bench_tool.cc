@@ -76,7 +76,6 @@
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
 #include "tools/simulated_hybrid_file_system.h"
-#include "util/auto_tune_compressor.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"

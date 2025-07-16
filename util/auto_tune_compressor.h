@@ -192,6 +192,7 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
   // Will servers as a logical clock to decide when to update the decision
   std::atomic<int> block_count_;
   std::atomic<size_t> cur_compressor_idx_;
+  std::unique_ptr<Compressor> default_compressor_;
 
   static constexpr int kDecideEveryNBlocks = 2000;
   static constexpr int kWindow = 10;
@@ -201,7 +202,7 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
  public:
   explicit AutoTuneCompressorManager(
       std::shared_ptr<CompressionManager> wrapped,
-      std::shared_ptr<CPUIOBudgetFactory> budget_factory)
+      std::shared_ptr<IOGoalCPUBudgetFactory> budget_factory)
       : CompressionManagerWrapper(wrapped), budget_factory_(budget_factory) {}
 
   const char* Name() const override;
@@ -210,10 +211,10 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
       CompressionType preferred) override;
 
  private:
-  std::shared_ptr<CPUIOBudgetFactory> budget_factory_;
+  std::shared_ptr<IOGoalCPUBudgetFactory> budget_factory_;
 };
 
-class DefaultBudgetFactory : public CPUIOBudgetFactory {
+class DefaultBudgetFactory : public IOGoalCPUBudgetFactory {
  public:
   DefaultBudgetFactory(const double cpu_budget, const double io_goal,
                        const double cpu_minbudget, const double io_mingoal,
