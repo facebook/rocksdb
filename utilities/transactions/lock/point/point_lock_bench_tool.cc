@@ -243,11 +243,7 @@ void PointLockManagerBenchmark::BenchmarkPointLockManager() {
       while (!shutdown_) {
         DEBUG_LOG_PREFIX("new txn\n");
         std::vector<std::pair<uint32_t, bool>> locked_key_with_types;
-        // try to grab a random number of locks
-        auto num_key_to_lock =
-            Random::GetTLSInstance()->Uniform(
-                static_cast<uint32_t>(FLAGS_max_num_keys_to_lock_per_txn)) +
-            1;
+        auto num_key_to_lock = FLAGS_max_num_keys_to_lock_per_txn;
         Status s;
 
         for (uint32_t j = 0; j < num_key_to_lock; j++) {
