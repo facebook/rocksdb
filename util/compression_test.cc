@@ -2001,7 +2001,8 @@ TEST_F(DBAutoTuneCompression, AutoTuneCompression) {
   // make sure that threre are more than two compressors before running the test
   // case.
   CompressionOptions fopts;
-  AutoTuneCompressor test_obj(fopts);
+  CompressionType default_type = kZSTD;
+  AutoTuneCompressor test_obj(fopts, default_type);
   if (test_obj.GetCompressorsSize() < 2) {
     fprintf(stdout,
             "Skipping the test case as there are less than two "

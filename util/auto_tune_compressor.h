@@ -149,7 +149,7 @@ class CostAwareWorkingArea : public Compressor::WorkingArea {
 class AutoTuneCompressor : public MultiCompressorWrapper {
  public:
   explicit AutoTuneCompressor(
-      const CompressionOptions& opts,
+      const CompressionOptions& opts, const CompressionType default_type,
       std::shared_ptr<IOGoal> io_budget = nullptr,
       std::shared_ptr<CPUBudget> cpu_budget = nullptr,
       std::shared_ptr<RateLimiter> rate_limiter = nullptr);

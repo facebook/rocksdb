@@ -134,8 +134,8 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
 }
 
 AutoTuneCompressor::AutoTuneCompressor(
-    const CompressionOptions& opts, std::shared_ptr<IOGoal> io_goal,
-    std::shared_ptr<CPUBudget> cpu_budget,
+    const CompressionOptions& opts, const CompressionType default_type,
+    std::shared_ptr<IOGoal> io_goal, std::shared_ptr<CPUBudget> cpu_budget,
     std::shared_ptr<RateLimiter> rate_limiter)
     : opts_(opts),
       io_goal_(io_goal),
@@ -172,6 +172,8 @@ AutoTuneCompressor::AutoTuneCompressor(
   MeasureUtilization();
   block_count_ = 0;
   cur_compressor_idx_ = 0;
+  default_compressor_ =
+      GetBuiltinV2CompressionManager()->GetCompressor(opts, default_type);
 }
 AutoTuneCompressor::~AutoTuneCompressor() {}
 const char* AutoTuneCompressor::Name() const { return "AutoTuneCompressor"; }
@@ -179,10 +181,14 @@ std::unique_ptr<Compressor> AutoTuneCompressor::MaybeCloneSpecialized(
     CacheEntryRole block_type, DictSampleArgs&& dict_samples) {
   // TODO: full dictionary compression support. Currently this just falls
   // back on a non-multi compressor when asked to use a dictionary.
-  assert(compressors_.size() > 0);
-  auto idx = compressors_.size() - 1;
-  return compressors_[idx]->MaybeCloneSpecialized(block_type,
-                                                  std::move(dict_samples));
+  if (compressors_.size() > 0) {
+    auto idx = compressors_.size() - 1;
+    return compressors_[idx]->MaybeCloneSpecialized(block_type,
+                                                    std::move(dict_samples));
+  } else {
+    return default_compressor_->MaybeCloneSpecialized(block_type,
+                                                      std::move(dict_samples));
+  }
 }
 Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
                                          std::string* compressed_output,
@@ -190,14 +196,9 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
                                          ManagedWorkingArea* wa) {
   // Check if the managed working area is provided or owned by this object.
   // If not, bypass compressor logic since the working area lacks a predictor.
-  if (wa == nullptr || wa->owner() != this) {
-    assert(compressors_.size() > 0);
-    auto idx = 0;
-    return compressors_[idx]->CompressBlock(
+  if (wa == nullptr || wa->owner() != this || compressors_.size() == 0) {
+    return default_compressor_->CompressBlock(
         uncompressed_data, compressed_output, out_compression_type, wa);
-  }
-  if (compressors_.size() == 0) {
-    return Status::NotSupported("No compression type supported");
   }
 
   auto local_wa = static_cast<CostAwareWorkingArea*>(wa->get());
@@ -383,7 +384,6 @@ std::unique_ptr<Compressor> AutoTuneCompressorManager::GetCompressorForSST(
     CompressionType preferred) {
   assert(GetSupportedCompressions().size() > 1);
   (void)context;
-  (void)preferred;
 
   // Get budgets from budget factory if available
   std::shared_ptr<IOGoal> io_budget = nullptr;
@@ -396,8 +396,8 @@ std::unique_ptr<Compressor> AutoTuneCompressorManager::GetCompressorForSST(
     rate_limiter = budget_factory_->GetOptions().rate_limiter;
   }
 
-  return std::make_unique<AutoTuneCompressor>(opts, io_budget, cpu_budget,
-                                              rate_limiter);
+  return std::make_unique<AutoTuneCompressor>(opts, preferred, io_budget,
+                                              cpu_budget, rate_limiter);
 }
 
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(

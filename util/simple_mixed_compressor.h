@@ -30,6 +30,7 @@ class MultiCompressorWrapper : public Compressor {
 
  protected:
   std::vector<std::unique_ptr<Compressor>> compressors_;
+  std::unique_ptr<Compressor> default_compressor_;
 };
 
 struct RandomMixedCompressor : public MultiCompressorWrapper {
