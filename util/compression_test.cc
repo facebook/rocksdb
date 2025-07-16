@@ -1980,11 +1980,6 @@ class DBAutoTuneCompression : public DBTestBase {
     double cpu_minusage_limit = 0.5;
     double io_usage_limit = 0.7;
     double io_minusage_limit = 0.5;
-    auto budget_factory = makeDefaultBudgetFactory(
-        cpu_usage_limit, io_usage_limit, cpu_minusage_limit, io_minusage_limit,
-        options);
-    options.compression_manager =
-        CreateAutoTuneCompressionManager(nullptr, budget_factory);
     auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.statistics = statistics;
     options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
@@ -1997,6 +1992,11 @@ class DBAutoTuneCompression : public DBTestBase {
     options.rate_limiter.reset(NewGenericRateLimiter(
         1000000000, 1000 /* refill_period_us */, 10 /* fairness */,
         RateLimiter::Mode::kWritesOnly));
+    auto budget_factory = makeDefaultBudgetFactory(
+        cpu_usage_limit, io_usage_limit, cpu_minusage_limit, io_minusage_limit,
+        options);
+    options.compression_manager =
+        CreateAutoTuneCompressionManager(nullptr, budget_factory);
     DestroyAndReopen(options);
   }
 };
