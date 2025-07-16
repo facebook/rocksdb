@@ -4716,7 +4716,7 @@ class Benchmark {
           FLAGS_autotune_miniogoal * ratelimiter_throughput;
       double cpu_usage_limit = FLAGS_autotune_cpubudget;
       double cpu_minusage_limit = FLAGS_autotune_mincpubudget;
-      std::shared_ptr<CPUIOBudgetFactory> budget_factory =
+      std::shared_ptr<IOGoalCPUBudgetFactory> budget_factory =
           makeDefaultBudgetFactory(cpu_usage_limit, io_usage_limit,
                                    cpu_minusage_limit, io_minusage_limit,
                                    options);

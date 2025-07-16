@@ -402,7 +402,7 @@ std::unique_ptr<Compressor> AutoTuneCompressorManager::GetCompressorForSST(
 
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     std::shared_ptr<CompressionManager> wrapped,
-    std::shared_ptr<CPUIOBudgetFactory> budget_factory) {
+    std::shared_ptr<IOGoalCPUBudgetFactory> budget_factory) {
   return std::make_shared<AutoTuneCompressorManager>(
       wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped,
       budget_factory);
@@ -417,7 +417,7 @@ DefaultBudgetFactory::GetBudget() {
   return {io_goal, cpu_budget};
 }
 
-std::shared_ptr<CPUIOBudgetFactory> makeDefaultBudgetFactory(
+std::shared_ptr<IOGoalCPUBudgetFactory> makeDefaultBudgetFactory(
     double cpu_budget, double io_goal, double cpu_minbudget, double io_mingoal,
     Options opt) {
   return std::make_shared<DefaultBudgetFactory>(cpu_budget, io_goal,
