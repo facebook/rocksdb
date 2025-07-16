@@ -1994,6 +1994,9 @@ class DBAutoTuneCompression : public DBTestBase {
         new AutoTuneFlushBlockPolicyFactory(2000));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
     options.write_buffer_size = 19000000000;
+    options.rate_limiter.reset(NewGenericRateLimiter(
+        1000000000, 1000 /* refill_period_us */, 10 /* fairness */,
+        RateLimiter::Mode::kWritesOnly));
     DestroyAndReopen(options);
   }
 };
