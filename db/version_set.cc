@@ -1105,10 +1105,6 @@ class LevelIterator final : public InternalIterator {
     // We assume here that scan_opts is sorted such that
     // scan_opts[0].range.start < scan_opts[1].range.start
     scan_opts_ = scan_opts;
-<<<<<<< HEAD
-=======
-
->>>>>>> d979641b7 (Prefetching on block prepare (only first entry))
     if (scan_opts_ != nullptr) {
       for (size_t i = 0; i < flevel_->num_files; i++) {
         PrepareFileIterator(i);
