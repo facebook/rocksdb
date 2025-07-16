@@ -1769,6 +1769,273 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
     ASSERT_OK(Flush());
   }
 }
+class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
+ public:
+  explicit AutoTuneFlushBlockPolicy(const int wait_block_count,
+                                    const BlockBuilder& data_block_builder)
+      : wait_block_count_(wait_block_count),
+        num_keys_(0),
+        data_block_builder_(data_block_builder) {
+    def_cpu_prediction_ = 500;
+    def_io_prediction_ = 1000;
+  }
+
+  bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
+    auto set_cpu_usage = [&](double cpu_usage) {
+      return [cpu_usage](void* arg) {
+        double* measured_value = static_cast<double*>(arg);
+        *measured_value = cpu_usage;
+      };
+    };
+    auto set_io_usage = [&](double io_usage) {
+      return [io_usage](void* arg) {
+        double* measured_value = static_cast<double*>(arg);
+        *measured_value = io_usage;
+      };
+    };
+
+    double cpu_usage_limit = 0.7;
+    double cpu_minusage_limit = 0.5;
+    double io_usage_limit = 0.7;
+    double io_minusage_limit = 0.5;
+    auto nth_response = num_keys_ / wait_block_count_;
+
+    if (data_block_builder_.empty()) {
+      // First key in this block
+      return false;
+    }
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    auto unset_explore = [](void* arg) {
+      bool* to_explore = static_cast<bool*>(arg);
+      *to_explore = false;
+    };
+    SyncPoint::GetInstance()->SetCallBack(
+        "AutoTuneCompressorWrapper::CompressBlock::exploitOrExplore",
+        unset_explore);
+    // Check every wait_block_count_
+    if (num_keys_ % wait_block_count_ == 0) {
+      auto get_predictor = [&](void* arg) {
+        // gets the predictor and sets the mocked cpu and io cost
+        predictors_ = *static_cast<std::vector<IOCPUCostPredictor*>*>(arg);
+        for (size_t i = 0; i < predictors_.size(); i++) {
+          if (i == cur_selection_) {
+            predictors_[i]->CPUPredictor.SetPrediction(cur_sel_cpu_prediction_);
+            predictors_[i]->IOPredictor.SetPrediction(cur_sel_io_prediction_);
+          } else if (i == exp_selection_) {
+            predictors_[i]->CPUPredictor.SetPrediction(exp_sel_cpu_prediction_);
+            predictors_[i]->IOPredictor.SetPrediction(exp_sel_cpu_prediction_);
+          } else {
+            predictors_[i]->CPUPredictor.SetPrediction(def_cpu_prediction_);
+            predictors_[i]->IOPredictor.SetPrediction(def_io_prediction_);
+          }
+        }
+      };
+      auto get_selection = [&](void* arg) {
+        size_t* cur_ptr = static_cast<size_t*>(arg);
+        cur_selection_ = *cur_ptr;
+      };
+
+      SyncPoint::GetInstance()->SetCallBack(
+          "AutoTuneCompressorWrapper::CompressBlock::"
+          "GetPredictors",
+          get_predictor);
+      SyncPoint::GetInstance()->SetCallBack(
+          "AutoTuneCompressorWrapper::CompressBlock::"
+          "GetSelection",
+          get_selection);
+      SyncPoint::GetInstance()->EnableProcessing();
+      cur_sel_cpu_prediction_ = def_cpu_prediction_;
+      cur_sel_io_prediction_ = def_io_prediction_;
+      switch (nth_response) {
+        case 0:
+          cur_selection_ = 0;
+          // Set condition in which cpu and io usage both need to increase
+          SyncPoint::GetInstance()->SetCallBack(
+              "AutoTuneCompressorWrapper::"
+              "SetCPUUsage",
+              set_cpu_usage(cpu_minusage_limit - 0.1));
+          SyncPoint::GetInstance()->SetCallBack(
+              "AutoTuneCompressorWrapper::"
+              "SetIOUsage",
+              set_io_usage(io_minusage_limit - 0.1));
+          exp_selection_ = (cur_selection_ == 0) ? 1 : 0;
+          exp_sel_cpu_prediction_ = def_cpu_prediction_ + 200;
+          exp_sel_io_prediction_ = def_io_prediction_ + 200;
+          break;
+        case 1:
+          EXPECT_EQ(cur_selection_, exp_selection_);
+          // Set condition in which cpu and io usage both need to decrease
+          SyncPoint::GetInstance()->SetCallBack(
+              "AutoTuneCompressorWrapper::"
+              "SetCPUUsage",
+              set_cpu_usage(cpu_usage_limit + 0.1));
+          SyncPoint::GetInstance()->SetCallBack(
+              "AutoTuneCompressorWrapper::"
+              "SetIOUsage",
+              set_io_usage(io_usage_limit + 0.1));
+          exp_selection_ = (cur_selection_ == 0) ? 1 : 0;
+          exp_sel_cpu_prediction_ = def_cpu_prediction_ - 200;
+          exp_sel_io_prediction_ = def_io_prediction_ - 200;
+          break;
+        case 2:
+          EXPECT_EQ(cur_selection_, exp_selection_);
+          // Set condition in which cpu usage needs to increase and io usage
+          // need to decrease
+          SyncPoint::GetInstance()->SetCallBack(
+              "AutoTuneCompressorWrapper::"
+              "SetCPUUsage",
+              set_cpu_usage(cpu_minusage_limit - 0.1));
+          SyncPoint::GetInstance()->SetCallBack(
+              "AutoTuneCompressorWrapper::"
+              "SetIOUsage",
+              set_io_usage(io_usage_limit + 0.1));
+          exp_selection_ = (cur_selection_ == 0) ? 1 : 0;
+          exp_sel_cpu_prediction_ = def_cpu_prediction_ + 200;
+          exp_sel_io_prediction_ = def_io_prediction_ - 200;
+          break;
+        case 3:
+          EXPECT_EQ(cur_selection_, exp_selection_);
+          // Set condition in which cpu usage needs to decrease and io usage
+          // need to increase
+          SyncPoint::GetInstance()->SetCallBack(
+              "AutoTuneCompressorWrapper::"
+              "SetCPUUsage",
+              set_cpu_usage(cpu_usage_limit + 0.1));
+          SyncPoint::GetInstance()->SetCallBack(
+              "AutoTuneCompressorWrapper::"
+              "SetIOUsage",
+              set_io_usage(io_minusage_limit - 0.1));
+          exp_selection_ = (cur_selection_ == 0) ? 1 : 0;
+          exp_sel_cpu_prediction_ = def_cpu_prediction_ - 200;
+          exp_sel_io_prediction_ = def_io_prediction_ + 200;
+          break;
+
+        case 4:
+          EXPECT_EQ(cur_selection_, exp_selection_);
+          // Set condition in which both cpu usage and io usage neither needs to
+          // increase or decrease
+          SyncPoint::GetInstance()->SetCallBack(
+              "AutoTuneCompressor::CompressBlockAndRecord::"
+              "SetCPUUsage",
+              set_cpu_usage((cpu_usage_limit + cpu_minusage_limit) / 2));
+          SyncPoint::GetInstance()->SetCallBack(
+              "AutoTuneCompressor::CompressBlockAndRecord::"
+              "SetIOUsage",
+              set_io_usage((io_usage_limit + io_minusage_limit) / 2));
+          exp_selection_ = cur_selection_;
+          exp_sel_io_prediction_ = def_io_prediction_;
+          exp_sel_io_prediction_ = def_io_prediction_;
+          break;
+        case 5:
+          EXPECT_EQ(cur_selection_, exp_selection_);
+          break;
+      }
+    }
+    SyncPoint::GetInstance()->EnableProcessing();
+    num_keys_++;
+    return true;
+  }
+
+ private:
+  const int wait_block_count_;
+  int num_keys_;
+  const BlockBuilder& data_block_builder_;
+  std::vector<IOCPUCostPredictor*> predictors_;
+  size_t cur_sel_cpu_prediction_;
+  size_t cur_sel_io_prediction_;
+  size_t exp_sel_cpu_prediction_;
+  size_t exp_sel_io_prediction_;
+  size_t def_cpu_prediction_;
+  size_t def_io_prediction_;
+  size_t cur_selection_;
+  size_t exp_selection_;
+};
+class AutoTuneFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+ public:
+  explicit AutoTuneFlushBlockPolicyFactory(const int wait_block_count)
+      : wait_block_count_(wait_block_count) {}
+
+  virtual const char* Name() const override {
+    return "AutoTuneFlushBlockPolicyFactory";
+  }
+
+  virtual FlushBlockPolicy* NewFlushBlockPolicy(
+      const BlockBasedTableOptions& /*table_options*/,
+      const BlockBuilder& data_block_builder) const override {
+    (void)data_block_builder;
+    return new AutoTuneFlushBlockPolicy(wait_block_count_, data_block_builder);
+  }
+
+ private:
+  int wait_block_count_;
+};
+class DBAutoTuneCompression : public DBTestBase {
+ public:
+  Options options;
+  DBAutoTuneCompression()
+      : DBTestBase("db_autotune", /*env_do_fsync=*/true),
+        options(CurrentOptions()) {
+    double cpu_usage_limit = 0.7;
+    double cpu_minusage_limit = 0.5;
+    double io_usage_limit = 0.7;
+    double io_minusage_limit = 0.5;
+    auto budget_factory = makeDefaultBudgetFactory(
+        cpu_usage_limit, io_usage_limit, cpu_minusage_limit, io_minusage_limit,
+        options);
+    auto get_compressor_size = [&](void* arg) {
+      auto compressor_size = static_cast<std::vector<Compressor>*>(arg)->size();
+      fprintf(stdout, "compressor size: %zu\n", compressor_size);
+    };
+    options.compression_manager =
+        CreateAutoTuneCompressionManager(nullptr, budget_factory);
+    auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    options.statistics = statistics;
+    options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+    BlockBasedTableOptions bbto;
+    bbto.enable_index_compression = false;
+    bbto.flush_block_policy_factory.reset(
+        new AutoTuneFlushBlockPolicyFactory(2000));
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    SyncPoint::GetInstance()->SetCallBack(
+        "AutoTuneCompressor::"
+        "GetCompressors",
+        get_compressor_size);
+    DestroyAndReopen(options);
+  }
+};
+TEST_F(DBAutoTuneCompression, AutoTuneCompression) {
+  // make sure that threre are more than two compressors before running the test
+  // case.
+  CompressionOptions fopts;
+  AutoTuneCompressor test_obj(fopts);
+  if (test_obj.GetCompressorsSize() < 2) {
+    fprintf(stdout,
+            "Skipping the test case as there are less than two "
+            "compressors\n");
+    return;
+  }
+
+  const int kValueSize = 20000;
+  int next_key = 0;
+  Random rnd(231);
+  auto value = rnd.RandomBinaryString(kValueSize);
+  auto block_write = [&](int num) {
+    for (auto i = 0; i < num; ++i) {
+      auto status = Put(Key(next_key), value);
+      EXPECT_OK(status);
+      next_key++;
+    }
+  };
+  block_write(2000);
+  block_write(2000);
+  block_write(2000);
+  block_write(2000);
+  block_write(2000);
+  ASSERT_OK(Flush());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

@@ -162,6 +162,7 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
   void ReleaseWorkingArea(WorkingArea* wa) override;
+  size_t GetCompressorsSize() { return compressors_.size(); }
 
  private:
   Status CompressBlockAndRecord(size_t compressor_index,
@@ -191,6 +192,7 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
   // Will servers as a logical clock to decide when to update the decision
   std::atomic<int> block_count_;
   std::atomic<size_t> cur_compressor_idx_;
+
   static constexpr int kDecideEveryNBlocks = 2000;
   static constexpr int kWindow = 10;
 };

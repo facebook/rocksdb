@@ -201,8 +201,14 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
   }
 
   auto local_wa = static_cast<CostAwareWorkingArea*>(wa->get());
+  TEST_SYNC_POINT_CALLBACK(
+      "AutoTuneCompressorWrapper::CompressBlock::GetPredictors",
+      &(local_wa->cost_predictors_));
   bool exploration =
       Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
+  TEST_SYNC_POINT_CALLBACK(
+      "AutoTuneCompressorWrapper::CompressBlock::exploitOrExplore",
+      &exploration);
   if (exploration) {
     size_t choosen_index = Random::GetTLSInstance()->Uniform(
         static_cast<int>(compressors_.size()));
@@ -211,14 +217,17 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
                                   compressed_output, out_compression_type,
                                   local_wa);
   } else {
-    auto chosen_index = SelectCompressionBasedOnIOGoalCPUBudget(local_wa);
+    auto chosen_compressor = SelectCompressionBasedOnIOGoalCPUBudget(local_wa);
     // Check if the chosen compression type and level are available
     // if not, skip the compression
-    if (chosen_index >= compressors_.size()) {
+    TEST_SYNC_POINT_CALLBACK(
+        "AutoTuneCompressorWrapper::CompressBlock::GetSelection",
+        &chosen_compressor);
+    if (chosen_compressor >= compressors_.size()) {
       *out_compression_type = kNoCompression;
       return Status::OK();
     }
-    return CompressBlockAndRecord(chosen_index, uncompressed_data,
+    return CompressBlockAndRecord(chosen_compressor, uncompressed_data,
                                   compressed_output, out_compression_type,
                                   local_wa);
   }
@@ -260,6 +269,8 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   MeasureUtilization();
   auto cpu_util = usage_tracker_.GetCpuUtilization();
   auto io_util = usage_tracker_.GetIoUtilization();
+  TEST_SYNC_POINT_CALLBACK("AutoTuneCompressorWrapper::SetCPUUsage", &cpu_util);
+  TEST_SYNC_POINT_CALLBACK("AutoTuneCompressorWrapper::SetIOUsage", &io_util);
   // Select compression whose cpu cost and io cost are within budget
   // Return the first compression type and level that fits within budget
   // Get available budgets
