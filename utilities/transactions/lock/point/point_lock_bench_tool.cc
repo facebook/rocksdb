@@ -238,9 +238,9 @@ void PointLockManagerBenchmark::BenchmarkPointLockManager() {
 
   for (size_t thd_idx = 0; thd_idx < FLAGS_thread_count; thd_idx++) {
     threads_.emplace_back([this, thd_idx]() {
+      auto txn = NewTxn(txn_opt_);
+      auto txn_id = txn->GetID();
       while (!shutdown_) {
-        auto txn = NewTxn(txn_opt_);
-        auto txn_id = txn->GetID();
         DEBUG_LOG_PREFIX("new txn\n");
         std::vector<std::pair<uint32_t, bool>> locked_key_with_types;
         // try to grab a random number of locks
@@ -411,8 +411,8 @@ void PointLockManagerBenchmark::BenchmarkPointLockManager() {
           DEBUG_LOG_PREFIX("release lock %u\n", key);
           locker_->UnLock(txn, 1, std::to_string(key), env_);
         }
-        delete txn;
       }
+      delete txn;
     });
   }
 
