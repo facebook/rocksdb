@@ -222,6 +222,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
+  void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+    index_iter_->Prepare(scan_opts);
+  }
+
   FilePrefetchBuffer* prefetch_buffer() {
     return block_prefetcher_.prefetch_buffer();
   }
