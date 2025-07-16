@@ -1781,6 +1781,10 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
   }
 
   bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
+    if (data_block_builder_.empty()) {
+      // First key in this block
+      return false;
+    }
     auto set_cpu_usage = [&](double cpu_usage) {
       return [cpu_usage](void* arg) {
         double* measured_value = static_cast<double*>(arg);
@@ -1794,28 +1798,22 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
       };
     };
 
-    double cpu_usage_limit = 0.7;
-    double cpu_minusage_limit = 0.5;
-    double io_usage_limit = 0.7;
-    double io_minusage_limit = 0.5;
-    auto nth_response = num_keys_ / wait_block_count_;
-
-    if (data_block_builder_.empty()) {
-      // First key in this block
-      return false;
-    }
-
-    SyncPoint::GetInstance()->DisableProcessing();
-    SyncPoint::GetInstance()->ClearAllCallBacks();
     auto unset_explore = [](void* arg) {
       bool* to_explore = static_cast<bool*>(arg);
       *to_explore = false;
     };
-    SyncPoint::GetInstance()->SetCallBack(
-        "AutoTuneCompressorWrapper::CompressBlock::exploitOrExplore",
-        unset_explore);
+    double cpu_usage_limit = 0.7;
+    double cpu_minusage_limit = 0.5;
+    double io_usage_limit = 0.7;
+    double io_minusage_limit = 0.5;
+
     // Check every wait_block_count_
     if (num_keys_ % wait_block_count_ == 0) {
+      SyncPoint::GetInstance()->DisableProcessing();
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+      SyncPoint::GetInstance()->SetCallBack(
+          "AutoTuneCompressorWrapper::CompressBlock::exploitOrExplore",
+          unset_explore);
       auto get_predictor = [&](void* arg) {
         // gets the predictor and sets the mocked cpu and io cost
         predictors_ = *static_cast<std::vector<IOCPUCostPredictor*>*>(arg);
@@ -1825,7 +1823,7 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
             predictors_[i]->IOPredictor.SetPrediction(cur_sel_io_prediction_);
           } else if (i == exp_selection_) {
             predictors_[i]->CPUPredictor.SetPrediction(exp_sel_cpu_prediction_);
-            predictors_[i]->IOPredictor.SetPrediction(exp_sel_cpu_prediction_);
+            predictors_[i]->IOPredictor.SetPrediction(exp_sel_io_prediction_);
           } else {
             predictors_[i]->CPUPredictor.SetPrediction(def_cpu_prediction_);
             predictors_[i]->IOPredictor.SetPrediction(def_io_prediction_);
@@ -1848,6 +1846,7 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
       SyncPoint::GetInstance()->EnableProcessing();
       cur_sel_cpu_prediction_ = def_cpu_prediction_;
       cur_sel_io_prediction_ = def_io_prediction_;
+      auto nth_response = num_keys_ / wait_block_count_;
       switch (nth_response) {
         case 0:
           cur_selection_ = 0;
@@ -1932,8 +1931,8 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
           EXPECT_EQ(cur_selection_, exp_selection_);
           break;
       }
+      SyncPoint::GetInstance()->EnableProcessing();
     }
-    SyncPoint::GetInstance()->EnableProcessing();
     num_keys_++;
     return true;
   }
@@ -1984,10 +1983,6 @@ class DBAutoTuneCompression : public DBTestBase {
     auto budget_factory = makeDefaultBudgetFactory(
         cpu_usage_limit, io_usage_limit, cpu_minusage_limit, io_minusage_limit,
         options);
-    auto get_compressor_size = [&](void* arg) {
-      auto compressor_size = static_cast<std::vector<Compressor>*>(arg)->size();
-      fprintf(stdout, "compressor size: %zu\n", compressor_size);
-    };
     options.compression_manager =
         CreateAutoTuneCompressionManager(nullptr, budget_factory);
     auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -1998,10 +1993,7 @@ class DBAutoTuneCompression : public DBTestBase {
     bbto.flush_block_policy_factory.reset(
         new AutoTuneFlushBlockPolicyFactory(2000));
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    SyncPoint::GetInstance()->SetCallBack(
-        "AutoTuneCompressor::"
-        "GetCompressors",
-        get_compressor_size);
+    options.write_buffer_size = 19000000000;
     DestroyAndReopen(options);
   }
 };

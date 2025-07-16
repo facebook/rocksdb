@@ -201,9 +201,6 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
   }
 
   auto local_wa = static_cast<CostAwareWorkingArea*>(wa->get());
-  TEST_SYNC_POINT_CALLBACK(
-      "AutoTuneCompressorWrapper::CompressBlock::GetPredictors",
-      &(local_wa->cost_predictors_));
   bool exploration =
       Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
   TEST_SYNC_POINT_CALLBACK(
@@ -274,7 +271,7 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   // Select compression whose cpu cost and io cost are within budget
   // Return the first compression type and level that fits within budget
   // Get available budgets
-  auto cpu_goal = cpu_budget_->GetMaxRate() / kMicrosInSecond;
+  auto cpu_goal = cpu_budget_->GetMaxRate();
   auto io_goal = io_goal_->GetMaxRate();
   auto cpu_mingoal = cpu_budget_->GetMinRate();
   auto io_mingoal = io_goal_->GetMinRate();
@@ -300,6 +297,10 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
     }
     return cur_compressor_idx_;
   }
+
+  TEST_SYNC_POINT_CALLBACK(
+      "AutoTuneCompressorWrapper::CompressBlock::GetPredictors",
+      &(wa->cost_predictors_));
   // If we are in the unstable region, then we need to explore the other which
   // is in the right quadrant where we want to move to
   auto cur_cpu_cost =
