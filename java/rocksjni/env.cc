@@ -19,6 +19,11 @@
 #include "portal.h"
 #include "rocksjni/cplusplus_to_java_convert.h"
 
+// This will be read only if RocksDB was built with ROCKSDB_IOURING_PRESENT=1
+extern "C" bool RocksDbIOUringEnable() {
+  return true;
+}
+
 /*
  * Class:     org_rocksdb_Env
  * Method:    getDefaultEnvInternal
