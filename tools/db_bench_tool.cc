@@ -4720,6 +4720,20 @@ class Benchmark {
                                    cpu_minusage_limit, io_minusage_limit,
                                    options);
       mgr = CreateAutoTuneCompressionManager(nullptr, budget_factory);
+    } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
+                           "dynamicautotunecompression")) {
+      auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
+      double io_usage_limit = FLAGS_autotune_iogoal * ratelimiter_throughput;
+      double io_minusage_limit =
+          FLAGS_autotune_miniogoal * ratelimiter_throughput;
+      double cpu_usage_limit = FLAGS_autotune_cpubudget;
+      double cpu_minusage_limit = FLAGS_autotune_mincpubudget;
+      std::shared_ptr<IOGoalCPUBudgetFactory> budget_factory =
+          makeDefaultDynamicBudgetFactory(cpu_usage_limit, io_usage_limit,
+                                          cpu_minusage_limit, io_minusage_limit,
+                                          options);
+      mgr = CreateAutoTuneCompressionManager(nullptr, budget_factory);
+
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {

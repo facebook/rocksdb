@@ -246,4 +246,26 @@ class DefaultBudgetFactory : public IOGoalCPUBudgetFactory {
   double io_mingoal_;
 };
 
+class DefaultDynamicBudgetFactory : public DefaultBudgetFactory {
+ public:
+  DefaultDynamicBudgetFactory(const double cpu_budget, const double io_goal,
+                              const double cpu_minbudget,
+                              const double io_mingoal, const Options& options)
+      : DefaultBudgetFactory(cpu_budget, io_goal, cpu_minbudget, io_mingoal,
+                             options) {}
+
+  // Delete copy constructor and copy assignment operator
+  DefaultDynamicBudgetFactory(const DefaultDynamicBudgetFactory&) = delete;
+  DefaultDynamicBudgetFactory& operator=(const DefaultDynamicBudgetFactory&) =
+      delete;
+
+  // Delete move constructor and move assignment operator
+  DefaultDynamicBudgetFactory(DefaultBudgetFactory&&) = delete;
+  DefaultDynamicBudgetFactory& operator=(DefaultBudgetFactory&&) = delete;
+
+  std::pair<std::shared_ptr<IOGoal>, std::shared_ptr<CPUBudget>> GetBudget()
+      override;
+  ~DefaultDynamicBudgetFactory() override = default;
+};
+
 };  // namespace ROCKSDB_NAMESPACE
