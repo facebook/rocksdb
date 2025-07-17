@@ -1016,7 +1016,7 @@ class LevelIterator final : public InternalIterator {
   ~LevelIterator() override {
     delete file_iter_.Set(nullptr);
     for (auto v : prepared_iters) {
-      delete v;
+      delete v
     }
   }
 
