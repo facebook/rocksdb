@@ -81,7 +81,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
     return ids;
   }
 
-  void SetWaitingTxn(autovector<TransactionID> ids, uint32_t column_family_id,
+  void SetWaitingTxn(autovector<TransactionID>& ids, uint32_t column_family_id,
                      const std::string* key, bool is_timed_out = false) {
     std::lock_guard<std::mutex> lock(wait_mutex_);
     waiting_txn_ids_ = ids;
