@@ -419,12 +419,12 @@ void PointLockManagerBenchmark::BenchmarkPointLockManager() {
   for (size_t i = 0; i < FLAGS_execution_time_sec; i++) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
     auto num_of_locks_acquired = num_of_locks_acquired_.load();
-    DEBUG_LOG("num_of_locks_acquired: %ld\n", num_of_locks_acquired);
-    DEBUG_LOG("num_of_exclusive_locks_acquired: %ld\n",
+    DEBUG_LOG("num_of_locks_acquired: %" PRId64 "\n", num_of_locks_acquired);
+    DEBUG_LOG("num_of_exclusive_locks_acquired: %" PRId64 "\n",
               num_of_exclusive_locks_acquired_.load());
-    DEBUG_LOG("num_of_shared_locks_acquired: %ld\n",
+    DEBUG_LOG("num_of_shared_locks_acquired: %" PRId64 "\n",
               num_of_shared_locks_acquired_.load());
-    DEBUG_LOG("num_of_deadlock_detected: %ld\n",
+    DEBUG_LOG("num_of_deadlock_detected: %" PRId64 "\n",
               num_of_deadlock_detected_.load());
     ASSERT_TRUE(num_of_locks_acquired > prev_num_of_locks_acquired,
                 "No locks were acquired in the last 1 second");
@@ -435,7 +435,7 @@ void PointLockManagerBenchmark::BenchmarkPointLockManager() {
     if (i == FLAGS_execution_time_sec - 1) {
       measured_locks_acquired = num_of_locks_acquired - measured_locks_acquired;
       // Skip the first second, as threads are warming up
-      printf("measured_num_of_locks_acquired: %ld\n",
+      printf("measured_num_of_locks_acquired: %" PRId64 "\n",
              measured_locks_acquired / (FLAGS_execution_time_sec - 1));
     }
   }
@@ -453,7 +453,7 @@ void PointLockManagerBenchmark::BenchmarkPointLockManager() {
 
   ASSERT_TRUE(num_of_locks_acquired_.load() >= 0,
               "No lock were acquired at all");
-  printf("num_of_locks_acquired: %ld\n", num_of_locks_acquired_.load());
+  printf("num_of_locks_acquired: %" PRId64 "\n", num_of_locks_acquired_.load());
 }
 
 int point_lock_bench_tool(int argc, char** argv) {
