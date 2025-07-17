@@ -1013,7 +1013,12 @@ class LevelIterator final : public InternalIterator {
     prepared_iters.reserve(file_index_ + 1);
   }
 
-  ~LevelIterator() override { delete file_iter_.Set(nullptr); }
+  ~LevelIterator() override { 
+    delete file_iter_.Set(nullptr); 
+    for (auto v: prepared_iters) {
+      delete v;
+    }
+  }
 
   // Seek to the first file with a key >= target.
   // If range_tombstone_iter_ is not nullptr, then we pretend that file
