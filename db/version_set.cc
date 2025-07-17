@@ -1016,7 +1016,7 @@ class LevelIterator final : public InternalIterator {
   ~LevelIterator() override {
     delete file_iter_.Set(nullptr);
     for (auto v : prepared_iters) {
-      delete v
+      delete v;
     }
   }
 
@@ -1111,8 +1111,14 @@ class LevelIterator final : public InternalIterator {
     // scan_opts[0].range.start < scan_opts[1].range.start
     scan_opts_ = scan_opts;
     if (scan_opts_ != nullptr) {
-      for (size_t i = 0; i < flevel_->num_files; i++) {
-        PrepareFileIterator(i);
+      for (size_t k = 0; k < scan_opts_->size(); k++) {
+        auto target = (*scan_opts_)[k].range.start.AsPtr();
+        auto internal_target =
+            InternalKey(*target, kMaxSequenceNumber, kValueTypeForSeek);
+        size_t index = FindFile(icomparator_, *flevel_, *target);
+        if (index < flevel_->num_files && prepared_iters[index] != nullptr) {
+          PrepareFileIterator(index);
+        }
       }
     }
   }
