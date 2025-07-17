@@ -1969,7 +1969,6 @@ class DBAutoTuneCompressionTest : public DBTestBase {
         std::make_shared<IOGoal>(cpu_upper_bound, cpu_lower_bound);
     options.compression_manager =
         CreateAutoTuneCompressionManager(nullptr, io_goal, cpu_budget, options);
-    DestroyAndReopen(options);
   }
 };
 TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
@@ -1984,7 +1983,10 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
             "compressors\n");
     return;
   }
-
+  auto supported_compressions = GetSupportedCompressions();
+  options.compression =
+      supported_compressions[supported_compressions.size() - 1];
+  DestroyAndReopen(options);
   const int kValueSize = 20000;
   int next_key = 0;
   Random rnd(231);
