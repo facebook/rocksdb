@@ -1114,11 +1114,12 @@ class LevelIterator final : public InternalIterator {
       std::unordered_map<size_t, std::vector<ScanOptions>> file_to_scan_opts;
       for (size_t k = 0; k < scan_opts_->size(); k++) {
         const ScanOptions& opt = scan_opts_->at(k);
-        auto start = opt.range.start.AsPtr();
-        auto end = opt.range.limit.AsPtr();
-        auto istart =
-            InternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
-        auto iend = InternalKey(*end, kMaxSequenceNumber, kValueTypeForSeek);
+        auto start = opt.range.start;
+        auto end = opt.range.limit;
+
+        InternalKey istart(start.value(), kMaxSequenceNumber,
+                           kValueTypeForSeek);
+        InternalKey iend(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
 
         // This needs to be optimized
         size_t fstart = FindFile(icomparator_, *flevel_, istart.Encode());
