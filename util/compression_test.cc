@@ -1941,10 +1941,10 @@ class AutoTuneFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  private:
   int wait_block_count_;
 };
-class DBAutoTuneCompression : public DBTestBase {
+class DBAutoTuneCompressionTest : public DBTestBase {
  public:
   Options options;
-  DBAutoTuneCompression()
+  DBAutoTuneCompressionTest()
       : DBTestBase("db_autotune", /*env_do_fsync=*/true),
         options(CurrentOptions()) {
     double cpu_upper_bound = 0.7;
@@ -1972,7 +1972,7 @@ class DBAutoTuneCompression : public DBTestBase {
     DestroyAndReopen(options);
   }
 };
-TEST_F(DBAutoTuneCompression, AutoTuneCompression) {
+TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
   // make sure that threre are more than two compressors before running the
   // test case.
   CompressionOptions fopts;
