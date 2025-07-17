@@ -154,6 +154,7 @@ class CPUIOUtilizationTracker {
   bool Record();
   double GetCpuUtilization();
   double GetIoUtilization();
+  std::pair<double, double> GetUtilization();
 
  private:
   void RecordCPUUsage();

@@ -150,7 +150,7 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
  public:
   explicit AutoTuneCompressor(
       const CompressionOptions& opts, const CompressionType default_type,
-      std::shared_ptr<IOGoal> io_budget = nullptr,
+      std::shared_ptr<IOGoal> io_goal = nullptr,
       std::shared_ptr<CPUBudget> cpu_budget = nullptr,
       std::shared_ptr<RateLimiter> rate_limiter = nullptr);
   ~AutoTuneCompressor() override;
@@ -202,8 +202,12 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
  public:
   explicit AutoTuneCompressorManager(
       std::shared_ptr<CompressionManager> wrapped,
-      std::shared_ptr<IOGoalCPUBudgetFactory> budget_factory)
-      : CompressionManagerWrapper(wrapped), budget_factory_(budget_factory) {}
+      std::shared_ptr<IOGoal> io_goal, std::shared_ptr<CPUBudget> cpu_budget,
+      const Options& option)
+      : CompressionManagerWrapper(wrapped),
+        io_goal_(io_goal),
+        cpu_budget_(cpu_budget),
+        option_(option) {}
 
   const char* Name() const override;
   std::unique_ptr<Compressor> GetCompressorForSST(
@@ -211,61 +215,9 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
       CompressionType preferred) override;
 
  private:
-  std::shared_ptr<IOGoalCPUBudgetFactory> budget_factory_;
-};
-
-class DefaultBudgetFactory : public IOGoalCPUBudgetFactory {
- public:
-  DefaultBudgetFactory(const double cpu_budget, const double io_goal,
-                       const double cpu_minbudget, const double io_mingoal,
-                       const Options& options)
-      : opt_(options),
-        cpu_budget_(cpu_budget),
-        cpu_minbudget_(cpu_minbudget),
-        io_goal_(io_goal),
-        io_mingoal_(io_mingoal) {}
-
-  // Delete copy constructor and copy assignment operator
-  DefaultBudgetFactory(const DefaultBudgetFactory&) = delete;
-  DefaultBudgetFactory& operator=(const DefaultBudgetFactory&) = delete;
-
-  // Delete move constructor and move assignment operator
-  DefaultBudgetFactory(DefaultBudgetFactory&&) = delete;
-  DefaultBudgetFactory& operator=(DefaultBudgetFactory&&) = delete;
-
-  std::pair<std::shared_ptr<IOGoal>, std::shared_ptr<CPUBudget>> GetBudget()
-      override;
-  Options GetOptions() override { return opt_; }
-  ~DefaultBudgetFactory() override = default;
-
- private:
-  Options opt_;
-  double cpu_budget_;
-  double cpu_minbudget_;
-  double io_goal_;
-  double io_mingoal_;
-};
-
-class DefaultDynamicBudgetFactory : public DefaultBudgetFactory {
- public:
-  DefaultDynamicBudgetFactory(const double cpu_budget, const double io_goal,
-                              const double cpu_minbudget,
-                              const double io_mingoal, const Options& options)
-      : DefaultBudgetFactory(cpu_budget, io_goal, cpu_minbudget, io_mingoal,
-                             options) {}
-
-  // Delete copy constructor and copy assignment operator
-  DefaultDynamicBudgetFactory(const DefaultDynamicBudgetFactory&) = delete;
-  DefaultDynamicBudgetFactory& operator=(const DefaultDynamicBudgetFactory&) =
-      delete;
-
-  // Delete move constructor and move assignment operator
-  DefaultDynamicBudgetFactory(DefaultBudgetFactory&&) = delete;
-  DefaultDynamicBudgetFactory& operator=(DefaultBudgetFactory&&) = delete;
-
-  std::pair<std::shared_ptr<IOGoal>, std::shared_ptr<CPUBudget>> GetBudget()
-      override;
-  ~DefaultDynamicBudgetFactory() override = default;
+  std::shared_ptr<IOGoal> io_goal_;
+  std::shared_ptr<CPUBudget> cpu_budget_;
+  Options option_;
 };
 
 };  // namespace ROCKSDB_NAMESPACE

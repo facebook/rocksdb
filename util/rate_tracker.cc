@@ -29,6 +29,9 @@ bool CPUIOUtilizationTracker::Record() {
 double CPUIOUtilizationTracker::GetCpuUtilization() { return cpu_usage_; }
 
 double CPUIOUtilizationTracker::GetIoUtilization() { return io_utilization_; }
+std::pair<double, double> CPUIOUtilizationTracker::GetUtilization() {
+  return {io_utilization_, cpu_usage_};
+}
 
 void CPUIOUtilizationTracker::RecordCPUUsage() {
 #if defined(_WIN32)
