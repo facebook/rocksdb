@@ -1612,10 +1612,16 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
     file_iter_.UpdateReadaheadState(old_iter);
   }
 
+  auto vv = std::find(prepared_iters.begin(), prepared_iters.end(), old_iter);
+  if (vv != prepared_iters.end()) {
+    return;
+  }
+ 
+
   if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
     pinned_iters_mgr_->PinIterator(old_iter);
   } else {
-    delete old_iter;
+      delete old_iter;
   }
 }
 
