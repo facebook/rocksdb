@@ -173,7 +173,7 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
         0 /* _tail_size */, user_defined_timestamps_persisted);
 
     std::unique_ptr<RandomAccessFileReader> file;
-    NewFileReader(table_name, foptions, &file);
+    NewFileReader(table_name, foptions, &file, ioptions.statistics.get());
 
     uint64_t file_size = 0;
     ASSERT_OK(env_->GetFileSize(Path(table_name), &file_size));
@@ -222,12 +222,15 @@ class BlockBasedTableReaderBaseTest : public testing::Test {
   }
 
   void NewFileReader(const std::string& filename, const FileOptions& opt,
-                     std::unique_ptr<RandomAccessFileReader>* reader) {
+                     std::unique_ptr<RandomAccessFileReader>* reader,
+                     Statistics* stats = nullptr) {
     std::string path = Path(filename);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(path, opt, &f, nullptr));
     reader->reset(new RandomAccessFileReader(std::move(f), path,
-                                             env_->GetSystemClock().get()));
+                                             env_->GetSystemClock().get(),
+                                             /*io_tracer=*/nullptr,
+                                             /*stats=*/stats));
   }
 };
 
@@ -988,6 +991,167 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   ASSERT_EQ(1,
             options.statistics->getTickerCount(BLOCK_CHECKSUM_MISMATCH_COUNT));
   ASSERT_EQ(s.code(), Status::kCorruption);
+}
+
+TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
+  Options options;
+  options.statistics = CreateDBStatistics();
+  ReadOptions read_opts;
+  size_t ts_sz = options.comparator->timestamp_size();
+  std::vector<std::pair<std::string, std::string>> kv =
+      BlockBasedTableReaderBaseTest::GenerateKVMap(
+          100 /* num_block */,
+          true /* mixed_with_human_readable_string_value */, ts_sz);
+
+  std::string table_name = "BlockBasedTableReaderTest_NewIterator" +
+                           CompressionTypeToString(compression_type_);
+
+  ImmutableOptions ioptions(options);
+  CreateTable(table_name, ioptions, compression_type_, kv,
+              compression_parallel_threads_, compression_dict_bytes_);
+
+  std::unique_ptr<BlockBasedTable> table;
+  FileOptions foptions;
+  foptions.use_direct_reads = true;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table,
+                           true /* bool prefetch_index_and_filter_in_cache */,
+                           nullptr /* status */, persist_udt_);
+
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  // Should coalesce into a single I/O
+  std::vector<ScanOptions> scan_options(
+      {ScanOptions(ExtractUserKey(kv[0].first),
+                   ExtractUserKey(kv[kEntriesPerBlock].first)),
+       ScanOptions(ExtractUserKey(kv[2 * kEntriesPerBlock].first),
+                   ExtractUserKey(kv[3 * kEntriesPerBlock].first))});
+
+  auto read_count_before =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+  iter->Prepare(&scan_options);
+  auto read_count_after =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+  ASSERT_EQ(read_count_before + 1, read_count_after);
+  iter->Seek(kv[0].first);
+  for (size_t i = 0; i < kEntriesPerBlock + 1; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  // Iter may still be valid after scan range. Upper layer (DBIter) handles
+  // exact upper bound checking. So we don't check !iter->Valid() here.
+  ASSERT_OK(iter->status());
+  iter->Seek(kv[2 * kEntriesPerBlock].first);
+  for (size_t i = 2 * kEntriesPerBlock; i < 3 * kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+  // No IO coalesce, should do MultiRead with 2 read requests.
+  scan_options = {ScanOptions(ExtractUserKey(kv[70 * kEntriesPerBlock].first),
+                              ExtractUserKey(kv[75 * kEntriesPerBlock].first)),
+                  ScanOptions(ExtractUserKey(kv[90 * kEntriesPerBlock].first),
+                              ExtractUserKey(kv[95 * kEntriesPerBlock].first))};
+  read_count_before =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+  iter->Prepare(&scan_options);
+  read_count_after =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+  ASSERT_EQ(read_count_before + 2, read_count_after);
+
+  iter->Seek(kv[70 * kEntriesPerBlock].first);
+  for (size_t i = 70 * kEntriesPerBlock; i < 75 * kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+  iter->Seek(kv[90 * kEntriesPerBlock].first);
+  for (size_t i = 90 * kEntriesPerBlock; i < 95 * kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+  // Should do two I/Os since blocks 80-81 and 90-95 are already in block cache,
+  // reads from blocks 50-79 and 82-.. are co
+  scan_options = {ScanOptions(ExtractUserKey(kv[50 * kEntriesPerBlock].first))};
+  read_count_before =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+  iter->Prepare(&scan_options);
+  read_count_after =
+      options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
+  ASSERT_EQ(read_count_before + 3, read_count_after);
+  iter->Seek(kv[50 * kEntriesPerBlock].first);
+  for (size_t i = 50 * kEntriesPerBlock; i < 100 * kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  // Check cases when Seek key does not match start key in ScanOptions
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+  scan_options = {ScanOptions(ExtractUserKey(kv[10 * kEntriesPerBlock].first),
+                              ExtractUserKey(kv[20 * kEntriesPerBlock].first)),
+                  ScanOptions(ExtractUserKey(kv[30 * kEntriesPerBlock].first),
+                              ExtractUserKey(kv[40 * kEntriesPerBlock].first))};
+  iter->Prepare(&scan_options);
+  // Match start key
+  iter->Seek(kv[10 * kEntriesPerBlock].first);
+  for (size_t i = 10 * kEntriesPerBlock; i < 20 * kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+  // Does not match start key of the second ScanOptions.
+  iter->Seek(kv[50 * kEntriesPerBlock + 1].first);
+  for (size_t i = 50 * kEntriesPerBlock + 1; i < 100 * kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+  scan_options = {ScanOptions(ExtractUserKey(kv[10 * kEntriesPerBlock].first)),
+                  ScanOptions(ExtractUserKey(kv[11 * kEntriesPerBlock].first))};
+  iter->Prepare(&scan_options);
+  // Does not match the first ScanOptions.
+  iter->SeekToFirst();
+  for (size_t i = 0; i < kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+  iter->Seek(kv[10 * kEntriesPerBlock].first);
+  for (size_t i = 10 * kEntriesPerBlock; i < 12 * kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
 }
 
 // Param 1: compression type

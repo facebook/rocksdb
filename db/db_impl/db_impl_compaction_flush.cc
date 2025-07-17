@@ -1849,10 +1849,9 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
         0 /* max_subcompactions, not applicable */,
         {} /* grandparents, not applicable */,
         std::nullopt /* earliest_snapshot */, nullptr /* snapshot_checker */,
-        false /* is manual */, "" /* trim_ts */, -1 /* score, not applicable */,
-        false /* is deletion compaction, not applicable */,
-        false /* l0_files_might_overlap, not applicable */,
-        CompactionReason::kRefitLevel));
+        CompactionReason::kRefitLevel, "" /* trim_ts */,
+        -1 /* score, not applicable */,
+        false /* l0_files_might_overlap, not applicable */));
     cfd->compaction_picker()->RegisterCompaction(c.get());
     TEST_SYNC_POINT("DBImpl::ReFitLevel:PostRegisterCompaction");
     VersionEdit edit;
@@ -4424,13 +4423,14 @@ Compaction* DBImpl::CreateIntendedCompactionForwardedToBottomPriorityPool(
 
   c->ReleaseCompactionFiles(Status::OK());
 
-  Compaction* intended_compaction = new Compaction(
-      vstorage, io, mo, mutable_db_options_, std::move(inputs),
-      c->output_level(), c->target_output_file_size(),
-      c->max_compaction_bytes(), c->output_path_id(), c->output_compression(),
-      c->output_compression_opts(), c->output_temperature(),
-      c->max_subcompactions(), c->grandparents(),
-      std::nullopt /* earliest_snapshot */, nullptr /* snapshot_checker */);
+  Compaction* intended_compaction =
+      new Compaction(vstorage, io, mo, mutable_db_options_, std::move(inputs),
+                     c->output_level(), c->target_output_file_size(),
+                     c->max_compaction_bytes(), c->output_path_id(),
+                     c->output_compression(), c->output_compression_opts(),
+                     c->output_temperature(), c->max_subcompactions(),
+                     c->grandparents(), std::nullopt /* earliest_snapshot */,
+                     nullptr /* snapshot_checker */, c->compaction_reason());
 
   cfd->compaction_picker()->RegisterCompaction(intended_compaction);
   vstorage->ComputeCompactionScore(io, mo);
