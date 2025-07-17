@@ -34,7 +34,7 @@ constexpr bool kDebugLog = false;
   }
 
 #define DEBUG_LOG_PREFIX(format, ...) \
-  DEBUG_LOG("Thd %lu Txn %lu " format, thd_idx, txn_id, ##__VA_ARGS__);
+  DEBUG_LOG("Thd %zu Txn %" PRIu64 " " format, thd_idx, txn_id, ##__VA_ARGS__);
 
 enum class LockTypeToTest : int8_t {
   EXCLUSIVE_ONLY = 0,
