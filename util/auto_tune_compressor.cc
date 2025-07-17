@@ -257,8 +257,7 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
     CostAwareWorkingArea* wa) {
   // If no budgets are available, use default choice
   if (!cpu_budget_ || !io_goal_) {
-    size_t default_choice = 0;
-    return default_choice;
+    return 0;
   }
   if ((block_count_.fetch_add(1, std::memory_order_relaxed)) %
           kDecideEveryNBlocks !=
@@ -271,17 +270,17 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   TEST_SYNC_POINT_CALLBACK("AutoTuneCompressorWrapper::SetCPUUsage", &cpu_util);
   TEST_SYNC_POINT_CALLBACK("AutoTuneCompressorWrapper::SetIOUsage", &io_util);
   // Get available budgets
-  auto cpu_goal = cpu_budget_->GetMaxRate();
-  auto io_goal = io_goal_->GetMaxRate();
-  auto cpu_mingoal = cpu_budget_->GetMinRate();
-  auto io_mingoal = io_goal_->GetMinRate();
+  auto cpu_upper_bound = cpu_budget_->GetMaxRate();
+  auto io_upper_bound = io_goal_->GetMaxRate();
+  auto cpu_lower_bound = cpu_budget_->GetMinRate();
+  auto io_lower_bound = io_goal_->GetMinRate();
   // Detect the 4 quadrant that we want to explore
-  // Stable region is between the cpu_mingoal to cpu_goal
-  // and io_mingoal to io_goal
-  bool increase_io = io_util < io_mingoal;
-  bool decrease_io = io_util > io_goal;
-  bool increase_cpu = cpu_util < cpu_mingoal;
-  bool decrease_cpu = cpu_util > cpu_goal;
+  // Stable region is between the cpu_lower_bound to cpu_upper_bound
+  // and io_lower_bound to io_upper_bound
+  bool increase_io = io_util < io_lower_bound;
+  bool decrease_io = io_util > io_upper_bound;
+  bool increase_cpu = cpu_util < cpu_lower_bound;
+  bool decrease_cpu = cpu_util > cpu_upper_bound;
   // If we are in the stable region, then we just go ahead with the current
   // compression type and level
   if (!increase_io && !increase_cpu && !decrease_io && !decrease_cpu) {
@@ -385,45 +384,18 @@ const char* AutoTuneCompressorManager::Name() const {
 std::unique_ptr<Compressor> AutoTuneCompressorManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,
     CompressionType preferred) {
-  assert(GetSupportedCompressions().size() > 1);
   (void)context;
-
-  // Get budgets from budget factory if available
-  std::shared_ptr<IOGoal> io_budget = nullptr;
-  std::shared_ptr<CPUBudget> cpu_budget = nullptr;
-  std::shared_ptr<RateLimiter> rate_limiter = nullptr;
-  if (budget_factory_) {
-    auto budgets = budget_factory_->GetBudget();
-    io_budget = budgets.first;
-    cpu_budget = budgets.second;
-    rate_limiter = budget_factory_->GetOptions().rate_limiter;
-  }
-
-  return std::make_unique<AutoTuneCompressor>(opts, preferred, io_budget,
-                                              cpu_budget, rate_limiter);
+  return std::make_unique<AutoTuneCompressor>(
+      opts, preferred, io_goal_, cpu_budget_, option_.rate_limiter);
 }
 
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     std::shared_ptr<CompressionManager> wrapped,
-    std::shared_ptr<IOGoalCPUBudgetFactory> budget_factory) {
+    std::shared_ptr<IOGoal> io_goal, std::shared_ptr<CPUBudget> cpu_budget,
+    const Options& opt) {
   return std::make_shared<AutoTuneCompressorManager>(
-      wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped,
-      budget_factory);
+      wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped, io_goal,
+      cpu_budget, opt);
 }
 
-std::pair<std::shared_ptr<IOGoal>, std::shared_ptr<CPUBudget>>
-DefaultBudgetFactory::GetBudget() {
-  static std::shared_ptr<IOGoal> io_goal =
-      std::make_shared<IOGoal>(io_goal_, io_mingoal_);
-  static std::shared_ptr<CPUBudget> cpu_budget =
-      std::make_shared<CPUBudget>(cpu_budget_, cpu_minbudget_);
-  return {io_goal, cpu_budget};
-}
-
-std::shared_ptr<IOGoalCPUBudgetFactory> makeDefaultBudgetFactory(
-    double cpu_budget, double io_goal, double cpu_minbudget, double io_mingoal,
-    Options opt) {
-  return std::make_shared<DefaultBudgetFactory>(cpu_budget, io_goal,
-                                                cpu_minbudget, io_mingoal, opt);
-}
 }  // namespace ROCKSDB_NAMESPACE

@@ -4710,16 +4710,16 @@ class Benchmark {
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "autotunecompression")) {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
-      double io_usage_limit = FLAGS_autotune_iogoal * ratelimiter_throughput;
-      double io_minusage_limit =
-          FLAGS_autotune_miniogoal * ratelimiter_throughput;
-      double cpu_usage_limit = FLAGS_autotune_cpubudget;
-      double cpu_minusage_limit = FLAGS_autotune_mincpubudget;
-      std::shared_ptr<IOGoalCPUBudgetFactory> budget_factory =
-          makeDefaultBudgetFactory(cpu_usage_limit, io_usage_limit,
-                                   cpu_minusage_limit, io_minusage_limit,
-                                   options);
-      mgr = CreateAutoTuneCompressionManager(nullptr, budget_factory);
+      double io_upper_bound = FLAGS_autotune_iogoal * ratelimiter_throughput;
+      double io_lower_bound = FLAGS_autotune_miniogoal * ratelimiter_throughput;
+      double cpu_upper_bound = FLAGS_autotune_cpubudget;
+      double cpu_lower_bound = FLAGS_autotune_mincpubudget;
+      std::shared_ptr<IOGoal> io_goal =
+          std::make_shared<IOGoal>(io_upper_bound, io_lower_bound);
+      std::shared_ptr<CPUBudget> cpu_budget =
+          std::make_shared<CPUBudget>(cpu_upper_bound, cpu_lower_bound);
+      mgr = CreateAutoTuneCompressionManager(nullptr, io_goal, cpu_budget,
+                                             options);
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {

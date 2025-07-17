@@ -21,8 +21,9 @@ class Budget {
  public:
   Budget(double max_rate, double min_rate)
       : max_rate_(max_rate), min_rate_(min_rate){};
-  double GetMaxRate() { return max_rate_; }
-  double GetMinRate() { return min_rate_; }
+  virtual double GetMaxRate() { return max_rate_; }
+  virtual double GetMinRate() { return min_rate_; }
+  virtual ~Budget() = default;
 
  private:
   double max_rate_;
@@ -30,16 +31,6 @@ class Budget {
 };
 using IOGoal = Budget;
 using CPUBudget = Budget;
-
-// IO Goal and CPU BudgetFactory for the autotunecompresor
-class IOGoalCPUBudgetFactory {
- public:
-  // Create a new IOBudget instance
-  virtual std::pair<std::shared_ptr<IOGoal>, std::shared_ptr<CPUBudget>>
-  GetBudget() = 0;
-  virtual ~IOGoalCPUBudgetFactory() = default;
-  virtual Options GetOptions() = 0;
-};
 
 // TODO: alias/adapt for compression
 struct FilterBuildingContext;
@@ -646,10 +637,8 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
 // budget
 // EXPERIMENTAL
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
-    std::shared_ptr<CompressionManager> wrapped = nullptr,
-    std::shared_ptr<IOGoalCPUBudgetFactory> budget_factory = nullptr);
+    std::shared_ptr<CompressionManager> wrapped,
+    std::shared_ptr<IOGoal> io_goal, std::shared_ptr<CPUBudget> cpu_budget,
+    const Options& opt);
 
-std::shared_ptr<IOGoalCPUBudgetFactory> makeDefaultBudgetFactory(
-    double cpu_budget, double io_goal, double cpu_minbudget, double io_mingoal,
-    Options opt);
 }  // namespace ROCKSDB_NAMESPACE
