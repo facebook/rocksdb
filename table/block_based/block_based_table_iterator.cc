@@ -38,59 +38,7 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
   // TODO(hx235): set `seek_key_prefix_for_readahead_trimming_`
   // even when `target == nullptr` that is when `SeekToFirst()` is called
   if (multi_scan_) {
-    // This is a MultiScan and Preapre() has been called.
-    //
-    // Validate seek key with scan options
-    // FIXME: Each Seek() in a multiscan should correspond to the start key
-    // specified in ScanOptions. However, DBIter and MergingIterator may
-    // internally do Seek() on child iterators, e.g. due to
-    // ReadOptions::max_skippable_internal_keys or reseeking into range deletion
-    // end key. So these Seeks can cause iterator to fall back to normal
-    // (non-prepared) iterator and ignore the optimizations done in Prepare().
-    if (multi_scan_->next_scan_idx >= multi_scan_->scan_opts->size()) {
-      multi_scan_.reset();
-    } else if (!target) {
-      // start key must be set for multi-scan
-      multi_scan_.reset();
-    } else if (user_comparator_.Compare(
-                   ExtractUserKey(*target),
-                   (*multi_scan_->scan_opts)[multi_scan_->next_scan_idx]
-                       .range.start.value()) != 0) {
-      // Unexpected seek key
-      multi_scan_.reset();
-    } else {
-      auto [cur_scan_start_idx, cur_scan_end_idx] =
-          multi_scan_->block_ranges_per_scan[multi_scan_->next_scan_idx];
-      // We should have the data block already loaded
-      ++multi_scan_->next_scan_idx;
-      if (cur_scan_start_idx >= cur_scan_end_idx) {
-        is_out_of_bound_ = true;
-        assert(!Valid());
-        return;
-      } else {
-        is_out_of_bound_ = false;
-      }
-
-      if (!block_iter_points_to_real_block_ ||
-          multi_scan_->cur_data_block_idx != cur_scan_start_idx) {
-        if (block_iter_points_to_real_block_) {
-          // Should be scan in increasing key range.
-          // All blocks before cur_data_block_idx_ are not pinned anymore.
-          assert(multi_scan_->cur_data_block_idx < cur_scan_start_idx);
-        }
-
-        ResetDataIter();
-        // Note that the block_iter_ takes ownership of the pinned data block
-        // TODO: we can delegate the clean up like with pinned_iters_mgr_ if
-        // need to pin blocks longer.
-        table_->NewDataBlockIterator<DataBlockIter>(
-            read_options_, multi_scan_->pinned_data_blocks[cur_scan_start_idx],
-            &block_iter_, Status::OK());
-      }
-      multi_scan_->cur_data_block_idx = cur_scan_start_idx;
-      block_iter_points_to_real_block_ = true;
-      block_iter_.Seek(*target);
-      FindKeyForward();
+    if (SeekMultiScan(target)) {
       return;
     }
   }
@@ -633,32 +581,7 @@ void BlockBasedTableIterator::FindKeyForward() {
 
 void BlockBasedTableIterator::FindBlockForward() {
   if (multi_scan_) {
-    assert(multi_scan_->next_scan_idx >= 1);
-    const auto cur_scan_end_idx = std::get<1>(
-        multi_scan_->block_ranges_per_scan[multi_scan_->next_scan_idx - 1]);
-    do {
-      if (!block_iter_.status().ok()) {
-        return;
-      }
-
-      if (multi_scan_->cur_data_block_idx + 1 >= cur_scan_end_idx) {
-        // We don't ResetDataIter() here since next scan might be reading from
-        // the same block. ResetDataIter() will free the underlying block cache
-        // handle and we don't want the block to be unpinned.
-        is_out_of_bound_ = true;
-        assert(!Valid());
-        return;
-      }
-      // Move to the next pinned data block
-      ResetDataIter();
-      ++multi_scan_->cur_data_block_idx;
-      table_->NewDataBlockIterator<DataBlockIter>(
-          read_options_,
-          multi_scan_->pinned_data_blocks[multi_scan_->cur_data_block_idx],
-          &block_iter_, Status::OK());
-      block_iter_points_to_real_block_ = true;
-      block_iter_.SeekToFirst();
-    } while (!block_iter_.Valid());
+    FindBlockForwardInMultiScan();
     return;
   }
   // TODO the while loop inherits from two-level-iterator. We don't know
@@ -996,11 +919,19 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   ResetPreviousBlockOffset();
 }
 
-// Benchmarks
-// Note: Iterator should not be reused for multiple multiscans or mixing
+// Note:
+// - Iterator should not be reused for multiple multiscans or mixing
 // multiscan with regular iterator usage.
-// Note: scan ranges should be non-overlapping, and have increasing start keys.
+// - scan ranges should be non-overlapping, and have increasing start keys.
 // If a scan range's limit is not set, then there should only be one scan range.
+// - After Prepare(), the iterator expects Seek to be called on the start key
+// of each ScanOption in order. If any other seek is done, the optimization here
+// is aborted and fall back to vanilla iterator.
+// FIXME: DBIter and MergingIterator may
+// internally do Seek() on child iterators, e.g. due to
+// ReadOptions::max_skippable_internal_keys or reseeking into range deletion
+// end key. So these Seeks can cause iterator to fall back to normal
+// (non-prepared) iterator and ignore the optimizations done in Prepare().
 void BlockBasedTableIterator::Prepare(
     const std::vector<ScanOptions>* scan_opts) {
   index_iter_->Prepare(scan_opts);
@@ -1019,7 +950,6 @@ void BlockBasedTableIterator::Prepare(
     return;
   }
 
-  Slice last_start_key = scan_opts->front().range.start.value();
   // Validate scan ranges to be increasing and with limit.
   for (size_t i = 0; i < scan_opts->size(); ++i) {
     const auto& scan_range = (*scan_opts)[i].range;
@@ -1028,24 +958,24 @@ void BlockBasedTableIterator::Prepare(
       return;
     }
 
+    // Assume for each scan range start <= limit.
+    if (scan_range.limit.has_value()) {
+      assert(user_comparator_.Compare(scan_range.start.value(),
+                                      scan_range.limit.value()) <= 0);
+    }
+
     if (i > 0) {
       if (!scan_range.limit.has_value()) {
         // multiple no limit scan ranges
         return;
       }
 
-      if (user_comparator_.Compare(scan_range.start.value(), last_start_key) <=
-          0) {
-        // Abort: start key is not increasing
-        return;
-      }
       const auto& last_end_key = (*scan_opts)[i - 1].range.limit.value();
       if (user_comparator_.Compare(scan_range.start.value(), last_end_key) <
           0) {
         // Abort: overlapping ranges
         return;
       }
-      last_start_key = scan_range.start.value();
     }
   }
 
@@ -1054,22 +984,48 @@ void BlockBasedTableIterator::Prepare(
   Status s;
   std::vector<std::tuple<size_t, size_t>> block_ranges_per_scan;
   for (const auto& scan_opt : *scan_opts) {
-    std::vector<BlockHandle> blocks;
-    s = GetBlockHandlesForRange(scan_opt.range, &blocks);
-    if (!s.ok()) {
-      // Abort: GetBlockHandlesForRange failed
+    size_t num_blocks = 0;
+    // Current scan overlap the last block of the previous scan.
+    bool check_overlap = !blocks_to_prepare.empty();
+
+    // Scan range is specified in user key, here we seek to the minimum internal
+    // key with this user key.
+    InternalKey start_key(scan_opt.range.start.value(), kMaxSequenceNumber,
+                          kValueTypeForSeek);
+    index_iter_->Seek(start_key.Encode());
+    while (index_iter_->Valid() &&
+           (!scan_opt.range.limit.has_value() ||
+            user_comparator_.CompareWithoutTimestamp(
+                index_iter_->user_key(),
+                /*a_has_ts*/ true, *scan_opt.range.limit,
+                /*b_has_ts=*/false) <= 0)) {
+      if (check_overlap &&
+          blocks_to_prepare.back() == index_iter_->value().handle) {
+        // Skip the current block since it's already in the list
+      } else {
+        blocks_to_prepare.push_back(index_iter_->value().handle);
+      }
+      ++num_blocks;
+      index_iter_->Next();
+      check_overlap = false;
+    }
+    // Stop until index->key > limit
+    // Include the current block since it can still contain keys <= limit
+    if (index_iter_->Valid()) {
+      if (check_overlap &&
+          blocks_to_prepare.back() == index_iter_->value().handle) {
+        // Skip adding the current block since it's already in the list
+      } else {
+        blocks_to_prepare.push_back(index_iter_->value().handle);
+      }
+      ++num_blocks;
+    }
+
+    if (!index_iter_->status().ok()) {
+      // Abort: index iterator error
       return;
     }
-    // Only need to check the last block since scan ranges are increasing
-    const auto num_blocks = blocks.size();
-    if (blocks_to_prepare.empty()) {
-      blocks_to_prepare = std::move(blocks);
-    } else {
-      const bool overlap = blocks_to_prepare.back() == blocks.front();
-      for (size_t j = overlap; j < blocks.size(); j++) {
-        blocks_to_prepare.push_back(std::move(blocks[j]));
-      }
-    }
+
     block_ranges_per_scan.emplace_back(blocks_to_prepare.size() - num_blocks,
                                        blocks_to_prepare.size());
   }
@@ -1225,27 +1181,89 @@ void BlockBasedTableIterator::Prepare(
   block_iter_points_to_real_block_ = false;
 }
 
-Status BlockBasedTableIterator::GetBlockHandlesForRange(
-    const RangeOpt& range, std::vector<BlockHandle>* data_blocks) {
-  std::vector<BlockHandle>& blocks_for_range = *data_blocks;
-  // Scan range is specified in user key, here we seek to the minimum internal
-  // key with this user key.
-  InternalKey start_key(range.start.value(), kMaxSequenceNumber,
-                        kValueTypeForSeek);
-  index_iter_->Seek(start_key.Encode());
-  while (
-      index_iter_->Valid() &&
-      (!range.limit.has_value() ||
-       user_comparator_.Compare(index_iter_->user_key(), *range.limit) <= 0)) {
-    blocks_for_range.push_back(index_iter_->value().handle);
-    index_iter_->Next();
-  }
-  // Stop until index->key > limit
-  // Include the current block since it can still contain keys <= limit
-  if (index_iter_->Valid()) {
-    blocks_for_range.push_back(index_iter_->value().handle);
+bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
+  assert(multi_scan_);
+  // This is a MultiScan and Preapre() has been called.
+  //
+  // Validate seek key with scan options
+  if (multi_scan_->next_scan_idx >= multi_scan_->scan_opts->size()) {
+    multi_scan_.reset();
+  } else if (!target) {
+    // start key must be set for multi-scan
+    multi_scan_.reset();
+  } else if (user_comparator_.CompareWithoutTimestamp(
+                 ExtractUserKey(*target), /*a_has_ts=*/true,
+                 (*multi_scan_->scan_opts)[multi_scan_->next_scan_idx]
+                     .range.start.value(),
+                 /*b_has_ts=*/false) != 0) {
+    // Unexpected seek key
+    multi_scan_.reset();
+  } else {
+    auto [cur_scan_start_idx, cur_scan_end_idx] =
+        multi_scan_->block_ranges_per_scan[multi_scan_->next_scan_idx];
+    // We should have the data block already loaded
+    ++multi_scan_->next_scan_idx;
+    if (cur_scan_start_idx >= cur_scan_end_idx) {
+      is_out_of_bound_ = true;
+      assert(!Valid());
+      return true;
+    } else {
+      is_out_of_bound_ = false;
+    }
+
+    if (!block_iter_points_to_real_block_ ||
+        multi_scan_->cur_data_block_idx != cur_scan_start_idx) {
+      if (block_iter_points_to_real_block_) {
+        // Should be scan in increasing key range.
+        // All blocks before cur_data_block_idx_ are not pinned anymore.
+        assert(multi_scan_->cur_data_block_idx < cur_scan_start_idx);
+      }
+
+      ResetDataIter();
+      // Note that the block_iter_ takes ownership of the pinned data block
+      // TODO: we can delegate the clean up like with pinned_iters_mgr_ if
+      // need to pin blocks longer.
+      table_->NewDataBlockIterator<DataBlockIter>(
+          read_options_, multi_scan_->pinned_data_blocks[cur_scan_start_idx],
+          &block_iter_, Status::OK());
+    }
+    multi_scan_->cur_data_block_idx = cur_scan_start_idx;
+    block_iter_points_to_real_block_ = true;
+    block_iter_.Seek(*target);
+    FindKeyForward();
+    return true;
   }
 
-  return index_iter_->status();
+  return false;
+}
+
+void BlockBasedTableIterator::FindBlockForwardInMultiScan() {
+  assert(multi_scan_);
+  assert(multi_scan_->next_scan_idx >= 1);
+  const auto cur_scan_end_idx = std::get<1>(
+      multi_scan_->block_ranges_per_scan[multi_scan_->next_scan_idx - 1]);
+  do {
+    if (!block_iter_.status().ok()) {
+      return;
+    }
+
+    if (multi_scan_->cur_data_block_idx + 1 >= cur_scan_end_idx) {
+      // We don't ResetDataIter() here since next scan might be reading from
+      // the same block. ResetDataIter() will free the underlying block cache
+      // handle and we don't want the block to be unpinned.
+      is_out_of_bound_ = true;
+      assert(!Valid());
+      return;
+    }
+    // Move to the next pinned data block
+    ResetDataIter();
+    ++multi_scan_->cur_data_block_idx;
+    table_->NewDataBlockIterator<DataBlockIter>(
+        read_options_,
+        multi_scan_->pinned_data_blocks[multi_scan_->cur_data_block_idx],
+        &block_iter_, Status::OK());
+    block_iter_points_to_real_block_ = true;
+    block_iter_.SeekToFirst();
+  } while (!block_iter_.Valid());
 }
 }  // namespace ROCKSDB_NAMESPACE

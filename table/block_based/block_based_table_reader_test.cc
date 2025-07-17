@@ -1103,6 +1103,55 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
   }
   ASSERT_FALSE(iter->Valid());
   ASSERT_OK(iter->status());
+
+  // Check cases when Seek key does not match start key in ScanOptions
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+  scan_options = {ScanOptions(ExtractUserKey(kv[10 * kEntriesPerBlock].first),
+                              ExtractUserKey(kv[20 * kEntriesPerBlock].first)),
+                  ScanOptions(ExtractUserKey(kv[30 * kEntriesPerBlock].first),
+                              ExtractUserKey(kv[40 * kEntriesPerBlock].first))};
+  iter->Prepare(&scan_options);
+  // Match start key
+  iter->Seek(kv[10 * kEntriesPerBlock].first);
+  for (size_t i = 10 * kEntriesPerBlock; i < 20 * kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+  // Does not match start key of the second ScanOptions.
+  iter->Seek(kv[50 * kEntriesPerBlock + 1].first);
+  for (size_t i = 50 * kEntriesPerBlock + 1; i < 100 * kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+
+  iter.reset(table->NewIterator(
+      read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+  scan_options = {ScanOptions(ExtractUserKey(kv[10 * kEntriesPerBlock].first)),
+                  ScanOptions(ExtractUserKey(kv[11 * kEntriesPerBlock].first))};
+  iter->Prepare(&scan_options);
+  // Does not match the first ScanOptions.
+  iter->SeekToFirst();
+  for (size_t i = 0; i < kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+  iter->Seek(kv[10 * kEntriesPerBlock].first);
+  for (size_t i = 10 * kEntriesPerBlock; i < 12 * kEntriesPerBlock; ++i) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().ToString(), kv[i].first);
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
 }
 
 // Param 1: compression type

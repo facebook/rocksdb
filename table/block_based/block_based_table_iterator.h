@@ -370,7 +370,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   // *** END States used by both regular scan and multiscan
 
-  // *** BEGIN MultiScan related APIs and states ***
+  // *** BEGIN MultiScan related states ***
   struct MultiScanState {
     // bool prepared_ = false;
     const std::vector<ScanOptions>* scan_opts;
@@ -395,9 +395,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   };
 
   std::unique_ptr<MultiScanState> multi_scan_;
-
-  Status GetBlockHandlesForRange(const RangeOpt& range,
-                                 std::vector<BlockHandle>* data_blocks);
   // *** END MultiScan related APIs and states ***
 
   void SeekSecondPass(const Slice* target);
@@ -514,5 +511,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                                     uint64_t& end_updated_offset,
                                     size_t& prev_handles_size);
   // *** END APIs relevant to auto tuning of readahead_size ***
+
+  // *** BEGIN APIs relevant to multiscan ***
+  // Returns true iff seek is successful.
+  bool SeekMultiScan(const Slice* target);
+
+  void FindBlockForwardInMultiScan();
+  // *** END APIs relevant to multiscan ***
 };
 }  // namespace ROCKSDB_NAMESPACE
