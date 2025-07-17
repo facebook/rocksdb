@@ -36,10 +36,9 @@ class TransactionDBCondVarImpl : public TransactionDBCondVar {
   TransactionDBCondVarImpl() = default;
   ~TransactionDBCondVarImpl() override = default;
 
-  Status Wait(std::shared_ptr<TransactionDBMutex> mutex) override;
+  Status Wait(TransactionDBMutex& mutex) override;
 
-  Status WaitFor(std::shared_ptr<TransactionDBMutex> mutex,
-                 int64_t timeout_time) override;
+  Status WaitFor(TransactionDBMutex& mutex, int64_t timeout_ms) override;
 
   void Notify() override { cv_.notify_one(); }
 
@@ -88,11 +87,10 @@ Status TransactionDBMutexImpl::TryLockFor(int64_t timeout_time) {
   return Status::OK();
 }
 
-Status TransactionDBCondVarImpl::Wait(
-    std::shared_ptr<TransactionDBMutex> mutex) {
-  auto mutex_impl = static_cast<TransactionDBMutexImpl*>(mutex.get());
+Status TransactionDBCondVarImpl::Wait(TransactionDBMutex& mutex) {
+  auto& mutex_impl = static_cast<TransactionDBMutexImpl&>(mutex);
 
-  std::unique_lock<std::mutex> lock(mutex_impl->mutex_, std::adopt_lock);
+  std::unique_lock<std::mutex> lock(mutex_impl.mutex_, std::adopt_lock);
   cv_.wait(lock);
 
   // Make sure unique_lock doesn't unlock mutex when it destructs
@@ -101,12 +99,12 @@ Status TransactionDBCondVarImpl::Wait(
   return Status::OK();
 }
 
-Status TransactionDBCondVarImpl::WaitFor(
-    std::shared_ptr<TransactionDBMutex> mutex, int64_t timeout_time) {
+Status TransactionDBCondVarImpl::WaitFor(TransactionDBMutex& mutex,
+                                         int64_t timeout_time) {
   Status s;
 
-  auto mutex_impl = static_cast<TransactionDBMutexImpl*>(mutex.get());
-  std::unique_lock<std::mutex> lock(mutex_impl->mutex_, std::adopt_lock);
+  auto& mutex_impl = static_cast<TransactionDBMutexImpl&>(mutex);
+  std::unique_lock<std::mutex> lock(mutex_impl.mutex_, std::adopt_lock);
 
   if (timeout_time < 0) {
     // If timeout is negative, do not use a timeout
