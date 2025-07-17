@@ -131,7 +131,7 @@ class MultiGetContext {
 
     for (size_t iter = 0; iter != num_keys_; ++iter) {
       // autovector may not be contiguous storage, so make a copy
-      assert(begin + iter < 32);
+      assert(begin + iter < MAX_BATCH_SIZE);
       sorted_keys_[iter] = (*sorted_keys)[begin + iter];
       sorted_keys_[iter]->lkey = new (&lookup_key_ptr_[iter])
           LookupKey(*sorted_keys_[iter]->key, snapshot, read_opts.timestamp);
