@@ -106,7 +106,11 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
       bool use_block_cache_for_lookup) const;                                  \
   template Status BlockBasedTable::LookupAndPinBlocksInCache<T>(               \
       const ReadOptions& ro, const BlockHandle& handle,                        \
-      CachableEntry<T>* out_parsed_block) const;
+      CachableEntry<T>* out_parsed_block) const;                               \
+  template Status BlockBasedTable::CreateAndPinBlockInCache<T>(                \
+      const ReadOptions& ro, const BlockHandle& handle,                        \
+      BlockContents* block_contents, CachableEntry<T>* out_parsed_block)       \
+      const;
 
 INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(DecompressorDict);
@@ -1733,6 +1737,17 @@ Status BlockBasedTable::LookupAndPinBlocksInCache(
   assert(!out_parsed_block->IsEmpty());
 
   return s;
+}
+
+template <typename TBlocklike>
+Status BlockBasedTable::CreateAndPinBlockInCache(
+    const ReadOptions& ro, const BlockHandle& handle, BlockContents* contents,
+    CachableEntry<TBlocklike>* out_parsed_block) const {
+  return MaybeReadBlockAndLoadToCache(
+      nullptr, ro, handle, rep_->decompressor.get(),
+      /*for_compaction=*/false, out_parsed_block, nullptr, nullptr, contents,
+      /*async_read=*/false,
+      /*use_block_cache_for_lookup=*/true);
 }
 
 // If contents is nullptr, this function looks up the block caches for the
