@@ -313,7 +313,7 @@ Status PointLockManager::AcquireWithTimeout(
       TEST_SYNC_POINT("PointLockManager::AcquireWithTimeout:WaitingTxn");
       if (cv_end_time < 0) {
         // Wait indefinitely
-        result = stripe->stripe_cv->Wait(stripe->stripe_mutex);
+        result = stripe->stripe_cv->Wait(*stripe->stripe_mutex);
         cv_wait_fail = !result.ok();
       } else {
         // FIXME: in this case, cv_end_time could be `expire_time_hint` from the
@@ -325,7 +325,7 @@ Status PointLockManager::AcquireWithTimeout(
           // This may be invoked multiple times since we divide
           // the time into smaller intervals.
           (void)ROCKSDB_THREAD_YIELD_CHECK_ABORT();
-          result = stripe->stripe_cv->WaitFor(stripe->stripe_mutex,
+          result = stripe->stripe_cv->WaitFor(*stripe->stripe_mutex,
                                               cv_end_time - now);
           cv_wait_fail = !result.ok() && !result.IsTimedOut();
         } else {
