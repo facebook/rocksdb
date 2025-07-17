@@ -11093,6 +11093,59 @@ TEST_F(DBCompactionTest, RecordNewestKeyTimeForTtlCompaction) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 }
+
+class PeriodicCompactionListener : public EventListener {
+ public:
+  explicit PeriodicCompactionListener() {}
+  void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& ci) override {
+    if (ci.compaction_reason == CompactionReason::kPeriodicCompaction) {
+      ++num_periodic_compactions;
+    }
+  }
+
+  std::atomic<int> num_periodic_compactions = 0;
+};
+
+TEST_F(DBCompactionTest, PeriodicTask) {
+  // Tests that when no trigger event is fired (flush/compaction/setoptions),
+  // periodic compaction is still triggered by a scheduled periodic function.
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  mock_clock->SetCurrentTime(100);
+  mock_clock->InstallTimedWaitFixCallback();
+  auto mock_env = std::make_unique<CompositeEnvWrapper>(env_, mock_clock);
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::StartPeriodicTaskScheduler:Init", [&](void* arg) {
+        auto periodic_task_scheduler_ptr =
+            static_cast<PeriodicTaskScheduler*>(arg);
+        periodic_task_scheduler_ptr->TEST_OverrideTimer(mock_clock.get());
+      });
+
+  Options options;
+  options.env = mock_env.get();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.statistics = CreateDBStatistics();
+  int kPeriodicCompactionSeconds = 7 * 24 * 60 * 60;  // 1 week
+  options.periodic_compaction_seconds = kPeriodicCompactionSeconds;
+  options.num_levels = 50;
+  auto listener = std::make_shared<PeriodicCompactionListener>();
+  options.listeners.push_back(listener);
+  ASSERT_OK(TryReopen(options));
+
+  Random* rnd = Random::GetTLSInstance();
+  for (int k = 0; k < 10; ++k) {
+    ASSERT_OK(Put(Key(k), rnd->RandomString(100)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+  ASSERT_EQ(1, NumTableFilesAtLevel(49));
+
+  dbfull()->TEST_WaitForPeriodicTaskRun(
+      [&] { mock_clock->MockSleepForSeconds(kPeriodicCompactionSeconds + 1); });
+  ASSERT_OK(db_->WaitForCompact({}));
+
+  ASSERT_EQ(listener->num_periodic_compactions, 1);
+  Close();
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

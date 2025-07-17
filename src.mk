@@ -80,6 +80,7 @@ LIB_SOURCES =                                                   \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
+  db/multi_scan.cc						\
   db/output_validator.cc                                        \
   db/periodic_task_scheduler.cc                                 \
   db/range_del_aggregator.cc                                    \
@@ -237,13 +238,13 @@ LIB_SOURCES =                                                   \
   trace_replay/block_cache_tracer.cc                            \
   trace_replay/io_tracer.cc                                     \
   util/async_file_reader.cc					                            \
+  util/auto_tune_compressor.cc                                           \
   util/build_version.cc                                         \
   util/cleanable.cc                                             \
   util/coding.cc                                                \
   util/compaction_job_stats_impl.cc                             \
   util/comparator.cc                                            \
   util/compression.cc                                           \
-  util/auto_skip_compressor.cc                                           \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \

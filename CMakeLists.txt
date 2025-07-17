@@ -721,6 +721,7 @@ set(SOURCES
         db/memtable_list.cc
         db/merge_helper.cc
         db/merge_operator.cc
+        db/multi_scan.cc
         db/output_validator.cc
         db/periodic_task_scheduler.cc
         db/range_del_aggregator.cc
@@ -874,7 +875,7 @@ set(SOURCES
         trace_replay/trace_record.cc
         trace_replay/trace_replay.cc
         util/async_file_reader.cc
-        util/auto_skip_compressor.cc
+        util/auto_tune_compressor.cc
         util/cleanable.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc

@@ -135,21 +135,6 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
   Destroy(options);
 }
 
-// Check that we don't crash when opening DB with
-// DBOptions::skip_checking_sst_file_sizes_on_db_open = true.
-TEST_F(DBSSTTest, SkipCheckingSSTFileSizesOnDBOpen) {
-  ASSERT_OK(Put("pika", "choo"));
-  ASSERT_OK(Flush());
-
-  // Just open the DB with the option set to true and check that we don't crash.
-  Options options;
-  options.env = env_;
-  options.skip_checking_sst_file_sizes_on_db_open = true;
-  Reopen(options);
-
-  ASSERT_EQ("choo", Get("pika"));
-}
-
 TEST_F(DBSSTTest, DontDeleteMovedFile) {
   // This test triggers move compaction and verifies that the file is not
   // deleted when it's part of move compaction
@@ -1746,45 +1731,6 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   ASSERT_EQ(total_sst_files_size, 0);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-}
-
-TEST_F(DBSSTTest, OpenDBWithoutGetFileSizeInvocations) {
-  Options options = CurrentOptions();
-  std::unique_ptr<MockEnv> env{MockEnv::Create(Env::Default())};
-  options.env = env.get();
-  options.disable_auto_compactions = true;
-  options.compression = kNoCompression;
-  options.enable_blob_files = true;
-  options.blob_file_size = 32;  // create one blob per file
-  options.skip_checking_sst_file_sizes_on_db_open = true;
-
-  DestroyAndReopen(options);
-  // Generate 5 files in L0
-  for (int i = 0; i < 5; i++) {
-    for (int j = 0; j < 10; j++) {
-      std::string val = "val_file_" + std::to_string(i);
-      ASSERT_OK(Put(Key(j), val));
-    }
-    ASSERT_OK(Flush());
-  }
-  Close();
-
-  bool is_get_file_size_called = false;
-  SyncPoint::GetInstance()->SetCallBack(
-      "MockFileSystem::GetFileSize:CheckFileType", [&](void* arg) {
-        std::string* filename = static_cast<std::string*>(arg);
-        if (filename->find(".blob") != std::string::npos) {
-          is_get_file_size_called = true;
-        }
-      });
-
-  SyncPoint::GetInstance()->EnableProcessing();
-  Reopen(options);
-  ASSERT_FALSE(is_get_file_size_called);
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-
-  Destroy(options);
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {

@@ -39,19 +39,30 @@ inline std::shared_ptr<DestClass> static_cast_with_check(
 }
 
 // A wrapper around static_cast for lossless conversion between integral
-// types, including enum types. For example, this can be used for converting
-// between signed/unsigned or enum type and underlying type without fear of
-// stripping away data, now or in the future.
+// types, including enum types, and pointers to such types. For example, this
+// can be used for converting between signed/unsigned or enum type and
+// underlying type without fear of stripping away data, now or in the future.
 template <typename To, typename From>
 inline To lossless_cast(From x) {
-  using FromValue = typename std::remove_reference<From>::type;
-  static_assert(
-      std::is_integral<FromValue>::value || std::is_enum<FromValue>::value,
-      "Only works on integral types");
-  static_assert(std::is_integral<To>::value || std::is_enum<To>::value,
-                "Only works on integral types");
-  static_assert(sizeof(To) >= sizeof(FromValue), "Must be lossless");
-  return static_cast<To>(x);
+  using FromValue = typename std::remove_reference_t<From>;
+  if constexpr (std::is_pointer_v<FromValue>) {
+    static_assert(std::is_pointer_v<To>);
+    using FromDeref = typename std::remove_pointer_t<FromValue>;
+    using ToDeref = typename std::remove_pointer_t<To>;
+    static_assert(std::is_integral_v<FromDeref> || std::is_enum_v<FromDeref>,
+                  "Only works on integral types");
+    static_assert(std::is_integral_v<ToDeref> || std::is_enum_v<To>,
+                  "Only works on integral types");
+    static_assert(sizeof(ToDeref) == sizeof(FromDeref), "Must be lossless");
+    return reinterpret_cast<To>(x);
+  } else {
+    static_assert(std::is_integral_v<FromValue> || std::is_enum_v<FromValue>,
+                  "Only works on integral types");
+    static_assert(std::is_integral_v<To> || std::is_enum_v<To>,
+                  "Only works on integral types");
+    static_assert(sizeof(To) >= sizeof(FromValue), "Must be lossless");
+    return static_cast<To>(x);
+  }
 }
 
 // For disambiguating a potentially heterogeneous aggregate as a homogeneous

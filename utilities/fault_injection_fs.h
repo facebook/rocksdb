@@ -106,8 +106,8 @@ class TestFSWritableFile : public FSWritableFile {
   const bool unsync_data_loss_;
 };
 
-// A wrapper around WritableFileWriter* file
-// is written to or sync'ed.
+// A wrapper around FSRandomRWFile* file
+// is read from/write to or sync'ed.
 class TestFSRandomRWFile : public FSRandomRWFile {
  public:
   explicit TestFSRandomRWFile(const std::string& fname,
@@ -128,6 +128,9 @@ class TestFSRandomRWFile : public FSRandomRWFile {
   bool use_direct_io() const override { return target_->use_direct_io(); }
 
  private:
+  // keep a copy of file name, so we can untrack it in File system, when it is
+  // closed
+  std::string fname_;
   std::unique_ptr<FSRandomRWFile> target_;
   bool file_opened_;
   FaultInjectionTestFS* fs_;
@@ -154,6 +157,8 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   bool use_direct_io() const override { return target_->use_direct_io(); }
 
   size_t GetUniqueId(char* id, size_t max_size) const override;
+
+  IOStatus GetFileSize(uint64_t* file_size) override;
 
  private:
   std::unique_ptr<FSRandomAccessFile> target_;
@@ -218,7 +223,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
             DeleteThreadLocalErrorContext),
         ingest_data_corruption_before_write_(false),
         checksum_handoff_func_type_(kCRC32c),
-        fail_get_file_unique_id_(false) {}
+        fail_get_file_unique_id_(false),
+        fail_get_file_size_(false) {}
   virtual ~FaultInjectionTestFS() override { fs_error_.PermitUncheckedError(); }
 
   static const char* kClassName() { return "FaultInjectionTestFS"; }
@@ -337,6 +343,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   void WritableFileSynced(const FSFileState& state);
 
   void WritableFileAppended(const FSFileState& state);
+
+  void RandomRWFileClosed(const std::string& fname);
 
   IOStatus DropUnsyncedFileData();
 
@@ -475,6 +483,16 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   bool ShouldFailGetUniqueId() {
     MutexLock l(&mutex_);
     return fail_get_file_unique_id_;
+  }
+
+  void SetFailGetFileSize(bool flag) {
+    MutexLock l(&mutex_);
+    fail_get_file_size_ = flag;
+  }
+
+  bool ShouldFailGetFileSize() {
+    MutexLock l(&mutex_);
+    return fail_get_file_size_;
   }
 
   // Specify what the operation, so we can inject the right type of error
@@ -636,6 +654,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   bool ingest_data_corruption_before_write_;
   ChecksumType checksum_handoff_func_type_;
   bool fail_get_file_unique_id_;
+  bool fail_get_file_size_;
 
   // Inject an error. For a READ operation, a status of IOError(), a
   // corruption in the contents of scratch, or truncation of slice
