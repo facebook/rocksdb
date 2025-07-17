@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "options/offpeak_time_info.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/data_structure.h"
@@ -33,10 +34,12 @@ using IOGoal = Budget;
 using CPUBudget = Budget;
 struct DynamicBudget : public Budget, public EventListener {
   explicit DynamicBudget(double max_rate, double min_rate,
-                         double stall_max_rate, double stall_min_rate)
+                         double stall_max_rate, double stall_min_rate,
+                         std::string peak_time)
       : Budget(max_rate, min_rate),
         stall_max_rate_(stall_max_rate),
         stall_min_rate_(stall_min_rate),
+        offpeak_time_(peak_time),
         stall_condition_(WriteStallCondition::kNormal){};
   double GetMaxRate() override;
   double GetMinRate() override;
@@ -50,6 +53,7 @@ struct DynamicBudget : public Budget, public EventListener {
  private:
   double stall_max_rate_;
   double stall_min_rate_;
+  OffpeakTimeOption offpeak_time_;
   WriteStallCondition stall_condition_;
 };
 

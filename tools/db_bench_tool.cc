@@ -4742,10 +4742,11 @@ class Benchmark {
       double cpu_lower_bound = FLAGS_autotune_mincpubudget;
       std::shared_ptr<DynamicBudget> io_goal = std::make_shared<DynamicBudget>(
           io_upper_bound, io_lower_bound, ratelimiter_throughput,
-          io_upper_bound);
+          io_upper_bound, "");
       std::shared_ptr<DynamicBudget> cpu_budget =
           std::make_shared<DynamicBudget>(cpu_upper_bound, cpu_lower_bound, 1.0,
-                                          cpu_upper_bound);
+                                          cpu_upper_bound,
+                                          options.daily_offpeak_time_utc);
       options.listeners.emplace_back(io_goal);
       options.listeners.emplace_back(cpu_budget);
       mgr = CreateAutoTuneCompressionManager(nullptr, io_goal, cpu_budget,

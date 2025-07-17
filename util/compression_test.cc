@@ -2010,7 +2010,7 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
 }
 // Test that DynamicBudget responds correctly to write stall conditions
 TEST(DynamicBudgetTest, WriteStallResponse) {
-  DynamicBudget budget(100.0, 50.0, 200.0, 25.0);
+  DynamicBudget budget(100.0, 50.0, 200.0, 25.0, "");
 
   // Create a WriteStallInfo with a DELAYED condition
   WriteStallInfo delayed_info;
