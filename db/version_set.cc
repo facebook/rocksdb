@@ -1118,19 +1118,19 @@ class LevelIterator final : public InternalIterator {
         auto end = opt.range.limit.AsPtr();
         auto istart =
             InternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
-        auto iend =
-            InternalKey(*end, kMaxSequenceNumber, kValueTypeForSeek);
+        auto iend = InternalKey(*end, kMaxSequenceNumber, kValueTypeForSeek);
 
         // This needs to be optimized
         size_t fstart = FindFile(icomparator_, *flevel_, istart.Encode());
         size_t fend = FindFile(icomparator_, *flevel_, iend.Encode());
 
-        // We need to check the relevant cases 
+        // We need to check the relevant cases
         // Cases:
         // 1. [ S        E   ]
         // 2. [  S  ] [   E   ]
-        // 3. [ S ] ......[   E  ] 
-        if ((fstart < flevel_->num_files) && fstart == fend && prepared_iters[fstart] != nullptr) {
+        // 3. [ S ] ......[   E  ]
+        if ((fstart < flevel_->num_files) && fstart == fend &&
+            prepared_iters[fstart] != nullptr) {
           // Case 1
           file_to_scan_opts[fstart].push_back(opt);
         } else {
@@ -1144,12 +1144,11 @@ class LevelIterator final : public InternalIterator {
       }
 
       // We now have our list of intersections
-      for (const auto&[k, v]: file_to_scan_opts) {
+      for (const auto& [k, v] : file_to_scan_opts) {
         auto iter = NewFileIterator(k);
         prepared_iters[k] = iter;
         iter->Prepare(&v);
       }
-
     }
   }
 
