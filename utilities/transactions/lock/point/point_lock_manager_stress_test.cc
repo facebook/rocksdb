@@ -107,7 +107,7 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
       while (!shutdown_) {
         auto txn = NewTxn(txn_opt_);
         auto txn_id = txn->GetID();
-        DEBUG_LOG_PREFIX("new txn\n");
+        DEBUG_LOG("Thd %zu Txn %" PRIu64 "new txn\n", thd_idx, txn_id);
         std::vector<std::pair<uint32_t, bool>> locked_key_with_types;
         // try to grab a random number of locks
         auto num_key_to_lock =
@@ -322,16 +322,16 @@ INSTANTIATE_TEST_CASE_P(
         // 2 second timeout and no expiration simulating mysql default
         // configuration
         {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 2000, -1,
-         false, false},
+         true, false},
         {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 2000, -1,
-         false, false},
-        {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 2000, -1, false,
+         true, false},
+        {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 2000, -1, true,
          false},
-        {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 2000, -1, false,
+        {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 2000, -1, true,
          false},
-        {true, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 2000, -1, false,
+        {true, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 2000, -1, true,
          false},
-        {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 2000, -1, false,
+        {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 2000, -1, true,
          false},
         // short timeout and expiration to test lock stealing
         {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 10, 10,

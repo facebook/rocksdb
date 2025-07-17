@@ -241,7 +241,7 @@ void PointLockManagerBenchmark::BenchmarkPointLockManager() {
       auto txn = NewTxn(txn_opt_);
       auto txn_id = txn->GetID();
       while (!shutdown_) {
-        DEBUG_LOG_PREFIX("new txn\n");
+        DEBUG_LOG("Thd %zu Txn %" PRIu64 "new txn\n", thd_idx, txn_id);
         std::vector<std::pair<uint32_t, bool>> locked_key_with_types;
         auto num_key_to_lock = FLAGS_max_num_keys_to_lock_per_txn;
         Status s;
