@@ -146,27 +146,15 @@ AutoTuneCompressor::AutoTuneCompressor(
   // the compression levels set in vector CompressionLevels.
   auto builtInManager = GetBuiltinV2CompressionManager();
   const auto& compressions = GetSupportedCompressions();
-  for (size_t i = 0; i < kCompressionLevels.size(); i++) {
-    CompressionType type = static_cast<CompressionType>(i + 1);
+  for (const auto& type : compressions) {
     if (type == kNoCompression) {
       continue;
     }
-    if (kCompressionLevels[type - 1].size() == 0) {
-      continue;
-    } else {
-      // If the compression type is not supported, then skip and remove
-      // compression levels from the supported compression level list.
-      if (std::find(compressions.begin(), compressions.end(), type) ==
-          compressions.end()) {
-        continue;
-      }
-      for (size_t j = 0; j < kCompressionLevels[type - 1].size(); j++) {
-        auto level = kCompressionLevels[type - 1][j];
-        CompressionOptions new_opts = opts;
-        new_opts.level = level;
-        compressors_.emplace_back(
-            builtInManager->GetCompressor(new_opts, type));
-      }
+    for (size_t j = 0; j < kCompressionLevels[type - 1].size(); j++) {
+      auto level = kCompressionLevels[type - 1][j];
+      CompressionOptions new_opts = opts;
+      new_opts.level = level;
+      compressors_.emplace_back(builtInManager->GetCompressor(new_opts, type));
     }
   }
   MeasureUtilization();
