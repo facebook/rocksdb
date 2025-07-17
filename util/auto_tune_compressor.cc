@@ -381,4 +381,24 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
       cpu_budget, opt);
 }
 
+double DynamicBudget::GetMaxRate() {
+  if (stall_condition_ == WriteStallCondition::kNormal) {
+    return Budget::GetMaxRate();
+  } else {
+    return stall_max_rate_;
+  }
+}
+double DynamicBudget::GetMinRate() {
+  if (stall_condition_ == WriteStallCondition::kNormal) {
+    return Budget::GetMinRate();
+  } else {
+    return stall_min_rate_;
+  }
+}
+std::shared_ptr<Budget> CreateDynamicBudget(double max_rate, double min_rate,
+                                            double stall_max_rate,
+                                            double stall_min_rate) {
+  return std::make_shared<DynamicBudget>(max_rate, min_rate, stall_max_rate,
+                                         stall_min_rate);
+}
 }  // namespace ROCKSDB_NAMESPACE

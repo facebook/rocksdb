@@ -31,6 +31,24 @@ class Budget {
 };
 using IOGoal = Budget;
 using CPUBudget = Budget;
+struct DynamicBudget : public Budget, public EventListener {
+  explicit DynamicBudget(double max_rate, double min_rate,
+                         double stall_max_rate, double stall_min_rate)
+      : Budget(max_rate, min_rate),
+        stall_max_rate_(stall_max_rate),
+        stall_min_rate_(stall_min_rate),
+        stall_condition_(WriteStallCondition::kNormal){};
+  double GetMaxRate() override;
+  double GetMinRate() override;
+  void OnStallConditionsChanged(const WriteStallInfo& info) override {
+    stall_condition_ = info.condition.cur;
+  };
+
+ private:
+  double stall_max_rate_;
+  double stall_min_rate_;
+  WriteStallCondition stall_condition_;
+};
 
 // TODO: alias/adapt for compression
 struct FilterBuildingContext;
@@ -640,5 +658,10 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     std::shared_ptr<CompressionManager> wrapped,
     std::shared_ptr<IOGoal> io_goal, std::shared_ptr<CPUBudget> cpu_budget,
     const Options& opt);
+// Creates Dynamic Budget that has ability to detect write stall and adjust the
+// Budget
+std::shared_ptr<Budget> CreateDynamicBudget(double max_rate, double min_rate,
+                                            double stall_max_rate,
+                                            double stall_min_rate);
 
 }  // namespace ROCKSDB_NAMESPACE
