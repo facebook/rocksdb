@@ -1797,8 +1797,8 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
       *to_explore = false;
     };
     auto SetPredictions = [&](void* arg) {
-      // gets the predictor and sets the mocked cpu and io cost in such a way
-      // that expection_selection_ is in the correct quadrant
+      // Gets the predictor and sets the mocked CPU and IO cost in such a way
+      // that expected_selection_ is in the correct quadrant
       predictors_ = *static_cast<std::vector<IOCPUCostPredictor*>*>(arg);
       for (size_t i = 0; i < predictors_.size(); i++) {
         if (i == expected_selection_) {

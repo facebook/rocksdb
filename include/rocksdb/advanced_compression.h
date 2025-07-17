@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 class Budget {
  public:
   Budget(double max_rate, double min_rate)
-      : max_rate_(max_rate), min_rate_(min_rate){};
+      : max_rate_(max_rate), min_rate_(min_rate) {}
   virtual double GetMaxRate() { return max_rate_; }
   virtual double GetMinRate() { return min_rate_; }
   virtual ~Budget() = default;
@@ -634,7 +634,7 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
     std::shared_ptr<CompressionManager> wrapped = nullptr);
 // Creates CompressionManager designed for the CPU and IO cost aware compression
 // strategy that selects compression algorithm based on the io goal and the cpu
-// budget
+// budget.
 // EXPERIMENTAL
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     std::shared_ptr<CompressionManager> wrapped,

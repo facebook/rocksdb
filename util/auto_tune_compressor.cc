@@ -243,6 +243,15 @@ void AutoTuneCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   }
   delete static_cast<CostAwareWorkingArea*>(wa);
 }
+// Select the compression type and level based on the IO and CPU usage.
+// The ultimate goal is to select the compression type and level which
+// will result in IO and CPU usage between the lower and upper bounds
+// provided by the user using IOGoal and CPUBudget.
+// In order to achieve this, we measure the current IO and CPU usage and
+// the CPU and IO costs of different compression algorithms and levels.
+// We then select the compression type and level that will either
+// increase or decrease the IO and CPU usage based on the user-provided
+// IOGoal and CPUBudget.
 size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
     CostAwareWorkingArea* wa) {
   // If no budgets are available, use default choice
@@ -284,10 +293,10 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   if (is_stable_region()) {
     return cur_compressor_idx_;
   } else if (cur_compressor_idx_ >= compressors_.size()) {
-    // If the current compression type and level are not available i.e.
-    // Compression is disabled We can switch from no compression if we can
-    // decrease io and increase cpu usage else we current no compression is
-    // the best we can do
+    // If the current compression type and level are not available, i.e.,
+    // compression is disabled, we can switch from no compression if we can
+    // decrease IO and increase CPU usage. Otherwise, our current no-compression
+    // setting is the best we can do.
     if (decrease_io && increase_cpu) {
       cur_compressor_idx_ = 0;
       return cur_compressor_idx_;
@@ -298,10 +307,10 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   TEST_SYNC_POINT_CALLBACK(
       "AutoTuneCompressorWrapper::CompressBlock::GetPredictors",
       &(wa->cost_predictors_));
-  // If we are not in the stable region, then we need to explore the other
-  // compression algorithm and level which is in the right quadrant where we
-  // want to move to based on whether we want to increase or decrease the cpu
-  // and io usage
+  // If we are not in the stable region, then we need to explore other
+  // compression algorithms and levels that are in the right quadrant.
+  // The right quadrant is determined by whether we want to increase or decrease
+  // the CPU and IO usage based on our current measurements.
   auto cur_cpu_cost =
       wa->cost_predictors_[cur_compressor_idx_]->CPUPredictor.Predict();
   auto cur_io_cost =
@@ -329,7 +338,7 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   // decrease CPU usage. Otherwise, the current compression type and level
   // is the best we can do.
   if (increase_io && decrease_cpu) {
-    // index that is above the size of created compressors is treated as
+    // An index that is above the size of created compressors is treated as a
     // signal for no compression
     cur_compressor_idx_ = std::numeric_limits<size_t>::max();
   }

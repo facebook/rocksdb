@@ -607,21 +607,22 @@ static enum ROCKSDB_NAMESPACE::CompressionType
 
 DEFINE_string(compression_manager, "none",
               "Set the compression manager type to mixed(roundrobin), "
-              "autoskip, autotune "
-              "type. None for BuilInCompressor");
+              "autoskip, autotunecompressor, "
+              "or none. Use 'none' for BuiltInCompressor");
 
 DEFINE_double(autotune_iogoal, 0.99,
-              "ratio of rate_limiter budget to set as io goal for autotune "
+              "Ratio of rate_limiter budget to set as IO goal for autotune "
               "compression manager");
-DEFINE_double(autotune_miniogoal, 0.9,
-              "ratio of rate_limiter budget to set as io goal for autotune "
-              "compression manager");
+DEFINE_double(
+    autotune_miniogoal, 0.9,
+    "Ratio of rate_limiter budget to set as minimum IO goal for autotune "
+    "compression manager");
 DEFINE_double(
     autotune_cpubudget, 0.9,
-    "autotune compression manager tries to use cpu under the given cpubudget");
-DEFINE_double(
-    autotune_mincpubudget, 0.8,
-    "autotune compression manager tries to use cpu under the given cpubudget");
+    "Autotune compression manager tries to use CPU under the given CPU budget");
+DEFINE_double(autotune_mincpubudget, 0.8,
+              "Autotune compression manager tries to use CPU under the given "
+              "minimum CPU budget");
 
 DEFINE_int32(compressed_secondary_cache_compression_level,
              ROCKSDB_NAMESPACE::CompressionOptions().level,
@@ -4684,7 +4685,7 @@ class Benchmark {
       mgr =
           std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
-                           "autotunecompression")) {
+                           "autotunecompressor")) {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
       double io_upper_bound = FLAGS_autotune_iogoal * ratelimiter_throughput;
       double io_lower_bound = FLAGS_autotune_miniogoal * ratelimiter_throughput;

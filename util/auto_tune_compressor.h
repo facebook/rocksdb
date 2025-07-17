@@ -184,7 +184,7 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
   std::shared_ptr<CPUBudget> cpu_budget_;
   std::shared_ptr<RateLimiter> rate_limiter_;
   CPUIOUtilizationTracker usage_tracker_;
-  // Will servers as a logical clock to decide when to update the decision
+  // Will serve as a logical clock to decide when to update the decision
   std::atomic<int> block_count_;
   std::atomic<size_t> cur_compressor_idx_;
   std::unique_ptr<Compressor> default_compressor_;
@@ -215,4 +215,4 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
   Options option_;
 };
 
-};  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
