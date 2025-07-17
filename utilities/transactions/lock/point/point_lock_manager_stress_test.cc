@@ -319,7 +319,21 @@ TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
 INSTANTIATE_TEST_CASE_P(
     PointLockCorrectnessCheckTestSuite, PointLockCorrectnessCheckTest,
     ::testing::ValuesIn(std::vector<PointLockCorrectnessCheckTestParam>{
-        // short timeout and expiration
+        // 2 second timeout and no expiration simulating mysql default
+        // configuration
+        {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 2000, -1,
+         false, false},
+        {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 2000, -1,
+         false, false},
+        {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 2000, -1, false,
+         false},
+        {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 2000, -1, false,
+         false},
+        {true, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 2000, -1, false,
+         false},
+        {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 2000, -1, false,
+         false},
+        // short timeout and expiration to test lock stealing
         {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 10, 10,
          true, true},
         {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 10, 10,
@@ -330,7 +344,8 @@ INSTANTIATE_TEST_CASE_P(
          true},
         {true, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 10, 10, true, true},
         {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 10, 10, true, true},
-        // long timeout and expiration
+        // long timeout and expiration to test deadlock detection without
+        // timeout
         {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED,
          kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, false},
         {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED,
@@ -344,10 +359,10 @@ INSTANTIATE_TEST_CASE_P(
         {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, kLongTxnTimeoutMs,
          kLongTxnTimeoutMs, false, false},
         // Low lock contention
-        {true, 16, 4096, 2, 10, LockTypeToTest::SHARED_ONLY, kLongTxnTimeoutMs,
-         kLongTxnTimeoutMs, false, false},
-        {false, 16, 4096, 2, 10, LockTypeToTest::SHARED_ONLY, kLongTxnTimeoutMs,
-         kLongTxnTimeoutMs, false, false},
+        {true, 16, 1024 * 1024, 2, 10, LockTypeToTest::SHARED_ONLY,
+         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, false},
+        {false, 16, 1024 * 1024, 2, 10, LockTypeToTest::SHARED_ONLY,
+         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, false},
     }));
 
 }  // namespace ROCKSDB_NAMESPACE

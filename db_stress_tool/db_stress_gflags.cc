@@ -724,6 +724,10 @@ DEFINE_uint64(txn_write_policy, 0,
               "TxnDBWritePolicy::WRITE_COMMITTED. Note that this should not be "
               "changed across crashes.");
 
+DEFINE_bool(use_per_key_point_lock_mgr, true,
+            "Use PointLockManager(false) or PerKeyPointLockManager(true) in "
+            "TransactionDB.");
+
 DEFINE_bool(use_optimistic_txn, false, "Use OptimisticTransactionDB.");
 DEFINE_uint64(occ_validation_policy, 1,
               "Optimistic Concurrency Control Validation Policy for "

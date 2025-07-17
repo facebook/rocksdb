@@ -51,6 +51,7 @@ class TransactionTestBase : public ::testing::Test {
   bool use_stackable_db_;
 
   TransactionTestBase(bool use_stackable_db, bool two_write_queue,
+                      bool use_per_key_point_lock_mgr,
                       TxnDBWritePolicy write_policy,
                       WriteOrdering write_ordering)
       : db(nullptr),
@@ -77,6 +78,7 @@ class TransactionTestBase : public ::testing::Test {
     txn_db_options.default_lock_timeout = 0;
     txn_db_options.write_policy = write_policy;
     txn_db_options.rollback_merge_operands = true;
+    txn_db_options.use_per_key_point_lock_mgr = use_per_key_point_lock_mgr;
     // This will stress write unprepared, by forcing write batch flush on every
     // write.
     txn_db_options.default_write_batch_flush_threshold = 1;
@@ -482,17 +484,20 @@ class TransactionTestBase : public ::testing::Test {
 class TransactionTest
     : public TransactionTestBase,
       virtual public ::testing::WithParamInterface<
-          std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering>> {
+          std::tuple<bool, bool, bool, TxnDBWritePolicy, WriteOrdering>> {
  public:
   TransactionTest()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
-                            std::get<2>(GetParam()), std::get<3>(GetParam())){};
+                            std::get<2>(GetParam()), std::get<3>(GetParam()),
+                            std::get<4>(GetParam())){};
 };
 
-class TransactionDBTest : public TransactionTestBase {
+class TransactionDBTest : public TransactionTestBase,
+                          virtual public ::testing::WithParamInterface<bool> {
  public:
   TransactionDBTest()
-      : TransactionTestBase(false, false, WRITE_COMMITTED, kOrderedWrite) {}
+      : TransactionTestBase(false, false, GetParam(), WRITE_COMMITTED,
+                            kOrderedWrite) {}
 };
 
 class TransactionStressTest : public TransactionTest {};
@@ -500,12 +505,13 @@ class TransactionStressTest : public TransactionTest {};
 class MySQLStyleTransactionTest
     : public TransactionTestBase,
       virtual public ::testing::WithParamInterface<
-          std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering, bool>> {
+          std::tuple<bool, bool, bool, TxnDBWritePolicy, WriteOrdering, bool>> {
  public:
   MySQLStyleTransactionTest()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
-                            std::get<2>(GetParam()), std::get<3>(GetParam())),
-        with_slow_threads_(std::get<4>(GetParam())) {
+                            std::get<2>(GetParam()), std::get<3>(GetParam()),
+                            std::get<4>(GetParam())),
+        with_slow_threads_(std::get<5>(GetParam())) {
     if (with_slow_threads_ &&
         (txn_db_options.write_policy == WRITE_PREPARED ||
          txn_db_options.write_policy == WRITE_UNPREPARED)) {
@@ -527,11 +533,12 @@ class MySQLStyleTransactionTest
 
 class WriteCommittedTxnWithTsTest
     : public TransactionTestBase,
-      public ::testing::WithParamInterface<std::tuple<bool, bool, bool>> {
+      public ::testing::WithParamInterface<std::tuple<bool, bool, bool, bool>> {
  public:
   WriteCommittedTxnWithTsTest()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
-                            WRITE_COMMITTED, kOrderedWrite) {}
+                            std::get<2>(GetParam()), WRITE_COMMITTED,
+                            kOrderedWrite) {}
   ~WriteCommittedTxnWithTsTest() override {
     for (auto* h : handles_) {
       delete h;
@@ -552,7 +559,7 @@ class WriteCommittedTxnWithTsTest
     assert(db);
     auto* txn = db->BeginTransaction(write_opts, txn_opts);
     assert(txn);
-    const bool enable_indexing = std::get<2>(GetParam());
+    const bool enable_indexing = std::get<3>(GetParam());
     if (enable_indexing) {
       txn->EnableIndexing();
     } else {
@@ -568,11 +575,12 @@ class WriteCommittedTxnWithTsTest
 class TimestampedSnapshotWithTsSanityCheck
     : public TransactionTestBase,
       public ::testing::WithParamInterface<
-          std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering>> {
+          std::tuple<bool, bool, bool, TxnDBWritePolicy, WriteOrdering>> {
  public:
   explicit TimestampedSnapshotWithTsSanityCheck()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
-                            std::get<2>(GetParam()), std::get<3>(GetParam())) {}
+                            std::get<2>(GetParam()), std::get<3>(GetParam()),
+                            std::get<4>(GetParam())) {}
   ~TimestampedSnapshotWithTsSanityCheck() override {
     for (auto* h : handles_) {
       delete h;
