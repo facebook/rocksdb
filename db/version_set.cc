@@ -1013,9 +1013,9 @@ class LevelIterator final : public InternalIterator {
     prepared_iters.reserve(file_index_ + 1);
   }
 
-  ~LevelIterator() override { 
-    delete file_iter_.Set(nullptr); 
-    for (auto v: prepared_iters) {
+  ~LevelIterator() override {
+    delete file_iter_.Set(nullptr);
+    for (auto v : prepared_iters) {
       delete v;
     }
   }
