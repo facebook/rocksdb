@@ -259,16 +259,19 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   if (!cpu_budget_ || !io_goal_) {
     return 0;
   }
+
   if ((block_count_.fetch_add(1, std::memory_order_relaxed)) %
           kDecideEveryNBlocks !=
       0) {
     return cur_compressor_idx_;
   }
+  // Step 1: Measure current resource utilization
   MeasureUtilization();
-  auto cpu_util = usage_tracker_.GetCpuUtilization();
-  auto io_util = usage_tracker_.GetIoUtilization();
-  TEST_SYNC_POINT_CALLBACK("AutoTuneCompressorWrapper::SetCPUUsage", &cpu_util);
-  TEST_SYNC_POINT_CALLBACK("AutoTuneCompressorWrapper::SetIOUsage", &io_util);
+  auto cpu_io_util = usage_tracker_.GetUtilization();
+  TEST_SYNC_POINT_CALLBACK("AutoTuneCompressorWrapper::SetCPUIOUsage",
+                           &cpu_io_util);
+  auto& cpu_util = cpu_io_util.first;
+  auto& io_util = cpu_io_util.second;
   // Get available budgets
   auto cpu_upper_bound = cpu_budget_->GetMaxRate();
   auto io_upper_bound = io_goal_->GetMaxRate();
@@ -281,9 +284,14 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   bool decrease_io = io_util > io_upper_bound;
   bool increase_cpu = cpu_util < cpu_lower_bound;
   bool decrease_cpu = cpu_util > cpu_upper_bound;
+
+  auto is_stable_region = [&] {
+    return (!increase_io && !increase_cpu && !decrease_io && !decrease_cpu);
+  };
+
   // If we are in the stable region, then we just go ahead with the current
   // compression type and level
-  if (!increase_io && !increase_cpu && !decrease_io && !decrease_cpu) {
+  if (is_stable_region()) {
     return cur_compressor_idx_;
   } else if (cur_compressor_idx_ >= compressors_.size()) {
     // If the current compression type and level are not available i.e.
@@ -308,33 +316,20 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
       wa->cost_predictors_[cur_compressor_idx_]->CPUPredictor.Predict();
   auto cur_io_cost =
       wa->cost_predictors_[cur_compressor_idx_]->IOPredictor.Predict();
+
+  auto is_in_valid_quadrant = [&](size_t predicted_io_cost,
+                                  size_t predicted_cpu_cost) {
+    return (!increase_io || predicted_io_cost > cur_io_cost) &&
+           (!decrease_io || predicted_io_cost < cur_io_cost) &&
+           (!increase_cpu || predicted_cpu_cost > cur_cpu_cost) &&
+           (!decrease_cpu || predicted_cpu_cost < cur_cpu_cost);
+  };
   for (size_t choice = 0; choice < compressors_.size(); choice++) {
     auto predicted_io_cost =
         wa->cost_predictors_[choice]->IOPredictor.Predict();
     auto predicted_cpu_cost =
         wa->cost_predictors_[choice]->CPUPredictor.Predict();
-    bool flag = true;
-    if (increase_io) {
-      if (predicted_io_cost <= cur_io_cost) {
-        flag = false;
-      }
-    }
-    if (decrease_io) {
-      if (predicted_io_cost >= cur_io_cost) {
-        flag = false;
-      }
-    }
-    if (increase_cpu) {
-      if (predicted_cpu_cost <= cur_cpu_cost) {
-        flag = false;
-      }
-    }
-    if (decrease_cpu) {
-      if (predicted_cpu_cost >= cur_cpu_cost) {
-        flag = false;
-      }
-    }
-    if (flag) {
+    if (is_in_valid_quadrant(predicted_io_cost, predicted_cpu_cost)) {
       cur_compressor_idx_ = choice;
       return cur_compressor_idx_;
     }
