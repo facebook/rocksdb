@@ -1784,7 +1784,7 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
       // First key in this block
       return false;
     }
-    auto set_cpuio_usage = [&](double cpu_usage, double io_usage) {
+    auto SetCPUIOUsage = [&](double cpu_usage, double io_usage) {
       return [cpu_usage, io_usage](void* arg) {
         std::pair<double, double>* measured_value =
             static_cast<std::pair<double, double>*>(arg);
@@ -1792,11 +1792,11 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
         measured_value->second = io_usage;
       };
     };
-    auto unset_explore = [](void* arg) {
+    auto UnSetExplore = [](void* arg) {
       bool* to_explore = static_cast<bool*>(arg);
       *to_explore = false;
     };
-    auto set_predictions = [&](void* arg) {
+    auto SetPredictions = [&](void* arg) {
       // gets the predictor and sets the mocked cpu and io cost in such a way
       // that expection_selection_ is in the correct quadrant
       predictors_ = *static_cast<std::vector<IOCPUCostPredictor*>*>(arg);
@@ -1812,7 +1812,7 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
         }
       }
     };
-    auto get_selection = [&](void* arg) {
+    auto GetSelection = [&](void* arg) {
       size_t* cur_ptr = static_cast<size_t*>(arg);
       cur_selection_ = *cur_ptr;
     };
@@ -1829,15 +1829,15 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
       SyncPoint::GetInstance()->ClearAllCallBacks();
       SyncPoint::GetInstance()->SetCallBack(
           "AutoTuneCompressorWrapper::CompressBlock::exploitOrExplore",
-          unset_explore);
+          UnSetExplore);
       SyncPoint::GetInstance()->SetCallBack(
           "AutoTuneCompressorWrapper::CompressBlock::"
           "GetPredictors",
-          set_predictions);
+          SetPredictions);
       SyncPoint::GetInstance()->SetCallBack(
           "AutoTuneCompressorWrapper::CompressBlock::"
           "GetSelection",
-          get_selection);
+          GetSelection);
       SyncPoint::GetInstance()->EnableProcessing();
       auto nth_response = num_keys_ / wait_block_count_;
       switch (nth_response) {
@@ -1847,7 +1847,7 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
           SyncPoint::GetInstance()->SetCallBack(
               "AutoTuneCompressorWrapper::"
               "SetCPUIOUsage",
-              set_cpuio_usage(cpu_lower_bound - 0.1, io_lower_bound - 0.1));
+              SetCPUIOUsage(cpu_lower_bound - 0.1, io_lower_bound - 0.1));
           expected_selection_ = (cur_selection_ == 0) ? 1 : 0;
           expected_sel_cpu_prediction_ = default_cpu_prediction_ + 200;
           expected_sel_io_prediction_ = default_io_prediction_ + 200;
@@ -1858,7 +1858,7 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
           SyncPoint::GetInstance()->SetCallBack(
               "AutoTuneCompressorWrapper::"
               "SetCPUIOUsage",
-              set_cpuio_usage(cpu_upper_bound + 0.1, io_upper_bound + 0.1));
+              SetCPUIOUsage(cpu_upper_bound + 0.1, io_upper_bound + 0.1));
           expected_selection_ = (cur_selection_ == 0) ? 1 : 0;
           expected_sel_cpu_prediction_ = default_cpu_prediction_ - 200;
           expected_sel_io_prediction_ = default_io_prediction_ - 200;
@@ -1870,7 +1870,7 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
           SyncPoint::GetInstance()->SetCallBack(
               "AutoTuneCompressorWrapper::"
               "SetCPUIOUsage",
-              set_cpuio_usage(cpu_lower_bound - 0.1, io_upper_bound + 0.1));
+              SetCPUIOUsage(cpu_lower_bound - 0.1, io_upper_bound + 0.1));
           expected_selection_ = (cur_selection_ == 0) ? 1 : 0;
           expected_sel_cpu_prediction_ = default_cpu_prediction_ + 200;
           expected_sel_io_prediction_ = default_io_prediction_ - 200;
@@ -1882,7 +1882,7 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
           SyncPoint::GetInstance()->SetCallBack(
               "AutoTuneCompressorWrapper::"
               "SetCPUIOUsage",
-              set_cpuio_usage(cpu_upper_bound + 0.1, io_lower_bound - 0.1));
+              SetCPUIOUsage(cpu_upper_bound + 0.1, io_lower_bound - 0.1));
           expected_selection_ = (cur_selection_ == 0) ? 1 : 0;
           expected_sel_cpu_prediction_ = default_cpu_prediction_ - 200;
           expected_sel_io_prediction_ = default_io_prediction_ + 200;
@@ -1894,8 +1894,8 @@ class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
           SyncPoint::GetInstance()->SetCallBack(
               "AutoTuneCompressor::CompressBlockAndRecord::"
               "SetCPUUsage",
-              set_cpuio_usage((cpu_upper_bound + cpu_lower_bound) / 2,
-                              (io_upper_bound + io_lower_bound) / 2));
+              SetCPUIOUsage((cpu_upper_bound + cpu_lower_bound) / 2,
+                            (io_upper_bound + io_lower_bound) / 2));
           expected_selection_ = cur_selection_;
           expected_sel_io_prediction_ = default_io_prediction_;
           expected_sel_io_prediction_ = default_io_prediction_;
@@ -1989,7 +1989,7 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
   int next_key = 0;
   Random rnd(231);
   auto value = rnd.RandomBinaryString(kValueSize);
-  auto block_write = [&](int num) {
+  auto BlockWrite = [&](int num) {
     for (auto i = 0; i < num; ++i) {
       auto status = Put(Key(next_key), value);
       EXPECT_OK(status);
@@ -1997,15 +1997,15 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     }
   };
   // To test condition in which both io and cpu needs to increase
-  block_write(2000);
+  BlockWrite(2000);
   // To test condition in which both io and cpu needs to decrease
-  block_write(2000);
+  BlockWrite(2000);
   // To test condition in which cpu needs to increase and io decrease
-  block_write(2000);
+  BlockWrite(2000);
   // To test condition in which cpu needs to decrease and io increase
-  block_write(2000);
+  BlockWrite(2000);
   // To test condition in which selected compresison should not change
-  block_write(2000);
+  BlockWrite(2000);
   ASSERT_OK(Flush());
 }
 

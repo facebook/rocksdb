@@ -177,11 +177,6 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
   static constexpr uint64_t kMicrosInSecond = 1000000;
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
-  // This is the vector containing the list of compression levels that
-  // AutoTuneCompressor will use create compressor and predicts
-  // the cost The vector contains list of compression level for compression
-  // algorithm in the order defined by enum CompressionType
-  static const std::vector<std::vector<int>> kCompressionLevels;
   const CompressionOptions opts_;
 
   // Budget references for cost-aware compression decisions

@@ -13,15 +13,6 @@
 #include "util/rate_tracker.h"
 #include "util/stop_watch.h"
 namespace ROCKSDB_NAMESPACE {
-const std::vector<std::vector<int>> AutoTuneCompressor::kCompressionLevels{
-    {0},         // KSnappyCompression
-    {},          // kZlibCompression
-    {},          // kBZip2Compression
-    {1, 4, 9},   // kLZ4Compression
-    {1, 4, 9},   // klZ4HCCompression
-    {},          // kXpressCompression
-    {1, 15, 22}  // kZSTD
-};
 
 int CompressionRejectionProbabilityPredictor::Predict() const {
   return pred_rejection_prob_percentage_;
@@ -146,32 +137,33 @@ AutoTuneCompressor::AutoTuneCompressor(
   // the compression levels set in vector CompressionLevels.
   auto builtInManager = GetBuiltinV2CompressionManager();
   const auto& compressions = GetSupportedCompressions();
-  for (size_t i = 0; i < kCompressionLevels.size(); i++) {
-    CompressionType type = static_cast<CompressionType>(i + 1);
+  auto AddCompressors = [&](CompressionType type,
+                            const std::initializer_list<int>& levels) {
+    CompressionOptions new_opts = opts;
+    for (auto level : levels) {
+      new_opts.level = level;
+      compressors_.emplace_back(builtInManager->GetCompressor(new_opts, type));
+    }
+  };
+  for (auto type : compressions) {
     if (type == kNoCompression) {
       continue;
-    }
-    if (kCompressionLevels[type - 1].size() == 0) {
-      continue;
-    } else {
-      // If the compression type is not supported, then skip and remove
-      // compression levels from the supported compression level list.
-      if (std::find(compressions.begin(), compressions.end(), type) ==
-          compressions.end()) {
-        continue;
-      }
-      for (size_t j = 0; j < kCompressionLevels[type - 1].size(); j++) {
-        auto level = kCompressionLevels[type - 1][j];
-        CompressionOptions new_opts = opts;
-        new_opts.level = level;
-        compressors_.emplace_back(
-            builtInManager->GetCompressor(new_opts, type));
-      }
+    } else if (type == kSnappyCompression) {
+      AddCompressors(type, {0});
+    } else if (type == kLZ4Compression) {
+      AddCompressors(type, {1, 4, 9});
+    } else if (type == kLZ4HCCompression) {
+      AddCompressors(type, {1, 4, 9});
+    } else if (type == kZSTD) {
+      AddCompressors(type, {1, 15, 22});
     }
   }
   MeasureUtilization();
   block_count_ = 0;
   cur_compressor_idx_ = 0;
+  assert(default_type != kNoCompression);
+  assert(std::find(compressions.begin(), compressions.end(), default_type) !=
+         compressions.end());
   default_compressor_ =
       GetBuiltinV2CompressionManager()->GetCompressor(opts, default_type);
 }
@@ -237,10 +229,8 @@ Compressor::ManagedWorkingArea AutoTuneCompressor::ObtainWorkingArea() {
   auto wa = new CostAwareWorkingArea(std::move(wrap_wa));
   // Create cost predictors for each compression type and level
   wa->cost_predictors_.reserve(compressors_.size());
-  for (size_t i = 0; i < kCompressionLevels.size(); i++) {
-    for (size_t j = 0; j < kCompressionLevels[i].size(); j++) {
-      wa->cost_predictors_.emplace_back(new IOCPUCostPredictor(kWindow));
-    }
+  for (size_t i = 0; i < compressors_.size(); i++) {
+    wa->cost_predictors_.emplace_back(new IOCPUCostPredictor(kWindow));
   }
   return ManagedWorkingArea(wa, this);
 }
@@ -265,7 +255,7 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
       0) {
     return cur_compressor_idx_;
   }
-  // Step 1: Measure current resource utilization
+  // Measure current resource utilization
   MeasureUtilization();
   auto cpu_io_util = usage_tracker_.GetUtilization();
   TEST_SYNC_POINT_CALLBACK("AutoTuneCompressorWrapper::SetCPUIOUsage",
@@ -296,8 +286,8 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   } else if (cur_compressor_idx_ >= compressors_.size()) {
     // If the current compression type and level are not available i.e.
     // Compression is disabled We can switch from no compression if we can
-    // decrease io and increase cpu usage else we current no compression is the
-    // best we can do
+    // decrease io and increase cpu usage else we current no compression is
+    // the best we can do
     if (decrease_io && increase_cpu) {
       cur_compressor_idx_ = 0;
       return cur_compressor_idx_;
@@ -339,8 +329,8 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   // decrease CPU usage. Otherwise, the current compression type and level
   // is the best we can do.
   if (increase_io && decrease_cpu) {
-    // index that is above the size of created compressors is treated as signal
-    // for no compression
+    // index that is above the size of created compressors is treated as
+    // signal for no compression
     cur_compressor_idx_ = std::numeric_limits<size_t>::max();
   }
   return cur_compressor_idx_;
@@ -372,7 +362,8 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
 }
 const char* AutoTuneCompressorManager::Name() const {
   // should have returned "AutoTuneCompressorManager" but we
-  // currently have an error so for now returning name of the wrapped container
+  // currently have an error so for now returning name of the wrapped
+  // container
   return wrapped_->Name();
 }
 
