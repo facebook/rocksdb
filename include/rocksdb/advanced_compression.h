@@ -41,6 +41,9 @@ struct DynamicBudget : public Budget, public EventListener {
   double GetMaxRate() override;
   double GetMinRate() override;
   void OnStallConditionsChanged(const WriteStallInfo& info) override {
+    fprintf(stderr, "Stall condition changed to %d status: %d\n",
+            static_cast<int>(info.condition.cur),
+            info.condition.cur == WriteStallCondition::kNormal ? 0 : 1);
     stall_condition_ = info.condition.cur;
   };
 

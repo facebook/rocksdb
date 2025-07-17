@@ -2008,7 +2008,32 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
   block_write(2000);
   ASSERT_OK(Flush());
 }
+// Test that DynamicBudget responds correctly to write stall conditions
+TEST(DynamicBudgetTest, WriteStallResponse) {
+  DynamicBudget budget(100.0, 50.0, 200.0, 25.0);
 
+  // Create a WriteStallInfo with a DELAYED condition
+  WriteStallInfo delayed_info;
+  delayed_info.cf_name = "test_cf";
+  delayed_info.condition.cur = WriteStallCondition::kDelayed;
+  delayed_info.condition.prev = WriteStallCondition::kNormal;
+
+  // Notify the budget of the delayed condition
+  budget.OnStallConditionsChanged(delayed_info);
+
+  ASSERT_EQ(budget.GetMaxRate(), 200.0);
+  ASSERT_EQ(budget.GetMinRate(), 25.0);
+  // Create a WriteStallInfo with a NORMAL condition
+  WriteStallInfo normal_info;
+  normal_info.cf_name = "test_cf";
+  normal_info.condition.cur = WriteStallCondition::kNormal;
+  normal_info.condition.prev = WriteStallCondition::kStopped;
+  // Notify the budget of the normal condition
+  budget.OnStallConditionsChanged(normal_info);
+  // The budget should return to its normal rates
+  ASSERT_EQ(budget.GetMaxRate(), 100.0);
+  ASSERT_EQ(budget.GetMinRate(), 50.0);
+}
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
