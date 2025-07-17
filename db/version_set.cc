@@ -1117,19 +1117,28 @@ class LevelIterator final : public InternalIterator {
         auto start = opt.range.start;
         auto end = opt.range.limit;
 
+        if (!start.has_value()) {
+          continue;
+        }
         InternalKey istart(start.value(), kMaxSequenceNumber,
                            kValueTypeForSeek);
+
+        // We can capture this case in the future, but for now lets skip this.
+        if (!end.has_value()) {
+          continue;
+        }
         InternalKey iend(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
 
-        // This needs to be optimized
+        // TODO: This needs to be optimized, right now we iterate twice, which
+        // we dont need to. We can do this in N rather than 2N.
         size_t fstart = FindFile(icomparator_, *flevel_, istart.Encode());
         size_t fend = FindFile(icomparator_, *flevel_, iend.Encode());
 
         // We need to check the relevant cases
         // Cases:
-        // 1. [ S        E   ]
-        // 2. [  S  ] [   E   ]
-        // 3. [ S ] ......[   E  ]
+        // 1. [  S        E  ]
+        // 2. [  S  ]  [  E  ]
+        // 3. [  S  ] ...... [  E  ]
         if ((fstart < flevel_->num_files) && fstart == fend &&
             prepared_iters[fstart] != nullptr) {
           // Case 1
