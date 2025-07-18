@@ -143,8 +143,8 @@ class CompositeEnv : public Env {
   }
 
   Status SyncFile(const std::string& fname, const EnvOptions& env_options,
-                  const IOOptions& io_options, bool use_fsync) override {
-    return file_system_->SyncFile(fname, env_options, io_options, use_fsync,
+                  bool use_fsync) override {
+    return file_system_->SyncFile(fname, env_options, IOOptions(), use_fsync,
                                   nullptr);
   }
 

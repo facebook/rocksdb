@@ -529,10 +529,10 @@ class LegacyFileSystemWrapper : public FileSystem {
   }
 
   IOStatus SyncFile(const std::string& fname, const FileOptions& file_options,
-                    const IOOptions& io_options, bool use_fsync,
+                    const IOOptions& /*io_options*/, bool use_fsync,
                     IODebugContext* /*dbg*/) override {
     return status_to_io_status(
-        target_->SyncFile(fname, file_options, io_options, use_fsync));
+        target_->SyncFile(fname, file_options, use_fsync));
   }
 
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& /*options*/,
@@ -864,6 +864,21 @@ std::string Env::GenerateUniqueId() {
            result[19] == 'b');
   }
   return result;
+}
+
+Status Env::SyncFile(const std::string& fname, const EnvOptions& env_options,
+                     bool use_fsync) {
+  std::unique_ptr<WritableFile> file_to_sync;
+  auto status = ReopenWritableFile(fname, &file_to_sync, env_options);
+  TEST_SYNC_POINT_CALLBACK("FileSystem::SyncFile:Open", &status);
+  if (status.ok()) {
+    if (use_fsync) {
+      status = file_to_sync->Fsync();
+    } else {
+      status = file_to_sync->Sync();
+    }
+  }
+  return status;
 }
 
 SequentialFile::~SequentialFile() = default;

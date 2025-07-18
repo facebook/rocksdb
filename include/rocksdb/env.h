@@ -386,24 +386,33 @@ class Env : public Customizable {
   }
 
   // Open Sync and Close the file to flush the file content to file system.
-  // See FileSysmte::SyncFile comment for details
-  // There is no direct usage of this API, so it returns NotSupported.
-  // The reason we need this API is this.
-  // Unfortunately, a lot of the old tests are using LegacyFileSystemWrapper.
+  // See FileSystem::SyncFile comment for details
+  //
+  // There are 2 reasons we need this API. Both of them are for tests.
+  //
+  // 1. The default implementation of SyncFile API is essentially a wrapper of
+  // other FileSystem APIs. FaultInjectionTestEnv uses this default
+  // implementation to call other FileSystem APIs defined at
+  // FaultInjectionTestEnv class to inject failurses. See
+  // FaultInjectionTestEnv::SyncFile for more details
+  //
+  // 2. Some of old tests are using LegacyFileSystemWrapper.
   // LegacyFileSystemWrapper forwards the API call to EnvWrapper, which forwards
   // to CompositeEnv, and then forwards to the actual FileSystem implemention.
   // Without this API in Env, LegacyFileSystemWrapper will not be able to
   // forward the API call to EnvWrapper, causing the default FileSystem API to
   // be called.
+  //
+  // Due to the above reason, adding a new API in FileSystem, would very likely
+  // require the same API to be added to Env.
+  //
   // TODO xingbo. Getting rid of Env is not practical, due to backward
   // compatibility. However, we need to simplify the relationship between Env
   // and FileSystem. At least for internal test, we should stop using Env and
   // switch to FileSystem, if possible. Related github issue #9274
   virtual Status SyncFile(const std::string& /*fname*/,
                           const EnvOptions& /*env_options*/,
-                          const IOOptions& /*io_options*/, bool /*use_fsync*/) {
-    return Status::NotSupported("SyncFile is not supported for this Env");
-  }
+                          bool /*use_fsync*/);
 
   virtual Status NumFileLinks(const std::string& /*fname*/,
                               uint64_t* /*count*/) {
@@ -1564,8 +1573,8 @@ class EnvWrapper : public Env {
   }
 
   Status SyncFile(const std::string& fname, const EnvOptions& env_options,
-                  const IOOptions& io_options, bool use_fsync) override {
-    return target_.env->SyncFile(fname, env_options, io_options, use_fsync);
+                  bool use_fsync) override {
+    return target_.env->SyncFile(fname, env_options, use_fsync);
   }
 
   Status NumFileLinks(const std::string& fname, uint64_t* count) override {
