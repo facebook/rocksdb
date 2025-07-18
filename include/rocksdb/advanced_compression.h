@@ -17,6 +17,11 @@
 #include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
+// Class defines the interface to define budget or goal for autotune compressor
+// The autotune compressor should try to achieve GetMinRate and try not to go
+// above the GetMaxRate
+// Default Budget definition is static and it could be extended to make the
+// budget or io goal dynamic
 class Budget {
  public:
   Budget(double max_rate, double min_rate)
@@ -29,7 +34,9 @@ class Budget {
   double max_rate_;
   double min_rate_;
 };
+// IOGoal is supposed to be in unit of bytes/second
 using IOGoal = Budget;
+// CPUBudget is suppposed to be in unit of number of cores/second
 using CPUBudget = Budget;
 
 // TODO: alias/adapt for compression
@@ -633,8 +640,9 @@ const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager();
 std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
     std::shared_ptr<CompressionManager> wrapped = nullptr);
 // Creates CompressionManager designed for the CPU and IO cost aware compression
-// strategy that selects compression algorithm based on the io goal and the cpu
-// budget.
+// strategy that selects compression algorithm in order to achieve IO and CPU
+// usage of the rocksdb process within certain range (i.e. IO goal and CPU
+// budget)
 // EXPERIMENTAL
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     std::shared_ptr<CompressionManager> wrapped,

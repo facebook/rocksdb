@@ -4,20 +4,15 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #include "util/rate_tracker.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-
 namespace ROCKSDB_NAMESPACE {
 
 CPUIOUtilizationTracker::CPUIOUtilizationTracker(
     const std::shared_ptr<RateLimiter>& rate_limiter,
     const std::shared_ptr<SystemClock>& clock)
     : rate_limiter_(rate_limiter),
-      clock_(clock ? clock : SystemClock::Default()),
-      io_utilization_(0.0),
-      cpu_usage_(0.0) {
-  RecordCPUUsage();
-  RecordIOUtilization();
+      rate_limiter_bytes_rate_(clock),
+      cpu_usage_rate_(clock) {
+  Record();
 }
 
 bool CPUIOUtilizationTracker::Record() {
@@ -26,17 +21,20 @@ bool CPUIOUtilizationTracker::Record() {
   return true;
 }
 
-double CPUIOUtilizationTracker::GetCpuUtilization() { return cpu_usage_; }
+double CPUIOUtilizationTracker::GetCpuUtilization() {
+  return cpu_usage_rate_.GetRate();
+}
 
-double CPUIOUtilizationTracker::GetIoUtilization() { return io_utilization_; }
+double CPUIOUtilizationTracker::GetIoUtilization() {
+  return rate_limiter_bytes_rate_.GetRate();
+}
 std::pair<double, double> CPUIOUtilizationTracker::GetUtilization() {
-  return {io_utilization_, cpu_usage_};
+  return {GetIoUtilization(), GetCpuUtilization()};
 }
 
 void CPUIOUtilizationTracker::RecordCPUUsage() {
 #if defined(_WIN32)
   // Windows implementation: not implemented
-  fprintf(stderr, "RecordCPUUsage not implemented on Windows\n");
   return;
 #else
   // Unix/Linux implementation - use getrusage.
@@ -45,19 +43,14 @@ void CPUIOUtilizationTracker::RecordCPUUsage() {
   double cpu_time_used =
       (usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) +
       (usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6;
-  cpu_usage_ = cpu_usage_rate_.Record(cpu_time_used);
+  cpu_usage_rate_.Record(cpu_time_used);
 #endif
 }
 
 void CPUIOUtilizationTracker::RecordIOUtilization() {
   if (rate_limiter_ != nullptr) {
-    io_utilization_ =
-        rate_limiter_bytes_rate_.Record(rate_limiter_->GetTotalBytesThrough());
+    rate_limiter_bytes_rate_.Record(rate_limiter_->GetTotalBytesThrough());
   }
-}
-
-uint64_t CPUIOUtilizationTracker::GetCurrentTimeMicros() {
-  return clock_->NowMicros();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

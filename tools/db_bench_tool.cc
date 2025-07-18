@@ -610,17 +610,17 @@ DEFINE_string(compression_manager, "none",
               "autoskip, autotunecompressor, "
               "or none. Use 'none' for BuiltInCompressor");
 
-DEFINE_double(autotune_iogoal, 0.99,
+DEFINE_double(autotune_io_upper_bound, 0.99,
               "Ratio of rate_limiter budget to set as IO goal for autotune "
               "compression manager");
 DEFINE_double(
-    autotune_miniogoal, 0.9,
+    autotune_io_lower_bound, 0.9,
     "Ratio of rate_limiter budget to set as minimum IO goal for autotune "
     "compression manager");
 DEFINE_double(
-    autotune_cpubudget, 0.9,
+    autotune_cpu_upper_bound, 0.9,
     "Autotune compression manager tries to use CPU under the given CPU budget");
-DEFINE_double(autotune_mincpubudget, 0.8,
+DEFINE_double(autotune_cpu_lower_bound, 0.8,
               "Autotune compression manager tries to use CPU under the given "
               "minimum CPU budget");
 
@@ -4687,10 +4687,12 @@ class Benchmark {
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "autotunecompressor")) {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
-      double io_upper_bound = FLAGS_autotune_iogoal * ratelimiter_throughput;
-      double io_lower_bound = FLAGS_autotune_miniogoal * ratelimiter_throughput;
-      double cpu_upper_bound = FLAGS_autotune_cpubudget;
-      double cpu_lower_bound = FLAGS_autotune_mincpubudget;
+      double io_upper_bound =
+          FLAGS_autotune_io_upper_bound * ratelimiter_throughput;
+      double io_lower_bound =
+          FLAGS_autotune_io_lower_bound * ratelimiter_throughput;
+      double cpu_upper_bound = FLAGS_autotune_cpu_upper_bound;
+      double cpu_lower_bound = FLAGS_autotune_cpu_lower_bound;
       std::shared_ptr<IOGoal> io_goal =
           std::make_shared<IOGoal>(io_upper_bound, io_lower_bound);
       std::shared_ptr<CPUBudget> cpu_budget =
@@ -5413,8 +5415,7 @@ class Benchmark {
 
       batch.Clear();
       int64_t batch_bytes = 0;
-      int64_t req_count = 0;
-      for (; req_count < entries_per_batch_; req_count++) {
+      for (int64_t j = 0; j < entries_per_batch_; j++) {
         int64_t rand_num = 0;
         if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {
           if ((inserted_key_window.size() > 0) &&
@@ -5632,8 +5633,8 @@ class Benchmark {
         // Not stacked BlobDB
         s = db_with_cfh->db->Write(write_options_, &batch);
       }
-      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, req_count,
-                                kWrite);
+      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
+                                entries_per_batch_, kWrite);
       if (FLAGS_sine_write_rate) {
         uint64_t now = FLAGS_env->NowMicros();
 

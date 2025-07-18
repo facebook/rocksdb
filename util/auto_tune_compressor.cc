@@ -123,7 +123,15 @@ std::unique_ptr<Compressor> AutoSkipCompressorManager::GetCompressorForSST(
   return std::make_unique<AutoSkipCompressorWrapper>(
       wrapped_->GetCompressorForSST(context, opts, preferred), opts);
 }
-
+void AutoTuneCompressor::AddCompressors(
+    CompressionType type, const std::initializer_list<int>& levels) {
+  auto builtInManager = GetBuiltinV2CompressionManager();
+  CompressionOptions new_opts = opts_;
+  for (auto level : levels) {
+    new_opts.level = level;
+    compressors_.emplace_back(builtInManager->GetCompressor(new_opts, type));
+  }
+}
 AutoTuneCompressor::AutoTuneCompressor(
     const CompressionOptions& opts, const CompressionType default_type,
     std::shared_ptr<IOGoal> io_goal, std::shared_ptr<CPUBudget> cpu_budget,
@@ -131,20 +139,11 @@ AutoTuneCompressor::AutoTuneCompressor(
     : opts_(opts),
       io_goal_(io_goal),
       cpu_budget_(cpu_budget),
-      rate_limiter_(rate_limiter),
       usage_tracker_(rate_limiter) {
   // Create compressors supporting all the compression types and levels as per
   // the compression levels set in vector CompressionLevels.
-  auto builtInManager = GetBuiltinV2CompressionManager();
   const auto& compressions = GetSupportedCompressions();
-  auto AddCompressors = [&](CompressionType type,
-                            const std::initializer_list<int>& levels) {
-    CompressionOptions new_opts = opts;
-    for (auto level : levels) {
-      new_opts.level = level;
-      compressors_.emplace_back(builtInManager->GetCompressor(new_opts, type));
-    }
-  };
+
   for (auto type : compressions) {
     if (type == kNoCompression) {
       continue;
@@ -188,8 +187,7 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
                                          ManagedWorkingArea* wa) {
   // Check if the managed working area is provided or owned by this object.
   // If not, bypass compressor logic since the working area lacks a predictor.
-  if (wa == nullptr || wa->owner() != this || compressors_.size() == 0 ||
-      rate_limiter_ == nullptr) {
+  if (wa == nullptr || wa->owner() != this || compressors_.size() == 0) {
     return default_compressor_->CompressBlock(
         uncompressed_data, compressed_output, out_compression_type, wa);
   }
@@ -243,6 +241,15 @@ void AutoTuneCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   }
   delete static_cast<CostAwareWorkingArea*>(wa);
 }
+bool AutoTuneCompressor::IsInValidQuadrant(
+    size_t predicted_io_cost, size_t predicted_cpu_cost, double cur_io_cost,
+    double cur_cpu_cost, bool increase_io, bool increase_cpu, bool decrease_io,
+    bool decrease_cpu) {
+  return (!increase_io || predicted_io_cost > cur_io_cost) &&
+         (!decrease_io || predicted_io_cost < cur_io_cost) &&
+         (!increase_cpu || predicted_cpu_cost > cur_cpu_cost) &&
+         (!decrease_cpu || predicted_cpu_cost < cur_cpu_cost);
+}
 // Select the compression type and level based on the IO and CPU usage.
 // The ultimate goal is to select the compression type and level which
 // will result in IO and CPU usage between the lower and upper bounds
@@ -260,7 +267,7 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   }
 
   if ((block_count_.fetch_add(1, std::memory_order_relaxed)) %
-          kDecideEveryNBlocks !=
+          kCompressionEvaluationInterval !=
       0) {
     return cur_compressor_idx_;
   }
@@ -284,13 +291,9 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   bool increase_cpu = cpu_util < cpu_lower_bound;
   bool decrease_cpu = cpu_util > cpu_upper_bound;
 
-  auto is_stable_region = [&] {
-    return (!increase_io && !increase_cpu && !decrease_io && !decrease_cpu);
-  };
-
   // If we are in the stable region, then we just go ahead with the current
   // compression type and level
-  if (is_stable_region()) {
+  if (!increase_io && !increase_cpu && !decrease_io && !decrease_cpu) {
     return cur_compressor_idx_;
   } else if (cur_compressor_idx_ >= compressors_.size()) {
     // If the current compression type and level are not available, i.e.,
@@ -316,19 +319,14 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   auto cur_io_cost =
       wa->cost_predictors_[cur_compressor_idx_]->IOPredictor.Predict();
 
-  auto is_in_valid_quadrant = [&](size_t predicted_io_cost,
-                                  size_t predicted_cpu_cost) {
-    return (!increase_io || predicted_io_cost > cur_io_cost) &&
-           (!decrease_io || predicted_io_cost < cur_io_cost) &&
-           (!increase_cpu || predicted_cpu_cost > cur_cpu_cost) &&
-           (!decrease_cpu || predicted_cpu_cost < cur_cpu_cost);
-  };
   for (size_t choice = 0; choice < compressors_.size(); choice++) {
     auto predicted_io_cost =
         wa->cost_predictors_[choice]->IOPredictor.Predict();
     auto predicted_cpu_cost =
         wa->cost_predictors_[choice]->CPUPredictor.Predict();
-    if (is_in_valid_quadrant(predicted_io_cost, predicted_cpu_cost)) {
+    if (IsInValidQuadrant(predicted_io_cost, predicted_cpu_cost, cur_io_cost,
+                          cur_cpu_cost, increase_io, increase_cpu, decrease_io,
+                          decrease_cpu)) {
       cur_compressor_idx_ = choice;
       return cur_compressor_idx_;
     }
