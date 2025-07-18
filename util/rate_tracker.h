@@ -75,8 +75,6 @@ class AtomicRateTracker {
         has_previous_data_.store(true, std::memory_order_release);
         return 0.0;
       }
-      // If CAS failed, another thread set the initial values, continue with
-      // rate calculation
       return 0.0;
     }
 
@@ -88,15 +86,13 @@ class AtomicRateTracker {
     // Calculate time delta
     uint64_t time_delta_us = current_timestamp_us - prev_timestamp;
     if (time_delta_us == 0) {
-      // No time has passed, return 0 rate to avoid division by zero
+      // No time has passed, return rate_ to avoid division by zero
       return rate_;
     }
 
     double time_delta_seconds = static_cast<double>(time_delta_us) / 1000000.0;
     T value_delta = value - prev_value;
     rate_ = static_cast<double>(value_delta) / time_delta_seconds;
-
-    // Update stored values atomically
     previous_value_.store(value, std::memory_order_release);
     previous_timestamp_us_.store(current_timestamp_us,
                                  std::memory_order_release);

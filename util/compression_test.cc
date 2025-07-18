@@ -2000,29 +2000,34 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     // Skipping since none of the compression is supported
     return;
   }
-  CompressionOptions fopts;
-  auto default_type = supported_compressions[supported_compressions.size() - 1];
-  options_.compression = default_type;
-  AutoTuneCompressor test_obj(fopts, default_type);
-  if (test_obj.GetCompressorsSize() < 2) {
-    // Skipping the test case as there are less than two compressors. For this
-    // we need to have compression that is supported
-    return;
-  }
-  DestroyAndReopen(options_);
-  // To test condition in which both io and cpu needs to increase
-  BlockWrite(2000);
-  // To test condition in which both io and cpu needs to decrease
-  BlockWrite(2000);
-  // To test condition in which cpu needs to increase and io decrease
-  BlockWrite(2000);
-  // To test condition in which cpu needs to decrease and io increase
-  BlockWrite(2000);
-  // To test condition in which selected compresison should not change
-  BlockWrite(2000);
-  ASSERT_OK(Flush());
-}
+  // Check if KLZ4Compression, KLZ4HCCompression and kZSTDCompression are
+  // supported before running the test case as they must be supported for us to
+  // have at least two compressors
+  if (std::find(supported_compressions.begin(), supported_compressions.end(),
+                kLZ4Compression) != supported_compressions.end() ||
+      std::find(supported_compressions.begin(), supported_compressions.end(),
+                kLZ4HCCompression) != supported_compressions.end() ||
+      std::find(supported_compressions.begin(), supported_compressions.end(),
+                kZSTD) != supported_compressions.end()) {
+    // Skipping since none of the compression is supported
 
+    auto default_type =
+        supported_compressions[supported_compressions.size() - 1];
+    options_.compression = default_type;
+    DestroyAndReopen(options_);
+    // To test condition in which both io and cpu needs to increase
+    BlockWrite(2000);
+    // To test condition in which both io and cpu needs to decrease
+    BlockWrite(2000);
+    // To test condition in which cpu needs to increase and io decrease
+    BlockWrite(2000);
+    // To test condition in which cpu needs to decrease and io increase
+    BlockWrite(2000);
+    // To test condition in which selected compresison should not change
+    BlockWrite(2000);
+    ASSERT_OK(Flush());
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
