@@ -300,7 +300,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
                     const IOOptions& options, IODebugContext* dbg) override;
 
   IOStatus SyncFile(const std::string& /*fname*/,
-                    const FileOptions& /*options*/, bool /*use_fsync*/,
+                    const FileOptions& /*file_options*/,
+                    const IOOptions& /*io_options*/, bool /*use_fsync*/,
                     IODebugContext* /*dbg*/) override;
 
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& options,

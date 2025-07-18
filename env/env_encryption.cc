@@ -665,52 +665,17 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
                               std::unique_ptr<FSWritableFile>* result,
                               IODebugContext* dbg) override {
     result->reset();
-    if (options.use_mmap_reads || options.use_mmap_writes) {
+    if (options.use_mmap_writes) {
       return IOStatus::InvalidArgument();
     }
-
-    size_t prefix_length = 0;
-    std::unique_ptr<BlockAccessCipherStream> stream;
-
     // Open file using underlying Env implementation
     std::unique_ptr<FSWritableFile> underlying;
-    auto status =
+    IOStatus status =
         FileSystemWrapper::ReopenWritableFile(fname, options, &underlying, dbg);
     if (!status.ok()) {
       return status;
     }
-
-    if (underlying->GetFileSize(options.io_options, dbg) != 0) {
-      // read the cipher stream from file for non-empty file
-      std::unique_ptr<FSRandomAccessFile> underlying_file_reader;
-      status = FileSystemWrapper::NewRandomAccessFile(
-          fname, options, &underlying_file_reader, dbg);
-      if (!status.ok()) {
-        return status;
-      }
-
-      status = CreateRandomReadCipherStream(
-          fname, underlying_file_reader, options, &prefix_length, &stream, dbg);
-
-      if (!status.ok()) {
-        return status;
-      }
-    } else {
-      // create cipher stream for new or empty file
-      status = CreateWritableCipherStream(fname, underlying, options,
-                                          &prefix_length, &stream, dbg);
-      if (!status.ok()) {
-        return status;
-      }
-    }
-
-    if (stream) {
-      result->reset(new EncryptedWritableFile(
-          std::move(underlying), std::move(stream), prefix_length));
-    } else {
-      result->reset(underlying.release());
-    }
-    return status;
+    return CreateWritableEncryptedFile(fname, underlying, options, result, dbg);
   }
 
   IOStatus ReuseWritableFile(const std::string& fname,
@@ -812,6 +777,13 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
       *file_size -= prefixLength;
     }
     return status;
+  }
+
+  IOStatus SyncFile(const std::string& fname, const FileOptions& file_options,
+                    const IOOptions& io_options, bool use_fsync,
+                    IODebugContext* dbg) override {
+    return FileSystemWrapper::SyncFile(fname, file_options, io_options,
+                                       use_fsync, dbg);
   }
 
  private:

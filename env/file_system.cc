@@ -108,19 +108,20 @@ IOStatus FileSystem::ReuseWritableFile(const std::string& fname,
 }
 
 IOStatus FileSystem::SyncFile(const std::string& fname,
-                              const FileOptions& options, bool use_fsync,
+                              const FileOptions& file_options,
+                              const IOOptions& io_options, bool use_fsync,
                               IODebugContext* dbg) {
   std::unique_ptr<FSWritableFile> file_to_sync;
-  Status s = ReopenWritableFile(fname, options, &file_to_sync, dbg);
-  TEST_SYNC_POINT_CALLBACK("FileSystem::SyncFile:Open", &s);
-  if (s.ok()) {
+  auto status = ReopenWritableFile(fname, file_options, &file_to_sync, dbg);
+  TEST_SYNC_POINT_CALLBACK("FileSystem::SyncFile:Open", &status);
+  if (status.ok()) {
     if (use_fsync) {
-      s = file_to_sync->Fsync(IOOptions(), dbg);
+      status = file_to_sync->Fsync(io_options, dbg);
     } else {
-      s = file_to_sync->Sync(IOOptions(), dbg);
+      status = file_to_sync->Sync(io_options, dbg);
     }
   }
-  return status_to_io_status(std::move(s));
+  return status;
 }
 
 IOStatus FileSystem::NewLogger(const std::string& fname,

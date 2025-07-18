@@ -959,13 +959,28 @@ IOStatus FaultInjectionTestFS::ReuseWritableFile(
   return NewWritableFile(fname, file_opts, result, dbg);
 }
 
-IOStatus FaultInjectionTestFS::SyncFile(const std::string& /*fname*/,
-                                        const FileOptions& /*options*/,
+IOStatus FaultInjectionTestFS::SyncFile(const std::string& fname,
+                                        const FileOptions& /*file_options*/,
+                                        const IOOptions& /*io_options*/,
                                         bool /*use_fsync*/,
                                         IODebugContext* /*dbg*/) {
+  // SyncFile API is used for sync linked file to file system. It is used for
+  // making sure files ingested from outside of RocksDB has its content synced.
+  // It open, sync and close the file. As it does not modify the content of the
+  // file, there is no unsynced data tracked inside the FaultInjectionTestFS.
+  // Therefore sync operation is a near noop.
   if (!IsFilesystemActive()) {
     return GetError();
   }
+
+  MutexLock l(&mutex_);
+  // validate the file is not opened for write at the same time
+  if (open_managed_files_.find(fname) != open_managed_files_.end()) {
+    fprintf(stderr, "Attempt to SyncFile while open for write: %s\n",
+            fname.c_str());
+    abort();
+  }
+
   return IOStatus::OK();
 }
 

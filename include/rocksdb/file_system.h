@@ -614,7 +614,8 @@ class FileSystem : public Customizable {
   // RocksDB we need to sync the file. Therefore this SyncFile API is used to
   // make sure the file is synced.
   virtual IOStatus SyncFile(const std::string& fname,
-                            const FileOptions& options, bool use_fsync,
+                            const FileOptions& file_options,
+                            const IOOptions& io_options, bool use_fsync,
                             IODebugContext* dbg);
 
   virtual IOStatus NumFileLinks(const std::string& /*fname*/,
@@ -1603,9 +1604,10 @@ class FileSystemWrapper : public FileSystem {
     return target_->LinkFile(s, t, options, dbg);
   }
 
-  IOStatus SyncFile(const std::string& fname, const FileOptions& options,
-                    bool use_fsync, IODebugContext* dbg) override {
-    return target_->SyncFile(fname, options, use_fsync, dbg);
+  IOStatus SyncFile(const std::string& fname, const FileOptions& file_options,
+                    const IOOptions& io_options, bool use_fsync,
+                    IODebugContext* dbg) override {
+    return target_->SyncFile(fname, file_options, io_options, use_fsync, dbg);
   }
 
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& options,

@@ -157,7 +157,7 @@ Status ExternalSstFileIngestionJob::Prepare(
         // directory before ingest the file. For integrity of RocksDB we need
         // to sync the file.
         TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
-        auto s = fs_->SyncFile(path_inside_db, env_options_,
+        auto s = fs_->SyncFile(path_inside_db, env_options_, IOOptions(),
                                db_options_.use_fsync, nullptr);
         TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncIngestedFile");
         TEST_SYNC_POINT_CALLBACK(
