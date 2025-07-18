@@ -347,43 +347,46 @@ TEST_F(SSTDumpToolTest, CompressedSizes) {
   }
 }
 
+namespace {
+using Compressor8A = test::CompressorCustomAlg<kCustomCompression8A>;
+class MyManager : public CompressionManager {
+ public:
+  static constexpr const char* kCompatibilityName = "SSTDumpToolTest:MyManager";
+  const char* Name() const override { return kCompatibilityName; }
+  const char* CompatibilityName() const override { return kCompatibilityName; }
+
+  bool SupportsCompressionType(CompressionType type) const override {
+    return type == kCustomCompression8A;
+  }
+
+  std::unique_ptr<Compressor> GetCompressor(const CompressionOptions& /*opts*/,
+                                            CompressionType type) override {
+    switch (static_cast<unsigned char>(type)) {
+      case kCustomCompression8A:
+        return std::make_unique<Compressor8A>();
+      default:
+        return nullptr;
+    }
+  }
+
+  std::shared_ptr<Decompressor> GetDecompressor() override {
+    return std::make_shared<test::DecompressorCustomAlg>();
+  }
+};
+}  // namespace
+
 TEST_F(SSTDumpToolTest, CompressionManager) {
-  using Compressor8A = test::CompressorCustomAlg<kCustomCompression8A>;
   if (!Compressor8A::Supported()) {
     fprintf(stderr,
             "Prerequisite compression library not supported. Skipping\n");
     return;
   }
-  constexpr const char* kCompatibilityName = "SSTDumpToolTest::MyManager";
-  class MyManager : public CompressionManager {
-   public:
-    const char* Name() const override { return kCompatibilityName; }
-    const char* CompatibilityName() const override { return Name(); }
-
-    bool SupportsCompressionType(CompressionType type) const override {
-      return type == kCustomCompression8A;
-    }
-
-    std::unique_ptr<Compressor> GetCompressor(
-        const CompressionOptions& /*opts*/, CompressionType type) override {
-      switch (static_cast<unsigned char>(type)) {
-        case kCustomCompression8A:
-          return std::make_unique<Compressor8A>();
-        default:
-          return nullptr;
-      }
-    }
-
-    std::shared_ptr<Decompressor> GetDecompressor() override {
-      return std::make_shared<test::DecompressorCustomAlg>();
-    }
-  };
 
   // Registery in ObjectLibrary to check that sst_dump can use named
   // CompressionManagers with dependency injection
   auto& library = *ObjectLibrary::Default();
   library.AddFactory<CompressionManager>(
-      kCompatibilityName,
+      MyManager::kCompatibilityName,
       [](const std::string& /*uri*/, std::unique_ptr<CompressionManager>* guard,
          std::string* /*errmsg*/) {
         *guard = std::make_unique<MyManager>();
@@ -402,7 +405,7 @@ TEST_F(SSTDumpToolTest, CompressionManager) {
   char* usage[5];
   PopulateCommandArgs(file_path, "--command=recompress", usage);
   snprintf(usage[3], kOptLength, "--compression_manager=%s",
-           kCompatibilityName);
+           MyManager::kCompatibilityName);
   snprintf(usage[4], kOptLength, "--compression_types=kCustomCompression8A");
 
   ROCKSDB_NAMESPACE::SSTDumpTool tool;
