@@ -117,7 +117,7 @@ class WindowAveragePredictor {
 };
 
 using IOCostPredictor = WindowAveragePredictor<size_t>;
-using CPUUtilPredictor = WindowAveragePredictor<uint64_t>;
+using CPUUtilPredictor = WindowAveragePredictor<size_t>;
 
 struct IOCPUCostPredictor {
   explicit IOCPUCostPredictor(int window_size)
@@ -171,10 +171,16 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
                                 CompressionType* out_compression_type,
                                 CostAwareWorkingArea* wa);
 
-  bool IsInValidQuadrant(size_t predicted_io_cost, size_t predicted_cpu_cost,
-                         double cur_io_cost, double cur_cpu_cost,
-                         bool increase_io, bool decrease_io, bool increase_cpu,
-                         bool decrease_cpu);
+  inline bool IsInValidQuadrant(size_t predicted_io_cost,
+                                size_t predicted_cpu_cost, size_t cur_io_cost,
+                                size_t cur_cpu_cost, bool increase_io,
+                                bool increase_cpu, bool decrease_io,
+                                bool decrease_cpu) {
+    return (!increase_io || predicted_io_cost > cur_io_cost) &&
+           (!decrease_io || predicted_io_cost < cur_io_cost) &&
+           (!increase_cpu || predicted_cpu_cost > cur_cpu_cost) &&
+           (!decrease_cpu || predicted_cpu_cost < cur_cpu_cost);
+  }
   // Select compression type and level based on budget availability
   size_t SelectCompressionBasedOnIOGoalCPUBudget(CostAwareWorkingArea* wa);
   void MeasureUtilization();

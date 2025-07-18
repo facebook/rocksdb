@@ -241,15 +241,6 @@ void AutoTuneCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   }
   delete static_cast<CostAwareWorkingArea*>(wa);
 }
-bool AutoTuneCompressor::IsInValidQuadrant(
-    size_t predicted_io_cost, size_t predicted_cpu_cost, double cur_io_cost,
-    double cur_cpu_cost, bool increase_io, bool increase_cpu, bool decrease_io,
-    bool decrease_cpu) {
-  return (!increase_io || predicted_io_cost > cur_io_cost) &&
-         (!decrease_io || predicted_io_cost < cur_io_cost) &&
-         (!increase_cpu || predicted_cpu_cost > cur_cpu_cost) &&
-         (!decrease_cpu || predicted_cpu_cost < cur_cpu_cost);
-}
 // Select the compression type and level based on the IO and CPU usage.
 // The ultimate goal is to select the compression type and level which
 // will result in IO and CPU usage between the lower and upper bounds

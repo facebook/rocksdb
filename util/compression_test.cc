@@ -1993,6 +1993,11 @@ class DBAutoTuneCompressionTest : public DBTestBase {
   };
 };
 TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
+#ifdef _WIN32
+  // Skip this test on Windows platforms as the method of measuring CPU usage is
+  // not implemented yet on the windows platform
+  return;
+#endif
   // make sure that threre are more than two compressors before running the
   // test case.
   auto supported_compressions = GetSupportedCompressions();
