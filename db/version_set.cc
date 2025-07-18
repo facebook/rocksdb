@@ -95,6 +95,8 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
+using ScanOptionsMap = std::unordered_map<size_t, std::vector<ScanOptions>>;
+
 // Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
 int FindFileInRange(const InternalKeyComparator& icmp,
@@ -1104,6 +1106,7 @@ class LevelIterator final : public InternalIterator {
     // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
     scan_opts_ = scan_opts;
     if (scan_opts_ != nullptr) {
+      file_to_scan_opts_ = std::make_unique<ScanOptionsMap>();
       for (size_t k = 0; k < scan_opts_->size(); k++) {
         const ScanOptions& opt = scan_opts_->at(k);
         auto start = opt.range.start;
@@ -1133,18 +1136,17 @@ class LevelIterator final : public InternalIterator {
         // 1. [  S        E  ]
         // 2. [  S  ]  [  E  ]
         // 3. [  S  ] ...... [  E  ]
-        if ((fstart < flevel_->num_files) && (fstart == fend)) {
-          // Case 1
-          file_to_scan_opts_[fstart].push_back(opt);
-        } else {
-          // Case 2 and 3
-          for (auto i = fstart; i <= fend; i++) {
-            if (i < flevel_->num_files) {
-              file_to_scan_opts_[i].push_back(opt);
-            }
+        for (auto i = fstart; i <= fend; i++) {
+          if (i < flevel_->num_files) {
+            file_to_scan_opts_->at(i).push_back(opt);
           }
         }
       }
+    }
+
+    if (scan_opts_ && file_to_scan_opts_ && file_iter_.iter() &&
+        file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
+      file_iter_.Prepare(scan_opts_);
     }
   }
 
@@ -1276,7 +1278,7 @@ class LevelIterator final : public InternalIterator {
   const std::vector<ScanOptions>* scan_opts_;
 
   // Our stored scan_opts for each prefix
-  std::unordered_map<size_t, std::vector<ScanOptions>> file_to_scan_opts_;
+  std::unique_ptr<ScanOptionsMap> file_to_scan_opts_ = nullptr;
 
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
@@ -1541,8 +1543,9 @@ bool LevelIterator::SkipEmptyFileForward() {
     if (file_iter_.iter() != nullptr) {
       // If we are doing prepared scan opts then we should seek to the values
       // specified by the scan opts
-      if (scan_opts_ && file_to_scan_opts_[file_index_].size()) {
-        const ScanOptions& opts = file_to_scan_opts_[file_index_].front();
+      if (scan_opts_ && file_to_scan_opts_ &&
+          file_to_scan_opts_->at(file_index_).size()) {
+        const ScanOptions& opts = file_to_scan_opts_->at(file_index_).front();
         if (opts.range.start.has_value()) {
           InternalKey internal_key(opts.range.start.value(), kMaxSequenceNumber,
                                    kValueTypeForSeek);
@@ -1600,8 +1603,8 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
 
   InternalIterator* old_iter = file_iter_.Set(iter);
   if (iter && scan_opts_) {
-    if (file_to_scan_opts_[file_index_].size()) {
-      file_iter_.Prepare(&file_to_scan_opts_[file_index_]);
+    if (file_to_scan_opts_ && file_to_scan_opts_->at(file_index_).size()) {
+      file_iter_.Prepare(scan_opts_);
     }
   }
 
