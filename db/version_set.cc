@@ -1152,7 +1152,7 @@ class LevelIterator final : public InternalIterator {
   // Return true if at least one invalid file is seen and skipped.
   bool SkipEmptyFileForward();
   void SkipEmptyFileBackward();
-  void SetFileIterator(InternalIterator* iter, size_t index);
+  void SetFileIterator(InternalIterator* iter);
   void InitFileIterator(size_t new_file_index);
 
   const Slice& file_smallest_key(size_t file_index) {
@@ -1181,9 +1181,9 @@ class LevelIterator final : public InternalIterator {
   // Move file_iter_ to the file at file_index_.
   // range_tombstone_iter_ is updated with a range tombstone iterator
   // into the new file. Old range tombstone iterator is cleared.
-  InternalIterator* NewFileIterator(size_t index) {
-    assert(index < flevel_->num_files);
-    auto file_meta = flevel_->files[index];
+  InternalIterator* NewFileIterator() {
+    assert(file_index_ < flevel_->num_files);
+    auto file_meta = flevel_->files[file_index_];
     if (should_sample_) {
       sample_file_read_inc(file_meta.file_metadata);
     }
@@ -1191,10 +1191,10 @@ class LevelIterator final : public InternalIterator {
     const InternalKey* smallest_compaction_key = nullptr;
     const InternalKey* largest_compaction_key = nullptr;
     if (compaction_boundaries_ != nullptr) {
-      smallest_compaction_key = (*compaction_boundaries_)[index].smallest;
-      largest_compaction_key = (*compaction_boundaries_)[index].largest;
+      smallest_compaction_key = (*compaction_boundaries_)[file_index_].smallest;
+      largest_compaction_key = (*compaction_boundaries_)[file_index_].largest;
     }
-    CheckMayBeOutOfLowerBound(index);
+    CheckMayBeOutOfLowerBound();
     ClearRangeTombstoneIter();
     return table_cache_->NewIterator(
         read_options_, file_options_, icomparator_, *file_meta.file_metadata,
@@ -1210,12 +1210,12 @@ class LevelIterator final : public InternalIterator {
   //
   // Note MyRocks may update iterate bounds between seek. To workaround it,
   // we need to check and update may_be_out_of_lower_bound_ accordingly.
-  void CheckMayBeOutOfLowerBound(size_t index) {
+  void CheckMayBeOutOfLowerBound() {
     if (read_options_.iterate_lower_bound != nullptr &&
-        index < flevel_->num_files) {
+        file_index_ < flevel_->num_files) {
       may_be_out_of_lower_bound_ =
           user_comparator_.CompareWithoutTimestamp(
-              ExtractUserKey(file_smallest_key(index)), /*a_has_ts=*/true,
+              ExtractUserKey(file_smallest_key(file_index_)), /*a_has_ts=*/true,
               *read_options_.iterate_lower_bound, /*b_has_ts=*/false) < 0;
     }
   }
@@ -1384,7 +1384,7 @@ void LevelIterator::Seek(const Slice& target) {
     }
   }
   SkipEmptyFileForward();
-  CheckMayBeOutOfLowerBound(file_index_);
+  CheckMayBeOutOfLowerBound();
 }
 
 void LevelIterator::SeekForPrev(const Slice& target) {
@@ -1394,9 +1394,9 @@ void LevelIterator::SeekForPrev(const Slice& target) {
   // Seek beyond this level's smallest key
   if (new_file_index == 0 &&
       icomparator_.Compare(target, file_smallest_key(0)) < 0) {
-    SetFileIterator(nullptr, file_index_);
+    SetFileIterator(nullptr);
     ClearRangeTombstoneIter();
-    CheckMayBeOutOfLowerBound(file_index_);
+    CheckMayBeOutOfLowerBound();
     return;
   }
   if (new_file_index >= flevel_->num_files) {
@@ -1419,7 +1419,7 @@ void LevelIterator::SeekForPrev(const Slice& target) {
     }
     SkipEmptyFileBackward();
   }
-  CheckMayBeOutOfLowerBound(file_index_);
+  CheckMayBeOutOfLowerBound();
 }
 
 void LevelIterator::SeekToFirst() {
@@ -1435,7 +1435,7 @@ void LevelIterator::SeekToFirst() {
     }
   }
   SkipEmptyFileForward();
-  CheckMayBeOutOfLowerBound(file_index_);
+  CheckMayBeOutOfLowerBound();
 }
 
 void LevelIterator::SeekToLast() {
@@ -1449,7 +1449,7 @@ void LevelIterator::SeekToLast() {
     }
   }
   SkipEmptyFileBackward();
-  CheckMayBeOutOfLowerBound(file_index_);
+  CheckMayBeOutOfLowerBound();
 }
 
 void LevelIterator::Next() {
@@ -1526,7 +1526,7 @@ bool LevelIterator::SkipEmptyFileForward() {
     if (file_index_ >= flevel_->num_files - 1 ||
         KeyReachedUpperBound(file_smallest_key(file_index_ + 1)) ||
         prefix_exhausted_) {
-      SetFileIterator(nullptr, file_index_);
+      SetFileIterator(nullptr);
       ClearRangeTombstoneIter();
       break;
     }
@@ -1571,7 +1571,7 @@ void LevelIterator::SkipEmptyFileBackward() {
     // Move to previous file
     if (file_index_ == 0) {
       // Already the first file
-      SetFileIterator(nullptr, file_index_);
+      SetFileIterator(nullptr);
       ClearRangeTombstoneIter();
       return;
     }
@@ -1593,20 +1593,22 @@ void LevelIterator::SkipEmptyFileBackward() {
   }
 }
 
-void LevelIterator::SetFileIterator(InternalIterator* iter, size_t index) {
+void LevelIterator::SetFileIterator(InternalIterator* iter) {
   if (pinned_iters_mgr_ && iter) {
     iter->SetPinnedItersMgr(pinned_iters_mgr_);
   }
 
   InternalIterator* old_iter = file_iter_.Set(iter);
 
-  if (iter && scan_opts_) {
-    file_iter_.Prepare(&file_to_scan_opts_[index]);
-  }
-
   // Update the read pattern for PrefetchBuffer.
   if (is_next_read_sequential_) {
     file_iter_.UpdateReadaheadState(old_iter);
+  }
+
+  if (iter && scan_opts_) {
+    if (file_to_scan_opts_[file_index_].size()) {
+      file_iter_.Prepare(&file_to_scan_opts_[file_index_]);
+    }
   }
 
   if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
@@ -1619,7 +1621,7 @@ void LevelIterator::SetFileIterator(InternalIterator* iter, size_t index) {
 void LevelIterator::InitFileIterator(size_t new_file_index) {
   if (new_file_index >= flevel_->num_files) {
     file_index_ = new_file_index;
-    SetFileIterator(nullptr, new_file_index);
+    SetFileIterator(nullptr);
     ClearRangeTombstoneIter();
     return;
   } else {
@@ -1633,8 +1635,8 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
       // no need to change anything
     } else {
       file_index_ = new_file_index;
-      InternalIterator* iter = NewFileIterator(new_file_index);
-      SetFileIterator(iter, new_file_index);
+      InternalIterator* iter = NewFileIterator();
+      SetFileIterator(iter);
     }
   }
 }
