@@ -1017,7 +1017,7 @@ class LevelIterator final : public InternalIterator {
     // this iterator was prepared.
     MaybeCleanupPreparedIterator(old_iter);
 
-    for (auto &[_,k] : prepared_iters) {
+    for (auto k : prepared_iters) {
       delete k;
     }
   }
@@ -1109,16 +1109,19 @@ class LevelIterator final : public InternalIterator {
   }
 
   void MaybeCleanupPreparedIterator(InternalIterator* old_iter) {
+    bool clean = true;
     if (scan_opts_ != nullptr) {
-      for (auto iter = prepared_iters.begin(); iter != prepared_iters.end(); iter++) {
-        if (iter->second == old_iter) {
-          prepared_iters.erase(iter);
+      for (auto v: prepared_iters) {
+        if (v == old_iter) {
+          clean = false;
           break;
         }
       }
     }
 
-    delete old_iter;
+    if (clean) {
+      delete old_iter;
+    }
   }
 
   void Prepare(const std::vector<ScanOptions>* scan_opts) override {
@@ -1126,7 +1129,7 @@ class LevelIterator final : public InternalIterator {
     // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
     scan_opts_ = scan_opts;
     if (scan_opts_ != nullptr) {
-      std::unordered_map<size_t, std::vector<ScanOptions>> file_to_scan_opts;
+      prepared_iters.resize(flevel_->num_files + 1, nullptr);
       for (size_t k = 0; k < scan_opts_->size(); k++) {
         const ScanOptions& opt = scan_opts_->at(k);
         auto start = opt.range.start;
@@ -1135,13 +1138,15 @@ class LevelIterator final : public InternalIterator {
         if (!start.has_value()) {
           continue;
         }
-        InternalKey istart(start.value(), kMaxSequenceNumber,
-                           kValueTypeForSeek);
 
         // We can capture this case in the future, but for now lets skip this.
         if (!end.has_value()) {
           continue;
         }
+
+        InternalKey istart(start.value(), kMaxSequenceNumber,
+                           kValueTypeForSeek);
+
         InternalKey iend(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
 
         // TODO: This needs to be optimized, right now we iterate twice, which
@@ -1171,7 +1176,6 @@ class LevelIterator final : public InternalIterator {
       for (const auto& [k, v] : file_to_scan_opts) {
         auto iter = NewFileIterator(k);
         assert(prepared_iters[k] == nullptr);
-        assert(prepared_iters.size() > k);
         prepared_iters[k] = iter;
         iter->Prepare(&v);
       }
@@ -1306,7 +1310,8 @@ class LevelIterator final : public InternalIterator {
   const std::vector<ScanOptions>* scan_opts_;
 
   // During prepare we can preload our iters
-  std::unordered_map<int,InternalIterator*> prepared_iters;
+  std::vector<InternalIterator*> prepared_iters;
+  std::unordered_map<size_t, std::vector<ScanOptions>> file_to_scan_opts;
 
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
@@ -1617,11 +1622,6 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   }
 
   InternalIterator* old_iter = file_iter_.Set(iter);
-  // Since this is a new table iterator, no need to call Prepare() if
-  // scan_opts_ is null
-  if (iter && scan_opts_) {
-    file_iter_.Prepare(scan_opts_);
-  }
 
   // Update the read pattern for PrefetchBuffer.
   if (is_next_read_sequential_) {
