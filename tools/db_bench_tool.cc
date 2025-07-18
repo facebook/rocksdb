@@ -4702,10 +4702,12 @@ class Benchmark {
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "autotunecompression")) {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
-      double io_upper_bound = FLAGS_autotune_iogoal * ratelimiter_throughput;
-      double io_lower_bound = FLAGS_autotune_miniogoal * ratelimiter_throughput;
-      double cpu_upper_bound = FLAGS_autotune_cpubudget;
-      double cpu_lower_bound = FLAGS_autotune_mincpubudget;
+      double io_upper_bound =
+          FLAGS_autotune_io_upper_bound * ratelimiter_throughput;
+      double io_lower_bound =
+          FLAGS_autotune_io_lower_bound * ratelimiter_throughput;
+      double cpu_upper_bound = FLAGS_autotune_cpu_upper_bound;
+      double cpu_lower_bound = FLAGS_autotune_cpu_lower_bound;
       std::shared_ptr<IOGoal> io_goal =
           std::make_shared<IOGoal>(io_upper_bound, io_lower_bound);
       std::shared_ptr<CPUBudget> cpu_budget =
@@ -4715,10 +4717,12 @@ class Benchmark {
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "dynamicautotunecompressor")) {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
-      double io_upper_bound = FLAGS_autotune_iogoal * ratelimiter_throughput;
-      double io_lower_bound = FLAGS_autotune_miniogoal * ratelimiter_throughput;
-      double cpu_upper_bound = FLAGS_autotune_cpubudget;
-      double cpu_lower_bound = FLAGS_autotune_mincpubudget;
+      double io_upper_bound =
+          FLAGS_autotune_io_upper_bound * ratelimiter_throughput;
+      double io_lower_bound =
+          FLAGS_autotune_io_lower_bound * ratelimiter_throughput;
+      double cpu_upper_bound = FLAGS_autotune_cpu_upper_bound;
+      double cpu_lower_bound = FLAGS_autotune_cpu_lower_bound;
       std::shared_ptr<DynamicBudget> io_goal = std::make_shared<DynamicBudget>(
           io_upper_bound, io_lower_bound, ratelimiter_throughput,
           io_upper_bound, "");
