@@ -117,7 +117,7 @@ class WindowAveragePredictor {
 };
 
 using IOCostPredictor = WindowAveragePredictor<size_t>;
-using CPUUtilPredictor = WindowAveragePredictor<uint64_t>;
+using CPUUtilPredictor = WindowAveragePredictor<size_t>;
 
 struct IOCPUCostPredictor {
   explicit IOCPUCostPredictor(int window_size)
