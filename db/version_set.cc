@@ -1009,7 +1009,6 @@ class LevelIterator final : public InternalIterator {
     if (range_tombstone_iter_ptr_) {
       *range_tombstone_iter_ptr_ = &range_tombstone_iter_;
     }
-
   }
 
   ~LevelIterator() override {
