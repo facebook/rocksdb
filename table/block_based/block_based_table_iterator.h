@@ -41,11 +41,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
             compaction_readahead_size,
             table_->get_rep()->table_options.initial_auto_readahead_size),
         allow_unprepared_value_(allow_unprepared_value),
-        block_iter_points_to_real_block_(false),
         check_filter_(check_filter),
         need_upper_bound_check_(need_upper_bound_check),
         async_read_in_progress_(false),
-        is_last_level_(table->IsLastLevel()) {}
+        is_last_level_(table->IsLastLevel()),
+        block_iter_points_to_real_block_(false) {}
 
   ~BlockBasedTableIterator() override { ClearBlockHandles(); }
 
@@ -69,6 +69,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   Slice key() const override {
     assert(Valid());
     if (is_at_first_key_from_index_) {
+      assert(!multi_scan_);
       return index_iter_->value().first_internal_key;
     } else {
       return block_iter_.key();
@@ -141,10 +142,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     // Prefix index set status to NotFound when the prefix does not exist.
     if (IsIndexAtCurr() && !index_iter_->status().ok() &&
         !index_iter_->status().IsNotFound()) {
+      assert(!multi_scan_);
       return index_iter_->status();
     } else if (block_iter_points_to_real_block_) {
       return block_iter_.status();
     } else if (async_read_in_progress_) {
+      assert(!multi_scan_);
       return Status::TryAgain("Async read in progress");
     } else {
       return Status::OK();
@@ -221,6 +224,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       }
     }
   }
+
+  void Prepare(const std::vector<ScanOptions>* scan_opts) override;
 
   FilePrefetchBuffer* prefetch_buffer() {
     return block_prefetcher_.prefetch_buffer();
@@ -308,12 +313,20 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   BlockPrefetcher block_prefetcher_;
 
+  // It stores all the block handles that are lookuped in cache ahead when
+  // BlockCacheLookupForReadAheadSize is called. Since index_iter_ may point to
+  // different blocks when readahead_size is calculated in
+  // BlockCacheLookupForReadAheadSize, to avoid index_iter_ reseek,
+  // block_handles_ is used.
+  // `block_handles_` is lazily constructed to save CPU when it is unused
+  std::unique_ptr<std::deque<BlockHandleInfo>> block_handles_;
+
+  // The prefix of the key called with SeekImpl().
+  // This is for readahead trimming so no data blocks containing keys of a
+  // different prefix are prefetched
+  std::string seek_key_prefix_for_readahead_trimming_ = "";
+
   const bool allow_unprepared_value_;
-  // True if block_iter_ is initialized and points to the same block
-  // as index iterator.
-  bool block_iter_points_to_real_block_;
-  // See InternalIteratorBase::IsOutOfBound().
-  bool is_out_of_bound_ = false;
   // How current data block's boundary key with the next block is compared with
   // iterate upper bound.
   BlockUpperBound block_upper_bound_check_ = BlockUpperBound::kUnknown;
@@ -333,18 +346,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // size based on cache hit and miss.
   bool readahead_cache_lookup_ = false;
 
-  // It stores all the block handles that are lookuped in cache ahead when
-  // BlockCacheLookupForReadAheadSize is called. Since index_iter_ may point to
-  // different blocks when readahead_size is calculated in
-  // BlockCacheLookupForReadAheadSize, to avoid index_iter_ reseek,
-  // block_handles_ is used.
-  // `block_handles_` is lazily constructed to save CPU when it is unused
-  std::unique_ptr<std::deque<BlockHandleInfo>> block_handles_;
-
-  // During cache lookup to find readahead size, index_iter_ is iterated and it
-  // can point to a different block. is_index_at_curr_block_ keeps track of
-  // that.
-  bool is_index_at_curr_block_ = true;
   bool is_index_out_of_bound_ = false;
 
   // Used in case of auto_readahead_size to disable the block_cache lookup if
@@ -353,10 +354,48 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // is used to disable the lookup.
   IterDirection direction_ = IterDirection::kForward;
 
-  // The prefix of the key called with SeekImpl().
-  // This is for readahead trimming so no data blocks containing keys of a
-  // different prefix are prefetched
-  std::string seek_key_prefix_for_readahead_trimming_ = "";
+  //*** BEGIN States used by both regular scan and multiscan
+
+  // True if block_iter_ is initialized and points to the same block
+  // as index iterator.
+  bool block_iter_points_to_real_block_;
+  // See InternalIteratorBase::IsOutOfBound().
+  bool is_out_of_bound_ = false;
+  // During cache lookup to find readahead size, index_iter_ is iterated and it
+  // can point to a different block.
+  // If Prepare() is called, index_iter_ is used to prefetch data blocks for the
+  // multiscan, so is_index_at_curr_block_ will be false.
+  // Whether index is expected to match the current data_block_iter_.
+  bool is_index_at_curr_block_ = true;
+
+  // *** END States used by both regular scan and multiscan
+
+  // *** BEGIN MultiScan related states ***
+  struct MultiScanState {
+    // bool prepared_ = false;
+    const std::vector<ScanOptions>* scan_opts;
+    std::vector<CachableEntry<Block>> pinned_data_blocks;
+
+    // Indicies into multiscan_pinned_data_blocks_ for data blocks that are
+    // relevant for each scan range.
+    // inclusive start, exclusive end
+    std::vector<std::tuple<size_t, size_t>> block_ranges_per_scan;
+    size_t next_scan_idx;
+    size_t cur_data_block_idx;
+
+    MultiScanState(
+        const std::vector<ScanOptions>* _scan_opts,
+        std::vector<CachableEntry<Block>>&& _pinned_data_blocks,
+        std::vector<std::tuple<size_t, size_t>>&& _block_ranges_per_scan)
+        : scan_opts(_scan_opts),
+          pinned_data_blocks(std::move(_pinned_data_blocks)),
+          block_ranges_per_scan(std::move(_block_ranges_per_scan)),
+          next_scan_idx(0),
+          cur_data_block_idx(0) {}
+  };
+
+  std::unique_ptr<MultiScanState> multi_scan_;
+  // *** END MultiScan related APIs and states ***
 
   void SeekSecondPass(const Slice* target);
 
@@ -472,5 +511,12 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
                                     uint64_t& end_updated_offset,
                                     size_t& prev_handles_size);
   // *** END APIs relevant to auto tuning of readahead_size ***
+
+  // *** BEGIN APIs relevant to multiscan ***
+  // Returns true iff seek is successful.
+  bool SeekMultiScan(const Slice* target);
+
+  void FindBlockForwardInMultiScan();
+  // *** END APIs relevant to multiscan ***
 };
 }  // namespace ROCKSDB_NAMESPACE

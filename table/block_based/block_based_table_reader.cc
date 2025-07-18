@@ -59,6 +59,7 @@
 #include "table/block_based/hash_index_reader.h"
 #include "table/block_based/partitioned_filter_block.h"
 #include "table/block_based/partitioned_index_reader.h"
+#include "table/block_based/user_defined_index_wrapper.h"
 #include "table/block_fetcher.h"
 #include "table/format.h"
 #include "table/get_context.h"
@@ -105,7 +106,11 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
       bool use_block_cache_for_lookup) const;                                  \
   template Status BlockBasedTable::LookupAndPinBlocksInCache<T>(               \
       const ReadOptions& ro, const BlockHandle& handle,                        \
-      CachableEntry<T>* out_parsed_block) const;
+      CachableEntry<T>* out_parsed_block) const;                               \
+  template Status BlockBasedTable::CreateAndPinBlockInCache<T>(                \
+      const ReadOptions& ro, const BlockHandle& handle,                        \
+      BlockContents* block_contents, CachableEntry<T>* out_parsed_block)       \
+      const;
 
 INSTANTIATE_BLOCKLIKE_TEMPLATES(ParsedFullFilterBlock);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(DecompressorDict);
@@ -114,6 +119,7 @@ INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kIndex);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kFilterPartitionIndex);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kRangeDeletion);
 INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kMetaIndex);
+INSTANTIATE_BLOCKLIKE_TEMPLATES(Block_kUserDefinedIndex);
 
 }  // namespace ROCKSDB_NAMESPACE
 
@@ -1319,6 +1325,34 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   if (!s.ok()) {
     return s;
   }
+  if (table_options.user_defined_index_factory != nullptr) {
+    std::string udi_name(table_options.user_defined_index_factory->Name());
+    BlockHandle udi_block_handle;
+
+    // Should we use FindOptionalMetaBlock here?
+    s = FindMetaBlock(meta_iter, kUserDefinedIndexPrefix + udi_name,
+                      &udi_block_handle);
+    if (!s.ok()) {
+      return s;
+    }
+    // Read the block, and allocate on heap or pin in cache. The UDI block is
+    // not compressed. RetrieveBlock will verify the checksum.
+    s = RetrieveBlock(prefetch_buffer, ro, udi_block_handle,
+                      rep_->decompressor.get(), &rep_->udi_block,
+                      /*get_context=*/nullptr, lookup_context,
+                      /*for_compaction=*/false, use_cache, /*async_read=*/false,
+                      /*use_block_cache_for_lookup=*/false);
+    if (!s.ok()) {
+      return s;
+    }
+    assert(!rep_->udi_block.IsEmpty());
+
+    std::unique_ptr<UserDefinedIndexReader> udi_reader =
+        table_options.user_defined_index_factory->NewReader(
+            rep_->udi_block.GetValue()->data);
+    index_reader = std::make_unique<UserDefinedIndexReaderWrapper>(
+        udi_name, std::move(index_reader), std::move(udi_reader));
+  }
 
   rep_->index_reader = std::move(index_reader);
 
@@ -1705,6 +1739,17 @@ Status BlockBasedTable::LookupAndPinBlocksInCache(
   return s;
 }
 
+template <typename TBlocklike>
+Status BlockBasedTable::CreateAndPinBlockInCache(
+    const ReadOptions& ro, const BlockHandle& handle, BlockContents* contents,
+    CachableEntry<TBlocklike>* out_parsed_block) const {
+  return MaybeReadBlockAndLoadToCache(
+      nullptr, ro, handle, rep_->decompressor.get(),
+      /*for_compaction=*/false, out_parsed_block, nullptr, nullptr, contents,
+      /*async_read=*/false,
+      /*use_block_cache_for_lookup=*/true);
+}
+
 // If contents is nullptr, this function looks up the block caches for the
 // data block referenced by handle, and read the block from disk if necessary.
 // If contents is non-null, it skips the cache lookup and disk read, since
@@ -1766,8 +1811,7 @@ BlockBasedTable::MaybeReadBlockAndLoadToCache(
         ro.fill_cache) {
       Statistics* statistics = rep_->ioptions.stats;
       const bool maybe_compressed =
-          TBlocklike::kBlockType != BlockType::kFilter &&
-          TBlocklike::kBlockType != BlockType::kCompressionDictionary &&
+          BlockTypeMaybeCompressed(TBlocklike::kBlockType) &&
           rep_->decompressor;
       // This flag, if true, tells BlockFetcher to return the uncompressed
       // block when ReadBlockContents() is called.
@@ -1911,6 +1955,7 @@ BlockBasedTable::SaveLookupContextOrTraceRecord(
       trace_block_type = TraceType::kBlockTraceRangeDeletionBlock;
       break;
     case BlockType::kIndex:
+    case BlockType::kUserDefinedIndex:
       trace_block_type = TraceType::kBlockTraceIndexBlock;
       break;
     default:
@@ -2003,9 +2048,7 @@ WithBlocklikeCheck<Status, TBlocklike> BlockBasedTable::RetrieveBlock(
   }
 
   const bool maybe_compressed =
-      TBlocklike::kBlockType != BlockType::kFilter &&
-      TBlocklike::kBlockType != BlockType::kCompressionDictionary &&
-      rep_->decompressor;
+      BlockTypeMaybeCompressed(TBlocklike::kBlockType) && rep_->decompressor;
   std::unique_ptr<TBlocklike> block;
 
   {

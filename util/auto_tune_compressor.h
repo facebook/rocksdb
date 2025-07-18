@@ -171,30 +171,30 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
                                 CompressionType* out_compression_type,
                                 CostAwareWorkingArea* wa);
 
+  bool IsInValidQuadrant(size_t predicted_io_cost, size_t predicted_cpu_cost,
+                         double cur_io_cost, double cur_cpu_cost,
+                         bool increase_io, bool decrease_io, bool increase_cpu,
+                         bool decrease_cpu);
   // Select compression type and level based on budget availability
   size_t SelectCompressionBasedOnIOGoalCPUBudget(CostAwareWorkingArea* wa);
   void MeasureUtilization();
+  void AddCompressors(CompressionType type,
+                      const std::initializer_list<int>& levels);
   static constexpr uint64_t kMicrosInSecond = 1000000;
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
-  // This is the vector containing the list of compression levels that
-  // AutoTuneCompressor will use create compressor and predicts
-  // the cost The vector contains list of compression level for compression
-  // algorithm in the order defined by enum CompressionType
-  static const std::vector<std::vector<int>> kCompressionLevels;
   const CompressionOptions opts_;
 
   // Budget references for cost-aware compression decisions
   std::shared_ptr<IOGoal> io_goal_;
   std::shared_ptr<CPUBudget> cpu_budget_;
-  std::shared_ptr<RateLimiter> rate_limiter_;
   CPUIOUtilizationTracker usage_tracker_;
-  // Will servers as a logical clock to decide when to update the decision
+  // Will serve as a logical clock to decide when to update the decision
   std::atomic<int> block_count_;
   std::atomic<size_t> cur_compressor_idx_;
   std::unique_ptr<Compressor> default_compressor_;
 
-  static constexpr int kDecideEveryNBlocks = 2000;
+  static constexpr int kCompressionEvaluationInterval = 2000;
   static constexpr int kWindow = 10;
 };
 
@@ -220,4 +220,4 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
   Options option_;
 };
 
-};  // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE

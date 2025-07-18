@@ -6,18 +6,13 @@
 
 #pragma once
 
-#include <stdio.h>
-#include <stdlib.h>
-
 #if defined(_WIN32)
 #else
 // Unix/Linux-specific headers
 #include <sys/resource.h>
-#include <unistd.h>
 #endif
 
 #include <atomic>
-#include <memory>
 
 #include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
@@ -26,11 +21,10 @@
 namespace ROCKSDB_NAMESPACE {
 
 // AtomicRateTracker is a template class that tracks the rate of change of
-// values over time. It records data points with timestamps and calculates the
-// rate of change between consecutive recordings.
-//
-// Template parameter T should be a numeric type that supports arithmetic
-// operations (addition, subtraction, division).
+// values over time (result returned unit/s). It records data points with
+// timestamps(Micros) and calculates the rate of change between consecutive
+// recordings. Template parameter T should be a numeric type that supports
+// arithmetic operations (addition, subtraction, division).
 template <typename T>
 class AtomicRateTracker {
  public:
@@ -81,8 +75,6 @@ class AtomicRateTracker {
         has_previous_data_.store(true, std::memory_order_release);
         return 0.0;
       }
-      // If CAS failed, another thread set the initial values, continue with
-      // rate calculation
       return 0.0;
     }
 
@@ -94,43 +86,18 @@ class AtomicRateTracker {
     // Calculate time delta
     uint64_t time_delta_us = current_timestamp_us - prev_timestamp;
     if (time_delta_us == 0) {
-      // No time has passed, return 0 rate to avoid division by zero
-      fprintf(stderr, "time_delta_us is 0, return previous rate\n");
+      // No time has passed, return rate_ to avoid division by zero
       return rate_;
     }
 
     double time_delta_seconds = static_cast<double>(time_delta_us) / 1000000.0;
     T value_delta = value - prev_value;
     rate_ = static_cast<double>(value_delta) / time_delta_seconds;
-
-    // Update stored values atomically
     previous_value_.store(value, std::memory_order_release);
     previous_timestamp_us_.store(current_timestamp_us,
                                  std::memory_order_release);
     has_previous_data_.store(true, std::memory_order_release);
     return rate_;
-  }
-
-  T GetLastValue() const {
-    return previous_value_.load(std::memory_order_acquire);
-  }
-
-  uint64_t GetLastTimestampUs() const {
-    return previous_timestamp_us_.load(std::memory_order_acquire);
-  }
-
-  bool HasData() const {
-    return has_previous_data_.load(std::memory_order_acquire);
-  }
-
-  void Reset() {
-    has_previous_data_.store(false, std::memory_order_release);
-    previous_value_.store(T{}, std::memory_order_release);
-    previous_timestamp_us_.store(0, std::memory_order_release);
-  }
-
-  void TEST_SetClock(std::shared_ptr<SystemClock> clock) {
-    clock_ = std::move(clock);
   }
 
   double GetRate() const { return rate_.load(std::memory_order_acquire); }
@@ -145,6 +112,9 @@ class AtomicRateTracker {
   std::atomic<uint64_t> previous_timestamp_us_;
 };
 // Class to track CPU and IO utilization
+// Track process cpu usage using sysresource.h on linux
+// Windows is not supported yet
+// Track IO utilization using IO through rate limiter
 class CPUIOUtilizationTracker {
  public:
   explicit CPUIOUtilizationTracker(
@@ -159,12 +129,8 @@ class CPUIOUtilizationTracker {
  private:
   void RecordCPUUsage();
   void RecordIOUtilization();
-  uint64_t GetCurrentTimeMicros();
 
   std::shared_ptr<RateLimiter> rate_limiter_;
-  std::shared_ptr<SystemClock> clock_;
-  double io_utilization_;
-  double cpu_usage_;
   AtomicRateTracker<size_t> rate_limiter_bytes_rate_;
   AtomicRateTracker<double> cpu_usage_rate_;
 };

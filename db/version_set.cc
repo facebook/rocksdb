@@ -3509,8 +3509,13 @@ void VersionStorageInfo::ComputeCompactionScore(
       }
 
       if (compaction_style_ == kCompactionStyleFIFO) {
-        score = static_cast<double>(total_size) /
-                mutable_cf_options.compaction_options_fifo.max_table_files_size;
+        auto max_table_files_size =
+            mutable_cf_options.compaction_options_fifo.max_table_files_size;
+        if (max_table_files_size == 0) {
+          // avoid divide 0
+          max_table_files_size = 1;
+        }
+        score = static_cast<double>(total_size) / max_table_files_size;
         if (score < 1 &&
             mutable_cf_options.compaction_options_fifo.allow_compaction) {
           score = std::max(
