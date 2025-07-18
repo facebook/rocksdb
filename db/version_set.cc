@@ -1012,14 +1012,7 @@ class LevelIterator final : public InternalIterator {
   }
 
   ~LevelIterator() override {
-    InternalIterator* old_iter = file_iter_.Set(nullptr);
-    // Make sure we update our mapping that we are removing the old iterator if
-    // this iterator was prepared.
-    MaybeCleanupPreparedIterator(old_iter);
-
-    for (auto k : prepared_iters) {
-      delete k;
-    }
+    delete file_iter_.Set(nullptr);
   }
 
   // Seek to the first file with a key >= target.
@@ -1108,28 +1101,11 @@ class LevelIterator final : public InternalIterator {
     read_seq_ = read_seq;
   }
 
-  void MaybeCleanupPreparedIterator(InternalIterator* old_iter) {
-    bool clean = true;
-    if (scan_opts_ != nullptr) {
-      for (auto v: prepared_iters) {
-        if (v == old_iter) {
-          clean = false;
-          break;
-        }
-      }
-    }
-
-    if (clean) {
-      delete old_iter;
-    }
-  }
-
   void Prepare(const std::vector<ScanOptions>* scan_opts) override {
     // We assume here that scan_opts is sorted such that
     // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
     scan_opts_ = scan_opts;
     if (scan_opts_ != nullptr) {
-      prepared_iters.resize(flevel_->num_files + 1, nullptr);
       for (size_t k = 0; k < scan_opts_->size(); k++) {
         const ScanOptions& opt = scan_opts_->at(k);
         auto start = opt.range.start;
@@ -1161,23 +1137,15 @@ class LevelIterator final : public InternalIterator {
         // 3. [  S  ] ...... [  E  ]
         if ((fstart < flevel_->num_files) && (fstart == fend)) {
           // Case 1
-          file_to_scan_opts[fstart].push_back(opt);
+          file_to_scan_opts_[fstart].push_back(opt);
         } else {
           // Case 2 and 3
           for (auto i = fstart; i <= fend; i++) {
             if (i < flevel_->num_files) {
-              file_to_scan_opts[i].push_back(opt);
+              file_to_scan_opts_[i].push_back(opt);
             }
           }
         }
-      }
-
-      // We now have our list of intersections
-      for (const auto& [k, v] : file_to_scan_opts) {
-        auto iter = NewFileIterator(k);
-        assert(prepared_iters[k] == nullptr);
-        prepared_iters[k] = iter;
-        iter->Prepare(&v);
       }
     }
   }
@@ -1186,7 +1154,7 @@ class LevelIterator final : public InternalIterator {
   // Return true if at least one invalid file is seen and skipped.
   bool SkipEmptyFileForward();
   void SkipEmptyFileBackward();
-  void SetFileIterator(InternalIterator* iter);
+  void SetFileIterator(InternalIterator* iter, size_t index);
   void InitFileIterator(size_t new_file_index);
 
   const Slice& file_smallest_key(size_t file_index) {
@@ -1310,8 +1278,7 @@ class LevelIterator final : public InternalIterator {
   const std::vector<ScanOptions>* scan_opts_;
 
   // During prepare we can preload our iters
-  std::vector<InternalIterator*> prepared_iters;
-  std::unordered_map<size_t, std::vector<ScanOptions>> file_to_scan_opts;
+  std::unordered_map<size_t, std::vector<ScanOptions>> file_to_scan_opts_;
 
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
@@ -1429,7 +1396,7 @@ void LevelIterator::SeekForPrev(const Slice& target) {
   // Seek beyond this level's smallest key
   if (new_file_index == 0 &&
       icomparator_.Compare(target, file_smallest_key(0)) < 0) {
-    SetFileIterator(nullptr);
+    SetFileIterator(nullptr, file_index_);
     ClearRangeTombstoneIter();
     CheckMayBeOutOfLowerBound(file_index_);
     return;
@@ -1561,7 +1528,7 @@ bool LevelIterator::SkipEmptyFileForward() {
     if (file_index_ >= flevel_->num_files - 1 ||
         KeyReachedUpperBound(file_smallest_key(file_index_ + 1)) ||
         prefix_exhausted_) {
-      SetFileIterator(nullptr);
+      SetFileIterator(nullptr, file_index_);
       ClearRangeTombstoneIter();
       break;
     }
@@ -1574,7 +1541,17 @@ bool LevelIterator::SkipEmptyFileForward() {
     // LevelIterator::Seek*, it should also call Seek* into the corresponding
     // range tombstone iterator.
     if (file_iter_.iter() != nullptr) {
-      file_iter_.SeekToFirst();
+      // If we are doing prepared scan opts then we should seek to the values specified by the scan opts
+      if (scan_opts_ && file_to_scan_opts_[file_index_].size()) {
+        const ScanOptions& opts = file_to_scan_opts_[file_index_].front();
+        if (opts.range.start.has_value()) {
+          InternalKey internal_key(opts.range.start.value(), kMaxSequenceNumber, kValueTypeForSeek);
+          auto as_slice = internal_key.Encode();
+          file_iter_.Seek(as_slice);
+        }
+      } else {
+        file_iter_.SeekToFirst();
+      }
       if (range_tombstone_iter_) {
         if (*range_tombstone_iter_) {
           (*range_tombstone_iter_)->SeekToFirst();
@@ -1594,7 +1571,7 @@ void LevelIterator::SkipEmptyFileBackward() {
     // Move to previous file
     if (file_index_ == 0) {
       // Already the first file
-      SetFileIterator(nullptr);
+      SetFileIterator(nullptr, file_index_);
       ClearRangeTombstoneIter();
       return;
     }
@@ -1616,12 +1593,16 @@ void LevelIterator::SkipEmptyFileBackward() {
   }
 }
 
-void LevelIterator::SetFileIterator(InternalIterator* iter) {
+void LevelIterator::SetFileIterator(InternalIterator* iter, size_t index) {
   if (pinned_iters_mgr_ && iter) {
     iter->SetPinnedItersMgr(pinned_iters_mgr_);
   }
 
   InternalIterator* old_iter = file_iter_.Set(iter);
+
+  if (iter && scan_opts_) {
+    file_iter_.Prepare(&file_to_scan_opts_[index]);
+  }
 
   // Update the read pattern for PrefetchBuffer.
   if (is_next_read_sequential_) {
@@ -1631,16 +1612,14 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
     pinned_iters_mgr_->PinIterator(old_iter);
   } else {
-    // We need to make sure if the old_iter is a prepared iterator, then we
-    // update our mapping.
-    MaybeCleanupPreparedIterator(old_iter);
+    delete old_iter;
   }
 }
 
 void LevelIterator::InitFileIterator(size_t new_file_index) {
   if (new_file_index >= flevel_->num_files) {
     file_index_ = new_file_index;
-    SetFileIterator(nullptr);
+    SetFileIterator(nullptr, new_file_index);
     ClearRangeTombstoneIter();
     return;
   } else {
@@ -1654,12 +1633,8 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
       // no need to change anything
     } else {
       file_index_ = new_file_index;
-      if (scan_opts_ && prepared_iters[new_file_index] != nullptr) {
-        SetFileIterator(prepared_iters[new_file_index]);
-      } else {
-        InternalIterator* iter = NewFileIterator(new_file_index);
-        SetFileIterator(iter);
-      }
+      InternalIterator* iter = NewFileIterator(new_file_index);
+      SetFileIterator(iter, new_file_index);
     }
   }
 }
