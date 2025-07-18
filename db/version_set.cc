@@ -1010,13 +1010,18 @@ class LevelIterator final : public InternalIterator {
       *range_tombstone_iter_ptr_ = &range_tombstone_iter_;
     }
 
-    prepared_iters.reserve(file_index_ + 1);
   }
 
   ~LevelIterator() override {
-    delete file_iter_.Set(nullptr);
+    InternalIterator* old_iter = file_iter_.Set(nullptr);
+    // Make sure we update our mapping that we are removing the old iterator if
+    // this iterator was prepared.
+    MaybeCleanupPreparedIterator(old_iter);
+
     for (auto v : prepared_iters) {
-      delete v;
+      if (v != nullptr) {
+        delete v;
+      }
     }
   }
 
@@ -1106,11 +1111,24 @@ class LevelIterator final : public InternalIterator {
     read_seq_ = read_seq;
   }
 
+  void MaybeCleanupPreparedIterator(InternalIterator* old_iter) {
+    if (scan_opts_ != nullptr) {
+      auto val_iter =
+          std::find(prepared_iters.begin(), prepared_iters.end(), old_iter);
+      if (val_iter != prepared_iters.end()) {
+        *val_iter = nullptr;
+      }
+    }
+
+    delete old_iter;
+  }
+
   void Prepare(const std::vector<ScanOptions>* scan_opts) override {
     // We assume here that scan_opts is sorted such that
     // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
     scan_opts_ = scan_opts;
     if (scan_opts_ != nullptr) {
+      prepared_iters.resize(file_index_ + 1, nullptr);
       std::unordered_map<size_t, std::vector<ScanOptions>> file_to_scan_opts;
       for (size_t k = 0; k < scan_opts_->size(); k++) {
         const ScanOptions& opt = scan_opts_->at(k);
@@ -1156,6 +1174,7 @@ class LevelIterator final : public InternalIterator {
       // We now have our list of intersections
       for (const auto& [k, v] : file_to_scan_opts) {
         auto iter = NewFileIterator(k);
+        assert(prepared_iters[k] == nullptr);
         prepared_iters[k] = iter;
         iter->Prepare(&v);
       }
@@ -1612,16 +1631,12 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
     file_iter_.UpdateReadaheadState(old_iter);
   }
 
-  auto vv = std::find(prepared_iters.begin(), prepared_iters.end(), old_iter);
-  if (vv != prepared_iters.end()) {
-    return;
-  }
- 
-
   if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
     pinned_iters_mgr_->PinIterator(old_iter);
   } else {
-      delete old_iter;
+    // We need to make sure if the old_iter is a prepared iterator, then we
+    // update our mapping.
+    MaybeCleanupPreparedIterator(old_iter);
   }
 }
 
