@@ -299,9 +299,19 @@ class BlockBasedTable : public TableReader {
   Status GetKVPairsFromDataBlocks(const ReadOptions& read_options,
                                   std::vector<KVPairBlock>* kv_pair_blocks);
 
+  // Look up the block cache for the specified block.
+  // out_parsed_block is set to nullptr if the block is not found in the cache.
   template <typename TBlocklike>
   Status LookupAndPinBlocksInCache(
       const ReadOptions& ro, const BlockHandle& handle,
+      CachableEntry<TBlocklike>* out_parsed_block) const;
+
+  // Create the block given in `block_contents` and insert it into block cache.
+  // `out_parsed_block` points to the inserted block if successful.
+  template <typename TBlocklike>
+  Status CreateAndPinBlockInCache(
+      const ReadOptions& ro, const BlockHandle& handle,
+      BlockContents* block_contents,
       CachableEntry<TBlocklike>* out_parsed_block) const;
 
   struct Rep;
