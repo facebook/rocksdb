@@ -1017,10 +1017,8 @@ class LevelIterator final : public InternalIterator {
     // this iterator was prepared.
     MaybeCleanupPreparedIterator(old_iter);
 
-    for (auto v : prepared_iters) {
-      if (v != nullptr) {
-        delete v;
-      }
+    for (auto &[_,k] : prepared_iters) {
+      delete k;
     }
   }
 
@@ -1112,10 +1110,11 @@ class LevelIterator final : public InternalIterator {
 
   void MaybeCleanupPreparedIterator(InternalIterator* old_iter) {
     if (scan_opts_ != nullptr) {
-      auto val_iter =
-          std::find(prepared_iters.begin(), prepared_iters.end(), old_iter);
-      if (val_iter != prepared_iters.end()) {
-        *val_iter = nullptr;
+      for (auto iter = prepared_iters.begin(); iter != prepared_iters.end(); iter++) {
+        if (iter->second == old_iter) {
+          prepared_iters.erase(iter);
+          break;
+        }
       }
     }
 
@@ -1127,7 +1126,6 @@ class LevelIterator final : public InternalIterator {
     // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
     scan_opts_ = scan_opts;
     if (scan_opts_ != nullptr) {
-      prepared_iters.resize(file_index_ + 1, nullptr);
       std::unordered_map<size_t, std::vector<ScanOptions>> file_to_scan_opts;
       for (size_t k = 0; k < scan_opts_->size(); k++) {
         const ScanOptions& opt = scan_opts_->at(k);
@@ -1156,8 +1154,7 @@ class LevelIterator final : public InternalIterator {
         // 1. [  S        E  ]
         // 2. [  S  ]  [  E  ]
         // 3. [  S  ] ...... [  E  ]
-        if ((fstart < flevel_->num_files) && fstart == fend &&
-            prepared_iters[fstart] != nullptr) {
+        if ((fstart < flevel_->num_files) && (fstart == fend)) {
           // Case 1
           file_to_scan_opts[fstart].push_back(opt);
         } else {
@@ -1174,6 +1171,7 @@ class LevelIterator final : public InternalIterator {
       for (const auto& [k, v] : file_to_scan_opts) {
         auto iter = NewFileIterator(k);
         assert(prepared_iters[k] == nullptr);
+        assert(prepared_iters.size() > k);
         prepared_iters[k] = iter;
         iter->Prepare(&v);
       }
@@ -1308,7 +1306,7 @@ class LevelIterator final : public InternalIterator {
   const std::vector<ScanOptions>* scan_opts_;
 
   // During prepare we can preload our iters
-  std::vector<InternalIterator*> prepared_iters;
+  std::unordered_map<int,InternalIterator*> prepared_iters;
 
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
@@ -1656,8 +1654,7 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
       // no need to change anything
     } else {
       file_index_ = new_file_index;
-      if (prepared_iters.size() > new_file_index &&
-          prepared_iters[new_file_index] != nullptr) {
+      if (scan_opts_ && prepared_iters[new_file_index] != nullptr) {
         SetFileIterator(prepared_iters[new_file_index]);
       } else {
         InternalIterator* iter = NewFileIterator(new_file_index);
