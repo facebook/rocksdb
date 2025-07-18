@@ -48,6 +48,7 @@ class TransactionDBCondVar {
   // May return OK spuriously even if not notified.
   virtual Status Wait(std::shared_ptr<TransactionDBMutex> mutex) = 0;
 
+
   // Block current thread until condition variable is notified by a call to
   // Notify() or NotifyAll(), or if the timeout is reached.
   // Wait() will be called with mutex locked.

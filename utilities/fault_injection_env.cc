@@ -464,15 +464,6 @@ Status FaultInjectionTestEnv::LinkFile(const std::string& s,
   return ret;
 }
 
-Status FaultInjectionTestEnv::SyncFile(const std::string& /*fname*/,
-                                       const EnvOptions& /*options*/,
-                                       bool /*use_fsync*/) {
-  if (!IsFilesystemActive()) {
-    return GetError();
-  }
-  return IOStatus::OK();
-}
-
 void FaultInjectionTestEnv::WritableFileClosed(const FileState& state) {
   MutexLock l(&mutex_);
   if (open_managed_files_.find(state.filename_) != open_managed_files_.end()) {

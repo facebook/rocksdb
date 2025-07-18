@@ -385,13 +385,6 @@ class Env : public Customizable {
     return Status::NotSupported("LinkFile is not supported for this Env");
   }
 
-  // Open Sync and Close the file to flush the file content to file system
-  virtual Status SyncFile(const std::string& /*fname*/,
-                          const EnvOptions& /*options*/, bool /*use_fsync*/) {
-    return Status::NotSupported(
-        "SyncFile is not supported for this FileSystem");
-  }
-
   virtual Status NumFileLinks(const std::string& /*fname*/,
                               uint64_t* /*count*/) {
     return Status::NotSupported(
@@ -1548,11 +1541,6 @@ class EnvWrapper : public Env {
 
   Status LinkFile(const std::string& s, const std::string& t) override {
     return target_.env->LinkFile(s, t);
-  }
-
-  Status SyncFile(const std::string& fname, const EnvOptions& options,
-                  bool use_fsync) override {
-    return target_.env->SyncFile(fname, options, use_fsync);
   }
 
   Status NumFileLinks(const std::string& fname, uint64_t* count) override {

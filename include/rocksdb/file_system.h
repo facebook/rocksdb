@@ -606,7 +606,13 @@ class FileSystem : public Customizable {
         "LinkFile is not supported for this FileSystem");
   }
 
-  // Open Sync and Close the file to flush the file content to file system
+  // Open, sync and close the file to flush the file content to file system.
+  // The main use case is for external SST file ingestion. When an external SST
+  // file is added into RocksDB through a file link (instead of copy), it is
+  // unsafe to assume the source application that provided the file had synced
+  // the file and file directory before the file is ingested. For integrity of
+  // RocksDB we need to sync the file. Therefore this SyncFile API is used to
+  // make sure the file is synced.
   virtual IOStatus SyncFile(const std::string& fname,
                             const FileOptions& options, bool use_fsync,
                             IODebugContext* dbg);
