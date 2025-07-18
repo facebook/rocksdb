@@ -1121,7 +1121,7 @@ class LevelIterator final : public InternalIterator {
         InternalKey istart(start.value(), kMaxSequenceNumber,
                            kValueTypeForSeek);
 
-        InternalKey iend(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
+        InternalKey iend(end.value(), 0, kValueTypeForSeek);
 
         // TODO: This needs to be optimized, right now we iterate twice, which
         // we dont need to. We can do this in N rather than 2N.
@@ -1275,7 +1275,7 @@ class LevelIterator final : public InternalIterator {
   bool to_return_sentinel_ = false;
   const std::vector<ScanOptions>* scan_opts_;
 
-  // During prepare we can preload our iters
+  // Our stored scan_opts for each prefix
   std::unordered_map<size_t, std::vector<ScanOptions>> file_to_scan_opts_;
 
   // Sets flags for if we should return the sentinel key next.
@@ -1599,16 +1599,15 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   }
 
   InternalIterator* old_iter = file_iter_.Set(iter);
-
-  // Update the read pattern for PrefetchBuffer.
-  if (is_next_read_sequential_) {
-    file_iter_.UpdateReadaheadState(old_iter);
-  }
-
   if (iter && scan_opts_) {
     if (file_to_scan_opts_[file_index_].size()) {
       file_iter_.Prepare(&file_to_scan_opts_[file_index_]);
     }
+  }
+
+  // Update the read pattern for PrefetchBuffer.
+  if (is_next_read_sequential_) {
+    file_iter_.UpdateReadaheadState(old_iter);
   }
 
   if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
