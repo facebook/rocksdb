@@ -260,16 +260,21 @@ Status SstFileDumper::CalculateCompressedTableSize(
 }
 
 Status SstFileDumper::ShowAllCompressionSizes(
-    size_t block_size,
-    const std::vector<std::pair<CompressionType, const char*>>&
-        compression_types,
+    size_t block_size, const std::vector<CompressionType>& compression_types,
     int32_t compress_level_from, int32_t compress_level_to,
     uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes,
     uint64_t max_dict_buffer_bytes, bool use_zstd_dict_trainer) {
   fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
-  for (auto& i : compression_types) {
-    if (CompressionTypeSupported(i.first)) {
-      fprintf(stdout, "Compression: %-24s\n", i.second);
+  for (CompressionType ctype : compression_types) {
+    std::string cname;
+    if (!GetStringFromCompressionType(&cname, ctype).ok()) {
+      // Can produce names like "Reserved4F" for unrecognized values
+      cname = CompressionTypeToString(ctype);
+    }
+    if (options_.compression_manager
+            ? options_.compression_manager->SupportsCompressionType(ctype)
+            : CompressionTypeSupported(ctype)) {
+      fprintf(stdout, "Compression: %-24s\n", cname.c_str());
       CompressionOptions compress_opt;
       compress_opt.max_dict_bytes = max_dict_bytes;
       compress_opt.zstd_max_train_bytes = zstd_max_train_bytes;
@@ -278,13 +283,13 @@ Status SstFileDumper::ShowAllCompressionSizes(
       for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
         fprintf(stdout, "Compression level: %d", j);
         compress_opt.level = j;
-        Status s = ShowCompressionSize(block_size, i.first, compress_opt);
+        Status s = ShowCompressionSize(block_size, ctype, compress_opt);
         if (!s.ok()) {
           return s;
         }
       }
     } else {
-      fprintf(stdout, "Unsupported compression type: %s.\n", i.second);
+      fprintf(stdout, "Unsupported compression type: %s.\n", cname.c_str());
     }
   }
   return Status::OK();
