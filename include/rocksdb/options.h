@@ -1766,7 +1766,7 @@ struct RangeOpt {
 //
 // Options for a RocksDB scan request. Only forward scans for now.
 // We may add other options such as prefix scan in the future.
-struct ScanOptions {
+struct ScanRange {
   // The scan range. Mandatory for start to be set, limit is optional
   RangeOpt range;
 
@@ -1777,12 +1777,36 @@ struct ScanOptions {
   std::optional<std::unordered_map<std::string, std::string>> property_bag;
 
   // An unbounded scan with a start key
-  explicit ScanOptions(const Slice& _start) : range(_start, OptSlice()) {}
+  explicit ScanRange(const Slice& _start) : range(_start, OptSlice()) {}
 
   // A bounded scan with a start key and upper bound
-  ScanOptions(const Slice& _start, const Slice& _upper_bound)
+  ScanRange(const Slice& _start, const Slice& _upper_bound)
       : range(_start, _upper_bound) {}
 };
+
+class ScanOptions {
+ public:
+  ScanOptions(const Comparator* comparator) : comparator_(comparator) default;
+  ScanOptions(const Comparator* comparator,
+              std::initializer_list<ScanRange> ranges)
+      : comparator_(comparator) {
+    for (auto range : ranges) {
+      insert(range)
+    }
+  }
+
+  void insert(ScanRange&& range) { insert(std::move(range)); }
+
+  void insert(ScanRange& range) {
+    if (ranges.size() == 0) {
+      ranges.push_back(range);
+    }
+  }
+
+ private:
+  const Comparator* comparator_;
+  std::vector<ScanRange> ranges_;
+}
 
 // Options that control read operations
 struct ReadOptions {
