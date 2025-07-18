@@ -15,6 +15,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/sst_dump_tool.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/sst_file_dumper.h"
 #include "table/table_builder.h"
@@ -342,6 +343,73 @@ TEST_F(SSTDumpToolTest, CompressedSizes) {
 
   cleanup(opts, file_path);
   for (int i = 0; i < 3; i++) {
+    delete[] usage[i];
+  }
+}
+
+TEST_F(SSTDumpToolTest, CompressionManager) {
+  using Compressor8A = test::CompressorCustomAlg<kCustomCompression8A>;
+  if (!Compressor8A::Supported()) {
+    fprintf(stderr,
+            "Prerequisite compression library not supported. Skipping\n");
+    return;
+  }
+  constexpr const char* kCompatibilityName = "SSTDumpToolTest::MyManager";
+  class MyManager : public CompressionManager {
+   public:
+    const char* Name() const override { return kCompatibilityName; }
+    const char* CompatibilityName() const override { return Name(); }
+
+    bool SupportsCompressionType(CompressionType type) const override {
+      return type == kCustomCompression8A;
+    }
+
+    std::unique_ptr<Compressor> GetCompressor(
+        const CompressionOptions& /*opts*/, CompressionType type) override {
+      switch (static_cast<unsigned char>(type)) {
+        case kCustomCompression8A:
+          return std::make_unique<Compressor8A>();
+        default:
+          return nullptr;
+      }
+    }
+
+    std::shared_ptr<Decompressor> GetDecompressor() override {
+      return std::make_shared<test::DecompressorCustomAlg>();
+    }
+  };
+
+  // Registery in ObjectLibrary to check that sst_dump can use named
+  // CompressionManagers with dependency injection
+  auto& library = *ObjectLibrary::Default();
+  library.AddFactory<CompressionManager>(
+      kCompatibilityName,
+      [](const std::string& /*uri*/, std::unique_ptr<CompressionManager>* guard,
+         std::string* /*errmsg*/) {
+        *guard = std::make_unique<MyManager>();
+        return guard->get();
+      });
+
+  Options opts;
+  opts.env = env();
+  BlockBasedTableOptions table_opts;
+  table_opts.filter_policy.reset(
+      ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10, false));
+  opts.table_factory.reset(new BlockBasedTableFactory(table_opts));
+  std::string file_path = MakeFilePath("rocksdb_sst_test.sst");
+  createSST(opts, file_path, 10);
+
+  char* usage[5];
+  PopulateCommandArgs(file_path, "--command=recompress", usage);
+  snprintf(usage[3], kOptLength, "--compression_manager=%s",
+           kCompatibilityName);
+  snprintf(usage[4], kOptLength, "--compression_types=kCustomCompression8A");
+
+  ROCKSDB_NAMESPACE::SSTDumpTool tool;
+  ASSERT_TRUE(!tool.Run(5, usage, opts));
+
+  cleanup(opts, file_path);
+  for (int i = 0; i < 5; i++) {
     delete[] usage[i];
   }
 }
