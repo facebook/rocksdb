@@ -1011,9 +1011,7 @@ class LevelIterator final : public InternalIterator {
     }
   }
 
-  ~LevelIterator() override {
-    delete file_iter_.Set(nullptr);
-  }
+  ~LevelIterator() override { delete file_iter_.Set(nullptr); }
 
   // Seek to the first file with a key >= target.
   // If range_tombstone_iter_ is not nullptr, then we pretend that file
@@ -1541,11 +1539,13 @@ bool LevelIterator::SkipEmptyFileForward() {
     // LevelIterator::Seek*, it should also call Seek* into the corresponding
     // range tombstone iterator.
     if (file_iter_.iter() != nullptr) {
-      // If we are doing prepared scan opts then we should seek to the values specified by the scan opts
+      // If we are doing prepared scan opts then we should seek to the values
+      // specified by the scan opts
       if (scan_opts_ && file_to_scan_opts_[file_index_].size()) {
         const ScanOptions& opts = file_to_scan_opts_[file_index_].front();
         if (opts.range.start.has_value()) {
-          InternalKey internal_key(opts.range.start.value(), kMaxSequenceNumber, kValueTypeForSeek);
+          InternalKey internal_key(opts.range.start.value(), kMaxSequenceNumber,
+                                   kValueTypeForSeek);
           auto as_slice = internal_key.Encode();
           file_iter_.Seek(as_slice);
         }
