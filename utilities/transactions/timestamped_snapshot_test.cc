@@ -12,12 +12,16 @@ namespace ROCKSDB_NAMESPACE {
 INSTANTIATE_TEST_CASE_P(
     Unsupported, TimestampedSnapshotWithTsSanityCheck,
     ::testing::Values(
-        std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
-        std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
-        std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite)));
+        std::make_tuple(false, false, false, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(false, true, false, WRITE_PREPARED, kUnorderedWrite),
+        std::make_tuple(false, false, false, WRITE_UNPREPARED, kOrderedWrite),
+        std::make_tuple(false, false, true, WRITE_PREPARED, kOrderedWrite),
+        std::make_tuple(false, true, true, WRITE_PREPARED, kUnorderedWrite),
+        std::make_tuple(false, false, true, WRITE_UNPREPARED, kOrderedWrite)));
 
 INSTANTIATE_TEST_CASE_P(WriteCommitted, TransactionTest,
                         ::testing::Combine(::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Bool(),
                                            ::testing::Values(WRITE_COMMITTED),
                                            ::testing::Values(kOrderedWrite)));
 
