@@ -13,7 +13,6 @@
 #include <array>
 #include <cinttypes>
 #include <cstdio>
-#include <iostream>
 #include <list>
 #include <map>
 #include <set>
@@ -1126,7 +1125,7 @@ class LevelIterator final : public InternalIterator {
       }
 
       InternalKey istart(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
-      InternalKey iend(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
+      InternalKey iend(end.value(), 0, kValueTypeForSeek);
 
       // TODO: This needs to be optimized, right now we iterate twice, which
       // we dont need to. We can do this in N rather than 2N.
@@ -1140,8 +1139,7 @@ class LevelIterator final : public InternalIterator {
       // 3. [  S  ] ...... [  E  ]
       for (auto i = fstart; i <= fend; i++) {
         if (i < flevel_->num_files) {
-          (*file_to_scan_opts_)[i].emplace_back(istart.Encode(),
-                                                    iend.Encode());
+          (*file_to_scan_opts_)[i].emplace_back(start.value(), end.value());
         }
       }
     }
@@ -1276,6 +1274,7 @@ class LevelIterator final : public InternalIterator {
 
   // Our stored scan_opts for each prefix
   std::unique_ptr<ScanOptionsMap> file_to_scan_opts_ = nullptr;
+  std::vector<std::shared_ptr<InternalKey>> key_guards;
 
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
@@ -1543,10 +1542,9 @@ bool LevelIterator::SkipEmptyFileForward() {
       if (scan_opts_ && (*file_to_scan_opts_)[file_index_].size()) {
         const ScanOptions& opts = file_to_scan_opts_->at(file_index_).front();
         if (opts.range.start.has_value()) {
-          InternalKey internal_key(opts.range.start.value(), kMaxSequenceNumber,
-                                   kValueTypeForSeek);
-          auto as_slice = internal_key.Encode();
-          file_iter_.Seek(as_slice);
+          InternalKey target(*opts.range.start.AsPtr(), kMaxSequenceNumber,
+                             kValueTypeForSeek);
+          file_iter_.Seek(target.Encode());
         }
       } else {
         file_iter_.SeekToFirst();
@@ -1601,7 +1599,9 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   if (iter && scan_opts_) {
     if (file_to_scan_opts_.get() &&
         file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
-      file_iter_.Prepare(&(*file_to_scan_opts_)[file_index_]);
+      const std::vector<ScanOptions>& opts =
+          file_to_scan_opts_->at(file_index_);
+      file_iter_.Prepare(&opts);
     } else {
       file_iter_.Prepare(scan_opts_);
     }
