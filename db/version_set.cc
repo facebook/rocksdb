@@ -1140,14 +1140,10 @@ class LevelIterator final : public InternalIterator {
       // 3. [  S  ] ...... [  E  ]
       for (auto i = fstart; i <= fend; i++) {
         if (i < flevel_->num_files) {
-          (*file_to_scan_opts_)[i + 1].emplace_back(istart.Encode(),
+          (*file_to_scan_opts_)[i].emplace_back(istart.Encode(),
                                                     iend.Encode());
         }
       }
-    }
-
-    if (file_iter_.iter()) {
-      file_iter_.Prepare(&(*file_to_scan_opts_)[file_index_]);
     }
   }
 
