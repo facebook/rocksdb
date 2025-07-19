@@ -18,7 +18,7 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "utilities/transactions/lock/point/point_lock_manager_test.h"
+#include "utilities/transactions/lock/point/any_lock_manager_test.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/transaction_test.h"
 

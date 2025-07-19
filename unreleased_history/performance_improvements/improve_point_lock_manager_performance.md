@@ -1,0 +1,1 @@
+PointLockManager was not efficient when there is high write contention on same key, as it uses a single conditional variable per lock stripe. This was replaced by per key per thread conditional variable following fifo order. The throughput of High contention exclusive lock on same key was improved by up to 70% measured by point_lock_bench.

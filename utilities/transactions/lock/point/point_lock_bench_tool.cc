@@ -464,6 +464,7 @@ int point_lock_bench_tool(int argc, char** argv) {
   gflags::GetAllFlags(&all_flags);  // Get information about all flags
 
   for (const auto& flag : all_flags) {
+    // only show the flags defined in this file
     if (flag.filename.find("point_lock_bench_tool.cc") != std::string::npos) {
       std::cout << "-" << flag.name << "=";
       if (flag.type == "bool") {

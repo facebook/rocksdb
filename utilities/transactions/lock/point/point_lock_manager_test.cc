@@ -5,6 +5,8 @@
 
 #include "utilities/transactions/lock/point/point_lock_manager_test.h"
 
+#include "utilities/transactions/lock/point/any_lock_manager_test.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 // including test for both PointLockManager and PerKeyPointLockManager
