@@ -143,7 +143,7 @@ class CostAwareWorkingArea : public Compressor::WorkingArea {
     return *this;
   }
   Compressor::ManagedWorkingArea wrapped_;
-  std::vector<IOCPUCostPredictor*> cost_predictors_;
+  std::vector<std::unique_ptr<IOCPUCostPredictor>> cost_predictors_;
 };
 
 class AutoTuneCompressor : public MultiCompressorWrapper {
@@ -208,7 +208,7 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
  public:
   explicit AutoTuneCompressorManager(
       std::shared_ptr<CompressionManager> wrapped,
-      std::shared_ptr<IOGoal> io_goal, std::shared_ptr<CPUBudget> cpu_budget,
+      std::shared_ptr<IOGoal>& io_goal, std::shared_ptr<CPUBudget>& cpu_budget,
       const Options& option)
       : CompressionManagerWrapper(wrapped),
         io_goal_(io_goal),

@@ -228,17 +228,14 @@ Compressor::ManagedWorkingArea AutoTuneCompressor::ObtainWorkingArea() {
   // Create cost predictors for each compression type and level
   wa->cost_predictors_.reserve(compressors_.size());
   for (size_t i = 0; i < compressors_.size(); i++) {
-    wa->cost_predictors_.emplace_back(new IOCPUCostPredictor(kWindow));
+    wa->cost_predictors_.emplace_back(
+        std::make_unique<IOCPUCostPredictor>(kWindow));
   }
   return ManagedWorkingArea(wa, this);
 }
 void AutoTuneCompressor::MeasureUtilization() { usage_tracker_.Record(); }
 void AutoTuneCompressor::ReleaseWorkingArea(WorkingArea* wa) {
   // remove all created cost predictors
-  for (auto& predictor :
-       static_cast<CostAwareWorkingArea*>(wa)->cost_predictors_) {
-    delete predictor;
-  }
   delete static_cast<CostAwareWorkingArea*>(wa);
 }
 // Select the compression type and level based on the IO and CPU usage.
@@ -345,11 +342,10 @@ Status AutoTuneCompressor::CompressBlockAndRecord(
       &(wa->wrapped_));
   std::pair<size_t, size_t> measured_data(timer.ElapsedMicros(),
                                           compressed_output->size());
-  auto predictor = wa->cost_predictors_[compressor_index];
   auto output_length = measured_data.second;
   auto cpu_time = measured_data.first;
-  predictor->CPUPredictor.Record(cpu_time);
-  predictor->IOPredictor.Record(output_length);
+  wa->cost_predictors_[compressor_index]->CPUPredictor.Record(cpu_time);
+  wa->cost_predictors_[compressor_index]->IOPredictor.Record(output_length);
   return status;
 }
 
