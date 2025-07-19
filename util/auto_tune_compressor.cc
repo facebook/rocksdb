@@ -380,12 +380,6 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
 
 double DynamicBudget::GetMaxRate() {
   if (stall_condition_ == WriteStallCondition::kNormal) {
-    int64_t now;
-    SystemClock::Default()->GetCurrentTime(&now);
-    auto info = offpeak_time_.GetOffpeakTimeInfo(now);
-    if (info.is_now_offpeak) {
-      return stall_max_rate_;
-    }
     return Budget::GetMaxRate();
   } else {
     return stall_max_rate_;
@@ -393,12 +387,6 @@ double DynamicBudget::GetMaxRate() {
 }
 double DynamicBudget::GetMinRate() {
   if (stall_condition_ == WriteStallCondition::kNormal) {
-    int64_t now;
-    SystemClock::Default()->GetCurrentTime(&now);
-    auto info = offpeak_time_.GetOffpeakTimeInfo(now);
-    if (info.is_now_offpeak) {
-      return stall_min_rate_;
-    }
     return Budget::GetMinRate();
   } else {
     return stall_min_rate_;
