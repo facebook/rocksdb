@@ -5,13 +5,16 @@
 //
 // Defines auto skip compressor wrapper which intelligently decides bypassing
 // compression based on past data
-// Defines CostAwareCompressor which currently tries to predict the cpu and io
-// cost of the compression
+// Defines AutoTuneCompressor which tries to select compression algorithm based
+// on predicted cpu and io cost of the compression
 
 #pragma once
 #include <memory>
 
 #include "rocksdb/advanced_compression.h"
+#include "rocksdb/options.h"
+#include "util/rate_tracker.h"
+#include "util/simple_mixed_compressor.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Auto Skip Compression Components
@@ -114,7 +117,7 @@ class WindowAveragePredictor {
 };
 
 using IOCostPredictor = WindowAveragePredictor<size_t>;
-using CPUUtilPredictor = WindowAveragePredictor<uint64_t>;
+using CPUUtilPredictor = WindowAveragePredictor<size_t>;
 
 struct IOCPUCostPredictor {
   explicit IOCPUCostPredictor(int window_size)
@@ -140,50 +143,87 @@ class CostAwareWorkingArea : public Compressor::WorkingArea {
     return *this;
   }
   Compressor::ManagedWorkingArea wrapped_;
-  std::vector<std::vector<IOCPUCostPredictor*>> cost_predictors_;
+  std::vector<std::unique_ptr<IOCPUCostPredictor>> cost_predictors_;
 };
 
-class CostAwareCompressor : public Compressor {
+class AutoTuneCompressor : public MultiCompressorWrapper {
  public:
-  explicit CostAwareCompressor(const CompressionOptions& opts);
+  explicit AutoTuneCompressor(
+      const CompressionOptions& opts, const CompressionType default_type,
+      std::shared_ptr<IOGoal> io_goal = nullptr,
+      std::shared_ptr<CPUBudget> cpu_budget = nullptr,
+      std::shared_ptr<RateLimiter> rate_limiter = nullptr);
+  ~AutoTuneCompressor() override;
   const char* Name() const override;
-  size_t GetMaxSampleSizeIfWantDict(CacheEntryRole block_type) const override;
-  Slice GetSerializedDict() const override;
-  CompressionType GetPreferredCompressionType() const override;
   ManagedWorkingArea ObtainWorkingArea() override;
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
       CacheEntryRole block_type, DictSampleArgs&& dict_samples) override;
-
   Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
   void ReleaseWorkingArea(WorkingArea* wa) override;
+  size_t GetCompressorsSize() { return compressors_.size(); }
 
  private:
-  Status CompressBlockAndRecord(size_t choosen_compression_type,
-                                size_t compresion_level_ptr,
+  Status CompressBlockAndRecord(size_t compressor_index,
                                 Slice uncompressed_data,
                                 std::string* compressed_output,
                                 CompressionType* out_compression_type,
                                 CostAwareWorkingArea* wa);
+
+  inline bool IsInValidQuadrant(size_t predicted_io_cost,
+                                size_t predicted_cpu_cost, size_t cur_io_cost,
+                                size_t cur_cpu_cost, bool increase_io,
+                                bool increase_cpu, bool decrease_io,
+                                bool decrease_cpu) {
+    return (!increase_io || predicted_io_cost > cur_io_cost) &&
+           (!decrease_io || predicted_io_cost < cur_io_cost) &&
+           (!increase_cpu || predicted_cpu_cost > cur_cpu_cost) &&
+           (!decrease_cpu || predicted_cpu_cost < cur_cpu_cost);
+  }
+  // Select compression type and level based on budget availability
+  size_t SelectCompressionBasedOnIOGoalCPUBudget(CostAwareWorkingArea* wa);
+  void MeasureUtilization();
+  void AddCompressors(CompressionType type,
+                      const std::initializer_list<int>& levels);
+  static constexpr uint64_t kMicrosInSecond = 1000000;
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
-  // This is the vector containing the list of compression levels that
-  // CostAwareCompressor will use create compressor and predicts the cost
-  // The vector contains list of compression level for compression algorithm in
-  // the order defined by enum CompressionType
-  static const std::vector<std::vector<int>> kCompressionLevels;
   const CompressionOptions opts_;
-  std::vector<std::vector<std::unique_ptr<Compressor>>> allcompressors_;
-  std::vector<std::pair<size_t, size_t>> allcompressors_index_;
+
+  // Budget references for cost-aware compression decisions
+  std::shared_ptr<IOGoal> io_goal_;
+  std::shared_ptr<CPUBudget> cpu_budget_;
+  CPUIOUtilizationTracker usage_tracker_;
+  // Will serve as a logical clock to decide when to update the decision
+  std::atomic<int> block_count_;
+  std::atomic<size_t> cur_compressor_idx_;
+  std::unique_ptr<Compressor> default_compressor_;
+
+  static constexpr int kCompressionEvaluationInterval = 2000;
+  static constexpr int kWindow = 10;
 };
 
-class CostAwareCompressorManager : public CompressionManagerWrapper {
-  using CompressionManagerWrapper::CompressionManagerWrapper;
+class AutoTuneCompressorManager : public CompressionManagerWrapper {
+ public:
+  explicit AutoTuneCompressorManager(
+      std::shared_ptr<CompressionManager> wrapped,
+      std::shared_ptr<IOGoal>& io_goal, std::shared_ptr<CPUBudget>& cpu_budget,
+      const Options& option)
+      : CompressionManagerWrapper(wrapped),
+        io_goal_(io_goal),
+        cpu_budget_(cpu_budget),
+        option_(option) {}
+
   const char* Name() const override;
   std::unique_ptr<Compressor> GetCompressorForSST(
       const FilterBuildingContext& context, const CompressionOptions& opts,
       CompressionType preferred) override;
+
+ private:
+  std::shared_ptr<IOGoal> io_goal_;
+  std::shared_ptr<CPUBudget> cpu_budget_;
+  Options option_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
