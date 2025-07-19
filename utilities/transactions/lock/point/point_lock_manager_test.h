@@ -236,23 +236,28 @@ bool TryBlockUntilWaitingTxn(const char* sync_point_name, port::Thread& t,
       sync_point_name, [&](void* /*arg*/) { reached.store(true); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::atomic<bool> complete(false);
-  t = port::Thread([&complete, &function]() {
+  // As the lifetime of the complete variable could go beyond the scope of this
+  // function, so we wrap it in a shared_ptr, and copy it into the lambda
+  std::shared_ptr<std::atomic<bool>> complete =
+      std::make_shared<std::atomic<bool>>(false);
+  t = port::Thread([complete, &function]() {
     function();
-    complete.store(true);
+    complete->store(true);
   });
 
   auto ret = false;
 
   while (true) {
-    if (complete.load()) {
+    if (complete->load()) {
       // function completed, before sync point was reached, return false
       t.join();
       ret = false;
+      break;
     }
     if (reached.load()) {
       // sync point was reached before function completed, return true
       ret = true;
+      break;
     }
   }
 
