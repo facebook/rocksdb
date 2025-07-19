@@ -1741,9 +1741,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     // If there is nothing to output, no necessary to generate a sst file.
     // This happens when the output level is bottom level, at the same time
     // the sub_compact output nothing.
-    std::string fname =
-        TableFileName(sub_compact->compaction->immutable_options().cf_paths,
-                      meta->fd.GetNumber(), meta->fd.GetPathId());
+    std::string fname = GetTableFileName(meta->fd.GetNumber());
 
     // TODO(AR) it is not clear if there are any larger implications if
     // DeleteFile fails here
