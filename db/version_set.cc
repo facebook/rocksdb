@@ -13,6 +13,7 @@
 #include <array>
 #include <cinttypes>
 #include <cstdio>
+#include <iostream>
 #include <list>
 #include <map>
 #include <set>
@@ -1105,48 +1106,48 @@ class LevelIterator final : public InternalIterator {
     // We assume here that scan_opts is sorted such that
     // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
     scan_opts_ = scan_opts;
-    if (scan_opts_ != nullptr) {
-      file_to_scan_opts_ = std::make_unique<ScanOptionsMap>();
-      for (size_t k = 0; k < scan_opts_->size(); k++) {
-        const ScanOptions& opt = scan_opts_->at(k);
-        auto start = opt.range.start;
-        auto end = opt.range.limit;
+    if (scan_opts_ == nullptr) {
+      return;
+    }
 
-        if (!start.has_value()) {
-          continue;
-        }
+    file_to_scan_opts_ = std::make_unique<ScanOptionsMap>();
+    for (size_t k = 0; k < scan_opts_->size(); k++) {
+      const ScanOptions& opt = scan_opts_->at(k);
+      auto start = opt.range.start;
+      auto end = opt.range.limit;
 
-        // We can capture this case in the future, but for now lets skip this.
-        if (!end.has_value()) {
-          continue;
-        }
+      if (!start.has_value()) {
+        continue;
+      }
 
-        InternalKey istart(start.value(), kMaxSequenceNumber,
-                           kValueTypeForSeek);
+      // We can capture this case in the future, but for now lets skip this.
+      if (!end.has_value()) {
+        continue;
+      }
 
-        InternalKey iend(end.value(), 0, kValueTypeForSeek);
+      InternalKey istart(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
+      InternalKey iend(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
 
-        // TODO: This needs to be optimized, right now we iterate twice, which
-        // we dont need to. We can do this in N rather than 2N.
-        size_t fstart = FindFile(icomparator_, *flevel_, istart.Encode());
-        size_t fend = FindFile(icomparator_, *flevel_, iend.Encode());
+      // TODO: This needs to be optimized, right now we iterate twice, which
+      // we dont need to. We can do this in N rather than 2N.
+      size_t fstart = FindFile(icomparator_, *flevel_, istart.Encode());
+      size_t fend = FindFile(icomparator_, *flevel_, iend.Encode());
 
-        // We need to check the relevant cases
-        // Cases:
-        // 1. [  S        E  ]
-        // 2. [  S  ]  [  E  ]
-        // 3. [  S  ] ...... [  E  ]
-        for (auto i = fstart; i <= fend; i++) {
-          if (i < flevel_->num_files) {
-            file_to_scan_opts_->at(i).push_back(opt);
-          }
+      // We need to check the relevant cases
+      // Cases:
+      // 1. [  S        E  ]
+      // 2. [  S  ]  [  E  ]
+      // 3. [  S  ] ...... [  E  ]
+      for (auto i = fstart; i <= fend; i++) {
+        if (i < flevel_->num_files) {
+          (*file_to_scan_opts_)[i + 1].emplace_back(istart.Encode(),
+                                                    iend.Encode());
         }
       }
     }
 
-    if (scan_opts_ && file_to_scan_opts_ && file_iter_.iter() &&
-        file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
-      file_iter_.Prepare(scan_opts_);
+    if (file_iter_.iter()) {
+      file_iter_.Prepare(&(*file_to_scan_opts_)[file_index_]);
     }
   }
 
@@ -1543,8 +1544,7 @@ bool LevelIterator::SkipEmptyFileForward() {
     if (file_iter_.iter() != nullptr) {
       // If we are doing prepared scan opts then we should seek to the values
       // specified by the scan opts
-      if (scan_opts_ && file_to_scan_opts_ &&
-          file_to_scan_opts_->at(file_index_).size()) {
+      if (scan_opts_ && (*file_to_scan_opts_)[file_index_].size()) {
         const ScanOptions& opts = file_to_scan_opts_->at(file_index_).front();
         if (opts.range.start.has_value()) {
           InternalKey internal_key(opts.range.start.value(), kMaxSequenceNumber,
@@ -1603,7 +1603,10 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
 
   InternalIterator* old_iter = file_iter_.Set(iter);
   if (iter && scan_opts_) {
-    if (file_to_scan_opts_ && file_to_scan_opts_->at(file_index_).size()) {
+    if (file_to_scan_opts_.get() &&
+        file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
+      file_iter_.Prepare(&(*file_to_scan_opts_)[file_index_]);
+    } else {
       file_iter_.Prepare(scan_opts_);
     }
   }
