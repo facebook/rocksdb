@@ -664,6 +664,10 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
                               const FileOptions& options,
                               std::unique_ptr<FSWritableFile>* result,
                               IODebugContext* dbg) override {
+    // TODO xingbo fix Reopen writable file behavior on non empty file.
+    // The current implementation always appends a new prefix to the file, which
+    // corrupted the file if the file already have content. Instead, it
+    // should reuse the prefix at the beginning of the file.
     result->reset();
     if (options.use_mmap_writes) {
       return IOStatus::InvalidArgument();
@@ -777,6 +781,17 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
       *file_size -= prefixLength;
     }
     return status;
+  }
+
+  IOStatus SyncFile(const std::string& fname, const FileOptions& file_options,
+                    const IOOptions& io_options, bool use_fsync,
+                    IODebugContext* dbg) override {
+    // There is a bug in the current implementation of ReopenWritableFile, so we
+    // could not use it to Sync an existing file. See
+    // EncryptedFileSystemImpl::ReopenWritableFile for the bug details.
+    // Instead, use the underlyaing file system to sync the file.
+    return FileSystemWrapper::SyncFile(fname, file_options, io_options,
+                                       use_fsync, dbg);
   }
 
  private:
