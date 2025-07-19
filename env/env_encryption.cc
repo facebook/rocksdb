@@ -786,18 +786,12 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
   IOStatus SyncFile(const std::string& fname, const FileOptions& file_options,
                     const IOOptions& io_options, bool use_fsync,
                     IODebugContext* dbg) override {
-    // using underlying filesystem to open the file for sync
-    std::unique_ptr<FSWritableFile> writable_file;
-    auto status = FileSystemWrapper::ReopenWritableFile(fname, file_options,
-                                                        &writable_file, dbg);
-    if (status.ok()) {
-      if (use_fsync) {
-        return writable_file->Fsync(io_options, dbg);
-      } else {
-        return writable_file->Sync(io_options, dbg);
-      }
-    }
-    return status;
+    // There is a bug in the current implementation of ReopenWritableFile, so we
+    // could not use it to Sync an existing file. See
+    // EncryptedFileSystemImpl::ReopenWritableFile for the bug details.
+    // Instead, use the underlyaing file system to sync the file.
+    return FileSystemWrapper::SyncFile(fname, file_options, io_options,
+                                       use_fsync, dbg);
   }
 
  private:
