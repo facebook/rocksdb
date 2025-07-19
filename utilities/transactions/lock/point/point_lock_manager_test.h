@@ -230,30 +230,35 @@ TEST_P(AnyLockManagerTest, LockConflict) {
 // However due to timing, it could fail, so return true if succeeded, false
 // otherwise.
 bool TryBlockUntilWaitingTxn(const char* sync_point_name, port::Thread& t,
-                             std::packaged_task<void()> f) {
+                             std::function<void()> function) {
   std::atomic<bool> reached(false);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       sync_point_name, [&](void* /*arg*/) { reached.store(true); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  auto future = f.get_future();
-  t = port::Thread(std::move(f));
+  std::atomic<bool> complete(false);
+  t = port::Thread([&complete, &function]() {
+    function();
+    complete.store(true);
+  });
+
+  auto ret = false;
 
   while (true) {
-    bool task_complete = future.wait_for(std::chrono::microseconds(1)) ==
-                         std::future_status::ready;
-    if (task_complete) {
+    if (complete.load()) {
+      // function completed, before sync point was reached, return false
       t.join();
-      return false;
+      ret = false;
     }
     if (reached.load()) {
-      return true;
+      // sync point was reached before function completed, return true
+      ret = true;
     }
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
-  return false;
+  return ret;
 }
 
 void BlockUntilWaitingTxn(const char* sync_point_name, port::Thread& t,

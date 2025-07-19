@@ -825,12 +825,11 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterExpirationExclusive) {
   while (retry_times--) {
     ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
     if (TryBlockUntilWaitingTxn(
-            wait_sync_point_name_, t1,
-            std::packaged_task<void()>([this, txn2_ptr = &txn2]() {
+            wait_sync_point_name_, t1, [this, txn2_ptr = &txn2]() {
               // block because txn1 is holding a shared
               // lock on k1.
               ASSERT_OK(locker_->TryLock(*txn2_ptr, 1, "k1", env_, true));
-            }))) {
+            })) {
       break;
     }
     // failed, retry again
@@ -889,12 +888,11 @@ TEST_F(PerKeyPointLockManagerTest, LockStealAfterExpirationShared) {
   while (retry_times--) {
     ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, false));
     if (TryBlockUntilWaitingTxn(
-            wait_sync_point_name_, t1,
-            std::packaged_task<void()>([this, txn2_ptr = &txn2]() {
+            wait_sync_point_name_, t1, [this, txn2_ptr = &txn2]() {
               // block because txn1 is holding an exclusive
               // lock on k1.
               ASSERT_OK(locker_->TryLock(*txn2_ptr, 1, "k1", env_, true));
-            }))) {
+            })) {
       break;
     }
     // failed, retry again
