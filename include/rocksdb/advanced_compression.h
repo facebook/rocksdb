@@ -41,26 +41,20 @@ using IOGoal = Budget;
 using CPUBudget = Budget;
 struct DynamicBudget : public Budget, public EventListener {
   explicit DynamicBudget(double max_rate, double min_rate,
-                         double stall_max_rate, double stall_min_rate,
-                         std::string peak_time)
+                         double stall_max_rate, double stall_min_rate)
       : Budget(max_rate, min_rate),
         stall_max_rate_(stall_max_rate),
         stall_min_rate_(stall_min_rate),
-        offpeak_time_(peak_time),
         stall_condition_(WriteStallCondition::kNormal){};
   double GetMaxRate() override;
   double GetMinRate() override;
   void OnStallConditionsChanged(const WriteStallInfo& info) override {
-    // fprintf(stderr, "Stall condition changed to %d status: %d\n",
-    //         static_cast<int>(info.condition.cur),
-    //         info.condition.cur == WriteStallCondition::kNormal ? 0 : 1);
     stall_condition_ = info.condition.cur;
   };
 
  private:
   double stall_max_rate_;
   double stall_min_rate_;
-  OffpeakTimeOption offpeak_time_;
   WriteStallCondition stall_condition_;
 };
 

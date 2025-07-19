@@ -624,6 +624,20 @@ DEFINE_double(autotune_cpu_lower_bound, 0.8,
               "Autotune compression manager tries to use CPU under the given "
               "minimum CPU budget");
 
+DEFINE_double(autotune_stall_io_upper_bound, 0.99,
+              "Ratio of rate_limiter budget to set as IO goal for autotune "
+              "compression manager during write stall");
+DEFINE_double(
+    autotune_stall_io_lower_bound, 0.9,
+    "Ratio of rate_limiter budget to set as minimum IO goal for autotune "
+    "compression manager during write stall");
+DEFINE_double(autotune_stall_cpu_upper_bound, 0.9,
+              "Autotune compression manager tries to use CPU under the given "
+              "CPU budget during write stall");
+DEFINE_double(autotune_stall_cpu_lower_bound, 0.8,
+              "Autotune compression manager tries to use CPU under the given "
+              "minimum CPU budget during write stall");
+
 DEFINE_int32(compressed_secondary_cache_compression_level,
              ROCKSDB_NAMESPACE::CompressionOptions().level,
              "Compression level. The meaning of this value is library-"
@@ -4723,13 +4737,17 @@ class Benchmark {
           FLAGS_autotune_io_lower_bound * ratelimiter_throughput;
       double cpu_upper_bound = FLAGS_autotune_cpu_upper_bound;
       double cpu_lower_bound = FLAGS_autotune_cpu_lower_bound;
+      double stall_io_upper_bound = FLAGS_autotune_stall_io_upper_bound;
+      double stall_io_lower_bound = FLAGS_autotune_stall_io_lower_bound;
+      double stall_cpu_upper_bound = FLAGS_autotune_stall_cpu_upper_bound;
+      double stall_cpu_lower_bound = FLAGS_autotune_stall_cpu_lower_bound;
       std::shared_ptr<DynamicBudget> io_goal = std::make_shared<DynamicBudget>(
-          io_upper_bound, io_lower_bound, ratelimiter_throughput,
-          io_upper_bound, "");
+          io_upper_bound, io_lower_bound, stall_io_upper_bound,
+          stall_io_lower_bound);
       std::shared_ptr<DynamicBudget> cpu_budget =
-          std::make_shared<DynamicBudget>(cpu_upper_bound, cpu_lower_bound, 1.0,
-                                          cpu_upper_bound,
-                                          options.daily_offpeak_time_utc);
+          std::make_shared<DynamicBudget>(cpu_upper_bound, cpu_lower_bound,
+                                          stall_cpu_upper_bound,
+                                          stall_cpu_lower_bound);
       options.listeners.emplace_back(io_goal);
       options.listeners.emplace_back(cpu_budget);
       mgr = CreateAutoTuneCompressionManager(nullptr, io_goal, cpu_budget,
