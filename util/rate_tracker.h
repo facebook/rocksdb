@@ -20,96 +20,77 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// AtomicRateTracker is a template class that tracks the rate of change of
+// RateTracker is a template class that tracks the rate of change of
 // values over time (result returned unit/s). It records data points with
 // timestamps(Micros) and calculates the rate of change between consecutive
 // recordings. Template parameter T should be a numeric type that supports
 // arithmetic operations (addition, subtraction, division).
 template <typename T>
-class AtomicRateTracker {
+class RateTracker {
  public:
-  explicit AtomicRateTracker(
-      const std::shared_ptr<SystemClock>& clock = nullptr)
+  explicit RateTracker(const std::shared_ptr<SystemClock>& clock = nullptr)
       : clock_(clock ? clock : SystemClock::Default()),
         has_previous_data_(false),
         previous_value_(T{}),
         rate_(0.0),
         previous_timestamp_us_(0) {}
 
-  virtual ~AtomicRateTracker() = default;
+  virtual ~RateTracker() = default;
 
-  AtomicRateTracker(const AtomicRateTracker&) = delete;
-  AtomicRateTracker& operator=(const AtomicRateTracker&) = delete;
+  RateTracker(const RateTracker&) = delete;
+  RateTracker& operator=(const RateTracker&) = delete;
 
-  AtomicRateTracker(AtomicRateTracker&& other) noexcept
+  RateTracker(RateTracker&& other) noexcept
       : clock_(std::move(other.clock_)),
-        has_previous_data_(other.has_previous_data_.load()),
-        previous_value_(other.previous_value_.load()),
-        rate_(other.rate_.load()),
-        previous_timestamp_us_(other.previous_timestamp_us_.load()) {}
+        has_previous_data_(other.has_previous_data_),
+        previous_value_(other.previous_value_),
+        rate_(other.rate_),
+        previous_timestamp_us_(other.previous_timestamp_us_) {}
 
-  AtomicRateTracker& operator=(AtomicRateTracker&& other) noexcept {
+  RateTracker& operator=(RateTracker&& other) noexcept {
     if (this != &other) {
       clock_ = std::move(other.clock_);
-      has_previous_data_.store(other.has_previous_data_.load());
-      previous_value_.store(other.previous_value_.load());
-      rate_.store(other.rate_.load());
-      previous_timestamp_us_.store(other.previous_timestamp_us_.load());
+      has_previous_data_ = std::move(other.has_previous_data_);
+      previous_value_ = std::move(other.previous_value_);
+      rate_ = std::move(other.rate_);
+      previous_timestamp_us_ = std::move(other.previous_timestamp_us_);
     }
     return *this;
   }
 
   double Record(T value) {
     uint64_t current_timestamp_us = GetCurrentTimeMicros();
-    bool had_previous_data = has_previous_data_.load(std::memory_order_acquire);
-
-    if (!had_previous_data) {
-      T expected_value = T{};
-      uint64_t expected_timestamp = 0;
-
-      if (previous_value_.compare_exchange_strong(expected_value, value,
-                                                  std::memory_order_acq_rel) &&
-          previous_timestamp_us_.compare_exchange_strong(
-              expected_timestamp, current_timestamp_us,
-              std::memory_order_acq_rel)) {
-        has_previous_data_.store(true, std::memory_order_release);
-        return 0.0;
-      }
+    if (!has_previous_data_) {
+      previous_value_ = value;
+      previous_timestamp_us_ = current_timestamp_us;
+      has_previous_data_ = true;
       return 0.0;
     }
 
-    // Load previous values atomically
-    T prev_value = previous_value_.load(std::memory_order_acquire);
-    uint64_t prev_timestamp =
-        previous_timestamp_us_.load(std::memory_order_acquire);
-
     // Calculate time delta
-    uint64_t time_delta_us = current_timestamp_us - prev_timestamp;
+    uint64_t time_delta_us = current_timestamp_us - previous_timestamp_us_;
     if (time_delta_us == 0) {
       // No time has passed, return rate_ to avoid division by zero
       return rate_;
     }
-
     double time_delta_seconds = static_cast<double>(time_delta_us) / 1000000.0;
-    T value_delta = value - prev_value;
+    T value_delta = value - previous_value_;
     rate_ = static_cast<double>(value_delta) / time_delta_seconds;
-    previous_value_.store(value, std::memory_order_release);
-    previous_timestamp_us_.store(current_timestamp_us,
-                                 std::memory_order_release);
-    has_previous_data_.store(true, std::memory_order_release);
+    previous_value_ = value;
+    previous_timestamp_us_ = current_timestamp_us;
     return rate_;
   }
 
-  double GetRate() const { return rate_.load(std::memory_order_acquire); }
+  inline double GetRate() const { return rate_; }
 
  private:
   uint64_t GetCurrentTimeMicros() { return clock_->NowMicros(); }
 
   std::shared_ptr<SystemClock> clock_;
-  std::atomic<bool> has_previous_data_;
-  std::atomic<T> previous_value_;
-  std::atomic<double> rate_;
-  std::atomic<uint64_t> previous_timestamp_us_;
+  bool has_previous_data_;
+  T previous_value_;
+  double rate_;
+  uint64_t previous_timestamp_us_;
 };
 // Class to track CPU and IO utilization
 // Track process cpu usage using sysresource.h on linux
@@ -121,7 +102,7 @@ class CPUIOUtilizationTracker {
       const std::shared_ptr<RateLimiter>& rate_limiter,
       const std::shared_ptr<SystemClock>& clock = nullptr);
 
-  bool Record();
+  void Record();
   double GetCpuUtilization();
   double GetIoUtilization();
   std::pair<double, double> GetUtilization();
@@ -129,10 +110,10 @@ class CPUIOUtilizationTracker {
  private:
   void RecordCPUUsage();
   void RecordIOUtilization();
-
+  std::mutex mutex_;
   std::shared_ptr<RateLimiter> rate_limiter_;
-  AtomicRateTracker<size_t> rate_limiter_bytes_rate_;
-  AtomicRateTracker<double> cpu_usage_rate_;
+  RateTracker<size_t> rate_limiter_bytes_rate_;
+  RateTracker<double> cpu_usage_rate_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

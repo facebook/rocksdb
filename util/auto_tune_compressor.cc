@@ -154,7 +154,7 @@ AutoTuneCompressor::AutoTuneCompressor(
     } else if (type == kLZ4HCCompression) {
       AddCompressors(type, {1, 4, 9});
     } else if (type == kZSTD) {
-      AddCompressors(type, {1, 15, 22});
+      AddCompressors(type, {1, 5, 10});
     }
   }
   MeasureUtilization();

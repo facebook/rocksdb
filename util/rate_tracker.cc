@@ -15,10 +15,10 @@ CPUIOUtilizationTracker::CPUIOUtilizationTracker(
   Record();
 }
 
-bool CPUIOUtilizationTracker::Record() {
+void CPUIOUtilizationTracker::Record() {
+  std::lock_guard<std::mutex> lock(mutex_);
   RecordCPUUsage();
   RecordIOUtilization();
-  return true;
 }
 
 double CPUIOUtilizationTracker::GetCpuUtilization() {
