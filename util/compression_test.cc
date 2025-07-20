@@ -2033,6 +2033,30 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     ASSERT_OK(Flush());
   }
 }
+
+TEST(DynamicBudgetTest, ChangesBudgetWhenWriteStallDetection) {
+  // This test case verifies that the budget is changed when the write stall
+  // detection is triggered
+  auto io_lower_bound = 0.5;
+  auto io_upper_bound = 0.7;
+  auto stall_lower_bound = 0.7;
+  auto stall_upper_bound = 1.0;
+  auto io_goal = DynamicBudget(io_upper_bound, io_lower_bound,
+                               stall_upper_bound, stall_lower_bound);
+  ASSERT_EQ(io_goal.GetMaxRate(), io_upper_bound);
+  ASSERT_EQ(io_goal.GetMinRate(), io_lower_bound);
+  // Trigger the start of write stall detection
+  WriteStallInfo write_stall_info;
+  write_stall_info.condition.cur = WriteStallCondition::kDelayed;
+  io_goal.OnStallConditionsChanged(write_stall_info);
+  ASSERT_EQ(io_goal.GetMaxRate(), stall_upper_bound);
+  ASSERT_EQ(io_goal.GetMinRate(), stall_lower_bound);
+  // Trigger the stop of write stall detection
+  write_stall_info.condition.cur = WriteStallCondition::kNormal;
+  io_goal.OnStallConditionsChanged(write_stall_info);
+  ASSERT_EQ(io_goal.GetMaxRate(), io_upper_bound);
+  ASSERT_EQ(io_goal.GetMinRate(), io_lower_bound);
+}
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
