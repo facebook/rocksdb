@@ -2037,6 +2037,9 @@ wide_column_serialization_test: $(OBJ_DIR)/db/wide/wide_column_serialization_tes
 wide_columns_helper_test: $(OBJ_DIR)/db/wide/wide_columns_helper_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+interval_test: $(OBJ_DIR)/util/interval_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 #-------------------------------------------------
 # make install related stuff
 PREFIX ?= /usr/local
