@@ -1,49 +1,18 @@
-#pragma once
 //  Copyright (c) Meta Platforms, Inc. and affiliates.
 //
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <future>
+#pragma once
 
 #include "file/file_util.h"
-#include "port/port.h"
-#include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/testharness.h"
-#include "test_util/testutil.h"
 #include "utilities/transactions/lock/point/point_lock_manager.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
-#include "utilities/transactions/transaction_db_mutex_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-constexpr auto kLongTxnTimeoutMs = 100000;
-constexpr auto kShortTxnTimeoutMs = 100;
-
-class MockColumnFamilyHandle : public ColumnFamilyHandle {
- public:
-  explicit MockColumnFamilyHandle(ColumnFamilyId cf_id) : cf_id_(cf_id) {}
-
-  ~MockColumnFamilyHandle() override {}
-
-  const std::string& GetName() const override { return name_; }
-
-  ColumnFamilyId GetID() const override { return cf_id_; }
-
-  Status GetDescriptor(ColumnFamilyDescriptor*) override {
-    return Status::OK();
-  }
-
-  const Comparator* GetComparator() const override {
-    return BytewiseComparator();
-  }
-
- private:
-  ColumnFamilyId cf_id_;
-  std::string name_ = "MockCF";
-};
 
 class PointLockManagerTest : public testing::Test {
  public:

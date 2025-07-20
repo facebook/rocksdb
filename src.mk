@@ -389,7 +389,7 @@ CACHE_BENCH_LIB_SOURCES =                                       \
   cache/cache_bench_tool.cc                                     \
 
 POINT_LOCK_BENCH_LIB_SOURCES =                                  \
-  utilities/transactions/lock/point/point_lock_beech_tool.cc    \
+  utilities/transactions/lock/point/point_lock_bench_tool.cc    \
 
 STRESS_LIB_SOURCES =                                           \
   db_stress_tool/batched_ops_stress.cc                         \

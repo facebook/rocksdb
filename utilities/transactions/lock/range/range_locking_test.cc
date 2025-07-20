@@ -20,6 +20,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "utilities/transactions/lock/point/any_lock_manager_test.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/transaction_db_mutex_impl.h"
 #include "utilities/transactions/transaction_test.h"
 
 using std::string;
