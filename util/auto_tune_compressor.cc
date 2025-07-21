@@ -140,6 +140,9 @@ AutoTuneCompressor::AutoTuneCompressor(
       io_goal_(io_goal),
       cpu_budget_(cpu_budget),
       usage_tracker_(rate_limiter) {
+  // Ensure that the io_goal and cpu_budget are provided
+  assert(io_goal_ != nullptr);
+  assert(cpu_budget_ != nullptr);
   // Create compressors supporting all the compression types and levels as per
   // the compression levels set in vector CompressionLevels.
   const auto& compressions = GetSupportedCompressions();
@@ -154,7 +157,7 @@ AutoTuneCompressor::AutoTuneCompressor(
     } else if (type == kLZ4HCCompression) {
       AddCompressors(type, {1, 4, 9});
     } else if (type == kZSTD) {
-      AddCompressors(type, {1, 5, 10});
+      AddCompressors(type, {1, 3, 9});
     }
   }
   MeasureUtilization();
@@ -187,7 +190,10 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
                                          ManagedWorkingArea* wa) {
   // Check if the managed working area is provided or owned by this object.
   // If not, bypass compressor logic since the working area lacks a predictor.
-  if (wa == nullptr || wa->owner() != this || compressors_.size() == 0) {
+  // Also use default_compressor if the if io_goal and cpu_budget are not
+  // provided
+  if (wa == nullptr || wa->owner() != this || compressors_.size() == 0 ||
+      io_goal_ == nullptr || cpu_budget_ == nullptr) {
     return default_compressor_->CompressBlock(
         uncompressed_data, compressed_output, out_compression_type, wa);
   }
@@ -249,11 +255,6 @@ void AutoTuneCompressor::ReleaseWorkingArea(WorkingArea* wa) {
 // IOGoal and CPUBudget.
 size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
     CostAwareWorkingArea* wa) {
-  // If no budgets are available, use default choice
-  if (!cpu_budget_ || !io_goal_) {
-    return 0;
-  }
-
   if ((block_count_.fetch_add(1, std::memory_order_relaxed)) %
           kCompressionEvaluationInterval !=
       0) {
@@ -312,6 +313,11 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
         wa->cost_predictors_[choice]->IOPredictor.Predict();
     auto predicted_cpu_cost =
         wa->cost_predictors_[choice]->CPUPredictor.Predict();
+    // Do not consider the current compressor as a candidate if the prediction
+    // is 0 as it denotes not enough data has been sampled
+    if (predicted_cpu_cost == 0 || predicted_io_cost == 0) {
+      continue;
+    }
     if (IsInValidQuadrant(predicted_io_cost, predicted_cpu_cost, cur_io_cost,
                           cur_cpu_cost, increase_io, increase_cpu, decrease_io,
                           decrease_cpu)) {
