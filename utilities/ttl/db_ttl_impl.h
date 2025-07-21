@@ -100,10 +100,6 @@ class DBWithTTLImpl : public DBWithTTL {
 
   void SetTtl(ColumnFamilyHandle* h, int32_t ttl) override;
 
-  Status GetTtl(int32_t* ttl) override {
-    return GetTtl(DefaultColumnFamily(), ttl);
-  }
-
   Status GetTtl(ColumnFamilyHandle* h, int32_t* ttl) override;
 
  private:
