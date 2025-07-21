@@ -12,16 +12,16 @@ namespace ROCKSDB_NAMESPACE {
 
 struct PointLockCorrectnessCheckTestParam {
   bool is_per_key_point_lock_manager;
-  size_t thread_count;
-  size_t key_count;
-  size_t max_num_keys_to_lock_per_txn;
-  size_t execution_time_sec;
+  uint32_t thread_count;
+  uint32_t key_count;
+  uint32_t max_num_keys_to_lock_per_txn;
+  uint32_t execution_time_sec;
   LockTypeToTest lock_type;
   int64_t lock_timeout_us;
   int64_t lock_expiration_us;
   bool allow_non_deadlock_error;
   // to simulate some useful work
-  bool sleep_after_lock_acquisition;
+  uint32_t max_sleep_after_lock_acquisition_ms;
 };
 
 class PointLockCorrectnessCheckTest
@@ -49,68 +49,61 @@ class PointLockCorrectnessCheckTest
   TransactionOptions txn_opt_;
 };
 
-#define ASSERT_INFO(X) \
-  ASSERT_##X << "Thd " << thd_idx << " Txn " << txn_id << " key " << key;
-
 TEST_P(PointLockCorrectnessCheckTest, LockCorrectnessValidation) {
   auto const& param = GetParam();
-  std::unique_ptr<PointLockValidationTestRunner> test_runner =
-      std::make_unique<PointLockValidationTestRunner>(
-          env_, txndb_opt_, locker_, db_, txn_opt_, param.thread_count,
-          param.key_count, param.max_num_keys_to_lock_per_txn,
-          param.execution_time_sec,
-          static_cast<LockTypeToTest>(param.lock_type),
-          param.allow_non_deadlock_error, param.sleep_after_lock_acquisition);
-  test_runner->run();
+  PointLockValidationTestRunner test_runner(
+      env_, txndb_opt_, locker_, db_, txn_opt_, param.thread_count,
+      param.key_count, param.max_num_keys_to_lock_per_txn,
+      param.execution_time_sec, static_cast<LockTypeToTest>(param.lock_type),
+      param.allow_non_deadlock_error,
+      param.max_sleep_after_lock_acquisition_ms);
+  test_runner.run();
 }
 
 INSTANTIATE_TEST_CASE_P(
     PointLockCorrectnessCheckTestSuite, PointLockCorrectnessCheckTest,
     ::testing::ValuesIn(std::vector<PointLockCorrectnessCheckTestParam>{
-        // 2 second timeout and no expiration simulating mysql default
+        // 2 second timeout and no expiration simulates myrocks default
         // configuration
         {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 2000, -1,
-         true, false},
+         true, 0},
         {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 2000, -1,
-         true, false},
+         true, 0},
         {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 2000, -1, true,
-         false},
+         0},
         {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 2000, -1, true,
-         false},
-        {true, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 2000, -1, true,
-         false},
-        {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 2000, -1, true,
-         false},
+         0},
+        {true, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 2000, -1, true, 0},
+        {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 2000, -1, true, 0},
         // short timeout and expiration to test lock stealing
         {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 10, 10,
-         true, true},
+         true, 10},
         {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED, 10, 10,
-         true, true},
-        {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 10, 10, true,
-         true},
+         true, 10},
+        {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 10, 10, true, 10},
         {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, 10, 10, true,
-         true},
-        {true, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 10, 10, true, true},
-        {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 10, 10, true, true},
+         10},
+        {true, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 10, 10, true, 10},
+        {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, 10, 10, true, 10},
         // long timeout and expiration to test deadlock detection without
         // timeout
         {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED,
-         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, false},
+         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, 0},
         {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_AND_SHARED,
-         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, false},
+         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, 0},
         {true, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY, kLongTxnTimeoutMs,
-         kLongTxnTimeoutMs, false, false},
+         kLongTxnTimeoutMs, false, 0},
         {false, 64, 16, 8, 10, LockTypeToTest::EXCLUSIVE_ONLY,
-         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, false},
+         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, 0},
         {true, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, kLongTxnTimeoutMs,
-         kLongTxnTimeoutMs, false, false},
+         kLongTxnTimeoutMs, false, 0},
         {false, 64, 16, 8, 10, LockTypeToTest::SHARED_ONLY, kLongTxnTimeoutMs,
-         kLongTxnTimeoutMs, false, false},
+         kLongTxnTimeoutMs, false, 0},
         // Low lock contention
         {true, 16, 1024 * 1024, 2, 10, LockTypeToTest::SHARED_ONLY,
-         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, false},
+         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, 0},
         {false, 16, 1024 * 1024, 2, 10, LockTypeToTest::SHARED_ONLY,
-         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, false},
+         kLongTxnTimeoutMs, kLongTxnTimeoutMs, false, 0},
     }));
 
 }  // namespace ROCKSDB_NAMESPACE

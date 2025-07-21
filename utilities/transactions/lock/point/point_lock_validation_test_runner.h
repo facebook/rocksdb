@@ -56,8 +56,9 @@ constexpr bool kDebugLog = false;
     fflush(stderr);               \
   }
 
-#define DEBUG_LOG_PREFIX(format, ...) \
-  DEBUG_LOG("Thd %zu Txn %" PRIu64 " " format, thd_idx, txn_id, ##__VA_ARGS__);
+#define DEBUG_LOG_WITH_PREFIX(format, ...)                               \
+  DEBUG_LOG("Thd %" PRIu32 "  Txn %" PRIu64 " " format, thd_idx, txn_id, \
+            ##__VA_ARGS__);
 
 enum class LockTypeToTest : int8_t {
   EXCLUSIVE_ONLY = 0,
@@ -77,12 +78,12 @@ class PointLockValidationTestRunner {
   PointLockValidationTestRunner(Env* env, TransactionDBOptions txndb_opt,
                                 std::shared_ptr<LockManager> locker,
                                 TransactionDB* db, TransactionOptions txn_opt,
-                                size_t thd_cnt, size_t key_cnt,
-                                size_t max_num_keys_to_lock_per_txn,
+                                uint32_t thd_cnt, uint32_t key_cnt,
+                                uint32_t max_num_keys_to_lock_per_txn,
                                 uint32_t execution_time_sec,
                                 LockTypeToTest lock_type,
                                 bool allow_non_deadlock_error,
-                                int sleep_after_lock_acquisition_ms)
+                                uint32_t max_sleep_after_lock_acquisition_ms)
       : env_(env),
         txndb_opt_(txndb_opt),
         locker_(locker),
@@ -94,11 +95,8 @@ class PointLockValidationTestRunner {
         execution_time_sec_(execution_time_sec),
         lock_type_(lock_type),
         allow_non_deadlock_error_(allow_non_deadlock_error),
-        sleep_after_lock_acquisition_ms_(sleep_after_lock_acquisition_ms),
-        num_of_locks_acquired_(0),
-        num_of_shared_locks_acquired_(0),
-        num_of_exclusive_locks_acquired_(0),
-        num_of_deadlock_detected_(0),
+        max_sleep_after_lock_acquisition_ms_(
+            max_sleep_after_lock_acquisition_ms),
         shutdown_(false) {
     values_.resize(key_count_, 0);
     exclusive_lock_status_.resize(key_count_, 0);
@@ -110,10 +108,44 @@ class PointLockValidationTestRunner {
     }
   }
 
-  PessimisticTransaction* NewTxn(
-      TransactionOptions txn_opt = TransactionOptions()) {
-    Transaction* txn = db_->BeginTransaction(WriteOptions(), txn_opt);
-    return static_cast<PessimisticTransaction*>(txn);
+  // Decide which lock type to acquire
+  // If the key is already locked and only one type of locks to be tested,
+  // return false, so caller could try to lock a different key.
+  // Otherwise, return true.
+  bool DecideLockType(
+      bool& acquire_exclusive_lock, uint32_t key,
+      std::unordered_map<uint32_t, KeyStatus>& locked_key_status,
+      bool& isUpgrade, bool& isDowngrade) {
+    // Decide lock type
+    acquire_exclusive_lock = Random::GetTLSInstance()->OneIn(2);
+
+    // check whether a lock on the same key is already held
+    auto it = locked_key_status.find(key);
+    if (it != locked_key_status.end()) {
+      // a lock on the same key is already held.
+      if (lock_type_ == LockTypeToTest::EXCLUSIVE_AND_SHARED) {
+        // if test both shared and exclusive locks, switch their type
+        if (it->second.exclusive == false) {
+          // If it is a shared lock, upgrade to an exclusive lock
+          acquire_exclusive_lock = true;
+          isUpgrade = true;
+        } else {
+          // If it is an exclusive lock, downgrade to a shared lock
+          acquire_exclusive_lock = false;
+          isDowngrade = true;
+        }
+      } else {
+        // Only one type of lock to test, and the key is already locked,
+        return false;
+      }
+    }
+
+    // This is a new key to lock or the lock type is switched.
+    if (lock_type_ != LockTypeToTest::EXCLUSIVE_AND_SHARED) {
+      // if only one type of locks to be acquired, update its type
+      acquire_exclusive_lock = (lock_type_ == LockTypeToTest::EXCLUSIVE_ONLY);
+    }
+    return true;
   }
 
   void run() {
@@ -144,57 +176,34 @@ class PointLockValidationTestRunner {
     MockColumnFamilyHandle cf(1);
     locker_->AddColumnFamily(&cf);
 
-    for (size_t thd_idx = 0; thd_idx < thread_count_; thd_idx++) {
+    for (uint32_t thd_idx = 0; thd_idx < thread_count_; thd_idx++) {
       threads_.emplace_back([this, thd_idx]() {
-        auto txn = NewTxn(txn_opt_);
+        auto txn = static_cast<PessimisticTransaction*>(
+            db_->BeginTransaction(WriteOptions(), txn_opt_));
         auto txn_id = txn->GetID();
         while (!shutdown_) {
-          DEBUG_LOG("Thd %zu Txn %" PRIu64 "new txn\n", thd_idx, txn_id);
-          std::vector<KeyStatus> locked_key_status;
+          DEBUG_LOG("Thd %" PRIu32 " Txn %" PRIu64 "new txn\n", thd_idx,
+                    txn_id);
+          std::unordered_map<uint32_t, KeyStatus> locked_key_status;
           auto num_key_to_lock = max_num_keys_to_lock_per_txn_;
           Status s;
 
           for (uint32_t j = 0; j < num_key_to_lock; j++) {
             uint32_t key = 0;
-            key = Random::GetTLSInstance()->Uniform(
-                static_cast<uint32_t>(key_count_));
+            key = Random::GetTLSInstance()->Uniform(key_count_);
             auto key_str = std::to_string(key);
             bool isUpgrade = false;
             bool isDowngrade = false;
+            bool exclusive_lock_type;
 
-            // Decide lock type
-            auto exclusive_lock_type = Random::GetTLSInstance()->OneIn(2);
-            // check whether a lock on the same key is already held
-            auto it =
-                std::find_if(locked_key_status.begin(), locked_key_status.end(),
-                             [&key](KeyStatus& e) { return e.key == key; });
-            auto lock_type_to_test = static_cast<LockTypeToTest>(lock_type_);
-            if (it != locked_key_status.end()) {
-              // a lock on the same key is already held.
-              if (lock_type_to_test == LockTypeToTest::EXCLUSIVE_AND_SHARED) {
-                // if test both shared and exclusive locks, switch their type
-                if (it->exclusive == false) {
-                  // If it is a shared lock, switch to an exclusive lock
-                  exclusive_lock_type = true;
-                  isUpgrade = true;
-                } else {
-                  // If it is an exclusive lock, downgrade to a shared lock
-                  exclusive_lock_type = false;
-                  isDowngrade = true;
-                }
-              } else {
-                // try to lock a different key
-                j--;
-                continue;
-              }
-            }
-            if (lock_type_to_test != LockTypeToTest::EXCLUSIVE_AND_SHARED) {
-              // if only one type of locks to be acquired, update its type
-              exclusive_lock_type =
-                  (lock_type_to_test == LockTypeToTest::EXCLUSIVE_ONLY);
+            if (!DecideLockType(exclusive_lock_type, key, locked_key_status,
+                                isUpgrade, isDowngrade)) {
+              // try a different key
+              j--;
+              continue;
             }
 
-            if (!allow_non_deadlock_error_) {
+            if (txn_opt_.expiration == -1) {
               if (isDowngrade) {
                 // Before downgrade, validate the lock is in exlusive status
                 // This could not be done after downgrade, as another thread
@@ -208,37 +217,44 @@ class PointLockValidationTestRunner {
             }
 
             // try to acquire the lock
-            DEBUG_LOG_PREFIX("try to acquire lock %u type %s\n", key,
-                             exclusive_lock_type ? "exclusive" : "shared");
+            DEBUG_LOG_WITH_PREFIX("try to acquire lock %" PRIu32 " type %s\n",
+                                  key,
+                                  exclusive_lock_type ? "exclusive" : "shared");
             s = locker_->TryLock(txn, 1, key_str, env_, exclusive_lock_type);
-            if (s.ok()) {
-              DEBUG_LOG_PREFIX("acquired lock %u type %s\n", key,
-                               exclusive_lock_type ? "exclusive" : "shared");
 
+            if (s.ok()) {
+              DEBUG_LOG_WITH_PREFIX(
+                  "acquired lock %" PRIu32 " type %s\n", key,
+                  exclusive_lock_type ? "exclusive" : "shared");
+
+              auto it = locked_key_status.find(key);
+              if (isUpgrade || isDowngrade) {
+                // If it is either upgrade or downgrade, the key should exist
+                // already.
+                ASSERT_TRUE_WITH_INFO(it != locked_key_status.end());
+              } else {
+                locked_key_status.emplace(
+                    std::piecewise_construct, std::forward_as_tuple(key),
+                    std::forward_as_tuple(key, exclusive_lock_type,
+                                          values_[key]));
+              }
               // update local lock status
               if (exclusive_lock_type) {
                 if (isUpgrade) {
-                  it->exclusive = true;
-                } else {
-                  locked_key_status.emplace_back(key, exclusive_lock_type,
-                                                 values_[key]);
+                  it->second.exclusive = true;
                 }
                 num_of_exclusive_locks_acquired_++;
               } else {
                 if (isDowngrade) {
-                  it->exclusive = false;
-                } else {
-                  // Could not validate status was not in exclusive status, as
-                  // the lock could be downgraded by another thread.
-                  locked_key_status.emplace_back(key, exclusive_lock_type,
-                                                 values_[key]);
+                  it->second.exclusive = false;
                 }
                 num_of_shared_locks_acquired_++;
               }
               num_of_locks_acquired_++;
 
-              // Check and update global lock status
-              if (!allow_non_deadlock_error_) {
+              // Check and update global lock status, only when lock
+              // expiration/stealing is disabled.
+              if (txn_opt_.expiration == -1) {
                 // Validate lock status, if deadlock is the only allowed error.
                 // otherwise, lock could be expired and stolen
                 if (exclusive_lock_type) {
@@ -264,34 +280,39 @@ class PointLockValidationTestRunner {
                 ASSERT_TRUE_WITH_INFO(s.IsDeadlock());
               }
               if (s.IsDeadlock()) {
-                DEBUG_LOG_PREFIX("detected deadlock on key %u, abort\n", key);
+                DEBUG_LOG_WITH_PREFIX(
+                    "detected deadlock on key %" PRIu32 ", abort\n", key);
                 num_of_deadlock_detected_++;
                 // for deadlock, release all locks acquired
                 break;
               } else {
                 // for other errors, try again
-                DEBUG_LOG_PREFIX(
-                    "failed to acquire lock on key %u, due to "
-                    "%s, "
-                    "abort\n",
-                    key, s.ToString().c_str());
+                DEBUG_LOG_WITH_PREFIX("failed to acquire lock on key %" PRIu32
+                                      ", due to "
+                                      "%s, "
+                                      "abort\n",
+                                      key, s.ToString().c_str());
               }
             }
           }
 
-          if (sleep_after_lock_acquisition_ms_ != 0 && s.ok()) {
+          // After all of the locks are acquired, try to sleep a bit to simulate
+          // some useful work to be done
+          if (max_sleep_after_lock_acquisition_ms_ != 0 && s.ok()) {
             auto sleep_time_us = Random::GetTLSInstance()->Uniform(
-                static_cast<uint32_t>(sleep_after_lock_acquisition_ms_));
+                static_cast<uint32_t>(max_sleep_after_lock_acquisition_ms_));
             std::this_thread::sleep_for(
                 std::chrono::milliseconds(sleep_time_us));
           }
 
           // release all locks
-          for (auto& key_status : locked_key_status) {
+          for (const auto& pair : locked_key_status) {
+            auto key_status = pair.second;
             auto key = key_status.key;
             ASSERT_TRUE_WITH_INFO(key < key_count_);
-            // Check global lock status
-            if (!allow_non_deadlock_error_) {
+            // Check global lock status only if lock expiration/stealing is
+            // disabled
+            if (txn_opt_.expiration == -1) {
               ASSERT_EQ_WITH_INFO(counters_[key]->load(), values_[key]);
               auto exclusive = key_status.exclusive;
               if (exclusive) {
@@ -299,7 +320,8 @@ class PointLockValidationTestRunner {
                 // bump the value by 1
                 (*counters_[key])++;
                 values_[key]++;
-                DEBUG_LOG_PREFIX("bump key %u by 1 to %d\n", key, values_[key]);
+                DEBUG_LOG_WITH_PREFIX("bump key %" PRIu32 " by 1 to %d\n", key,
+                                      values_[key]);
                 ASSERT_EQ_WITH_INFO(counters_[key]->load(), values_[key]);
               } else {
                 // shared lock, validate the value has not changed since it was
@@ -321,7 +343,7 @@ class PointLockValidationTestRunner {
                                       1);
               }
             }
-            DEBUG_LOG_PREFIX("release lock %u\n", key);
+            DEBUG_LOG_WITH_PREFIX("release lock %" PRIu32 "\n", key);
             locker_->UnLock(txn, 1, std::to_string(key), env_);
           }
         }
@@ -333,7 +355,7 @@ class PointLockValidationTestRunner {
     // print progress
     auto prev_num_of_locks_acquired = num_of_locks_acquired_.load();
     int64_t measured_locks_acquired = 0;
-    for (size_t i = 0; i < execution_time_sec_; i++) {
+    for (uint32_t i = 0; i < execution_time_sec_; i++) {
       std::this_thread::sleep_for(std::chrono::seconds(1));
       auto num_of_locks_acquired = num_of_locks_acquired_.load();
       DEBUG_LOG("num_of_locks_acquired: %" PRId64 "\n", num_of_locks_acquired);
@@ -364,7 +386,7 @@ class PointLockValidationTestRunner {
     }
 
     // validate values against counters
-    for (size_t i = 0; i < key_count_; i++) {
+    for (uint32_t i = 0; i < key_count_; i++) {
       ASSERT_TRUE_WITH_MSG(counters_[i]->load() == values_[i],
                            "Exclusive lock guarantee is violated.");
     }
@@ -403,23 +425,16 @@ class PointLockValidationTestRunner {
   TransactionDB* db_;
   TransactionOptions txn_opt_;
 
-  size_t thread_count_;
+  uint32_t thread_count_;
   uint32_t key_count_;
   uint32_t max_num_keys_to_lock_per_txn_;
   uint32_t execution_time_sec_;
   LockTypeToTest lock_type_;
   bool allow_non_deadlock_error_;
-  uint32_t sleep_after_lock_acquisition_ms_;
+  uint32_t max_sleep_after_lock_acquisition_ms_;
 
   // Internal test variables
   std::vector<std::thread> threads_;
-
-  // test statistics
-  std::atomic_int64_t num_of_locks_acquired_ = 0;
-  std::atomic_int64_t num_of_shared_locks_acquired_ = 0;
-  std::atomic_int64_t num_of_exclusive_locks_acquired_ = 0;
-  std::atomic_int64_t num_of_deadlock_detected_ = 0;
-
   std::vector<std::unique_ptr<std::atomic_int>> counters_;
   std::vector<int> values_;
 
@@ -433,6 +448,12 @@ class PointLockValidationTestRunner {
 
   // shutdown flag to signal threads to exit
   std::atomic_bool shutdown_ = false;
+
+  // test statistics
+  std::atomic_int64_t num_of_locks_acquired_ = 0;
+  std::atomic_int64_t num_of_shared_locks_acquired_ = 0;
+  std::atomic_int64_t num_of_exclusive_locks_acquired_ = 0;
+  std::atomic_int64_t num_of_deadlock_detected_ = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

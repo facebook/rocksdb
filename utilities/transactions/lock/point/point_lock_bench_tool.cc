@@ -25,20 +25,6 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
 namespace ROCKSDB_NAMESPACE {
 
-struct PointLockCorrectnessCheckTestFLAGS_ {
-  bool is_per_key_point_lock_manager;
-  size_t thread_count;
-  size_t key_count;
-  size_t max_num_keys_to_lock_per_txn;
-  size_t execution_time_sec;
-  int lock_type;
-  int64_t lock_timeout_us;
-  int64_t lock_expiration_us;
-  bool allow_non_deadlock_error;
-  // to simulate some useful work
-  bool sleep_after_lock_acquisition;
-};
-
 DEFINE_string(db_dir, "/tmp/point_lock_manager_test",
               "DB path for running the benchmark");
 DEFINE_uint32(stripe_count, 16, "Number of stripes in point lock manager");
@@ -51,9 +37,9 @@ DEFINE_uint32(max_num_keys_to_lock_per_txn, 8,
               "Max Number of keys to lock in a transaction");
 DEFINE_uint32(execution_time_sec, 10,
               "Number of seconds to execute the benchmark");
-DEFINE_int32(lock_type, 0,
-             "Lock type to test, 0: exclusive lock only; 1: shared lock only; "
-             "2: both shared and exclusive locks");
+DEFINE_uint32(lock_type, 0,
+              "Lock type to test, 0: exclusive lock only; 1: shared lock only; "
+              "2: both shared and exclusive locks");
 DEFINE_int64(lock_timeout_ms, 1000,
              "Lock acquisition request timeout in milliseconds.");
 DEFINE_int64(lock_expiration_ms, 100,
@@ -61,14 +47,14 @@ DEFINE_int64(lock_expiration_ms, 100,
 DEFINE_bool(allow_non_deadlock_error, false,
             "Allow returned error code other than deadlock, such as timeout.");
 DEFINE_uint32(
-    max_sleep_ms_after_lock_acquisition, 0,
+    max_sleep_after_lock_acquisition_ms, 0,
     "Max number of milliseconds to sleep after acquiring all the locks in the "
     "transaction. The actuall sleep time will be randomized from 0 to max. It "
     "is used to simulate some useful work performed.");
 
 class PointLockManagerBenchmark {
  public:
-  void SetUp() {
+  PointLockManagerBenchmark() {
     env_ = Env::Default();
     env_->CreateDir(FLAGS_db_dir);
 
@@ -94,46 +80,37 @@ class PointLockManagerBenchmark {
     txn_opt_.expiration = FLAGS_lock_expiration_ms;
   }
 
-  void TearDown() {
+  ~PointLockManagerBenchmark() {
     delete db_;
     auto s = DestroyDir(env_, FLAGS_db_dir);
     ASSERT_OK(s);
   }
 
-  PessimisticTransaction* NewTxn(
-      TransactionOptions txn_opt = TransactionOptions()) {
-    Transaction* txn = db_->BeginTransaction(WriteOptions(), txn_opt);
-    return static_cast<PessimisticTransaction*>(txn);
-  }
-
   void run() {
-    std::unique_ptr<PointLockValidationTestRunner> test_runner =
-        std::make_unique<PointLockValidationTestRunner>(
-            env_, txndb_opt_, locker_, db_, txn_opt_, FLAGS_thread_count,
-            FLAGS_key_count, FLAGS_max_num_keys_to_lock_per_txn,
-            FLAGS_execution_time_sec,
-            static_cast<LockTypeToTest>(FLAGS_lock_type),
-            FLAGS_allow_non_deadlock_error,
-            FLAGS_max_sleep_ms_after_lock_acquisition);
-    test_runner->run();
+    PointLockValidationTestRunner test_runner(
+        env_, txndb_opt_, locker_, db_, txn_opt_, FLAGS_thread_count,
+        FLAGS_key_count, FLAGS_max_num_keys_to_lock_per_txn,
+        FLAGS_execution_time_sec, static_cast<LockTypeToTest>(FLAGS_lock_type),
+        FLAGS_allow_non_deadlock_error,
+        FLAGS_max_sleep_after_lock_acquisition_ms);
+    test_runner.run();
   }
 
- protected:
+ private:
   Env* env_;
   TransactionDBOptions txndb_opt_;
   std::shared_ptr<LockManager> locker_;
 
   TransactionDB* db_;
   TransactionOptions txn_opt_;
-  std::vector<std::thread> threads_;
 };
 
 int point_lock_bench_tool(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
 
-  // Iterate through all flags and print their values
+  // Print test configuration
   std::vector<gflags::CommandLineFlagInfo> all_flags;
-  gflags::GetAllFlags(&all_flags);  // Get information about all flags
+  gflags::GetAllFlags(&all_flags);
 
   for (const auto& flag : all_flags) {
     // only show the flags defined in this file
@@ -153,11 +130,10 @@ int point_lock_bench_tool(int argc, char** argv) {
   }
   std::cout << std::endl;
 
+  // Run the benchmark
   PointLockManagerBenchmark benchmark;
-
-  benchmark.SetUp();
   benchmark.run();
-  benchmark.TearDown();
+
   return 0;
 }
 
