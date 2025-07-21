@@ -23,8 +23,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Since this code is executed both with and without gtest, it support assert
-// with different way.
+// Since this code is executed both with and without gtest, it supports assert
+// with different ways.
 #ifdef ASSERT_TRUE
 #define ASSERT_TRUE_WITH_MSG(expr, errmsg) ASSERT_TRUE(expr) << (errmsg)
 #else
@@ -98,6 +98,9 @@ class PointLockValidationTestRunner {
         max_sleep_after_lock_acquisition_ms_(
             max_sleep_after_lock_acquisition_ms),
         shutdown_(false) {
+    // Only enable lock status validation when lock expiration/stealing isk
+    // disabled.
+    enable_lock_status_validation_ = txn_opt_.expiration == -1;
     values_.resize(key_count_, 0);
     exclusive_lock_status_.resize(key_count_, 0);
 
@@ -203,7 +206,7 @@ class PointLockValidationTestRunner {
               continue;
             }
 
-            if (txn_opt_.expiration == -1) {
+            if (enable_lock_status_validation_) {
               if (isDowngrade) {
                 // Before downgrade, validate the lock is in exlusive status
                 // This could not be done after downgrade, as another thread
@@ -252,11 +255,7 @@ class PointLockValidationTestRunner {
               }
               num_of_locks_acquired_++;
 
-              // Check and update global lock status, only when lock
-              // expiration/stealing is disabled.
-              if (txn_opt_.expiration == -1) {
-                // Validate lock status, if deadlock is the only allowed error.
-                // otherwise, lock could be expired and stolen
+              if (enable_lock_status_validation_) {
                 if (exclusive_lock_type) {
                   // validate the lock is not in exclusive status
                   ASSERT_TRUE_WITH_INFO(!exclusive_lock_status_[key]);
@@ -310,14 +309,11 @@ class PointLockValidationTestRunner {
             auto key_status = pair.second;
             auto key = key_status.key;
             ASSERT_TRUE_WITH_INFO(key < key_count_);
-            // Check global lock status only if lock expiration/stealing is
-            // disabled
-            if (txn_opt_.expiration == -1) {
+            if (enable_lock_status_validation_) {
               ASSERT_EQ_WITH_INFO(counters_[key]->load(), values_[key]);
               auto exclusive = key_status.exclusive;
               if (exclusive) {
-                // exclusive lock
-                // bump the value by 1
+                // for exclusive lock, bump the value by 1
                 (*counters_[key])++;
                 values_[key]++;
                 DEBUG_LOG_WITH_PREFIX("bump key %" PRIu32 " by 1 to %d\n", key,
@@ -329,15 +325,11 @@ class PointLockValidationTestRunner {
                 ASSERT_EQ_WITH_INFO(counters_[key]->load(), key_status.value);
                 ASSERT_EQ_WITH_INFO(values_[key], key_status.value);
               }
-              // Validate lock status, if deadlock is the only allowed error.
-              // otherwise, lock could be expired and stolen
               if (exclusive) {
-                // exclusive lock
                 ASSERT_TRUE_WITH_INFO(exclusive_lock_status_[key]);
                 ASSERT_EQ_WITH_INFO(*shared_lock_count_[key], 0);
                 exclusive_lock_status_[key] = 0;
               } else {
-                // shared lock
                 ASSERT_TRUE_WITH_INFO(!exclusive_lock_status_[key]);
                 ASSERT_TRUE_WITH_INFO(shared_lock_count_[key]->fetch_sub(1) >=
                                       1);
@@ -434,6 +426,8 @@ class PointLockValidationTestRunner {
   uint32_t max_sleep_after_lock_acquisition_ms_;
 
   // Internal test variables
+
+  bool enable_lock_status_validation_;
   std::vector<std::thread> threads_;
   std::vector<std::unique_ptr<std::atomic_int>> counters_;
   std::vector<int> values_;

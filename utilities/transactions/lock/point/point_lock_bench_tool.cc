@@ -5,13 +5,10 @@
 
 #ifdef GFLAGS
 
-#include <cstddef>
 #include <cstdio>
 #include <iostream>
 #include <memory>
-#include <sstream>
 
-#include "db/db_impl/db_impl.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
