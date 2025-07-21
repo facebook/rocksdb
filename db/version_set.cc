@@ -95,6 +95,8 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
+using ScanOptionsMap = std::unordered_map<size_t, std::vector<ScanOptions>>;
+
 // Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
 int FindFileInRange(const InternalKeyComparator& icmp,
@@ -1100,9 +1102,46 @@ class LevelIterator final : public InternalIterator {
   }
 
   void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+    // We assume here that scan_opts is sorted such that
+    // scan_opts[0].range.start < scan_opts[1].range.start, and non overlapping
     scan_opts_ = scan_opts;
-    if (file_iter_.iter()) {
-      file_iter_.Prepare(scan_opts_);
+    if (scan_opts_ == nullptr) {
+      return;
+    }
+
+    file_to_scan_opts_ = std::make_unique<ScanOptionsMap>();
+    for (size_t k = 0; k < scan_opts_->size(); k++) {
+      const ScanOptions& opt = scan_opts_->at(k);
+      auto start = opt.range.start;
+      auto end = opt.range.limit;
+
+      if (!start.has_value()) {
+        continue;
+      }
+
+      // We can capture this case in the future, but for now lets skip this.
+      if (!end.has_value()) {
+        continue;
+      }
+
+      InternalKey istart(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
+      InternalKey iend(end.value(), 0, kValueTypeForSeekForPrev);
+
+      // TODO: This needs to be optimized, right now we iterate twice, which
+      // we dont need to. We can do this in N rather than 2N.
+      size_t fstart = FindFile(icomparator_, *flevel_, istart.Encode());
+      size_t fend = FindFile(icomparator_, *flevel_, iend.Encode());
+
+      // We need to check the relevant cases
+      // Cases:
+      // 1. [  S        E  ]
+      // 2. [  S  ]  [  E  ]
+      // 3. [  S  ] ...... [  E  ]
+      for (auto i = fstart; i <= fend; i++) {
+        if (i < flevel_->num_files) {
+          (*file_to_scan_opts_)[i].emplace_back(start.value(), end.value());
+        }
+      }
     }
   }
 
@@ -1232,6 +1271,9 @@ class LevelIterator final : public InternalIterator {
   // Whether next/prev key is a sentinel key.
   bool to_return_sentinel_ = false;
   const std::vector<ScanOptions>* scan_opts_;
+
+  // Our stored scan_opts for each prefix
+  std::unique_ptr<ScanOptionsMap> file_to_scan_opts_ = nullptr;
 
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
@@ -1494,7 +1536,18 @@ bool LevelIterator::SkipEmptyFileForward() {
     // LevelIterator::Seek*, it should also call Seek* into the corresponding
     // range tombstone iterator.
     if (file_iter_.iter() != nullptr) {
-      file_iter_.SeekToFirst();
+      // If we are doing prepared scan opts then we should seek to the values
+      // specified by the scan opts
+      if (scan_opts_ && (*file_to_scan_opts_)[file_index_].size()) {
+        const ScanOptions& opts = file_to_scan_opts_->at(file_index_).front();
+        if (opts.range.start.has_value()) {
+          InternalKey target(*opts.range.start.AsPtr(), kMaxSequenceNumber,
+                             kValueTypeForSeek);
+          file_iter_.Seek(target.Encode());
+        }
+      } else {
+        file_iter_.SeekToFirst();
+      }
       if (range_tombstone_iter_) {
         if (*range_tombstone_iter_) {
           (*range_tombstone_iter_)->SeekToFirst();
@@ -1542,10 +1595,15 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   }
 
   InternalIterator* old_iter = file_iter_.Set(iter);
-  // Since this is a new table iterator, no need to call Prepare() if
-  // scan_opts_ is null
   if (iter && scan_opts_) {
-    file_iter_.Prepare(scan_opts_);
+    if (file_to_scan_opts_.get() &&
+        file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
+      const std::vector<ScanOptions>& opts =
+          file_to_scan_opts_->at(file_index_);
+      file_iter_.Prepare(&opts);
+    } else {
+      file_iter_.Prepare(scan_opts_);
+    }
   }
 
   // Update the read pattern for PrefetchBuffer.
@@ -1582,6 +1640,7 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
     }
   }
 }
+
 }  // anonymous namespace
 
 Status Version::GetTableProperties(const ReadOptions& read_options,
