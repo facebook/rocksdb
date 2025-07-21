@@ -1125,7 +1125,7 @@ class LevelIterator final : public InternalIterator {
       }
 
       InternalKey istart(start.value(), kMaxSequenceNumber, kValueTypeForSeek);
-      InternalKey iend(end.value(), 0, kValueTypeForSeek);
+      InternalKey iend(end.value(), 0, kValueTypeForSeekForPrev);
 
       // TODO: This needs to be optimized, right now we iterate twice, which
       // we dont need to. We can do this in N rather than 2N.
@@ -1274,7 +1274,6 @@ class LevelIterator final : public InternalIterator {
 
   // Our stored scan_opts for each prefix
   std::unique_ptr<ScanOptionsMap> file_to_scan_opts_ = nullptr;
-  std::vector<std::shared_ptr<InternalKey>> key_guards;
 
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
