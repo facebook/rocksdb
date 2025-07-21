@@ -100,6 +100,12 @@ class DBWithTTLImpl : public DBWithTTL {
 
   void SetTtl(ColumnFamilyHandle* h, int32_t ttl) override;
 
+  Status GetTtl(int32_t* ttl) override {
+    return GetTtl(DefaultColumnFamily(), ttl);
+  }
+
+  Status GetTtl(ColumnFamilyHandle* h, int32_t* ttl) override;
+
  private:
   // remember whether the Close completes or not
   bool closed_;
@@ -184,6 +190,7 @@ class TtlCompactionFilterFactory : public CompactionFilterFactory {
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override;
   void SetTtl(int32_t ttl) { ttl_ = ttl; }
+  int32_t GetTtl() { return ttl_; }
 
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "TtlCompactionFilterFactory"; }
