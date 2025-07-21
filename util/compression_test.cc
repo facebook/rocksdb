@@ -1981,6 +1981,7 @@ class DBAutoTuneCompressionTest : public DBTestBase {
         std::make_shared<IOGoal>(cpu_upper_bound, cpu_lower_bound);
     options_.compression_manager = CreateAutoTuneCompressionManager(
         nullptr, io_goal, cpu_budget, options_);
+    DestroyAndReopen(options_);
   }
   void BlockWrite(int num) {
     constexpr int kValueSize = 20000;
