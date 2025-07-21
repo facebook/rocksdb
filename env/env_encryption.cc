@@ -786,10 +786,8 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
   IOStatus SyncFile(const std::string& fname, const FileOptions& file_options,
                     const IOOptions& io_options, bool use_fsync,
                     IODebugContext* dbg) override {
-    // There is a bug in the current implementation of ReopenWritableFile, so we
-    // could not use it to Sync an existing file. See
-    // EncryptedFileSystemImpl::ReopenWritableFile for the bug details.
-    // Instead, use the underlyaing file system to sync the file.
+    // Use the underlying file system to sync the file, as we don't need to
+    // read/write the file.
     return FileSystemWrapper::SyncFile(fname, file_options, io_options,
                                        use_fsync, dbg);
   }

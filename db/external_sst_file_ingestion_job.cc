@@ -165,8 +165,7 @@ Status ExternalSstFileIngestionJob::Prepare(
         if (!s.ok()) {
           if (s.IsNotSupported()) {
             // Some file systems (especially remote/distributed) don't support
-            // reopening a file for writing and don't require reopening and
-            // syncing the file. Ignore the NotSupported error in that case.
+            // SyncFile API. Ignore the NotSupported error in that case.
             ROCKS_LOG_WARN(db_options_.info_log,
                            "After link the file, SyncFile API is not supported "
                            "for file %s: %s",

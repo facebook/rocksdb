@@ -385,31 +385,9 @@ class Env : public Customizable {
     return Status::NotSupported("LinkFile is not supported for this Env");
   }
 
-  // Open Sync and Close the file to flush the file content to file system.
+  // Sync the file content to file system.
+  // This API is only used for testing.
   // See FileSystem::SyncFile comment for details
-  //
-  // There are 2 reasons we need this API. Both of them are for tests.
-  //
-  // 1. The default implementation of SyncFile API is essentially a wrapper of
-  // other FileSystem APIs. FaultInjectionTestEnv uses this default
-  // implementation to call other FileSystem APIs defined at
-  // FaultInjectionTestEnv class to inject failurses. See
-  // FaultInjectionTestEnv::SyncFile for more details
-  //
-  // 2. Some of old tests are using LegacyFileSystemWrapper.
-  // LegacyFileSystemWrapper forwards the API call to EnvWrapper, which forwards
-  // to CompositeEnv, and then forwards to the actual FileSystem implemention.
-  // Without this API in Env, LegacyFileSystemWrapper will not be able to
-  // forward the API call to EnvWrapper, causing the default FileSystem API to
-  // be called.
-  //
-  // Due to the above reason, adding a new API in FileSystem, would very likely
-  // require the same API to be added to Env.
-  //
-  // TODO xingbo. Getting rid of Env is not practical, due to backward
-  // compatibility. However, we need to simplify the relationship between Env
-  // and FileSystem. At least for internal test, we should stop using Env and
-  // switch to FileSystem, if possible. Related github issue #9274
   virtual Status SyncFile(const std::string& /*fname*/,
                           const EnvOptions& /*env_options*/,
                           bool /*use_fsync*/);
