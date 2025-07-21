@@ -4714,21 +4714,6 @@ class Benchmark {
       mgr = CreateAutoTuneCompressionManager(nullptr, io_goal, cpu_budget,
                                              options);
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
-                           "autotunecompression")) {
-      auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
-      double io_upper_bound =
-          FLAGS_autotune_io_upper_bound * ratelimiter_throughput;
-      double io_lower_bound =
-          FLAGS_autotune_io_lower_bound * ratelimiter_throughput;
-      double cpu_upper_bound = FLAGS_autotune_cpu_upper_bound;
-      double cpu_lower_bound = FLAGS_autotune_cpu_lower_bound;
-      std::shared_ptr<IOGoal> io_goal =
-          std::make_shared<IOGoal>(io_upper_bound, io_lower_bound);
-      std::shared_ptr<CPUBudget> cpu_budget =
-          std::make_shared<CPUBudget>(cpu_upper_bound, cpu_lower_bound);
-      mgr = CreateAutoTuneCompressionManager(nullptr, io_goal, cpu_budget,
-                                             options);
-    } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "dynamicautotunecompressor")) {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
       double io_upper_bound =
@@ -4737,8 +4722,10 @@ class Benchmark {
           FLAGS_autotune_io_lower_bound * ratelimiter_throughput;
       double cpu_upper_bound = FLAGS_autotune_cpu_upper_bound;
       double cpu_lower_bound = FLAGS_autotune_cpu_lower_bound;
-      double stall_io_upper_bound = FLAGS_autotune_stall_io_upper_bound;
-      double stall_io_lower_bound = FLAGS_autotune_stall_io_lower_bound;
+      double stall_io_upper_bound =
+          FLAGS_autotune_stall_io_upper_bound * ratelimiter_throughput;
+      double stall_io_lower_bound =
+          FLAGS_autotune_stall_io_lower_bound * ratelimiter_throughput;
       double stall_cpu_upper_bound = FLAGS_autotune_stall_cpu_upper_bound;
       double stall_cpu_lower_bound = FLAGS_autotune_stall_cpu_lower_bound;
       std::shared_ptr<DynamicBudget> io_goal = std::make_shared<DynamicBudget>(

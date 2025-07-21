@@ -2034,7 +2034,7 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
   }
 }
 
-TEST(DynamicBudgetTest, ChangesBudgetWhenWriteStallDetection) {
+TEST(DynamicBudgetTest, ChangesBudgetDuringWriteStall) {
   // This test case verifies that the budget is changed when the write stall
   // detection is triggered
   auto io_lower_bound = 0.5;
