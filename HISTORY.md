@@ -1,9 +1,10 @@
 # Rocksdb Change Log
 > NOTE: Entries for next release do not go here. Follow instructions in `unreleased_history/README.txt`
 
-## 10.5.0 (07/18/2025)
+## 10.5.0 (07/21/2025)
 ### Public API Changes
 * DB option skip_checking_sst_file_sizes_on_db_open is deprecated, in favor of validating file size in parallel in a thread pool, when db is opened. When DB is opened, with paranoid check enabled, a file with the wrong size would fail the DB open. With paranoid check disabled, the DB open would succeed, the column family with the corrupted file would not be read or write, while the other healthy column families could be read and write normally. When max_open_files option is not set to -1, only a subset of the files will be opened and checked. The rest of the files will be opened and checked when they are accessed.
+* GetTtl() API is now available in TTL DB
 
 ### Behavior Changes
 * PessimisticTransaction::GetWaitingTxns now returns waiting transaction information even if the current transaction has timed out. This allows the information to be surfaced to users for debugging purposes once it is known that the timeout has occured.
