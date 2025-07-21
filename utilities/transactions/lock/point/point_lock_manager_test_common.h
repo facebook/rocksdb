@@ -17,6 +17,13 @@ class MockColumnFamilyHandle : public ColumnFamilyHandle {
  public:
   explicit MockColumnFamilyHandle(ColumnFamilyId cf_id) : cf_id_(cf_id) {}
 
+  // disable copy and assignment
+  MockColumnFamilyHandle(const MockColumnFamilyHandle&) = delete;
+  MockColumnFamilyHandle& operator=(const MockColumnFamilyHandle&) = delete;
+  // disable move
+  MockColumnFamilyHandle(MockColumnFamilyHandle&&) = delete;
+  MockColumnFamilyHandle& operator=(MockColumnFamilyHandle&&) = delete;
+
   ~MockColumnFamilyHandle() override {}
 
   const std::string& GetName() const override { return name_; }

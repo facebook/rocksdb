@@ -238,6 +238,9 @@ class PerKeyPointLockManager : public PointLockManager {
   // No copying allowed
   PerKeyPointLockManager(const PerKeyPointLockManager&) = delete;
   PerKeyPointLockManager& operator=(const PerKeyPointLockManager&) = delete;
+  // No move allowed
+  PerKeyPointLockManager(PerKeyPointLockManager&&) = delete;
+  PerKeyPointLockManager& operator=(PerKeyPointLockManager&&) = delete;
 
   ~PerKeyPointLockManager() override {}
 

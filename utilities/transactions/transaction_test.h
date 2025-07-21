@@ -489,7 +489,7 @@ class TransactionTest
   TransactionTest()
       : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
                             std::get<2>(GetParam()), std::get<3>(GetParam()),
-                            std::get<4>(GetParam())){};
+                            std::get<4>(GetParam())) {}
 };
 
 class TransactionDBTest : public TransactionTestBase,

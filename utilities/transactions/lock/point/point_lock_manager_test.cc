@@ -801,6 +801,46 @@ TEST_P(SpotLockManagerTest, ExpiredLockStolenAfterTimeout) {
   delete txn1;
 }
 
+// Try to block until transaction enters waiting state.
+// However due to timing, it could fail, so return true if succeeded, false
+// otherwise.
+bool TryBlockUntilWaitingTxn(const char* sync_point_name, port::Thread& t,
+                             std::function<void()> function) {
+  std::atomic<bool> reached(false);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      sync_point_name, [&](void* /*arg*/) { reached.store(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // As the lifetime of the complete variable could go beyond the scope of this
+  // function, so we wrap it in a shared_ptr, and copy it into the lambda
+  std::shared_ptr<std::atomic<bool>> complete =
+      std::make_shared<std::atomic<bool>>(false);
+  t = port::Thread([complete, &function]() {
+    function();
+    complete->store(true);
+  });
+
+  auto ret = false;
+
+  while (true) {
+    if (complete->load()) {
+      // function completed, before sync point was reached, return false
+      t.join();
+      ret = false;
+      break;
+    }
+    if (reached.load()) {
+      // sync point was reached before function completed, return true
+      ret = true;
+      break;
+    }
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  return ret;
+}
+
 TEST_F(PerKeyPointLockManagerTest, LockStealAfterExpirationExclusive) {
   // There are multiple transactions waiting for the same lock.
   // txn1 acquires an exclusive lock on k1 successfully with a short expiration

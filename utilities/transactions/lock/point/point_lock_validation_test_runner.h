@@ -85,10 +85,10 @@ class PointLockValidationTestRunner {
                                 bool allow_non_deadlock_error,
                                 uint32_t max_sleep_after_lock_acquisition_ms)
       : env_(env),
-        txndb_opt_(txndb_opt),
+        txndb_opt_(std::move(txndb_opt)),
         locker_(locker),
         db_(db),
-        txn_opt_(txn_opt),
+        txn_opt_(std::move(txn_opt)),
         thread_count_(thd_cnt),
         key_count_(key_cnt),
         max_num_keys_to_lock_per_txn_(max_num_keys_to_lock_per_txn),

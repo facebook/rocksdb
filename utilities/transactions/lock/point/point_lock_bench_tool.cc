@@ -10,7 +10,6 @@
 #include <memory>
 
 #include "rocksdb/convenience.h"
-#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/gflags_compat.h"
@@ -49,6 +48,8 @@ DEFINE_uint32(
     "transaction. The actuall sleep time will be randomized from 0 to max. It "
     "is used to simulate some useful work performed.");
 
+namespace {  // anonymous namespace
+
 class PointLockManagerBenchmark {
  public:
   PointLockManagerBenchmark() {
@@ -58,6 +59,8 @@ class PointLockManagerBenchmark {
     Options opt;
     opt.create_if_missing = true;
     txndb_opt_.num_stripes = FLAGS_stripe_count;
+
+    db_ = nullptr;
 
     auto s = TransactionDB::Open(opt, txndb_opt_, FLAGS_db_dir, &db_);
     ASSERT_OK(s);
@@ -76,6 +79,13 @@ class PointLockManagerBenchmark {
     txn_opt_.lock_timeout = FLAGS_lock_timeout_ms;
     txn_opt_.expiration = FLAGS_lock_expiration_ms;
   }
+
+  // Disable copy and assignment
+  PointLockManagerBenchmark(const PointLockManagerBenchmark&) = delete;
+  PointLockManagerBenchmark& operator=(const PointLockManagerBenchmark&) =
+      delete;
+  PointLockManagerBenchmark(PointLockManagerBenchmark&&) = delete;
+  PointLockManagerBenchmark& operator=(PointLockManagerBenchmark&&) = delete;
 
   ~PointLockManagerBenchmark() {
     delete db_;
@@ -102,6 +112,7 @@ class PointLockManagerBenchmark {
   TransactionOptions txn_opt_;
 };
 
+}  // anonymous namespace
 int point_lock_bench_tool(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
 

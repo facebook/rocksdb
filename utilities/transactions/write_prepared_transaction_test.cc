@@ -537,7 +537,7 @@ class WritePreparedTransactionTest
       : WritePreparedTransactionTestBase(
             std::get<0>(GetParam()), std::get<1>(GetParam()),
             std::get<2>(GetParam()), std::get<3>(GetParam()),
-            std::get<4>(GetParam())){};
+            std::get<4>(GetParam())) {}
 };
 
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
@@ -552,7 +552,7 @@ class SnapshotConcurrentAccessTest
             std::get<2>(GetParam()), std::get<3>(GetParam()),
             std::get<4>(GetParam())),
         split_id_(std::get<5>(GetParam())),
-        split_cnt_(std::get<6>(GetParam())){};
+        split_cnt_(std::get<6>(GetParam())) {}
 
  protected:
   // A test is split into split_cnt_ tests, each identified with split_id_ where

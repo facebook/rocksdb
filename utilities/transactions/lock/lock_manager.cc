@@ -18,9 +18,9 @@ std::shared_ptr<LockManager> NewLockManager(PessimisticTransactionDB* db,
     return std::shared_ptr<LockManager>(opt.lock_mgr_handle, mgr);
   } else {
     if (opt.use_per_key_point_lock_mgr) {
-      return std::shared_ptr<LockManager>(new PerKeyPointLockManager(db, opt));
+      return std::make_shared<PerKeyPointLockManager>(db, opt);
     } else {
-      return std::shared_ptr<LockManager>(new PointLockManager(db, opt));
+      return std::make_shared<PointLockManager>(db, opt);
     }
   }
 }
