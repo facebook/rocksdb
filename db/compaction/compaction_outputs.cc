@@ -31,8 +31,18 @@ Status CompactionOutputs::Finish(
         std::min(smallest_preferred_seqno_, meta->fd.smallest_seqno),
         meta->fd.largest_seqno);
     relevant_mapping.SetCapacity(kMaxSeqnoTimePairsPerSST);
-    builder_->SetSeqnoTimeTableProperties(relevant_mapping,
-                                          meta->oldest_ancester_time);
+    auto creation_time = meta->oldest_ancester_time;
+    if (compaction_->compaction_reason() ==
+        CompactionReason::kFIFOReduceNumFiles) {
+      int64_t temp_current_time;
+      auto get_time_status =
+          compaction_->immutable_options().clock->GetCurrentTime(
+              &temp_current_time);
+      if (get_time_status.ok()) {
+        creation_time = static_cast<uint64_t>(temp_current_time);
+      }
+    }
+    builder_->SetSeqnoTimeTableProperties(relevant_mapping, creation_time);
     s = builder_->Finish();
 
   } else {
