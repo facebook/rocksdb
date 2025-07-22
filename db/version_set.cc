@@ -1139,7 +1139,9 @@ class LevelIterator final : public InternalIterator {
       // 3. [  S  ] ...... [  E  ]
       for (auto i = fstart; i <= fend; i++) {
         if (i < flevel_->num_files) {
-          (*file_to_scan_opts_)[i].emplace_back(start.value(), end.value());
+          (*file_to_scan_opts_)[i].emplace_back(
+              ScanOptions(start.value(), end.value()));
+          (*file_to_scan_opts_)[i].back().property_bag = opt.property_bag;
         }
       }
     }
