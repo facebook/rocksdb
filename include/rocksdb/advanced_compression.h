@@ -20,6 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 // Class defines the interface to define budget or goal for autotune compressor
 // The autotune compressor should try to achieve GetMinRate and try not to go
 // above the GetMaxRate
+// GetMaxRate and GetMinRate expresses the rate in unit of per seccond
 // Default Budget definition is static and it could be extended to make the
 // budget or io goal dynamic
 class Budget {
@@ -661,6 +662,16 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
 // strategy that selects compression algorithm in order to achieve IO and CPU
 // usage of the rocksdb process within certain range (i.e. IO goal and CPU
 // budget)
+// AutoTuneCompressionManager expects at least one of the following compression
+// algorithms to be supported:
+// - kSnappyCompression
+// - kLZ4Compression
+// - kLZ4HCCompression
+// - kZSTD
+// IO Goal specifies that the compression manager should limit disk write
+// throughput between maximum and minimum bytes per second.
+// CPU Budget specifies that the compression manager should limit CPU usage
+// between maximum and minimum number of cores available to the process.
 // EXPERIMENTAL
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     std::shared_ptr<CompressionManager> wrapped,

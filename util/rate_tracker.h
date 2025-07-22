@@ -21,10 +21,11 @@
 namespace ROCKSDB_NAMESPACE {
 
 // RateTracker is a template class that tracks the rate of change of
-// values over time (result returned unit/s). It records data points with
-// timestamps(Micros) and calculates the rate of change between consecutive
-// recordings. Template parameter T should be a numeric type that supports
-// arithmetic operations (addition, subtraction, division).
+// values over time. It records data points with microsecond timestamps
+// and calculates the rate of change between consecutive recordings.
+// The GetRate() method returns the rate in units per second (unit/s).
+// Template parameter T must be a numeric type supporting arithmetic
+// operations (addition, subtraction, division).
 template <typename T>
 class RateTracker {
  public:
