@@ -677,10 +677,5 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     std::shared_ptr<CompressionManager> wrapped,
     std::shared_ptr<IOGoal> io_goal, std::shared_ptr<CPUBudget> cpu_budget,
     const Options& opt);
-// Creates Dynamic Budget that has ability to detect write stall and adjust the
-// Budget
-std::shared_ptr<Budget> CreateDynamicBudget(double max_rate, double min_rate,
-                                            double stall_max_rate,
-                                            double stall_min_rate);
 
 }  // namespace ROCKSDB_NAMESPACE

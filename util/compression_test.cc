@@ -1991,6 +1991,118 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     EXPECT_EQ(cur_selection, expected_selection);
   }
 }
+class DBAutoTuneCompressionDynamicBudgetTest : public DBTestBase {
+ public:
+  static constexpr double kCPUUpperBound = 0.7;
+  static constexpr double kCPULowerBound = 0.5;
+  static constexpr double kIOUpperBound = 0.7;
+  static constexpr double kIOLowerBound = 0.5;
+  static constexpr double kStallCPUUpperBound = 1.0;
+  static constexpr double kStallCPULowerBound = 0.7;
+  static constexpr double kStallIOUpperBound = 1.0;
+  static constexpr double kStallIOLowerBound = 0.7;
+
+  Options options_;
+  Random rnd;
+  int next_key_;
+  std::shared_ptr<DynamicBudget> io_goal_;
+  std::shared_ptr<DynamicBudget> cpu_budget_;
+
+  DBAutoTuneCompressionDynamicBudgetTest()
+      : DBTestBase("db_autotune", /*env_do_fsync=*/true),
+        options_(CurrentOptions()),
+        rnd(231),
+        next_key_(0) {
+    auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    options_.statistics = statistics;
+    options_.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+    options_.rate_limiter.reset(NewGenericRateLimiter(
+        1000000000, 1000 /* refill_period_us */, 10 /* fairness */,
+        RateLimiter::Mode::kWritesOnly));
+    io_goal_ = std::make_shared<DynamicBudget>(
+        kIOUpperBound, kIOLowerBound, kStallIOUpperBound, kStallIOLowerBound);
+    cpu_budget_ = std::make_shared<DynamicBudget>(
+        kCPUUpperBound, kCPULowerBound, kStallCPUUpperBound,
+        kStallCPULowerBound);
+    options_.listeners.emplace_back(io_goal_);
+    options_.listeners.emplace_back(cpu_budget_);
+    options_.compression_manager = CreateAutoTuneCompressionManager(
+        nullptr, io_goal_, cpu_budget_, options_);
+    DestroyAndReopen(options_);
+  }
+  void Write(int num) {
+    constexpr int kValueSize = 20000;
+    auto value = rnd.RandomBinaryString(kValueSize);
+    for (auto i = 0; i < num; ++i) {
+      auto status = Put(Key(next_key_), value);
+      EXPECT_OK(status);
+      next_key_++;
+    }
+  };
+};
+TEST_F(DBAutoTuneCompressionDynamicBudgetTest, AutoTuneCompression) {
+#ifdef _WIN32
+  // Skip this test on Windows platforms as the method of measuring CPU usage is
+  // not implemented yet on the windows platform
+  return;
+#endif
+  // make sure that threre are more than two compressors before running the
+  // test case.
+  auto supported_compressions = GetSupportedCompressions();
+  if (supported_compressions.size() < 2) {
+    // Skipping since none of the compression is supported
+    return;
+  }
+  // Check if KLZ4Compression, KLZ4HCCompression and kZSTDCompression are
+  // supported before running the test case as they must be supported for us to
+  // have at least two compressors
+  if (std::find(supported_compressions.begin(), supported_compressions.end(),
+                kLZ4Compression) != supported_compressions.end() ||
+      std::find(supported_compressions.begin(), supported_compressions.end(),
+                kLZ4HCCompression) != supported_compressions.end() ||
+      std::find(supported_compressions.begin(), supported_compressions.end(),
+                kZSTD) != supported_compressions.end()) {
+    // Skipping since none of the compression is supported
+    options_.level0_file_num_compaction_trigger = 2;
+    options_.level0_slowdown_writes_trigger = 2;
+    options_.level0_stop_writes_trigger = 3;
+    // options_.disable_auto_compactions = true;
+    options_.writable_file_max_buffer_size = 20000 * 100;
+    options_.env = env_;
+    auto default_type =
+        supported_compressions[supported_compressions.size() - 1];
+    options_.compression = default_type;
+    DestroyAndReopen(options_);
+    test::SleepingBackgroundTask sleeping_task_low;
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                   &sleeping_task_low, Env::Priority::LOW);
+    sleeping_task_low.WaitUntilSleeping();
+    auto files_per_level = FilesPerLevel(0);
+    // Creating two SST at level 0
+    Write(100);
+    ASSERT_OK(Flush());
+    Write(100);
+    ASSERT_OK(Flush());
+    Write(100);
+    // Writing till we get write stall
+    WriteOptions wo;
+    wo.no_slowdown = true;
+    for (auto i = 0; i < 10000; i++) {
+      files_per_level = FilesPerLevel(0);
+      constexpr size_t kValueSize = 20000;
+      auto value = rnd.RandomBinaryString(kValueSize);
+      Status ns = db_->Put(wo, Key(next_key_++), value);
+      if (ns.IsIncomplete()) {
+        break;
+      };
+    }
+    ASSERT_EQ(io_goal_->GetMaxRate(), kStallIOUpperBound);
+    sleeping_task_low.WakeUp();
+    Write(100);
+    files_per_level = FilesPerLevel(0);
+    ASSERT_EQ(io_goal_->GetMaxRate(), kIOUpperBound);
+  }
+}
 
 TEST(DynamicBudgetTest, ChangesBudgetDuringWriteStall) {
   // This test case verifies that the budget is changed when the write stall
