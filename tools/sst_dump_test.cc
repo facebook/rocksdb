@@ -177,7 +177,6 @@ class SSTDumpToolTest : public testing::Test {
   constexpr static int kNumKey = 1024;
 };
 
-constexpr int SSTDumpToolTest::kNumKey;
 
 TEST_F(SSTDumpToolTest, HelpAndVersion) {
   Options opts;
