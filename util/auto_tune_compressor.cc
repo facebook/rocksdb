@@ -145,6 +145,7 @@ AutoTuneCompressor::AutoTuneCompressor(
   // Create compressors supporting all the compression types and levels as per
   // the compression levels set in vector CompressionLevels.
   const auto& compressions = GetSupportedCompressions();
+  assert(compressions.size() > 1);
 
   for (auto type : compressions) {
     if (type == kNoCompression) {
@@ -159,12 +160,11 @@ AutoTuneCompressor::AutoTuneCompressor(
       AddCompressors(type, {1, 3, 9});
     }
   }
+  assert(compressors_.size() > 0 ||
+         "Snappy, LZ4, LZ4HC, ZSTD are not supported");
   MeasureUtilization();
   block_count_ = 0;
   cur_compressor_idx_ = 0;
-  assert(default_type != kNoCompression);
-  assert(std::find(compressions.begin(), compressions.end(), default_type) !=
-         compressions.end());
   default_compressor_ =
       GetBuiltinV2CompressionManager()->GetCompressor(opts, default_type);
 }
@@ -189,12 +189,18 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
                                          ManagedWorkingArea* wa) {
   // Check if the managed working area is provided or owned by this object.
   // If not, bypass compressor logic since the working area lacks a predictor.
-  if (wa == nullptr || wa->owner() != this || compressors_.size() == 0 ||
-      io_goal_ == nullptr || cpu_budget_ == nullptr) {
+  if (wa == nullptr || wa->owner() != this) {
     return default_compressor_->CompressBlock(
         uncompressed_data, compressed_output, out_compression_type, wa);
   }
 
+  if (io_goal_ == nullptr || cpu_budget_ == nullptr) {
+    return Status::InvalidArgument("IOGoal or CPUBudget is not set");
+  } else if (compressors_.size() == 0) {
+    return Status::NotSupported(
+        "No compression alorithm that AutoTune compressor can use are "
+        "supported (SNAPPY, LZ4, LZ4HC, ZSTD)");
+  }
   auto local_wa = static_cast<CostAwareWorkingArea*>(wa->get());
   bool exploration =
       Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);

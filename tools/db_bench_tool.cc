@@ -617,12 +617,12 @@ DEFINE_double(
     autotune_io_lower_bound, 0.9,
     "Ratio of rate_limiter budget to set as minimum IO goal for autotune "
     "compression manager");
-DEFINE_double(
-    autotune_cpu_upper_bound, 0.9,
-    "Autotune compression manager tries to use CPU under the given CPU budget");
-DEFINE_double(autotune_cpu_lower_bound, 0.8,
+DEFINE_double(autotune_cpu_upper_bound, 0.9,
               "Autotune compression manager tries to use CPU under the given "
-              "minimum CPU budget");
+              "CPU budget expressed in number of cores");
+DEFINE_double(autotune_cpu_lower_bound, 0.8,
+              "Autotune compression manager tries to use CPU above the given "
+              "CPU budget expressed in number of cores");
 
 DEFINE_int32(compressed_secondary_cache_compression_level,
              ROCKSDB_NAMESPACE::CompressionOptions().level,
@@ -4687,6 +4687,7 @@ class Benchmark {
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "autotunecompressor")) {
       auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
+      // Convert to the unit that CreateAutoTuneCompressionManager accpets
       double io_upper_bound =
           FLAGS_autotune_io_upper_bound * ratelimiter_throughput;
       double io_lower_bound =
