@@ -12,7 +12,9 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/user_defined_index.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_type.h"
+#include "table/block_based/cachable_entry.h"
 #include "table/block_based/index_builder.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -33,10 +35,6 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
         name_(name),
         internal_index_builder_(std::move(internal_index_builder)),
         user_defined_index_builder_(std::move(user_defined_index_builder)) {}
-
-  // Note: We don't provide a simplified constructor that tries to extract
-  // parameters from internal_index_builder because IndexBuilder's members are
-  // protected and there are no accessor methods to get them
 
   ~UserDefinedIndexBuilderWrapper() override = default;
 
@@ -122,5 +120,125 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
   std::unique_ptr<IndexBuilder> internal_index_builder_;
   std::unique_ptr<UserDefinedIndexBuilder> user_defined_index_builder_;
   Status status_;
+};
+
+class UserDefinedIndexIteratorWrapper
+    : public InternalIteratorBase<IndexValue> {
+ public:
+  explicit UserDefinedIndexIteratorWrapper(
+      std::unique_ptr<UserDefinedIndexIterator>&& udi_iter)
+      : udi_iter_(std::move(udi_iter)), valid_(false) {}
+
+  bool Valid() const override { return valid_; }
+
+  void SeekToFirst() override {
+    status_ = Status::NotSupported("SeekToFirst not supported");
+  }
+
+  void SeekToLast() override {
+    status_ = Status::NotSupported("SeekToLast not supported");
+  }
+
+  void Seek(const Slice& target) override {
+    ParsedInternalKey pkey;
+    status_ = ParseInternalKey(target, &pkey, /*log_err_key=*/false);
+    if (status_.ok()) {
+      status_ = udi_iter_->SeekAndGetResult(pkey.user_key, &result_);
+      valid_ = status_.ok() &&
+               result_.bound_check_result == IterBoundCheck::kInbound;
+    }
+  }
+
+  void Next() override {
+    status_ = udi_iter_->NextAndGetResult(&result_);
+    valid_ =
+        status_.ok() && result_.bound_check_result == IterBoundCheck::kInbound;
+  }
+
+  bool NextAndGetResult(IterateResult* result) override {
+    status_ = udi_iter_->NextAndGetResult(&result_);
+    valid_ =
+        status_.ok() && result_.bound_check_result == IterBoundCheck::kInbound;
+    if (status_.ok()) {
+      *result = result_;
+    }
+    return valid_;
+  }
+
+  void SeekForPrev(const Slice& /*target*/) override {
+    status_ = Status::NotSupported("SeekForPrev not supported");
+  }
+
+  void Prev() override { status_ = Status::NotSupported("Prev not supported"); }
+
+  Slice key() const override { return result_.key; }
+
+  IndexValue value() const override {
+    auto handle = udi_iter_->value();
+    IndexValue val(BlockHandle(handle.offset, handle.size), Slice());
+    return val;
+  }
+
+  Status status() const override { return status_; }
+
+  void Prepare(const std::vector<ScanOptions>* scan_opts) override {
+    udi_iter_->Prepare(scan_opts->data(), scan_opts->size());
+  }
+
+ private:
+  std::unique_ptr<UserDefinedIndexIterator> udi_iter_;
+  IterateResult result_;
+  Status status_;
+  bool valid_;
+};
+
+class UserDefinedIndexReaderWrapper : public BlockBasedTable::IndexReader {
+ public:
+  UserDefinedIndexReaderWrapper(
+      const std::string& name,
+      std::unique_ptr<BlockBasedTable::IndexReader>&& reader,
+      std::unique_ptr<UserDefinedIndexReader>&& udi_reader)
+      : name_(name),
+        reader_(std::move(reader)),
+        udi_reader_(std::move(udi_reader)) {}
+
+  virtual InternalIteratorBase<IndexValue>* NewIterator(
+      const ReadOptions& read_options, bool disable_prefix_seek,
+      IndexBlockIter* iter, GetContext* get_context,
+      BlockCacheLookupContext* lookup_context) override {
+    if (!read_options.table_index_factory) {
+      return reader_->NewIterator(read_options, disable_prefix_seek, iter,
+                                  get_context, lookup_context);
+    }
+    if (name_ != read_options.table_index_factory->Name()) {
+      return NewErrorInternalIterator<IndexValue>(Status::InvalidArgument(
+          "Bad index name" +
+          std::string(read_options.table_index_factory->Name()) +
+          ". Only supported UDI is " + name_));
+    }
+    std::unique_ptr<UserDefinedIndexIterator> udi_iter =
+        udi_reader_->NewIterator(read_options);
+    return new UserDefinedIndexIteratorWrapper(std::move(udi_iter));
+  }
+
+  virtual Status CacheDependencies(
+      const ReadOptions& ro, bool pin,
+      FilePrefetchBuffer* tail_prefetch_buffer) override {
+    return reader_->CacheDependencies(ro, pin, tail_prefetch_buffer);
+  }
+
+  size_t ApproximateMemoryUsage() const override {
+    return reader_->ApproximateMemoryUsage();
+  }
+
+  virtual void EraseFromCacheBeforeDestruction(
+      uint32_t uncache_aggressiveness) override {
+    reader_->EraseFromCacheBeforeDestruction(uncache_aggressiveness);
+  }
+
+ private:
+  std::string name_;
+  std::unique_ptr<BlockBasedTable::IndexReader> reader_;
+  std::unique_ptr<UserDefinedIndexReader> udi_reader_;
 };
 }  // namespace ROCKSDB_NAMESPACE
