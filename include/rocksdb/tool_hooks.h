@@ -69,6 +69,7 @@ class ToolHooks {
   virtual Status Open(const Options& options,
                       const blob_db::BlobDBOptions& bdb_options,
                       const std::string& dbname, blob_db::BlobDB** blob_db) = 0;
+  virtual void Exit(int status) = 0;
 };
 
 class DefaultHooks : public ToolHooks {
@@ -117,6 +118,8 @@ class DefaultHooks : public ToolHooks {
                       const blob_db::BlobDBOptions& bdb_options,
                       const std::string& dbname,
                       blob_db::BlobDB** blob_db) override;
+
+  virtual void Exit(int status) override { exit(status); }
 };
 
 extern DefaultHooks defaultHooks;

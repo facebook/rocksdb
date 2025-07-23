@@ -1097,10 +1097,9 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
                         mutable_cf_options_.default_write_temperature,
                         /* max_subcompactions */ 0, grandparents,
                         /* earliest_snapshot */ std::nullopt,
-                        /* snapshot_checker */ nullptr,
-                        /* is manual */ false, /* trim_ts */ "", score_,
-                        false /* deletion_compaction */,
-                        /* l0_files_might_overlap */ true, compaction_reason);
+                        /* snapshot_checker */ nullptr, compaction_reason,
+                        /* trim_ts */ "", score_,
+                        /* l0_files_might_overlap */ true);
 }
 
 // Look at overall size amplification. If size amplification
@@ -1447,10 +1446,9 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
       /* max_subcompactions */ 0, /* grandparents */ {},
       /* earliest_snapshot */ std::nullopt,
       /* snapshot_checker */ nullptr,
-      /* is manual */ false,
-      /* trim_ts */ "", score_, false /* deletion_compaction */,
-      /* l0_files_might_overlap */ true,
-      CompactionReason::kUniversalSizeAmplification);
+      CompactionReason::kUniversalSizeAmplification,
+      /* trim_ts */ "", score_,
+      /* l0_files_might_overlap */ true);
 }
 
 // Pick files marked for compaction. Typically, files are marked by
@@ -1600,11 +1598,9 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level),
       mutable_cf_options_.default_write_temperature,
       /* max_subcompactions */ 0, grandparents, earliest_snapshot_,
-      snapshot_checker_,
-      /* is manual */ false,
-      /* trim_ts */ "", score_, false /* deletion_compaction */,
-      /* l0_files_might_overlap */ true,
-      CompactionReason::kFilesMarkedForCompaction);
+      snapshot_checker_, CompactionReason::kFilesMarkedForCompaction,
+      /* trim_ts */ "", score_,
+      /* l0_files_might_overlap */ true);
 }
 
 Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
@@ -1700,10 +1696,9 @@ Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
       mutable_cf_options_.default_write_temperature,
       /* max_subcompactions */ 0, /* grandparents */ {},
       /* earliest_snapshot */ std::nullopt,
-      /* snapshot_checker */ nullptr,
-      /* is manual */ false,
-      /* trim_ts */ "", score_, false /* deletion_compaction */,
-      /* l0_files_might_overlap */ true, compaction_reason);
+      /* snapshot_checker */ nullptr, compaction_reason,
+      /* trim_ts */ "", score_,
+      /* l0_files_might_overlap */ true);
 }
 
 Compaction* UniversalCompactionBuilder::PickPeriodicCompaction() {

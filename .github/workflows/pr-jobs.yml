@@ -182,7 +182,7 @@ jobs:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - run: ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make V=1 J=32 -j32 check
-    - run: "./sst_dump --help | grep -E -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression\n"
+    - run: "./sst_dump --help | grep -E -q 'Supported built-in compression types: kNoCompression$' # Verify no compiled in compression\n"
     - uses: "./.github/actions/post-steps"
   # ======================== Linux No Test Runs ======================= #
   build-linux-release:
