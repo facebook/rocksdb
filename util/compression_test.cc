@@ -1823,7 +1823,6 @@ class DBAutoTuneCompressionTest : public DBTestBase {
     bbto.flush_block_policy_factory.reset(
         new AutoTuneFlushBlockPolicyFactory());
     options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    options_.write_buffer_size = 19000000000;
     options_.rate_limiter.reset(NewGenericRateLimiter(
         1000000000, 1000 /* refill_period_us */, 10 /* fairness */,
         RateLimiter::Mode::kWritesOnly));
@@ -1854,10 +1853,6 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
   // make sure that threre are more than two compressors before running the
   // test case.
   auto supported_compressions = GetSupportedCompressions();
-  if (supported_compressions.size() < 2) {
-    // Skipping since none of the compression is supported
-    return;
-  }
   // Check if KLZ4Compression, KLZ4HCCompression and kZSTDCompression are
   // supported before running the test case as they must be supported for us to
   // have at least two compressors
@@ -1953,10 +1948,10 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     EXPECT_EQ(cur_selection, expected_selection);
     // Set condition in which cpu usage needs to increase and io
     // usage need to decrease
-    cur_selection = 0;
+    cur_selection = 1;
     cpu_usage = kCPULowerBound - 0.1;
     io_usage = kIOUpperBound + 0.1;
-    expected_selection = 1;
+    expected_selection = 0;
     expected_sel_cpu_prediction = default_cpu_prediction + 200;
     expected_sel_io_prediction = default_io_prediction - 200;
     BlockWrite(2000);
@@ -1964,10 +1959,10 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     EXPECT_EQ(cur_selection, expected_selection);
     // Set condition in which cpu usage needs to decrease and io
     // usage need to increase
-    cur_selection = 0;
+    cur_selection = 1;
     cpu_usage = kCPUUpperBound + 0.1;
     io_usage = kIOLowerBound - 0.1;
-    expected_selection = 1;
+    expected_selection = 0;
     expected_sel_cpu_prediction = default_cpu_prediction - 200;
     expected_sel_io_prediction = default_io_prediction + 200;
     BlockWrite(2000);
@@ -1980,7 +1975,7 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     io_usage = (kIOLowerBound + kIOUpperBound) / 2;
     expected_selection = cur_selection;
     expected_sel_io_prediction = default_io_prediction;
-    expected_sel_io_prediction = default_io_prediction;
+    expected_sel_cpu_prediction = default_cpu_prediction;
     BlockWrite(2000);
     ASSERT_OK(Flush());
     EXPECT_EQ(cur_selection, expected_selection);
