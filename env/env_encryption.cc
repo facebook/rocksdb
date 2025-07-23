@@ -664,10 +664,8 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
                               const FileOptions& options,
                               std::unique_ptr<FSWritableFile>* result,
                               IODebugContext* dbg) override {
-    // TODO xingbo fix Reopen writable file behavior on non empty file.
-    // The current implementation always appends a new prefix to the file, which
-    // corrupted the file if the file already have content. Instead, it
-    // should reuse the prefix at the beginning of the file.
+    // TODO xingbo Add unit test for the new implementation of
+    // EncryptedFileSysmteImpl::ReopenWritableFile.
     result->reset();
     if (options.use_mmap_reads || options.use_mmap_writes) {
       return IOStatus::InvalidArgument();
