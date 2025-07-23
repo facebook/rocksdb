@@ -238,7 +238,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
       secondary_cache_opts.compression_type = CompressionType::kNoCompression;
     }
 
-    secondary_cache_opts.capacity = 1190;
+    secondary_cache_opts.capacity = 1400;
     secondary_cache_opts.num_shard_bits = 0;
     secondary_cache_opts.strict_capacity_limit = true;
     std::shared_ptr<SecondaryCache> sec_cache =
@@ -254,7 +254,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
 
     // Insert and Lookup the second item.
-    std::string str2(rnd.RandomString(200));
+    std::string str2(rnd.RandomString(500));
     TestItem item2(str2.data(), str2.length());
     // Insert a dummy handle, k1 is not evicted.
     ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));

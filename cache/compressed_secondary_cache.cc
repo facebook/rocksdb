@@ -266,7 +266,7 @@ Status CompressedSecondaryCache::InsertInternal(
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
     size_t charge = malloc_usable_size(allocation.get());
 #else
-    size_t charge = total_size;
+    size_t charge = tagged_data.size();
 #endif
     s = cache_->Insert(key, allocation.release(), internal_helper, charge);
     assert(s.ok());  // LRUCache::Insert() with handle==nullptr always OK
