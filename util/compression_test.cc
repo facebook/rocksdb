@@ -1873,7 +1873,7 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
         supported_compressions[supported_compressions.size() - 1];
     options_.compression = default_type;
     DestroyAndReopen(options_);
-    // To test condition in which both io and cpu needs to increase
+    // Setting up the condition to mock CPU IO Usage and CPU IO Cost prediction
     size_t cur_selection = 0;
     size_t default_cpu_prediction = 500;
     size_t default_io_prediction = 1000;
@@ -1948,8 +1948,6 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     expected_selection = 1;
     expected_sel_cpu_prediction = default_cpu_prediction - 200;
     expected_sel_io_prediction = default_io_prediction - 200;
-    // Test the case where cpu and io usage both need to decrease that was
-    // set above
     BlockWrite(2000);
     ASSERT_OK(Flush());
     EXPECT_EQ(cur_selection, expected_selection);
@@ -1961,7 +1959,6 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     expected_selection = 1;
     expected_sel_cpu_prediction = default_cpu_prediction + 200;
     expected_sel_io_prediction = default_io_prediction - 200;
-    // Similary test the case that was set above
     BlockWrite(2000);
     ASSERT_OK(Flush());
     EXPECT_EQ(cur_selection, expected_selection);
@@ -1973,7 +1970,6 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     expected_selection = 1;
     expected_sel_cpu_prediction = default_cpu_prediction - 200;
     expected_sel_io_prediction = default_io_prediction + 200;
-    // Similary test the case that was set above
     BlockWrite(2000);
     ASSERT_OK(Flush());
     EXPECT_EQ(cur_selection, expected_selection);
@@ -1985,7 +1981,6 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     expected_selection = cur_selection;
     expected_sel_io_prediction = default_io_prediction;
     expected_sel_io_prediction = default_io_prediction;
-    // Similary test the case that was set above
     BlockWrite(2000);
     ASSERT_OK(Flush());
     EXPECT_EQ(cur_selection, expected_selection);
