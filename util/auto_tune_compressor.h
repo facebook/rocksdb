@@ -207,9 +207,9 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
 class AutoTuneCompressorManager : public CompressionManagerWrapper {
  public:
   explicit AutoTuneCompressorManager(
-      std::shared_ptr<CompressionManager>& wrapped,
-      std::shared_ptr<IOGoal>& io_goal, std::shared_ptr<CPUBudget>& cpu_budget,
-      const Options& option)
+      const std::shared_ptr<CompressionManager>& wrapped,
+      const std::shared_ptr<IOGoal>& io_goal,
+      const std::shared_ptr<CPUBudget>& cpu_budget, const Options& option)
       : CompressionManagerWrapper(wrapped),
         io_goal_(io_goal),
         cpu_budget_(cpu_budget),
