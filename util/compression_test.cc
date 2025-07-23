@@ -1940,7 +1940,7 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     cur_selection = 0;
     cpu_usage = kCPUUpperBound + 0.1;
     io_usage = kIOUpperBound + 0.1;
-    expected_selection = 1;
+    expected_selection = 2;
     expected_sel_cpu_prediction = default_cpu_prediction - 200;
     expected_sel_io_prediction = default_io_prediction - 200;
     BlockWrite(2000);
@@ -1948,10 +1948,10 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     EXPECT_EQ(cur_selection, expected_selection);
     // Set condition in which cpu usage needs to increase and io
     // usage need to decrease
-    cur_selection = 1;
+    cur_selection = 0;
     cpu_usage = kCPULowerBound - 0.1;
     io_usage = kIOUpperBound + 0.1;
-    expected_selection = 0;
+    expected_selection = 1;
     expected_sel_cpu_prediction = default_cpu_prediction + 200;
     expected_sel_io_prediction = default_io_prediction - 200;
     BlockWrite(2000);
@@ -1962,7 +1962,7 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     cur_selection = 1;
     cpu_usage = kCPUUpperBound + 0.1;
     io_usage = kIOLowerBound - 0.1;
-    expected_selection = 0;
+    expected_selection = 2;
     expected_sel_cpu_prediction = default_cpu_prediction - 200;
     expected_sel_io_prediction = default_io_prediction + 200;
     BlockWrite(2000);

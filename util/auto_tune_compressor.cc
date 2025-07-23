@@ -160,8 +160,7 @@ AutoTuneCompressor::AutoTuneCompressor(
       AddCompressors(type, {1, 3, 9});
     }
   }
-  assert(compressors_.size() > 0 ||
-         "Snappy, LZ4, LZ4HC, ZSTD are not supported");
+  assert(compressors_.size() > 0);
   MeasureUtilization();
   block_count_ = 0;
   cur_compressor_idx_ = 0;
