@@ -92,7 +92,7 @@ inline const char* GetVarsignedint64Ptr(const char* p, const char* limit,
 }
 
 // Returns the length of the varint32 or varint64 encoding of "v"
-int VarintLength(uint64_t v);
+uint16_t VarintLength(uint64_t v);
 
 // Lower-level versions of Put... that write directly into a character buffer
 // and return a pointer just past the last byte written.
@@ -245,8 +245,8 @@ inline void PutLengthPrefixedSlicePartsWithPadding(
   dst->append(pad_sz, '\0');
 }
 
-inline int VarintLength(uint64_t v) {
-  int len = 1;
+inline uint16_t VarintLength(uint64_t v) {
+  uint16_t len = 1;
   while (v >= 128) {
     v >>= 7;
     len++;

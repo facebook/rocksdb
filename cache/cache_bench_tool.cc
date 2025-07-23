@@ -318,7 +318,7 @@ Status CreateFn(const Slice& data, CompressionType /*type*/,
 };
 
 void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* alloc) {
-  CustomDeleter{alloc}(static_cast<char*>(value));
+  CacheAllocationDeleter{alloc}(static_cast<char*>(value));
 }
 
 Cache::CacheItemHelper helper1_wos(CacheEntryRole::kDataBlock, DeleteFn);
