@@ -53,6 +53,7 @@ class StressTest {
     Status s = db_->EnableAutoCompaction(column_families_);
     return s;
   }
+  Options GetOptions(int cf_id);
   void CleanUp();
 
  protected:

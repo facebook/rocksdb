@@ -119,6 +119,19 @@ bool RunStressTestImpl(SharedState* shared) {
                                &continuous_verification_thread);
   }
 
+  uint32_t remote_compaction_worker_thread_count =
+      FLAGS_remote_compaction_worker_threads;
+  std::vector<ThreadState*> remote_compaction_worker_threads;
+  if (remote_compaction_worker_thread_count > 0) {
+    remote_compaction_worker_threads.reserve(
+        remote_compaction_worker_thread_count);
+    for (uint32_t i = 0; i < remote_compaction_worker_thread_count; i++) {
+      remote_compaction_worker_threads[i] = new ThreadState(i, shared);
+      db_stress_env->StartThread(RemoteCompactionWorkerThread,
+                                 remote_compaction_worker_threads[i]);
+    }
+  }
+
   ThreadState compressed_cache_set_capacity_thread(0, shared);
   if (FLAGS_compressed_secondary_cache_size > 0 ||
       FLAGS_compressed_secondary_cache_ratio > 0.0) {
@@ -218,6 +231,13 @@ bool RunStressTestImpl(SharedState* shared) {
     delete threads[i];
     threads[i] = nullptr;
   }
+
+  // Kill remote compaction workers
+  for (uint32_t i = 0; i < remote_compaction_worker_thread_count; i++) {
+    delete remote_compaction_worker_threads[i];
+    remote_compaction_worker_threads[i] = nullptr;
+  }
+
   now = clock->NowMicros();
   if (!FLAGS_skip_verifydb && !FLAGS_test_batches_snapshots &&
       !shared->HasVerificationFailedYet()) {
