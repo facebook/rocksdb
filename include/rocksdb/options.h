@@ -498,6 +498,7 @@ struct CompactionServiceJobInfo {
   // the output level of the compaction.
   int output_level;
 
+  CompactionServiceJobInfo() {}
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
                            std::string db_session_id_, uint32_t cf_id_,
                            std::string cf_name_, uint64_t job_id_,

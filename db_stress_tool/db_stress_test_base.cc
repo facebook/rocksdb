@@ -793,6 +793,12 @@ Status StressTest::SetOptions(ThreadState* thread) {
   return db_->SetOptions(cfh, opts);
 }
 
+Options StressTest::GetOptions(int cf_id) {
+  auto cfh = column_families_[cf_id];
+  assert(cfh);
+  return db_->GetOptions(cfh);
+}
+
 void StressTest::ProcessRecoveredPreparedTxns(SharedState* shared) {
   assert(txn_db_);
   std::vector<Transaction*> recovered_prepared_trans;
@@ -3435,6 +3441,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           });
     });
   }
+
   if (!strcasecmp(FLAGS_compression_manager.c_str(), "custom")) {
     options_.compression_manager =
         std::make_shared<DbStressCustomCompressionManager>();
@@ -3464,6 +3471,12 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     fprintf(stdout,
             "WARNING: prefix_size is non-zero but "
             "memtablerep != prefix_hash\n");
+  }
+
+  // Remote Compaction
+  if (FLAGS_remote_compaction_worker_threads > 0) {
+    options_.compaction_service =
+        std::make_shared<DbStressCompactionService>(FLAGS_db, shared);
   }
 
   if ((options_.enable_blob_files || options_.enable_blob_garbage_collection ||
@@ -4373,11 +4386,6 @@ void InitializeOptionsFromFlags(
       static_cast<CacheTier>(FLAGS_lowest_used_cache_tier);
   options.inplace_update_support = FLAGS_inplace_update_support;
   options.uncache_aggressiveness = FLAGS_uncache_aggressiveness;
-
-  // Remote Compaction
-  if (FLAGS_enable_remote_compaction) {
-    options.compaction_service = std::make_shared<DbStressCompactionService>();
-  }
 
   options.memtable_op_scan_flush_trigger = FLAGS_memtable_op_scan_flush_trigger;
   options.compaction_options_universal.reduce_file_locking =

@@ -844,8 +844,22 @@ DEFINE_bool(track_and_verify_wals,
             ROCKSDB_NAMESPACE::Options().track_and_verify_wals,
             "See Options::track_and_verify_wals");
 
-DEFINE_bool(enable_remote_compaction, false,
-            "Enable (simulated) Remote Compaction");
+DEFINE_int32(
+    remote_compaction_worker_threads, 2,
+    "Remote Compaction Worker Thread count. If 0, remote compaction is "
+    "disabled");
+
+DEFINE_int32(remote_compaction_worker_interval, 10 * 1000,
+             "Remote Compaction Worker Thread dequeue tasks every N "
+             "microseconds. (Default: 10ms)");
+
+DEFINE_int32(
+    remote_compaction_wait_interval, 10 * 1000,
+    "Remote Compaction Wait() interval in microseconds. (Default: 10ms)");
+
+DEFINE_uint64(
+    remote_compaction_wait_timeout, 30 * 1000 * 1000,
+    "Remote Compaction Wait() Timeout in microseconds. (Default: 30 seconds)");
 
 DEFINE_uint32(ingest_wbwi_one_in, 0,
               "If set, will call"
