@@ -660,5 +660,8 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     const std::shared_ptr<IOGoal>& io_goal,
     const std::shared_ptr<CPUBudget>& cpu_budget,
     const std::shared_ptr<RateLimiter>& rate_limiter);
+// Return true if AutoTuneCompressionManager is able to select from
+// more than one compressor
+bool AutoTuneCompressionManagerSupported();
 
 }  // namespace ROCKSDB_NAMESPACE

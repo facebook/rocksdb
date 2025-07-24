@@ -1836,7 +1836,7 @@ class DBAutoTuneCompressionTest : public DBTestBase {
         RateLimiter::Mode::kWritesOnly));
     std::shared_ptr<IOGoal> io_goal =
         std::make_shared<IOGoal>(kIOUpperBound, kIOLowerBound);
-    std::shared_ptr<IOGoal> cpu_budget =
+    std::shared_ptr<CPUBudget> cpu_budget =
         std::make_shared<IOGoal>(kCPUUpperBound, kCPULowerBound);
     options_.compression_manager = CreateAutoTuneCompressionManager(
         nullptr, io_goal, cpu_budget, options_.rate_limiter);
@@ -1918,18 +1918,8 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
 #endif
   // make sure that threre are more than two compressors before running the
   // test case.
-  auto supported_compressions = GetSupportedCompressions();
-  // Check if KLZ4Compression, KLZ4HCCompression and kZSTDCompression are
-  // supported before running the test case as they must be supported for us to
-  // have at least two compressors
-  if (std::find(supported_compressions.begin(), supported_compressions.end(),
-                kLZ4Compression) != supported_compressions.end() ||
-      std::find(supported_compressions.begin(), supported_compressions.end(),
-                kLZ4HCCompression) != supported_compressions.end() ||
-      std::find(supported_compressions.begin(), supported_compressions.end(),
-                kZSTD) != supported_compressions.end()) {
-    // Skipping since none of the compression is supported
-
+  if (AutoTuneCompressionManagerSupported()) {
+    auto supported_compressions = GetSupportedCompressions();
     auto default_type =
         supported_compressions[supported_compressions.size() - 1];
     options_.compression = default_type;

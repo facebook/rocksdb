@@ -221,9 +221,9 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
       CompressionType preferred) override;
 
  private:
-  std::shared_ptr<IOGoal> io_goal_;
-  std::shared_ptr<CPUBudget> cpu_budget_;
-  std::shared_ptr<RateLimiter> rate_limiter_;
+  const std::shared_ptr<IOGoal> io_goal_;
+  const std::shared_ptr<CPUBudget> cpu_budget_;
+  const std::shared_ptr<RateLimiter> rate_limiter_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

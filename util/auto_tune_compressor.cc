@@ -384,8 +384,19 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
   auto io_goal_cast = std::static_pointer_cast<IOGoal>(io_goal);
   auto cpu_budget_cast = std::static_pointer_cast<CPUBudget>(cpu_budget);
   return std::make_shared<AutoTuneCompressorManager>(
-      wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped, 
+      wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped,
       io_goal_cast, cpu_budget_cast, rate_limiter);
 }
-
+bool AutoTuneCompressionManagerSupported() {
+  auto supported_compressions = GetSupportedCompressions();
+  // Check if KLZ4Compression, KLZ4HCCompression and kZSTDCompression are
+  // supported before running the test case as they must be supported for us to
+  // have at least two compressors
+  return std::find(supported_compressions.begin(), supported_compressions.end(),
+                   kLZ4Compression) != supported_compressions.end() ||
+         std::find(supported_compressions.begin(), supported_compressions.end(),
+                   kLZ4HCCompression) != supported_compressions.end() ||
+         std::find(supported_compressions.begin(), supported_compressions.end(),
+                   kZSTD) != supported_compressions.end();
+}
 }  // namespace ROCKSDB_NAMESPACE
