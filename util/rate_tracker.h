@@ -104,8 +104,6 @@ class CPUIOUtilizationTracker {
       const std::shared_ptr<SystemClock>& clock = nullptr);
 
   void Record();
-  double GetCpuUtilization();
-  double GetIoUtilization();
   std::pair<double, double> GetUtilization();
 
  private:
@@ -113,8 +111,8 @@ class CPUIOUtilizationTracker {
   void RecordIOUtilization();
   std::mutex mutex_;
   std::shared_ptr<RateLimiter> rate_limiter_;
-  RateTracker<size_t> rate_limiter_bytes_rate_;
-  RateTracker<double> cpu_usage_rate_;
+  RateTracker<size_t> rate_limiter_bytes_rate_tracker_;
+  RateTracker<double> cpu_usage_rate_tracker_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
