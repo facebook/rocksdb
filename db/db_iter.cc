@@ -75,6 +75,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       valid_(false),
       current_entry_is_merged_(false),
       is_key_seqnum_zero_(false),
+      need_compact_(read_options.need_compact),
       prefix_same_as_start_(
           prefix_extractor_ ? read_options.prefix_same_as_start : false),
       pin_thru_lifetime_(read_options.pin_data),
@@ -362,7 +363,18 @@ bool DBIter::PrepareValue() {
 // more entry for the prefix can be found.
 bool DBIter::FindNextUserEntry(bool skipping_saved_key, const Slice* prefix) {
   PERF_TIMER_GUARD(find_next_user_entry_time);
-  return FindNextUserEntryInternal(skipping_saved_key, prefix);
+  if (!ParseKey(&ikey_)) {
+    is_key_seqnum_zero_ = false;
+    return false;
+  }
+  first_key_without_ts = StripTimestampFromUserKey(ikey_.user_key, timestamp_size_);
+  bool ret = FindNextUserEntryInternal(skipping_saved_key, prefix);
+  if (prepare_compact_) {
+    trigger_compact();
+    prepare_compact_ = false;
+  }
+  first_key_without_ts.clear();
+  return ret;
 }
 
 // Actual implementation of DBIter::FindNextUserEntry()
@@ -1485,9 +1497,33 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
   return true;
 }
 
+void DBIter::trigger_compact() {
+  if (iterate_lower_bound_ == nullptr && first_key_without_ts.empty()) {
+    return ;
+  }
+  const Slice user_key(saved_key_.GetUserKey());
+  const Slice first_key(first_key_without_ts);
+  Slice end(user_key);
+  Slice begin;
+  if (iterate_lower_bound_ != nullptr && !first_key.empty()) {
+    begin = CompareKeyForSkip(*iterate_lower_bound_, first_key) > 0 \
+          ? *iterate_lower_bound_ : first_key;
+  } else {
+    begin = iterate_lower_bound_ ? *iterate_lower_bound_ : first_key;
+  }
+  ROCKS_LOG_DEBUG(logger_, "Maybe trigger compact. begin:%s, end:%s", \
+    begin.ToString().c_str(), end.ToString().c_str());
+  cfh_->db()->MaybeScheduleCompactionRange(&begin, &end);
+}
+
 bool DBIter::TooManyInternalKeysSkipped(bool increment) {
   if ((max_skippable_internal_keys_ > 0) &&
       (num_internal_keys_skipped_ > max_skippable_internal_keys_)) {
+    if (need_compact_) {
+      prepare_compact_ = true;
+      num_internal_keys_skipped_++;
+      return false;
+    }
     valid_ = false;
     status_ = Status::Incomplete("Too many internal keys skipped.");
     return true;
