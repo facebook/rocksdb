@@ -1812,9 +1812,9 @@ class DBAutoTuneCompressionTest : public DBTestBase {
   size_t cur_selection_;
   size_t default_cpu_prediction_;
   size_t default_io_prediction_;
-  size_t expected_sel_cpu_prediction_;
-  size_t expected_sel_io_prediction_;
-  size_t expected_selection_;
+  size_t target_cpu_prediction_;
+  size_t target_io_prediction_;
+  size_t target_selection_;
   double cpu_usage_;
   double io_usage_;
 
@@ -1851,14 +1851,14 @@ class DBAutoTuneCompressionTest : public DBTestBase {
       next_key_++;
     }
   };
-  void SetUpSyncPoint() {
+  void SetUpSyncPoints() {
     // Setting up the condition to mock CPU IO Usage and CPU IO Cost prediction
     cur_selection_ = 0;
     default_cpu_prediction_ = 500;
     default_io_prediction_ = 1000;
-    expected_sel_cpu_prediction_ = 700;
-    expected_sel_io_prediction_ = 700;
-    expected_selection_ = 1;
+    target_cpu_prediction_ = 700;
+    target_io_prediction_ = 700;
+    target_selection_ = 1;
     cpu_usage_ = 0.5;
     io_usage_ = 0.5;
     auto SetCPUIOUsage = [&](void* arg) {
@@ -1873,13 +1873,12 @@ class DBAutoTuneCompressionTest : public DBTestBase {
     };
     auto SetPredictions = [&](void* arg) {
       // Gets the predictor and sets the mocked CPU and IO cost in such a way
-      // that expected_selection_ is in the correct quadrant
+      // that target_selection_ is in the correct quadrant
       auto predictors = *static_cast<std::vector<IOCPUCostPredictor*>*>(arg);
       for (size_t i = 0; i < predictors.size(); i++) {
-        if (i == expected_selection_) {
-          predictors[i]->CPUPredictor.SetPrediction(
-              expected_sel_cpu_prediction_);
-          predictors[i]->IOPredictor.SetPrediction(expected_sel_io_prediction_);
+        if (i == target_selection_) {
+          predictors[i]->CPUPredictor.SetPrediction(target_cpu_prediction_);
+          predictors[i]->IOPredictor.SetPrediction(target_io_prediction_);
         } else {
           predictors[i]->CPUPredictor.SetPrediction(default_cpu_prediction_);
           predictors[i]->IOPredictor.SetPrediction(default_io_prediction_);
@@ -1924,62 +1923,62 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
         supported_compressions[supported_compressions.size() - 1];
     options_.compression = default_type;
     DestroyAndReopen(options_);
-    SetUpSyncPoint();
+    SetUpSyncPoints();
     // Set condition in which cpu and io usage both need to increase
     cur_selection_ = 0;
     cpu_usage_ = kCPULowerBound - 0.1;
     io_usage_ = kIOLowerBound - 0.1;
-    expected_selection_ = 1;
-    expected_sel_cpu_prediction_ = default_cpu_prediction_ + 200;
-    expected_sel_io_prediction_ = default_io_prediction_ + 200;
+    target_selection_ = 1;
+    target_cpu_prediction_ = default_cpu_prediction_ + 200;
+    target_io_prediction_ = default_io_prediction_ + 200;
     // Test the case where cpu and io usage both need to increase that was
     // set above
     BlockWrite(2000);
     ASSERT_OK(Flush());
-    EXPECT_EQ(cur_selection_, expected_selection_);
+    EXPECT_EQ(cur_selection_, target_selection_);
     // Set condition in which cpu and io usage both need to decrease
     cur_selection_ = 0;
     cpu_usage_ = kCPUUpperBound + 0.1;
     io_usage_ = kIOUpperBound + 0.1;
-    expected_selection_ = 2;
-    expected_sel_cpu_prediction_ = default_cpu_prediction_ - 200;
-    expected_sel_io_prediction_ = default_io_prediction_ - 200;
+    target_selection_ = 2;
+    target_cpu_prediction_ = default_cpu_prediction_ - 200;
+    target_io_prediction_ = default_io_prediction_ - 200;
     BlockWrite(2000);
     ASSERT_OK(Flush());
-    EXPECT_EQ(cur_selection_, expected_selection_);
+    EXPECT_EQ(cur_selection_, target_selection_);
     // Set condition in which cpu usage needs to increase and io
     // usage need to decrease
     cur_selection_ = 0;
     cpu_usage_ = kCPULowerBound - 0.1;
     io_usage_ = kIOUpperBound + 0.1;
-    expected_selection_ = 1;
-    expected_sel_cpu_prediction_ = default_cpu_prediction_ + 200;
-    expected_sel_io_prediction_ = default_io_prediction_ - 200;
+    target_selection_ = 1;
+    target_cpu_prediction_ = default_cpu_prediction_ + 200;
+    target_io_prediction_ = default_io_prediction_ - 200;
     BlockWrite(2000);
     ASSERT_OK(Flush());
-    EXPECT_EQ(cur_selection_, expected_selection_);
+    EXPECT_EQ(cur_selection_, target_selection_);
     // Set condition in which cpu usage needs to decrease and io
     // usage need to increase
     cur_selection_ = 1;
     cpu_usage_ = kCPUUpperBound + 0.1;
     io_usage_ = kIOLowerBound - 0.1;
-    expected_selection_ = 2;
-    expected_sel_cpu_prediction_ = default_cpu_prediction_ - 200;
-    expected_sel_io_prediction_ = default_io_prediction_ + 200;
+    target_selection_ = 2;
+    target_cpu_prediction_ = default_cpu_prediction_ - 200;
+    target_io_prediction_ = default_io_prediction_ + 200;
     BlockWrite(2000);
     ASSERT_OK(Flush());
-    EXPECT_EQ(cur_selection_, expected_selection_);
+    EXPECT_EQ(cur_selection_, target_selection_);
     // Set condition in which both cpu usage and io usage neither
     // needs to increase or decrease
     cur_selection_ = 0;
     cpu_usage_ = (kCPUUpperBound + kCPULowerBound) / 2;
     io_usage_ = (kIOLowerBound + kIOUpperBound) / 2;
-    expected_selection_ = cur_selection_;
-    expected_sel_io_prediction_ = default_io_prediction_;
-    expected_sel_cpu_prediction_ = default_cpu_prediction_;
+    target_selection_ = cur_selection_;
+    target_io_prediction_ = default_io_prediction_;
+    target_cpu_prediction_ = default_cpu_prediction_;
     BlockWrite(2000);
     ASSERT_OK(Flush());
-    EXPECT_EQ(cur_selection_, expected_selection_);
+    EXPECT_EQ(cur_selection_, target_selection_);
   }
 }
 }  // namespace ROCKSDB_NAMESPACE
