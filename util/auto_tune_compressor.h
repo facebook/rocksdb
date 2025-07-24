@@ -150,9 +150,9 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
  public:
   explicit AutoTuneCompressor(
       const CompressionOptions& opts, const CompressionType default_type,
-      std::shared_ptr<IOGoal> io_goal = nullptr,
-      std::shared_ptr<CPUBudget> cpu_budget = nullptr,
-      std::shared_ptr<RateLimiter> rate_limiter = nullptr);
+      const std::shared_ptr<const Budget>& io_goal = nullptr,
+      const std::shared_ptr<const Budget>& cpu_budget = nullptr,
+      const std::shared_ptr<RateLimiter>& rate_limiter = nullptr);
   ~AutoTuneCompressor() override;
   const char* Name() const override;
   ManagedWorkingArea ObtainWorkingArea() override;
@@ -207,12 +207,12 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
  public:
   explicit AutoTuneCompressorManager(
       const std::shared_ptr<CompressionManager>& wrapped,
-      const std::shared_ptr<IOGoal>& io_goal,
-      const std::shared_ptr<CPUBudget>& cpu_budget,
+      const std::shared_ptr<const Budget>& io_goal,
+      const std::shared_ptr<const Budget>& cpu_budget,
       const std::shared_ptr<RateLimiter>& rate_limiter)
       : CompressionManagerWrapper(wrapped),
-        io_goal_(io_goal),
-        cpu_budget_(cpu_budget),
+        io_goal_(std::static_pointer_cast<const IOGoal>(io_goal)),
+        cpu_budget_(std::static_pointer_cast<const CPUBudget>(cpu_budget)),
         rate_limiter_(rate_limiter) {}
 
   const char* Name() const override;
@@ -221,8 +221,8 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
       CompressionType preferred) override;
 
  private:
-  const std::shared_ptr<IOGoal> io_goal_;
-  const std::shared_ptr<CPUBudget> cpu_budget_;
+  const std::shared_ptr<const IOGoal> io_goal_;
+  const std::shared_ptr<const CPUBudget> cpu_budget_;
   const std::shared_ptr<RateLimiter> rate_limiter_;
 };
 

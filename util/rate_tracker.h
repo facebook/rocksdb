@@ -31,7 +31,6 @@ class RateTracker {
  public:
   explicit RateTracker(const std::shared_ptr<SystemClock>& clock)
       : clock_(clock ? clock : SystemClock::Default()),
-        has_previous_data_(false),
         previous_value_(T{}),
         rate_(0.0),
         previous_timestamp_us_(0) {}
@@ -43,7 +42,6 @@ class RateTracker {
 
   RateTracker(RateTracker&& other) noexcept
       : clock_(std::move(other.clock_)),
-        has_previous_data_(other.has_previous_data_),
         previous_value_(other.previous_value_),
         rate_(other.rate_),
         previous_timestamp_us_(other.previous_timestamp_us_) {}
@@ -51,7 +49,6 @@ class RateTracker {
   RateTracker& operator=(RateTracker&& other) noexcept {
     if (this != &other) {
       clock_ = std::move(other.clock_);
-      has_previous_data_ = std::move(other.has_previous_data_);
       previous_value_ = std::move(other.previous_value_);
       rate_ = std::move(other.rate_);
       previous_timestamp_us_ = std::move(other.previous_timestamp_us_);
@@ -61,10 +58,9 @@ class RateTracker {
 
   double Record(T value) {
     uint64_t current_timestamp_us = GetCurrentTimeMicros();
-    if (!has_previous_data_) {
+    if (previous_timestamp_us_ != 0) {
       previous_value_ = value;
       previous_timestamp_us_ = current_timestamp_us;
-      has_previous_data_ = true;
       return 0.0;
     }
 
@@ -88,7 +84,6 @@ class RateTracker {
   uint64_t GetCurrentTimeMicros() { return clock_->NowMicros(); }
 
   std::shared_ptr<SystemClock> clock_;
-  bool has_previous_data_;
   T previous_value_;
   double rate_;
   uint64_t previous_timestamp_us_;

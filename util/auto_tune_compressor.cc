@@ -134,11 +134,14 @@ void AutoTuneCompressor::AddCompressors(
 }
 AutoTuneCompressor::AutoTuneCompressor(
     const CompressionOptions& opts, const CompressionType default_type,
-    std::shared_ptr<IOGoal> io_goal, std::shared_ptr<CPUBudget> cpu_budget,
-    std::shared_ptr<RateLimiter> rate_limiter)
+    const std::shared_ptr<const Budget>& io_goal,
+    const std::shared_ptr<const Budget>& cpu_budget,
+    const std::shared_ptr<RateLimiter>& rate_limiter)
     : opts_(opts),
-      io_goal_(io_goal),
-      cpu_budget_(cpu_budget),
+      io_goal_(std::const_pointer_cast<IOGoal>(
+          std::static_pointer_cast<const IOGoal>(io_goal))),
+      cpu_budget_(std::const_pointer_cast<CPUBudget>(
+          std::static_pointer_cast<const CPUBudget>(cpu_budget))),
       usage_tracker_(rate_limiter) {
   assert(io_goal_ != nullptr);
   assert(cpu_budget_ != nullptr);
@@ -377,13 +380,13 @@ std::unique_ptr<Compressor> AutoTuneCompressorManager::GetCompressorForSST(
 
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     const std::shared_ptr<CompressionManager>& wrapped,
-    const std::shared_ptr<Budget>& io_goal,
-    const std::shared_ptr<Budget>& cpu_budget,
+    const std::shared_ptr<IOGoal>& io_goal,
+    const std::shared_ptr<CPUBudget>& cpu_budget,
     const std::shared_ptr<RateLimiter>& rate_limiter) {
   return std::make_shared<AutoTuneCompressorManager>(
       wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped,
-      io_goal == nullptr ? std::make_shared<Budget>(0.99, 0.9) : io_goal,
-      cpu_budget == nullptr ? std::make_shared<Budget>(0.9, 0.8) : cpu_budget,
+      io_goal == nullptr ? std::make_shared<IOGoal>(0.99, 0.9) : io_goal,
+      cpu_budget == nullptr ? std::make_shared<CPUBudget>(0.9, 0.8) : cpu_budget,
       rate_limiter);
 }
 bool AutoTuneCompressionManagerSupported() {
