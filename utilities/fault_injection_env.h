@@ -177,6 +177,9 @@ class FaultInjectionTestEnv : public EnvWrapper {
 
   Status LinkFile(const std::string& s, const std::string& t) override;
 
+  Status SyncFile(const std::string& fname, const EnvOptions& env_options,
+                  bool use_fsync) override;
+
 // Undef to eliminate clash on Windows
 #undef GetFreeSpace
   Status GetFreeSpace(const std::string& path, uint64_t* disk_free) override {
