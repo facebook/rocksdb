@@ -4686,12 +4686,8 @@ class Benchmark {
           std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
                            "autotunecompressor")) {
-      auto ratelimiter_throughput = FLAGS_rate_limiter_bytes_per_sec;
-      // Converting to the unit that CreateAutoTuneCompressionManager expects
-      double io_upper_bound =
-          FLAGS_autotune_io_upper_bound * ratelimiter_throughput;
-      double io_lower_bound =
-          FLAGS_autotune_io_lower_bound * ratelimiter_throughput;
+      double io_upper_bound = FLAGS_autotune_io_upper_bound;
+      double io_lower_bound = FLAGS_autotune_io_lower_bound;
       double cpu_upper_bound = FLAGS_autotune_cpu_upper_bound;
       double cpu_lower_bound = FLAGS_autotune_cpu_lower_bound;
       std::shared_ptr<IOGoal> io_goal =

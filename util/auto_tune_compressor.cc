@@ -380,12 +380,11 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     const std::shared_ptr<Budget>& io_goal,
     const std::shared_ptr<Budget>& cpu_budget,
     const std::shared_ptr<RateLimiter>& rate_limiter) {
-  // Cast Budget to IOGoal and CPUBudget since they are type aliases
-  auto io_goal_cast = std::static_pointer_cast<IOGoal>(io_goal);
-  auto cpu_budget_cast = std::static_pointer_cast<CPUBudget>(cpu_budget);
   return std::make_shared<AutoTuneCompressorManager>(
       wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped,
-      io_goal_cast, cpu_budget_cast, rate_limiter);
+      io_goal == nullptr ? std::make_shared<Budget>(0.99, 0.9) : io_goal,
+      cpu_budget == nullptr ? std::make_shared<Budget>(0.9, 0.8) : cpu_budget,
+      rate_limiter);
 }
 bool AutoTuneCompressionManagerSupported() {
   auto supported_compressions = GetSupportedCompressions();

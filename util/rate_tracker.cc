@@ -22,8 +22,10 @@ void CPUIOUtilizationTracker::Record() {
 }
 
 std::pair<double, double> CPUIOUtilizationTracker::GetUtilization() {
-  return {rate_limiter_bytes_rate_tracker_.GetRate(),
-          cpu_usage_rate_tracker_.GetRate()};
+  auto rate_limiter_max_throughput = rate_limiter_->GetBytesPerSecond();
+  return {
+      rate_limiter_bytes_rate_tracker_.GetRate() / rate_limiter_max_throughput,
+      cpu_usage_rate_tracker_.GetRate()};
 }
 
 void CPUIOUtilizationTracker::RecordCPUUsage() {

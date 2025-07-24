@@ -35,7 +35,10 @@ class Budget {
   double max_rate_;
   double min_rate_;
 };
-// IOGoal is supposed to be in unit of bytes/second
+// IOGoal is supposed to be in unit of portion of
+// rate_limiters_max_throughput/second
+// For example, if IOGoal is o.5/second and rate limiters max throughput is 100
+// bytes / second. AutoTuneCompressor should try to use 50 bytes/second
 using IOGoal = Budget;
 // CPUBudget is suppposed to be in unit of number of cores/second
 using CPUBudget = Budget;
