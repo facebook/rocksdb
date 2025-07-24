@@ -29,7 +29,7 @@ namespace ROCKSDB_NAMESPACE {
 template <typename T>
 class RateTracker {
  public:
-  explicit RateTracker(const std::shared_ptr<SystemClock>& clock = nullptr)
+  explicit RateTracker(const std::shared_ptr<SystemClock>& clock)
       : clock_(clock ? clock : SystemClock::Default()),
         has_previous_data_(false),
         previous_value_(T{}),
