@@ -3476,7 +3476,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   // Remote Compaction
   if (FLAGS_remote_compaction_worker_threads > 0) {
     options_.compaction_service =
-        std::make_shared<DbStressCompactionService>(FLAGS_db, shared);
+        std::make_shared<DbStressCompactionService>(shared);
   }
 
   if ((options_.enable_blob_files || options_.enable_blob_garbage_collection ||
