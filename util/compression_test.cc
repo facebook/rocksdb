@@ -1768,122 +1768,365 @@ TEST_F(DBAutoSkip, AutoSkipCompressionManager) {
     ASSERT_OK(Flush());
   }
 }
-class CostAwareTestFlushBlockPolicy : public FlushBlockPolicy {
+class AutoTuneFlushBlockPolicy : public FlushBlockPolicy {
  public:
-  explicit CostAwareTestFlushBlockPolicy(const int window,
-                                         const BlockBuilder& data_block_builder)
-      : window_(window),
-        num_keys_(0),
-        data_block_builder_(data_block_builder) {}
+  explicit AutoTuneFlushBlockPolicy(const BlockBuilder& data_block_builder)
+      : data_block_builder_(data_block_builder) {}
 
   bool Update(const Slice& /*key*/, const Slice& /*value*/) override {
-    auto nth_window = num_keys_ / window_;
     if (data_block_builder_.empty()) {
       // First key in this block
       return false;
     }
-    // Check every window
-    if (num_keys_ % window_ == 0) {
-      auto get_predictor = [&](void* arg) {
-        // gets the predictor and sets the mocked cpu and io cost
-        predictor_ = static_cast<IOCPUCostPredictor*>(arg);
-        predictor_->CPUPredictor.SetPrediction(1000);
-        predictor_->IOPredictor.SetPrediction(100);
-      };
-      SyncPoint::GetInstance()->DisableProcessing();
-      SyncPoint::GetInstance()->ClearAllCallBacks();
-
-      // Add syncpoint to get the cpu and io cost
-      SyncPoint::GetInstance()->SetCallBack(
-          "CostAwareCompressor::CompressBlockAndRecord::"
-          "GetPredictor",
-          get_predictor);
-      SyncPoint::GetInstance()->EnableProcessing();
-      // use nth window to detect test cases and set the expected
-      switch (nth_window) {
-        case 0:
-          break;
-        case 1:
-          // Verify that the Mocked cpu cost and io cost are predicted correctly
-          auto predicted_cpu_time = predictor_->CPUPredictor.Predict();
-          auto predicted_io_bytes = predictor_->IOPredictor.Predict();
-          EXPECT_EQ(predicted_io_bytes, 100);
-          EXPECT_EQ(predicted_cpu_time, 1000);
-          break;
-      }
-    }
-    num_keys_++;
     return true;
   }
 
  private:
-  int window_;
-  int num_keys_;
   const BlockBuilder& data_block_builder_;
-  IOCPUCostPredictor* predictor_;
 };
-class CostAwareTestFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+class AutoTuneFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
  public:
-  explicit CostAwareTestFlushBlockPolicyFactory(const int window)
-      : window_(window) {}
+  explicit AutoTuneFlushBlockPolicyFactory() {}
 
   virtual const char* Name() const override {
-    return "CostAwareTestFlushBlockPolicyFactory";
+    return "AutoTuneFlushBlockPolicyFactory";
   }
 
   virtual FlushBlockPolicy* NewFlushBlockPolicy(
       const BlockBasedTableOptions& /*table_options*/,
       const BlockBuilder& data_block_builder) const override {
     (void)data_block_builder;
-    return new CostAwareTestFlushBlockPolicy(window_, data_block_builder);
+    return new AutoTuneFlushBlockPolicy(data_block_builder);
   }
-
- private:
-  int window_;
 };
-class DBCompressionCostPredictor : public DBTestBase {
+class DBAutoTuneCompressionTest : public DBTestBase {
  public:
-  Options options;
-  DBCompressionCostPredictor()
-      : DBTestBase("db_cpuio_skip", /*env_do_fsync=*/true),
-        options(CurrentOptions()) {
-    options.compression_manager = CreateCostAwareCompressionManager();
+  static constexpr double kCPUUpperBound = 0.7;
+  static constexpr double kCPULowerBound = 0.5;
+  static constexpr double kIOUpperBound = 0.7;
+  static constexpr double kIOLowerBound = 0.5;
+
+  Options options_;
+  Random rnd;
+  int next_key_;
+
+  DBAutoTuneCompressionTest()
+      : DBTestBase("db_autotune", /*env_do_fsync=*/true),
+        options_(CurrentOptions()),
+        rnd(231),
+        next_key_(0) {
     auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.statistics = statistics;
-    options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+    options_.statistics = statistics;
+    options_.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
     BlockBasedTableOptions bbto;
     bbto.enable_index_compression = false;
     bbto.flush_block_policy_factory.reset(
-        new CostAwareTestFlushBlockPolicyFactory(10));
-    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-    DestroyAndReopen(options);
+        new AutoTuneFlushBlockPolicyFactory());
+    options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    options_.write_buffer_size = 19000000000;
+    options_.rate_limiter.reset(NewGenericRateLimiter(
+        1000000000, 1000 /* refill_period_us */, 10 /* fairness */,
+        RateLimiter::Mode::kWritesOnly));
+    std::shared_ptr<IOGoal> io_goal =
+        std::make_shared<IOGoal>(kIOUpperBound, kIOLowerBound);
+    std::shared_ptr<IOGoal> cpu_budget =
+        std::make_shared<IOGoal>(kCPUUpperBound, kCPULowerBound);
+    options_.compression_manager = CreateAutoTuneCompressionManager(
+        nullptr, io_goal, cpu_budget, options_);
+    DestroyAndReopen(options_);
   }
-};
-TEST_F(DBCompressionCostPredictor, CostAwareCompressorManager) {
-  // making sure that the compression is supported
-  if (!ZSTD_Supported()) {
-    return;
-  }
-  const int kValueSize = 20000;
-  int next_key = 0;
-  Random rnd(231);
-  auto value = rnd.RandomBinaryString(kValueSize);
-  int window_size = 10;
-  auto WindowWrite = [&]() {
-    for (auto i = 0; i < window_size; ++i) {
-      auto status = Put(Key(next_key), value);
+  void BlockWrite(int num) {
+    constexpr int kValueSize = 20000;
+    auto value = rnd.RandomBinaryString(kValueSize);
+    for (auto i = 0; i < num; ++i) {
+      auto status = Put(Key(next_key_), value);
       EXPECT_OK(status);
-      next_key++;
+      next_key_++;
     }
   };
-  // This denotes the first window
-  // Mocked to have specific cpu utilization and io cost
-  WindowWrite();
-  // check the predictor is predicting the correct cpu and io cost
-  WindowWrite();
-  ASSERT_OK(Flush());
+};
+TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
+#ifdef _WIN32
+  // Skip this test on Windows platforms as the method of measuring CPU usage is
+  // not implemented yet on the windows platform
+  return;
+#endif
+  // make sure that threre are more than two compressors before running the
+  // test case.
+  auto supported_compressions = GetSupportedCompressions();
+  if (supported_compressions.size() < 2) {
+    // Skipping since none of the compression is supported
+    return;
+  }
+  // Check if KLZ4Compression, KLZ4HCCompression and kZSTDCompression are
+  // supported before running the test case as they must be supported for us to
+  // have at least two compressors
+  if (std::find(supported_compressions.begin(), supported_compressions.end(),
+                kLZ4Compression) != supported_compressions.end() ||
+      std::find(supported_compressions.begin(), supported_compressions.end(),
+                kLZ4HCCompression) != supported_compressions.end() ||
+      std::find(supported_compressions.begin(), supported_compressions.end(),
+                kZSTD) != supported_compressions.end()) {
+    // Skipping since none of the compression is supported
+
+    auto default_type =
+        supported_compressions[supported_compressions.size() - 1];
+    options_.compression = default_type;
+    DestroyAndReopen(options_);
+    // To test condition in which both io and cpu needs to increase
+    size_t cur_selection = 0;
+    size_t default_cpu_prediction = 500;
+    size_t default_io_prediction = 1000;
+    size_t expected_sel_cpu_prediction = 700;
+    size_t expected_sel_io_prediction = 700;
+    size_t expected_selection = 1;
+    auto cpu_usage = 0.5;
+    auto io_usage = 0.5;
+    auto SetCPUIOUsage = [&](void* arg) {
+      std::pair<double, double>* measured_value =
+          static_cast<std::pair<double, double>*>(arg);
+      measured_value->first = cpu_usage;
+      measured_value->second = io_usage;
+    };
+    auto UnSetExplore = [](void* arg) {
+      bool* to_explore = static_cast<bool*>(arg);
+      *to_explore = false;
+    };
+    auto SetPredictions = [&](void* arg) {
+      // Gets the predictor and sets the mocked CPU and IO cost in such a way
+      // that expected_selection_ is in the correct quadrant
+      auto predictors = *static_cast<std::vector<IOCPUCostPredictor*>*>(arg);
+      for (size_t i = 0; i < predictors.size(); i++) {
+        if (i == expected_selection) {
+          predictors[i]->CPUPredictor.SetPrediction(
+              expected_sel_cpu_prediction);
+          predictors[i]->IOPredictor.SetPrediction(expected_sel_io_prediction);
+        } else {
+          predictors[i]->CPUPredictor.SetPrediction(default_cpu_prediction);
+          predictors[i]->IOPredictor.SetPrediction(default_io_prediction);
+        }
+      }
+    };
+    auto GetSelection = [&](void* arg) {
+      size_t* cur_ptr = static_cast<size_t*>(arg);
+      cur_selection = *cur_ptr;
+    };
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->SetCallBack(
+        "AutoTuneCompressorWrapper::CompressBlock::exploitOrExplore",
+        UnSetExplore);
+    SyncPoint::GetInstance()->SetCallBack(
+        "AutoTuneCompressorWrapper::CompressBlock::"
+        "GetPredictors",
+        SetPredictions);
+    SyncPoint::GetInstance()->SetCallBack(
+        "AutoTuneCompressorWrapper::CompressBlock::"
+        "GetSelection",
+        GetSelection);
+    SyncPoint::GetInstance()->SetCallBack(
+        "AutoTuneCompressorWrapper::"
+        "SetCPUIOUsage",
+        SetCPUIOUsage);
+    SyncPoint::GetInstance()->EnableProcessing();
+    // Set condition in which cpu and io usage both need to increase
+    cur_selection = 0;
+    cpu_usage = kCPULowerBound - 0.1;
+    io_usage = kIOLowerBound - 0.1;
+    expected_selection = 1;
+    expected_sel_cpu_prediction = default_cpu_prediction + 200;
+    expected_sel_io_prediction = default_io_prediction + 200;
+    // Test the case where cpu and io usage both need to increase that was
+    // set above
+    BlockWrite(2000);
+    ASSERT_OK(Flush());
+    EXPECT_EQ(cur_selection, expected_selection);
+    // Set condition in which cpu and io usage both need to decrease
+    cur_selection = 0;
+    cpu_usage = kCPUUpperBound + 0.1;
+    io_usage = kIOUpperBound + 0.1;
+    expected_selection = 1;
+    expected_sel_cpu_prediction = default_cpu_prediction - 200;
+    expected_sel_io_prediction = default_io_prediction - 200;
+    // Test the case where cpu and io usage both need to decrease that was
+    // set above
+    BlockWrite(2000);
+    ASSERT_OK(Flush());
+    EXPECT_EQ(cur_selection, expected_selection);
+    // Set condition in which cpu usage needs to increase and io
+    // usage need to decrease
+    cur_selection = 0;
+    cpu_usage = kCPULowerBound - 0.1;
+    io_usage = kIOUpperBound + 0.1;
+    expected_selection = 1;
+    expected_sel_cpu_prediction = default_cpu_prediction + 200;
+    expected_sel_io_prediction = default_io_prediction - 200;
+    // Similary test the case that was set above
+    BlockWrite(2000);
+    ASSERT_OK(Flush());
+    EXPECT_EQ(cur_selection, expected_selection);
+    // Set condition in which cpu usage needs to decrease and io
+    // usage need to increase
+    cur_selection = 0;
+    cpu_usage = kCPUUpperBound + 0.1;
+    io_usage = kIOLowerBound - 0.1;
+    expected_selection = 1;
+    expected_sel_cpu_prediction = default_cpu_prediction - 200;
+    expected_sel_io_prediction = default_io_prediction + 200;
+    // Similary test the case that was set above
+    BlockWrite(2000);
+    ASSERT_OK(Flush());
+    EXPECT_EQ(cur_selection, expected_selection);
+    // Set condition in which both cpu usage and io usage neither
+    // needs to increase or decrease
+    cur_selection = 0;
+    cpu_usage = (kCPUUpperBound + kCPULowerBound) / 2;
+    io_usage = (kIOLowerBound + kIOUpperBound) / 2;
+    expected_selection = cur_selection;
+    expected_sel_io_prediction = default_io_prediction;
+    expected_sel_io_prediction = default_io_prediction;
+    // Similary test the case that was set above
+    BlockWrite(2000);
+    ASSERT_OK(Flush());
+    EXPECT_EQ(cur_selection, expected_selection);
+  }
+}
+class DBAutoTuneCompressionDynamicBudgetTest : public DBTestBase {
+ public:
+  static constexpr double kCPUUpperBound = 0.7;
+  static constexpr double kCPULowerBound = 0.5;
+  static constexpr double kIOUpperBound = 0.7;
+  static constexpr double kIOLowerBound = 0.5;
+  static constexpr double kStallCPUUpperBound = 1.0;
+  static constexpr double kStallCPULowerBound = 0.7;
+  static constexpr double kStallIOUpperBound = 1.0;
+  static constexpr double kStallIOLowerBound = 0.7;
+
+  Options options_;
+  Random rnd;
+  int next_key_;
+  std::shared_ptr<DynamicBudget> io_goal_;
+  std::shared_ptr<DynamicBudget> cpu_budget_;
+
+  DBAutoTuneCompressionDynamicBudgetTest()
+      : DBTestBase("db_autotune", /*env_do_fsync=*/true),
+        options_(CurrentOptions()),
+        rnd(231),
+        next_key_(0) {
+    auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    options_.statistics = statistics;
+    options_.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
+    options_.rate_limiter.reset(NewGenericRateLimiter(
+        1000000000, 1000 /* refill_period_us */, 10 /* fairness */,
+        RateLimiter::Mode::kWritesOnly));
+    io_goal_ = std::make_shared<DynamicBudget>(
+        kIOUpperBound, kIOLowerBound, kStallIOUpperBound, kStallIOLowerBound);
+    cpu_budget_ = std::make_shared<DynamicBudget>(
+        kCPUUpperBound, kCPULowerBound, kStallCPUUpperBound,
+        kStallCPULowerBound);
+    options_.listeners.emplace_back(io_goal_);
+    options_.listeners.emplace_back(cpu_budget_);
+    options_.compression_manager = CreateAutoTuneCompressionManager(
+        nullptr, io_goal_, cpu_budget_, options_);
+    DestroyAndReopen(options_);
+  }
+  void Write(int num) {
+    constexpr int kValueSize = 20000;
+    auto value = rnd.RandomBinaryString(kValueSize);
+    for (auto i = 0; i < num; ++i) {
+      auto status = Put(Key(next_key_), value);
+      EXPECT_OK(status);
+      next_key_++;
+    }
+  };
+};
+TEST_F(DBAutoTuneCompressionDynamicBudgetTest, AutoTuneCompression) {
+#ifdef _WIN32
+  // Skip this test on Windows platforms as the method of measuring CPU usage is
+  // not implemented yet on the windows platform
+  return;
+#endif
+  // make sure that threre are more than two compressors before running the
+  // test case.
+  auto supported_compressions = GetSupportedCompressions();
+  if (supported_compressions.size() < 2) {
+    // Skipping since none of the compression is supported
+    return;
+  }
+  // Check if KLZ4Compression, KLZ4HCCompression and kZSTDCompression are
+  // supported before running the test case as they must be supported for us to
+  // have at least two compressors
+  if (std::find(supported_compressions.begin(), supported_compressions.end(),
+                kLZ4Compression) != supported_compressions.end() ||
+      std::find(supported_compressions.begin(), supported_compressions.end(),
+                kLZ4HCCompression) != supported_compressions.end() ||
+      std::find(supported_compressions.begin(), supported_compressions.end(),
+                kZSTD) != supported_compressions.end()) {
+    // Skipping since none of the compression is supported
+    options_.level0_file_num_compaction_trigger = 2;
+    options_.level0_slowdown_writes_trigger = 2;
+    options_.level0_stop_writes_trigger = 3;
+    // options_.disable_auto_compactions = true;
+    options_.writable_file_max_buffer_size = 20000 * 100;
+    options_.env = env_;
+    auto default_type =
+        supported_compressions[supported_compressions.size() - 1];
+    options_.compression = default_type;
+    DestroyAndReopen(options_);
+    test::SleepingBackgroundTask sleeping_task_low;
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                   &sleeping_task_low, Env::Priority::LOW);
+    sleeping_task_low.WaitUntilSleeping();
+    auto files_per_level = FilesPerLevel(0);
+    // Creating two SST at level 0
+    Write(100);
+    ASSERT_OK(Flush());
+    Write(100);
+    ASSERT_OK(Flush());
+    Write(100);
+    // Writing till we get write stall
+    WriteOptions wo;
+    wo.no_slowdown = true;
+    for (auto i = 0; i < 10000; i++) {
+      files_per_level = FilesPerLevel(0);
+      constexpr size_t kValueSize = 20000;
+      auto value = rnd.RandomBinaryString(kValueSize);
+      Status ns = db_->Put(wo, Key(next_key_++), value);
+      if (ns.IsIncomplete()) {
+        break;
+      };
+    }
+    ASSERT_EQ(io_goal_->GetMaxRate(), kStallIOUpperBound);
+    sleeping_task_low.WakeUp();
+    Write(100);
+    files_per_level = FilesPerLevel(0);
+    ASSERT_EQ(io_goal_->GetMaxRate(), kIOUpperBound);
+  }
 }
 
+TEST(DynamicBudgetTest, ChangesBudgetDuringWriteStall) {
+  // This test case verifies that the budget is changed when the write stall
+  // detection is triggered
+  auto io_lower_bound = 0.5;
+  auto io_upper_bound = 0.7;
+  auto stall_lower_bound = 0.7;
+  auto stall_upper_bound = 1.0;
+  auto io_goal = DynamicBudget(io_upper_bound, io_lower_bound,
+                               stall_upper_bound, stall_lower_bound);
+  ASSERT_EQ(io_goal.GetMaxRate(), io_upper_bound);
+  ASSERT_EQ(io_goal.GetMinRate(), io_lower_bound);
+  // Trigger the start of write stall detection
+  WriteStallInfo write_stall_info;
+  write_stall_info.condition.cur = WriteStallCondition::kDelayed;
+  io_goal.OnStallConditionsChanged(write_stall_info);
+  ASSERT_EQ(io_goal.GetMaxRate(), stall_upper_bound);
+  ASSERT_EQ(io_goal.GetMinRate(), stall_lower_bound);
+  // Trigger the stop of write stall detection
+  write_stall_info.condition.cur = WriteStallCondition::kNormal;
+  io_goal.OnStallConditionsChanged(write_stall_info);
+  ASSERT_EQ(io_goal.GetMaxRate(), io_upper_bound);
+  ASSERT_EQ(io_goal.GetMinRate(), io_lower_bound);
+}
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

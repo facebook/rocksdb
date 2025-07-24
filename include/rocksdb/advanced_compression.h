@@ -14,8 +14,49 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/data_structure.h"
+#include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
+// Class defines the interface to define budget or goal for autotune compressor
+// The autotune compressor should try to achieve GetMinRate and try not to go
+// above the GetMaxRate
+// GetMaxRate and GetMinRate expresses the rate in unit of per seccond
+// Default Budget definition is static and it could be extended to make the
+// budget or io goal dynamic
+class Budget {
+ public:
+  Budget(double max_rate, double min_rate)
+      : max_rate_(max_rate), min_rate_(min_rate) {}
+  virtual double GetMaxRate() { return max_rate_; }
+  virtual double GetMinRate() { return min_rate_; }
+  virtual ~Budget() = default;
+
+ private:
+  double max_rate_;
+  double min_rate_;
+};
+// IOGoal is supposed to be in unit of bytes/second
+using IOGoal = Budget;
+// CPUBudget is suppposed to be in unit of number of cores/second
+using CPUBudget = Budget;
+struct DynamicBudget : public Budget, public EventListener {
+  explicit DynamicBudget(double max_rate, double min_rate,
+                         double stall_max_rate, double stall_min_rate)
+      : Budget(max_rate, min_rate),
+        stall_max_rate_(stall_max_rate),
+        stall_min_rate_(stall_min_rate),
+        stall_condition_(WriteStallCondition::kNormal){};
+  double GetMaxRate() override;
+  double GetMinRate() override;
+  void OnStallConditionsChanged(const WriteStallInfo& info) override {
+    stall_condition_ = info.condition.cur;
+  };
+
+ private:
+  double stall_max_rate_;
+  double stall_min_rate_;
+  WriteStallCondition stall_condition_;
+};
 
 // TODO: alias/adapt for compression
 struct FilterBuildingContext;
@@ -618,8 +659,23 @@ const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager();
 std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
     std::shared_ptr<CompressionManager> wrapped = nullptr);
 // Creates CompressionManager designed for the CPU and IO cost aware compression
-// strategy
+// strategy that selects compression algorithm in order to achieve IO and CPU
+// usage of the rocksdb process within certain range (i.e. IO goal and CPU
+// budget)
+// AutoTuneCompressionManager expects at least one of the following compression
+// algorithms to be supported:
+// - kSnappyCompression
+// - kLZ4Compression
+// - kLZ4HCCompression
+// - kZSTD
+// IO Goal specifies that the compression manager should limit disk write
+// throughput between maximum and minimum bytes per second.
+// CPU Budget specifies that the compression manager should limit CPU usage
+// between maximum and minimum number of cores available to the process.
 // EXPERIMENTAL
-std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
-    std::shared_ptr<CompressionManager> wrapped = nullptr);
+std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
+    std::shared_ptr<CompressionManager> wrapped,
+    std::shared_ptr<IOGoal> io_goal, std::shared_ptr<CPUBudget> cpu_budget,
+    const Options& opt);
+
 }  // namespace ROCKSDB_NAMESPACE
