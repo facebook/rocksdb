@@ -14,9 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 // Service to simulate Remote Compaction in Stress Test
 class DbStressCompactionService : public CompactionService {
  public:
-  explicit DbStressCompactionService(const std::string& db_path,
-                                     SharedState* shared)
-      : db_path_(db_path), shared_(shared) {}
+  explicit DbStressCompactionService(SharedState* shared) : shared_(shared) {}
 
   static const char* kClassName() { return "DbStressCompactionService"; }
 
@@ -77,7 +75,6 @@ class DbStressCompactionService : public CompactionService {
   void CancelAwaitingJobs() override {}
 
  private:
-  std::string db_path_;
   SharedState* shared_;
 };
 
