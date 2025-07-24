@@ -1693,13 +1693,13 @@ Status StressTest::TestMultiScan(ThreadState* thread,
 
   constexpr size_t kOpLogsLimit = 10000;
 
-  auto verify_func = [](Iterator* iter) {
-    if (!VerifyWideColumns(iter->value(), iter->columns())) {
+  auto verify_func = [](Iterator* iterator) {
+    if (!VerifyWideColumns(iterator->value(), iterator->columns())) {
       fprintf(stderr,
               "Value and columns inconsistent for iterator: value: %s, "
               "columns: %s\n",
-              iter->value().ToString(/* hex */ true).c_str(),
-              WideColumnsToHex(iter->columns()).c_str());
+              iterator->value().ToString(/* hex */ true).c_str(),
+              WideColumnsToHex(iterator->columns()).c_str());
       return false;
     }
     return true;
@@ -1735,6 +1735,8 @@ Status StressTest::TestMultiScan(ThreadState* thread,
 
     bool diverged = false;
 
+    assert(scan_opt.range.start);
+    assert(scan_opt.range.limit);
     Slice key = scan_opt.range.start.value();
     Slice ub = scan_opt.range.limit.value();
     ro.iterate_upper_bound = &ub;
