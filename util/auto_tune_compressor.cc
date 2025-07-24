@@ -371,17 +371,21 @@ std::unique_ptr<Compressor> AutoTuneCompressorManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,
     CompressionType preferred) {
   (void)context;
-  return std::make_unique<AutoTuneCompressor>(
-      opts, preferred, io_goal_, cpu_budget_, option_.rate_limiter);
+  return std::make_unique<AutoTuneCompressor>(opts, preferred, io_goal_,
+                                              cpu_budget_, rate_limiter_);
 }
 
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
-    std::shared_ptr<CompressionManager> wrapped,
-    std::shared_ptr<IOGoal> io_goal, std::shared_ptr<CPUBudget> cpu_budget,
-    const Options& opt) {
+    const std::shared_ptr<CompressionManager>& wrapped,
+    const std::shared_ptr<Budget>& io_goal,
+    const std::shared_ptr<Budget>& cpu_budget,
+    const std::shared_ptr<RateLimiter>& rate_limiter) {
+  // Cast Budget to IOGoal and CPUBudget since they are type aliases
+  auto io_goal_cast = std::static_pointer_cast<IOGoal>(io_goal);
+  auto cpu_budget_cast = std::static_pointer_cast<CPUBudget>(cpu_budget);
   return std::make_shared<AutoTuneCompressorManager>(
-      wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped, io_goal,
-      cpu_budget, opt);
+      wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped, 
+      io_goal_cast, cpu_budget_cast, rate_limiter);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

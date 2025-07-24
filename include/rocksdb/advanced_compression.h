@@ -650,14 +650,15 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
 // - kLZ4Compression
 // - kLZ4HCCompression
 // - kZSTD
-// IO Goal specifies that the compression manager should limit disk write
+// IO goal specifies that the compression manager should limit disk write
 // throughput between maximum and minimum bytes per second.
 // CPU Budget specifies that the compression manager should limit CPU usage
 // between maximum and minimum number of cores available to the process.
 // EXPERIMENTAL
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
-    std::shared_ptr<CompressionManager> wrapped,
-    std::shared_ptr<IOGoal> io_goal, std::shared_ptr<CPUBudget> cpu_budget,
-    const Options& opt);
+    const std::shared_ptr<CompressionManager>& wrapped,
+    const std::shared_ptr<IOGoal>& io_goal,
+    const std::shared_ptr<CPUBudget>& cpu_budget,
+    const std::shared_ptr<RateLimiter>& rate_limiter);
 
 }  // namespace ROCKSDB_NAMESPACE

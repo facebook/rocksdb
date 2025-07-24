@@ -4698,8 +4698,9 @@ class Benchmark {
           std::make_shared<IOGoal>(io_upper_bound, io_lower_bound);
       std::shared_ptr<CPUBudget> cpu_budget =
           std::make_shared<CPUBudget>(cpu_upper_bound, cpu_lower_bound);
+      auto rate_limiter = options.rate_limiter;
       mgr = CreateAutoTuneCompressionManager(nullptr, io_goal, cpu_budget,
-                                             options);
+                                             rate_limiter);
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {

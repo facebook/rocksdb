@@ -189,6 +189,8 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
   static constexpr uint64_t kMicrosInSecond = 1000000;
   static constexpr int kExplorationPercentage = 10;
   static constexpr int kProbabilityCutOff = 50;
+  static constexpr int kCompressionEvaluationInterval = 2000;
+  static constexpr int kWindow = 10;
   const CompressionOptions opts_;
 
   // Budget references for cost-aware compression decisions
@@ -199,9 +201,6 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
   std::atomic<int> block_count_;
   std::atomic<size_t> cur_compressor_idx_;
   std::unique_ptr<Compressor> default_compressor_;
-
-  static constexpr int kCompressionEvaluationInterval = 2000;
-  static constexpr int kWindow = 10;
 };
 
 class AutoTuneCompressorManager : public CompressionManagerWrapper {
@@ -209,11 +208,12 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
   explicit AutoTuneCompressorManager(
       const std::shared_ptr<CompressionManager>& wrapped,
       const std::shared_ptr<IOGoal>& io_goal,
-      const std::shared_ptr<CPUBudget>& cpu_budget, const Options& option)
+      const std::shared_ptr<CPUBudget>& cpu_budget,
+      const std::shared_ptr<RateLimiter>& rate_limiter)
       : CompressionManagerWrapper(wrapped),
         io_goal_(io_goal),
         cpu_budget_(cpu_budget),
-        option_(option) {}
+        rate_limiter_(rate_limiter) {}
 
   const char* Name() const override;
   std::unique_ptr<Compressor> GetCompressorForSST(
@@ -223,7 +223,7 @@ class AutoTuneCompressorManager : public CompressionManagerWrapper {
  private:
   std::shared_ptr<IOGoal> io_goal_;
   std::shared_ptr<CPUBudget> cpu_budget_;
-  Options option_;
+  std::shared_ptr<RateLimiter> rate_limiter_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

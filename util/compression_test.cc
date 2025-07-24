@@ -1831,7 +1831,7 @@ class DBAutoTuneCompressionTest : public DBTestBase {
     std::shared_ptr<IOGoal> cpu_budget =
         std::make_shared<IOGoal>(kCPUUpperBound, kCPULowerBound);
     options_.compression_manager = CreateAutoTuneCompressionManager(
-        nullptr, io_goal, cpu_budget, options_);
+        nullptr, io_goal, cpu_budget, options_.rate_limiter);
     DestroyAndReopen(options_);
   }
   void BlockWrite(int num) {
