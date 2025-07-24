@@ -16,7 +16,6 @@ CPUIOUtilizationTracker::CPUIOUtilizationTracker(
 }
 
 void CPUIOUtilizationTracker::Record() {
-  std::lock_guard<std::mutex> lock(mutex_);
   RecordCPUUsage();
   RecordIOUtilization();
 }

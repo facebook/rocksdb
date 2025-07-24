@@ -104,7 +104,6 @@ class CPUIOUtilizationTracker {
  private:
   void RecordCPUUsage();
   void RecordIOUtilization();
-  std::mutex mutex_;
   std::shared_ptr<RateLimiter> rate_limiter_;
   RateTracker<size_t> rate_limiter_bytes_rate_tracker_;
   RateTracker<double> cpu_usage_rate_tracker_;

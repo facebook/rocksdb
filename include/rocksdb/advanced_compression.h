@@ -658,6 +658,8 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
 // CPU Budget specifies that the compression manager should limit CPU usage
 // between maximum and minimum number of cores available to the process.
 // EXPERIMENTAL
+// AutoCompressionManager is not thread safe and is not to be used in
+// multithreaded scenario
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
     const std::shared_ptr<CompressionManager>& wrapped,
     const std::shared_ptr<IOGoal>& io_goal,

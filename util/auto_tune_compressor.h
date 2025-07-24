@@ -198,8 +198,8 @@ class AutoTuneCompressor : public MultiCompressorWrapper {
   std::shared_ptr<CPUBudget> cpu_budget_;
   CPUIOUtilizationTracker usage_tracker_;
   // Will serve as a logical clock to decide when to update the decision
-  std::atomic<int> block_count_;
-  std::atomic<size_t> cur_compressor_idx_;
+  int block_count_;
+  size_t cur_compressor_idx_;
   std::unique_ptr<Compressor> default_compressor_;
 };
 

@@ -260,9 +260,7 @@ void AutoTuneCompressor::ReleaseWorkingArea(WorkingArea* wa) {
 // IOGoal and CPUBudget.
 size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
     CostAwareWorkingArea* wa) {
-  if ((block_count_.fetch_add(1, std::memory_order_relaxed)) %
-          kCompressionEvaluationInterval !=
-      0) {
+  if ((block_count_++) % kCompressionEvaluationInterval != 0) {
     return cur_compressor_idx_;
   }
   // Measure current resource utilization
@@ -386,7 +384,8 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
   return std::make_shared<AutoTuneCompressorManager>(
       wrapped == nullptr ? GetBuiltinV2CompressionManager() : wrapped,
       io_goal == nullptr ? std::make_shared<IOGoal>(0.99, 0.9) : io_goal,
-      cpu_budget == nullptr ? std::make_shared<CPUBudget>(0.9, 0.8) : cpu_budget,
+      cpu_budget == nullptr ? std::make_shared<CPUBudget>(0.9, 0.8)
+                            : cpu_budget,
       rate_limiter);
 }
 bool AutoTuneCompressionManagerSupported() {
