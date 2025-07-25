@@ -24,6 +24,14 @@ namespace ROCKSDB_NAMESPACE {
 using secondary_cache_test_util::GetTestingCacheTypes;
 using secondary_cache_test_util::WithCacheType;
 
+// Read and reset a statistic
+template <typename T>
+T Pop(T& var) {
+  T ret = var;
+  var = T();
+  return ret;
+}
+
 // 16 bytes for HCC compatibility
 const std::string key0 = "____    ____key0";
 const std::string key1 = "____    ____key1";
@@ -51,7 +59,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
 
     Random rnd(301);
     // Insert and Lookup the item k1 for the first time.
-    std::string str1(rnd.RandomString(1000));
+    std::string str1 = test::CompressibleString(&rnd, 0.5, 1000);
     TestItem item1(str1.data(), str1.length());
     // A dummy handle is inserted if the item is inserted for the first time.
     ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
@@ -68,7 +76,14 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1);
 
-    ASSERT_GT(comp_sec_cache->TEST_GetCharge(key1), 1000);
+    if (sec_cache_is_compressed) {
+      ASSERT_GT(comp_sec_cache->TEST_GetCharge(key1), str1.length() / 4);
+      ASSERT_LT(comp_sec_cache->TEST_GetCharge(key1), str1.length() * 3 / 4);
+    } else {
+      ASSERT_GE(comp_sec_cache->TEST_GetCharge(key1), str1.length());
+      // NOTE: split-merge is worse (1048 vs. 1024)
+      ASSERT_LE(comp_sec_cache->TEST_GetCharge(key1), 1048U);
+    }
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1_2 =
         sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/true,
@@ -76,10 +91,13 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_NE(handle1_2, nullptr);
     ASSERT_FALSE(kept_in_sec_cache);
     if (sec_cache_is_compressed) {
-      ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes,
-                1000);
-      ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes,
-                1007);
+      ASSERT_EQ(
+          Pop(get_perf_context()->compressed_sec_cache_uncompressed_bytes),
+          str1.length());
+      ASSERT_LT(get_perf_context()->compressed_sec_cache_compressed_bytes,
+                str1.length() * 3 / 4);
+      ASSERT_GT(Pop(get_perf_context()->compressed_sec_cache_compressed_bytes),
+                str1.length() / 4);
     } else {
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes, 0);
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes, 0);
@@ -97,7 +115,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_EQ(handle1_3, nullptr);
 
     // Insert and Lookup the item k2.
-    std::string str2(rnd.RandomString(1000));
+    std::string str2 = test::CompressibleString(&rnd, 0.5, 1017);
     TestItem item2(str2.data(), str2.length());
     ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 2);
@@ -109,10 +127,13 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 2);
     if (sec_cache_is_compressed) {
-      ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes,
-                2000);
-      ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes,
-                2014);
+      ASSERT_EQ(
+          Pop(get_perf_context()->compressed_sec_cache_uncompressed_bytes),
+          str2.length());
+      ASSERT_LT(get_perf_context()->compressed_sec_cache_compressed_bytes,
+                str2.length() * 3 / 4);
+      ASSERT_GT(Pop(get_perf_context()->compressed_sec_cache_compressed_bytes),
+                str2.length() / 4);
     } else {
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes, 0);
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes, 0);
@@ -126,9 +147,48 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_NE(val2, nullptr);
     ASSERT_EQ(memcmp(val2->Buf(), item2.Buf(), item2.Size()), 0);
 
+    // Release handles
     std::vector<SecondaryCacheResultHandle*> handles = {handle1_2.get(),
                                                         handle2_2.get()};
     sec_cache->WaitAll(handles);
+    handle1_2.reset();
+    handle2_2.reset();
+
+    // Insert and Lookup a non-compressible item k3.
+    std::string str3 = rnd.RandomBinaryString(480);
+    TestItem item3(str3.data(), str3.length());
+    ASSERT_OK(sec_cache->Insert(key3, &item3, GetHelper(), false));
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_dummy_count, 3);
+    std::unique_ptr<SecondaryCacheResultHandle> handle3_1 =
+        sec_cache->Lookup(key3, GetHelper(), this, true, /*advise_erase=*/false,
+                          /*stats=*/nullptr, kept_in_sec_cache);
+    ASSERT_EQ(handle3_1, nullptr);
+
+    ASSERT_OK(sec_cache->Insert(key3, &item3, GetHelper(), false));
+    ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 3);
+    if (sec_cache_is_compressed) {
+      // TODO: consider a compression rejected stat?
+      ASSERT_EQ(
+          Pop(get_perf_context()->compressed_sec_cache_uncompressed_bytes),
+          str3.length());
+      ASSERT_EQ(Pop(get_perf_context()->compressed_sec_cache_compressed_bytes),
+                str3.length());
+    } else {
+      ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes, 0);
+      ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes, 0);
+    }
+
+    std::unique_ptr<SecondaryCacheResultHandle> handle3_2 =
+        sec_cache->Lookup(key3, GetHelper(), this, true, /*advise_erase=*/false,
+                          /*stats=*/nullptr, kept_in_sec_cache);
+    ASSERT_NE(handle3_2, nullptr);
+    std::unique_ptr<TestItem> val3 =
+        std::unique_ptr<TestItem>(static_cast<TestItem*>(handle3_2->Value()));
+    ASSERT_NE(val3, nullptr);
+    ASSERT_EQ(memcmp(val3->Buf(), item3.Buf(), item3.Size()), 0);
+
+    EXPECT_GE(comp_sec_cache->TEST_GetCharge(key3), str3.length());
+    EXPECT_LE(comp_sec_cache->TEST_GetCharge(key3), 512);
 
     sec_cache.reset();
   }
@@ -178,8 +238,9 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
       secondary_cache_opts.compression_type = CompressionType::kNoCompression;
     }
 
-    secondary_cache_opts.capacity = 1100;
+    secondary_cache_opts.capacity = 1400;
     secondary_cache_opts.num_shard_bits = 0;
+    secondary_cache_opts.strict_capacity_limit = true;
     std::shared_ptr<SecondaryCache> sec_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
 
@@ -193,7 +254,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_OK(sec_cache->Insert(key1, &item1, GetHelper(), false));
 
     // Insert and Lookup the second item.
-    std::string str2(rnd.RandomString(200));
+    std::string str2(rnd.RandomString(500));
     TestItem item2(str2.data(), str2.length());
     // Insert a dummy handle, k1 is not evicted.
     ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
@@ -201,16 +262,23 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     std::unique_ptr<SecondaryCacheResultHandle> handle1 =
         sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/false,
                           /*stats=*/nullptr, kept_in_sec_cache);
-    ASSERT_EQ(handle1, nullptr);
+    ASSERT_NE(handle1, nullptr);
+    std::unique_ptr<TestItem> val1{static_cast<TestItem*>(handle1->Value())};
+    ASSERT_NE(val1, nullptr);
+    ASSERT_EQ(val1->ToString(), str1);
+    handle1.reset();
 
     // Insert k2 and k1 is evicted.
     ASSERT_OK(sec_cache->Insert(key2, &item2, GetHelper(), false));
+    handle1 =
+        sec_cache->Lookup(key1, GetHelper(), this, true, /*advise_erase=*/false,
+                          /*stats=*/nullptr, kept_in_sec_cache);
+    ASSERT_EQ(handle1, nullptr);
     std::unique_ptr<SecondaryCacheResultHandle> handle2 =
         sec_cache->Lookup(key2, GetHelper(), this, true, /*advise_erase=*/false,
                           /*stats=*/nullptr, kept_in_sec_cache);
     ASSERT_NE(handle2, nullptr);
-    std::unique_ptr<TestItem> val2 =
-        std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));
+    std::unique_ptr<TestItem> val2{static_cast<TestItem*>(handle2->Value())};
     ASSERT_NE(val2, nullptr);
     ASSERT_EQ(memcmp(val2->Buf(), item2.Buf(), item2.Size()), 0);
 
@@ -232,7 +300,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     // Save Fails.
     std::string str3 = rnd.RandomString(10);
     TestItem item3(str3.data(), str3.length());
-    // The Status is OK because a dummy handle is inserted.
+    // The first Status is OK because a dummy handle is inserted.
     ASSERT_OK(sec_cache->Insert(key3, &item3, GetHelperFail(), false));
     ASSERT_NOK(sec_cache->Insert(key3, &item3, GetHelperFail(), false));
 
@@ -265,11 +333,11 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
 
     get_perf_context()->Reset();
     Random rnd(301);
-    std::string str1 = rnd.RandomString(1001);
+    std::string str1 = test::CompressibleString(&rnd, 0.5, 1001);
     auto item1_1 = new TestItem(str1.data(), str1.length());
     ASSERT_OK(cache->Insert(key1, item1_1, GetHelper(), str1.length()));
 
-    std::string str2 = rnd.RandomString(1012);
+    std::string str2 = test::CompressibleString(&rnd, 0.5, 1012);
     auto item2_1 = new TestItem(str2.data(), str2.length());
     // After this Insert, primary cache contains k2 and secondary cache contains
     // k1's dummy item.
@@ -278,7 +346,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes, 0);
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes, 0);
 
-    std::string str3 = rnd.RandomString(1024);
+    std::string str3 = test::CompressibleString(&rnd, 0.5, 1024);
     auto item3_1 = new TestItem(str3.data(), str3.length());
     // After this Insert, primary cache contains k3 and secondary cache contains
     // k1's dummy item and k2's dummy item.
@@ -297,10 +365,13 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_OK(cache->Insert(key2, item2_2, GetHelper(), str2.length()));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 1);
     if (sec_cache_is_compressed) {
-      ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes,
+      ASSERT_EQ(
+          Pop(get_perf_context()->compressed_sec_cache_uncompressed_bytes),
+          str1.length());
+      ASSERT_LT(get_perf_context()->compressed_sec_cache_compressed_bytes,
                 str1.length());
-      ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes,
-                1008);
+      ASSERT_GT(Pop(get_perf_context()->compressed_sec_cache_compressed_bytes),
+                str1.length() / 10);
     } else {
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes, 0);
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes, 0);
@@ -312,10 +383,13 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     ASSERT_OK(cache->Insert(key3, item3_2, GetHelper(), str3.length()));
     ASSERT_EQ(get_perf_context()->compressed_sec_cache_insert_real_count, 2);
     if (sec_cache_is_compressed) {
-      ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes,
-                str1.length() + str2.length());
-      ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes,
-                2027);
+      ASSERT_EQ(
+          Pop(get_perf_context()->compressed_sec_cache_uncompressed_bytes),
+          str2.length());
+      ASSERT_LT(get_perf_context()->compressed_sec_cache_compressed_bytes,
+                str2.length());
+      ASSERT_GT(Pop(get_perf_context()->compressed_sec_cache_compressed_bytes),
+                str2.length() / 10);
     } else {
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes, 0);
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes, 0);
@@ -641,8 +715,7 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     size_t str_size{8500};
     std::string str = rnd.RandomString(static_cast<int>(str_size));
     size_t charge{0};
-    CacheValueChunk* chunks_head =
-        sec_cache->SplitValueIntoChunks(str, kLZ4Compression, charge);
+    CacheValueChunk* chunks_head = sec_cache->SplitValueIntoChunks(str, charge);
     ASSERT_EQ(charge, str_size + 3 * (sizeof(CacheValueChunk) - 1));
 
     CacheValueChunk* current_chunk = chunks_head;
@@ -688,12 +761,9 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     std::unique_ptr<CompressedSecondaryCache> sec_cache =
         std::make_unique<CompressedSecondaryCache>(
             CompressedSecondaryCacheOptions(1000, 0, true, 0.5, 0.0));
-    size_t charge{0};
-    CacheAllocationPtr value =
-        sec_cache->MergeChunksIntoValue(chunks_head, charge);
-    ASSERT_EQ(charge, size1 + size2 + size3);
-    std::string value_str{value.get(), charge};
-    ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
+    std::string value_str = sec_cache->MergeChunksIntoValue(chunks_head);
+    ASSERT_EQ(value_str.size(), size1 + size2 + size3);
+    ASSERT_EQ(value_str, str);
 
     while (chunks_head != nullptr) {
       CacheValueChunk* tmp_chunk = chunks_head;
@@ -725,15 +795,12 @@ class CompressedSecondaryCacheTestBase : public testing::Test,
     size_t str_size{8500};
     std::string str = rnd.RandomString(static_cast<int>(str_size));
     size_t charge{0};
-    CacheValueChunk* chunks_head =
-        sec_cache->SplitValueIntoChunks(str, kLZ4Compression, charge);
+    CacheValueChunk* chunks_head = sec_cache->SplitValueIntoChunks(str, charge);
     ASSERT_EQ(charge, str_size + 3 * (sizeof(CacheValueChunk) - 1));
 
-    CacheAllocationPtr value =
-        sec_cache->MergeChunksIntoValue(chunks_head, charge);
-    ASSERT_EQ(charge, str_size);
-    std::string value_str{value.get(), charge};
-    ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
+    std::string value_str = sec_cache->MergeChunksIntoValue(chunks_head);
+    ASSERT_EQ(value_str.size(), str_size);
+    ASSERT_EQ(value_str, str);
 
     sec_cache->GetHelper(true)->del_cb(chunks_head, /*alloc*/ nullptr);
   }
@@ -896,8 +963,8 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryRoles) {
 
   std::shared_ptr<SecondaryCache> sec_cache = NewCompressedSecondaryCache(opts);
 
-  // Fixed seed to ensure consistent compressibility (doesn't compress)
-  std::string junk(Random(301).RandomString(1000));
+  Random rnd(301);
+  std::string junk = test::CompressibleString(&rnd, 0.5, 1000);
 
   for (uint32_t i = 0; i < kNumCacheEntryRoles; ++i) {
     CacheEntryRole role = static_cast<CacheEntryRole>(i);
@@ -930,9 +997,11 @@ TEST_P(CompressedSecondaryCacheTestWithCompressionParam, EntryRoles) {
         sec_cache_is_compressed_ && !do_not_compress.Contains(role);
     if (compressed) {
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes,
-                1000);
-      ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes,
-                1007);
+                junk.length());
+      ASSERT_LT(get_perf_context()->compressed_sec_cache_compressed_bytes,
+                junk.length() * 3 / 4);
+      ASSERT_GT(get_perf_context()->compressed_sec_cache_compressed_bytes,
+                junk.length() / 4);
     } else {
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_uncompressed_bytes, 0);
       ASSERT_EQ(get_perf_context()->compressed_sec_cache_compressed_bytes, 0);

@@ -60,6 +60,8 @@ DEFINE_uint32(value_bytes, 8 * KiB, "Size of each value added.");
 DEFINE_uint32(value_bytes_estimate, 0,
               "If > 0, overrides estimated_entry_charge or "
               "min_avg_entry_charge depending on cache_type.");
+DEFINE_double(compressible_to_ratio, 0.5,
+              "Approximate size ratio that values can be compressed to.");
 
 DEFINE_int32(
     degenerate_hash_bits, 0,
@@ -291,9 +293,18 @@ struct KeyGen {
 
 Cache::ObjectPtr createValue(Random64& rnd, MemoryAllocator* alloc) {
   char* rv = AllocateBlock(FLAGS_value_bytes, alloc).release();
-  // Fill with some filler data, and take some CPU time
-  for (uint32_t i = 0; i < FLAGS_value_bytes; i += 8) {
+  // Fill with some filler data, and take some CPU time, but add redundancy
+  // as requested for compressibility.
+  uint32_t random_fill_size = std::max(
+      uint32_t{1}, std::min(FLAGS_value_bytes,
+                            static_cast<uint32_t>(FLAGS_compressible_to_ratio *
+                                                  FLAGS_value_bytes)));
+  uint32_t i = 0;
+  for (; i < random_fill_size; i += 8) {
     EncodeFixed64(rv + i, rnd.Next());
+  }
+  for (; i < FLAGS_value_bytes; i++) {
+    rv[i] = rv[i % random_fill_size];
   }
   return rv;
 }
@@ -309,16 +320,16 @@ Status SaveToFn(Cache::ObjectPtr from_obj, size_t /*from_offset*/,
 
 Status CreateFn(const Slice& data, CompressionType /*type*/,
                 CacheTier /*source*/, Cache::CreateContext* /*context*/,
-                MemoryAllocator* /*allocator*/, Cache::ObjectPtr* out_obj,
+                MemoryAllocator* alloc, Cache::ObjectPtr* out_obj,
                 size_t* out_charge) {
-  *out_obj = new char[data.size()];
+  *out_obj = AllocateBlock(data.size(), alloc).release();
   memcpy(*out_obj, data.data(), data.size());
   *out_charge = data.size();
   return Status::OK();
 };
 
 void DeleteFn(Cache::ObjectPtr value, MemoryAllocator* alloc) {
-  CustomDeleter{alloc}(static_cast<char*>(value));
+  CacheAllocationDeleter{alloc}(static_cast<char*>(value));
 }
 
 Cache::CacheItemHelper helper1_wos(CacheEntryRole::kDataBlock, DeleteFn);

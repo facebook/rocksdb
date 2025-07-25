@@ -177,7 +177,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   // compression type
   void CompressAndVerifyBlock(const Slice& uncompressed_block_data,
                               bool is_data_block, WorkingAreaPair& working_area,
-                              std::string* compressed_output,
+                              GrowableBuffer* compressed_output,
                               CompressionType* result_compression_type,
                               Status* out_status);
 

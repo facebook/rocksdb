@@ -32,12 +32,9 @@ size_t CompressionRejectionProbabilityPredictor::attempted_compression_count()
 }
 
 bool CompressionRejectionProbabilityPredictor::Record(
-    Slice uncompressed_block_data, std::string* compressed_output,
-    const CompressionOptions& opts) {
-  if (compressed_output->size() >
-      (static_cast<uint64_t>(opts.max_compressed_bytes_per_kb) *
-       uncompressed_block_data.size()) >>
-      10) {
+    Slice /*uncompressed_block_data*/, char* /*compressed_output*/,
+    size_t /*compressed_output_size*/, CompressionType compression_type) {
+  if (compression_type == kNoCompression) {
     rejected_count_++;
   } else {
     compressed_count_++;
@@ -63,15 +60,17 @@ const char* AutoSkipCompressorWrapper::Name() const {
 }
 
 Status AutoSkipCompressorWrapper::CompressBlock(
-    Slice uncompressed_data, std::string* compressed_output,
-    CompressionType* out_compression_type, ManagedWorkingArea* wa) {
+    Slice uncompressed_data, char* compressed_output,
+    size_t* compressed_output_size, CompressionType* out_compression_type,
+    ManagedWorkingArea* wa) {
   // Check if the managed working area is provided or owned by this object.
   // If not, bypass auto-skip logic since the working area lacks a predictor to
   // record or make necessary decisions to compress or bypass compression of the
   // block
   if (wa == nullptr || wa->owner() != this) {
     return wrapped_->CompressBlock(uncompressed_data, compressed_output,
-                                   out_compression_type, wa);
+                                   compressed_output_size, out_compression_type,
+                                   wa);
   }
   bool exploration =
       Random::GetTLSInstance()->PercentTrue(kExplorationPercentage);
@@ -81,17 +80,20 @@ Status AutoSkipCompressorWrapper::CompressBlock(
   auto autoskip_wa = static_cast<AutoSkipWorkingArea*>(wa->get());
   if (exploration) {
     return CompressBlockAndRecord(uncompressed_data, compressed_output,
-                                  out_compression_type, autoskip_wa);
+                                  compressed_output_size, out_compression_type,
+                                  autoskip_wa);
   } else {
     auto predictor_ptr = autoskip_wa->predictor;
     auto prediction = predictor_ptr->Predict();
     if (prediction <= kProbabilityCutOff) {
       // decide to compress
       return CompressBlockAndRecord(uncompressed_data, compressed_output,
+                                    compressed_output_size,
                                     out_compression_type, autoskip_wa);
     } else {
       // decide to bypass compression
       *out_compression_type = kNoCompression;
+      *compressed_output_size = 0;
       return Status::OK();
     }
   }
@@ -107,13 +109,16 @@ void AutoSkipCompressorWrapper::ReleaseWorkingArea(WorkingArea* wa) {
 }
 
 Status AutoSkipCompressorWrapper::CompressBlockAndRecord(
-    Slice uncompressed_data, std::string* compressed_output,
-    CompressionType* out_compression_type, AutoSkipWorkingArea* wa) {
+    Slice uncompressed_data, char* compressed_output,
+    size_t* compressed_output_size, CompressionType* out_compression_type,
+    AutoSkipWorkingArea* wa) {
   Status status = wrapped_->CompressBlock(uncompressed_data, compressed_output,
+                                          compressed_output_size,
                                           out_compression_type, &(wa->wrapped));
   // determine if it was rejected or compressed
   auto predictor_ptr = wa->predictor;
-  predictor_ptr->Record(uncompressed_data, compressed_output, opts_);
+  predictor_ptr->Record(uncompressed_data, compressed_output,
+                        *compressed_output_size, *out_compression_type);
   return status;
 }
 
@@ -193,7 +198,8 @@ std::unique_ptr<Compressor> CostAwareCompressor::MaybeCloneSpecialized(
       block_type, std::move(dict_samples));
 }
 Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
-                                          std::string* compressed_output,
+                                          char* compressed_output,
+                                          size_t* compressed_output_size,
                                           CompressionType* out_compression_type,
                                           ManagedWorkingArea* wa) {
   // Check if the managed working area is provided or owned by this object.
@@ -207,7 +213,7 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
     size_t compression_level_ptr = 2;
     return allcompressors_[choosen_compression_type][compression_level_ptr]
         ->CompressBlock(uncompressed_data, compressed_output,
-                        out_compression_type, wa);
+                        compressed_output_size, out_compression_type, wa);
   }
   auto local_wa = static_cast<CostAwareWorkingArea*>(wa->get());
   std::pair<size_t, size_t> choosen_index(6, 2);
@@ -215,7 +221,8 @@ Status CostAwareCompressor::CompressBlock(Slice uncompressed_data,
   size_t compresion_level_ptr = choosen_index.second;
   return CompressBlockAndRecord(choosen_compression_type, compresion_level_ptr,
                                 uncompressed_data, compressed_output,
-                                out_compression_type, local_wa);
+                                compressed_output_size, out_compression_type,
+                                local_wa);
 }
 
 Compressor::ManagedWorkingArea CostAwareCompressor::ObtainWorkingArea() {
@@ -252,8 +259,9 @@ void CostAwareCompressor::ReleaseWorkingArea(WorkingArea* wa) {
 
 Status CostAwareCompressor::CompressBlockAndRecord(
     size_t choosen_compression_type, size_t compression_level_ptr,
-    Slice uncompressed_data, std::string* compressed_output,
-    CompressionType* out_compression_type, CostAwareWorkingArea* wa) {
+    Slice uncompressed_data, char* compressed_output,
+    size_t* compressed_output_size, CompressionType* out_compression_type,
+    CostAwareWorkingArea* wa) {
   assert(choosen_compression_type < allcompressors_.size());
   assert(compression_level_ptr <
          allcompressors_[choosen_compression_type].size());
@@ -264,9 +272,10 @@ Status CostAwareCompressor::CompressBlockAndRecord(
   Status status =
       allcompressors_[choosen_compression_type][compression_level_ptr]
           ->CompressBlock(uncompressed_data, compressed_output,
-                          out_compression_type, &(wa->wrapped_));
+                          compressed_output_size, out_compression_type,
+                          &(wa->wrapped_));
   std::pair<size_t, size_t> measured_data(timer.ElapsedMicros(),
-                                          compressed_output->size());
+                                          *compressed_output_size);
   auto predictor =
       wa->cost_predictors_[choosen_compression_type][compression_level_ptr];
   auto output_length = measured_data.second;

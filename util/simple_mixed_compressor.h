@@ -34,7 +34,8 @@ class MultiCompressorWrapper : public Compressor {
 struct RandomMixedCompressor : public MultiCompressorWrapper {
   using MultiCompressorWrapper::MultiCompressorWrapper;
   const char* Name() const override;
-  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
 };
@@ -50,7 +51,8 @@ class RandomMixedCompressionManager : public CompressionManagerWrapper {
 struct RoundRobinCompressor : public MultiCompressorWrapper {
   using MultiCompressorWrapper::MultiCompressorWrapper;
   const char* Name() const override;
-  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
   static RelaxedAtomic<uint64_t> block_counter;
