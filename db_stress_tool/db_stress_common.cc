@@ -201,7 +201,8 @@ void RemoteCompactionWorkerThread(void* v) {
       shared->AddRemoteCompactionResult(job_id, serialized_output);
     }
     db_stress_env->SleepForMicroseconds(
-        FLAGS_remote_compaction_worker_interval);
+        thread->rand.Next() % FLAGS_remote_compaction_worker_interval * 1000 +
+        1);
   }
 }
 

@@ -233,6 +233,8 @@ bool RunStressTestImpl(SharedState* shared) {
   }
 
   // Kill remote compaction workers
+  assert(remote_compaction_worker_threads.size() ==
+         remote_compaction_worker_thread_count);
   for (uint32_t i = 0; i < remote_compaction_worker_thread_count; i++) {
     delete remote_compaction_worker_threads[i];
     remote_compaction_worker_threads[i] = nullptr;

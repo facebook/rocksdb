@@ -849,9 +849,9 @@ DEFINE_int32(
     "Remote Compaction Worker Thread count. If 0, remote compaction is "
     "disabled");
 
-DEFINE_int32(remote_compaction_worker_interval, 10 * 1000,
+DEFINE_int32(remote_compaction_worker_interval, 10,
              "Remote Compaction Worker Thread dequeue tasks every N "
-             "microseconds. (Default: 10ms)");
+             "milliseconds. (Default: 10ms)");
 
 DEFINE_int32(
     remote_compaction_wait_interval, 10 * 1000,
