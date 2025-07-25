@@ -1032,7 +1032,7 @@ def finalize_and_sanitize(src_params):
             )
         dest_params["block_align"] = 0
     elif dest_params.get("compression_manager") == "autotunecompressor":
-        # ensuring the compression is being used
+        # ensuring the compression suported by the autotunecompressor is being used
         if dest_params.get("compression_type") == "none":
             dest_params["compression_type"] = random.choice(
                 ["snappy", "lz4", "lz4hc", "xpress", "zstd"]
@@ -1042,8 +1042,9 @@ def finalize_and_sanitize(src_params):
                 ["snappy", "lz4", "lz4hc", "xpress", "zstd"]
             )
         dest_params["block_align"] = 0
-        # make sure rate_limiter is enabled
+        # make sure rate_limiter is enabled and compression parallel thread is set to 1
         dest_params["rate_limiter_bytes_per_sec"] = 1000000000
+        dest_params["compression_parallel_threads"] = 1
     else:
         # Enabling block_align with compression is not supported
         if dest_params.get("block_align") == 1:
