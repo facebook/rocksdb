@@ -1822,7 +1822,15 @@ class DBAutoTuneCompressionTest : public DBTestBase {
       : DBTestBase("db_autotune", /*env_do_fsync=*/true),
         options_(CurrentOptions()),
         rnd(231),
-        next_key_(0) {
+        next_key_(0),
+        cur_selection_(0),
+        default_cpu_prediction_(500),
+        default_io_prediction_(1000),
+        target_cpu_prediction_(700),
+        target_io_prediction_(700),
+        target_selection_(1),
+        cpu_usage_(0.5),
+        io_usage_(0.5) {
     auto statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options_.statistics = statistics;
     options_.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
@@ -1918,7 +1926,7 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
   // make sure that threre are more than two compressors before running the
   // test case.
   if (AutoTuneCompressionManagerSupported()) {
-    auto supported_compressions = GetSupportedCompressions();
+    const auto& supported_compressions = GetSupportedCompressions();
     auto default_type =
         supported_compressions[supported_compressions.size() - 1];
     options_.compression = default_type;
