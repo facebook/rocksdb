@@ -3448,6 +3448,10 @@ void StressTest::Open(SharedState* shared, bool reopen) {
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
     options_.compression_manager =
         CreateAutoSkipCompressionManager(GetBuiltinV2CompressionManager());
+  } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
+                         "autotunecompressor")) {
+    options_.compression_manager = CreateAutoTuneCompressionManager(
+        nullptr, nullptr, nullptr, options_.rate_limiter);
   } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
     // Nothing to do using default compression manager
   } else {
