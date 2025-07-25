@@ -1361,6 +1361,8 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   bool avoid_flush_during_shutdown = false;
 
+  // DEPRECATED: use ColumnFamilyOptions::cf_allow_ingest_behind instead.
+  //
   // Set this option to true during creation of database if you want
   // to be able to ingest behind (call IngestExternalFile() skipping keys
   // that already exist, rather than overwriting matching keys).

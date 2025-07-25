@@ -1146,6 +1146,15 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_avg_op_scan_flush_trigger = 0;
 
+  // Enable allow_ingest_behind for this column family.
+  // This option needs to be set to true before any writes to the CF.
+  // See comment above DBOptions::allow_ingest_behind for more details about
+  // the functionality and its use cases.
+  //
+  // Default: false
+  // Dynamically changeable through the SetOptions() API.
+  bool cf_allow_ingest_behind = false;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options

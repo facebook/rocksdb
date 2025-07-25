@@ -681,7 +681,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "uncache_aggressiveness=1234;"
       "paranoid_memory_checks=1;"
       "memtable_op_scan_flush_trigger=123;"
-      "memtable_avg_op_scan_flush_trigger=12;",
+      "memtable_avg_op_scan_flush_trigger=12;"
+      "cf_allow_ingest_behind=1;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);
