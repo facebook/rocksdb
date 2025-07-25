@@ -125,8 +125,8 @@ bool Compress(const char* input, size_t length, std::string* output) {
   return true;
 }
 
-size_t CompressMaxSize(const char* input, size_t length, char* output,
-                       size_t max_output_size) {
+size_t CompressWithMaxSize(const char* input, size_t length, char* output,
+                           size_t max_output_size) {
   assert(input != nullptr);
   if (max_output_size == 0) {
     return 0;

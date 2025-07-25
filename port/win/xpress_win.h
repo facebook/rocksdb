@@ -20,8 +20,8 @@ namespace xpress {
 bool Compress(const char* input, size_t length, std::string* output);
 
 // Returns written size or 0 on failure including if buffer is too small.
-size_t CompressMaxSize(const char* input, size_t length, char* output,
-                       size_t max_output_size);
+size_t CompressWithMaxSize(const char* input, size_t length, char* output,
+                           size_t max_output_size);
 
 char* Decompress(const char* input_data, size_t input_length,
                  size_t* uncompressed_size);

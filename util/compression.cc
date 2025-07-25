@@ -678,28 +678,18 @@ class BuiltinXpressCompressorV2 : public CompressorWithSimpleDictBase {
                        CompressionType* out_compression_type,
                        ManagedWorkingArea*) override {
 #ifdef XPRESS
-    auto [alg_output, alg_max_output_size] = StartCompressBlockV2(
-        uncompressed_data, compressed_output, *compressed_output_size);
-    if (alg_max_output_size == 0) {
-      // Compression bypassed
-      *compressed_output_size = 0;
-      *out_compression_type = kNoCompression;
-      return Status::OK();
-    }
-
     // XPRESS doesn't actually use the dictionary, but we store it for
     // compatibility similar to BuiltinSnappyCompressorV2
 
-    // Use the new CompressMaxSize function that writes directly to the output
-    // buffer
-    size_t compressed_size = port::xpress::CompressMaxSize(
-        uncompressed_data.data(), uncompressed_data.size(), alg_output,
-        alg_max_output_size);
+    // Use the new CompressWithMaxSize function that writes directly to the
+    // output buffer
+    size_t compressed_size = port::xpress::CompressWithMaxSize(
+        uncompressed_data.data(), uncompressed_data.size(), compressed_output,
+        *compressed_output_size);
 
     if (compressed_size > 0) {
       // Compression kept/successful
-      size_t total_size = compressed_size + (alg_output - compressed_output);
-      *compressed_output_size = total_size;
+      *compressed_output_size = compressed_size;
       *out_compression_type = kXpressCompression;
       return Status::OK();
     }
