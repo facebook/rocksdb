@@ -10,6 +10,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/testharness.h"
 #include "utilities/transactions/lock/point/point_lock_manager.h"
+#include "utilities/transactions/lock/point/point_lock_manager_test_common.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -41,25 +42,9 @@ class PointLockManagerTest : public testing::Test {
   }
 
   void TearDown() override {
-    // Validate no lock was held at the end of the test
-    auto lock_status = locker_->GetPointLockStatus();
-    // print the lock status for debugging
-    std::stringstream ss;
-    for (auto& s : lock_status) {
-      ss << "id " << s.first;
-      ss << " key " << s.second.key;
-      ss << " type " << (s.second.exclusive ? "exclusive" : "shared");
-      ss << " txn ids [";
-      for (auto& t : s.second.ids) {
-        ss << t << ",";
-      }
-      ss << "]";
-      ss << std::endl;
-    }
-    ASSERT_TRUE(lock_status.empty())
-        << lock_status.size() << " locks were held at the end of the test"
-        << ss.str();
-
+    std::string errmsg;
+    auto no_lock_held = verifyNoLocksHeld(locker_, errmsg);
+    ASSERT_TRUE(no_lock_held) << errmsg;
     delete db_;
     EXPECT_OK(DestroyDir(env_, db_dir_));
   }

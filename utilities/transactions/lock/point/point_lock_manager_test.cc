@@ -6,7 +6,6 @@
 #include "utilities/transactions/lock/point/point_lock_manager_test.h"
 
 #include "utilities/transactions/lock/point/any_lock_manager_test.h"
-#include "utilities/transactions/lock/point/point_lock_manager_test_common.h"
 
 namespace ROCKSDB_NAMESPACE {
 

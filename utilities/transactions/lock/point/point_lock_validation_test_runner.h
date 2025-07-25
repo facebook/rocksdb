@@ -11,7 +11,6 @@
 #include <cstdio>
 #include <iostream>
 #include <memory>
-#include <sstream>
 
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -388,24 +387,9 @@ class PointLockValidationTestRunner {
     printf("num_of_locks_acquired: %" PRId64 "\n",
            num_of_locks_acquired_.load());
 
-    // Validate no lock was held at the end of the test
-    auto lock_status = locker_->GetPointLockStatus();
-    // print the lock status for debugging
-    std::stringstream ss;
-    for (auto& s : lock_status) {
-      ss << "id " << s.first;
-      ss << " key " << s.second.key;
-      ss << " type " << (s.second.exclusive ? "exclusive" : "shared");
-      ss << " txn ids [";
-      for (auto& t : s.second.ids) {
-        ss << t << ",";
-      }
-      ss << "]";
-      ss << std::endl;
-    }
-    ASSERT_TRUE_WITH_MSG(lock_status.empty(),
-                         std::to_string(lock_status.size()) +
-                             " locks were held at the end. " + ss.str());
+    std::string errmsg;
+    auto no_lock_held = verifyNoLocksHeld(locker_, errmsg);
+    ASSERT_TRUE_WITH_MSG(no_lock_held, errmsg);
   }
 
  private:

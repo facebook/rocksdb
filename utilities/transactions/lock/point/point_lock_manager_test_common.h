@@ -6,7 +6,10 @@
 
 #pragma once
 
+#include <sstream>
+
 #include "rocksdb/db.h"
+#include "utilities/transactions/lock/lock_manager.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -42,5 +45,34 @@ class MockColumnFamilyHandle : public ColumnFamilyHandle {
   ColumnFamilyId cf_id_;
   std::string name_ = "MockCF";
 };
+
+// Verify no lock was held. Return true, if success. False, if there is. Set
+// error message on False.
+bool verifyNoLocksHeld(std::shared_ptr<LockManager>& locker,
+                       std::string& errmsg) {
+  // Validate no lock was held at the end of the test
+  auto lock_status = locker->GetPointLockStatus();
+  // print the lock status for debugging
+  std::stringstream ss;
+  for (auto& s : lock_status) {
+    ss << "id " << s.first;
+    ss << " key " << s.second.key;
+    ss << " type " << (s.second.exclusive ? "exclusive" : "shared");
+    ss << " txn ids [";
+    for (auto& t : s.second.ids) {
+      ss << t << ",";
+    }
+    ss << "]";
+    ss << std::endl;
+  }
+
+  if (!lock_status.empty()) {
+    errmsg = std::to_string(lock_status.size()) +
+             " locks were held at the end. " + ss.str();
+    return false;
+  }
+
+  return true;
+}
 
 }  // namespace ROCKSDB_NAMESPACE

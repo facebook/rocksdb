@@ -5,7 +5,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "utilities/transactions/lock/point/point_lock_manager_test.h"
-#include "utilities/transactions/lock/point/point_lock_manager_test_common.h"
 #include "utilities/transactions/lock/point/point_lock_validation_test_runner.h"
 
 namespace ROCKSDB_NAMESPACE {
