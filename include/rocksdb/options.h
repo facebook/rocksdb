@@ -1368,6 +1368,8 @@ struct DBOptions {
   // 1) Disable some internal optimizations around SST file compression.
   // 2) Reserve the last level for ingested files only.
   // 3) Compaction will not include any file from the last level.
+  // 4) Compaction will preserve necessary tombstones that can apply on
+  // top of ingested files.
   // Note that only Universal Compaction supports allow_ingest_behind.
   // `num_levels` should be >= 3 if this option is turned on.
   //
