@@ -1459,10 +1459,9 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
       type = ColumnFamilyOptions{}.compression;
     }
     switch (type) {
-      default:
-        assert(false);  // Should be excluded above
-        FALLTHROUGH_INTENDED;
       case kNoCompression:
+      default:
+        assert(type == kNoCompression);  // Others should be excluded above
         return nullptr;
       case kSnappyCompression:
         return std::make_unique<BuiltinSnappyCompressorV2>(opts);
