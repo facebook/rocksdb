@@ -2291,7 +2291,8 @@ Status StressTest::TestBackupRestore(
       FLAGS_db + "/.backup" + std::to_string(thread->tid);
   const std::string restore_dir =
       FLAGS_db + "/.restore" + std::to_string(thread->tid);
-  BackupEngineOptions backup_opts(backup_dir);
+  BackupEngineOptions backup_opts;
+  backup_opts.backup_dir = backup_dir;
   // For debugging, get info_log from live options
   backup_opts.info_log = db_->GetDBOptions().info_log.get();
   if (thread->rand.OneIn(10)) {
