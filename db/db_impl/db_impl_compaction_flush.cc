@@ -2831,6 +2831,42 @@ void DBImpl::EnableManualCompaction() {
   manual_compaction_paused_.fetch_sub(1, std::memory_order_release);
 }
 
+void DBImpl::MaybeScheduleCompactionRange(const Slice* begin, const Slice* end) {
+  InstrumentedMutexLock guard(&mutex_);
+  mutex_.AssertHeld();
+  if (!opened_successfully_) {
+    // Compaction may introduce data race to DB open
+    return;
+  }
+  if (bg_work_paused_ > 0) {
+    // we paused the background work
+    return;
+  } else if (error_handler_.IsBGWorkStopped() &&
+              !error_handler_.IsRecoveryInProgress()) {
+    // There has been a hard error and this call is not part of the recovery
+    // sequence. Bail out here so we don't get into an endless loop of
+    // scheduling BG work which will again call this function
+    return;
+  } else if (shutting_down_.load(std::memory_order_acquire)) {
+    // DB is being deleted; no more background compactions
+    return;
+  }
+  auto bg_job_limits = GetBGJobLimits();
+
+  if ((bg_compaction_scheduled_ + bg_compactionrange_scheduled_ < bg_job_limits.max_compactions - 1) ||
+      (bg_compaction_scheduled_ == 0 && (mutable_db_options_.max_background_compactions - \
+      bg_compactionrange_scheduled_ > 1))) {
+      bg_compactionrange_scheduled_++;
+      CompactRangeArg* cra = new CompactRangeArg();
+      cra->db_ = this;
+      cra->options = CompactRangeOptions();
+      cra->begin = new Slice(begin->data(), begin->size());
+      cra->end = new Slice(end->data(), end->size());
+      env_->Schedule(&DBImpl::BGWorkCompactRange, cra, Env::Priority::LOW, this, 
+                     &DBImpl::UnscheduleCompactionRangeCallback);
+  }
+}
+
 void DBImpl::MaybeScheduleFlushOrCompaction() {
   mutex_.AssertHeld();
   TEST_SYNC_POINT("DBImpl::MaybeScheduleFlushOrCompaction:Start");
@@ -3096,6 +3132,17 @@ void DBImpl::BGWorkCompaction(void* arg) {
   delete prepicked_compaction;
 }
 
+void DBImpl::BGWorkCompactRange(void* arg) {
+  CompactRangeArg* cra = static_cast<CompactRangeArg*>(arg);
+  delete static_cast<CompactRangeArg*>(arg);
+  IOSTATS_SET_THREAD_POOL_ID(Env::Priority::LOW);
+  DBImpl* db_ = static_cast<DBImpl*>(cra->db_);
+  db_->CompactRange(cra->options, cra->begin, cra->end);
+  delete cra->begin;
+  delete cra->end;
+  delete cra;
+}
+
 void DBImpl::BGWorkBottomCompaction(void* arg) {
   CompactionArg ca = *(static_cast<CompactionArg*>(arg));
   delete static_cast<CompactionArg*>(arg);
@@ -3154,6 +3201,12 @@ void DBImpl::UnscheduleFlushCallback(void* arg) {
   }
   delete static_cast<FlushThreadArg*>(arg);
   TEST_SYNC_POINT("DBImpl::UnscheduleFlushCallback");
+}
+
+void DBImpl::UnscheduleCompactionRangeCallback(void* arg) {
+  static_cast<CompactRangeArg*>(arg)->db_->bg_compactionrange_scheduled_--;
+  delete reinterpret_cast<CompactRangeArg*>(arg);
+  TEST_SYNC_POINT("DBImpl::UnscheduleCompactionRangeCallback");
 }
 
 Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
