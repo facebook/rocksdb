@@ -14,7 +14,8 @@ namespace ROCKSDB_NAMESPACE {
 // Service to simulate Remote Compaction in Stress Test
 class DbStressCompactionService : public CompactionService {
  public:
-  explicit DbStressCompactionService(SharedState* shared) : shared_(shared) {}
+  explicit DbStressCompactionService(SharedState* shared)
+      : shared_(shared), aborted_(false) {}
 
   static const char* kClassName() { return "DbStressCompactionService"; }
 
@@ -29,6 +30,10 @@ class DbStressCompactionService : public CompactionService {
       const std::string& compaction_service_input) override {
     std::string job_id = info.db_id + "_" + info.db_session_id + "_" +
                          std::to_string(info.job_id);
+    if (aborted_.load()) {
+      return CompactionServiceScheduleResponse(
+          job_id, CompactionServiceJobStatus::kUseLocal);
+    }
     shared_->EnqueueRemoteCompaction(job_id, info, compaction_service_input);
     CompactionServiceScheduleResponse response(
         job_id, CompactionServiceJobStatus::kSuccess);
@@ -39,6 +44,9 @@ class DbStressCompactionService : public CompactionService {
                                   std::string* result) override {
     auto start = Env::Default()->NowMicros();
     while (Env::Default()->NowMicros() - start < kWaitTimeoutInMicros) {
+      if (aborted_.load()) {
+        return CompactionServiceJobStatus::kUseLocal;
+      }
       if (shared_->GetRemoteCompactionResult(scheduled_job_id, result).ok()) {
         return CompactionServiceJobStatus::kSuccess;
       }
@@ -73,11 +81,11 @@ class DbStressCompactionService : public CompactionService {
     }
   }
 
-  // TODO - Implement
-  void CancelAwaitingJobs() override {}
+  void CancelAwaitingJobs() override { aborted_.store(true); }
 
  private:
   SharedState* shared_;
+  std::atomic_bool aborted_{false};
 };
 
 }  // namespace ROCKSDB_NAMESPACE
