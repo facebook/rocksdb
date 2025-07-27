@@ -563,9 +563,9 @@ class BuiltinLZ4CompressorV2 : public CompressorWithSimpleDictBase {
 
     ManagedWorkingArea tmp_wa;
     LZ4_stream_t* stream;
-    if (wa->get() != nullptr && wa->owner() == this) {
+    if (wa != nullptr && wa->owner() == this) {
       stream = reinterpret_cast<LZ4_stream_t*>(wa->get());
-#if LZ4_VERSION_NUMBER >= 10802  // >= version 1.8.2
+#if LZ4_VERSION_NUMBER >= 10900  // >= version 1.9.0
       LZ4_resetStream_fast(stream);
 #else
       LZ4_resetStream(stream);
@@ -603,6 +603,7 @@ class BuiltinLZ4CompressorV2 : public CompressorWithSimpleDictBase {
 #else
     (void)uncompressed_data;
     (void)compressed_output;
+    (void)wa;
     // Compression bypassed (not supported)
     *compressed_output_size = 0;
 #endif
@@ -662,13 +663,13 @@ class BuiltinLZ4HCCompressorV2 : public CompressorWithSimpleDictBase {
 
     ManagedWorkingArea tmp_wa;
     LZ4_streamHC_t* stream;
-    if (wa->get() != nullptr && wa->owner() == this) {
+    if (wa != nullptr && wa->owner() == this) {
       stream = reinterpret_cast<LZ4_streamHC_t*>(wa->get());
     } else {
       tmp_wa = ObtainWorkingArea();
       stream = reinterpret_cast<LZ4_streamHC_t*>(tmp_wa.get());
     }
-#if LZ4_VERSION_NUMBER >= 10802  // >= version 1.8.2
+#if LZ4_VERSION_NUMBER >= 10900  // >= version 1.9.0
     LZ4_resetStreamHC_fast(stream, level);
 #else
     LZ4_resetStreamHC(stream, level);
@@ -697,6 +698,7 @@ class BuiltinLZ4HCCompressorV2 : public CompressorWithSimpleDictBase {
 #else
     (void)uncompressed_data;
     (void)compressed_output;
+    (void)wa;
     // Compression bypassed (not supported)
     *compressed_output_size = 0;
 #endif
