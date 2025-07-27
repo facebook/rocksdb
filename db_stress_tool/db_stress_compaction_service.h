@@ -20,6 +20,10 @@ class DbStressCompactionService : public CompactionService {
 
   const char* Name() const override { return kClassName(); }
 
+  static constexpr uint64_t kWaitIntervalInMicros = 10 * 1000;  // 10ms
+  static constexpr uint64_t kWaitTimeoutInMicros =
+      30 * 1000 * 1000;  // 30 seconds
+
   CompactionServiceScheduleResponse Schedule(
       const CompactionServiceJobInfo& info,
       const std::string& compaction_service_input) override {
@@ -34,13 +38,11 @@ class DbStressCompactionService : public CompactionService {
   CompactionServiceJobStatus Wait(const std::string& scheduled_job_id,
                                   std::string* result) override {
     auto start = Env::Default()->NowMicros();
-    while (Env::Default()->NowMicros() - start <
-           FLAGS_remote_compaction_wait_timeout) {
+    while (Env::Default()->NowMicros() - start < kWaitTimeoutInMicros) {
       if (shared_->GetRemoteCompactionResult(scheduled_job_id, result).ok()) {
         return CompactionServiceJobStatus::kSuccess;
       }
-      Env::Default()->SleepForMicroseconds(
-          FLAGS_remote_compaction_wait_interval);
+      Env::Default()->SleepForMicroseconds(kWaitIntervalInMicros);
     }
     return CompactionServiceJobStatus::kFailure;
   }

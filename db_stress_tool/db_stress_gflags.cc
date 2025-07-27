@@ -853,14 +853,6 @@ DEFINE_int32(remote_compaction_worker_interval, 10,
              "Remote Compaction Worker Thread dequeue tasks every N "
              "milliseconds. (Default: 10ms)");
 
-DEFINE_int32(
-    remote_compaction_wait_interval, 10 * 1000,
-    "Remote Compaction Wait() interval in microseconds. (Default: 10ms)");
-
-DEFINE_uint64(
-    remote_compaction_wait_timeout, 30 * 1000 * 1000,
-    "Remote Compaction Wait() Timeout in microseconds. (Default: 30 seconds)");
-
 DEFINE_uint32(ingest_wbwi_one_in, 0,
               "If set, will call"
               "IngestWriteBatchWithIndex() instead of regular write operations "
