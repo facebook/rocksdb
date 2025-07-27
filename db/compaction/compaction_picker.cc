@@ -620,7 +620,8 @@ Compaction* CompactionPicker::PickCompactionForCompactRange(
     // files together to the last level.
     assert(vstorage->num_levels() > 1);
     int max_output_level =
-        vstorage->MaxOutputLevel(ioptions_.allow_ingest_behind);
+        vstorage->MaxOutputLevel(mutable_cf_options.cf_allow_ingest_behind ||
+                                 ioptions_.allow_ingest_behind);
     // DBImpl::CompactRange() set output level to be the last level
     assert(output_level == max_output_level);
     // DBImpl::RunManualCompaction will make full range for universal compaction

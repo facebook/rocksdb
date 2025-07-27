@@ -599,7 +599,9 @@ void DBTestBase::CreateColumnFamilies(const std::vector<std::string>& cfs,
                                       const Options& options) {
   ColumnFamilyOptions cf_opts(options);
   size_t cfi = handles_.size();
+  std::cout << handles_.size() << std::endl;
   handles_.resize(cfi + cfs.size());
+  std::cout << handles_.size() << std::endl;
   for (const auto& cf : cfs) {
     Status s = db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]);
     ASSERT_OK(s);

@@ -280,7 +280,8 @@ ColumnFamilyOptions SanitizeCfOptions(const ImmutableDBOptions& db_options,
   }
 
   if (result.compaction_style == kCompactionStyleUniversal &&
-      db_options.allow_ingest_behind && result.num_levels < 3) {
+      (db_options.allow_ingest_behind || result.cf_allow_ingest_behind) &&
+      result.num_levels < 3) {
     result.num_levels = 3;
   }
 

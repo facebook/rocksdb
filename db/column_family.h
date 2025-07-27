@@ -600,6 +600,12 @@ class ColumnFamilyData {
     return (mem_->IsEmpty() ? 0 : 1) + imm_.NumNotFlushed();
   }
 
+  // REQUIRES: db_mutex held
+  bool AllowIngestBehind() const {
+    return mutable_cf_options_.cf_allow_ingest_behind ||
+           ioptions_.allow_ingest_behind;
+  }
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(
