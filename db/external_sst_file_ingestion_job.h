@@ -349,7 +349,7 @@ class ExternalSstFileIngestionJob {
       std::optional<int> prev_batch_uppermost_level);
 
   // File that we want to ingest behind always goes to the lowest level;
-  // we just check that it fits in the level, that DB allows ingest_behind,
+  // we just check that it fits in the level, that the CF allows ingest_behind,
   // and that we don't have 0 seqnums at the upper levels.
   // REQUIRES: Mutex held
   Status CheckLevelForIngestedBehindFile(IngestedFileInfo* file_to_ingest);

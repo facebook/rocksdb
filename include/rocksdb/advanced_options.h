@@ -526,7 +526,7 @@ struct AdvancedColumnFamilyOptions {
   // By doing it, we give max_bytes_for_level_multiplier a priority against
   // max_bytes_for_level_base, for a more predictable LSM tree shape. It is
   // useful to limit worse case space amplification.
-  // If `allow_ingest_behind=true` or `preclude_last_level_data_seconds > 0`,
+  // If `cf_allow_ingest_behind=true` or `preclude_last_level_data_seconds > 0`,
   // then the last level is reserved, and we will start filling LSM from the
   // second last level.
   //
@@ -1081,7 +1081,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Checksum is constructed when a block is loaded into memory and verification
   // is done for each key read from the block. This is useful for detecting
-  // in-memory data corruption. Note that this feature has a non-trivial
+  // in-memor data corruption. Note that this feature has a non-trivial
   // negative impact on read performance. Different values of the
   // option have similar performance impact, but different memory cost and
   // corruption detection probability (e.g. 1 byte gives 255/256 chance for
@@ -1146,7 +1146,7 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_avg_op_scan_flush_trigger = 0;
 
-  // Enable allow_ingest_behind for this column family.
+  // Prepare this column family for ingesting files to the last level.
   // This option needs to be set to true before any writes to the CF.
   // See comment above DBOptions::allow_ingest_behind for more details about
   // the functionality and its use cases.

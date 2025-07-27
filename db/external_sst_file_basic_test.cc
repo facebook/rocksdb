@@ -2567,7 +2567,14 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
     options.default_write_temperature = Temperature::kHot;
     SstFileWriter sst_file_writer(EnvOptions(), options);
     options.level0_file_num_compaction_trigger = 2;
-    options.allow_ingest_behind = (mode == "ingest_behind");
+    bool cf_option = Random::GetTLSInstance()->OneIn(2);
+    SCOPED_TRACE(std::string("Use ") + (cf_option ? "CF" : "DB") +
+                 " option for ingest behind");
+    if (cf_option) {
+      options.cf_allow_ingest_behind = (mode == "ingest_behind");
+    } else {
+      options.allow_ingest_behind = (mode == "ingest_behind");
+    }
     Reopen(options);
     Defer destroyer([&]() { Destroy(options); });
 

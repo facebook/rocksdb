@@ -110,7 +110,7 @@ constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownNewestKeyTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 constexpr uint64_t kUnknownEpochNumber = 0;
-// If `Options::allow_ingest_behind` is true, this epoch number
+// If `Options::cf_allow_ingest_behind` is true, this epoch number
 // will be dedicated to files ingested behind.
 constexpr uint64_t kReservedEpochNumberForFileIngestedBehind = 1;
 
