@@ -1736,7 +1736,6 @@ Status CompactionJob::FinishCompactionOutputFile(
   if (s.ok()) {
     tp = outputs.GetTableProperties();
   }
-
   if (s.ok() && current_entries == 0 && tp.num_range_deletions == 0) {
     // If there is nothing to output, no necessary to generate a sst file.
     // This happens when the output level is bottom level, at the same time
@@ -1940,6 +1939,10 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
 
   // no need to lock because VersionSet::next_file_number_ is atomic
   uint64_t file_number = versions_->NewFileNumber();
+#ifndef NDEBUG
+  TEST_SYNC_POINT_CALLBACK(
+      "CompactionJob::OpenCompactionOutputFile::NewFileNumber", &file_number);
+#endif
   std::string fname = GetTableFileName(file_number);
   // Fire events.
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
