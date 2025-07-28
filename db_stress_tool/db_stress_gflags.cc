@@ -1501,4 +1501,8 @@ DEFINE_bool(
         .compaction_options_universal.reduce_file_locking,
     "Sets "
     "ColumnFamilyOptions().compaciton_options_universal.reduce_file_locking.");
+
+DEFINE_bool(use_multiscan, false,
+            "If set, use the batched MultiScan API for scans.");
+
 #endif  // GFLAGS
