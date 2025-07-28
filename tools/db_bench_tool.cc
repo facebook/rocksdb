@@ -6440,8 +6440,8 @@ class Benchmark {
       auto iter =
           db->NewMultiScan(read_options_, db->DefaultColumnFamily(), opts);
       for (auto rng : *iter) {
-        size_t keys = 0;
-        for (auto it __attribute__((__unused__)) : rng) {
+        [[maybe_unused]] size_t keys = 0;
+        for ([[maybe_unused]] auto it : rng) {
           keys++;
         }
         assert(keys > 0);
