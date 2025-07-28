@@ -1656,7 +1656,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
                                  const ReadOptions& read_opts,
                                  const std::vector<int>& rand_column_families,
                                  const std::vector<int64_t>& rand_keys) {
-  size_t num_scans = rand_keys.size() >> 1;
+  size_t num_scans = rand_keys.size() / 2;
   assert(!rand_column_families.empty());
   assert(!rand_keys.empty());
 
@@ -1676,6 +1676,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   end_key_strs.reserve(num_scans);
 
   for (size_t i = 0; i < num_scans * 2; i += 2) {
+    assert(rand_keys[i] <= rand_keys[i + 1]);
     start_key_strs.emplace_back(Key(rand_keys[i]));
     end_key_strs.emplace_back(Key(rand_keys[i + 1]));
     scan_opts.emplace_back(start_key_strs.back(), end_key_strs.back());
