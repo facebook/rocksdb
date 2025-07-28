@@ -1371,6 +1371,72 @@ TEST_F(DBCompactionTest, RecoverDuringMemtableCompaction) {
   } while (ChangeOptions());
 }
 
+TEST_F(DBCompactionTest, CompactionWithDeletionsAndMinFileSize) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.write_buffer_size = 64 * 1024;  // 64KB
+  options.level0_file_num_compaction_trigger = 2;
+  options.compaction_options_universal.min_merge_width = 2;
+  options.compaction_options_universal.max_size_amplification_percent = 200;
+  options.compaction_options_universal.compression_size_percent = -1;
+
+  const uint64_t kMinFileSize = 32 * 1024;
+  options.table_properties_collector_factories = {
+      NewCompactOnDeletionCollectorFactory(100, 50, 0.5, kMinFileSize)};
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(1024)));
+  }
+  ASSERT_OK(Flush());
+
+  std::vector<LiveFileMetaData> initial_metadata;
+  db_->GetLiveFilesMetaData(&initial_metadata);
+  ASSERT_GT(initial_metadata.size(), 0);
+
+  // Create a small file less than kMinFileSize with deletions that shouldn't
+  // trigger compaction
+  ASSERT_OK(Put("small_file_key1", rnd.RandomString(512)));
+  ASSERT_OK(Put("small_file_key2", rnd.RandomString(512)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("small_file_key1"));
+  ASSERT_OK(Flush());
+
+  // Create a file with deletions that should trigger compaction
+  for (int i = 0; i < 50; i++) {
+    ASSERT_OK(Delete(Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Verify small file was not compacted and should still exist
+  std::vector<LiveFileMetaData> final_metadata;
+  db_->GetLiveFilesMetaData(&final_metadata);
+
+  bool found_small_file = false;
+  for (const auto& file : final_metadata) {
+    if (file.size < kMinFileSize && file.level == 0) {
+      found_small_file = true;
+      ASSERT_LT(file.size, kMinFileSize);
+    }
+  }
+  ASSERT_TRUE(found_small_file);
+
+  // Verify deletions were processed correctly
+  for (int i = 0; i < 50; i++) {
+    std::string value;
+    ASSERT_TRUE(db_->Get(ReadOptions(), Key(i), &value).IsNotFound());
+  }
+
+  for (int i = 50; i < 100; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+    ASSERT_EQ(value.size(), 1024);
+  }
+}
+
 TEST_P(DBCompactionTestWithParam, TrivialMoveOneFile) {
   int32_t trivial_move = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
