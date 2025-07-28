@@ -102,6 +102,14 @@ bool RunStressTestImpl(SharedState* shared) {
     shared->IncBgThreads();
   }
 
+  uint32_t remote_compaction_worker_thread_count =
+      FLAGS_remote_compaction_worker_threads;
+  if (remote_compaction_worker_thread_count > 0) {
+    for (uint32_t i = 0; i < remote_compaction_worker_thread_count; i++) {
+      shared->IncBgThreads();
+    }
+  }
+
   std::vector<ThreadState*> threads(n);
   for (uint32_t i = 0; i < n; i++) {
     threads[i] = new ThreadState(i, shared);
@@ -124,6 +132,17 @@ bool RunStressTestImpl(SharedState* shared) {
       FLAGS_compressed_secondary_cache_ratio > 0.0) {
     db_stress_env->StartThread(CompressedCacheSetCapacityThread,
                                &compressed_cache_set_capacity_thread);
+  }
+
+  std::vector<ThreadState*> remote_compaction_worker_threads;
+  if (remote_compaction_worker_thread_count > 0) {
+    remote_compaction_worker_threads.reserve(
+        remote_compaction_worker_thread_count);
+    for (uint32_t i = 0; i < remote_compaction_worker_thread_count; i++) {
+      remote_compaction_worker_threads[i] = new ThreadState(i, shared);
+      db_stress_env->StartThread(RemoteCompactionWorkerThread,
+                                 remote_compaction_worker_threads[i]);
+    }
   }
 
   // Each thread goes through the following states:
@@ -218,6 +237,7 @@ bool RunStressTestImpl(SharedState* shared) {
     delete threads[i];
     threads[i] = nullptr;
   }
+
   now = clock->NowMicros();
   if (!FLAGS_skip_verifydb && !FLAGS_test_batches_snapshots &&
       !shared->HasVerificationFailedYet()) {
@@ -232,12 +252,21 @@ bool RunStressTestImpl(SharedState* shared) {
   if (FLAGS_compaction_thread_pool_adjust_interval > 0 ||
       FLAGS_continuous_verification_interval > 0 ||
       FLAGS_compressed_secondary_cache_size > 0 ||
-      FLAGS_compressed_secondary_cache_ratio > 0.0) {
+      FLAGS_compressed_secondary_cache_ratio > 0.0 ||
+      FLAGS_remote_compaction_worker_threads > 0) {
     MutexLock l(shared->GetMutex());
     shared->SetShouldStopBgThread();
     while (!shared->BgThreadsFinished()) {
       shared->GetCondVar()->Wait();
     }
+  }
+
+  // Kill remote compaction workers
+  assert(remote_compaction_worker_threads.capacity() ==
+         remote_compaction_worker_thread_count);
+  for (uint32_t i = 0; i < remote_compaction_worker_thread_count; i++) {
+    delete remote_compaction_worker_threads[i];
+    remote_compaction_worker_threads[i] = nullptr;
   }
 
   if (shared->HasVerificationFailedYet()) {

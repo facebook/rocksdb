@@ -228,6 +228,66 @@ void CompressedCacheSetCapacityThread(void* v) {
   }
 }
 
+void RemoteCompactionWorkerThread(void* v) {
+  assert(FLAGS_remote_compaction_worker_threads > 0);
+  assert(FLAGS_remote_compaction_worker_interval > 0);
+  auto* thread = static_cast<ThreadState*>(v);
+  SharedState* shared = thread->shared;
+  StressTest* stress_test = shared->GetStressTest();
+  assert(stress_test != nullptr);
+  while (true) {
+    {
+      MutexLock l(shared->GetMutex());
+      if (shared->ShouldStopBgThread()) {
+        shared->IncBgThreadsFinished();
+        if (shared->BgThreadsFinished()) {
+          shared->GetCondVar()->SignalAll();
+        }
+        return;
+      }
+    }
+    std::string job_id;
+    CompactionServiceJobInfo job_info;
+    std::string serialized_input;
+    if (shared->DequeueRemoteCompaction(&job_id, &job_info,
+                                        &serialized_input)) {
+      auto options = stress_test->GetOptions(job_info.cf_id);
+      CompactionServiceOptionsOverride override_options{
+          .file_checksum_gen_factory = options.file_checksum_gen_factory,
+          .merge_operator = options.merge_operator,
+          .compaction_filter = options.compaction_filter,
+          .compaction_filter_factory = options.compaction_filter_factory,
+          .prefix_extractor = options.prefix_extractor,
+          .table_factory = options.table_factory,
+          .sst_partitioner_factory = options.sst_partitioner_factory,
+          .listeners = {},
+          .statistics = options.statistics,
+          .table_properties_collector_factories =
+              options.table_properties_collector_factories};
+      std::string tmp_output_dir = job_info.db_name + "/" + "tmp_output_" +
+                                   db_stress_env->GenerateUniqueId();
+      std::string serialized_output;
+      Status s = DB::OpenAndCompact(OpenAndCompactOptions{}, job_info.db_name,
+                                    tmp_output_dir, serialized_input,
+                                    &serialized_output, override_options);
+      if (!s.ok()) {
+        // Print in stdout instead of stderr to avoid stress test failure,
+        // because OpenAndCompact() failure doesn't necessarily mean
+        // primary db instance failure.
+        fprintf(stdout, "Failed to run OpenAndCompact(%s): %s\n",
+                job_info.db_name.c_str(), s.ToString().c_str());
+      }
+      // Add the output regardless of status, so that primary DB doesn't rely on
+      // the timeout to finish waiting. The actual failure from the
+      // deserialization can fail the compaction properly
+      shared->AddRemoteCompactionResult(job_id, serialized_output);
+    }
+    db_stress_env->SleepForMicroseconds(
+        thread->rand.Next() % FLAGS_remote_compaction_worker_interval * 1000 +
+        1);
+  }
+}
+
 void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz) {
   if (!FLAGS_verbose) {
     return;
