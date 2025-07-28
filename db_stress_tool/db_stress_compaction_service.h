@@ -48,6 +48,10 @@ class DbStressCompactionService : public CompactionService {
         return CompactionServiceJobStatus::kUseLocal;
       }
       if (shared_->GetRemoteCompactionResult(scheduled_job_id, result).ok()) {
+        if (result && result->empty()) {
+          // Race: Remote worker aborted before client sets aborted_ = true
+          return CompactionServiceJobStatus::kUseLocal;
+        }
         return CompactionServiceJobStatus::kSuccess;
       }
       Env::Default()->SleepForMicroseconds(kWaitIntervalInMicros);
