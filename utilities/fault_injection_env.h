@@ -59,6 +59,8 @@ class TestRandomAccessFile : public RandomAccessFile {
 
   Status MultiRead(ReadRequest* reqs, size_t num_reqs) override;
 
+  Status GetFileSize(uint64_t* file_size) override;
+
  private:
   std::unique_ptr<RandomAccessFile> target_;
   FaultInjectionTestEnv* env_;
@@ -174,6 +176,9 @@ class FaultInjectionTestEnv : public EnvWrapper {
   Status RenameFile(const std::string& s, const std::string& t) override;
 
   Status LinkFile(const std::string& s, const std::string& t) override;
+
+  Status SyncFile(const std::string& fname, const EnvOptions& env_options,
+                  bool use_fsync) override;
 
 // Undef to eliminate clash on Windows
 #undef GetFreeSpace

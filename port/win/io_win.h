@@ -152,6 +152,8 @@ class WinMmapReadableFile : private WinFileData, public FSRandomAccessFile {
   IOStatus InvalidateCache(size_t offset, size_t length) override;
 
   size_t GetUniqueId(char* id, size_t max_size) const override;
+
+  IOStatus GetFileSize(uint64_t* file_size) override;
 };
 
 // We preallocate and use memcpy to append new
@@ -292,6 +294,8 @@ class WinRandomAccessFile
   IOStatus InvalidateCache(size_t offset, size_t length) override;
 
   size_t GetRequiredBufferAlignment() const override;
+
+  IOStatus GetFileSize(uint64_t* file_size) override;
 };
 
 // This is a sequential write class. It has been mimicked (as others) after

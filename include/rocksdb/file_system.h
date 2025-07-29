@@ -606,6 +606,18 @@ class FileSystem : public Customizable {
         "LinkFile is not supported for this FileSystem");
   }
 
+  // Sync the file content to file system.
+  // The default implementation would open, sync and close the file.
+  // This function could be overridden with no-op, if the file system
+  // automatically sync the data when file is closed.
+  // This is used when a user-provided file, probably unsynced, is pulled into a
+  // context where power-outage-proof persistence is required (e.g.
+  // IngestExternalFile without copy).
+  virtual IOStatus SyncFile(const std::string& fname,
+                            const FileOptions& file_options,
+                            const IOOptions& io_options, bool use_fsync,
+                            IODebugContext* dbg);
+
   virtual IOStatus NumFileLinks(const std::string& /*fname*/,
                                 const IOOptions& /*options*/,
                                 uint64_t* /*count*/, IODebugContext* /*dbg*/) {
@@ -1050,6 +1062,14 @@ class FSRandomAccessFile {
   // though the temperature is generally expected not to change while a file is
   // open.
   virtual Temperature GetTemperature() const { return Temperature::kUnknown; }
+
+  // Get the file size on an open-for-reading file without re-seeking the file's
+  // path in the filesystem. The default implementation returns "not supported"
+  // so that user implementations of FSRandomAccessFile do not need to
+  // immediately implement this function.
+  virtual IOStatus GetFileSize(uint64_t* /*result*/) {
+    return IOStatus::NotSupported("GetFileSize Not Supported");
+  }
 
   // If you're adding methods here, remember to add them to
   // RandomAccessFileWrapper too.
@@ -1584,6 +1604,12 @@ class FileSystemWrapper : public FileSystem {
     return target_->LinkFile(s, t, options, dbg);
   }
 
+  IOStatus SyncFile(const std::string& fname, const FileOptions& file_options,
+                    const IOOptions& io_options, bool use_fsync,
+                    IODebugContext* dbg) override {
+    return target_->SyncFile(fname, file_options, io_options, use_fsync, dbg);
+  }
+
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& options,
                         uint64_t* count, IODebugContext* dbg) override {
     return target_->NumFileLinks(fname, options, count, dbg);
@@ -1770,6 +1796,10 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   }
   Temperature GetTemperature() const override {
     return target_->GetTemperature();
+  }
+
+  virtual IOStatus GetFileSize(uint64_t* result) override {
+    return target_->GetFileSize(result);
   }
 
  private:

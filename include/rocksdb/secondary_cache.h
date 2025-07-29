@@ -33,8 +33,8 @@ namespace ROCKSDB_NAMESPACE {
 // Wait() or SecondaryCache::WaitAll() may be skipped if IsReady() happens to
 // return true, but (depending on the implementation) IsReady() might never
 // return true without Wait() or SecondaryCache::WaitAll(). After the handle
-// is known ready, calling Value() is required to avoid a memory leak in case
-// of a cache hit.
+// is known ready, calling Value() and taking ownership is required to avoid
+// a memory leak in case of a cache hit.
 class SecondaryCacheResultHandle {
  public:
   virtual ~SecondaryCacheResultHandle() = default;

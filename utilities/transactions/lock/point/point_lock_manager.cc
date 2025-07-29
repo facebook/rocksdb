@@ -322,9 +322,6 @@ Status PointLockManager::AcquireWithTimeout(
         // instead of exiting this while loop below.
         uint64_t now = env->NowMicros();
         if (static_cast<uint64_t>(cv_end_time) > now) {
-          // This may be invoked multiple times since we divide
-          // the time into smaller intervals.
-          (void)ROCKSDB_THREAD_YIELD_CHECK_ABORT();
           result = stripe->stripe_cv->WaitFor(stripe->stripe_mutex,
                                               cv_end_time - now);
           cv_wait_fail = !result.ok() && !result.IsTimedOut();
@@ -358,6 +355,11 @@ Status PointLockManager::AcquireWithTimeout(
   }
 
   stripe->stripe_mutex->UnLock();
+
+  // On timeout, persist the lock information so we can debug the contention
+  if (result.IsTimedOut()) {
+    txn->SetWaitingTxn(wait_ids, column_family_id, &key, true);
+  }
 
   return result;
 }

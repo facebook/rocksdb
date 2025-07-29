@@ -75,6 +75,13 @@ bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode);
 Slice CompressibleString(Random* rnd, double compressed_to_fraction, int len,
                          std::string* dst);
 
+inline std::string CompressibleString(Random* rnd,
+                                      double compressed_to_fraction, int len) {
+  std::string dst;
+  CompressibleString(rnd, compressed_to_fraction, len, &dst);
+  return dst;
+}
+
 #ifndef NDEBUG
 // An internal comparator that just forward comparing results from the
 // user comparator in it. Can be used to test entities that have no dependency
@@ -359,6 +366,11 @@ class StringSource : public FSRandomAccessFile {
   int total_reads() const { return total_reads_; }
 
   void set_total_reads(int tr) { total_reads_ = tr; }
+
+  IOStatus GetFileSize(uint64_t* file_size) override {
+    *file_size = contents_.size();
+    return IOStatus::OK();
+  }
 
  private:
   std::string contents_;

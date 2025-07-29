@@ -46,6 +46,7 @@
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/partitioned_filter_block.h"
+#include "table/block_based/user_defined_index_wrapper.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
@@ -408,7 +409,15 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
     }
   }
 
-  ~ParallelCompressionRep() { block_rep_pool.finish(); }
+  ~ParallelCompressionRep() {
+    block_rep_pool.finish();
+#ifndef NDEBUG
+    // Silence ASSERT_STATUS_CHECKED warnings
+    for (auto& block_rep : block_rep_buf) {
+      assert(block_rep.status.ok());
+    }
+#endif
+  }
 
   // Make a block prepared to be emitted to compression thread
   // Used in non-buffered mode
@@ -889,6 +898,27 @@ struct BlockBasedTableBuilder::Rep {
           &this->internal_prefix_transform, use_delta_encoding_for_index_values,
           table_options, ts_sz, persist_user_defined_timestamps));
     }
+
+    // If user_defined_index_factory is provided, wrap the index builder with
+    // UserDefinedIndexWrapper
+    if (table_options.user_defined_index_factory != nullptr) {
+      if (tbo.moptions.compression_opts.parallel_threads > 1 ||
+          tbo.moptions.bottommost_compression_opts.parallel_threads > 1) {
+        SetStatus(
+            Status::InvalidArgument("user_defined_index_factory not supported "
+                                    "with parallel compression"));
+      } else {
+        std::unique_ptr<UserDefinedIndexBuilder> user_defined_index_builder(
+            table_options.user_defined_index_factory->NewBuilder());
+        if (user_defined_index_builder != nullptr) {
+          index_builder.reset(new UserDefinedIndexBuilderWrapper(
+              std::string(table_options.user_defined_index_factory->Name()),
+              std::move(index_builder), std::move(user_defined_index_builder),
+              &internal_comparator, ts_sz, persist_user_defined_timestamps));
+        }
+      }
+    }
+
     if (ioptions.optimize_filters_for_hits && tbo.is_bottommost) {
       // Apply optimize_filters_for_hits setting here when applicable by
       // skipping filter generation
@@ -1192,7 +1222,7 @@ void BlockBasedTableBuilder::Add(const Slice& ikey, const Slice& value) {
       // `Finish()` once compression dictionary has been finalized.
     } else {
       if (!r->IsParallelCompressionEnabled()) {
-        r->index_builder->OnKeyAdded(ikey);
+        r->index_builder->OnKeyAdded(ikey, value);
       }
     }
     // TODO offset passed in is not accurate for parallel compression case
@@ -1634,7 +1664,7 @@ void BlockBasedTableBuilder::BGWorkWriteMaybeCompressedBlock() {
         r->filter_builder->AddWithPrevKey(key_no_ts, prev_key_no_ts);
         prev_key_no_ts = key_no_ts;
       }
-      r->index_builder->OnKeyAdded(key);
+      r->index_builder->OnKeyAdded(key, {});
     }
     if (r->filter_builder != nullptr) {
       prev_block_last_key_no_ts.assign(prev_key_no_ts.data(),
@@ -1808,7 +1838,13 @@ void BlockBasedTableBuilder::WriteIndexBlock(
   if (ok()) {
     for (const auto& item : index_blocks.meta_blocks) {
       BlockHandle block_handle;
-      WriteBlock(item.second, &block_handle, BlockType::kIndex);
+      if (item.second.first == BlockType::kIndex) {
+        WriteBlock(item.second.second, &block_handle, item.second.first);
+      } else {
+        assert(item.second.first == BlockType::kUserDefinedIndex);
+        WriteMaybeCompressedBlock(item.second.second, kNoCompression,
+                                  &block_handle, item.second.first);
+      }
       if (!ok()) {
         break;
       }
@@ -1854,8 +1890,8 @@ void BlockBasedTableBuilder::WriteIndexBlock(
     }
   }
   // If success and need to record in metaindex rather than footer...
-  if (!FormatVersionUsesIndexHandleInFooter(
-          rep_->table_options.format_version)) {
+  if (ok() && !FormatVersionUsesIndexHandleInFooter(
+                  rep_->table_options.format_version)) {
     meta_index_builder->Add(kIndexBlockName, *index_block_handle);
   }
 }
@@ -2184,7 +2220,7 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
           r->filter_builder->Add(
               ExtractUserKeyAndStripTimestamp(key, r->ts_sz));
         }
-        r->index_builder->OnKeyAdded(key);
+        r->index_builder->OnKeyAdded(key, iter->value());
       }
       WriteBlock(Slice(data_block), &r->pending_handle, BlockType::kData);
       if (ok() && i + 1 < r->data_block_buffers.size()) {

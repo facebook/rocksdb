@@ -46,7 +46,7 @@ class IndexBuilder {
   //     primary index.
   struct IndexBlocks {
     Slice index_block_contents;
-    std::unordered_map<std::string, Slice> meta_blocks;
+    std::unordered_map<std::string, std::pair<BlockType, Slice>> meta_blocks;
   };
   IndexBuilder(const InternalKeyComparator* comparator, size_t ts_sz,
                bool persist_user_defined_timestamps)
@@ -78,7 +78,8 @@ class IndexBuilder {
 
   // This method will be called whenever a key is added. The subclasses may
   // override OnKeyAdded() if they need to collect additional information.
-  virtual void OnKeyAdded(const Slice& /*key*/) {}
+  virtual void OnKeyAdded(const Slice& /*key*/,
+                          const std::optional<Slice>& /*value*/) {}
 
   // Inform the index builder that all entries has been written. Block builder
   // may therefore perform any operation required for block finalization.
@@ -180,7 +181,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
     seperator_is_key_plus_seq_ = (format_version <= 2);
   }
 
-  void OnKeyAdded(const Slice& key) override {
+  void OnKeyAdded(const Slice& key,
+                  const std::optional<Slice>& /*value*/) override {
     if (include_first_key_ && current_block_first_internal_key_.empty()) {
       current_block_first_internal_key_.assign(key.data(), key.size());
     }
@@ -358,7 +360,8 @@ class HashIndexBuilder : public IndexBuilder {
         separator_scratch);
   }
 
-  void OnKeyAdded(const Slice& key) override {
+  void OnKeyAdded(const Slice& key,
+                  const std::optional<Slice>& /*value*/) override {
     auto key_prefix = hash_key_extractor_->Transform(key);
     bool is_first_entry = pending_block_num_ == 0;
 
@@ -393,9 +396,9 @@ class HashIndexBuilder : public IndexBuilder {
     Status s = primary_index_builder_.Finish(index_blocks,
                                              last_partition_block_handle);
     index_blocks->meta_blocks.insert(
-        {kHashIndexPrefixesBlock.c_str(), prefix_block_});
-    index_blocks->meta_blocks.insert(
-        {kHashIndexPrefixesMetadataBlock.c_str(), prefix_meta_block_});
+        {kHashIndexPrefixesBlock.c_str(), {BlockType::kIndex, prefix_block_}});
+    index_blocks->meta_blocks.insert({kHashIndexPrefixesMetadataBlock.c_str(),
+                                      {BlockType::kIndex, prefix_meta_block_}});
     return s;
   }
 

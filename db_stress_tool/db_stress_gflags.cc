@@ -844,8 +844,14 @@ DEFINE_bool(track_and_verify_wals,
             ROCKSDB_NAMESPACE::Options().track_and_verify_wals,
             "See Options::track_and_verify_wals");
 
-DEFINE_bool(enable_remote_compaction, false,
-            "Enable (simulated) Remote Compaction");
+DEFINE_int32(
+    remote_compaction_worker_threads, 2,
+    "Remote Compaction Worker Thread count. If 0, remote compaction is "
+    "disabled");
+
+DEFINE_int32(remote_compaction_worker_interval, 10,
+             "Remote Compaction Worker Thread dequeue tasks every N "
+             "milliseconds. (Default: 10ms)");
 
 DEFINE_uint32(ingest_wbwi_one_in, 0,
               "If set, will call"
@@ -1495,4 +1501,8 @@ DEFINE_bool(
         .compaction_options_universal.reduce_file_locking,
     "Sets "
     "ColumnFamilyOptions().compaciton_options_universal.reduce_file_locking.");
+
+DEFINE_bool(use_multiscan, false,
+            "If set, use the batched MultiScan API for scans.");
+
 #endif  // GFLAGS

@@ -156,27 +156,26 @@ Status ExternalSstFileIngestionJob::Prepare(
         // It is unsafe to assume application had sync the file and file
         // directory before ingest the file. For integrity of RocksDB we need
         // to sync the file.
-        std::unique_ptr<FSWritableFile> file_to_sync;
-        Status s = fs_->ReopenWritableFile(path_inside_db, env_options_,
-                                           &file_to_sync, nullptr);
-        TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:Reopen",
-                                 &s);
-        // Some file systems (especially remote/distributed) don't support
-        // reopening a file for writing and don't require reopening and
-        // syncing the file. Ignore the NotSupported error in that case.
-        if (!s.IsNotSupported()) {
-          status = s;
-          if (status.ok()) {
-            TEST_SYNC_POINT(
-                "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
-            status = SyncIngestedFile(file_to_sync.get());
-            TEST_SYNC_POINT(
-                "ExternalSstFileIngestionJob::AfterSyncIngestedFile");
-            if (!status.ok()) {
-              ROCKS_LOG_WARN(db_options_.info_log,
-                             "Failed to sync ingested file %s: %s",
-                             path_inside_db.c_str(), status.ToString().c_str());
-            }
+        TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
+        auto s = fs_->SyncFile(path_inside_db, env_options_, IOOptions(),
+                               db_options_.use_fsync, nullptr);
+        TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncIngestedFile");
+        TEST_SYNC_POINT_CALLBACK(
+            "ExternalSstFileIngestionJob::CheckSyncReturnCode", &s);
+        if (!s.ok()) {
+          if (s.IsNotSupported()) {
+            // Some file systems (especially remote/distributed) don't support
+            // SyncFile API. Ignore the NotSupported error in that case.
+            ROCKS_LOG_WARN(db_options_.info_log,
+                           "After link the file, SyncFile API is not supported "
+                           "for file %s: %s",
+                           path_inside_db.c_str(), status.ToString().c_str());
+          } else {
+            // for other errors, propagate the error
+            status = s;
+            ROCKS_LOG_WARN(db_options_.info_log,
+                           "Failed to sync ingested file %s: %s",
+                           path_inside_db.c_str(), status.ToString().c_str());
           }
         }
       } else if (status.IsNotSupported() &&
@@ -689,10 +688,9 @@ void ExternalSstFileIngestionJob::CreateEquivalentFileIngestingCompactions() {
         0 /* max_subcompaction, not applicable */,
         {} /* grandparents, not applicable */,
         std::nullopt /* earliest_snapshot */, nullptr /* snapshot_checker */,
-        false /* is manual */, "" /* trim_ts */, -1 /* score, not applicable */,
-        false /* is deletion compaction, not applicable */,
-        files_overlap_ /* l0_files_might_overlap, not applicable */,
-        CompactionReason::kExternalSstIngestion));
+        CompactionReason::kExternalSstIngestion, "" /* trim_ts */,
+        -1 /* score, not applicable */,
+        files_overlap_ /* l0_files_might_overlap, not applicable */));
   }
 }
 

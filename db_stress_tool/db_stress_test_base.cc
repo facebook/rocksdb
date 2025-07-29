@@ -793,6 +793,12 @@ Status StressTest::SetOptions(ThreadState* thread) {
   return db_->SetOptions(cfh, opts);
 }
 
+Options StressTest::GetOptions(int cf_id) {
+  auto cfh = column_families_[cf_id];
+  assert(cfh);
+  return db_->GetOptions(cfh);
+}
+
 void StressTest::ProcessRecoveredPreparedTxns(SharedState* shared) {
   assert(txn_db_);
   std::vector<Transaction*> recovered_prepared_trans;
@@ -1458,9 +1464,23 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < iterate_bound) {
         assert(delrange_bound <= prob_op);
         // OPERATION iterate
-        if (!FLAGS_skip_verifydb &&
-            thread->rand.OneInOpt(
-                FLAGS_verify_iterator_with_expected_state_one_in)) {
+        if (FLAGS_use_multiscan) {
+          int num_seeks = static_cast<int>(
+              std::min(static_cast<uint64_t>(thread->rand.Uniform(64)),
+                       static_cast<uint64_t>(FLAGS_ops_per_thread - i - 1)));
+          // Generate 2x num_seeks random keys, as each scan has a start key
+          // and an upper bound
+          rand_keys = GenerateNKeys(thread, num_seeks * 2, i);
+          i += num_seeks - 1;
+          ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
+          ThreadStatusUtil::SetThreadOperation(
+              ThreadStatus::OperationType::OP_DBITERATOR);
+          Status s;
+          s = TestMultiScan(thread, read_opts, rand_column_families, rand_keys);
+          ThreadStatusUtil::ResetThreadStatus();
+        } else if (!FLAGS_skip_verifydb &&
+                   thread->rand.OneInOpt(
+                       FLAGS_verify_iterator_with_expected_state_one_in)) {
           ThreadStatusUtil::SetEnableTracking(FLAGS_enable_thread_tracking);
           ThreadStatusUtil::SetThreadOperation(
               ThreadStatus::OperationType::OP_DBITERATOR);
@@ -1636,6 +1656,157 @@ Status StressTest::TestIterateAttributeGroups(
   return TestIterateImpl<AttributeGroupIterator>(
       thread, read_opts, rand_column_families, rand_keys, new_iter_func,
       verify_func);
+}
+
+Status StressTest::TestMultiScan(ThreadState* thread,
+                                 const ReadOptions& read_opts,
+                                 const std::vector<int>& rand_column_families,
+                                 const std::vector<int64_t>& rand_keys) {
+  size_t num_scans = rand_keys.size() / 2;
+  assert(!rand_column_families.empty());
+  assert(!rand_keys.empty());
+
+  ManagedSnapshot snapshot_guard(db_);
+
+  ReadOptions ro = read_opts;
+  ro.snapshot = snapshot_guard.snapshot();
+
+  std::string read_ts_str;
+  Slice read_ts_slice;
+  MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice, ro);
+
+  std::vector<std::string> start_key_strs;
+  std::vector<std::string> end_key_strs;
+  std::vector<ScanOptions> scan_opts;
+  start_key_strs.reserve(num_scans);
+  end_key_strs.reserve(num_scans);
+
+  for (size_t i = 0; i < num_scans * 2; i += 2) {
+    assert(rand_keys[i] <= rand_keys[i + 1]);
+    start_key_strs.emplace_back(Key(rand_keys[i]));
+    end_key_strs.emplace_back(Key(rand_keys[i + 1]));
+    scan_opts.emplace_back(start_key_strs.back(), end_key_strs.back());
+  }
+
+  std::string op_logs;
+  ro.pin_data = thread->rand.OneIn(2);
+  ro.background_purge_on_iterator_cleanup = thread->rand.OneIn(2);
+
+  assert(options_.prefix_extractor.get() == nullptr);
+
+  std::unique_ptr<Iterator> iter;
+  iter.reset(db_->NewIterator(ro, column_families_[rand_column_families[0]]));
+  iter->Prepare(scan_opts);
+
+  constexpr size_t kOpLogsLimit = 10000;
+
+  auto verify_func = [](Iterator* iterator) {
+    if (!VerifyWideColumns(iterator->value(), iterator->columns())) {
+      fprintf(stderr,
+              "Value and columns inconsistent for iterator: value: %s, "
+              "columns: %s\n",
+              iterator->value().ToString(/* hex */ true).c_str(),
+              WideColumnsToHex(iterator->columns()).c_str());
+      return false;
+    }
+    return true;
+  };
+
+  for (const ScanOptions& scan_opt : scan_opts) {
+    if (op_logs.size() > kOpLogsLimit) {
+      // Shouldn't take too much memory for the history log. Clear it.
+      op_logs = "(cleared...)\n";
+    }
+
+    // Set up an iterator, perform the same operations without bounds and with
+    // total order seek, and compare the results. This is to identify bugs
+    // related to bounds, prefix extractor, or reseeking. Sometimes we are
+    // comparing iterators with the same set-up, and it doesn't hurt to check
+    // them to be equal.
+    //
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
+    ReadOptions cmp_ro;
+    cmp_ro.timestamp = ro.timestamp;
+    cmp_ro.iter_start_ts = ro.iter_start_ts;
+    cmp_ro.snapshot = snapshot_guard.snapshot();
+    cmp_ro.auto_refresh_iterator_with_snapshot =
+        ro.auto_refresh_iterator_with_snapshot;
+    cmp_ro.total_order_seek = true;
+
+    ColumnFamilyHandle* const cmp_cfh =
+        GetControlCfh(thread, rand_column_families[0]);
+    assert(cmp_cfh);
+
+    std::unique_ptr<Iterator> cmp_iter(db_->NewIterator(cmp_ro, cmp_cfh));
+
+    bool diverged = false;
+
+    assert(scan_opt.range.start);
+    assert(scan_opt.range.limit);
+    Slice key = scan_opt.range.start.value();
+    Slice ub = scan_opt.range.limit.value();
+    ro.iterate_upper_bound = &ub;
+
+    LastIterateOp last_op;
+    iter->Seek(key);
+    cmp_iter->Seek(key);
+    last_op = kLastOpSeek;
+    op_logs += "S " + key.ToString(true) + " ";
+
+    if (iter->Valid() && ro.allow_unprepared_value) {
+      op_logs += "*";
+
+      if (!iter->PrepareValue()) {
+        assert(!iter->Valid());
+        assert(!iter->status().ok());
+      }
+    }
+
+    if (!iter->status().ok() && IsErrorInjectedAndRetryable(iter->status())) {
+      return iter->status();
+    } else if (!cmp_iter->status().ok() &&
+               IsErrorInjectedAndRetryable(cmp_iter->status())) {
+      return cmp_iter->status();
+    }
+
+    VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
+                   key, op_logs, verify_func, &diverged);
+
+    while (iter->Valid()) {
+      iter->Next();
+      if (!diverged) {
+        assert(cmp_iter->Valid());
+        cmp_iter->Next();
+      }
+      op_logs += "N";
+
+      if (iter->Valid() && ro.allow_unprepared_value) {
+        op_logs += "*";
+
+        if (!iter->PrepareValue()) {
+          assert(!iter->Valid());
+          assert(!iter->status().ok());
+        }
+      }
+
+      if (!iter->status().ok() && IsErrorInjectedAndRetryable(iter->status())) {
+        return iter->status();
+      } else if (!cmp_iter->status().ok() &&
+                 IsErrorInjectedAndRetryable(cmp_iter->status())) {
+        return cmp_iter->status();
+      }
+
+      VerifyIterator(thread, cmp_cfh, ro, iter.get(), cmp_iter.get(), last_op,
+                     key, op_logs, verify_func, &diverged);
+    }
+
+    thread->stats.AddIterations(1);
+
+    op_logs += "; ";
+  }
+
+  return Status::OK();
 }
 
 template <typename IterType, typename NewIterFunc, typename VerifyFunc>
@@ -3435,6 +3606,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
           });
     });
   }
+
   if (!strcasecmp(FLAGS_compression_manager.c_str(), "custom")) {
     options_.compression_manager =
         std::make_shared<DbStressCustomCompressionManager>();
@@ -3464,6 +3636,12 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     fprintf(stdout,
             "WARNING: prefix_size is non-zero but "
             "memtablerep != prefix_hash\n");
+  }
+
+  // Remote Compaction
+  if (FLAGS_remote_compaction_worker_threads > 0) {
+    options_.compaction_service =
+        std::make_shared<DbStressCompactionService>(shared);
   }
 
   if ((options_.enable_blob_files || options_.enable_blob_garbage_collection ||
@@ -4373,11 +4551,6 @@ void InitializeOptionsFromFlags(
       static_cast<CacheTier>(FLAGS_lowest_used_cache_tier);
   options.inplace_update_support = FLAGS_inplace_update_support;
   options.uncache_aggressiveness = FLAGS_uncache_aggressiveness;
-
-  // Remote Compaction
-  if (FLAGS_enable_remote_compaction) {
-    options.compaction_service = std::make_shared<DbStressCompactionService>();
-  }
 
   options.memtable_op_scan_flush_trigger = FLAGS_memtable_op_scan_flush_trigger;
   options.compaction_options_universal.reduce_file_locking =

@@ -1,0 +1,1 @@
+A new Filesystem::SyncFile function is added for syncing a file that was already written, such as on file ingestion. The default implementation matches previous RocksDB behavior: re-open the file for read-write, sync it, and close it. We recommend overriding for FileSystems that do not require syncing for crash recovery or do not handle (well) re-opening for writes.

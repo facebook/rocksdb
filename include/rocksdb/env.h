@@ -385,6 +385,13 @@ class Env : public Customizable {
     return Status::NotSupported("LinkFile is not supported for this Env");
   }
 
+  // Sync the file content to file system.
+  // This API is only used for testing.
+  // See FileSystem::SyncFile comment for details
+  virtual Status SyncFile(const std::string& /*fname*/,
+                          const EnvOptions& /*env_options*/,
+                          bool /*use_fsync*/);
+
   virtual Status NumFileLinks(const std::string& /*fname*/,
                               uint64_t* /*count*/) {
     return Status::NotSupported(
@@ -864,6 +871,13 @@ class RandomAccessFile {
   virtual Status InvalidateCache(size_t /*offset*/, size_t /*length*/) {
     return Status::NotSupported(
         "RandomAccessFile::InvalidateCache not supported.");
+  }
+
+  // The default implementation returns "not supported" so that user
+  // implementations of FSRandomAccessFile do not need to immediately implement
+  // this function.
+  virtual Status GetFileSize(uint64_t* /*result*/) {
+    return Status::NotSupported("RandomAccessFile::GetFileSize not supported.");
   }
 
   // If you're adding methods here, remember to add them to
@@ -1536,6 +1550,11 @@ class EnvWrapper : public Env {
     return target_.env->LinkFile(s, t);
   }
 
+  Status SyncFile(const std::string& fname, const EnvOptions& env_options,
+                  bool use_fsync) override {
+    return target_.env->SyncFile(fname, env_options, use_fsync);
+  }
+
   Status NumFileLinks(const std::string& fname, uint64_t* count) override {
     return target_.env->NumFileLinks(fname, count);
   }
@@ -1749,6 +1768,9 @@ class RandomAccessFileWrapper : public RandomAccessFile {
   }
   Status InvalidateCache(size_t offset, size_t length) override {
     return target_->InvalidateCache(offset, length);
+  }
+  Status GetFileSize(uint64_t* file_size) override {
+    return target_->GetFileSize(file_size);
   }
 
  private:

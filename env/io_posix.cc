@@ -607,6 +607,17 @@ PosixRandomAccessFile::PosixRandomAccessFile(
 
 PosixRandomAccessFile::~PosixRandomAccessFile() { close(fd_); }
 
+IOStatus PosixRandomAccessFile::GetFileSize(uint64_t* result) {
+  struct stat sbuf {};
+  if (fstat(fd_, &sbuf) != 0) {
+    *result = 0;
+    return IOError("While fstat with fd " + std::to_string(fd_), filename_,
+                   errno);
+  }
+  *result = sbuf.st_size;
+  return IOStatus::OK();
+}
+
 IOStatus PosixRandomAccessFile::Read(uint64_t offset, size_t n,
                                      const IOOptions& /*opts*/, Slice* result,
                                      char* scratch,
@@ -1054,6 +1065,11 @@ IOStatus PosixMmapReadableFile::InvalidateCache(size_t offset, size_t length) {
                      " len" + std::to_string(length),
                  filename_, errno);
 #endif
+}
+
+IOStatus PosixMmapReadableFile::GetFileSize(uint64_t* result) {
+  *result = length_;
+  return IOStatus::OK();
 }
 
 /*

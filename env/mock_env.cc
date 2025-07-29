@@ -322,6 +322,11 @@ class MockRandomAccessFile : public FSRandomAccessFile {
     }
   }
 
+  IOStatus GetFileSize(uint64_t* size) override {
+    *size = file_->Size();
+    return IOStatus::OK();
+  }
+
  private:
   MemFile* file_;
   bool use_direct_io_;
@@ -949,6 +954,14 @@ IOStatus MockFileSystem::LinkFile(const std::string& src,
   DeleteFileInternal(t);
   file_map_[t] = file_map_[s];
   file_map_[t]->Ref();  // Otherwise it might get deleted when noone uses s
+  return IOStatus::OK();
+}
+
+IOStatus MockFileSystem::SyncFile(const std::string& /*fname*/,
+                                  const FileOptions& /*file_options*/,
+                                  const IOOptions& /*io_options*/,
+                                  bool /*use_fsync*/, IODebugContext* /*dbg*/) {
+  // Noop
   return IOStatus::OK();
 }
 

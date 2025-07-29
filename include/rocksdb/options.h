@@ -57,6 +57,7 @@ class Statistics;
 class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
+class UserDefinedIndexFactory;
 
 struct Options;
 struct DbPath;
@@ -497,6 +498,7 @@ struct CompactionServiceJobInfo {
   // the output level of the compaction.
   int output_level;
 
+  CompactionServiceJobInfo() {}
   CompactionServiceJobInfo(std::string db_name_, std::string db_id_,
                            std::string db_session_id_, uint32_t cf_id_,
                            std::string cf_name_, uint64_t job_id_,
@@ -607,6 +609,13 @@ struct DBOptions {
   // for DB or data corruption, on top of usual protections such as block
   // checksums. True also enters a read-only mode when a DB write fails;
   // see DB::Resume().
+  //
+  // When set to true, the DB will fail to open if any SST files fail to open
+  // e.g. due to incorrect file size or corrupted footer.
+  //
+  // When set to false, when there are files corrupted, the DB will still be
+  // opened, and the healthy ones could still be accessed, while corrupted one
+  // will not
   //
   // As most workloads value data correctness over availability, this option
   // is on by default. Note that the name of this old option is potentially
@@ -1297,12 +1306,13 @@ struct DBOptions {
   // Default: false
   bool skip_stats_update_on_db_open = false;
 
-  // If true, then DB::Open() will not fetch and check sizes of all sst files.
-  // This may significantly speed up startup if there are many sst files,
-  // especially when using non-default Env with expensive GetFileSize().
-  // We'll still check that all required sst files exist.
-  // If paranoid_checks is false, this option is ignored, and sst files are
-  // not checked at all.
+  // This option is deprecated and marked as no-op. Kept for backward
+  // compatibility until usage is fully removed.
+  // File size check will be performed through a thread
+  // pool during DB Open, when max_open_files is set to -1.
+  // Therefore, the concern of DB Open slowness is eliminated.
+  // Note that when max_open_files is not set to -1, only a subset of files will
+  // be opened and checked during DB Open.
   //
   // Default: false
   bool skip_checking_sst_file_sizes_on_db_open = false;
@@ -2060,6 +2070,17 @@ struct ReadOptions {
   //
   // Default: false
   bool auto_refresh_iterator_with_snapshot = false;
+
+  // EXPERIMENTAL
+  //
+  // Specify an alternate index to use in the SST files instead of the native
+  // block based table index. The table_factory used for the column family
+  // must support building/reading this index.
+  //
+  // Currently, only forward scans are supported. For forward scans, only Seek()
+  // is supported. SeekToFirst() is not supported. If the caller wishes to scan
+  // from start to end, the native index must be used.
+  const UserDefinedIndexFactory* table_index_factory = nullptr;
 
   // *** END options only relevant to iterators or scans ***
 

@@ -159,6 +159,11 @@ Status TestRandomAccessFile::MultiRead(ReadRequest* reqs, size_t num_reqs) {
   return target_->MultiRead(reqs, num_reqs);
 }
 
+Status TestRandomAccessFile::GetFileSize(uint64_t* file_size) {
+  assert(target_);
+  return target_->GetFileSize(file_size);
+}
+
 TestWritableFile::TestWritableFile(const std::string& fname,
                                    std::unique_ptr<WritableFile>&& f,
                                    FaultInjectionTestEnv* env)
@@ -457,6 +462,17 @@ Status FaultInjectionTestEnv::LinkFile(const std::string& s,
   }
 
   return ret;
+}
+
+Status FaultInjectionTestEnv::SyncFile(const std::string& fname,
+                                       const EnvOptions& env_options,
+                                       bool use_fsync) {
+  // Call the default implement of SyncFile API in Env, so that it would call
+  // other FileSystem API at FaultInjectionTestEnv layer for failure injection.
+  // Otherwise, the default behavior is WrapperEnv::SyncFile, which forward the
+  // call to the underlying FileSystem, instead of the ones in
+  // FaultInjectionTestEnv.
+  return Env::SyncFile(fname, env_options, use_fsync);
 }
 
 void FaultInjectionTestEnv::WritableFileClosed(const FileState& state) {

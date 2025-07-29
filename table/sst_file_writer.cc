@@ -472,6 +472,7 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   }
   if (r->file_info.num_entries == 0 &&
       r->file_info.num_range_del_entries == 0) {
+    r->builder->status().PermitUncheckedError();
     return Status::InvalidArgument("Cannot create sst file with no entries");
   }
 
@@ -495,7 +496,10 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
         r->file_writer->GetFileChecksumFuncName();
   }
   if (!s.ok()) {
-    r->ioptions.env->DeleteFile(r->file_info.file_path);
+    Status status = r->ioptions.env->DeleteFile(r->file_info.file_path);
+    // Silence ASSERT_STATUS_CHECKED warning, since DeleteFile may fail under
+    // some error injection, and we can just ignore the failure
+    status.PermitUncheckedError();
   }
 
   if (file_info != nullptr) {
