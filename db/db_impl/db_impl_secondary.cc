@@ -835,6 +835,7 @@ Status DBImplSecondary::CompactWithoutInstallation(
     return Status::InvalidArgument("Cannot find column family" +
                                    cfh->GetName());
   }
+  assert(cfd->compaction_picker());
 
   std::unordered_set<uint64_t> input_set;
   for (const auto& file_name : input.input_files) {
@@ -848,17 +849,24 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   VersionStorageInfo* vstorage = version->storage_info();
 
-  // Use comp_options to reuse some CompactFiles functions
-  CompactionOptions comp_options;
-  comp_options.compression = kDisableCompressionOption;
-  comp_options.output_file_size_limit = MaxFileSizeForLevel(
-      cfd->GetLatestMutableCFOptions(), input.output_level,
-      cfd->ioptions().compaction_style, vstorage->base_level(),
+  auto mutable_cf_options = cfd->GetLatestMutableCFOptions();
+
+  CompactionOptions compaction_options;
+  compaction_options.compression = kDisableCompressionOption;
+  compaction_options.output_file_size_limit = MaxFileSizeForLevel(
+      mutable_cf_options, input.output_level, cfd->ioptions().compaction_style,
+      vstorage->base_level(),
       cfd->ioptions().level_compaction_dynamic_level_bytes);
+
+  CompressionType compression_type = GetCompressionType(
+      vstorage, mutable_cf_options, input.output_level,
+      cfd->ioptions().compaction_style == kCompactionStyleLevel
+          ? 1
+          : vstorage->base_level());
 
   std::vector<CompactionInputFiles> input_files;
   Status s = cfd->compaction_picker()->GetCompactionInputsFromFileNumbers(
-      &input_files, &input_set, vstorage, comp_options);
+      &input_files, &input_set, vstorage, compaction_options);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
         immutable_db_options_.info_log,
@@ -866,15 +874,6 @@ Status DBImplSecondary::CompactWithoutInstallation(
         s.ToString().c_str(), version->DebugString(/*hex=*/true).c_str());
     return s;
   }
-
-  std::unique_ptr<Compaction> c;
-  assert(cfd->compaction_picker());
-  c.reset(cfd->compaction_picker()->CompactFiles(
-      comp_options, input_files, input.output_level, vstorage,
-      cfd->GetLatestMutableCFOptions(), mutable_db_options_, 0));
-  assert(c != nullptr);
-
-  c->FinalizeInputInfo(version);
 
   // Create output directory if it's not existed yet
   std::unique_ptr<FSDirectory> output_dir;
@@ -887,10 +886,33 @@ Status DBImplSecondary::CompactWithoutInstallation(
                        immutable_db_options_.info_log.get());
 
   const int job_id = next_job_id_.fetch_add(1);
-  JobContext job_context(0, true /*create_superversion*/);
+  JobContext job_context(job_id, true /*create_superversion*/);
   std::vector<SequenceNumber> snapshots = input.snapshots;
-  job_context.InitSnapshotContext(nullptr, nullptr, kMaxSequenceNumber,
-                                  std::move(snapshots));
+
+  // TODO - snapshot_checker support in Remote Compaction
+  job_context.InitSnapshotContext(/*checker=*/nullptr,
+                                  /*managed_snapshot=*/nullptr,
+                                  kMaxSequenceNumber, std::move(snapshots));
+
+  std::unique_ptr<Compaction> c;
+  c.reset(new Compaction(
+      vstorage, cfd->ioptions(), cfd->GetLatestMutableCFOptions(),
+      mutable_db_options_, input_files, input.output_level,
+      compaction_options.output_file_size_limit,
+      mutable_cf_options.max_compaction_bytes, 0, compression_type,
+      GetCompressionOptions(mutable_cf_options, vstorage, input.output_level),
+      mutable_cf_options.default_write_temperature,
+      compaction_options.max_subcompactions,
+      /*grandparents=*/{},
+      /*earliest_snapshot=*/job_context.snapshot_seqs.empty()
+          ? kMaxSequenceNumber
+          : job_context.snapshot_seqs.front(),
+      /*snapshot_checker=*/job_context.snapshot_checker,
+      CompactionReason::kManualCompaction));
+
+  c->FinalizeInputInfo(version);
+  cfd->compaction_picker()->RegisterCompaction(c.get());
+
   // use primary host's db_id for running the compaction, but db_session_id is
   // using the local one, which is to make sure the unique id is unique from
   // the remote compactors. Because the id is generated from db_id,
