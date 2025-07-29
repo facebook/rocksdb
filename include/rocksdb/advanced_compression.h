@@ -653,6 +653,8 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
 // - kLZ4Compression
 // - kLZ4HCCompression
 // - kZSTD
+// If none of the above compression algorithms are supported, then it will
+// resolve to using no compression at all.
 // IO goal specifies that the compression manager should limit disk write
 // throughput between maximum and minimum bytes per second.
 // CPU Budget specifies that the compression manager should limit CPU usage

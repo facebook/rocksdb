@@ -372,8 +372,12 @@ std::unique_ptr<Compressor> AutoTuneCompressorManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,
     CompressionType preferred) {
   (void)context;
-  return std::make_unique<AutoTuneCompressor>(opts, preferred, io_goal_,
-                                              cpu_budget_, rate_limiter_);
+  if (AutoTuneCompressionManagerSupported()) {
+    return std::make_unique<AutoTuneCompressor>(opts, preferred, io_goal_,
+                                                cpu_budget_, rate_limiter_);
+  } else {
+    return nullptr;
+  }
 }
 
 std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
