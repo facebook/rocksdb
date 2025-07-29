@@ -108,7 +108,6 @@ class PointLockManagerBenchmark {
   Env* env_;
   TransactionDBOptions txndb_opt_;
   std::shared_ptr<LockManager> locker_;
-
   TransactionDB* db_;
   TransactionOptions txn_opt_;
 };

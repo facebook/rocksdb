@@ -13,10 +13,11 @@ class AnyLockManagerTest : public PointLockManagerTest,
     // If a custom setup function was provided, use it. Otherwise, use what we
     // have inherited.
     auto init_func = GetParam();
-    if (init_func)
+    if (init_func) {
       (*init_func)(this);
-    else
+    } else {
       PointLockManagerTest::SetUp();
+    }
   }
 };
 

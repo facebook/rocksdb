@@ -217,6 +217,8 @@ struct TransactionDBOptions {
   // Other value means the user provides a custom lock manager.
   std::shared_ptr<LockManagerHandle> lock_mgr_handle;
 
+  // EXPERIMENTAL
+  //
   // Flag to enable/disable the per key point lock manager.
   bool use_per_key_point_lock_mgr = false;
 

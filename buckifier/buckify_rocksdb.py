@@ -237,7 +237,9 @@ def generate_buck(repo_path, deps_map):
     )
     # point_lock_bench binary
     BUCK.add_binary(
-        "point_lock_bench", ["utilities/transactions/lock/point/point_lock_bench.cc"], [":rocksdb_point_lock_bench_tools_lib"]
+        "point_lock_bench",
+        ["utilities/transactions/lock/point/point_lock_bench.cc"],
+        [":rocksdb_point_lock_bench_tools_lib"]
     )
     # bench binaries
     for src in src_mk.get("MICROBENCH_SOURCES", []):

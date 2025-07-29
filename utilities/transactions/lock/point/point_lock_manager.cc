@@ -927,7 +927,6 @@ PerKeyPointLockManager::PerKeyPointLockManager(PessimisticTransactionDB* db,
                                                const TransactionDBOptions& opt)
     : PointLockManager(db, opt) {}
 
-// Helper function for TryLock().
 Status PerKeyPointLockManager::AcquireWithTimeout(
     PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
     ColumnFamilyId column_family_id, const std::string& key, Env* env,
@@ -1075,17 +1074,13 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
   return result;
 }
 
-// Try to lock this key after we have acquired the mutex.
-// Sets *expire_time to the expiration time in microseconds
-//  or 0 if no expiration.
+// The contract is similar to PointLockManager::AcquireLocked.
 //
-// Returns Status::TimeOut if the lock cannot be acquired due to it being
-// held by other transactions, `txn_ids` will be populated with the id of
-// transactions that hold the lock, excluding lock_info.txn_ids[0].
-// Returns Status::Aborted(kLockLimit) if the lock cannot be acquired due to
-// reaching per CF limit on the number of locks.
+// It sets isUpgrade to true, if it tries to uprade a lock to exclusive, but it
+// needs to wait for other lock holders to release the shared locks.
 //
-// REQUIRED:  Stripe mutex must be held. txn_ids must be empty.
+// fifo flag indicates whether it should follow fifo order to check whether
+// there is already a waiter waiting for the lock or not.
 Status PerKeyPointLockManager::AcquireLocked(
     LockMap* lock_map, LockMapStripe* stripe, const std::string& key, Env* env,
     const LockInfo& txn_lock_info, uint64_t* expire_time,
