@@ -6730,12 +6730,13 @@ class ExternalTableTest : public DBTestBase {
       }
       if (scan_options_) {
         if (scan_idx_ >= num_opts_ ||
-            target != scan_options_[scan_idx_].range.start.value().ToString()) {
+            target !=
+                (*scan_options_)[scan_idx_].range.start.value().ToString()) {
           status_ = Status::InvalidArgument();
         } else {
-          if (valid_ && scan_options_[scan_idx_].range.limit.has_value() &&
+          if (valid_ && (*scan_options_)[scan_idx_].range.limit.has_value() &&
               iter_->first.compare(
-                  scan_options_[scan_idx_].range.limit.value().ToString()) >=
+                  (*scan_options_)[scan_idx_].range.limit.value().ToString()) >=
                   0) {
             valid_ = false;
           }
@@ -6753,12 +6754,13 @@ class ExternalTableTest : public DBTestBase {
       iter_++;
       valid_ = iter_ != kv_map_.end();
       eof_ = iter_ == kv_map_.end();
-      if (valid_ && scan_options_ &&
-          scan_options_[scan_idx_ - 1].range.limit.has_value() &&
-          iter_->first.compare(
-              scan_options_[scan_idx_ - 1].range.limit.value().ToString()) >=
-              0) {
-        valid_ = false;
+      if (valid_ && scan_options_) {
+        // Get the current scan range from the MultiScanOptions
+        auto scan_range = (*scan_options_)[scan_idx_ - 1];
+        if (scan_range.range.limit.has_value() &&
+            iter_->first.compare(scan_range.range.limit.value().ToString()) >= 0) {
+          valid_ = false;
+        }
       }
       // status_ is still ok. !valid_ indicates end of scan
     }
@@ -6804,13 +6806,16 @@ class ExternalTableTest : public DBTestBase {
       return Slice(iter_->second);
     }
 
-    void Prepare(const ScanOptions scan_opts[], size_t num_opts) override {
+    void Prepare(const MultiScanOptions* scan_opts) override {
       scan_options_ = scan_opts;
-      num_opts_ = num_opts;
+      num_opts_ = 0;
+      if (scan_options_) {
+        num_opts_ = scan_options_->size();
+      }
     }
 
    private:
-    const ScanOptions* scan_options_;
+    const MultiScanOptions* scan_options_;
     size_t num_opts_;
     size_t scan_idx_;
     std::map<std::string, std::string> kv_map_;
@@ -7180,9 +7185,9 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
 
   std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
   ReadOptions ro;
-  std::vector<ScanOptions> scan_options(
-      {ScanOptions(key_ranges[0], key_ranges[1]),
-       ScanOptions(key_ranges[2], key_ranges[3])});
+  MultiScanOptions scan_options(BytewiseComparator());
+  scan_options.insert(Slice(key_ranges[0]), Slice(key_ranges[1]));
+  scan_options.insert(Slice(key_ranges[2]), Slice(key_ranges[3]));
   std::unique_ptr<MultiScan> iter = db->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -7793,14 +7798,15 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   ro.iterate_upper_bound = nullptr;
   iter.reset(reader->NewIterator(ro));
   ASSERT_NE(iter, nullptr);
-  std::vector<ScanOptions> scan_opts({ScanOptions("key20")});
-  ;
-  scan_opts[0].property_bag.emplace().emplace("count", std::to_string(25));
+  MultiScanOptions scan_opts(BytewiseComparator());
+  scan_opts.insert(Slice("key20"));
+  // Add property bag to the first scan option
+  ScanOptions& first_scan = scan_opts[0];
+  first_scan.property_bag.emplace().emplace("count", std::to_string(25));
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
-  for (iter->Seek(scan_opts[0].range.start.value()); iter->Valid();
-       iter->Next()) {
+  for (iter->Seek(Slice("key20")); iter->Valid(); iter->Next()) {
     key_count++;
   }
   ASSERT_GE(key_count, 25);
@@ -7954,13 +7960,13 @@ TEST_F(UserDefinedIndexTest, IngestTest) {
   ASSERT_NE(iter, nullptr);
   MultiScanOptions scan_opts(BytewiseComparator());
   scan_opts.insert("key20");
-  std::vector<ScanOptions> scan_opts({ScanOptions("key20")});
-  scan_opts[0].property_bag.emplace().emplace("count", std::to_string(25));
+  // Add property bag to the first scan option
+  ScanOptions& first_scan = scan_opts[0];
+  first_scan.property_bag.emplace().emplace("count", std::to_string(25));
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
-  for (iter->Seek(scan_opts[0].range.start.value()); iter->Valid();
-       iter->Next()) {
+  for (iter->Seek(Slice("key20")); iter->Valid(); iter->Next()) {
     key_count++;
   }
   ASSERT_GE(key_count, 25);

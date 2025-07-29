@@ -10,7 +10,7 @@ namespace ROCKSDB_NAMESPACE {
 using MultiScanIterator = MultiScan::MultiScanIterator;
 
 MultiScan::MultiScan(const ReadOptions& read_options,
-                     const std::vector<ScanOptions>& scan_opts, DB* db,
+                     const MultiScanOptions& scan_opts, DB* db,
                      ColumnFamilyHandle* cfh)
     : read_options_(read_options), scan_opts_(scan_opts), db_(db), cfh_(cfh) {
   bool slow_path = false;

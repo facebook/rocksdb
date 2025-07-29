@@ -133,7 +133,7 @@ class ExternalTableIteratorAdapter : public InternalIterator {
 
   void Prepare(const MultiScanOptions* scan_opts) override {
     if (iterator_) {
-      iterator_->Prepare(scan_opts->data(), scan_opts->size());
+      iterator_->Prepare(scan_opts);
     }
   }
 

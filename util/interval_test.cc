@@ -27,38 +27,10 @@ TEST_F(IntervalSetTest, BasicTest) {
   ASSERT_EQ(set.size(), 3);
   auto iter = set.begin();
   ASSERT_EQ(*iter, Interval<int>(0, 15));
-<<<<<<< HEAD
-=======
   iter++;
-  ASSERT_EQ(*iter, Interval<int>(16, 30));
+  ASSERT_EQ(iter->has_end(), false);
   iter++;
   ASSERT_EQ(*iter, Interval<int>(45, 85));
-  set.insert({31});
-  iter = set.begin();
-  iter = set.begin();
-  ASSERT_EQ(*iter, Interval<int>(0, 15));
-  iter++;
-  ASSERT_EQ(*iter, Interval<int>(16, 30));
-  iter++;
-  ASSERT_EQ(*iter, Interval<int>(31));
-}
-
-TEST_F(IntervalSetTest, SliceTest) {
-  IntervalSet<Slice, Comparator> set(BytewiseComparator());
-  set.insert("k0", "k10");
-  // Should do nothing
-  set.insert("k2", "k8");
-  set.insert("k15", "k20");
-  set.insert("k16");
-  ASSERT_EQ(set.size(), 2);
-  auto iter = set.begin();
-  ASSERT_EQ(iter->start().ToString(), "k0");
->>>>>>> 053af68e3 (Ensure typeness of comparator is rocksdb Comparator)
-  ASSERT_EQ(iter->end().ToString(), "k10");
-  iter++;
-  ASSERT_EQ(iter->start().ToString(), "k15");
-  ASSERT_EQ(iter->has_end(), false);
-  //
 }
 
 TEST_F(IntervalSetTest, PropModeTest) {

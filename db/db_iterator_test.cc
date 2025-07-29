@@ -4159,9 +4159,11 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
 
   std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
   ReadOptions ro;
-  std::vector<ScanOptions> scan_options(
-      {ScanOptions(key_ranges[0], key_ranges[1]),
-       ScanOptions(key_ranges[2], key_ranges[3])});
+
+  MultiScanOptions scan_options(BytewiseComparator());
+
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<MultiScan> iter =
       dbfull()->NewMultiScan(ro, cfh, scan_options);
@@ -4257,9 +4259,10 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
   std::vector<std::string> key_ranges(
       {"k03", "k10", "k25", "k50", "k75", "k90"});
   ReadOptions ro;
-  std::vector<ScanOptions> scan_options(
-      {ScanOptions(key_ranges[0], key_ranges[1]), ScanOptions(key_ranges[2]),
-       ScanOptions(key_ranges[4], key_ranges[5])});
+  MultiScanOptions scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2]);
+  scan_options.insert(key_ranges[4], key_ranges[5]);
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<MultiScan> iter =
       dbfull()->NewMultiScan(ro, cfh, scan_options);
