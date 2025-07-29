@@ -75,6 +75,13 @@ bool ShouldPersistUDT(const UserDefinedTimestampTestMode& test_mode);
 Slice CompressibleString(Random* rnd, double compressed_to_fraction, int len,
                          std::string* dst);
 
+inline std::string CompressibleString(Random* rnd,
+                                      double compressed_to_fraction, int len) {
+  std::string dst;
+  CompressibleString(rnd, compressed_to_fraction, len, &dst);
+  return dst;
+}
+
 #ifndef NDEBUG
 // An internal comparator that just forward comparing results from the
 // user comparator in it. Can be used to test entities that have no dependency

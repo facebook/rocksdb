@@ -53,6 +53,7 @@ class StressTest {
     Status s = db_->EnableAutoCompaction(column_families_);
     return s;
   }
+  Options GetOptions(int cf_id);
   void CleanUp();
 
  protected:
@@ -273,6 +274,10 @@ class StressTest {
       const std::vector<int64_t>& /* rand_keys */) {
     return Status::NotSupported();
   }
+
+  Status TestMultiScan(ThreadState* thread, const ReadOptions& read_opts,
+                       const std::vector<int>& rand_column_families,
+                       const std::vector<int64_t>& rand_keys);
 
   // Enum used by VerifyIterator() to identify the mode to validate.
   enum LastIterateOp {

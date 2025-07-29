@@ -720,6 +720,9 @@ TEST_F(TtlTest, ChangeTtlOnOpenDb) {
 
   OpenTtl(1);  // T=0:Open the db with ttl = 2
   SetTtl(3);
+  int32_t ttl = 0;
+  ASSERT_OK(db_ttl_->GetTtl(db_ttl_->DefaultColumnFamily(), &ttl));
+  ASSERT_EQ(ttl, 3);
   PutValues(0, kSampleSize_);  // T=0:Insert Set1. Delete at t=2
   SleepCompactCheck(2, 0, kSampleSize_, true);  // T=2:Set1 should be there
   CloseTtl();

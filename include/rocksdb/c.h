@@ -1171,6 +1171,8 @@ extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_flushjobinfo_smallest_seqno(const rocksdb_flushjobinfo_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_reset_status(
     rocksdb_status_ptr_t* status_ptr);
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_flushjobinfo_flush_reason(const rocksdb_flushjobinfo_t* info);
 
 /* Compaction job info */
 extern ROCKSDB_LIBRARY_API void rocksdb_compactionjobinfo_status(
@@ -1221,6 +1223,9 @@ extern ROCKSDB_LIBRARY_API int rocksdb_subcompactionjobinfo_base_input_level(
     const rocksdb_subcompactionjobinfo_t*);
 extern ROCKSDB_LIBRARY_API int rocksdb_subcompactionjobinfo_output_level(
     const rocksdb_subcompactionjobinfo_t*);
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_subcompactionjobinfo_compaction_reason(
+    const rocksdb_subcompactionjobinfo_t* info);
 
 /* External file ingestion info */
 extern ROCKSDB_LIBRARY_API const char*

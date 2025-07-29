@@ -17,17 +17,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-static const std::vector<std::pair<CompressionType, const char*>>
-    kCompressions = {
-        {CompressionType::kNoCompression, "kNoCompression"},
-        {CompressionType::kSnappyCompression, "kSnappyCompression"},
-        {CompressionType::kZlibCompression, "kZlibCompression"},
-        {CompressionType::kBZip2Compression, "kBZip2Compression"},
-        {CompressionType::kLZ4Compression, "kLZ4Compression"},
-        {CompressionType::kLZ4HCCompression, "kLZ4HCCompression"},
-        {CompressionType::kXpressCompression, "kXpressCompression"},
-        {CompressionType::kZSTD, "kZSTD"}};
-
 namespace {
 
 void print_help(bool to_stderr) {
@@ -98,10 +87,15 @@ void print_help(bool to_stderr) {
       be used when trying different compression algorithms
 
     --compression_types=<comma-separated list of CompressionType members, e.g.,
-      kSnappyCompression>
+      kSnappyCompression or kCustomCompressionC4>
       Can be combined with --command=recompress to run recompression for this
       list of compression types
-      Supported compression types: %s
+      Supported built-in compression types: %s
+
+    --compression_manager=<compression manager string>
+      Used with --command=recompress to specify a compression manager to use
+      instead of the built-in compression manager, which may support a
+      different set of compression types.
 
     --parse_internal_key=<0xKEY>
       Convenience option to parse an internal key on the command line. Dumps the
@@ -178,7 +172,8 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   std::string compression_level_to_str;
   size_t block_size = 0;
   size_t readahead_size = 2 * 1024 * 1024;
-  std::vector<std::pair<CompressionType, const char*>> compression_types;
+  std::vector<CompressionType> compression_types;
+  std::shared_ptr<CompressionManager> compression_manager;
   uint64_t total_num_files = 0;
   uint64_t total_num_data_blocks = 0;
   uint64_t total_data_block_size = 0;
@@ -244,19 +239,36 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       std::istringstream iss(compression_types_csv);
       std::string compression_type;
       has_specified_compression_types = true;
+
       while (std::getline(iss, compression_type, ',')) {
-        auto iter = std::find_if(
-            kCompressions.begin(), kCompressions.end(),
-            [&compression_type](std::pair<CompressionType, const char*> curr) {
-              return curr.second == compression_type;
-            });
-        if (iter == kCompressions.end()) {
+        auto iter =
+            OptionsHelper::compression_type_string_map.find(compression_type);
+        if (iter == OptionsHelper::compression_type_string_map.end()) {
           fprintf(stderr, "%s is not a valid CompressionType\n",
                   compression_type.c_str());
           exit(1);
         }
-        compression_types.emplace_back(*iter);
+        compression_types.emplace_back(iter->second);
       }
+    } else if (strncmp(argv[i], "--compression_manager=", 22) == 0) {
+      std::string compression_manager_str = argv[i] + 22;
+      ConfigOptions config_options;
+      config_options.ignore_unsupported_options = false;
+      Status s = CompressionManager::CreateFromString(
+          config_options, compression_manager_str, &compression_manager);
+      if (!s.ok()) {
+        fprintf(stderr, "Failed to create compression manager: %s\n",
+                s.ToString().c_str());
+        exit(1);
+      }
+      if (compression_manager == nullptr) {
+        fprintf(stderr, "No compression manager created: %s\n",
+                compression_manager_str.c_str());
+        exit(1);
+      }
+      options.compression_manager = compression_manager;
+      printf("Using compression manager: %s\n",
+             compression_manager->GetId().c_str());
     } else if (strncmp(argv[i], "--parse_internal_key=", 21) == 0) {
       std::string in_key(argv[i] + 21);
       try {
@@ -450,9 +462,12 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     }
 
     if (command == "recompress") {
+      // TODO: consider getting supported compressions from the compression
+      // manager
       st = dumper.ShowAllCompressionSizes(
           set_block_size ? block_size : 16384,
-          compression_types.empty() ? kCompressions : compression_types,
+          compression_types.empty() ? GetSupportedCompressions()
+                                    : compression_types,
           compress_level_from, compress_level_to, compression_max_dict_bytes,
           compression_zstd_max_train_bytes, compression_max_dict_buffer_bytes,
           !compression_use_zstd_finalize_dict);

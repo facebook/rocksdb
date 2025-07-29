@@ -63,6 +63,8 @@ class DBWithTTL : public StackableDB {
 
   virtual void SetTtl(ColumnFamilyHandle* h, int32_t ttl) = 0;
 
+  virtual Status GetTtl(ColumnFamilyHandle* h, int32_t* ttl) = 0;
+
  protected:
   explicit DBWithTTL(DB* db) : StackableDB(db) {}
 };

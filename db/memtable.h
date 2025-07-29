@@ -949,9 +949,15 @@ class MemTable final : public ReadOnlyMemTable {
 
   // makes sure there is a single range tombstone writer to invalidate cache
   std::mutex range_del_mutex_;
+#if defined(__cpp_lib_atomic_shared_ptr)
+  CoreLocalArray<
+      std::atomic<std::shared_ptr<FragmentedRangeTombstoneListCache>>>
+      cached_range_tombstone_;
+#else
   CoreLocalArray<std::shared_ptr<FragmentedRangeTombstoneListCache>>
       cached_range_tombstone_;
 
+#endif
   void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                            const Slice& key, const Slice& value, ValueType type,
                            SequenceNumber s, char* checksum_ptr);
