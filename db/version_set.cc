@@ -95,7 +95,7 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-using ScanOptionsMap = std::unordered_map<size_t, std::vector<ScanOptions>>;
+using ScanOptionsMap = std::unordered_map<size_t, MultiScanOptions>;
 
 // Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
@@ -1139,7 +1139,12 @@ class LevelIterator final : public InternalIterator {
       // 3. [  S  ] ...... [  E  ]
       for (auto i = fstart; i <= fend; i++) {
         if (i < flevel_->num_files) {
-          (*file_to_scan_opts_)[i].emplace_back(start.value(), end.value());
+          if ((*file_to_scan_opts_).find(i) == (*file_to_scan_opts_).end()) {
+            (*file_to_scan_opts_)
+                .insert(
+                    {i, MultiScanOptions(user_comparator_.user_comparator())});
+          }
+          (*file_to_scan_opts_)[i].insert(start.value(), end.value());
           (*file_to_scan_opts_)[i].back().property_bag = opt.property_bag;
         }
       }
@@ -1597,14 +1602,13 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
 
   InternalIterator* old_iter = file_iter_.Set(iter);
   if (iter && scan_opts_) {
-    // if (file_to_scan_opts_.get() &&
-    //     file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
-    //   const std::vector<ScanOptions>& opts =
-    //       file_to_scan_opts_->at(file_index_);
-    //   file_iter_.Prepare(&opts);
-    // } else {
-    //   file_iter_.Prepare(scan_opts_);
-    // }
+    if (file_to_scan_opts_.get() &&
+        file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
+      auto& opts = file_to_scan_opts_->at(file_index_);
+      file_iter_.Prepare(&opts);
+    } else {
+      file_iter_.Prepare(scan_opts_);
+    }
   }
 
   // Update the read pattern for PrefetchBuffer.

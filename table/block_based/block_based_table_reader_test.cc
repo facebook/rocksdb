@@ -1086,6 +1086,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
   // Should do two I/Os since blocks 80-81 and 90-95 are already in block cache,
   // reads from blocks 50-79 and 82-.. are co
   scan_options.clear();
+  ASSERT_EQ(scan_options.size(), 0);
   scan_options.insert(ExtractUserKey(kv[50 * kEntriesPerBlock].first));
   read_count_before =
       options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);

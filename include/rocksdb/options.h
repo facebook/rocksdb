@@ -1785,55 +1785,6 @@ struct ScanOptions {
 // that can merge overlapping ranges.
 class MultiScanOptions {
  public:
-  // Iterator for accessing the scan ranges
-  class iterator {
-   public:
-    iterator(MultiScanOptions& parent, int start, int end)
-        : parent_(&parent), current_(start), end_(end) {}
-    
-    // Increment operator
-    iterator& operator++() {
-      current_++;
-      return *this;
-    }
-    
-    // Post-increment operator
-    iterator operator++(int) {
-      iterator tmp = *this;
-      ++(*this);
-      return tmp;
-    }
-    
-    // Dereference operator to get the current ScanOptions
-    const Interval<Slice, Comparator> operator*() const {
-      if (parent_->parent_range_ != nullptr) {
-        // If this is a subset, get from parent
-        auto interval = parent_->parent_range_->compacted_ranges_.cbegin();
-        std::advance(interval, current_);
-        return *interval;
-      } else {
-        // Get directly from our ranges
-        auto interval = parent_->compacted_ranges_.cbegin();
-        std::advance(interval, current_);
-        return *interval;
-      }
-    }
-
-    // Equality operators
-    bool operator==(const iterator& other) const {
-      return parent_ == other.parent_ && current_ == other.current_;
-    }
-    
-    bool operator!=(const iterator& other) const {
-      return !(*this == other);
-    }
-
-   private:
-    const MultiScanOptions* parent_;
-    int current_;
-    int end_;
-  };
-
   // Constructor that takes a comparator
   explicit MultiScanOptions(const Comparator* comparator = BytewiseComparator())
       : comp_(comparator), compacted_ranges_(comparator) {}
@@ -1859,97 +1810,64 @@ class MultiScanOptions {
     original_ranges_.clear();
     compacted_ranges_.clear();
   }
+
   // Get the number of ranges
   size_t size() const { 
-    if (parent_range_ != nullptr) {
-      return end_ - start_;
-    }
-
     return original_ranges_.size(); 
   }
 
   ScanOptions& operator[](int i) { 
-    if (parent_range_ != nullptr) {
-      return parent_range_->original_ranges_[start_ + i]; 
-    }
-
     return original_ranges_[i]; 
   }
 
 
   const ScanOptions& operator[](int i) const { 
-    if (parent_range_ != nullptr) {
-      return parent_range_->original_ranges_[start_ + i]; 
-    }
-
     return original_ranges_[i]; 
   }
 
   const ScanOptions& at(int i) const { 
-    if (parent_range_ != nullptr) {
-      return parent_range_->original_ranges_[start_ + i]; 
-    }
     return original_ranges_[i]; 
   }
 
-  auto begin() const {
-    if (parent_range_ != nullptr) {
-      return original_ranges_.begin() + start_;
-    }
+  ScanOptions& back() {
+    return original_ranges_.back();
+  }
 
+  const ScanOptions& back() const {
+    return original_ranges_.back();
+  }
+
+  ScanOptions& front() {
+    return original_ranges_.front();
+  }
+
+  const ScanOptions& front() const {
+    return original_ranges_.front();
+  }
+
+  std::vector<ScanOptions>::const_iterator begin() const {
     return original_ranges_.begin();
   }
 
-  auto end() const {
-    if (parent_range_ != nullptr) {
-      return original_ranges_.begin() + end_;
-    }
+  std::vector<ScanOptions>::const_iterator end() const {
+    return original_ranges_.end();
+  }
 
+  // Non-const version of begin()
+  std::vector<ScanOptions>::iterator begin() {
+    return original_ranges_.begin();
+  }
+
+  // Non-const version of end()
+  std::vector<ScanOptions>::iterator end() {
     return original_ranges_.end();
   }
 
   const ScanOptions* data() const { 
-    if (parent_range_ != nullptr) {
-      return &parent_range_->original_ranges_[start_];
-    }
-
     return original_ranges_.data();
   }
 
-  // Iterator support
-  iterator compacted_begin() {
-    if (parent_range_ != nullptr) {
-      return iterator(*this, start_, end_);
-    }
-    return iterator(*this, 0, compacted_ranges_.size());
-  }
-
-  iterator compacted_end() {
-    if (parent_range_ != nullptr) {
-      return iterator(*this, end_, end_);
-    }
-    return iterator(*this, compacted_ranges_.size(), compacted_ranges_.size());
-  }
-
-  // Create a subset of ranges
-  MultiScanOptions get_subset(int start, int end) {
-    return MultiScanOptions(*this, start, end);
-  }
-
  private:
-  // Private constructor for creating subsets
-  MultiScanOptions(MultiScanOptions& parent, int start, int end)
-      : parent_range_(&parent),
-        start_(start),
-        end_(end),
-        comp_(parent.comp_),
-        compacted_ranges_(parent.comp_) {}
-
-  // For subsets, reference to the parent MultiScanOptions
-  MultiScanOptions* parent_range_ = nullptr;
-  int start_ = -1;
-  int end_ = -1;
-  
   // The comparator used for ordering ranges
   const Comparator* comp_;
 
