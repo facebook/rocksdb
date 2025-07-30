@@ -160,6 +160,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     } else if (block_upper_bound_check_ ==
                BlockUpperBound::kUpperBoundBeyondCurBlock) {
       assert(!is_out_of_bound_);
+      // MultiScan does not do block level upper bound check yet.
+      assert(!multi_scan_);
       return IterBoundCheck::kInbound;
     } else {
       return IterBoundCheck::kUnknown;
