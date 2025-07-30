@@ -7812,14 +7812,15 @@ TEST_F(UserDefinedIndexTest, BasicTest) {
   ro.iterate_upper_bound = nullptr;
   iter.reset(reader->NewIterator(ro));
   ASSERT_NE(iter, nullptr);
-  std::vector<ScanOptions> scan_opts({ScanOptions("key20")});
-  ;
-  scan_opts[0].property_bag.emplace().emplace("count", std::to_string(25));
+  MultiScanOptions scan_opts(BytewiseComparator());
+  scan_opts.insert("key20");
+  scan_opts.GetScanOptions()[0].property_bag.emplace().emplace(
+      "count", std::to_string(25));
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
-  for (iter->Seek(scan_opts[0].range.start.value()); iter->Valid();
-       iter->Next()) {
+  for (iter->Seek(scan_opts.GetScanOptions()[0].range.start.value());
+       iter->Valid(); iter->Next()) {
     key_count++;
   }
   ASSERT_GE(key_count, 25);
@@ -7971,14 +7972,15 @@ TEST_F(UserDefinedIndexTest, IngestTest) {
   ro.iterate_upper_bound = nullptr;
   iter.reset(db->NewIterator(ro, cfh));
   ASSERT_NE(iter, nullptr);
-  std::vector<ScanOptions> scan_opts({ScanOptions("key20")});
-  ;
-  scan_opts[0].property_bag.emplace().emplace("count", std::to_string(25));
+  MultiScanOptions scan_opts;
+  scan_opts.insert(Slice("key20"));
+  scan_opts.GetScanOptions()[0].property_bag.emplace().emplace(
+      "count", std::to_string(25));
   iter->Prepare(scan_opts);
   // Test that we can read all the keys
   key_count = 0;
-  for (iter->Seek(scan_opts[0].range.start.value()); iter->Valid();
-       iter->Next()) {
+  for (iter->Seek(scan_opts.GetScanOptions()[0].range.start.value());
+       iter->Valid(); iter->Next()) {
     key_count++;
   }
   ASSERT_GE(key_count, 25);

@@ -34,7 +34,7 @@ MultiScan::MultiScan(const ReadOptions& read_options,
   }
   db_iter_.reset(db->NewIterator(read_options_, cfh));
   if (!slow_path) {
-    db_iter_->Prepare(scan_opts.GetScanOptions());
+    db_iter_->Prepare(scan_opts);
   }
 }
 

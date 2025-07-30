@@ -1817,11 +1817,16 @@ class MultiScanOptions {
     original_ranges_.emplace_back(s);
   }
 
+  size_t size() const { return original_ranges_.size(); }
+  bool empty() const { return original_ranges_.empty(); }
 
   void reserve(size_t size) {
     original_ranges_.reserve(size);
   }
 
+  operator std::vector<ScanOptions>*() { return &original_ranges_; }
+
+  operator const std::vector<ScanOptions>*() const { return &original_ranges_; }
   // Destructor
   ~MultiScanOptions() {}
 
