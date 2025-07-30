@@ -7209,7 +7209,7 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
 
   // Test the overlapping scan case
   key_ranges[1] = "k30";
-  scan_options[0] = ScanOptions(key_ranges[0], key_ranges[1]);
+  scan_options.GetScanOptions()[0] = ScanOptions(key_ranges[0], key_ranges[1]);
   iter = db->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -7235,8 +7235,9 @@ TEST_F(ExternalTableTest, DBMultiScanTest) {
   iter.reset();
 
   // Test the no limit scan case
-  scan_options[0] = ScanOptions(key_ranges[0]);
-  scan_options[1] = ScanOptions(key_ranges[2]);
+  auto& opts = scan_options.GetScanOptions();
+  opts[0] = ScanOptions(key_ranges[0]);
+  opts[1] = ScanOptions(key_ranges[2]);
   iter = db->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
