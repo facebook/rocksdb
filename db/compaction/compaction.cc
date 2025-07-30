@@ -1126,6 +1126,19 @@ void Compaction::FilterInputsForCompactionIterator() {
     DoGenerateLevelFilesBrief(&input_levels_[level],
                               non_start_level_input_files[level - 1], &arena_);
   }
+#ifndef NDEBUG
+  int num_filtered = 0;
+  for (size_t level = 0; level < non_start_level_input_files_filtered_.size();
+       ++level) {
+    for (bool filtered : non_start_level_input_files_filtered_[level]) {
+      if (filtered) {
+        num_filtered++;
+      }
+    }
+  }
+  TEST_SYNC_POINT_CALLBACK("Compaction::FilterInputsForCompactionIterator::End",
+                           &num_filtered);
+#endif
 }
 
 }  // namespace ROCKSDB_NAMESPACE
