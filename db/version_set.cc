@@ -44,7 +44,7 @@
 #include "file/file_util.h"
 #include "table/compaction_merging_iterator.h"
 
-#if USE_COROUTINEScanOptionsS
+#if USE_COROUTINES
 #include "folly/coro/BlockingWait.h"
 #include "folly/coro/Collect.h"
 #endif

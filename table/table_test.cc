@@ -6807,9 +6807,9 @@ class ExternalTableTest : public DBTestBase {
     }
 
     void Prepare(const MultiScanOptions* scan_opts) override {
-      scan_options_ = scan_opts;
       num_opts_ = 0;
       if (scan_options_) {
+        scan_options_ = scan_opts;
         num_opts_ = scan_options_->GetScanOptions().size();
       }
     }

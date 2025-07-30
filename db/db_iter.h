@@ -242,7 +242,8 @@ class DBIter final : public Iterator {
 
   void Prepare(const MultiScanOptions& scan_opts) override {
     if (scan_opts.GetScanOptions().empty()) {
-    iter_.Prepare(&scan_opts);
+      scan_opts_ = scan_opts;
+      iter_.Prepare(&scan_opts_.value());
     } else {
       iter_.Prepare(nullptr);
     }

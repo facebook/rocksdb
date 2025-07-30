@@ -1056,7 +1056,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
   // No IO coalesce, should do MultiRead with 2 read requests.
   scan_options.GetScanOptions().clear();
-  scan_options.GetScanOptions().push_back(ScanOptions(ExtractUserKey(kv[70].first), ExtractUserKey(kv[75 * kEntriesPerBlock].first)));
+  scan_options.GetScanOptions().push_back(ScanOptions(ExtractUserKey(kv[70 * kEntriesPerBlock].first), ExtractUserKey(kv[75 * kEntriesPerBlock].first)));
   scan_options.GetScanOptions().push_back(ScanOptions(ExtractUserKey(kv[90 * kEntriesPerBlock].first), ExtractUserKey(kv[95 * kEntriesPerBlock].first)));
   read_count_before =
       options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
@@ -1085,8 +1085,7 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
   // Should do two I/Os since blocks 80-81 and 90-95 are already in block cache,
   // reads from blocks 50-79 and 82-.. are co
-  scan_options.GetScanOptions().clear();
-  ASSERT_EQ(scan_options.GetScanOptions().size(), 0);
+  scan_options = MultiScanOptions(BytewiseComparator());
   scan_options.GetScanOptions().push_back(ScanOptions(ExtractUserKey(kv[50 * kEntriesPerBlock].first)));
   read_count_before =
       options.statistics->getTickerCount(NON_LAST_LEVEL_READ_COUNT);
@@ -1132,8 +1131,9 @@ TEST_P(BlockBasedTableReaderTest, MultiScanPrepare) {
   iter.reset(table->NewIterator(
       read_opts, options_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
-  scan_options.GetScanOptions().clear();
-  scan_options.GetScanOptions().push_back(ScanOptions(ExtractUserKey(kv[10 * kEntriesPerBlock].first), ExtractUserKey(kv[11 * kEntriesPerBlock].first)));
+  scan_options = MultiScanOptions(BytewiseComparator());
+  scan_options.GetScanOptions().push_back(ScanOptions(ExtractUserKey(kv[10 * kEntriesPerBlock].first)));
+  scan_options.GetScanOptions().push_back(ScanOptions(ExtractUserKey(kv[11 * kEntriesPerBlock].first)));
   iter->Prepare(&scan_options);
   // Does not match the first ScanOptions.
   iter->SeekToFirst();
