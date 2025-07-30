@@ -2430,7 +2430,7 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
     ASSERT_OK(Put(Key(i), "memtable"));
   }
 
-  // Insert 100 -> 200 using IngestExternalFile
+  // Insert 0 -> 20 using IngestExternalFile
   file_data.clear();
   for (int i = 0; i <= 20; i++) {
     file_data.emplace_back(Key(i), "ingest_behind");
@@ -2462,13 +2462,41 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
     ASSERT_OK(Put(Key(i), "memtable"));
     true_data[Key(i)] = "memtable";
   }
+
+  // Test that tombstones for Key(7) and Key(8) are not dropped during
+  // compaction. Will verify below that after ingesting Puts for Key(7) and
+  // Key(8), they are covered by these two tombstones.
+  ASSERT_OK(Delete(Key(7)));
+  ASSERT_OK(SingleDelete(Key(8)));
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   // Universal picker should go at second from the bottom level
   ASSERT_EQ("0,1", FilesPerLevel());
+
+  // Test that SingleDelte overwritten by Put is not dropped.
+  // From old to new, we issue SD, PUT, CompactRange, SD, CompactRange. The
+  // first CompactRange() should not drop the overwritten SD. The second
+  // CompactRange() will drop the new SD with PUT. If the older SD was dropped,
+  // the ingested behind data will be incorrectly visible below.
+  ASSERT_OK(SingleDelete(Key(1)));
+  ASSERT_OK(Put(Key(1), "overwrite_sd"));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(SingleDelete(Key(1)));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
   ASSERT_OK(GenerateAndAddExternalFile(
       options, file_data, -1, allow_global_seqno, write_global_seqno,
       verify_checksums_before_ingest, true /*ingest_behind*/,
       false /*sort_data*/, &true_data));
+  // adjust expected data for tombtones
+  true_data.erase(Key(7));
+  true_data.erase(Key(8));
+  true_data.erase(Key(1));
+  std::unordered_set<std::string> not_found_set;
+  // Tombstones will be verified in VerifyDBFromMap() below.
+  not_found_set.insert(Key(7));
+  not_found_set.insert(Key(8));
+  not_found_set.insert(Key(1));
+
   ASSERT_EQ("0,1,1", FilesPerLevel());
   // this time ingest should fail as the file doesn't fit to the bottom level
   ASSERT_NOK(GenerateAndAddExternalFile(
@@ -2485,7 +2513,7 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
   dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &level_to_files);
   ASSERT_EQ(ingested_file_number, level_to_files[2][0].fd.GetNumber());
   size_t kcnt = 0;
-  VerifyDBFromMap(true_data, &kcnt, false);
+  VerifyDBFromMap(true_data, &kcnt, false, nullptr, nullptr, &not_found_set);
 
   // Auto-compaction should not include the last level.
   // Trigger compaction if size amplification exceeds 110%.
