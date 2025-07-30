@@ -16,18 +16,18 @@ MultiScan::MultiScan(const ReadOptions& read_options,
   bool slow_path = false;
   // Setup read_options with iterate_uuper_bound based on the first scan.
   // Subsequent scans will update and allocate a new DB iterator as necessary
-  if (scan_opts[0].range.limit) {
-    upper_bound_ = *scan_opts[0].range.limit;
+  if (scan_opts.GetScanOptions()[0].range.limit) {
+    upper_bound_ = *scan_opts.GetScanOptions()[0].range.limit;
     read_options_.iterate_upper_bound = &upper_bound_;
   } else {
     read_options_.iterate_upper_bound = nullptr;
   }
-  for (auto opts : scan_opts) {
+  for (auto opts : scan_opts.GetScanOptions()) {
     // Check that all the ScanOptions either specify an upper bound or not. If
     // its mixed we take the slow path which avoids calling Prepare: we have to
     // reallocate the Iterator with updated read_options everytime we switch
     // between upper bound or no upper bound, which complicates Prepare.
-    if (opts.range.limit.has_value() != scan_opts[0].range.limit.has_value()) {
+    if (opts.range.limit.has_value() != scan_opts.GetScanOptions()[0].range.limit.has_value()) {
       slow_path = true;
       break;
     }
@@ -39,26 +39,26 @@ MultiScan::MultiScan(const ReadOptions& read_options,
 }
 
 MultiScanIterator& MultiScanIterator::operator++() {
-  if (idx_ >= scan_opts_.size()) {
+  if (idx_ >= scan_opts_.GetScanOptions().size()) {
     throw std::logic_error("Index out of range");
   }
   idx_++;
-  if (idx_ < scan_opts_.size()) {
+  if (idx_ < scan_opts_.GetScanOptions().size()) {
     // Check if we need to update read_options_
-    if (scan_opts_[idx_].range.limit.has_value() !=
+    if (scan_opts_.GetScanOptions()[idx_].range.limit.has_value() !=
         (read_options_.iterate_upper_bound != nullptr)) {
-      if (scan_opts_[idx_].range.limit) {
-        *upper_bound_ = *scan_opts_[idx_].range.limit;
+      if (scan_opts_.GetScanOptions()[idx_].range.limit) {
+        *upper_bound_ = *scan_opts_.GetScanOptions()[idx_].range.limit;
         read_options_.iterate_upper_bound = upper_bound_;
       } else {
         read_options_.iterate_upper_bound = nullptr;
       }
       db_iter_.reset(db_->NewIterator(read_options_, cfh_));
       scan_.Reset(db_iter_.get());
-    } else if (scan_opts_[idx_].range.limit) {
-      *upper_bound_ = *scan_opts_[idx_].range.limit;
+    } else if (scan_opts_.GetScanOptions()[idx_].range.limit) {
+      *upper_bound_ = *scan_opts_.GetScanOptions()[idx_].range.limit;
     }
-    db_iter_->Seek(*scan_opts_[idx_].range.start);
+    db_iter_->Seek(*scan_opts_.GetScanOptions()[idx_].range.start);
     status_ = db_iter_->status();
     if (!status_.ok()) {
       throw MultiScanException(status_);

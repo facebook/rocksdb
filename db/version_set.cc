@@ -1110,8 +1110,8 @@ class LevelIterator final : public InternalIterator {
     }
 
     file_to_scan_opts_ = std::make_unique<ScanOptionsMap>();
-    for (size_t k = 0; k < scan_opts_->size(); k++) {
-      const ScanOptions& opt = scan_opts_->at(k);
+    for (size_t k = 0; k < scan_opts_->GetScanOptions().size(); k++) {
+      const ScanOptions& opt = scan_opts_->GetScanOptions()[k];
       auto start = opt.range.start;
       auto end = opt.range.limit;
 
@@ -1144,8 +1144,8 @@ class LevelIterator final : public InternalIterator {
                 .insert(
                     {i, MultiScanOptions(user_comparator_.user_comparator())});
           }
-          (*file_to_scan_opts_)[i].insert(start.value(), end.value());
-          (*file_to_scan_opts_)[i].back().property_bag = opt.property_bag;
+          (*file_to_scan_opts_)[i].GetScanOptions().push_back(ScanOptions(start.value(), end.value()));
+          (*file_to_scan_opts_)[i].GetScanOptions().back().property_bag = opt.property_bag;
         }
       }
     }
@@ -1544,8 +1544,8 @@ bool LevelIterator::SkipEmptyFileForward() {
     if (file_iter_.iter() != nullptr) {
       // If we are doing prepared scan opts then we should seek to the values
       // specified by the scan opts
-      if (scan_opts_ && (*file_to_scan_opts_)[file_index_].size()) {
-        const ScanOptions& opts = file_to_scan_opts_->at(file_index_).front();
+      if (scan_opts_ && (*file_to_scan_opts_)[file_index_].GetScanOptions().size()) {
+        const ScanOptions& opts = file_to_scan_opts_->at(file_index_).GetScanOptions().front();
         if (opts.range.start.has_value()) {
           InternalKey target(*opts.range.start.AsPtr(), kMaxSequenceNumber,
                              kValueTypeForSeek);

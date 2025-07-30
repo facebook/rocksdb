@@ -1792,80 +1792,14 @@ class MultiScanOptions {
   // Destructor
   ~MultiScanOptions() {}
 
-  // Add a range with start and end keys
-  void insert(const Slice& start, const Slice& end) {
-    compacted_ranges_.insert(start, end);
-    original_ranges_.emplace_back(start, end);
+  std::vector<ScanOptions>& GetScanOptions() {
+    return original_ranges_;
   }
 
-  // Add a range with only a start key (unbounded end)
-  void insert(const Slice& start) {
-    compacted_ranges_.insert(start);
-    original_ranges_.emplace_back(start);
+  const std::vector<ScanOptions>& GetScanOptions() const {
+    return original_ranges_;
   }
 
-  bool empty() const { return original_ranges_.empty(); }
-
-  void clear() {
-    original_ranges_.clear();
-    compacted_ranges_.clear();
-  }
-
-  // Get the number of ranges
-  size_t size() const { 
-    return original_ranges_.size(); 
-  }
-
-  ScanOptions& operator[](int i) { 
-    return original_ranges_[i]; 
-  }
-
-
-  const ScanOptions& operator[](int i) const { 
-    return original_ranges_[i]; 
-  }
-
-  const ScanOptions& at(int i) const { 
-    return original_ranges_[i]; 
-  }
-
-  ScanOptions& back() {
-    return original_ranges_.back();
-  }
-
-  const ScanOptions& back() const {
-    return original_ranges_.back();
-  }
-
-  ScanOptions& front() {
-    return original_ranges_.front();
-  }
-
-  const ScanOptions& front() const {
-    return original_ranges_.front();
-  }
-
-  std::vector<ScanOptions>::const_iterator begin() const {
-    return original_ranges_.begin();
-  }
-
-  std::vector<ScanOptions>::const_iterator end() const {
-    return original_ranges_.end();
-  }
-
-  // Non-const version of begin()
-  std::vector<ScanOptions>::iterator begin() {
-    return original_ranges_.begin();
-  }
-
-  // Non-const version of end()
-  std::vector<ScanOptions>::iterator end() {
-    return original_ranges_.end();
-  }
-
-  const ScanOptions* data() const { 
-    return original_ranges_.data();
-  }
 
  private:
   // The comparator used for ordering ranges

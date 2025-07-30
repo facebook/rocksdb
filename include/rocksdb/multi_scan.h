@@ -182,10 +182,11 @@ class MultiScan {
           idx_(0),
           db_iter_(db_iter),
           scan_(db_iter_.get()) {
-      if (scan_opts_.empty()) {
+      const auto& scan_options = scan_opts_.GetScanOptions();
+      if (scan_options.empty()) {
         throw std::logic_error("Zero scans in multi-scan");
       }
-      db_iter_->Seek(*scan_opts_[idx_].range.start);
+      db_iter_->Seek(*scan_options[idx_].range.start);
       status_ = db_iter_->status();
       if (!status_.ok()) {
         throw MultiScanException(status_);
@@ -197,11 +198,13 @@ class MultiScan {
     MultiScanIterator& operator++();
 
     bool operator==(std::nullptr_t /*other*/) const {
-      return idx_ >= scan_opts_.size();
+      const auto& scan_options = scan_opts_.GetScanOptions();
+      return idx_ >= scan_options.size();
     }
 
     bool operator!=(std::nullptr_t /*other*/) const {
-      return idx_ < scan_opts_.size();
+      const auto& scan_options = scan_opts_.GetScanOptions();
+      return idx_ < scan_options.size();
     }
 
     reference operator*() { return scan_; }

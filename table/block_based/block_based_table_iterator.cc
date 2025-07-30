@@ -940,18 +940,18 @@ void BlockBasedTableIterator::Prepare(const MultiScanOptions* scan_opts) {
     multi_scan_.reset();
     return;
   }
-  if (scan_opts == nullptr || scan_opts->empty()) {
+  if (scan_opts == nullptr || scan_opts->GetScanOptions().empty()) {
     return;
   }
-  const bool has_limit = scan_opts->front().range.limit.has_value();
-  if (!has_limit && scan_opts->size() > 1) {
+  const bool has_limit = scan_opts->GetScanOptions().front().range.limit.has_value();
+  if (!has_limit && scan_opts->GetScanOptions().size() > 1) {
     // Abort: overlapping ranges
     return;
   }
 
   // Validate scan ranges to be increasing and with limit.
-  for (size_t i = 0; i < scan_opts->size(); ++i) {
-    const auto& scan_range = (*scan_opts)[i].range;
+  for (size_t i = 0; i < scan_opts->GetScanOptions().size(); ++i) {
+    const auto& scan_range = scan_opts->GetScanOptions()[i].range;
     if (!scan_range.start.has_value()) {
       // Abort: no start key
       return;
@@ -969,7 +969,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanOptions* scan_opts) {
         return;
       }
 
-      const auto& last_end_key = (*scan_opts)[i - 1].range.limit.value();
+      const auto& last_end_key = scan_opts->GetScanOptions()[i - 1].range.limit.value();
       if (user_comparator_.Compare(scan_range.start.value(), last_end_key) <
           0) {
         // Abort: overlapping ranges
@@ -982,7 +982,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanOptions* scan_opts) {
   std::vector<BlockHandle> blocks_to_prepare;
   Status s;
   std::vector<std::tuple<size_t, size_t>> block_ranges_per_scan;
-  for (const auto& scan_opt : *scan_opts) {
+  for (const auto& scan_opt : scan_opts->GetScanOptions()) {
     size_t num_blocks = 0;
     // Current scan overlap the last block of the previous scan.
     bool check_overlap = !blocks_to_prepare.empty();
@@ -1185,14 +1185,14 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
   // This is a MultiScan and Preapre() has been called.
   //
   // Validate seek key with scan options
-  if (multi_scan_->next_scan_idx >= multi_scan_->scan_opts->size()) {
+  if (multi_scan_->next_scan_idx >= multi_scan_->scan_opts->GetScanOptions().size()) {
     multi_scan_.reset();
   } else if (!target) {
     // start key must be set for multi-scan
     multi_scan_.reset();
   } else if (user_comparator_.CompareWithoutTimestamp(
                  ExtractUserKey(*target), /*a_has_ts=*/true,
-                 (*multi_scan_->scan_opts)[multi_scan_->next_scan_idx]
+                 multi_scan_->scan_opts->GetScanOptions()[multi_scan_->next_scan_idx]
                      .range.start.value(),
                  /*b_has_ts=*/false) != 0) {
     // Unexpected seek key

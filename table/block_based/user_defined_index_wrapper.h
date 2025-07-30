@@ -182,7 +182,7 @@ class UserDefinedIndexIteratorWrapper
   Status status() const override { return status_; }
 
   void Prepare(const MultiScanOptions* scan_opts) override {
-    udi_iter_->Prepare(scan_opts->data(), scan_opts->size());
+    udi_iter_->Prepare(scan_opts->GetScanOptions().data(), scan_opts->GetScanOptions().size());
   }
 
  private:

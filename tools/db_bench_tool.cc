@@ -6432,7 +6432,7 @@ class Benchmark {
         uint64_t end_key = start_key + scan_size;
         GenerateKeyFromInt(end_key, FLAGS_num, &ekey);
 
-        opts.insert(skey,ekey);
+        opts.GetScanOptions().push_back(ScanOptions(skey,ekey));
         start_key += scan_size + FLAGS_multiscan_stride;
       }
 

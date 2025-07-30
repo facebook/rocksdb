@@ -4162,8 +4162,8 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
 
   MultiScanOptions scan_options(BytewiseComparator());
 
-  scan_options.insert(key_ranges[0], key_ranges[1]);
-  scan_options.insert(key_ranges[2], key_ranges[3]);
+  scan_options.GetScanOptions().push_back(ScanOptions(key_ranges[0], key_ranges[1]));
+  scan_options.GetScanOptions().push_back(ScanOptions(key_ranges[2], key_ranges[3]));
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<MultiScan> iter =
       dbfull()->NewMultiScan(ro, cfh, scan_options);
@@ -4192,7 +4192,7 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
 
   // Test the overlapping scan case
   key_ranges[1] = "k30";
-  scan_options[0] = ScanOptions(key_ranges[0], key_ranges[1]);
+  scan_options.GetScanOptions()[0] = ScanOptions(key_ranges[0], key_ranges[1]);
   iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -4218,8 +4218,8 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
   iter.reset();
 
   // Test the no limit scan case
-  scan_options[0] = ScanOptions(key_ranges[0]);
-  scan_options[1] = ScanOptions(key_ranges[2]);
+  scan_options.GetScanOptions()[0] = ScanOptions(key_ranges[0]);
+  scan_options.GetScanOptions()[1] = ScanOptions(key_ranges[2]);
   iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -4260,9 +4260,9 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
       {"k03", "k10", "k25", "k50", "k75", "k90"});
   ReadOptions ro;
   MultiScanOptions scan_options(BytewiseComparator());
-  scan_options.insert(key_ranges[0], key_ranges[1]);
-  scan_options.insert(key_ranges[2]);
-  scan_options.insert(key_ranges[4], key_ranges[5]);
+  scan_options.GetScanOptions().push_back(ScanOptions(key_ranges[0], key_ranges[1]));
+  scan_options.GetScanOptions().push_back(ScanOptions(key_ranges[2]));
+  scan_options.GetScanOptions().push_back(ScanOptions(key_ranges[4], key_ranges[5]));
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<MultiScan> iter =
       dbfull()->NewMultiScan(ro, cfh, scan_options);
@@ -4272,11 +4272,11 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
     for (auto range : *iter) {
       for (auto it : range) {
         ASSERT_GE(it.first.ToString().compare(
-                      scan_options[idx].range.start->ToString()),
+                      scan_options.GetScanOptions()[idx].range.start->ToString()),
                   0);
-        if (scan_options[idx].range.limit) {
+        if (scan_options.GetScanOptions()[idx].range.limit) {
           ASSERT_LT(it.first.ToString().compare(
-                        scan_options[idx].range.limit->ToString()),
+                        scan_options.GetScanOptions()[idx].range.limit->ToString()),
                     0);
         }
         count++;
@@ -4295,9 +4295,9 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
   }
   iter.reset();
 
-  scan_options[0] = ScanOptions(key_ranges[0]);
-  scan_options[1] = ScanOptions(key_ranges[2], key_ranges[3]);
-  scan_options[2] = ScanOptions(key_ranges[4]);
+  scan_options.GetScanOptions()[0] = ScanOptions(key_ranges[0]);
+  scan_options.GetScanOptions()[1] = ScanOptions(key_ranges[2], key_ranges[3]);
+  scan_options.GetScanOptions()[2] = ScanOptions(key_ranges[4]);
   iter = dbfull()->NewMultiScan(ro, cfh, scan_options);
   try {
     int idx = 0;
@@ -4305,11 +4305,11 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
     for (auto range : *iter) {
       for (auto it : range) {
         ASSERT_GE(it.first.ToString().compare(
-                      scan_options[idx].range.start->ToString()),
+                      scan_options.GetScanOptions()[idx].range.start->ToString()),
                   0);
-        if (scan_options[idx].range.limit) {
+        if (scan_options.GetScanOptions()[idx].range.limit) {
           ASSERT_LT(it.first.ToString().compare(
-                        scan_options[idx].range.limit->ToString()),
+                        scan_options.GetScanOptions()[idx].range.limit->ToString()),
                     0);
         }
         count++;
