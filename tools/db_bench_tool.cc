@@ -83,6 +83,7 @@
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/rate_tracker.h"
 #include "util/simple_mixed_compressor.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
@@ -605,8 +606,24 @@ static enum ROCKSDB_NAMESPACE::CompressionType
         ROCKSDB_NAMESPACE::kLZ4Compression;
 
 DEFINE_string(compression_manager, "none",
-              "Set the compression manager type to mixed(roundrobin) or other "
-              "type. None for BuilInCompressor");
+              "Set the compression manager type to mixed(roundrobin), "
+              "autoskip, autotunecompressor, "
+              "or none. Use 'none' for BuiltInCompressor");
+
+DEFINE_double(autotune_io_upper_bound, 0.99,
+              "Ratio of rate_limiter budget to set as IO goal for autotune "
+              "compression manager");
+DEFINE_double(
+    autotune_io_lower_bound, 0.9,
+    "Ratio of rate_limiter budget to set as minimum IO goal for autotune "
+    "compression manager");
+DEFINE_double(autotune_cpu_upper_bound, 0.9,
+              "Autotune compression manager tries to use CPU under the given "
+              "CPU budget expressed in number of cores");
+DEFINE_double(autotune_cpu_lower_bound, 0.8,
+              "Autotune compression manager tries to use CPU above the given "
+              "CPU budget expressed in number of cores");
+
 DEFINE_int32(compressed_secondary_cache_compression_level,
              ROCKSDB_NAMESPACE::CompressionOptions().level,
              "Compression level. The meaning of this value is library-"
@@ -1450,11 +1467,9 @@ DEFINE_int64(stats_interval, 0,
 DEFINE_int64(stats_interval_seconds, 0,
              "Report stats every N seconds. This overrides stats_interval when"
              " both are > 0.");
-
 DEFINE_int32(stats_per_interval, 0,
              "Reports additional stats per interval when this is greater than "
              "0.");
-
 DEFINE_uint64(slow_usecs, 1000000,
               "A message is printed for operations that take at least this "
               "many microseconds.");
@@ -2027,7 +2042,6 @@ static void AppendWithSpace(std::string* str, Slice msg) {
   }
   str->append(msg.data(), msg.size());
 }
-
 struct DBWithColumnFamilies {
   std::vector<ColumnFamilyHandle*> cfh;
   DB* db;
@@ -2246,7 +2260,7 @@ class Stats {
   friend class CombinedStats;
 
  public:
-  Stats() : clock_(FLAGS_env->GetSystemClock().get()) { Start(-1); }
+  explicit Stats() : clock_(FLAGS_env->GetSystemClock().get()) { Start(-1); }
 
   void SetReporterAgent(ReporterAgent* reporter_agent) {
     reporter_agent_ = reporter_agent;
@@ -2415,7 +2429,6 @@ class Stats {
                   done_ / ((now - start_) / 1000000.0),
                   (now - last_report_finish_) / 1000000.0,
                   (now - start_) / 1000000.0);
-
           if (id_ == 0 && FLAGS_stats_per_interval) {
             std::string stats;
 
@@ -4672,8 +4685,18 @@ class Benchmark {
       mgr =
           std::make_shared<RoundRobinManager>(GetBuiltinV2CompressionManager());
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(),
-                           "costpredictor")) {
-      mgr = CreateCostAwareCompressionManager();
+                           "autotunecompressor")) {
+      double io_upper_bound = FLAGS_autotune_io_upper_bound;
+      double io_lower_bound = FLAGS_autotune_io_lower_bound;
+      double cpu_upper_bound = FLAGS_autotune_cpu_upper_bound;
+      double cpu_lower_bound = FLAGS_autotune_cpu_lower_bound;
+      std::shared_ptr<IOGoal> io_goal =
+          std::make_shared<IOGoal>(io_upper_bound, io_lower_bound);
+      std::shared_ptr<CPUBudget> cpu_budget =
+          std::make_shared<CPUBudget>(cpu_upper_bound, cpu_lower_bound);
+      auto rate_limiter = options.rate_limiter;
+      mgr = CreateAutoTuneCompressionManager(nullptr, io_goal, cpu_budget,
+                                             rate_limiter);
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "autoskip")) {
       mgr = CreateAutoSkipCompressionManager();
     } else if (!strcasecmp(FLAGS_compression_manager.c_str(), "none")) {
@@ -5390,7 +5413,6 @@ class Benchmark {
 
       batch.Clear();
       int64_t batch_bytes = 0;
-
       for (int64_t j = 0; j < entries_per_batch_; j++) {
         int64_t rand_num = 0;
         if ((write_mode == UNIQUE_RANDOM) && (p > 0.0)) {

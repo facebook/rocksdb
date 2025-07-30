@@ -14,8 +14,34 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/data_structure.h"
+#include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
+// Class defines the interface to define budget or goal for autotune compressor
+// The autotune compressor should try to achieve GetMinRate and try not to go
+// above the GetMaxRate
+// GetMaxRate and GetMinRate expresses the rate in unit of per seccond
+// Default Budget definition is static and it could be extended to make the
+// budget or io goal dynamic
+class Budget {
+ public:
+  Budget(double max_rate, double min_rate)
+      : max_rate_(max_rate), min_rate_(min_rate) {}
+  virtual double GetMaxRate() { return max_rate_; }
+  virtual double GetMinRate() { return min_rate_; }
+  virtual ~Budget() = default;
+
+ private:
+  double max_rate_;
+  double min_rate_;
+};
+// IOGoal is supposed to be in unit of portion of
+// rate_limiters_max_throughput/second
+// For example, if IOGoal is o.5/second and rate limiters max throughput is 100
+// bytes / second. AutoTuneCompressor should try to use 50 bytes/second
+using IOGoal = Budget;
+// CPUBudget is suppposed to be in unit of number of cores/second
+using CPUBudget = Budget;
 
 // TODO: alias/adapt for compression
 struct FilterBuildingContext;
@@ -618,8 +644,32 @@ const std::shared_ptr<CompressionManager>& GetBuiltinV2CompressionManager();
 std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
     std::shared_ptr<CompressionManager> wrapped = nullptr);
 // Creates CompressionManager designed for the CPU and IO cost aware compression
-// strategy
+// strategy that selects compression algorithm in order to achieve IO and CPU
+// usage of the rocksdb process within certain range (i.e. IO goal and CPU
+// budget)
+// AutoTuneCompressionManager expects at least one of the following compression
+// algorithms to be supported:
+// - kSnappyCompression
+// - kLZ4Compression
+// - kLZ4HCCompression
+// - kZSTD
+// If none of the above compression algorithms are supported, then it will
+// resolve to using no compression at all.
+// If the KNoCompression algorithm is set as preferred compression
+// IO goal specifies that the compression manager should limit disk write
+// throughput between maximum and minimum bytes per second.
+// CPU Budget specifies that the compression manager should limit CPU usage
+// between maximum and minimum number of cores available to the process.
 // EXPERIMENTAL
-std::shared_ptr<CompressionManagerWrapper> CreateCostAwareCompressionManager(
-    std::shared_ptr<CompressionManager> wrapped = nullptr);
+// AutoCompressionManager is not thread safe and is not to be used in
+// multithreaded scenario
+std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
+    const std::shared_ptr<CompressionManager>& wrapped,
+    const std::shared_ptr<IOGoal>& io_goal,
+    const std::shared_ptr<CPUBudget>& cpu_budget,
+    const std::shared_ptr<RateLimiter>& rate_limiter);
+// Return true if AutoTuneCompressionManager is able to select from
+// more than one compressor
+bool AutoTuneCompressionManagerSupported();
+
 }  // namespace ROCKSDB_NAMESPACE

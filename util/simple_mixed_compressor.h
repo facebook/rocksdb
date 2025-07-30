@@ -17,6 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class MultiCompressorWrapper : public Compressor {
  public:
+  explicit MultiCompressorWrapper() = default;
   explicit MultiCompressorWrapper(const CompressionOptions& opts,
                                   CompressionDict&& dict = {});
 

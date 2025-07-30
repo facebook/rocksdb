@@ -353,6 +353,7 @@ default_params = {
     "universal_reduce_file_locking": lambda: random.randint(0, 1),
     "compression_manager": lambda: random.choice(
         ["mixed"] * 1
+        + ["autotunecompressor"] * 1
         + ["none"] * 2
         + ["autoskip"] * 2
         + ["randommixed"] * 2
@@ -1033,6 +1034,20 @@ def finalize_and_sanitize(src_params):
                 ["snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]
             )
         dest_params["block_align"] = 0
+    elif dest_params.get("compression_manager") == "autotunecompressor":
+        # ensuring the compression suported by the autotunecompressor is being used
+        if dest_params.get("compression_type") == "none":
+            dest_params["compression_type"] = random.choice(
+                ["snappy", "lz4", "lz4hc", "xpress", "zstd"]
+            )
+        if dest_params.get("bottommost_compression_type") == "none":
+            dest_params["bottommost_compression_type"] = random.choice(
+                ["snappy", "lz4", "lz4hc", "xpress", "zstd"]
+            )
+        dest_params["block_align"] = 0
+        # make sure rate_limiter is enabled and compression parallel thread is set to 1
+        dest_params["rate_limiter_bytes_per_sec"] = 1000000000
+        dest_params["compression_parallel_threads"] = 1
     else:
         # Enabling block_align with compression is not supported
         if dest_params.get("block_align") == 1:
