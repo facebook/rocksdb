@@ -239,7 +239,7 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
 }
 
 Compressor::ManagedWorkingArea AutoTuneCompressor::ObtainWorkingArea() {
-  if (compressors_.size() == 0) {
+  if (compressors_.size() > 0) {
     auto wrap_wa = compressors_.back()->ObtainWorkingArea();
     auto wa = new CostAwareWorkingArea(std::move(wrap_wa));
     // Create cost predictors for each compression type and level

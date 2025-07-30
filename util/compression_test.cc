@@ -1930,6 +1930,7 @@ TEST_F(DBAutoTuneCompressionTest, AutoTuneCompression) {
     auto default_type =
         supported_compressions[supported_compressions.size() - 1];
     options_.compression = default_type;
+    options_.bottommost_compression = default_type;
     DestroyAndReopen(options_);
     SetUpSyncPoints();
     // Set condition in which cpu and io usage both need to increase
