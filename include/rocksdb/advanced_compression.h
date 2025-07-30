@@ -655,6 +655,7 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoSkipCompressionManager(
 // - kZSTD
 // If none of the above compression algorithms are supported, then it will
 // resolve to using no compression at all.
+// If the KNoCompression algorithm is set as preferred compression
 // IO goal specifies that the compression manager should limit disk write
 // throughput between maximum and minimum bytes per second.
 // CPU Budget specifies that the compression manager should limit CPU usage

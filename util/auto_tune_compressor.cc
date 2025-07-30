@@ -192,8 +192,13 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
   // Check if the managed working area is provided or owned by this object.
   // If not, bypass compressor logic since the working area lacks a predictor.
   if (wa == nullptr || wa->owner() != this) {
-    return default_compressor_->CompressBlock(
-        uncompressed_data, compressed_output, out_compression_type, wa);
+    if (default_compressor_) {
+      return default_compressor_->CompressBlock(
+          uncompressed_data, compressed_output, out_compression_type, wa);
+    } else {
+      return Status::InvalidArgument(
+          "Compression type should not be kNoCompression");
+    }
   }
 
   if (io_goal_ == nullptr || cpu_budget_ == nullptr) {
@@ -234,15 +239,19 @@ Status AutoTuneCompressor::CompressBlock(Slice uncompressed_data,
 }
 
 Compressor::ManagedWorkingArea AutoTuneCompressor::ObtainWorkingArea() {
-  auto wrap_wa = compressors_.back()->ObtainWorkingArea();
-  auto wa = new CostAwareWorkingArea(std::move(wrap_wa));
-  // Create cost predictors for each compression type and level
-  wa->cost_predictors_.reserve(compressors_.size());
-  for (size_t i = 0; i < compressors_.size(); i++) {
-    wa->cost_predictors_.emplace_back(
-        std::make_unique<IOCPUCostPredictor>(kWindow));
+  if (compressors_.size() == 0) {
+    auto wrap_wa = compressors_.back()->ObtainWorkingArea();
+    auto wa = new CostAwareWorkingArea(std::move(wrap_wa));
+    // Create cost predictors for each compression type and level
+    wa->cost_predictors_.reserve(compressors_.size());
+    for (size_t i = 0; i < compressors_.size(); i++) {
+      wa->cost_predictors_.emplace_back(
+          std::make_unique<IOCPUCostPredictor>(kWindow));
+    }
+    return ManagedWorkingArea(wa, this);
+  } else {
+    return default_compressor_->ObtainWorkingArea();
   }
-  return ManagedWorkingArea(wa, this);
 }
 void AutoTuneCompressor::MeasureUtilization() { usage_tracker_.Record(); }
 void AutoTuneCompressor::ReleaseWorkingArea(WorkingArea* wa) {
@@ -290,8 +299,8 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
   } else if (cur_compressor_idx_ >= compressors_.size()) {
     // If the current compression type and level are not available, i.e.,
     // compression is disabled, we can switch from no compression if we can
-    // decrease IO and increase CPU usage. Otherwise, our current no-compression
-    // setting is the best we can do.
+    // decrease IO and increase CPU usage. Otherwise, our current
+    // no-compression setting is the best we can do.
     if (decrease_io && increase_cpu) {
       cur_compressor_idx_ = 0;
       return cur_compressor_idx_;
@@ -304,8 +313,8 @@ size_t AutoTuneCompressor::SelectCompressionBasedOnIOGoalCPUBudget(
       &(wa->cost_predictors_));
   // If we are not in the stable region, then we need to explore other
   // compression algorithms and levels that are in the right quadrant.
-  // The right quadrant is determined by whether we want to increase or decrease
-  // the CPU and IO usage based on our current measurements.
+  // The right quadrant is determined by whether we want to increase or
+  // decrease the CPU and IO usage based on our current measurements.
   auto cur_cpu_cost =
       wa->cost_predictors_[cur_compressor_idx_]->CPUPredictor.Predict();
   auto cur_io_cost =
@@ -372,7 +381,7 @@ std::unique_ptr<Compressor> AutoTuneCompressorManager::GetCompressorForSST(
     const FilterBuildingContext& context, const CompressionOptions& opts,
     CompressionType preferred) {
   (void)context;
-  if (AutoTuneCompressionManagerSupported()) {
+  if (AutoTuneCompressionManagerSupported() && preferred != kNoCompression) {
     return std::make_unique<AutoTuneCompressor>(opts, preferred, io_goal_,
                                                 cpu_budget_, rate_limiter_);
   } else {
@@ -395,8 +404,8 @@ std::shared_ptr<CompressionManagerWrapper> CreateAutoTuneCompressionManager(
 bool AutoTuneCompressionManagerSupported() {
   auto supported_compressions = GetSupportedCompressions();
   // Check if KLZ4Compression, KLZ4HCCompression and kZSTDCompression are
-  // supported before running the test case as they must be supported for us to
-  // have at least two compressors
+  // supported before running the test case as they must be supported for us
+  // to have at least two compressors
   return std::find(supported_compressions.begin(), supported_compressions.end(),
                    kLZ4Compression) != supported_compressions.end() ||
          std::find(supported_compressions.begin(), supported_compressions.end(),

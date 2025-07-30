@@ -804,11 +804,9 @@ struct BlockBasedTableBuilder::Rep {
       props.compression_options.append(mgr->GetId());
       props.compression_options.append("; ");
     }
-
     // Sanitize to only allowing compression when it saves space.
     max_compressed_bytes_per_kb =
         std::min(int{1023}, tbo.compression_opts.max_compressed_bytes_per_kb);
-
     basic_compressor = mgr->GetCompressorForSST(
         filter_context, tbo.compression_opts, tbo.compression_type);
     if (basic_compressor) {
