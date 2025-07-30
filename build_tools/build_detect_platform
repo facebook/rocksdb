@@ -79,7 +79,7 @@ rm -f "$OUTPUT"
 touch "$OUTPUT"
 
 if test -z "$CC"; then
-    if [ -z "$USE_CLANG" -a -x "$(command -v clang)" ]; then
+    if [ "$USE_CLANG" -a -x "$(command -v clang)" ]; then
         CC=clang
     elif [ -x "$(command -v cc)" ]; then
         CC=cc
@@ -91,7 +91,7 @@ if test -z "$CC"; then
 fi
 
 if test -z "$CXX"; then
-    if [ -z "$USE_CLANG" -a -x "$(command -v clang++)" ]; then
+    if [ "$USE_CLANG" -a -x "$(command -v clang++)" ]; then
         CXX=clang++
     elif [ -x "$(command -v g++)" ]; then
         CXX=g++
@@ -103,7 +103,7 @@ if test -z "$CXX"; then
 fi
 
 if test -z "$AR"; then
-    if [ -z "$USE_CLANG" -a -x "$(command -v llvm-ar)" ]; then
+    if [ "$USE_CLANG" -a -x "$(command -v llvm-ar)" ]; then
         AR=llvm-ar
     elif [ -x "$(command -v gcc-ar)" ]; then
         AR=gcc-ar
