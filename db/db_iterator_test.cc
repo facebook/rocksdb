@@ -4294,7 +4294,7 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
     abort();
   }
   iter.reset();
-  auto &opts = scan_options.GetScanOptions();
+  auto& opts = scan_options.GetScanOptions();
   opts[0] = ScanOptions(key_ranges[0]);
   opts[1] = ScanOptions(key_ranges[2], key_ranges[3]);
   opts[2] = ScanOptions(key_ranges[4]);

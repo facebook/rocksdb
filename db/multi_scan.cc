@@ -27,7 +27,8 @@ MultiScan::MultiScan(const ReadOptions& read_options,
     // its mixed we take the slow path which avoids calling Prepare: we have to
     // reallocate the Iterator with updated read_options everytime we switch
     // between upper bound or no upper bound, which complicates Prepare.
-    if (opts.range.limit.has_value() != scan_opts.GetScanOptions()[0].range.limit.has_value()) {
+    if (opts.range.limit.has_value() !=
+        scan_opts.GetScanOptions()[0].range.limit.has_value()) {
       slow_path = true;
       break;
     }
