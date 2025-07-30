@@ -41,7 +41,7 @@ DEFINE_int64(lock_timeout_ms, 1000,
              "Lock acquisition request timeout in milliseconds.");
 DEFINE_int64(lock_expiration_ms, 100,
              "Acquired Lock expiration time in milliseconds.");
-DEFINE_bool(allow_non_deadlock_error, false,
+DEFINE_bool(allow_non_deadlock_error, true,
             "Allow returned error code other than deadlock, such as timeout.");
 DEFINE_uint32(
     max_sleep_after_lock_acquisition_ms, 0,
