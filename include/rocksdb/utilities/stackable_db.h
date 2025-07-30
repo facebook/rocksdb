@@ -292,7 +292,7 @@ class StackableDB : public DB {
   using DB::NewMultiScan;
   std::unique_ptr<MultiScan> NewMultiScan(
       const ReadOptions& opts, ColumnFamilyHandle* column_family,
-      const std::vector<ScanOptions>& scan_opts) override {
+      const MultiScanOptions& scan_opts) override {
     return db_->NewMultiScan(opts, column_family, scan_opts);
   }
 
