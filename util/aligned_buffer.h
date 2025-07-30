@@ -259,6 +259,29 @@ class GrowableBuffer {
  public:
   GrowableBuffer() : capacity_(0) {}
   ~GrowableBuffer() { free(data_); }
+  // No copies
+  GrowableBuffer(const GrowableBuffer&) = delete;
+  GrowableBuffer& operator=(const GrowableBuffer&) = delete;
+  // Movable
+  GrowableBuffer(GrowableBuffer&& other) noexcept
+      : data_(other.data_), size_(other.size_), capacity_(other.capacity_) {
+    other.data_ = nullptr;
+    other.size_ = 0;
+    other.capacity_ = 0;
+  }
+  GrowableBuffer& operator=(GrowableBuffer&& other) noexcept {
+    if (this == &other) {
+      return *this;
+    }
+    free(data_);
+    data_ = other.data_;
+    size_ = other.size_;
+    capacity_ = other.capacity_;
+    other.data_ = nullptr;
+    other.size_ = 0;
+    other.capacity_ = 0;
+    return *this;
+  }
 
   char* data() { return data_; }
   const char* data() const { return data_; }
@@ -295,7 +318,6 @@ class GrowableBuffer {
   char* data_ = nullptr;
   size_t size_ = 0;
   size_t capacity_;
-  static const Slice kEmptySlice;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -6,7 +6,6 @@
 #include "util/compression.h"
 
 #include "options/options_helper.h"
-#include "port/lang.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/object_registry.h"
 
@@ -758,8 +757,8 @@ class BuiltinXpressCompressorV2 : public CompressorWithSimpleDictBase {
 
 class BuiltinZSTDCompressorV2 : public CompressorBase {
  public:
-  BuiltinZSTDCompressorV2(const CompressionOptions& opts,
-                          CompressionDict&& dict = {})
+  explicit BuiltinZSTDCompressorV2(const CompressionOptions& opts,
+                                   CompressionDict&& dict = {})
       : CompressorBase(opts), dict_(std::move(dict)) {}
 
   const char* Name() const override { return "BuiltinZSTDCompressorV2"; }
@@ -1417,7 +1416,7 @@ class BuiltinDecompressorV2OptimizeZstd : public BuiltinDecompressorV2 {
 class BuiltinDecompressorV2OptimizeZstdWithDict
     : public BuiltinDecompressorV2OptimizeZstd {
  public:
-  BuiltinDecompressorV2OptimizeZstdWithDict(const Slice& dict)
+  explicit BuiltinDecompressorV2OptimizeZstdWithDict(const Slice& dict)
       :
 #ifdef ROCKSDB_ZSTD_DDICT
         dict_(dict),
