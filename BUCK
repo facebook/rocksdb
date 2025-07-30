@@ -268,6 +268,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "util/murmurhash.cc",
         "util/random.cc",
         "util/rate_limiter.cc",
+        "util/rate_tracker.cc",
         "util/ribbon_config.cc",
         "util/simple_mixed_compressor.cc",
         "util/slice.cc",
