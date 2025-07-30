@@ -4325,6 +4325,40 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
   }
   iter.reset();
 }
+
+TEST_F(DBMultiScanIteratorTest, RangeAcrossFiles) {
+  auto options = CurrentOptions();
+  options.target_file_size_base = 100 << 10;  // 20KB
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 50;
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+
+  auto rnd = Random::GetTLSInstance();
+  // Write ~200KB data
+  for (int i = 0; i < 100; ++i) {
+    ASSERT_OK(Put(Key(i), rnd->RandomString(2 << 10)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange({}, nullptr, nullptr));
+  ASSERT_EQ(2, NumTableFilesAtLevel(49));
+  std::vector<std::string> key_ranges({Key(10), Key(90)});
+  ReadOptions ro;
+  std::vector<ScanOptions> scan_options(
+      {ScanOptions(key_ranges[0], key_ranges[1])});
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  std::unique_ptr<MultiScan> iter =
+      dbfull()->NewMultiScan(ro, cfh, scan_options);
+  int i = 10;
+  for (auto range : *iter) {
+    for (auto it : range) {
+      ASSERT_EQ(it.first.ToString(), Key(i));
+      ++i;
+    }
+  }
+  ASSERT_EQ(i, 90);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

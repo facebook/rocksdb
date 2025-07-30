@@ -1027,7 +1027,6 @@ void BlockBasedTableIterator::Prepare(
       }
       ++num_blocks;
     } else if (num_blocks == 0) {
-      assert(false);
       // We should not have scan ranges that are completely after the file's
       // range. This is important for FindBlockForwardInMultiScan() which only
       // lets the upper layer (LevelIterator) advance to the next SST file when
