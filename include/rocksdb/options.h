@@ -1796,12 +1796,11 @@ class MultiScanOptions {
   // Copy Constructor
   MultiScanOptions(const MultiScanOptions& other) {
     comp_ = other.comp_;
-    original_ranges_  = other.original_ranges_;
+    original_ranges_ = other.original_ranges_;
   }
-  
+
   MultiScanOptions(MultiScanOptions& other) = default;
   MultiScanOptions& operator=(MultiScanOptions& other) = default;
-
 
   MultiScanOptions& operator=(const MultiScanOptions& other) {
     comp_ = other.comp_;
@@ -1809,20 +1808,16 @@ class MultiScanOptions {
     return *this;
   }
 
-  void insert(const Slice &s, const Slice &b) {
+  void insert(const Slice& s, const Slice& b) {
     original_ranges_.emplace_back(s, b);
   }
 
-  void insert(const Slice &s) {
-    original_ranges_.emplace_back(s);
-  }
+  void insert(const Slice& s) { original_ranges_.emplace_back(s); }
 
   size_t size() const { return original_ranges_.size(); }
   bool empty() const { return original_ranges_.empty(); }
 
-  void reserve(size_t size) {
-    original_ranges_.reserve(size);
-  }
+  void reserve(size_t size) { original_ranges_.reserve(size); }
 
   operator std::vector<ScanOptions>*() { return &original_ranges_; }
 
