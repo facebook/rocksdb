@@ -2463,11 +2463,12 @@ TEST_P(ExternalSSTFileTest, IngestBehind) {
     true_data[Key(i)] = "memtable";
   }
 
+  // Test that tombstones for Key(7) and Key(8) are not dropped during
+  // compaction. Will verify below that after ingesting Puts for Key(7) and
+  // Key(8), they are covered by these two tombstones.
   ASSERT_OK(Delete(Key(7)));
   ASSERT_OK(SingleDelete(Key(8)));
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_EQ(Get(Key(8)), "NOT_FOUND");
-  ASSERT_EQ(Get(Key(7)), "NOT_FOUND");
   // Universal picker should go at second from the bottom level
   ASSERT_EQ("0,1", FilesPerLevel());
 

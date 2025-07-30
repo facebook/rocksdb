@@ -1372,7 +1372,8 @@ struct DBOptions {
   // top of ingested files.
   // Note that only Universal Compaction supports allow_ingest_behind.
   // `num_levels` should be >= 3 if this option is turned on.
-  //
+  // Note that if TimedPut was issued to a CF, ingest behind into that
+  // CF may fail.
   //
   // DEFAULT: false
   // Immutable.

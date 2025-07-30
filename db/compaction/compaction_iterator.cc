@@ -886,13 +886,14 @@ void CompactionIterator::NextFromInput() {
       // checking since there has already been a record returned for this key
       // in this snapshot.
       // When ingest_behind is enabled, it's ok that we drop an overwritten
-      // tombstone here. The overwritting key still covers whatever that will be
+      // Delete here. The overwritting key still covers whatever that will be
       // ingested. Note that we will not drop SingleDelete here as SingleDelte
       // is handled entirely in its own if clause. This is important, see
-      // example: from new to old: SingleDelete, PUT, SingleDelete, PUT
-      // (ingested behind). If the older SingleDelete is dropped due to being
-      // covered by PUT, the PUT can be then compacted away with the new
-      // SingleDelete. The older PUT then incorrectly becomes visible.
+      // example: from new to old: SingleDelete_1, PUT_1, SingleDelete_2, PUT_2,
+      // where all operations are on the same key and PUT_2 is ingested with
+      // ingest_behind=true. If SingleDelete_2 is dropped due to being compacted
+      // together with PUT_1, and then PUT_1 is compacted away together with
+      // SingleDelete_1, PUT_2 can incorrectly becomes visible.
       if (last_sequence < current_user_key_sequence_) {
         ROCKS_LOG_FATAL(info_log_,
                         "key %s, last_sequence (%" PRIu64
@@ -992,6 +993,12 @@ void CompactionIterator::NextFromInput() {
                 (compaction_ != nullptr &&
                  compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
                                                             &level_ptrs_)))) {
+      // FIXME: it's possible that we are setting sequence number to 0 as
+      // preferred sequence number here. If cf_ingest_behind is enabled, this
+      // may fail ingestions since they expect all keys above the last level
+      // to have non-zero sequence number. We should probably not allow seqno
+      // zeroing here.
+      //
       // This section that attempts to swap preferred sequence number will not
       // be invoked if this is a CompactionIterator created for flush, since
       // `compaction_` will be nullptr and it's not bottommost either.
