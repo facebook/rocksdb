@@ -286,11 +286,13 @@ class ManagedPtr {
   Owner* owner_ = nullptr;
 };
 
-// Forward declaration for the specialized version
 template <typename T, typename comp>
 class Interval;
 
-// General template for Interval
+// The Interval Class is a generic class for holding a range, for example [2, 4]. It
+// can be used within the IntervalSet class, which is able to keep an ordered,
+// non-intersecting set of intervals within it.  Intervals can have open-ended
+// end points, (i.e., to infinity) for example [2,).
 template <typename T, typename comp = std::less<T>>
 class Interval {
  public:
@@ -333,8 +335,7 @@ class Interval {
 
   // Support comparison with std::pair
   bool operator==(const std::pair<T, T>& p) const {
-    return start_ == p.first && has_end() &&
-           std::holds_alternative<T>(p.second) && end() == p.second;
+    return start_ == p.first && has_end() && end() == p.second;
   }
 
   // Support comparison with another Interval
@@ -441,7 +442,7 @@ struct CompareInterval {
 };
 
 // IntervalSet will be used to represent a set of intervals (including unbounded
-// ones). The intervals are are unique and disjoint. Intervals that are inserted
+// ones). The intervals are unique and disjoint. Intervals that are inserted
 // will merge with any range they intersect with.
 template <typename T, typename Compare = typename Interval<T>::CompareVariant>
 class IntervalSet {
@@ -567,14 +568,15 @@ class IntervalSet {
 // Specialization of IntervalSet for Slices.
 // Slice based intervals can have properties attached to them. This is used to
 // push down properties in the MultiScan API.  We accept two modes with
-// IntervalSet, with_properties, which imposes a restriction that inserted
-// ranges will be disjoint. Insert will fail if a range is found to not be
-// disjoint. When with_properties is false, we ranges will be merged.
+// IntervalSet, fail_on_intersect, which imposes a restriction that inserted
+// ranges will be disjoint, this is needed when using properties. Insert will
+// fail if a range is found to not be disjoint. When fail_on_instersect is
+// false, the ranges will be merged.
 template <>
 class IntervalSet<Slice, Comparator> {
  public:
-  IntervalSet(const Comparator* c, bool with_properties = false)
-      : comp_(c), prop_(with_properties) {}
+  IntervalSet(const Comparator* c, bool fail_on_intersect = false)
+      : comp_(c), prop_(fail_on_intersect) {}
 
   // Insert returns true if the interval was inserted. False indicates that the
   // interval was not inserted, this could be do to an empty range OR that the
