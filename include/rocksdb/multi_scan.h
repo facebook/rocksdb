@@ -153,7 +153,7 @@ class Scan {
 class MultiScan {
  public:
   MultiScan(const ReadOptions& read_options,
-            const std::vector<ScanOptions>& scan_opts, DB* db,
+            const MultiScanOptions& scan_opts, DB* db,
             ColumnFamilyHandle* cfh);
 
   explicit MultiScan(std::unique_ptr<Iterator>&& db_iter)
@@ -220,7 +220,7 @@ class MultiScan {
   };
 
   MultiScanIterator begin() {
-    return MultiScanIterator(scan_opts_, db_, cfh_, read_options_,
+    return MultiScanIterator(scan_opts_.GetScanOptions(), db_, cfh_, read_options_,
                              &upper_bound_, db_iter_);
   }
 
@@ -228,7 +228,7 @@ class MultiScan {
 
  private:
   ReadOptions read_options_;
-  const std::vector<ScanOptions> scan_opts_;
+  const MultiScanOptions scan_opts_;
   DB* db_;
   ColumnFamilyHandle* cfh_;
   Slice upper_bound_;
