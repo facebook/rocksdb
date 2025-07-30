@@ -1789,6 +1789,17 @@ class MultiScanOptions {
   explicit MultiScanOptions(const Comparator* comparator = BytewiseComparator())
       : comp_(comparator), compacted_ranges_(comparator) {}
 
+
+  // Copy Constructor
+  MultiScanOptions(const MultiScanOptions& other): comp_(other.comp_), compacted_ranges_(other.compacted_ranges_), original_ranges_(other.original_ranges_) {};
+
+  MultiScanOptions& operator=(const MultiScanOptions& other) {
+    comp_ = other.comp_;
+    compacted_ranges_ = other.compacted_ranges_;
+    original_ranges_ = other.original_ranges_;
+    return *this;
+  }
+
   // Destructor
   ~MultiScanOptions() {}
 

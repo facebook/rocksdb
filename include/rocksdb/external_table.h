@@ -80,7 +80,7 @@ class ExternalTableIterator : public IteratorBase {
   //
   // If the sequence of Seeks is interrupted by seeking to some other target
   // key, then the iterator is free to discard anything done during Prepare.
-  virtual void Prepare(const MultiScanOptions*) = 0;
+  virtual void Prepare(const ScanOptions scan_opts[], size_t num_opts) = 0;
 
   // Similar to Next(), except it also fills the result and returns whether
   // the iterator is on a valid key or not

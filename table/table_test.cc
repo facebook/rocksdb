@@ -6731,12 +6731,12 @@ class ExternalTableTest : public DBTestBase {
       if (scan_options_) {
         if (scan_idx_ >= num_opts_ ||
             target !=
-                scan_options_->GetScanOptions()[scan_idx_].range.start.value().ToString()) {
+                scan_options_[scan_idx_].range.start.value().ToString()) {
           status_ = Status::InvalidArgument();
         } else {
-          if (valid_ && scan_options_->GetScanOptions()[scan_idx_].range.limit.has_value() &&
+          if (valid_ && scan_options_[scan_idx_].range.limit.has_value() &&
               iter_->first.compare(
-                  scan_options_->GetScanOptions()[scan_idx_].range.limit.value().ToString()) >=
+                  scan_options_[scan_idx_].range.limit.value().ToString()) >=
                   0) {
             valid_ = false;
           }
@@ -6754,13 +6754,12 @@ class ExternalTableTest : public DBTestBase {
       iter_++;
       valid_ = iter_ != kv_map_.end();
       eof_ = iter_ == kv_map_.end();
-      if (valid_ && scan_options_) {
-        // Get the current scan range from the MultiScanOptions
-        auto scan_range = scan_options_->GetScanOptions()[scan_idx_ - 1];
-        if (scan_range.range.limit.has_value() &&
-            iter_->first.compare(scan_range.range.limit.value().ToString()) >= 0) {
-          valid_ = false;
-        }
+      if (valid_ && scan_options_ &&
+          scan_options_[scan_idx_ - 1].range.limit.has_value() &&
+          iter_->first.compare(
+              scan_options_[scan_idx_ - 1].range.limit.value().ToString()) >=
+              0) {
+        valid_ = false;
       }
       // status_ is still ok. !valid_ indicates end of scan
     }
@@ -6806,16 +6805,13 @@ class ExternalTableTest : public DBTestBase {
       return Slice(iter_->second);
     }
 
-    void Prepare(const MultiScanOptions* scan_opts) override {
-      num_opts_ = 0;
-      if (scan_options_) {
-        scan_options_ = scan_opts;
-        num_opts_ = scan_options_->GetScanOptions().size();
-      }
+    void Prepare(const ScanOptions scan_opts[], size_t num_opts) override {
+      scan_options_ = scan_opts;
+      num_opts_ = num_opts;
     }
 
    private:
-    const MultiScanOptions* scan_options_;
+    const ScanOptions* scan_options_;
     size_t num_opts_;
     size_t scan_idx_;
     std::map<std::string, std::string> kv_map_;

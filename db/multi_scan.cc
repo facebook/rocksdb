@@ -56,6 +56,8 @@ MultiScanIterator& MultiScanIterator::operator++() {
       db_iter_.reset(db_->NewIterator(read_options_, cfh_));
       scan_.Reset(db_iter_.get());
     } else if (scan_opts_.GetScanOptions()[idx_].range.limit) {
+      // Always create a new iterator when the upper bound changes to ensure
+      // the iterator's internal state is properly updated
       *upper_bound_ = *scan_opts_.GetScanOptions()[idx_].range.limit;
     }
     db_iter_->Seek(*scan_opts_.GetScanOptions()[idx_].range.start);

@@ -132,8 +132,8 @@ class ExternalTableIteratorAdapter : public InternalIterator {
   Status status() const override { return status_; }
 
   void Prepare(const MultiScanOptions* scan_opts) override {
-    if (iterator_) {
-      iterator_->Prepare(scan_opts);
+    if (iterator_ && scan_opts) {
+      iterator_->Prepare(scan_opts->GetScanOptions().data(), scan_opts->GetScanOptions().size());
     }
   }
 
