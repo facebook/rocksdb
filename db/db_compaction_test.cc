@@ -74,6 +74,47 @@ class CompactionStatsCollector : public EventListener {
   std::vector<std::atomic<int>> compaction_completed_;
 };
 
+class DeletionTriggeredCompactionWithMinFileSizeTestListener
+    : public EventListener {
+ public:
+  void OnCompactionBegin(rocksdb::DB* db,
+                         const rocksdb::CompactionJobInfo& ci) override {
+    if (ci.compaction_reason != CompactionReason::kFilesMarkedForCompaction) {
+      std::cerr << "Actual compaction reason is "
+                << static_cast<int>(ci.compaction_reason)
+                << ": expected: kFilesMarkedForCompaction" << std::endl;
+      return;
+    }
+
+    uint64_t kMinFileSize = 32 * 1024;
+    auto env = db->GetEnv();
+    const std::vector<rocksdb::DbPath>& db_paths = db->GetOptions().db_paths;
+    for (const auto& file : ci.input_file_infos) {
+      uint64_t file_size = GetSstFileSize(env, db_paths, file.file_number);
+
+      // Assert that the file size respects the minimum threshold
+      ASSERT_GE(file_size, kMinFileSize)
+          << "Input File size " << file_size << " is below minimum threshold "
+          << kMinFileSize;
+    }
+  }
+
+ private:
+  uint64_t GetSstFileSize(rocksdb::Env* env,
+                          const std::vector<DbPath>& db_paths,
+                          uint64_t file_number) {
+    uint32_t path_id = 0;  // since only one path
+    std::string sst_file_name =
+        rocksdb::TableFileName(db_paths, file_number, path_id);
+    uint64_t file_size = 0;
+    rocksdb::Status s = env->GetFileSize(sst_file_name, &file_size);
+    if (!s.ok()) {
+      return 0;
+    }
+    return file_size;
+  }
+};
+
 class DBCompactionTest : public DBTestBase {
  public:
   DBCompactionTest()
@@ -1374,17 +1415,18 @@ TEST_F(DBCompactionTest, RecoverDuringMemtableCompaction) {
 TEST_F(DBCompactionTest, CompactionWithDeletionsAndMinFileSize) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
-  options.write_buffer_size = 64 * 1024;  // 64KB
-  options.level0_file_num_compaction_trigger = 2;
-  options.compaction_options_universal.min_merge_width = 2;
-  options.compaction_options_universal.max_size_amplification_percent = 200;
-  options.compaction_options_universal.compression_size_percent = -1;
+  options.write_buffer_size = 1024 * 1024;  // 1MB
+  options.level0_file_num_compaction_trigger = 100;
 
-  const uint64_t kMinFileSize = 32 * 1024;
+  const uint64_t kMinFileSize = 32 * 1024;  // 32KB
   options.table_properties_collector_factories = {
       NewCompactOnDeletionCollectorFactory(100, 50, 0.5, kMinFileSize)};
+  auto listener = new DeletionTriggeredCompactionWithMinFileSizeTestListener();
+  options.listeners.emplace_back(listener);
+
   DestroyAndReopen(options);
 
+  // Insert values into db
   Random rnd(301);
   for (int i = 0; i < 100; i++) {
     ASSERT_OK(Put(Key(i), rnd.RandomString(1024)));
@@ -1410,19 +1452,6 @@ TEST_F(DBCompactionTest, CompactionWithDeletionsAndMinFileSize) {
   ASSERT_OK(Flush());
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-
-  // Verify small file was not compacted and should still exist
-  std::vector<LiveFileMetaData> final_metadata;
-  db_->GetLiveFilesMetaData(&final_metadata);
-
-  bool found_small_file = false;
-  for (const auto& file : final_metadata) {
-    if (file.size < kMinFileSize && file.level == 0) {
-      found_small_file = true;
-      ASSERT_LT(file.size, kMinFileSize);
-    }
-  }
-  ASSERT_TRUE(found_small_file);
 
   // Verify deletions were processed correctly
   for (int i = 0; i < 50; i++) {
