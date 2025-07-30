@@ -196,36 +196,21 @@ jobs:
     - uses: actions/checkout@v4.1.0
     - run: make V=1 -j32 LIB_MODE=shared release
     - run: ls librocksdb.so
-    - run: "./db_stress --version"
+    - run: "./trace_analyzer --version" # A tool dependent on gflags that can run in release build
     - run: make clean
-    - run: make V=1 -j32 release
+    - run: USE_RTTI=1 make V=1 -j32 release
     - run: ls librocksdb.a
-    - run: "./db_stress --version"
+    - run: "./trace_analyzer --version"
     - run: make clean
     - run: apt-get remove -y libgflags-dev
     - run: make V=1 -j32 LIB_MODE=shared release
     - run: ls librocksdb.so
-    - run: if ./db_stress --version; then false; else true; fi
+    - run: if ./trace_analyzer --version; then false; else true; fi
     - run: make clean
-    - run: make V=1 -j32 release
+    - run: USE_RTTI=1 make V=1 -j32 release
     - run: ls librocksdb.a
-    - run: if ./db_stress --version; then false; else true; fi
+    - run: if ./trace_analyzer --version; then false; else true; fi
     - uses: "./.github/actions/post-steps"
-  build-linux-release-rtti:
-    if: ${{ github.repository_owner == 'facebook' }}
-    runs-on:
-      labels: 8-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
-    - run: "./db_stress --version"
-    - run: make clean
-    - run: apt-get remove -y libgflags-dev
-    - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
-    - run: if ./db_stress --version; then false; else true; fi
   build-linux-clang-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
@@ -248,6 +233,8 @@ jobs:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
     - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j32 all microbench
+    - run: make clean
+    - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 DEBUG_LEVEL=0 make -j32 release
     - uses: "./.github/actions/post-steps"
   build-linux-gcc-8-no_test_run:
     if: ${{ github.repository_owner == 'facebook' }}
@@ -321,7 +308,7 @@ jobs:
     - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS='--duration=960 --max_key=2500000' blackbox_crash_test_with_atomic_flush
     - uses: "./.github/actions/post-steps"
   # ======================= Linux with Sanitizers ===================== #
-  build-linux-clang10-asan:
+  build-linux-clang10-asan-ubsan:
     if: ${{ github.repository_owner == 'facebook' }}
     runs-on:
       labels: 32-core-ubuntu
@@ -331,19 +318,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4.1.0
     - uses: "./.github/actions/pre-steps"
-    - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
-    - uses: "./.github/actions/post-steps"
-  build-linux-clang10-ubsan:
-    if: ${{ github.repository_owner == 'facebook' }}
-    runs-on:
-      labels: 16-core-ubuntu
-    container:
-      image: zjay437/rocksdb:0.6
-      options: --shm-size=16gb
-    steps:
-    - uses: actions/checkout@v4.1.0
-    - uses: "./.github/actions/pre-steps"
-    - run: COMPILE_WITH_UBSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check
+    - run: COMPILE_WITH_ASAN=1 COMPILE_WITH_UBSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j40 check
     - uses: "./.github/actions/post-steps"
   build-linux-clang13-mini-tsan:
     if: ${{ github.repository_owner == 'facebook' }}

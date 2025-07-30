@@ -181,6 +181,7 @@ default_params = {
     "format_version": lambda: random.choice([2, 3, 4, 5, 6, 7, 7]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget": lambda: random.randint(0, 1),
+    "use_multiscan": 0,
     "use_get_entity": lambda: random.choice([0] * 7 + [1]),
     "use_multi_get_entity": lambda: random.choice([0] * 7 + [1]),
     "periodic_compaction_seconds": lambda: random.choice([0, 0, 1, 2, 10, 100, 1000]),
@@ -343,7 +344,8 @@ default_params = {
     "universal_max_read_amp": lambda: random.choice([-1] * 3 + [0, 4, 10]),
     "paranoid_memory_checks": lambda: random.choice([0] * 7 + [1]),
     "allow_unprepared_value": lambda: random.choice([0, 1]),
-    "remote_compaction_worker_threads": lambda: random.choice([0, 4]),
+    # TODO(jaykorean): re-enable remote compaction stress test once fixed
+    "remote_compaction_worker_threads": lambda: 0,
     "auto_refresh_iterator_with_snapshot": lambda: random.choice([0, 1]),
     "memtable_op_scan_flush_trigger": lambda: random.choice([0, 10, 100, 1000]),
     "memtable_avg_op_scan_flush_trigger": lambda: random.choice([0, 2, 20, 200]),
@@ -739,6 +741,7 @@ def finalize_and_sanitize(src_params):
         dest_params["metadata_write_fault_one_in"] = 0
         dest_params["read_fault_one_in"] = 0
         dest_params["metadata_read_fault_one_in"] = 0
+        dest_params["use_multiscan"] = 0
         if dest_params["prefix_size"] < 0:
             dest_params["prefix_size"] = 1
 

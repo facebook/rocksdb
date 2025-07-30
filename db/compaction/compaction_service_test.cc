@@ -793,6 +793,79 @@ TEST_F(CompactionServiceTest, VerifyInputRecordCount) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(CompactionServiceTest, EmptyResult) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  uint64_t comp_num = my_cs->GetCompactionNum();
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+
+  // Delete range to cover entire range
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), "key", "keyz"));
+  ASSERT_OK(Flush());
+
+  // In this unit test, both remote compaction and primary db instance are
+  // running in the same process, so NewFileNumber will never have a collision.
+  // In the real-world remote compactions, when the compaction is indeed running
+  // in another process, this is not going to be the case.
+  // To simulate the SST file with the same name created in the tmp directory,
+  // override the file number in remote compaction to re-use old SST file
+  // number.
+  bool need_to_override_file_number = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::OpenAndCompact::BeforeLoadingOptions:0",
+      [&](void*) { need_to_override_file_number = true; });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::OpenCompactionOutputFile::NewFileNumber",
+      [&](void* file_number) {
+        if (need_to_override_file_number) {
+          auto n = static_cast<uint64_t*>(file_number);
+          ColumnFamilyMetaData cf_meta;
+          db_->GetColumnFamilyMetaData(&cf_meta);
+          for (const auto& level : cf_meta.levels) {
+            for (const auto& file : level.files) {
+              // Use one of the existing file name
+              *n = test::GetFileNumber(file.name);
+              need_to_override_file_number = false;
+              return;
+            }
+          }
+        }
+      });
+
+  // Inject failure, so that the remote compaction fails after
+  // ProcessKeyValueCompaction()
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImplSecondary::CompactWithoutInstallation::End", [&](void* status) {
+        // override job status
+        auto s = static_cast<Status*>(status);
+        *s = Status::Aborted("MyTestCompactionService failed to compact!");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Compaction should fail and SST files in the primary db should exist
+  {
+    ASSERT_NOK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    ColumnFamilyMetaData meta;
+    db_->GetColumnFamilyMetaData(&meta);
+    for (const auto& level : meta.levels) {
+      for (const auto& file : level.files) {
+        std::string fname = file.db_path + "/" + file.name;
+        ASSERT_OK(db_->GetEnv()->FileExists(fname));
+      }
+    }
+  }
+  Close();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(CompactionServiceTest, CorruptedOutput) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
