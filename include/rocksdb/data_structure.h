@@ -289,10 +289,10 @@ class ManagedPtr {
 template <typename T, typename comp>
 class Interval;
 
-// The Interval Class is a generic class for holding a range, for example [2, 4]. It
-// can be used within the IntervalSet class, which is able to keep an ordered,
-// non-intersecting set of intervals within it.  Intervals can have open-ended
-// end points, (i.e., to infinity) for example [2,).
+// The Interval Class is a generic class for holding a range, for example [2,
+// 4]. It can be used within the IntervalSet class, which is able to keep an
+// ordered, non-intersecting set of intervals within it.  Intervals can have
+// open-ended end points, (i.e., to infinity) for example [2,).
 template <typename T, typename comp = std::less<T>>
 class Interval {
  public:
