@@ -20,8 +20,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {  // anonymous namespace
-
 // KeyLockWaiter represents a waiter for a key lock. It contains a conditional
 // variable to allow waiter to wait for the key lock. It also contains other
 // metadata about the waiter such as transaction id, lock type etc.
@@ -98,8 +96,6 @@ struct KeyLockWaiter {
   // be required if external system wants to do instrumented lock wait tracking
   std::shared_ptr<TransactionDBCondVar> cv;
 };
-
-};  // anonymous namespace
 
 struct LockInfo {
   bool exclusive;
