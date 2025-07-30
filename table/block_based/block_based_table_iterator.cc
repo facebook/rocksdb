@@ -932,19 +932,19 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
 // ReadOptions::max_skippable_internal_keys or reseeking into range deletion
 // end key. So these Seeks can cause iterator to fall back to normal
 // (non-prepared) iterator and ignore the optimizations done in Prepare().
-// TODO: support fill_cache = false and when block cache is disabled.
-void BlockBasedTableIterator::Prepare(
-    const std::vector<ScanOptions>* scan_opts) {
-  index_iter_->Prepare(scan_opts);
+void BlockBasedTableIterator::Prepare(const MultiScanOptions* multiscan_opts) {
+  index_iter_->Prepare(multiscan_opts);
 
   assert(!multi_scan_);
   if (multi_scan_) {
     multi_scan_.reset();
     return;
   }
-  if (scan_opts == nullptr || scan_opts->empty()) {
+  if (multiscan_opts == nullptr || multiscan_opts->empty()) {
     return;
   }
+
+  const std::vector<ScanOptions>* scan_opts = &multiscan_opts->GetScanOptions();
   const bool has_limit = scan_opts->front().range.limit.has_value();
   if (!has_limit && scan_opts->size() > 1) {
     // Abort: overlapping ranges

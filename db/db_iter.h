@@ -245,7 +245,7 @@ class DBIter final : public Iterator {
     new_scan_opts.emplace(scan_opts);
     scan_opts_.swap(new_scan_opts);
     if (!scan_opts.empty()) {
-      iter_.Prepare(&scan_opts_.value().GetScanOptions());
+      iter_.Prepare(&scan_opts_.value());
     } else {
       iter_.Prepare(nullptr);
     }
