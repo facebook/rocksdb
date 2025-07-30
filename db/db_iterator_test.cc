@@ -4160,8 +4160,8 @@ TEST_F(DBMultiScanIteratorTest, BasicTest) {
   std::vector<std::string> key_ranges({"k03", "k10", "k25", "k50"});
   ReadOptions ro;
   MultiScanOptions scan_options(BytewiseComparator());
-  scan_options.insert(key_ranges[0], key_ranges[1])
-  scan_options.insert(key_ranges[2], key_ranges[3])
+  scan_options.insert(key_ranges[0], key_ranges[1]);
+  scan_options.insert(key_ranges[2], key_ranges[3]);
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<MultiScan> iter =
       dbfull()->NewMultiScan(ro, cfh, scan_options);
@@ -4269,13 +4269,15 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
     int count = 0;
     for (auto range : *iter) {
       for (auto it : range) {
-        ASSERT_GE(it.first.ToString().compare(
-                      scan_options[idx].range.start->ToString()),
-                  0);
-        if (scan_options[idx].range.limit) {
-          ASSERT_LT(it.first.ToString().compare(
-                        scan_options[idx].range.limit->ToString()),
-                    0);
+        ASSERT_GE(
+            it.first.ToString().compare(
+                scan_options.GetScanOptions()[idx].range.start->ToString()),
+            0);
+        if (scan_options.GetScanOptions()[idx].range.limit) {
+          ASSERT_LT(
+              it.first.ToString().compare(
+                  scan_options.GetScanOptions()[idx].range.limit->ToString()),
+              0);
         }
         count++;
       }
@@ -4302,13 +4304,15 @@ TEST_F(DBMultiScanIteratorTest, MixedBoundsTest) {
     int count = 0;
     for (auto range : *iter) {
       for (auto it : range) {
-        ASSERT_GE(it.first.ToString().compare(
-                      scan_options[idx].range.start->ToString()),
-                  0);
-        if (scan_options[idx].range.limit) {
-          ASSERT_LT(it.first.ToString().compare(
-                        scan_options[idx].range.limit->ToString()),
-                    0);
+        ASSERT_GE(
+            it.first.ToString().compare(
+                scan_options.GetScanOptions()[idx].range.start->ToString()),
+            0);
+        if (scan_options.GetScanOptions()[idx].range.limit) {
+          ASSERT_LT(
+              it.first.ToString().compare(
+                  scan_options.GetScanOptions()[idx].range.limit->ToString()),
+              0);
         }
         count++;
       }
