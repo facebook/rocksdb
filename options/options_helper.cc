@@ -329,6 +329,8 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->num_levels = ioptions.num_levels;
   cf_opts->optimize_filters_for_hits = ioptions.optimize_filters_for_hits;
   cf_opts->force_consistency_checks = ioptions.force_consistency_checks;
+  cf_opts->allow_deleting_missing_file_during_recovery =
+      ioptions.allow_deleting_missing_file_during_recovery;
   cf_opts->disallow_memtable_writes = ioptions.disallow_memtable_writes;
   cf_opts->memtable_insert_with_hint_prefix_extractor =
       ioptions.memtable_insert_with_hint_prefix_extractor;

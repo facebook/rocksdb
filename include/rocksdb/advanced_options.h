@@ -1146,6 +1146,18 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_avg_op_scan_flush_trigger = 0;
 
+  // Allows duplicate file deletions when applying VersionEdit records during
+  // DB::Open. If a VersionEdit attempts to delete a file that no longer exists,
+  // recovery will ignore it instead of failing.
+  //
+  // This option is intended for compatibility with MANIFEST files generated
+  // by older RocksDB versions, where bugs in FIFO compaction could lead to
+  // duplicate VersionEdit entries.
+  // See https://github.com/facebook/rocksdb/issues/13624 for details.
+  //
+  // Default: false
+  bool allow_deleting_missing_file_during_recovery = false;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options

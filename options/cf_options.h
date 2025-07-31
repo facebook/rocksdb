@@ -66,6 +66,8 @@ struct ImmutableCFOptions {
 
   bool force_consistency_checks;
 
+  bool allow_deleting_missing_file_during_recovery;
+
   bool disallow_memtable_writes;
 
   Temperature default_temperature;

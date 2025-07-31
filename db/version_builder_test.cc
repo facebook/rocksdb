@@ -1779,6 +1779,43 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
   UnrefFilesInVersion(&new_vstorage2);
 }
 
+TEST_F(VersionBuilderTest, AllowDuplicatedFileDeletion) {
+  ioptions_.allow_deleting_missing_file_during_recovery = true;
+
+  Add(0, 1U, "150", "200", 100, /*path_id*/ 0,
+      /*smallest_seq*/ 100, /*largest_seq*/ 100,
+      /*num_entries*/ 0, /*num_deletions*/ 0,
+      /*sampled*/ false, /*smallest_seqno*/ 0,
+      /*largest_seqno*/ 0,
+      /*oldest_blob_file_number*/ kInvalidBlobFileNumber,
+      /*epoch_number*/ 1);
+
+  UpdateVersionStorageInfo();
+
+  VersionEdit version_edit;
+  version_edit.DeleteFile(0, 1U);
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+
+  VersionBuilder version_builder(env_options, &ioptions_, table_cache,
+                                 &vstorage_, version_set);
+  VersionStorageInfo new_vstorage(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel, nullptr,
+      true /* force_consistency_checks */,
+      EpochNumberRequirement::kMightMissing, nullptr, 0,
+      OffpeakTimeOption(options_.daily_offpeak_time_utc));
+  ASSERT_OK(version_builder.Apply(&version_edit));
+  ASSERT_OK(version_builder.Apply(&version_edit));
+  ASSERT_OK(version_builder.Apply(&version_edit));
+  ASSERT_OK(version_builder.SaveTo(&new_vstorage));
+
+  UpdateVersionStorageInfo(&new_vstorage);
+
+  UnrefFilesInVersion(&new_vstorage);
+}
+
 TEST_F(VersionBuilderTest, CheckConsistencyForL0FilesSortedByEpochNumber) {
   Status s;
   // To verify files of same epoch number of overlapping ranges are caught as
