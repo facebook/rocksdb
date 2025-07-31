@@ -5194,6 +5194,12 @@ cpp_unittest_wrapper(name="inlineskiplist_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="interval_test",
+            srcs=["util/interval_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="io_posix_test",
             srcs=["env/io_posix_test.cc"],
             deps=[":rocksdb_test_lib"],
