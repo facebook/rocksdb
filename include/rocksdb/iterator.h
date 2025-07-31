@@ -20,6 +20,7 @@
 
 #include <string>
 
+#include "rocksdb/io_executor.h"
 #include "rocksdb/iterator_base.h"
 #include "rocksdb/options.h"
 #include "rocksdb/wide_columns.h"
@@ -109,7 +110,8 @@ class Iterator : public IteratorBase {
   //
   // If Prepare() is called, it overrides the iterate_upper_bound in
   // ReadOptions
-  virtual void Prepare(const std::vector<ScanOptions>& /*scan_opts*/) {}
+  virtual void Prepare(const std::vector<ScanOptions>& /*scan_opts*/,
+                       [[maybe_unused]] IOExecutor* io_executor = nullptr) {}
 };
 
 // Return an empty iterator (yields nothing).
