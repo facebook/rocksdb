@@ -466,12 +466,13 @@ TEST_F(CompactionServiceTest, StandaloneDeleteRangeTombstoneOptimization) {
   options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
   ReopenWithCompactionService(&options);
 
-  bool input_filtered = false;
+  size_t num_files_after_filtered = 0;
   SyncPoint::GetInstance()->SetCallBack(
-      "Compaction::FilterInputsForCompactionIterator::End", [&](void* arg) {
-        int num_filtered = *static_cast<int*>(arg);
-        input_filtered = num_filtered > 0;
+      "VersionSet::MakeInputIterator:NewCompactionMergingIterator",
+      [&](void* arg) {
+        num_files_after_filtered = *static_cast<size_t*>(arg);
       });
+
   SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<std::string> files;
@@ -545,7 +546,7 @@ TEST_F(CompactionServiceTest, StandaloneDeleteRangeTombstoneOptimization) {
   ASSERT_TRUE(result.stats.is_manual_compaction);
   ASSERT_TRUE(result.stats.is_remote_compaction);
 
-  ASSERT_TRUE(input_filtered);
+  ASSERT_EQ(num_files_after_filtered, 1);
 
   Close();
   SyncPoint::GetInstance()->DisableProcessing();
