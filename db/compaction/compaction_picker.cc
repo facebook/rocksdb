@@ -632,12 +632,18 @@ Compaction* CompactionPicker::CompactRange(
          start_level++) {
     }
     if (start_level > max_output_level) {
+      ROCKS_LOG_INFO(ioptions_.logger,
+                     "[%s] No files to compact at any level, skipping",
+                     cf_name.c_str());
       return nullptr;
     }
 
     if ((start_level == 0) && (!level0_compactions_in_progress_.empty())) {
+      ROCKS_LOG_INFO(ioptions_.logger,
+                     "[%s] Cannot compact level 0, there is already a level 0 "
+                     "compaction in progress",
+                     cf_name.c_str());
       *manual_conflict = true;
-      // Only one level 0 compaction allowed
       return nullptr;
     }
 
@@ -650,6 +656,10 @@ Compaction* CompactionPicker::CompactRange(
         files.push_back(f);
       }
       if (AreFilesInCompaction(files)) {
+        ROCKS_LOG_INFO(
+            ioptions_.logger,
+            "[%s] Cannot compact level %d, there are files in compaction",
+            cf_name.c_str(), level);
         *manual_conflict = true;
         return nullptr;
       }
@@ -662,8 +672,11 @@ Compaction* CompactionPicker::CompactRange(
             Compaction::EvaluateProximalLevel(vstorage, mutable_cf_options,
                                               ioptions_, start_level,
                                               output_level))) {
-      // This compaction output could potentially conflict with the output
-      // of a currently running compaction, we cannot run it.
+      ROCKS_LOG_INFO(
+          ioptions_.logger,
+          "[%s] Cannot compact level %d, there is a compaction in progress "
+          "that overlaps with the output of this compaction",
+          cf_name.c_str(), output_level);
       *manual_conflict = true;
       return nullptr;
     }
@@ -704,12 +717,19 @@ Compaction* CompactionPicker::CompactRange(
 
   vstorage->GetOverlappingInputs(input_level, begin, end, &inputs.files);
   if (inputs.empty()) {
+    ROCKS_LOG_INFO(ioptions_.logger,
+                   "[%s] No files to compact at level %d, skipping",
+                   cf_name.c_str(), input_level);
     return nullptr;
   }
 
   if ((input_level == 0) && (!level0_compactions_in_progress_.empty())) {
     // Only one level 0 compaction allowed
     TEST_SYNC_POINT("CompactionPicker::CompactRange:Conflict");
+    ROCKS_LOG_INFO(ioptions_.logger,
+                   "[%s] Cannot compact level 0, there is already a level 0 "
+                   "compaction in progress",
+                   cf_name.c_str());
     *manual_conflict = true;
     return nullptr;
   }
@@ -764,6 +784,12 @@ Compaction* CompactionPicker::CompactRange(
            BottommostLevelCompaction::kIfHaveCompactionFilter) &&
       max_file_num_to_ignore != std::numeric_limits<uint64_t>::max()) {
     assert(input_level == output_level);
+    ROCKS_LOG_INFO(ioptions_.logger,
+                   "[%s] Filtering input files with file number >= %" PRIu64
+                   " which was "
+                   "created during the current manual compaction",
+                   cf_name.c_str(), max_file_num_to_ignore);
+
     // inputs_shrunk holds a continuous subset of input files which were all
     // created before the current manual compaction
     std::vector<FileMetaData*> inputs_shrunk;
@@ -779,6 +805,11 @@ Compaction* CompactionPicker::CompactRange(
       }
     }
     if (inputs_shrunk.empty()) {
+      ROCKS_LOG_INFO(
+          ioptions_.logger,
+          "[%s] No files to compact at bottom level %d since every file was "
+          "created from the current compaction, skipping",
+          cf_name.c_str(), input_level);
       return nullptr;
     }
     if (inputs.size() != inputs_shrunk.size()) {
@@ -800,6 +831,10 @@ Compaction* CompactionPicker::CompactRange(
     // manual compaction is now multi-threaded, so it can
     // happen that ExpandWhileOverlapping fails
     // we handle it higher in RunManualCompaction
+    ROCKS_LOG_INFO(
+        ioptions_.logger,
+        "[%s] Cannot compact level %d, there are files in compaction",
+        cf_name.c_str(), input_level);
     *manual_conflict = true;
     return nullptr;
   }
@@ -827,6 +862,10 @@ Compaction* CompactionPicker::CompactRange(
       // manual compaction is now multi-threaded, so it can
       // happen that SetupOtherInputs fails
       // we handle it higher in RunManualCompaction
+      ROCKS_LOG_INFO(
+          ioptions_.logger,
+          "[%s] Cannot compact level %d, there are files in compaction",
+          cf_name.c_str(), input_level);
       *manual_conflict = true;
       return nullptr;
     }
@@ -838,6 +877,10 @@ Compaction* CompactionPicker::CompactRange(
   }
   for (size_t i = 0; i < compaction_inputs.size(); i++) {
     if (AreFilesInCompaction(compaction_inputs[i].files)) {
+      ROCKS_LOG_INFO(
+          ioptions_.logger,
+          "[%s] Cannot compact level %d, there are files in compaction",
+          cf_name.c_str(), compaction_inputs[i].level);
       *manual_conflict = true;
       return nullptr;
     }
@@ -850,8 +893,10 @@ Compaction* CompactionPicker::CompactRange(
           Compaction::EvaluateProximalLevel(vstorage, mutable_cf_options,
                                             ioptions_, input_level,
                                             output_level))) {
-    // This compaction output could potentially conflict with the output
-    // of a currently running compaction, we cannot run it.
+    ROCKS_LOG_INFO(ioptions_.logger,
+                   "[%s] Cannot compact level %d, there is a compaction in "
+                   "progress that overlaps with the output of this compaction",
+                   cf_name.c_str(), output_level);
     *manual_conflict = true;
     return nullptr;
   }
