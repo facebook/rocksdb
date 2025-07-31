@@ -125,6 +125,57 @@ bool Compress(const char* input, size_t length, std::string* output) {
   return true;
 }
 
+size_t CompressWithMaxSize(const char* input, size_t length, char* output,
+                           size_t max_output_size) {
+  assert(input != nullptr);
+  if (max_output_size == 0) {
+    return 0;
+  }
+  assert(output != nullptr);
+
+  COMPRESS_ALLOCATION_ROUTINES* allocRoutinesPtr = nullptr;
+
+  COMPRESSOR_HANDLE compressor = NULL;
+
+  BOOL success =
+      CreateCompressor(COMPRESS_ALGORITHM_XPRESS,  //  Compression Algorithm
+                       allocRoutinesPtr,  //  Optional allocation routine
+                       &compressor);      //  Handle
+
+  if (!success) {
+#ifdef _DEBUG
+    std::cerr << "XPRESS: Failed to create Compressor LastError: "
+              << GetLastError() << std::endl;
+#endif
+    return 0;
+  }
+
+  std::unique_ptr<void, decltype(CloseCompressorFun)> compressorGuard(
+      compressor, CloseCompressorFun);
+
+  SIZE_T compressed_size = 0;
+  //  Compress
+  success = ::Compress(compressor,                //  Compressor Handle
+                       const_cast<char*>(input),  //  Input buffer
+                       length,                    //  Uncompressed data size
+                       output,                    //  Compressed Buffer
+                       max_output_size,           //  Compressed Buffer size
+                       &compressed_size);         //  Compressed Data size
+
+  if (!success) {
+#ifdef _DEBUG
+    auto error = GetLastError();
+    if (error != ERROR_INSUFFICIENT_BUFFER) {
+      std::cerr << "XPRESS: Failed to compress LastError " << error
+                << std::endl;
+    }
+#endif
+    return 0;
+  } else {
+    return compressed_size;
+  }
+}
+
 char* Decompress(const char* input_data, size_t input_length,
                  size_t* uncompressed_size) {
   assert(input_data != nullptr);

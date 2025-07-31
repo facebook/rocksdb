@@ -24,8 +24,8 @@ class CompressionRejectionProbabilityPredictor {
         compressed_count_(0),
         window_size_(window_size) {}
   int Predict() const;
-  bool Record(Slice uncompressed_block_data, std::string* compressed_output,
-              const CompressionOptions& opts);
+  bool Record(Slice uncompressed_block_data, char* compressed_output,
+              size_t compressed_output_size, CompressionType compression_type);
   size_t attempted_compression_count() const;
 
  protected:
@@ -64,7 +64,8 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
   explicit AutoSkipCompressorWrapper(std::unique_ptr<Compressor> compressor,
                                      const CompressionOptions& opts);
 
-  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
   ManagedWorkingArea ObtainWorkingArea() override;
@@ -72,7 +73,8 @@ class AutoSkipCompressorWrapper : public CompressorWrapper {
 
  private:
   Status CompressBlockAndRecord(Slice uncompressed_data,
-                                std::string* compressed_output,
+                                char* compressed_output,
+                                size_t* compressed_output_size,
                                 CompressionType* out_compression_type,
                                 AutoSkipWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;
@@ -154,7 +156,8 @@ class CostAwareCompressor : public Compressor {
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
       CacheEntryRole block_type, DictSampleArgs&& dict_samples) override;
 
-  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override;
   void ReleaseWorkingArea(WorkingArea* wa) override;
@@ -163,7 +166,8 @@ class CostAwareCompressor : public Compressor {
   Status CompressBlockAndRecord(size_t choosen_compression_type,
                                 size_t compresion_level_ptr,
                                 Slice uncompressed_data,
-                                std::string* compressed_output,
+                                char* compressed_output,
+                                size_t* compressed_output_size,
                                 CompressionType* out_compression_type,
                                 CostAwareWorkingArea* wa);
   static constexpr int kExplorationPercentage = 10;

@@ -6230,6 +6230,12 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
 class ChargeCompressionDictionaryBuildingBufferTest
     : public BlockBasedTableTestBase {};
 TEST_F(ChargeCompressionDictionaryBuildingBufferTest, Basic) {
+  if (GetSupportedDictCompressions().empty()) {
+    ROCKSDB_GTEST_SKIP("No supported dict compression");
+    return;
+  }
+  const auto kCompression = GetSupportedDictCompressions()[0];
+
   constexpr std::size_t kSizeDummyEntry = 256 * 1024;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
   constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
@@ -6253,7 +6259,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, Basic) {
         {CacheEntryRole::kCompressionDictionaryBuildingBuffer,
          {/*.charged = */ charge_compression_dictionary_building_buffer}});
     Options options;
-    options.compression = kSnappyCompression;
+    options.compression = kCompression;
     options.compression_opts.max_dict_bytes = kMaxDictBytes;
     options.compression_opts.max_dict_buffer_bytes = kMaxDictBufferBytes;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -6274,7 +6280,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, Basic) {
         options.table_factory->NewTableBuilder(
             TableBuilderOptions(ioptions, moptions, read_options, write_options,
                                 ikc, &internal_tbl_prop_coll_factories,
-                                kSnappyCompression, options.compression_opts,
+                                kCompression, options.compression_opts,
                                 kUnknownColumnFamily, "test_cf", -1 /* level */,
                                 kUnknownNewestKeyTime),
             file_writer.get()));
@@ -6313,6 +6319,12 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, Basic) {
 
 TEST_F(ChargeCompressionDictionaryBuildingBufferTest,
        BasicWithBufferLimitExceed) {
+  if (GetSupportedDictCompressions().empty()) {
+    ROCKSDB_GTEST_SKIP("No supported dict compression");
+    return;
+  }
+  const auto kCompression = GetSupportedDictCompressions()[0];
+
   constexpr std::size_t kSizeDummyEntry = 256 * 1024;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
   constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
@@ -6332,7 +6344,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest,
       std::make_shared<FlushBlockEveryKeyPolicyFactory>();
 
   Options options;
-  options.compression = kSnappyCompression;
+  options.compression = kCompression;
   options.compression_opts.max_dict_bytes = kMaxDictBytes;
   options.compression_opts.max_dict_buffer_bytes = kMaxDictBufferBytes;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -6351,7 +6363,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest,
   const WriteOptions write_options;
   std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
-                          &internal_tbl_prop_coll_factories, kSnappyCompression,
+                          &internal_tbl_prop_coll_factories, kCompression,
                           options.compression_opts, kUnknownColumnFamily,
                           "test_cf", -1 /* level */, kUnknownNewestKeyTime),
       file_writer.get()));
@@ -6394,6 +6406,12 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest,
 }
 
 TEST_F(ChargeCompressionDictionaryBuildingBufferTest, BasicWithCacheFull) {
+  if (GetSupportedDictCompressions().empty()) {
+    ROCKSDB_GTEST_SKIP("No supported dict compression");
+    return;
+  }
+  const auto kCompression = GetSupportedDictCompressions()[0];
+
   constexpr std::size_t kSizeDummyEntry = 256 * 1024;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
   // A small kCacheCapacity is chosen so that increase cache charging for
@@ -6419,7 +6437,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, BasicWithCacheFull) {
       std::make_shared<FlushBlockEveryKeyPolicyFactory>();
 
   Options options;
-  options.compression = kSnappyCompression;
+  options.compression = kCompression;
   options.compression_opts.max_dict_bytes = kMaxDictBytes;
   options.compression_opts.max_dict_buffer_bytes = kMaxDictBufferBytes;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -6438,7 +6456,7 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, BasicWithCacheFull) {
   const WriteOptions write_options;
   std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, read_options, write_options, ikc,
-                          &internal_tbl_prop_coll_factories, kSnappyCompression,
+                          &internal_tbl_prop_coll_factories, kCompression,
                           options.compression_opts, kUnknownColumnFamily,
                           "test_cf", -1 /* level */, kUnknownNewestKeyTime),
       file_writer.get()));

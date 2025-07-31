@@ -154,19 +154,28 @@ const Slice& Decompressor::GetSerializedDict() const {
 
 namespace {
 
-class BuiltinCompressorV1 : public Compressor {
+class CompressorBase : public Compressor {
+ public:
+  explicit CompressorBase(const CompressionOptions& opts) : opts_(opts) {}
+
+ protected:
+  CompressionOptions opts_;
+};
+
+class BuiltinCompressorV1 : public CompressorBase {
  public:
   const char* Name() const override { return "BuiltinCompressorV1"; }
 
   explicit BuiltinCompressorV1(const CompressionOptions& opts,
                                CompressionType type)
-      : opts_(opts), type_(type) {
+      : CompressorBase(opts), type_(type) {
     assert(type != kNoCompression);
   }
 
   CompressionType GetPreferredCompressionType() const override { return type_; }
 
-  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
                        CompressionType* out_compression_type,
                        ManagedWorkingArea* wa) override {
     std::optional<CompressionContext> tmp_ctx;
@@ -179,30 +188,582 @@ class BuiltinCompressorV1 : public Compressor {
       ctx = &*tmp_ctx;
     }
     CompressionInfo info(opts_, *ctx, CompressionDict::GetEmptyDict(), type_);
+    std::string str_output;
+    str_output.reserve(uncompressed_data.size());
     if (!OLD_CompressData(uncompressed_data, info,
-                          1 /*compress_format_version*/, compressed_output)) {
+                          1 /*compress_format_version*/, &str_output)) {
+      // Maybe rejected or bypassed
+      *compressed_output_size = str_output.size();
       *out_compression_type = kNoCompression;
       return Status::OK();
     }
+    if (str_output.size() > *compressed_output_size) {
+      // Compression rejected
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+    std::memcpy(compressed_output, str_output.data(), str_output.size());
+    *compressed_output_size = str_output.size();
     *out_compression_type = type_;
     return Status::OK();
   }
 
  protected:
-  const CompressionOptions opts_;
   const CompressionType type_;
 };
 
-class BuiltinCompressorV2 : public Compressor {
+class CompressorWithSimpleDictBase : public CompressorBase {
  public:
-  const char* Name() const override { return "BuiltinCompressorV2"; }
+  explicit CompressorWithSimpleDictBase(const CompressionOptions& opts,
+                                        std::string&& dict_data = {})
+      : CompressorBase(opts), dict_data_(std::move(dict_data)) {}
 
-  explicit BuiltinCompressorV2(const CompressionOptions& opts,
-                               CompressionType type,
-                               CompressionDict&& dict = {})
-      : opts_(opts), type_(type), dict_(std::move(dict)) {
-    assert(type != kNoCompression);
+  size_t GetMaxSampleSizeIfWantDict(
+      CacheEntryRole /*block_type*/) const override {
+    return opts_.max_dict_bytes;
   }
+
+  // NOTE: empty dict is equivalent to no dict
+  Slice GetSerializedDict() const override { return dict_data_; }
+
+  std::unique_ptr<Compressor> MaybeCloneSpecialized(
+      CacheEntryRole /*block_type*/,
+      DictSampleArgs&& dict_samples) final override {
+    assert(dict_samples.Verify());
+    if (dict_samples.empty()) {
+      // Nothing to specialize on
+      return nullptr;
+    } else {
+      return CloneForDict(std::move(dict_samples.sample_data));
+    }
+  }
+
+  virtual std::unique_ptr<Compressor> CloneForDict(std::string&& dict_data) = 0;
+
+ protected:
+  const std::string dict_data_;
+};
+
+// NOTE: the legacy behavior is to pretend to use dictionary compression when
+// enabled, including storing a dictionary block, but to ignore it. That is
+// matched here.
+class BuiltinSnappyCompressorV2 : public CompressorWithSimpleDictBase {
+ public:
+  using CompressorWithSimpleDictBase::CompressorWithSimpleDictBase;
+
+  const char* Name() const override { return "BuiltinSnappyCompressorV2"; }
+
+  CompressionType GetPreferredCompressionType() const override {
+    return kSnappyCompression;
+  }
+
+  std::unique_ptr<Compressor> CloneForDict(std::string&& dict_data) override {
+    return std::make_unique<BuiltinSnappyCompressorV2>(opts_,
+                                                       std::move(dict_data));
+  }
+
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea*) override {
+#ifdef SNAPPY
+    struct MySink : public snappy::Sink {
+      MySink(char* output, size_t output_size)
+          : output_(output), output_size_(output_size) {}
+
+      char* output_;
+      size_t output_size_;
+      size_t pos_ = 0;
+
+      void Append(const char* data, size_t n) override {
+        if (pos_ + n <= output_size_) {
+          std::memcpy(output_ + pos_, data, n);
+          pos_ += n;
+        } else {
+          // Virtual abort
+          pos_ = output_size_ + 1;
+        }
+      }
+
+      char* GetAppendBuffer(size_t length, char* scratch) override {
+        if (pos_ + length <= output_size_) {
+          return output_ + pos_;
+        }
+        return scratch;
+      }
+    };
+    MySink sink{compressed_output, *compressed_output_size};
+    snappy::ByteArraySource source{uncompressed_data.data(),
+                                   uncompressed_data.size()};
+
+    size_t outlen = snappy::Compress(&source, &sink);
+    if (outlen > 0 && sink.pos_ <= sink.output_size_) {
+      // Compression kept/successful
+      assert(outlen == sink.pos_);
+      *compressed_output_size = outlen;
+      *out_compression_type = kSnappyCompression;
+      return Status::OK();
+    }
+    // Compression rejected
+    *compressed_output_size = 1;
+#else
+    (void)uncompressed_data;
+    (void)compressed_output;
+    // Compression bypassed (not supported)
+    *compressed_output_size = 0;
+#endif
+    *out_compression_type = kNoCompression;
+    return Status::OK();
+  }
+
+  std::shared_ptr<Decompressor> GetOptimizedDecompressor() const override;
+};
+
+[[maybe_unused]]
+std::pair<char*, size_t> StartCompressBlockV2(Slice uncompressed_data,
+                                              char* compressed_output,
+                                              size_t compressed_output_size) {
+  if (  // Can't compress more than 4GB
+      uncompressed_data.size() > std::numeric_limits<uint32_t>::max() ||
+      // Need enough output space for encoding uncompressed size
+      compressed_output_size <= 5) {
+    // Compression bypassed
+    return {nullptr, 0};
+  }
+  // Standard format for prepending uncompressed size to the compressed
+  // data in compress_format_version=2
+  char* alg_output = EncodeVarint32(
+      compressed_output, static_cast<uint32_t>(uncompressed_data.size()));
+  size_t alg_max_output_size =
+      compressed_output_size - (alg_output - compressed_output);
+  return {alg_output, alg_max_output_size};
+}
+
+class BuiltinZlibCompressorV2 : public CompressorWithSimpleDictBase {
+ public:
+  using CompressorWithSimpleDictBase::CompressorWithSimpleDictBase;
+
+  const char* Name() const override { return "BuiltinZlibCompressorV2"; }
+
+  CompressionType GetPreferredCompressionType() const override {
+    return kZlibCompression;
+  }
+
+  std::unique_ptr<Compressor> CloneForDict(std::string&& dict_data) override {
+    return std::make_unique<BuiltinZlibCompressorV2>(opts_,
+                                                     std::move(dict_data));
+  }
+
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea*) override {
+#ifdef ZLIB
+    auto [alg_output, alg_max_output_size] = StartCompressBlockV2(
+        uncompressed_data, compressed_output, *compressed_output_size);
+    if (alg_max_output_size == 0) {
+      // Compression bypassed
+      *compressed_output_size = 0;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+
+    // The memLevel parameter specifies how much memory should be allocated for
+    // the internal compression state.
+    // memLevel=1 uses minimum memory but is slow and reduces compression ratio.
+    // memLevel=9 uses maximum memory for optimal speed.
+    // The default value is 8. See zconf.h for more details.
+    static const int memLevel = 8;
+    int level = opts_.level;
+    if (level == CompressionOptions::kDefaultCompressionLevel) {
+      level = Z_DEFAULT_COMPRESSION;
+    }
+
+    z_stream stream;
+    memset(&stream, 0, sizeof(z_stream));
+
+    // Initialize the zlib stream
+    int st = deflateInit2(&stream, level, Z_DEFLATED, opts_.window_bits,
+                          memLevel, opts_.strategy);
+    if (st != Z_OK) {
+      *compressed_output_size = 0;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+
+    // Set dictionary if available
+    if (!dict_data_.empty()) {
+      st = deflateSetDictionary(
+          &stream, reinterpret_cast<const Bytef*>(dict_data_.data()),
+          static_cast<unsigned int>(dict_data_.size()));
+      if (st != Z_OK) {
+        deflateEnd(&stream);
+        *compressed_output_size = 0;
+        *out_compression_type = kNoCompression;
+        return Status::OK();
+      }
+    }
+
+    // Set up input
+    stream.next_in = (Bytef*)uncompressed_data.data();
+    stream.avail_in = static_cast<unsigned int>(uncompressed_data.size());
+
+    // Set up output
+    stream.next_out = reinterpret_cast<Bytef*>(alg_output);
+    stream.avail_out = static_cast<unsigned int>(alg_max_output_size);
+
+    // Compress
+    st = deflate(&stream, Z_FINISH);
+    size_t outlen = alg_max_output_size - stream.avail_out;
+    deflateEnd(&stream);
+
+    if (st == Z_STREAM_END) {
+      // Compression kept/successful
+      *compressed_output_size =
+          outlen + /*header size*/ (alg_output - compressed_output);
+      *out_compression_type = kZlibCompression;
+      return Status::OK();
+    }
+    // Compression failed or rejected
+    *compressed_output_size = 1;
+#else
+    (void)uncompressed_data;
+    (void)compressed_output;
+    // Compression bypassed (not supported)
+    *compressed_output_size = 0;
+#endif
+    *out_compression_type = kNoCompression;
+    return Status::OK();
+  }
+};
+
+class BuiltinBZip2CompressorV2 : public CompressorWithSimpleDictBase {
+ public:
+  using CompressorWithSimpleDictBase::CompressorWithSimpleDictBase;
+
+  const char* Name() const override { return "BuiltinBZip2CompressorV2"; }
+
+  CompressionType GetPreferredCompressionType() const override {
+    return kBZip2Compression;
+  }
+
+  std::unique_ptr<Compressor> CloneForDict(std::string&& dict_data) override {
+    return std::make_unique<BuiltinBZip2CompressorV2>(opts_,
+                                                      std::move(dict_data));
+  }
+
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea*) override {
+#ifdef BZIP2
+    auto [alg_output, alg_max_output_size] = StartCompressBlockV2(
+        uncompressed_data, compressed_output, *compressed_output_size);
+    if (alg_max_output_size == 0) {
+      // Compression bypassed
+      *compressed_output_size = 0;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+
+    // BZip2 doesn't actually use the dictionary, but we store it for
+    // compatibility similar to BuiltinSnappyCompressorV2
+
+    // Initialize the bzip2 stream
+    bz_stream stream;
+    memset(&stream, 0, sizeof(bz_stream));
+
+    // Block size 1 is 100K.
+    // 0 is for silent.
+    // 30 is the default workFactor
+    int st = BZ2_bzCompressInit(&stream, 1, 0, 30);
+    if (st != BZ_OK) {
+      *compressed_output_size = 0;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+
+    // Set up input
+    stream.next_in = const_cast<char*>(uncompressed_data.data());
+    stream.avail_in = static_cast<unsigned int>(uncompressed_data.size());
+
+    // Set up output
+    stream.next_out = alg_output;
+    stream.avail_out = static_cast<unsigned int>(alg_max_output_size);
+
+    // Compress
+    st = BZ2_bzCompress(&stream, BZ_FINISH);
+    size_t outlen = alg_max_output_size - stream.avail_out;
+    BZ2_bzCompressEnd(&stream);
+
+    // Check for success
+    if (st == BZ_STREAM_END) {
+      // Compression kept/successful
+      *compressed_output_size = outlen + (alg_output - compressed_output);
+      *out_compression_type = kBZip2Compression;
+      return Status::OK();
+    }
+    // Compression failed or rejected
+    *compressed_output_size = 1;
+#else
+    (void)uncompressed_data;
+    (void)compressed_output;
+    // Compression bypassed (not supported)
+    *compressed_output_size = 0;
+#endif
+    *out_compression_type = kNoCompression;
+    return Status::OK();
+  }
+};
+
+class BuiltinLZ4CompressorV2 : public CompressorWithSimpleDictBase {
+ public:
+  using CompressorWithSimpleDictBase::CompressorWithSimpleDictBase;
+
+  const char* Name() const override { return "BuiltinLZ4CompressorV2"; }
+
+  CompressionType GetPreferredCompressionType() const override {
+    return kLZ4Compression;
+  }
+
+  std::unique_ptr<Compressor> CloneForDict(std::string&& dict_data) override {
+    return std::make_unique<BuiltinLZ4CompressorV2>(opts_,
+                                                    std::move(dict_data));
+  }
+
+  ManagedWorkingArea ObtainWorkingArea() override {
+#ifdef LZ4
+    return {reinterpret_cast<WorkingArea*>(LZ4_createStream()), this};
+#else
+    return {};
+#endif
+  }
+  void ReleaseWorkingArea(WorkingArea* wa) override {
+    if (wa) {
+#ifdef LZ4
+      LZ4_freeStream(reinterpret_cast<LZ4_stream_t*>(wa));
+#endif
+    }
+  }
+
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea* wa) override {
+#ifdef LZ4
+    auto [alg_output, alg_max_output_size] = StartCompressBlockV2(
+        uncompressed_data, compressed_output, *compressed_output_size);
+    if (alg_max_output_size == 0) {
+      // Compression bypassed
+      *compressed_output_size = 0;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+
+    ManagedWorkingArea tmp_wa;
+    LZ4_stream_t* stream;
+    if (wa != nullptr && wa->owner() == this) {
+      stream = reinterpret_cast<LZ4_stream_t*>(wa->get());
+#if LZ4_VERSION_NUMBER >= 10900  // >= version 1.9.0
+      LZ4_resetStream_fast(stream);
+#else
+      LZ4_resetStream(stream);
+#endif
+    } else {
+      tmp_wa = ObtainWorkingArea();
+      stream = reinterpret_cast<LZ4_stream_t*>(tmp_wa.get());
+    }
+    if (!dict_data_.empty()) {
+      // TODO: more optimization possible here?
+      LZ4_loadDict(stream, dict_data_.data(),
+                   static_cast<int>(dict_data_.size()));
+    }
+    int acceleration;
+    if (opts_.level < 0) {
+      acceleration = -opts_.level;
+    } else {
+      acceleration = 1;
+    }
+    auto outlen = LZ4_compress_fast_continue(
+        stream, uncompressed_data.data(), alg_output,
+        static_cast<int>(uncompressed_data.size()),
+        static_cast<int>(alg_max_output_size), acceleration);
+    if (outlen > 0) {
+      // Compression kept/successful
+      size_t output_size = static_cast<size_t>(
+          outlen + /*header size*/ (alg_output - compressed_output));
+      assert(output_size <= *compressed_output_size);
+      *compressed_output_size = output_size;
+      *out_compression_type = kLZ4Compression;
+      return Status::OK();
+    }
+    // Compression rejected
+    *compressed_output_size = 1;
+#else
+    (void)uncompressed_data;
+    (void)compressed_output;
+    (void)wa;
+    // Compression bypassed (not supported)
+    *compressed_output_size = 0;
+#endif
+    *out_compression_type = kNoCompression;
+    return Status::OK();
+  }
+};
+
+class BuiltinLZ4HCCompressorV2 : public CompressorWithSimpleDictBase {
+ public:
+  using CompressorWithSimpleDictBase::CompressorWithSimpleDictBase;
+
+  const char* Name() const override { return "BuiltinLZ4HCCompressorV2"; }
+
+  CompressionType GetPreferredCompressionType() const override {
+    return kLZ4HCCompression;
+  }
+
+  std::unique_ptr<Compressor> CloneForDict(std::string&& dict_data) override {
+    return std::make_unique<BuiltinLZ4HCCompressorV2>(opts_,
+                                                      std::move(dict_data));
+  }
+
+  ManagedWorkingArea ObtainWorkingArea() override {
+#ifdef LZ4
+    return {reinterpret_cast<WorkingArea*>(LZ4_createStreamHC()), this};
+#else
+    return {};
+#endif
+  }
+  void ReleaseWorkingArea(WorkingArea* wa) override {
+    if (wa) {
+#ifdef LZ4
+      LZ4_freeStreamHC(reinterpret_cast<LZ4_streamHC_t*>(wa));
+#endif
+    }
+  }
+
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea* wa) override {
+#ifdef LZ4
+    auto [alg_output, alg_max_output_size] = StartCompressBlockV2(
+        uncompressed_data, compressed_output, *compressed_output_size);
+    if (alg_max_output_size == 0) {
+      // Compression bypassed
+      *compressed_output_size = 0;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+
+    int level = opts_.level;
+    if (level == CompressionOptions::kDefaultCompressionLevel) {
+      level = 0;  // lz4hc.h says any value < 1 will be sanitized to default
+    }
+
+    ManagedWorkingArea tmp_wa;
+    LZ4_streamHC_t* stream;
+    if (wa != nullptr && wa->owner() == this) {
+      stream = reinterpret_cast<LZ4_streamHC_t*>(wa->get());
+    } else {
+      tmp_wa = ObtainWorkingArea();
+      stream = reinterpret_cast<LZ4_streamHC_t*>(tmp_wa.get());
+    }
+#if LZ4_VERSION_NUMBER >= 10900  // >= version 1.9.0
+    LZ4_resetStreamHC_fast(stream, level);
+#else
+    LZ4_resetStreamHC(stream, level);
+#endif
+    if (dict_data_.size() > 0) {
+      // TODO: more optimization possible here?
+      LZ4_loadDictHC(stream, dict_data_.data(),
+                     static_cast<int>(dict_data_.size()));
+    }
+
+    auto outlen =
+        LZ4_compress_HC_continue(stream, uncompressed_data.data(), alg_output,
+                                 static_cast<int>(uncompressed_data.size()),
+                                 static_cast<int>(alg_max_output_size));
+    if (outlen > 0) {
+      // Compression kept/successful
+      size_t output_size = static_cast<size_t>(
+          outlen + /*header size*/ (alg_output - compressed_output));
+      assert(output_size <= *compressed_output_size);
+      *compressed_output_size = output_size;
+      *out_compression_type = kLZ4HCCompression;
+      return Status::OK();
+    }
+    // Compression rejected
+    *compressed_output_size = 1;
+#else
+    (void)uncompressed_data;
+    (void)compressed_output;
+    (void)wa;
+    // Compression bypassed (not supported)
+    *compressed_output_size = 0;
+#endif
+    *out_compression_type = kNoCompression;
+    return Status::OK();
+  }
+};
+
+class BuiltinXpressCompressorV2 : public CompressorWithSimpleDictBase {
+ public:
+  using CompressorWithSimpleDictBase::CompressorWithSimpleDictBase;
+
+  const char* Name() const override { return "BuiltinXpressCompressorV2"; }
+
+  CompressionType GetPreferredCompressionType() const override {
+    return kXpressCompression;
+  }
+
+  std::unique_ptr<Compressor> CloneForDict(std::string&& dict_data) override {
+    return std::make_unique<BuiltinXpressCompressorV2>(opts_,
+                                                       std::move(dict_data));
+  }
+
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea*) override {
+#ifdef XPRESS
+    // XPRESS doesn't actually use the dictionary, but we store it for
+    // compatibility similar to BuiltinSnappyCompressorV2
+
+    // Use the new CompressWithMaxSize function that writes directly to the
+    // output buffer
+    size_t compressed_size = port::xpress::CompressWithMaxSize(
+        uncompressed_data.data(), uncompressed_data.size(), compressed_output,
+        *compressed_output_size);
+
+    if (compressed_size > 0) {
+      // Compression kept/successful
+      *compressed_output_size = compressed_size;
+      *out_compression_type = kXpressCompression;
+      return Status::OK();
+    }
+
+    // Compression rejected or failed
+    *compressed_output_size = 1;
+#else
+    (void)uncompressed_data;
+    (void)compressed_output;
+    // Compression bypassed (not supported)
+    *compressed_output_size = 0;
+#endif
+    *out_compression_type = kNoCompression;
+    return Status::OK();
+  }
+};
+
+class BuiltinZSTDCompressorV2 : public CompressorBase {
+ public:
+  explicit BuiltinZSTDCompressorV2(const CompressionOptions& opts,
+                                   CompressionDict&& dict = {})
+      : CompressorBase(opts), dict_(std::move(dict)) {}
+
+  const char* Name() const override { return "BuiltinZSTDCompressorV2"; }
+
+  CompressionType GetPreferredCompressionType() const override { return kZSTD; }
 
   size_t GetMaxSampleSizeIfWantDict(
       CacheEntryRole /*block_type*/) const override {
@@ -210,16 +771,113 @@ class BuiltinCompressorV2 : public Compressor {
       // Dictionary compression disabled
       return 0;
     } else {
-      return type_ == kZSTD && opts_.zstd_max_train_bytes > 0
-                 ? opts_.zstd_max_train_bytes
-                 : opts_.max_dict_bytes;
+      return opts_.zstd_max_train_bytes > 0 ? opts_.zstd_max_train_bytes
+                                            : opts_.max_dict_bytes;
     }
   }
 
   // NOTE: empty dict is equivalent to no dict
   Slice GetSerializedDict() const override { return dict_.GetRawDict(); }
 
-  CompressionType GetPreferredCompressionType() const override { return type_; }
+  ManagedWorkingArea ObtainWorkingArea() override {
+#ifdef ZSTD
+    ZSTD_CCtx* ctx =
+#ifdef ROCKSDB_ZSTD_CUSTOM_MEM
+        ZSTD_createCCtx_advanced(port::GetJeZstdAllocationOverrides());
+#else   // ROCKSDB_ZSTD_CUSTOM_MEM
+        ZSTD_createCCtx();
+#endif  // ROCKSDB_ZSTD_CUSTOM_MEM
+    auto level = opts_.level;
+    if (level == CompressionOptions::kDefaultCompressionLevel) {
+      // NB: ZSTD_CLEVEL_DEFAULT is historically == 3
+      level = ZSTD_CLEVEL_DEFAULT;
+    }
+    size_t err = ZSTD_CCtx_setParameter(ctx, ZSTD_c_compressionLevel, level);
+    if (ZSTD_isError(err)) {
+      assert(false);
+      ZSTD_freeCCtx(ctx);
+      ctx = ZSTD_createCCtx();
+    }
+    if (opts_.checksum) {
+      err = ZSTD_CCtx_setParameter(ctx, ZSTD_c_checksumFlag, 1);
+      if (ZSTD_isError(err)) {
+        assert(false);
+        ZSTD_freeCCtx(ctx);
+        ctx = ZSTD_createCCtx();
+      }
+    }
+    return ManagedWorkingArea(reinterpret_cast<WorkingArea*>(ctx), this);
+#else
+    return {};
+#endif  // ZSTD
+  }
+
+  void ReleaseWorkingArea(WorkingArea* wa) override {
+    if (wa) {
+#ifdef ZSTD
+      ZSTD_freeCCtx(reinterpret_cast<ZSTD_CCtx*>(wa));
+#endif  // ZSTD
+    }
+  }
+
+  Status CompressBlock(Slice uncompressed_data, char* compressed_output,
+                       size_t* compressed_output_size,
+                       CompressionType* out_compression_type,
+                       ManagedWorkingArea* wa) override {
+#ifdef ZSTD
+    auto [alg_output, alg_max_output_size] = StartCompressBlockV2(
+        uncompressed_data, compressed_output, *compressed_output_size);
+    if (alg_max_output_size == 0) {
+      // Compression bypassed
+      *compressed_output_size = 0;
+      *out_compression_type = kNoCompression;
+      return Status::OK();
+    }
+
+    ManagedWorkingArea tmp_wa;
+    if (wa == nullptr || wa->owner() != this) {
+      tmp_wa = ObtainWorkingArea();
+      wa = &tmp_wa;
+    }
+    assert(wa->get() != nullptr);
+    ZSTD_CCtx* ctx = reinterpret_cast<ZSTD_CCtx*>(wa->get());
+
+    if (dict_.GetDigestedZstdCDict() != nullptr) {
+      ZSTD_CCtx_refCDict(ctx, dict_.GetDigestedZstdCDict());
+    } else {
+      ZSTD_CCtx_loadDictionary(ctx, dict_.GetRawDict().data(),
+                               dict_.GetRawDict().size());
+    }
+
+    // Compression level is set in `contex` during ObtainWorkingArea()
+    size_t outlen =
+        ZSTD_compress2(ctx, alg_output, alg_max_output_size,
+                       uncompressed_data.data(), uncompressed_data.size());
+    if (!ZSTD_isError(outlen)) {
+      // Compression kept/successful
+      size_t output_size = static_cast<size_t>(
+          outlen + /*header size*/ (alg_output - compressed_output));
+      assert(output_size <= *compressed_output_size);
+      *compressed_output_size = output_size;
+      *out_compression_type = kZSTD;
+      return Status::OK();
+    }
+    if (ZSTD_getErrorCode(outlen) != ZSTD_error_dstSize_tooSmall) {
+      return Status::Corruption(std::string("ZSTD_compress2 failed: ") +
+                                ZSTD_getErrorName(outlen));
+    }
+    // Compression rejected
+    *compressed_output_size = 1;
+#else
+    (void)uncompressed_data;
+    (void)compressed_output;
+    (void)wa;
+    // Compression bypassed (not supported)
+    *compressed_output_size = 0;
+#endif
+    *out_compression_type = kNoCompression;
+    return Status::OK();
+  }
 
   std::unique_ptr<Compressor> MaybeCloneSpecialized(
       CacheEntryRole /*block_type*/, DictSampleArgs&& dict_samples) override {
@@ -230,7 +888,7 @@ class BuiltinCompressorV2 : public Compressor {
     }
     std::string dict_data;
     // Migrated from BlockBasedTableBuilder::EnterUnbuffered()
-    if (type_ == kZSTD && opts_.zstd_max_train_bytes > 0) {
+    if (opts_.zstd_max_train_bytes > 0) {
       assert(dict_samples.sample_data.size() <= opts_.zstd_max_train_bytes);
       if (opts_.use_zstd_dict_trainer) {
         dict_data = ZSTD_TrainDictionary(dict_samples.sample_data,
@@ -247,43 +905,13 @@ class BuiltinCompressorV2 : public Compressor {
       // dictionary." Or similar for other compressions.
       dict_data = std::move(dict_samples.sample_data);
     }
-    CompressionDict dict{std::move(dict_data), type_, opts_.level};
-    return std::make_unique<BuiltinCompressorV2>(opts_, type_, std::move(dict));
+    CompressionDict dict{std::move(dict_data), kZSTD, opts_.level};
+    return std::make_unique<BuiltinZSTDCompressorV2>(opts_, std::move(dict));
   }
 
-  // TODO: use ZSTD_CCtx directly
-  ManagedWorkingArea ObtainWorkingArea() override {
-    return ManagedWorkingArea(new CompressionContext(type_, opts_), this);
-  }
-  void ReleaseWorkingArea(WorkingArea* wa) override {
-    delete static_cast<CompressionContext*>(wa);
-  }
-  Status CompressBlock(Slice uncompressed_data, std::string* compressed_output,
-                       CompressionType* out_compression_type,
-                       ManagedWorkingArea* wa) override {
-    std::optional<CompressionContext> tmp_ctx;
-    CompressionContext* ctx = nullptr;
-    if (wa != nullptr && wa->owner() == this) {
-      ctx = static_cast<CompressionContext*>(wa->get());
-    }
-    CompressionType type = type_;
-    if (ctx == nullptr) {
-      tmp_ctx.emplace(type, opts_);
-      ctx = &*tmp_ctx;
-    }
-    CompressionInfo info(opts_, *ctx, dict_, type);
-    if (!OLD_CompressData(uncompressed_data, info,
-                          2 /*compress_format_version*/, compressed_output)) {
-      *out_compression_type = kNoCompression;
-      return Status::OK();
-    }
-    *out_compression_type = type;
-    return Status::OK();
-  }
+  std::shared_ptr<Decompressor> GetOptimizedDecompressor() const override;
 
  protected:
-  const CompressionOptions opts_;
-  const CompressionType type_;
   const CompressionDict dict_;
 };
 
@@ -480,7 +1108,6 @@ Status LZ4_DecompressBlock(const Decompressor::Args& args, Slice dict,
                            char* uncompressed_output) {
 #ifdef LZ4
   int expected_uncompressed_size = static_cast<int>(args.uncompressed_size);
-#if LZ4_VERSION_NUMBER >= 10400  // r124+
   LZ4_streamDecode_t* stream = LZ4_createStreamDecode();
   if (!dict.empty()) {
     LZ4_setStreamDecode(stream, dict.data(), static_cast<int>(dict.size()));
@@ -490,16 +1117,6 @@ Status LZ4_DecompressBlock(const Decompressor::Args& args, Slice dict,
       static_cast<int>(args.compressed_data.size()),
       expected_uncompressed_size);
   LZ4_freeStreamDecode(stream);
-#else   // up to r123
-  if (!dict.empty()) {
-    return Status::NotSupported(
-        "This build doesn't support dictionary compression with LZ4");
-  }
-  int uncompressed_size =
-      LZ4_decompress_safe(args.compressed_data.data(), uncompressed_output,
-                          static_cast<int>(args.compressed_data.size()),
-                          expected_uncompressed_size);
-#endif  // LZ4_VERSION_NUMBER >= 10400
 
   if (uncompressed_size != expected_uncompressed_size) {
     if (uncompressed_size < 0) {
@@ -799,7 +1416,7 @@ class BuiltinDecompressorV2OptimizeZstd : public BuiltinDecompressorV2 {
 class BuiltinDecompressorV2OptimizeZstdWithDict
     : public BuiltinDecompressorV2OptimizeZstd {
  public:
-  BuiltinDecompressorV2OptimizeZstdWithDict(const Slice& dict)
+  explicit BuiltinDecompressorV2OptimizeZstdWithDict(const Slice& dict)
       :
 #ifdef ROCKSDB_ZSTD_DDICT
         dict_(dict),
@@ -875,14 +1492,29 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
       // No acceptable compression ratio => no compression
       return nullptr;
     }
-    if (type > kLastBuiltinCompression) {
-      // Unrecognized; fall back on default compression
+    if (!SupportsCompressionType(type)) {
+      // Unrecognized or support not compiled in. Fall back on default
       type = ColumnFamilyOptions{}.compression;
     }
-    if (type == kNoCompression) {
-      return nullptr;
-    } else {
-      return std::make_unique<BuiltinCompressorV2>(opts, type);
+    switch (type) {
+      case kNoCompression:
+      default:
+        assert(type == kNoCompression);  // Others should be excluded above
+        return nullptr;
+      case kSnappyCompression:
+        return std::make_unique<BuiltinSnappyCompressorV2>(opts);
+      case kZlibCompression:
+        return std::make_unique<BuiltinZlibCompressorV2>(opts);
+      case kBZip2Compression:
+        return std::make_unique<BuiltinBZip2CompressorV2>(opts);
+      case kLZ4Compression:
+        return std::make_unique<BuiltinLZ4CompressorV2>(opts);
+      case kLZ4HCCompression:
+        return std::make_unique<BuiltinLZ4HCCompressorV2>(opts);
+      case kXpressCompression:
+        return std::make_unique<BuiltinXpressCompressorV2>(opts);
+      case kZSTD:
+        return std::make_unique<BuiltinZSTDCompressorV2>(opts);
     }
   }
 
@@ -913,20 +1545,6 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
       return GetGeneralDecompressor();
     }
   }
-  std::shared_ptr<Decompressor> GetDecompressorForCompressor(
-      const Compressor& compressor) override {
-#ifdef ROCKSDB_USE_RTTI
-    // To be extra safe, only optimize here if we are certain we are not
-    // looking at a wrapped compressor, so that we are sure it only uses that
-    // one compression type.
-    if (dynamic_cast<const BuiltinCompressorV2*>(&compressor)) {
-      CompressionType type = compressor.GetPreferredCompressionType();
-      return GetDecompressorForTypes(&type, &type + 1);
-    }
-#endif
-    // Fallback
-    return CompressionManager::GetDecompressorForCompressor(compressor);
-  }
 
   bool SupportsCompressionType(CompressionType type) const override {
     return CompressionTypeSupported(type);
@@ -937,6 +1555,7 @@ class BuiltinCompressionManagerV2 : public CompressionManager {
   BuiltinDecompressorV2OptimizeZstd zstd_decompressor_;
   BuiltinDecompressorV2SnappyOnly snappy_decompressor_;
 
+ public:
   inline std::shared_ptr<Decompressor> GetGeneralDecompressor() {
     return std::shared_ptr<Decompressor>(shared_from_this(), &decompressor_);
   }
@@ -958,6 +1577,16 @@ const std::shared_ptr<BuiltinCompressionManagerV1>
 const std::shared_ptr<BuiltinCompressionManagerV2>
     kBuiltinCompressionManagerV2 =
         std::make_shared<BuiltinCompressionManagerV2>();
+
+std::shared_ptr<Decompressor>
+BuiltinZSTDCompressorV2::GetOptimizedDecompressor() const {
+  return kBuiltinCompressionManagerV2->GetZstdDecompressor();
+}
+
+std::shared_ptr<Decompressor>
+BuiltinSnappyCompressorV2::GetOptimizedDecompressor() const {
+  return kBuiltinCompressionManagerV2->GetSnappyDecompressor();
+}
 
 }  // namespace
 
