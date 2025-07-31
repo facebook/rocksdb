@@ -1681,6 +1681,9 @@ Status StressTest::TestMultiScan(ThreadState* thread,
   start_key_strs.reserve(num_scans);
   end_key_strs.reserve(num_scans);
 
+  // Will be initialized before Seek() below.
+  Slice ub;
+  ro.iterate_upper_bound = &ub;
   for (size_t i = 0; i < num_scans * 2; i += 2) {
     assert(rand_keys[i] <= rand_keys[i + 1]);
     start_key_strs.emplace_back(Key(rand_keys[i]));
@@ -1745,8 +1748,7 @@ Status StressTest::TestMultiScan(ThreadState* thread,
     assert(scan_opt.range.start);
     assert(scan_opt.range.limit);
     Slice key = scan_opt.range.start.value();
-    Slice ub = scan_opt.range.limit.value();
-    ro.iterate_upper_bound = &ub;
+    ub = scan_opt.range.limit.value();
 
     LastIterateOp last_op;
     iter->Seek(key);
