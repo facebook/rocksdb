@@ -69,7 +69,7 @@ struct KeyLockWaiter {
   void Notify() {
     // Mutex is already locked by caller
     ready = true;
-    cv->NotifyAll();
+    cv->Notify();
   }
 
   TransactionID id;
@@ -996,9 +996,6 @@ Status PerKeyPointLockManager::AcquireWithTimeout(
         // instead of exiting this while loop below.
         uint64_t now = env->NowMicros();
         if (static_cast<uint64_t>(cv_end_time) > now) {
-          // This may be invoked multiple times since we divide
-          // the time into smaller intervals.
-          (void)ROCKSDB_THREAD_YIELD_CHECK_ABORT();
           result =
               stripe->WaitOnKey(key, lock_info.txn_ids[0], lock_info.exclusive,
                                 isUpgrade, cv_end_time - now);
