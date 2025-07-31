@@ -1081,7 +1081,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Checksum is constructed when a block is loaded into memory and verification
   // is done for each key read from the block. This is useful for detecting
-  // in-memor data corruption. Note that this feature has a non-trivial
+  // in-memory data corruption. Note that this feature has a non-trivial
   // negative impact on read performance. Different values of the
   // option have similar performance impact, but different memory cost and
   // corruption detection probability (e.g. 1 byte gives 255/256 chance for
@@ -1146,10 +1146,28 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_avg_op_scan_flush_trigger = 0;
 
-  // Prepare this column family for ingesting files to the last level.
-  // This option needs to be set to true before any writes to the CF.
-  // See comment above DBOptions::allow_ingest_behind for more details about
-  // the functionality and its use cases.
+  // If either DBOptions::allow_ingest_behind or this option is set to true,
+  // this column family will prepare for ingesting files to the last level
+  // (IngestExternalFiles() with ingest_behind=true). Users should set only
+  // this option since DBOptions::allow_ingest_behind is deprecated.
+  //
+  // Specifically, preparing a column family for ingesting files to the last
+  // level has the following effects:
+  // 1) Disables some internal optimizations around SST file compression.
+  // 2) Reserves the last level for ingested files only.
+  // 3) Compaction will not include any file from the last level.
+  // 4) Compaction will preserve necessary tombstones that can apply on
+  // top of ingested files.
+  //
+  // Note that only Universal Compaction supports cf_allow_ingest_behind.
+  // `num_levels` should be >= 3 if this option is turned on.
+  //
+  // Note that this option needs to be set to true before any write to the CF.
+  // It's recommended to set the option to true since CF creation. Otherwise,
+  // ingestion with ingest_behind = true might fail. Once file ingestions are
+  // done, the option should be flipped to false, either dynamically or through
+  // a DB restart. Flipping this option to false allows the CF to disable the
+  // behavior changes detailed above and resume more efficient operation.
   //
   // Default: false
   // Dynamically changeable through the SetOptions() API.
