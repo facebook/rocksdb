@@ -1,1 +1,1 @@
-* Introduce a column family option `cf_allow_ingest_behind`. This option aims to replace `DBOptions::allow_ingest_behind` to enable ingest behind at the per-CF level. `DBOptions::allow_ingest_behind` is deprecated.
+* Introduce column family option `cf_allow_ingest_behind`. This option aims to replace `DBOptions::allow_ingest_behind` to enable ingest behind at the per-CF level. The new CF option is also dynamically configurable, while `DBOptions::allow_ingest_behind` is not. `DBOptions::allow_ingest_behind` is deprecated.

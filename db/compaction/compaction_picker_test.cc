@@ -545,6 +545,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
 
 TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
   for (bool cf_option : {false, true}) {
+    SCOPED_TRACE("cf_option = " + std::to_string(cf_option));
     const uint64_t kFileSize = 100000;
     NewVersionStorage(3 /* num_levels */, kCompactionStyleUniversal);
     if (cf_option) {
