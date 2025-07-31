@@ -235,7 +235,8 @@ struct MutableCFOptions {
         bottommost_file_compaction_delay(0),
         uncache_aggressiveness(0),
         memtable_op_scan_flush_trigger(0),
-        memtable_avg_op_scan_flush_trigger(0) {}
+        memtable_avg_op_scan_flush_trigger(0),
+        cf_allow_ingest_behind(false) {}
 
   explicit MutableCFOptions(const Options& options);
 
