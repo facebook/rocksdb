@@ -1388,6 +1388,9 @@ class DBImpl : public DB {
   // logs_, cur_wal_number_. Refer to the definition of each variable below for
   // more description.
   //
+  // Protects access to most ColumnFamilyData methods, see more in comment for
+  // each method.
+  //
   // `mutex_` can be a hot lock in some workloads, so it deserves dedicated
   // cachelines.
   mutable CacheAlignedInstrumentedMutex mutex_;

@@ -1277,13 +1277,13 @@ Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
         "at the last level!");
   }
 
-  // Second, check if despite allow_ingest_behind=true we still have 0 seqnums
-  // at some upper level
+  // Second, check if despite cf_allow_ingest_behind=true we still have 0
+  // seqnums at some upper level
   for (int lvl = 0; lvl < cfd_->NumberLevels() - 1; lvl++) {
     for (auto file : vstorage->LevelFiles(lvl)) {
       if (file->fd.smallest_seqno == 0) {
         return Status::InvalidArgument(
-            "Can't ingest_behind file as despite allow_ingest_behind=true "
+            "Can't ingest_behind file as despite cf_allow_ingest_behind=true "
             "there are files with 0 seqno in database at upper levels!");
       }
     }

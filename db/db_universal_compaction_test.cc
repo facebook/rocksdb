@@ -2106,46 +2106,79 @@ TEST_F(DBTestUniversalCompaction2, OverlappingL0) {
 }
 
 TEST_F(DBTestUniversalCompaction2, IngestBehind) {
-  const int kNumKeys = 3000;
-  const int kWindowSize = 100;
-  const int kNumDelsTrigger = 90;
+  for (bool cf_option : {false, true}) {
+    SCOPED_TRACE("cf_option = " + std::to_string(cf_option));
+    const int kNumKeys = 3000;
+    const int kWindowSize = 100;
+    const int kNumDelsTrigger = 90;
 
-  Options opts = CurrentOptions();
-  opts.table_properties_collector_factories.emplace_back(
-      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
-  opts.compaction_style = kCompactionStyleUniversal;
-  opts.level0_file_num_compaction_trigger = 2;
-  opts.compression = kNoCompression;
-  opts.allow_ingest_behind = true;
-  opts.compaction_options_universal.size_ratio = 10;
-  opts.compaction_options_universal.min_merge_width = 2;
-  opts.compaction_options_universal.max_size_amplification_percent = 200;
-  Reopen(opts);
-
-  // add an L1 file to prevent tombstones from dropping due to obsolescence
-  // during flush
-  int i;
-  for (i = 0; i < 2000; ++i) {
-    ASSERT_OK(Put(Key(i), "val"));
-  }
-  ASSERT_OK(Flush());
-  //  MoveFilesToLevel(6);
-  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-
-  for (i = 1999; i < kNumKeys; ++i) {
-    if (i >= kNumKeys - kWindowSize &&
-        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
-      ASSERT_OK(Delete(Key(i)));
+    Options opts = CurrentOptions();
+    opts.table_properties_collector_factories.emplace_back(
+        NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+    opts.compaction_style = kCompactionStyleUniversal;
+    opts.level0_file_num_compaction_trigger = 2;
+    opts.compression = kNoCompression;
+    if (cf_option) {
+      opts.cf_allow_ingest_behind = true;
     } else {
+      opts.allow_ingest_behind = true;
+    }
+    opts.compaction_options_universal.size_ratio = 10;
+    opts.compaction_options_universal.min_merge_width = 2;
+    opts.compaction_options_universal.max_size_amplification_percent = 200;
+    Reopen(opts);
+
+    // add an L1 file to prevent tombstones from dropping due to obsolescence
+    // during flush
+    int i;
+    for (i = 0; i < 2000; ++i) {
       ASSERT_OK(Put(Key(i), "val"));
     }
-  }
-  ASSERT_OK(Flush());
+    ASSERT_OK(Flush());
+    //  MoveFilesToLevel(6);
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_EQ(0, NumTableFilesAtLevel(6));
-  ASSERT_GT(NumTableFilesAtLevel(5), 0);
+    for (i = 1999; i < kNumKeys; ++i) {
+      if (i >= kNumKeys - kWindowSize &&
+          i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+        ASSERT_OK(Delete(Key(i)));
+      } else {
+        ASSERT_OK(Put(Key(i), "val"));
+      }
+    }
+    ASSERT_OK(Flush());
+
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+    ASSERT_EQ(0, NumTableFilesAtLevel(6));
+    ASSERT_GT(NumTableFilesAtLevel(5), 0);
+
+    if (cf_option) {
+      // Test that another CF does not allow ingest behind
+      ColumnFamilyHandle* new_cfh;
+      Options new_cf_option;
+      new_cf_option.compaction_style = kCompactionStyleUniversal;
+      new_cf_option.num_levels = 7;
+      // CreateColumnFamilies({"new_cf"}, new_cf_option);
+      ASSERT_OK(db_->CreateColumnFamily(new_cf_option, "new_cf", &new_cfh));
+      // handles_.push_back(new_cfh);
+      for (i = 0; i < 10; ++i) {
+        // ASSERT_OK(Put(1, Key(i), "val"));
+        ASSERT_OK(db_->Put(WriteOptions(), new_cfh, Key(i), "val"));
+      }
+      ASSERT_OK(
+          db_->CompactRange(CompactRangeOptions(), new_cfh, nullptr, nullptr));
+      // This CF can use the last leve.
+      std::string property;
+      EXPECT_TRUE(db_->GetProperty(
+          new_cfh, "rocksdb.num-files-at-level" + std::to_string(6),
+          &property));
+      ASSERT_EQ(1, atoi(property.c_str()));
+
+      ASSERT_OK(db_->DropColumnFamily(new_cfh));
+      ASSERT_OK(db_->DestroyColumnFamilyHandle(new_cfh));
+    }
+  }
 }
 
 TEST_F(DBTestUniversalCompaction2, PeriodicCompactionDefault) {

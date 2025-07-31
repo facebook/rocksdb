@@ -1361,19 +1361,11 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   bool avoid_flush_during_shutdown = false;
 
-  // Set this option to true during creation of database if you want
-  // to be able to ingest behind (call IngestExternalFile() skipping keys
-  // that already exist, rather than overwriting matching keys).
-  // Setting this option to true has the following effects:
-  // 1) Disable some internal optimizations around SST file compression.
-  // 2) Reserve the last level for ingested files only.
-  // 3) Compaction will not include any file from the last level.
-  // 4) Compaction will preserve necessary tombstones that can apply on
-  // top of ingested files.
-  // Note that only Universal Compaction supports allow_ingest_behind.
-  // `num_levels` should be >= 3 if this option is turned on.
-  // Note that if TimedPut was issued to a CF, ingest behind into that
-  // CF may fail.
+  // DEPRECATED: use ColumnFamilyOptions::cf_allow_ingest_behind instead.
+  // This option might be removed in a future release.
+  //
+  // See comment for `ColumnFamilyOptions::cf_allow_ingest_behind` for
+  // detail about the option's functionality and use cases.
   //
   // DEFAULT: false
   // Immutable.
@@ -2380,8 +2372,8 @@ struct IngestExternalFileOptions {
   // to be skipped rather than overwriting existing data under that key.
   // Use case: back-fill of some historical data in the database without
   // over-writing existing newer version of data.
-  // This option could only be used if the DB has been running
-  // with allow_ingest_behind=true since the dawn of time.
+  // This option could only be used if the CF has been running
+  // with cf_allow_ingest_behind=true since CF creation (or before any write).
   // All files will be ingested at the bottommost level with seqno=0.
   bool ingest_behind = false;
   // DEPRECATED - Set to true if you would like to write global_seqno to
