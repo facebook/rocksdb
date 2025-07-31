@@ -2418,6 +2418,7 @@ TEST_F(ExternalSSTFileTest, SnapshotInconsistencyBug) {
 
 TEST_P(ExternalSSTFileTest, IngestBehind) {
   for (bool cf_option : {false, true}) {
+    SCOPED_TRACE("cf_option = " + std::to_string(cf_option));
     Options options = CurrentOptions();
     options.compaction_style = kCompactionStyleUniversal;
     options.num_levels = 3;
@@ -3542,6 +3543,7 @@ TEST_F(ExternalSSTFileWithTimestampTest, SanityCheck) {
   ASSERT_TRUE(IngestExternalUDTFile({file1, file2}).IsNotSupported());
 
   for (bool cf_option : {false, true}) {
+    SCOPED_TRACE("cf_option = " + std::to_string(cf_option));
     if (cf_option) {
       options.cf_allow_ingest_behind = true;
     } else {

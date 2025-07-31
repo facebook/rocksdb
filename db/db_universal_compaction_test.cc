@@ -2107,6 +2107,7 @@ TEST_F(DBTestUniversalCompaction2, OverlappingL0) {
 
 TEST_F(DBTestUniversalCompaction2, IngestBehind) {
   for (bool cf_option : {false, true}) {
+    SCOPED_TRACE("cf_option = " + std::to_string(cf_option));
     const int kNumKeys = 3000;
     const int kWindowSize = 100;
     const int kNumDelsTrigger = 90;
