@@ -232,7 +232,7 @@ void MemTableListVersion::AddIterators(
                        merge_iter_builder->GetArena(), prefix_extractor,
                        /*for_flush=*/false);
     if (!add_range_tombstone_iter || options.ignore_range_deletions) {
-      merge_iter_builder->AddIterator(mem_iter);
+      merge_iter_builder->AddIterator(mem_iter, /*is_memtable_iter=*/false);
     } else {
       // Except for snapshot read, using kMaxSequenceNumber is OK because these
       // are immutable memtables.
@@ -251,7 +251,7 @@ void MemTableListVersion::AddIterators(
             nullptr /* largest */);
       }
       merge_iter_builder->AddPointAndTombstoneIterator(
-          mem_iter, std::move(mem_tombstone_iter));
+          mem_iter, /*is_memtable_iter=*/false, std::move(mem_tombstone_iter));
     }
   }
 }
