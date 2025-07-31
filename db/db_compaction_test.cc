@@ -1426,7 +1426,7 @@ TEST_F(DBCompactionTest, CompactionWithDeletionsAndMinFileSize) {
 
   DestroyAndReopen(options);
 
-  // Insert values into db
+  // Create a large file with puts
   Random rnd(301);
   for (int i = 0; i < 100; i++) {
     ASSERT_OK(Put(Key(i), rnd.RandomString(1024)));
@@ -1449,9 +1449,17 @@ TEST_F(DBCompactionTest, CompactionWithDeletionsAndMinFileSize) {
   for (int i = 0; i < 50; i++) {
     ASSERT_OK(Delete(Key(i)));
   }
+  // Add keys to ensure the deletion file meets the min_file_size threshold
+  for (int i = 100; i < 150; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(1024)));
+  }
   ASSERT_OK(Flush());
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Verify num of files after compaction
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
 
   // Verify deletions were processed correctly
   for (int i = 0; i < 50; i++) {
