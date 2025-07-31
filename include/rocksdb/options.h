@@ -2373,7 +2373,7 @@ struct IngestExternalFileOptions {
   // Use case: back-fill of some historical data in the database without
   // over-writing existing newer version of data.
   // This option could only be used if the CF has been running
-  // with cf_allow_ingest_behind=true since the dawn of time.
+  // with cf_allow_ingest_behind=true since CF creation (or before any write).
   // All files will be ingested at the bottommost level with seqno=0.
   bool ingest_behind = false;
   // DEPRECATED - Set to true if you would like to write global_seqno to
