@@ -74,6 +74,47 @@ class CompactionStatsCollector : public EventListener {
   std::vector<std::atomic<int>> compaction_completed_;
 };
 
+class DeletionTriggeredCompactionWithMinFileSizeTestListener
+    : public EventListener {
+ public:
+  void OnCompactionBegin(rocksdb::DB* db,
+                         const rocksdb::CompactionJobInfo& ci) override {
+    if (ci.compaction_reason != CompactionReason::kFilesMarkedForCompaction) {
+      std::cerr << "Actual compaction reason is "
+                << static_cast<int>(ci.compaction_reason)
+                << ": expected: kFilesMarkedForCompaction" << std::endl;
+      return;
+    }
+
+    uint64_t kMinFileSize = 32 * 1024;
+    auto env = db->GetEnv();
+    const std::vector<rocksdb::DbPath>& db_paths = db->GetOptions().db_paths;
+    for (const auto& file : ci.input_file_infos) {
+      uint64_t file_size = GetSstFileSize(env, db_paths, file.file_number);
+
+      // Assert that the file size respects the minimum threshold
+      ASSERT_GE(file_size, kMinFileSize)
+          << "Input File size " << file_size << " is below minimum threshold "
+          << kMinFileSize;
+    }
+  }
+
+ private:
+  uint64_t GetSstFileSize(rocksdb::Env* env,
+                          const std::vector<DbPath>& db_paths,
+                          uint64_t file_number) {
+    uint32_t path_id = 0;  // since only one path
+    std::string sst_file_name =
+        rocksdb::TableFileName(db_paths, file_number, path_id);
+    uint64_t file_size = 0;
+    rocksdb::Status s = env->GetFileSize(sst_file_name, &file_size);
+    if (!s.ok()) {
+      return 0;
+    }
+    return file_size;
+  }
+};
+
 class DBCompactionTest : public DBTestBase {
  public:
   DBCompactionTest()
@@ -1369,6 +1410,68 @@ TEST_F(DBCompactionTest, RecoverDuringMemtableCompaction) {
     ASSERT_EQ(std::string(10000000, 'x'), Get(1, "big1"));
     ASSERT_EQ(std::string(1000, 'y'), Get(1, "big2"));
   } while (ChangeOptions());
+}
+
+TEST_F(DBCompactionTest, CompactionWithDeletionsAndMinFileSize) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.write_buffer_size = 1024 * 1024;  // 1MB
+  options.level0_file_num_compaction_trigger = 100;
+
+  const uint64_t kMinFileSize = 32 * 1024;  // 32KB
+  options.table_properties_collector_factories = {
+      NewCompactOnDeletionCollectorFactory(100, 50, 0.5, kMinFileSize)};
+  auto listener = new DeletionTriggeredCompactionWithMinFileSizeTestListener();
+  options.listeners.emplace_back(listener);
+
+  DestroyAndReopen(options);
+
+  // Create a large file with puts
+  Random rnd(301);
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(1024)));
+  }
+  ASSERT_OK(Flush());
+
+  std::vector<LiveFileMetaData> initial_metadata;
+  db_->GetLiveFilesMetaData(&initial_metadata);
+  ASSERT_GT(initial_metadata.size(), 0);
+
+  // Create a small file less than kMinFileSize with deletions that shouldn't
+  // trigger compaction
+  ASSERT_OK(Put("small_file_key1", rnd.RandomString(512)));
+  ASSERT_OK(Put("small_file_key2", rnd.RandomString(512)));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("small_file_key1"));
+  ASSERT_OK(Flush());
+
+  // Create a file with deletions that should trigger compaction
+  for (int i = 0; i < 50; i++) {
+    ASSERT_OK(Delete(Key(i)));
+  }
+  // Add keys to ensure the deletion file meets the min_file_size threshold
+  for (int i = 100; i < 150; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(1024)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // Verify num of files after compaction
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+
+  // Verify deletions were processed correctly
+  for (int i = 0; i < 50; i++) {
+    std::string value;
+    ASSERT_TRUE(db_->Get(ReadOptions(), Key(i), &value).IsNotFound());
+  }
+
+  for (int i = 50; i < 100; i++) {
+    std::string value;
+    ASSERT_OK(db_->Get(ReadOptions(), Key(i), &value));
+    ASSERT_EQ(value.size(), 1024);
+  }
 }
 
 TEST_P(DBCompactionTestWithParam, TrivialMoveOneFile) {
