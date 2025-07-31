@@ -340,13 +340,19 @@ class Interval {
 
   // Support comparison with another Interval
   bool operator==(const Interval& other) const {
-    if (start_ != other.start_) return false;
+    if (start_ != other.start_) {
+      return false;
+    }
 
     // Both have infinite end
-    if (!has_end() && !other.has_end()) return true;
+    if (!has_end() && !other.has_end()) {
+      return true;
+    }
 
     // One has infinite end, the other doesn't
-    if (has_end() != other.has_end()) return false;
+    if (has_end() != other.has_end()) {
+      return false;
+    }
 
     // Both have finite end
     return end() == other.end();
@@ -402,13 +408,19 @@ class Interval<Slice, Comparator> {
 
   // Support comparison with another Interval
   bool operator==(const Interval& other) const {
-    if (comparator_->Compare(start_, other.start_) != 0) return false;
+    if (comparator_->Compare(start_, other.start_) != 0) {
+      return false;
+    }
 
     // Both have infinite end
-    if (!has_end() && !other.has_end()) return true;
+    if (!has_end() && !other.has_end()) {
+      return true;
+    }
 
     // One has infinite end, the other doesn't
-    if (has_end() != other.has_end()) return false;
+    if (has_end() != other.has_end()) {
+      return false;
+    }
 
     // Both have finite end
     return comparator_->Compare(end(), other.end()) == 0;
@@ -575,7 +587,7 @@ class IntervalSet {
 template <>
 class IntervalSet<Slice, Comparator> {
  public:
-  IntervalSet(const Comparator* c, bool fail_on_intersect = false)
+  explicit IntervalSet(const Comparator* c, bool fail_on_intersect = false)
       : comp_(c), prop_(fail_on_intersect) {}
 
   // Insert returns true if the interval was inserted. False indicates that the
@@ -665,7 +677,6 @@ class IntervalSet<Slice, Comparator> {
     if (i.has_end()) {
       new_end = i.end();
     } else {
-      inf_end = true;
       // For infinite end intervals, we need to merge all intervals that start
       // after new_start
       auto erase_start = it;
@@ -750,7 +761,7 @@ class IntervalSet<Slice, Comparator> {
     auto pos = findPosition(new_interval);
     intervals_.insert(pos, new_interval);
     return true;
-  };
+  }
 
   const Comparator* comp_;
   std::vector<Interval<Slice, Comparator>> intervals_;
