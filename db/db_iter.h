@@ -315,6 +315,7 @@ class DBIter final : public Iterator {
   // If prefix is not null, we need to set the iterator to invalid if no more
   // entry can be found within the prefix.
   void PrevInternal(const Slice* prefix);
+  void trigger_compact();
   bool TooManyInternalKeysSkipped(bool increment = true);
   bool IsVisible(SequenceNumber sequence, const Slice& ts,
                  bool* more_recent = nullptr);
@@ -474,6 +475,7 @@ class DBIter final : public Iterator {
   uint64_t saved_write_unix_time_;
   std::string saved_value_;
   Slice pinned_value_;
+  Slice first_key_without_ts;
   // for prefix seek mode to support prev()
   // Value of the default column
   Slice value_;
@@ -519,6 +521,13 @@ class DBIter final : public Iterator {
   // This information is used as that the next entry will be for another
   // user key.
   bool is_key_seqnum_zero_;
+  // Default false.
+  // If 'need_compact_' is true, 'max_skippable_internal_keys_' needs to be configured 
+  // with the appropriate value and 'max_background_compactions' needs to be greater than 1 to take effect.
+  // When the number of keys skipped in a single query is greater than 'max_skippable_internal_keys_', 
+  // a background thread is triggered to perform a small-scale compact.
+  bool need_compact_;
+  bool prepare_compact_ = false;
   const bool prefix_same_as_start_;
   // Means that we will pin all data blocks we read as long the Iterator
   // is not deleted, will be true if ReadOptions::pin_data is true
