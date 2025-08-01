@@ -3639,6 +3639,11 @@ void rocksdb_options_set_write_buffer_manager(
   opt->rep.write_buffer_manager = wbm->rep;
 }
 
+void rocksdb_options_set_sst_file_manager(rocksdb_options_t* opt,
+                                          rocksdb_sst_file_manager_t* sfm) {
+  opt->rep.sst_file_manager = sfm->rep;
+}
+
 size_t rocksdb_options_get_write_buffer_size(rocksdb_options_t* opt) {
   return opt->rep.write_buffer_size;
 }
