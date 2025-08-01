@@ -3590,24 +3590,7 @@ void StressTest::Open(SharedState* shared, bool reopen) {
     InitializeOptionsFromFlags(cache_, filter_policy_, options_);
   }
   InitializeOptionsGeneral(cache_, filter_policy_, sqfc_factory_, options_);
-  {
-    // We must register any compression managers with a custom
-    // CompatibilityName() so that if it was used in a past invocation but not
-    // the current invocation, we can still read the SST files requiring it.
-    static std::once_flag loaded;
-    std::call_once(loaded, [&]() {
-      TEST_AllowUnsupportedFormatVersion() = true;
-      auto& library = *ObjectLibrary::Default();
-      library.AddFactory<CompressionManager>(
-          DbStressCustomCompressionManager().CompatibilityName(),
-          [](const std::string& /*uri*/,
-             std::unique_ptr<CompressionManager>* guard,
-             std::string* /*errmsg*/) {
-            *guard = std::make_unique<DbStressCustomCompressionManager>();
-            return guard->get();
-          });
-    });
-  }
+  DbStressCustomCompressionManager::Register();
 
   if (!strcasecmp(FLAGS_compression_manager.c_str(), "custom")) {
     options_.compression_manager =

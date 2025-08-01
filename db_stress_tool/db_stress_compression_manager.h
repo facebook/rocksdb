@@ -57,6 +57,8 @@ class DbStressCustomCompressionManager : public CompressionManager {
     return decomp;
   }
 
+  static void Register();
+
  protected:
   std::shared_ptr<CompressionManager> default_ =
       GetBuiltinV2CompressionManager();
