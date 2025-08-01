@@ -37,4 +37,23 @@ class FlushBlockEveryKeyPolicyFactory : public FlushBlockPolicyFactory {
   }
 };
 
+// For internal use, policy that is stateless after creation, meaning it can
+// be safely re-targeted to another block builder.
+class RetargetableFlushBlockPolicy : public FlushBlockPolicy {
+ public:
+  RetargetableFlushBlockPolicy(const BlockBuilder& data_block_builder)
+      : data_block_builder_(&data_block_builder) {}
+
+  void Retarget(const BlockBuilder& data_block_builder) {
+    data_block_builder_ = &data_block_builder;
+  }
+
+ protected:
+  const BlockBuilder* data_block_builder_;
+};
+
+std::unique_ptr<RetargetableFlushBlockPolicy> NewFlushBlockBySizePolicy(
+    const uint64_t size, const int deviation,
+    const BlockBuilder& data_block_builder);
+
 }  // namespace ROCKSDB_NAMESPACE
