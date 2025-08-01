@@ -115,10 +115,14 @@ class BlockBasedTableBuilder : public TableBuilder {
  private:
   bool ok() const { return status().ok(); }
 
-  // Transition state from buffered to unbuffered. See `Rep::State` API comment
-  // for details of the states.
+  // Transition state from buffered to unbuffered if the conditions are met. See
+  // `Rep::State` API comment for details of the states.
   // REQUIRES: `rep_->state == kBuffered`
-  void EnterUnbuffered();
+  void MaybeEnterUnbuffered(const Slice* first_key_in_next_block);
+
+  void EmitBlock(std::string& uncompressed,
+                 const Slice& last_key_in_current_block,
+                 const Slice* first_key_in_next_block);
 
   // Compress and write block content to the file.
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
@@ -162,7 +166,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Can be used to ensure that two adjacent entries never live in
   // the same data block.  Most clients should not need to use this method.
   // REQUIRES: Finish(), Abandon() have not been called
-  void Flush();
+  void Flush(const Slice* first_key_in_next_block);
 
   // Some compression libraries fail when the uncompressed size is bigger than
   // int. If uncompressed size is bigger than kCompressionSizeLimit, don't
