@@ -25,6 +25,7 @@
 #include "db/wide/wide_column_serialization.h"
 #include "db/wide/wide_columns_helper.h"
 #include "db/write_batch_internal.h"
+#include "db_stress_tool/db_stress_compression_manager.h"
 #include "file/filename.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
@@ -1149,6 +1150,7 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
 // Second, overrides the options according to the CLI arguments and the
 // specific subcommand being run.
 void LDBCommand::PrepareOptions() {
+  DbStressCustomCompressionManager::Register();
   std::vector<ColumnFamilyDescriptor> column_families_from_options;
 
   if (!create_if_missing_ && try_load_options_) {

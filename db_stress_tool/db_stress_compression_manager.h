@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "rocksdb/utilities/object_registry.h"
 #include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -55,6 +56,27 @@ class DbStressCustomCompressionManager : public CompressionManager {
     auto decomp = std::make_shared<test::DecompressorCustomAlg>();
     decomp->SetAllowedTypes(types_begin, types_end);
     return decomp;
+  }
+
+  static void Register() {
+    {
+      // We must register any compression managers with a custom
+      // CompatibilityName() so that if it was used in a past invocation but not
+      // the current invocation, we can still read the SST files requiring it.
+      static std::once_flag loaded;
+      std::call_once(loaded, [&]() {
+        TEST_AllowUnsupportedFormatVersion() = true;
+        auto& library = *ObjectLibrary::Default();
+        library.AddFactory<CompressionManager>(
+            DbStressCustomCompressionManager().CompatibilityName(),
+            [](const std::string& /*uri*/,
+               std::unique_ptr<CompressionManager>* guard,
+               std::string* /*errmsg*/) {
+              *guard = std::make_unique<DbStressCustomCompressionManager>();
+              return guard->get();
+            });
+      });
+    }
   }
 
  protected:
