@@ -18,6 +18,7 @@
 #include "rocksdb/comparator.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/flush_block_policy_impl.h"
 #include "table/format.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -109,7 +110,7 @@ class IndexBuilder {
   // Get the size for index block. Must be called after ::Finish.
   virtual size_t IndexSize() const = 0;
 
-  virtual bool seperator_is_key_plus_seq() { return true; }
+  virtual bool separator_is_key_plus_seq() { return true; }
 
  protected:
   // Given the last key in current block and the first key in the next block,
@@ -178,7 +179,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
         include_first_key_(include_first_key),
         shortening_mode_(shortening_mode) {
     // Making the default true will disable the feature for old versions
-    seperator_is_key_plus_seq_ = (format_version <= 2);
+    must_use_separator_with_seq_ = (format_version <= 2);
   }
 
   void OnKeyAdded(const Slice& key,
@@ -192,29 +193,29 @@ class ShortenedIndexBuilder : public IndexBuilder {
                       const Slice* first_key_in_next_block,
                       const BlockHandle& block_handle,
                       std::string* separator_scratch) override {
-    Slice separator;
+    Slice separator_with_seq;
     if (first_key_in_next_block != nullptr) {
       if (shortening_mode_ !=
           BlockBasedTableOptions::IndexShorteningMode::kNoShortening) {
-        separator = FindShortestInternalKeySeparator(
+        separator_with_seq = FindShortestInternalKeySeparator(
             *comparator_->user_comparator(), last_key_in_current_block,
             *first_key_in_next_block, separator_scratch);
       } else {
-        separator = last_key_in_current_block;
+        separator_with_seq = last_key_in_current_block;
       }
-      if (!seperator_is_key_plus_seq_ &&
+      if (!must_use_separator_with_seq_ &&
           ShouldUseKeyPlusSeqAsSeparator(last_key_in_current_block,
                                          *first_key_in_next_block)) {
-        seperator_is_key_plus_seq_ = true;
+        must_use_separator_with_seq_ = true;
       }
     } else {
       if (shortening_mode_ == BlockBasedTableOptions::IndexShorteningMode::
                                   kShortenSeparatorsAndSuccessor) {
-        separator = FindShortInternalKeySuccessor(
+        separator_with_seq = FindShortInternalKeySuccessor(
             *comparator_->user_comparator(), last_key_in_current_block,
             separator_scratch);
       } else {
-        separator = last_key_in_current_block;
+        separator_with_seq = last_key_in_current_block;
       }
     }
 
@@ -254,21 +255,22 @@ class ShortenedIndexBuilder : public IndexBuilder {
     // away the UDT from key in index block as data block does the same thing.
     // What are the implications if a "FindShortInternalKeySuccessor"
     // optimization is provided.
-    index_block_builder_.Add(separator, encoded_entry,
+    index_block_builder_.Add(separator_with_seq, encoded_entry,
                              &delta_encoded_entry_slice);
-    if (!seperator_is_key_plus_seq_) {
-      index_block_builder_without_seq_.Add(
-          ExtractUserKey(separator), encoded_entry, &delta_encoded_entry_slice);
+    if (!must_use_separator_with_seq_) {
+      index_block_builder_without_seq_.Add(ExtractUserKey(separator_with_seq),
+                                           encoded_entry,
+                                           &delta_encoded_entry_slice);
     }
 
     current_block_first_internal_key_.clear();
-    return separator;
+    return separator_with_seq;
   }
 
   using IndexBuilder::Finish;
   Status Finish(IndexBlocks* index_blocks,
                 const BlockHandle& /*last_partition_block_handle*/) override {
-    if (seperator_is_key_plus_seq_) {
+    if (must_use_separator_with_seq_) {
       index_blocks->index_block_contents = index_block_builder_.Finish();
     } else {
       index_blocks->index_block_contents =
@@ -280,8 +282,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
 
   size_t IndexSize() const override { return index_size_; }
 
-  bool seperator_is_key_plus_seq() override {
-    return seperator_is_key_plus_seq_;
+  bool separator_is_key_plus_seq() override {
+    return must_use_separator_with_seq_;
   }
 
   // Changes *key to a short string >= *key.
@@ -299,9 +301,13 @@ class ShortenedIndexBuilder : public IndexBuilder {
 
  private:
   BlockBuilder index_block_builder_;
+  // TODO: consider optimizing to only one builder. When discovering that
+  // sequence numbers are needed, read existing entries without seq and rewrite
+  // them with seq (which should be trivial to populate since seq wasn't needed
+  // before).
   BlockBuilder index_block_builder_without_seq_;
   const bool use_value_delta_encoding_;
-  bool seperator_is_key_plus_seq_;
+  bool must_use_separator_with_seq_;
   const bool include_first_key_;
   BlockBasedTableOptions::IndexShorteningMode shortening_mode_;
   BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
@@ -407,8 +413,8 @@ class HashIndexBuilder : public IndexBuilder {
            prefix_meta_block_.size();
   }
 
-  bool seperator_is_key_plus_seq() override {
-    return primary_index_builder_.seperator_is_key_plus_seq();
+  bool separator_is_key_plus_seq() override {
+    return primary_index_builder_.separator_is_key_plus_seq();
   }
 
  private:
@@ -491,8 +497,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // cutting the next partition
   void RequestPartitionCut();
 
-  bool seperator_is_key_plus_seq() override {
-    return seperator_is_key_plus_seq_;
+  bool separator_is_key_plus_seq() override {
+    return must_use_separator_with_seq_;
   }
 
   bool get_use_value_delta_encoding() const {
@@ -521,11 +527,11 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // the active partition index builder
   std::unique_ptr<ShortenedIndexBuilder> sub_index_builder_;
   // the last key in the active partition index builder
-  std::unique_ptr<FlushBlockPolicy> flush_policy_;
+  std::unique_ptr<RetargetableFlushBlockPolicy> flush_policy_;
   // true if Finish is called once but not complete yet.
   bool finishing_indexes = false;
   const BlockBasedTableOptions& table_opt_;
-  bool seperator_is_key_plus_seq_;
+  bool must_use_separator_with_seq_;
   bool use_value_delta_encoding_;
   // true if an external entity (such as filter partition builder) request
   // cutting the next partition

@@ -240,7 +240,7 @@ Status PartitionedFilterBlockBuilder::Finish(
 
     index_on_filter_block_builder_.Add(e.ikey, handle_encoding,
                                        &handle_delta_encoding_slice);
-    if (!p_index_builder_->seperator_is_key_plus_seq()) {
+    if (!p_index_builder_->separator_is_key_plus_seq()) {
       index_on_filter_block_builder_without_seq_.Add(
           ExtractUserKey(e.ikey), handle_encoding,
           &handle_delta_encoding_slice);
@@ -267,7 +267,7 @@ Status PartitionedFilterBlockBuilder::Finish(
     if (UNLIKELY(filters_.empty())) {
       if (!index_on_filter_block_builder_.empty()) {
         // Simplest to just add them all at the end
-        if (p_index_builder_->seperator_is_key_plus_seq()) {
+        if (p_index_builder_->separator_is_key_plus_seq()) {
           *filter = index_on_filter_block_builder_.Finish();
         } else {
           *filter = index_on_filter_block_builder_without_seq_.Finish();

@@ -111,8 +111,8 @@ class UserDefinedIndexBuilderWrapper : public IndexBuilder {
 
   size_t IndexSize() const override { return index_size_; }
 
-  bool seperator_is_key_plus_seq() override {
-    return internal_index_builder_->seperator_is_key_plus_seq();
+  bool separator_is_key_plus_seq() override {
+    return internal_index_builder_->separator_is_key_plus_seq();
   }
 
  private:

@@ -1938,7 +1938,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
           rep_->p_index_builder_->TopLevelIndexSize(rep_->offset);
     }
     rep_->props.index_key_is_user_key =
-        !rep_->index_builder->seperator_is_key_plus_seq();
+        !rep_->index_builder->separator_is_key_plus_seq();
     rep_->props.index_value_is_delta_encoded =
         rep_->use_delta_encoding_for_index_values;
     if (rep_->sampled_input_data_bytes > 0) {
