@@ -250,6 +250,7 @@ class CompactionJob {
       uint64_t num_input_range_del) const;
 
   Status VerifyInputRecordCount(uint64_t num_input_range_del) const;
+  Status VerifyOutputRecordCount() const;
 
   // Generates a histogram representing potential divisions of key ranges from
   // the input. It adds the starting and/or ending keys of certain input files
