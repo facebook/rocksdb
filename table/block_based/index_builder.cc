@@ -152,7 +152,7 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
       // sub_index_builder. Otherwise, it could be set to true even one of the
       // sub_index_builders could not safely exclude seq from the keys, then it
       // wil be enforced on all sub_index_builders on ::Finish.
-      seperator_is_key_plus_seq_(false),
+      must_use_separator_with_seq_(false),
       use_value_delta_encoding_(use_value_delta_encoding) {}
 
 void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
@@ -163,21 +163,28 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
       table_opt_.index_shortening, /* include_first_key */ false, ts_sz_,
       persist_user_defined_timestamps_);
 
-  // Set sub_index_builder_->seperator_is_key_plus_seq_ to true if
-  // seperator_is_key_plus_seq_ is true (internal-key mode) (set to false by
+  BlockBuilder* builder_to_monitor;
+  // Set sub_index_builder_->must_use_separator_with_seq_ to true if
+  // must_use_separator_with_seq_ is true (internal-key mode) (set to false by
   // default on Creation) so that flush policy can point to
   // sub_index_builder_->index_block_builder_
-  if (seperator_is_key_plus_seq_) {
-    sub_index_builder_->seperator_is_key_plus_seq_ = true;
+  if (must_use_separator_with_seq_) {
+    sub_index_builder_->must_use_separator_with_seq_ = true;
+    builder_to_monitor = &sub_index_builder_->index_block_builder_;
+  } else {
+    builder_to_monitor = &sub_index_builder_->index_block_builder_without_seq_;
   }
 
-  flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
-      table_opt_.metadata_block_size, table_opt_.block_size_deviation,
-      // Note: this is sub-optimal since sub_index_builder_ could later reset
-      // seperator_is_key_plus_seq_ but the probability of that is low.
-      sub_index_builder_->seperator_is_key_plus_seq_
-          ? sub_index_builder_->index_block_builder_
-          : sub_index_builder_->index_block_builder_without_seq_));
+  if (flush_policy_ == nullptr) {
+    // Note: some partitions could be sub-optimal since sub_index_builder_
+    // could later reset must_use_separator_with_seq_ but the probability and
+    // impact of that are low.
+    flush_policy_ = NewFlushBlockBySizePolicy(table_opt_.metadata_block_size,
+                                              table_opt_.block_size_deviation,
+                                              *builder_to_monitor);
+  } else {
+    flush_policy_->Retarget(*builder_to_monitor);
+  }
   partition_cut_requested_ = false;
 }
 
@@ -191,30 +198,7 @@ Slice PartitionedIndexBuilder::AddIndexEntry(
     std::string* separator_scratch) {
   // Note: to avoid two consecuitive flush in the same method call, we do not
   // check flush policy when adding the last key
-  if (UNLIKELY(first_key_in_next_block == nullptr)) {  // no more keys
-    if (sub_index_builder_ == nullptr) {
-      MakeNewSubIndexBuilder();
-      // Reserve next partition entry, where we will modify the key and
-      // eventually set the value
-      entries_.push_back({{}, {}});
-    }
-    auto sep = sub_index_builder_->AddIndexEntry(
-        last_key_in_current_block, first_key_in_next_block, block_handle,
-        separator_scratch);
-    if (!seperator_is_key_plus_seq_ &&
-        sub_index_builder_->seperator_is_key_plus_seq_) {
-      // We need to apply !seperator_is_key_plus_seq to all sub-index builders
-      seperator_is_key_plus_seq_ = true;
-      // Would associate flush_policy with the appropriate builder, but it won't
-      // be used again with no more keys
-      flush_policy_.reset();
-    }
-    entries_.back().key.assign(sep.data(), sep.size());
-    assert(entries_.back().value == nullptr);
-    std::swap(entries_.back().value, sub_index_builder_);
-    cut_filter_block = true;
-    return sep;
-  } else {
+  if (LIKELY(first_key_in_next_block != nullptr)) {
     // apply flush policy only to non-empty sub_index_builder_
     if (sub_index_builder_ != nullptr) {
       std::string handle_encoding;
@@ -228,27 +212,31 @@ Slice PartitionedIndexBuilder::AddIndexEntry(
         cut_filter_block = true;
       }
     }
-    if (sub_index_builder_ == nullptr) {
-      MakeNewSubIndexBuilder();
-      // Reserve next partition entry, where we will modify the key and
-      // eventually set the value
-      entries_.push_back({{}, {}});
-    }
-    auto sep = sub_index_builder_->AddIndexEntry(
-        last_key_in_current_block, first_key_in_next_block, block_handle,
-        separator_scratch);
-    entries_.back().key.assign(sep.data(), sep.size());
-    if (!seperator_is_key_plus_seq_ &&
-        sub_index_builder_->seperator_is_key_plus_seq_) {
-      // We need to apply !seperator_is_key_plus_seq to all sub-index builders
-      seperator_is_key_plus_seq_ = true;
-      // And use a flush_policy with the appropriate builder
-      flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
-          table_opt_.metadata_block_size, table_opt_.block_size_deviation,
-          sub_index_builder_->index_block_builder_));
-    }
-    return sep;
   }
+
+  if (sub_index_builder_ == nullptr) {
+    MakeNewSubIndexBuilder();
+    // Reserve next partition entry, where we will modify the key and
+    // eventually set the value
+    entries_.push_back({{}, {}});
+  }
+  auto sep = sub_index_builder_->AddIndexEntry(last_key_in_current_block,
+                                               first_key_in_next_block,
+                                               block_handle, separator_scratch);
+  entries_.back().key.assign(sep.data(), sep.size());
+  if (!must_use_separator_with_seq_ &&
+      sub_index_builder_->must_use_separator_with_seq_) {
+    // We need to apply !must_use_separator_with_seq to all sub-index builders
+    must_use_separator_with_seq_ = true;
+    flush_policy_->Retarget(sub_index_builder_->index_block_builder_);
+  }
+  if (UNLIKELY(first_key_in_next_block == nullptr)) {
+    // no more keys
+    assert(entries_.back().value == nullptr);
+    std::swap(entries_.back().value, sub_index_builder_);
+    cut_filter_block = true;
+  }
+  return sep;
 }
 
 Status PartitionedIndexBuilder::Finish(
@@ -270,7 +258,7 @@ Status PartitionedIndexBuilder::Finish(
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
     index_block_builder_.Add(last_entry.key, handle_encoding,
                              &handle_delta_encoding_slice);
-    if (!seperator_is_key_plus_seq_) {
+    if (!must_use_separator_with_seq_) {
       index_block_builder_without_seq_.Add(ExtractUserKey(last_entry.key),
                                            handle_encoding,
                                            &handle_delta_encoding_slice);
@@ -279,7 +267,7 @@ Status PartitionedIndexBuilder::Finish(
   }
   // If there is no sub_index left, then return the 2nd level index.
   if (UNLIKELY(entries_.empty())) {
-    if (seperator_is_key_plus_seq_) {
+    if (must_use_separator_with_seq_) {
       index_blocks->index_block_contents = index_block_builder_.Finish();
     } else {
       index_blocks->index_block_contents =
@@ -293,7 +281,7 @@ Status PartitionedIndexBuilder::Finish(
     // expect more calls to Finish
     Entry& entry = entries_.front();
     // Apply the policy to all sub-indexes
-    entry.value->seperator_is_key_plus_seq_ = seperator_is_key_plus_seq_;
+    entry.value->must_use_separator_with_seq_ = must_use_separator_with_seq_;
     auto s = entry.value->Finish(index_blocks);
     index_size_ += index_blocks->index_block_contents.size();
     finishing_indexes = true;
