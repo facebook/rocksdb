@@ -33,7 +33,6 @@ TEST_F(IntervalSetTest, BasicTest) {
   ASSERT_EQ(*iter, Interval<int>(45, 85));
   set.insert({31});
   iter = set.begin();
-  iter = set.begin();
   ASSERT_EQ(*iter, Interval<int>(0, 15));
   iter++;
   ASSERT_EQ(*iter, Interval<int>(16, 30));
@@ -77,6 +76,17 @@ TEST_F(IntervalSetTest, PropModeTest) {
   auto iter = set.begin();
   ASSERT_EQ(iter->start().ToString(), "k00");
   ASSERT_EQ(iter->end().ToString(), "k10");
+  iter++;
+  ASSERT_EQ(iter->start().ToString(), "k15");
+  ASSERT_EQ(iter->end().ToString(), "k20");
+  EXPECT_TRUE(set.insert("k12", "k14"));
+  iter = set.begin();
+  ASSERT_EQ(set.size(), 3);
+  ASSERT_EQ(iter->start().ToString(), "k00");
+  ASSERT_EQ(iter->end().ToString(), "k10");
+  iter++;
+  ASSERT_EQ(iter->start().ToString(), "k12");
+  ASSERT_EQ(iter->end().ToString(), "k14");
   iter++;
   ASSERT_EQ(iter->start().ToString(), "k15");
   ASSERT_EQ(iter->end().ToString(), "k20");
