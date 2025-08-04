@@ -549,7 +549,7 @@ TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
     const uint64_t kFileSize = 100000;
     NewVersionStorage(3 /* num_levels */, kCompactionStyleUniversal);
     if (cf_option) {
-      mutable_cf_options_.cf_allow_ingest_behind = true;
+      ioptions_.cf_allow_ingest_behind = true;
     } else {
       ioptions_.allow_ingest_behind = true;
     }

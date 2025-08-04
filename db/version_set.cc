@@ -3529,8 +3529,8 @@ void VersionStorageInfo::ComputeCompactionScore(
   // if it is larger than 1.0.
   const double kScoreScale = 10.0;
   int max_output_level =
-      MaxOutputLevel(immutable_options.allow_ingest_behind ||
-                     mutable_cf_options.cf_allow_ingest_behind);
+      MaxOutputLevel(immutable_options.cf_allow_ingest_behind ||
+                     immutable_options.allow_ingest_behind);
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -3715,8 +3715,8 @@ void VersionStorageInfo::ComputeCompactionScore(
   }
   ComputeFilesMarkedForCompaction(max_output_level);
   ComputeBottommostFilesMarkedForCompaction(
-      immutable_options.allow_ingest_behind ||
-      mutable_cf_options.cf_allow_ingest_behind);
+      immutable_options.cf_allow_ingest_behind ||
+      immutable_options.allow_ingest_behind);
   ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
   ComputeFilesMarkedForPeriodicCompaction(
       immutable_options, mutable_cf_options.periodic_compaction_seconds,

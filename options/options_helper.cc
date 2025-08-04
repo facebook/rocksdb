@@ -304,7 +304,6 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.memtable_op_scan_flush_trigger;
   cf_opts->memtable_avg_op_scan_flush_trigger =
       moptions.memtable_avg_op_scan_flush_trigger;
-  cf_opts->cf_allow_ingest_behind = moptions.cf_allow_ingest_behind;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
@@ -340,6 +339,7 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->persist_user_defined_timestamps =
       ioptions.persist_user_defined_timestamps;
   cf_opts->default_temperature = ioptions.default_temperature;
+  cf_opts->cf_allow_ingest_behind = ioptions.cf_allow_ingest_behind;
 
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size

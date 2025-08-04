@@ -600,10 +600,9 @@ class ColumnFamilyData {
     return (mem_->IsEmpty() ? 0 : 1) + imm_.NumNotFlushed();
   }
 
-  // REQUIRES: db_mutex held
+  // thread-safe, DB mutex not needed.
   bool AllowIngestBehind() const {
-    return mutable_cf_options_.cf_allow_ingest_behind ||
-           ioptions_.allow_ingest_behind;
+    return ioptions_.cf_allow_ingest_behind || ioptions_.allow_ingest_behind;
   }
 
  private:

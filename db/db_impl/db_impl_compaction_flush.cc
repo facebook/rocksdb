@@ -1111,6 +1111,9 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
     final_output_level = cfd->NumberLevels() - 1;
+    if (cfd->AllowIngestBehind()) {
+      final_output_level--;
+    }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options, begin, end, exclusive,
                             false /* disable_trivial_move */,
@@ -2047,12 +2050,6 @@ Status DBImpl::RunManualCompaction(
   TEST_SYNC_POINT("DBImpl::RunManualCompaction:0");
   TEST_SYNC_POINT("DBImpl::RunManualCompaction:1");
   InstrumentedMutexLock l(&mutex_);
-  if (cfd->ioptions().compaction_style == kCompactionStyleUniversal &&
-      cfd->AllowIngestBehind()) {
-    assert(cfd->NumberLevels() > 1);
-    assert(manual.output_level == cfd->NumberLevels() - 1);
-    --manual.output_level;
-  }
 
   if (manual_compaction_paused_ > 0) {
     // Does not make sense to `AddManualCompaction()` in this scenario since
@@ -4157,7 +4154,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                      ->current()
                      ->storage_info()
                      ->MaxOutputLevel(
-                         c->mutable_cf_options().cf_allow_ingest_behind ||
+                         c->immutable_options().cf_allow_ingest_behind ||
                          immutable_db_options_.allow_ingest_behind)) &&
              env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
     assert(thread_pri == Env::Priority::LOW);

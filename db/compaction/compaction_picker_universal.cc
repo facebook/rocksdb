@@ -49,7 +49,7 @@ class UniversalCompactionBuilder {
         picker_(picker),
         log_buffer_(log_buffer),
         require_max_output_level_(require_max_output_level),
-        allow_ingest_behind_(mutable_cf_options.cf_allow_ingest_behind ||
+        allow_ingest_behind_(ioptions.cf_allow_ingest_behind ||
                              ioptions.allow_ingest_behind) {
     assert(icmp_);
     const auto* ucmp = icmp_->user_comparator();

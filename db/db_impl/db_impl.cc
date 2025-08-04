@@ -5768,8 +5768,6 @@ Status DBImpl::IngestExternalFiles(
             "timestamps enabled doesn't support ingest behind.");
       }
 
-      // Only pay the cost of acquiring db mutex when ingest_behind is true.
-      InstrumentedMutexLock l(&mutex_);
       if (!static_cast<ColumnFamilyHandleImpl*>(arg.column_family)
                ->cfd()
                ->AllowIngestBehind()) {

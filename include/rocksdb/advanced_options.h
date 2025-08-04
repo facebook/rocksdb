@@ -1165,12 +1165,12 @@ struct AdvancedColumnFamilyOptions {
   // Note that this option needs to be set to true before any write to the CF.
   // It's recommended to set the option to true since CF creation. Otherwise,
   // ingestion with ingest_behind = true might fail. Once file ingestions are
-  // done, the option should be flipped to false, either dynamically or through
-  // a DB restart. Flipping this option to false allows the CF to disable the
-  // behavior changes detailed above and resume more efficient operation.
+  // done, the option should be flipped to false. Flipping this option to false
+  // allows the CF to disable the behavior changes detailed above and resume
+  // more efficient operation.
   //
   // Default: false
-  // Dynamically changeable through the SetOptions() API.
+  // Immutable.
   bool cf_allow_ingest_behind = false;
 
   // Create ColumnFamilyOptions with default values for all fields
