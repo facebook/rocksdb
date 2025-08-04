@@ -1500,7 +1500,7 @@ Status DBImpl::CompactFilesImpl(
 
   std::unique_ptr<Compaction> c;
   assert(cfd->compaction_picker());
-  c.reset(cfd->compaction_picker()->NewManualCompactionFromInputFiles(
+  c.reset(cfd->compaction_picker()->CompactFiles(
       compact_options, input_files, output_level, version->storage_info(),
       cfd->GetLatestMutableCFOptions(), mutable_db_options_, output_path_id));
   // we already sanitized the set of input files and checked for conflicts

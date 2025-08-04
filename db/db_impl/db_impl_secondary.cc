@@ -875,9 +875,11 @@ Status DBImplSecondary::CompactWithoutInstallation(
                                   /*managed_snapshot=*/nullptr,
                                   kMaxSequenceNumber, std::move(snapshots));
 
+  // TODO - consider serializing the entire Compaction object and using it as
+  // input instead of recreating it in the remote worker
   std::unique_ptr<Compaction> c;
   assert(cfd->compaction_picker());
-  c.reset(cfd->compaction_picker()->NewManualCompactionFromInputFiles(
+  c.reset(cfd->compaction_picker()->CompactFiles(
       comp_options, input_files, input.output_level, vstorage,
       cfd->GetLatestMutableCFOptions(), mutable_db_options_, 0,
       /*earliest_snapshot=*/job_context.snapshot_seqs.empty()
