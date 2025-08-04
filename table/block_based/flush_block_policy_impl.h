@@ -42,7 +42,7 @@ class FlushBlockEveryKeyPolicyFactory : public FlushBlockPolicyFactory {
 // be safely re-targeted to another block builder.
 class RetargetableFlushBlockPolicy : public FlushBlockPolicy {
  public:
-  RetargetableFlushBlockPolicy(const BlockBuilder& data_block_builder)
+  explicit RetargetableFlushBlockPolicy(const BlockBuilder& data_block_builder)
       : data_block_builder_(&data_block_builder) {}
 
   void Retarget(const BlockBuilder& data_block_builder) {
