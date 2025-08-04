@@ -117,12 +117,17 @@ class CompactionPicker {
   // Caller must provide a set of input files that has been passed through
   // `SanitizeAndConvertCompactionInputFiles` earlier. The lock should not be
   // released between that call and this one.
-  Compaction* CompactFiles(const CompactionOptions& compact_options,
-                           const std::vector<CompactionInputFiles>& input_files,
-                           int output_level, VersionStorageInfo* vstorage,
-                           const MutableCFOptions& mutable_cf_options,
-                           const MutableDBOptions& mutable_db_options,
-                           uint32_t output_path_id);
+  //
+  //  TODO - Remove default values for earliest_snapshot and snapshot_checker
+  //  and require all callers to pass them in so that DB::CompactFiles() can
+  //  also benefit from Standalone Range Tombstone Optimization
+  Compaction* CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::vector<CompactionInputFiles>& input_files, int output_level,
+      VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
+      const MutableDBOptions& mutable_db_options, uint32_t output_path_id,
+      std::optional<SequenceNumber> earliest_snapshot = std::nullopt,
+      const SnapshotChecker* snapshot_checker = nullptr);
 
   // Converts a set of compaction input file numbers into
   // a list of CompactionInputFiles.
