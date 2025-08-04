@@ -1331,7 +1331,7 @@ Compaction* ColumnFamilyData::CompactRange(
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* conflict,
     uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
-  auto* result = compaction_picker_->CompactRange(
+  auto* result = compaction_picker_->PickCompactionForCompactRange(
       GetName(), mutable_cf_options, mutable_db_options,
       current_->storage_info(), input_level, output_level,
       compact_range_options, begin, end, compaction_end, conflict,

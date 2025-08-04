@@ -333,7 +333,7 @@ bool CompactionPicker::AreFilesInCompaction(
   return false;
 }
 
-Compaction* CompactionPicker::CompactFiles(
+Compaction* CompactionPicker::PickCompactionForCompactFiles(
     const CompactionOptions& compact_options,
     const std::vector<CompactionInputFiles>& input_files, int output_level,
     VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
@@ -603,7 +603,7 @@ void CompactionPicker::GetGrandparents(
   }
 }
 
-Compaction* CompactionPicker::CompactRange(
+Compaction* CompactionPicker::PickCompactionForCompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     int input_level, int output_level,
