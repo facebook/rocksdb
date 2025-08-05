@@ -4350,8 +4350,8 @@ TEST_F(DBMultiScanIteratorTest, RangeAcrossFiles) {
   ASSERT_EQ(2, NumTableFilesAtLevel(49));
   std::vector<std::string> key_ranges({Key(10), Key(90)});
   ReadOptions ro;
-  std::vector<ScanOptions> scan_options(
-      {ScanOptions(key_ranges[0], key_ranges[1])});
+  MultiScanOptions scan_options(BytewiseComparator());
+  scan_options.insert(key_ranges[0], key_ranges[1]);
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   std::unique_ptr<MultiScan> iter =
       dbfull()->NewMultiScan(ro, cfh, scan_options);

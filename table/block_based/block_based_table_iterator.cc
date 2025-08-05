@@ -1183,7 +1183,7 @@ void BlockBasedTableIterator::Prepare(const MultiScanOptions* multiscan_opts) {
 
   // Successful Prepare, init related states so the iterator reads from prepared
   // blocks
-  multi_scan_.reset(new MultiScanState(scan_opts,
+  multi_scan_.reset(new MultiScanState(multiscan_opts,
                                        std::move(pinned_data_blocks_guard),
                                        std::move(block_ranges_per_scan)));
   is_index_at_curr_block_ = false;
@@ -1202,7 +1202,8 @@ bool BlockBasedTableIterator::SeekMultiScan(const Slice* target) {
     multi_scan_.reset();
   } else if (user_comparator_.CompareWithoutTimestamp(
                  ExtractUserKey(*target), /*a_has_ts=*/true,
-                 (*multi_scan_->scan_opts)[multi_scan_->next_scan_idx]
+                 multi_scan_->scan_opts
+                     ->GetScanOptions()[multi_scan_->next_scan_idx]
                      .range.start.value(),
                  /*b_has_ts=*/false) != 0) {
     // Unexpected seek key

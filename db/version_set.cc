@@ -95,7 +95,7 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-using ScanOptionsMap = std::unordered_map<size_t, std::vector<ScanOptions>>;
+using ScanOptionsMap = std::unordered_map<size_t, MultiScanOptions>;
 
 // Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
@@ -1139,8 +1139,9 @@ class LevelIterator final : public InternalIterator {
       // 3. [  S  ] ...... [  E  ]
       for (auto i = fstart; i <= fend; i++) {
         if (i < flevel_->num_files) {
-          (*file_to_scan_opts_)[i].emplace_back(start.value(), end.value());
-          (*file_to_scan_opts_)[i].back().property_bag = opt.property_bag;
+          (*file_to_scan_opts_)[i].insert(start.value(), end.value());
+          (*file_to_scan_opts_)[i].GetScanOptions().back().property_bag =
+              opt.property_bag;
         }
       }
     }
@@ -1540,7 +1541,8 @@ bool LevelIterator::SkipEmptyFileForward() {
       // If we are doing prepared scan opts then we should seek to the values
       // specified by the scan opts
       if (scan_opts_ && (*file_to_scan_opts_)[file_index_].size()) {
-        const ScanOptions& opts = file_to_scan_opts_->at(file_index_).front();
+        const ScanOptions& opts =
+            file_to_scan_opts_->at(file_index_).GetScanOptions().front();
         if (opts.range.start.has_value()) {
           InternalKey target(*opts.range.start.AsPtr(), kMaxSequenceNumber,
                              kValueTypeForSeek);
@@ -1599,10 +1601,7 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   if (iter && scan_opts_) {
     if (file_to_scan_opts_.get() &&
         file_to_scan_opts_->find(file_index_) != file_to_scan_opts_->end()) {
-      const std::vector<ScanOptions>& opts =
-          file_to_scan_opts_->at(file_index_);
-      auto new_opts = MultiScanOptions(*scan_opts_);
-      new_opts.GetScanOptions() = opts;
+      const MultiScanOptions& new_opts = file_to_scan_opts_->at(file_index_);
       file_iter_.Prepare(&new_opts);
     } else {
       file_iter_.Prepare(scan_opts_);
